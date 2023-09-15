@@ -17,15 +17,15 @@ import Concordium.Logger
 
 import Concordium.GlobalState.Classes (MGSTrans)
 
-class Monad m => TimeMonad m where
+class (Monad m) => TimeMonad m where
     currentTime :: m UTCTime
-    default currentTime :: MonadIO m => m UTCTime
+    default currentTime :: (MonadIO m) => m UTCTime
     currentTime = liftIO getCurrentTime
 
--- |Measure the time of a given action m a.
--- Note. One has to remember to factor in laziness when
--- reasoning about the returned 'NominalDiffTime'.
-measureTime :: TimeMonad m => m a -> m (NominalDiffTime, a)
+-- | Measure the time of a given action m a.
+--  Note. One has to remember to factor in laziness when
+--  reasoning about the returned 'NominalDiffTime'.
+measureTime :: (TimeMonad m) => m a -> m (NominalDiffTime, a)
 measureTime a = do
     now <- currentTime
     res <- a
@@ -34,11 +34,11 @@ measureTime a = do
 
 instance TimeMonad IO
 
-instance TimeMonad m => TimeMonad (StateT s m) where
+instance (TimeMonad m) => TimeMonad (StateT s m) where
     currentTime = lift currentTime
     {-# INLINE currentTime #-}
 
-instance TimeMonad m => TimeMonad (Strict.StateT s m) where
+instance (TimeMonad m) => TimeMonad (Strict.StateT s m) where
     currentTime = lift currentTime
     {-# INLINE currentTime #-}
 
@@ -50,19 +50,19 @@ instance (TimeMonad m, Monoid w) => TimeMonad (Strict.RWST r w s m) where
     currentTime = lift currentTime
     {-# INLINE currentTime #-}
 
-instance TimeMonad m => TimeMonad (MaybeT m) where
+instance (TimeMonad m) => TimeMonad (MaybeT m) where
     currentTime = lift currentTime
     {-# INLINE currentTime #-}
 
-instance TimeMonad m => TimeMonad (ExceptT e m) where
+instance (TimeMonad m) => TimeMonad (ExceptT e m) where
     currentTime = lift currentTime
     {-# INLINE currentTime #-}
 
-instance TimeMonad m => TimeMonad (LoggerT m) where
+instance (TimeMonad m) => TimeMonad (LoggerT m) where
     currentTime = lift currentTime
     {-# INLINE currentTime #-}
 
-instance TimeMonad m => TimeMonad (ReaderT r m) where
+instance (TimeMonad m) => TimeMonad (ReaderT r m) where
     currentTime = lift currentTime
     {-# INLINE currentTime #-}
 

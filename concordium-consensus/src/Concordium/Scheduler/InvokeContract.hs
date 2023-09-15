@@ -9,20 +9,20 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | This module provides a way to invoke contract entrypoints directly, without
---going through a transaction and the scheduler.
+-- going through a transaction and the scheduler.
 --
---The main function is 'invokeContract' which executes the required contract
---entrypoint in the desired context. Currently it is only possible to execute a
---contract in the state at the end of a given block, this might be relaxed in the
---future.
+-- The main function is 'invokeContract' which executes the required contract
+-- entrypoint in the desired context. Currently it is only possible to execute a
+-- contract in the state at the end of a given block, this might be relaxed in the
+-- future.
 --
---The main use-case of this functionality are "view-functions", which is a way to
---inspect the state of a contract off-chain to enable integrations of off-chain
---services with smart contracts. 'invokeContract' is exposed via the
---InvokeContract API entrypoint.
+-- The main use-case of this functionality are "view-functions", which is a way to
+-- inspect the state of a contract off-chain to enable integrations of off-chain
+-- services with smart contracts. 'invokeContract' is exposed via the
+-- InvokeContract API entrypoint.
 --
---In the future this should be expanded to allow "dry-run" execution of every
---transaction, and to allow execution in a more precise state context.
+-- In the future this should be expanded to allow "dry-run" execution of every
+-- transaction, and to allow execution in a more precise state context.
 module Concordium.Scheduler.InvokeContract (invokeContract) where
 
 import Control.Monad.Reader
@@ -43,17 +43,17 @@ import Concordium.Scheduler.EnvironmentImplementation (ContextState (..), accoun
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 
--- |A wrapper that provides enough instances so that transactions can be executed. In particular
--- this is aimed towards execution of `handleContractUpdate`.
--- This type is equipped with (in particular)
+-- | A wrapper that provides enough instances so that transactions can be executed. In particular
+--  this is aimed towards execution of `handleContractUpdate`.
+--  This type is equipped with (in particular)
 --
--- - BlockStateTypes
--- - AccountOperations
--- - StaticInformation
+--  - BlockStateTypes
+--  - AccountOperations
+--  - StaticInformation
 --
--- It is then used together with the LocalT transformer to be able to execute
--- transactions without the context of the scheduler. This is achieved via (the
--- only) instance of TransactionMonad for the LocalT transformer.
+--  It is then used together with the LocalT transformer to be able to execute
+--  transactions without the context of the scheduler. This is achieved via (the
+--  only) instance of TransactionMonad for the LocalT transformer.
 newtype InvokeContractMonad m a = InvokeContractMonad {_runInvokeContract :: ReaderT (ContextState, BlockState m) m a}
     deriving
         ( Functor,
@@ -68,11 +68,11 @@ instance MonadTrans InvokeContractMonad where
     {-# INLINE lift #-}
     lift = InvokeContractMonad . lift
 
-deriving via (MGSTrans InvokeContractMonad m) instance MonadProtocolVersion m => MonadProtocolVersion (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance (MonadProtocolVersion m) => MonadProtocolVersion (InvokeContractMonad m)
 deriving via (MGSTrans InvokeContractMonad m) instance BlockStateTypes (InvokeContractMonad m)
-deriving via (MGSTrans InvokeContractMonad m) instance BS.AccountOperations m => BS.AccountOperations (InvokeContractMonad m)
-deriving via (MGSTrans InvokeContractMonad m) instance BS.ContractStateOperations m => BS.ContractStateOperations (InvokeContractMonad m)
-deriving via (MGSTrans InvokeContractMonad m) instance BS.ModuleQuery m => BS.ModuleQuery (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance (BS.AccountOperations m) => BS.AccountOperations (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance (BS.ContractStateOperations m) => BS.ContractStateOperations (InvokeContractMonad m)
+deriving via (MGSTrans InvokeContractMonad m) instance (BS.ModuleQuery m) => BS.ModuleQuery (InvokeContractMonad m)
 
 instance (BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) where
     {-# INLINE getMaxBlockEnergy #-}
@@ -98,15 +98,15 @@ instance (BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) whe
     {-# INLINE getExchangeRates #-}
     getExchangeRates = lift . BS.getExchangeRates =<< view _2
 
--- |Invoke the contract in the given context.
+-- | Invoke the contract in the given context.
 invokeContract ::
     forall m.
     (MonadProtocolVersion m, BS.BlockStateQuery m) =>
-    -- |Context in which to invoke the contract.
+    -- | Context in which to invoke the contract.
     ContractContext ->
-    -- |Chain metadata corresponding to the block state.
+    -- | Chain metadata corresponding to the block state.
     ChainMetadata ->
-    -- |The block state in which to invoke the contract.
+    -- | The block state in which to invoke the contract.
     BlockState m ->
     m InvokeContractResult
 invokeContract ContractContext{..} cm bs

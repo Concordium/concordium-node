@@ -68,7 +68,7 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 
--- |Tests of doReceiveTransaction and doReceiveTransactionInternal.
+-- | Tests of doReceiveTransaction and doReceiveTransactionInternal.
 test :: Spec
 test = do
     describe "Verification of receiving transactions" $ do
@@ -210,14 +210,14 @@ newtype FixedTimeT (m :: Type -> Type) a = FixedTime {runDeterministic :: UTCTim
     deriving (Functor, Applicative, Monad, MonadIO) via ReaderT UTCTime m
     deriving (MonadTrans) via ReaderT UTCTime
 
-instance MonadReader r m => MonadReader r (FixedTimeT m) where
+instance (MonadReader r m) => MonadReader r (FixedTimeT m) where
     ask = lift ask
     local f (FixedTime k) = FixedTime $ local f . k
 
-instance Monad m => MonadLogger (FixedTimeT m) where
+instance (Monad m) => MonadLogger (FixedTimeT m) where
     logEvent _ _ _ = return ()
 
-instance Monad m => TimeMonad (FixedTimeT m) where
+instance (Monad m) => TimeMonad (FixedTimeT m) where
     currentTime = FixedTime return
 
 type TestBlockStateMonad =
@@ -229,16 +229,16 @@ type TestBlockStateMonad =
             (NoLoggerT (FixedTimeT (Blob.BlobStoreM' (BS.PersistentBlockStateContext PV))))
         )
 
--- |A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
+-- | A composition that implements TreeStateMonad, TimeMonad (via FixedTime) and SkovQueryMonadT.
 type TestSkovQueryMonad = SkovQueryMonadT (PersistentTreeStateMonad TestSkovState TestBlockStateMonad)
 
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, TimeMonad)
 
-instance Monad m => MonadLogger (NoLoggerT m) where
+instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
 
--- |Run the given computation in a state consisting of only the genesis block and the state determined by it.
+-- | Run the given computation in a state consisting of only the genesis block and the state determined by it.
 runTestSkovQueryMonad' :: TestSkovQueryMonad a -> UTCTime -> GenesisData PV -> IO (a, TestSkovState)
 runTestSkovQueryMonad' act time gd = do
     withTempDirectory "." "treestate" $ \tsDir -> do
@@ -276,12 +276,12 @@ runTestSkovQueryMonad' act time gd = do
 maxBlockEnergy :: Energy
 maxBlockEnergy = 3_000_000
 
--- |Construct a genesis state with hardcoded values for parameters that should not affect this test.
--- Modify as you see fit.
+-- | Construct a genesis state with hardcoded values for parameters that should not affect this test.
+--  Modify as you see fit.
 testGenesisData :: UTCTime -> IdentityProviders -> AnonymityRevokers -> CryptographicParameters -> GenesisData PV
 testGenesisData now ips ars cryptoParams = makeTestingGenesisDataP5 (utcTimeToTimestamp now) 1 1 1 dummyFinalizationCommitteeMaxSize cryptoParams ips ars maxBlockEnergy dummyKeyCollection dummyChainParameters
 
--- |Run the doReceiveTransaction function and obtain the results
+-- | Run the doReceiveTransaction function and obtain the results
 testDoReceiveTransaction :: [BlockItem] -> Slot -> TestSkovQueryMonad [(TransactionHash, UpdateResult)]
 testDoReceiveTransaction trs _ =
     mapM
@@ -291,7 +291,7 @@ testDoReceiveTransaction trs _ =
         )
         trs
 
--- |Run the doReceiveTransactionInternal function and obtain the results
+-- | Run the doReceiveTransactionInternal function and obtain the results
 testDoReceiveTransactionInternal :: [BlockItem] -> Slot -> TestSkovQueryMonad [(TransactionHash, UpdateResult)]
 testDoReceiveTransactionInternal trs slot = do
     theTime <- currentTime
@@ -392,17 +392,17 @@ toBlockItem now bbi =
 duplicateRegId :: CredentialRegistrationID
 duplicateRegId = credId (makeTestCredentialFromSeed 1)
 
--- |Specification of the supplied energy for a transaction
+-- | Specification of the supplied energy for a transaction
 data TestEnergyParam
-    = -- |The tranasction will be provided with a too little amount of energy for
-      -- the particular transaction.
+    = -- | The tranasction will be provided with a too little amount of energy for
+      --  the particular transaction.
       TooLittle
-    | -- |The tranasction will be provided with exactly maximum block energy amount.
+    | -- | The tranasction will be provided with exactly maximum block energy amount.
       TooMuch
-    | -- |The energy provided was more than what is allowed in a block,
-      -- and as such the transaction will be rejected.
+    | -- | The energy provided was more than what is allowed in a block,
+      --  and as such the transaction will be rejected.
       MaxBlockEnergy
-    | -- |The energy was set to the correct cost for the transaction.
+    | -- | The energy was set to the correct cost for the transaction.
       TheCost
     deriving (Eq)
 

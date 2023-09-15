@@ -53,16 +53,16 @@ import Concordium.Scheduler (FilteredTransactions (..))
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
 
--- |A block that has passed initial verification, but must still be executed, added to the state,
--- and (potentially) signed as a finalizer.
+-- | A block that has passed initial verification, but must still be executed, added to the state,
+--  and (potentially) signed as a finalizer.
 data VerifiedBlock = VerifiedBlock
-    { -- |The block that has passed initial verification.
+    { -- | The block that has passed initial verification.
       vbBlock :: !PendingBlock,
-      -- |The bakers and finalizers for the epoch of this block.
+      -- | The bakers and finalizers for the epoch of this block.
       vbBakersAndFinalizers :: !BakersAndFinalizers,
-      -- |The baker info for the block's own baker.
+      -- | The baker info for the block's own baker.
       vbBakerInfo :: !FullBakerInfo,
-      -- |The leadership election nonce for the block's epoch.
+      -- | The leadership election nonce for the block's epoch.
       vbLeadershipElectionNonce :: !LeadershipElectionNonce
     }
     deriving (Eq, Show)
@@ -79,36 +79,36 @@ instance BlockData VerifiedBlock where
 
 -- * Receiving blocks
 
--- |The result type for 'uponReceivingBlock'.
+-- | The result type for 'uponReceivingBlock'.
 data BlockResult
-    = -- |The block was successfully received, but not yet executed.
+    = -- | The block was successfully received, but not yet executed.
       BlockResultSuccess !VerifiedBlock
-    | -- |The baker also signed another block in the same round, but the block was otherwise
-      -- successfully received, but not yet executed.
+    | -- | The baker also signed another block in the same round, but the block was otherwise
+      --  successfully received, but not yet executed.
       BlockResultDoubleSign !VerifiedBlock
-    | -- |The block contains data that is not valid with respect to the chain.
+    | -- | The block contains data that is not valid with respect to the chain.
       BlockResultInvalid
-    | -- |The block is too old to be added to the chain.
+    | -- | The block is too old to be added to the chain.
       BlockResultStale
-    | -- |The block is pending its parent.
+    | -- | The block is pending its parent.
       BlockResultPending
-    | -- |The timestamp of this block is too early.
+    | -- | The timestamp of this block is too early.
       BlockResultEarly
-    | -- |We have already seen this block.
+    | -- | We have already seen this block.
       BlockResultDuplicate
-    | -- |Consensus has been shutdown.
+    | -- | Consensus has been shutdown.
       BlockResultConsensusShutdown
     deriving (Eq, Show)
 
--- |Handle initial verification of a block before it is relayed to peers.
--- If the result is @'BlockResultSuccess' vb@, the block should be relayed on the network and
--- @'executeBlock' vb@ should be called. If the result is @'BlockResultDoubleSign' vb@, the block
--- should not be relayed on the network, but @'executeBlock' vb@ should still be called.
--- For any other result, the block should not be relayed, nor 'executeBlock' be called.
+-- | Handle initial verification of a block before it is relayed to peers.
+--  If the result is @'BlockResultSuccess' vb@, the block should be relayed on the network and
+--  @'executeBlock' vb@ should be called. If the result is @'BlockResultDoubleSign' vb@, the block
+--  should not be relayed on the network, but @'executeBlock' vb@ should still be called.
+--  For any other result, the block should not be relayed, nor 'executeBlock' be called.
 --
--- With reference to the bluepaper, this implements **uponReceivingBlock** up to the point at which
--- the block is relayed. The caller is responsible for relaying the block and invoking
--- 'executeBlock' to complete the procedure (as necessary).
+--  With reference to the bluepaper, this implements **uponReceivingBlock** up to the point at which
+--  the block is relayed. The caller is responsible for relaying the block and invoking
+--  'executeBlock' to complete the procedure (as necessary).
 uponReceivingBlock ::
     ( IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
@@ -158,26 +158,26 @@ uponReceivingBlock pendingBlock = do
                 <> ")."
         return BlockResultStale
 
--- |Process receiving a block where the parent is live (i.e. descended from the last finalized
--- block).  If this function returns 'BlockResultSuccess' then the caller is obliged to call
--- 'executeBlock' on the returned 'VerifiedBlock' in order to complete the processing of the block,
--- after relaying the block to peers.
+-- | Process receiving a block where the parent is live (i.e. descended from the last finalized
+--  block).  If this function returns 'BlockResultSuccess' then the caller is obliged to call
+--  'executeBlock' on the returned 'VerifiedBlock' in order to complete the processing of the block,
+--  after relaying the block to peers.
 --
--- The result can be one of the following:
+--  The result can be one of the following:
 --
--- * @'BlockResultSuccess' vb@: the block has a valid signature and is baked by the correct leader
---   in the block's round. (Note, this implies that the block is in the same or the next epoch from
---   its parent, since we can only determine the leadership election nonce if one of these is the
---   case.) The block is not yet added to the state, except that its existence is recorded in the
---   'roundExistingBlocks' index for checking double signing. The block must be subsequently
---   processed by calling @'executeBlock' vb@
+--  * @'BlockResultSuccess' vb@: the block has a valid signature and is baked by the correct leader
+--    in the block's round. (Note, this implies that the block is in the same or the next epoch from
+--    its parent, since we can only determine the leadership election nonce if one of these is the
+--    case.) The block is not yet added to the state, except that its existence is recorded in the
+--    'roundExistingBlocks' index for checking double signing. The block must be subsequently
+--    processed by calling @'executeBlock' vb@
 --
--- * @'BlockResultDoubleSign' vb@: the block is valid, but the result of double signing.
---   As with 'BlockResultSuccess', the block is not yet added to the state and must be subsequently
---   processed by calling @'executeBlock' vb@.
+--  * @'BlockResultDoubleSign' vb@: the block is valid, but the result of double signing.
+--    As with 'BlockResultSuccess', the block is not yet added to the state and must be subsequently
+--    processed by calling @'executeBlock' vb@.
 --
--- * 'BlockResultInvalid': the epoch is invalid, the signature is invalid, or the baker is not the
---   round leader.
+--  * 'BlockResultInvalid': the epoch is invalid, the signature is invalid, or the baker is not the
+--    round leader.
 receiveBlockKnownParent ::
     ( IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
@@ -319,11 +319,11 @@ receiveBlockKnownParent parent pendingBlock = do
         roundBaker =
             getLeaderFullBakers (bakersAndFinalizers ^. bfBakers) leNonce (blockRound pendingBlock)
 
--- |Process receiving a block when the parent is not live.
--- Precondition: the block is for a round and epoch that have not already been finalized.
+-- | Process receiving a block when the parent is not live.
+--  Precondition: the block is for a round and epoch that have not already been finalized.
 --
--- If the timestamp is no less than the receive time of the block + the early block threshold, the
--- function returns 'BlockResultEarly'. Otherwise, it returns 'BlockResultPending'.
+--  If the timestamp is no less than the receive time of the block + the early block threshold, the
+--  function returns 'BlockResultEarly'. Otherwise, it returns 'BlockResultPending'.
 receiveBlockUnknownParent ::
     ( LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
@@ -343,9 +343,9 @@ receiveBlockUnknownParent pendingBlock = do
     pbHash :: BlockHash
     pbHash = getHash pendingBlock
 
--- |Get the minimum time between consecutive blocks, as of the specified block.
--- This is the value of the minimum block time chain parameter, and determines the minimum interval
--- between the block and a child block.
+-- | Get the minimum time between consecutive blocks, as of the specified block.
+--  This is the value of the minimum block time chain parameter, and determines the minimum interval
+--  between the block and a child block.
 getMinBlockTime ::
     ( IsConsensusV1 (MPV m),
       BlockStateQuery m,
@@ -357,30 +357,30 @@ getMinBlockTime b = do
     cp <- getChainParameters (bpState b)
     return $ cp ^. cpConsensusParameters . cpMinBlockTime
 
--- |Add a newly-arrived block, returning the new block pointer. This does the following:
+-- | Add a newly-arrived block, returning the new block pointer. This does the following:
 --
---  * Adds the block to the block table as alive.
+--   * Adds the block to the block table as alive.
 --
---  * Adds the block to the live branches.
+--   * Adds the block to the live branches.
 --
---  * Updates the statistics to reflect the arrival time of the new block.
+--   * Updates the statistics to reflect the arrival time of the new block.
 --
---  * Invokes the 'onBlock' event handler provided by 'MonadConsensusEvent'.
+--   * Invokes the 'onBlock' event handler provided by 'MonadConsensusEvent'.
 --
--- Preconditions:
+--  Preconditions:
 --
---  * The block's parent must be the last finalized block or another live block.
+--   * The block's parent must be the last finalized block or another live block.
 --
---  * The block must not already be a live block.
+--   * The block must not already be a live block.
 addBlock ::
     (TimeMonad m, MonadState (SkovData (MPV m)) m, MonadConsensusEvent m, MonadLogger m) =>
-    -- |Block to add
+    -- | Block to add
     PendingBlock ->
-    -- |Block state
+    -- | Block state
     HashedPersistentBlockState (MPV m) ->
-    -- |Parent pointer
+    -- | Parent pointer
     BlockPointer (MPV m) ->
-    -- |Energy used in executing the block
+    -- | Energy used in executing the block
     Energy ->
     m (BlockPointer (MPV m))
 addBlock pendingBlock blockState parent energyUsed = do
@@ -405,25 +405,25 @@ addBlock pendingBlock blockState parent energyUsed = do
     pbHash :: BlockHash
     pbHash = getHash pendingBlock
 
--- |Process a received block. This handles the processing after the initial checks and after the
--- block has been relayed (or not). This DOES NOT include processing pending children of the block
--- or signing the block as a finalizer.
+-- | Process a received block. This handles the processing after the initial checks and after the
+--  block has been relayed (or not). This DOES NOT include processing pending children of the block
+--  or signing the block as a finalizer.
 --
--- If the block is executed successfully, it is added to the tree and returned.
--- Otherwise, 'Nothing' is returned.
+--  If the block is executed successfully, it is added to the tree and returned.
+--  Otherwise, 'Nothing' is returned.
 --
--- The last finalized block may be updated as a result of the processing. In particular, if the
--- block is the first in a new epoch and contains a valid epoch finalization entry, the block
--- finalized by that entry will be finalized (if it was not already). Furthermore, if the block's QC
--- allows for the grandparent block to be finalized, then that will be finalized. (Note: both of
--- these do not happen for the same block, since the former requires the block to be in a different
--- epoch from its parent, and the latter requires it to be in the same epoch as its parent.)
+--  The last finalized block may be updated as a result of the processing. In particular, if the
+--  block is the first in a new epoch and contains a valid epoch finalization entry, the block
+--  finalized by that entry will be finalized (if it was not already). Furthermore, if the block's QC
+--  allows for the grandparent block to be finalized, then that will be finalized. (Note: both of
+--  these do not happen for the same block, since the former requires the block to be in a different
+--  epoch from its parent, and the latter requires it to be in the same epoch as its parent.)
 --
--- Precondition:
+--  Precondition:
 --
--- * The parent block is correct: @getHash parent == blockParent pendingBlock@.
--- * The block is signed by a valid baker for its epoch.
--- * The baker is the leader for the round according to the parent block.
+--  * The parent block is correct: @getHash parent == blockParent pendingBlock@.
+--  * The block is signed by a valid baker for its epoch.
+--  * The baker is the leader for the round according to the parent block.
 processBlock ::
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
@@ -438,9 +438,9 @@ processBlock ::
       MonadConsensusEvent m,
       MonadLogger m
     ) =>
-    -- |Parent block (@parent@)
+    -- | Parent block (@parent@)
     BlockPointer (MPV m) ->
-    -- |Block being processed (@pendingBlock@)
+    -- | Block being processed (@pendingBlock@)
     VerifiedBlock ->
     m (Maybe (BlockPointer (MPV m)))
 processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
@@ -754,32 +754,32 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     Right (newState, energyUsed) -> do
                         outcomesHash <- getTransactionOutcomesHash newState
                         if
-                                | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
-                                    -- Incorrect transaction outcomes
-                                    logEvent Konsensus LLTrace $
-                                        "Block "
-                                            <> show pbHash
-                                            <> " stated transaction outcome hash ("
-                                            <> show (blockTransactionOutcomesHash pendingBlock)
-                                            <> ") does not match computed value ("
-                                            <> show outcomesHash
-                                            <> ")."
-                                    flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
-                                    rejectBlock
-                                | getHash newState /= blockStateHash pendingBlock -> do
-                                    -- Incorrect state hash
-                                    logEvent Konsensus LLTrace $
-                                        "Block "
-                                            <> show pbHash
-                                            <> " stated state hash ("
-                                            <> show (blockStateHash pendingBlock)
-                                            <> ") does not match computed value ("
-                                            <> show (getHash newState :: StateHash)
-                                            <> ")."
-                                    flag $ BlockInvalidStateHash sBlock (bpBlock parent)
-                                    rejectBlock
-                                | otherwise ->
-                                    continue newState energyUsed
+                            | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
+                                -- Incorrect transaction outcomes
+                                logEvent Konsensus LLTrace $
+                                    "Block "
+                                        <> show pbHash
+                                        <> " stated transaction outcome hash ("
+                                        <> show (blockTransactionOutcomesHash pendingBlock)
+                                        <> ") does not match computed value ("
+                                        <> show outcomesHash
+                                        <> ")."
+                                flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
+                                rejectBlock
+                            | getHash newState /= blockStateHash pendingBlock -> do
+                                -- Incorrect state hash
+                                logEvent Konsensus LLTrace $
+                                    "Block "
+                                        <> show pbHash
+                                        <> " stated state hash ("
+                                        <> show (blockStateHash pendingBlock)
+                                        <> ") does not match computed value ("
+                                        <> show (getHash newState :: StateHash)
+                                        <> ")."
+                                flag $ BlockInvalidStateHash sBlock (bpBlock parent)
+                                rejectBlock
+                            | otherwise ->
+                                continue newState energyUsed
     getParentBakersAndFinalizers continue
         | blockEpoch parent == blockEpoch pendingBlock = continue vbBakersAndFinalizers
         | otherwise =
@@ -808,20 +808,20 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                 flag $ BlockInvalidQC sBlock
                 rejectBlock
 
--- |A 'BlockPointer', ordered lexicographically on:
+-- | A 'BlockPointer', ordered lexicographically on:
 --
--- * Round number
--- * Epoch number
--- * Descending timestamp
--- * Block hash
+--  * Round number
+--  * Epoch number
+--  * Descending timestamp
+--  * Block hash
 --
--- This ordering is used to determine the "best block" to sign when a block arrives.
+--  This ordering is used to determine the "best block" to sign when a block arrives.
 --
--- Note that the ordering above could also first have been on 'Epoch' and then 'Round'
--- since if we had two blocks: one with a higher 'Round' and one with
--- a higher 'Epoch' then neither of those will be signed.
--- In the lower 'Round' case then the 'Round' would've timed out (hence the higher 'Epoch')
--- and in the lower 'Epoch' case the consensus runner will already be an 'Epoch' ahead.
+--  Note that the ordering above could also first have been on 'Epoch' and then 'Round'
+--  since if we had two blocks: one with a higher 'Round' and one with
+--  a higher 'Epoch' then neither of those will be signed.
+--  In the lower 'Round' case then the 'Round' would've timed out (hence the higher 'Epoch')
+--  and in the lower 'Epoch' case the consensus runner will already be an 'Epoch' ahead.
 newtype OrderedBlock pv = OrderedBlock {theOrderedBlock :: BlockPointer pv}
 
 instance Ord (OrderedBlock pv) where
@@ -838,13 +838,13 @@ instance Ord (OrderedBlock pv) where
 instance Eq (OrderedBlock pv) where
     a == b = compare a b == EQ
 
--- |Produce a quorum signature on a block.
--- This checks that the block is still valid, is in the current round and epoch, and the
--- round is signable (i.e. we haven't already signed a quorum message or timeout message).
+-- | Produce a quorum signature on a block.
+--  This checks that the block is still valid, is in the current round and epoch, and the
+--  round is signable (i.e. we haven't already signed a quorum message or timeout message).
 --
--- It is assumed that the supplied 'FinalizerInfo' accurately represents the finalizer in the
--- epoch of the block, and that the baker identity matches the finalizer info (i.e. the keys
--- are correct).
+--  It is assumed that the supplied 'FinalizerInfo' accurately represents the finalizer in the
+--  epoch of the block, and that the baker identity matches the finalizer info (i.e. the keys
+--  are correct).
 validateBlock ::
     ( MonadState (SkovData (MPV m)) m,
       MonadBroadcast m,
@@ -863,11 +863,11 @@ validateBlock ::
       MonadConsensusEvent m,
       MonadLogger m
     ) =>
-    -- |The block to sign.
+    -- | The block to sign.
     BlockHash ->
-    -- |The baker keys.
+    -- | The baker keys.
     BakerIdentity ->
-    -- |The details of the finalizer in the finalization committee for the block's epoch.
+    -- | The details of the finalizer in the finalization committee for the block's epoch.
     FinalizerInfo ->
     m ()
 validateBlock blockHash BakerIdentity{..} finInfo = do
@@ -913,8 +913,8 @@ validateBlock blockHash BakerIdentity{..} finInfo = do
                         }
                     makeBlock
 
--- |If the given time has elapsed, perform the supplied action. Otherwise, start a timer to
--- asynchronously perform the action at the given time.
+-- | If the given time has elapsed, perform the supplied action. Otherwise, start a timer to
+--  asynchronously perform the action at the given time.
 doAfter :: (TimeMonad m, TimerMonad m) => UTCTime -> m () -> m ()
 doAfter time action = do
     now <- currentTime
@@ -922,9 +922,9 @@ doAfter time action = do
         then action
         else void $ onTimeout (DelayUntil time) action
 
--- |Produce a quorum signature on a block if the block is eligible and we are a finalizer for the
--- block's epoch. This will delay until the timestamp of the block has elapsed so that we do not
--- sign blocks prematurely.
+-- | Produce a quorum signature on a block if the block is eligible and we are a finalizer for the
+--  block's epoch. This will delay until the timestamp of the block has elapsed so that we do not
+--  sign blocks prematurely.
 checkedValidateBlock ::
     ( MonadReader r m,
       HasBakerContext r,
@@ -945,7 +945,7 @@ checkedValidateBlock ::
       MonadLogger m,
       IsConsensusV1 (MPV m)
     ) =>
-    -- |Block to (potentially) sign.
+    -- | Block to (potentially) sign.
     b ->
     m ()
 checkedValidateBlock validBlock = do
@@ -958,12 +958,12 @@ checkedValidateBlock validBlock = do
         doAfter (timestampToUTCTime $ blockTimestamp validBlock) $!
             validateBlock blockHash bakerIdent finInfo
 
--- |Execute a block that has previously been verified by 'uponReceivingBlock'.
+-- | Execute a block that has previously been verified by 'uponReceivingBlock'.
 --
--- This should be robust against other consensus operations occurring in between
--- 'uponReceivingBlock' and 'executeBlock'. However, in practise it is recommended that
--- 'executeBlock' should be called immediately, without releasing the lock on the consensus
--- state.
+--  This should be robust against other consensus operations occurring in between
+--  'uponReceivingBlock' and 'executeBlock'. However, in practise it is recommended that
+--  'executeBlock' should be called immediately, without releasing the lock on the consensus
+--  state.
 executeBlock ::
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
@@ -995,50 +995,50 @@ executeBlock verifiedBlock = do
 
 -- * Block production
 
--- |Inputs used for baking a new block.
+-- | Inputs used for baking a new block.
 data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
-    { -- |Secret keys for the baker.
+    { -- | Secret keys for the baker.
       bbiBakerIdentity :: BakerIdentity,
-      -- |Round in which the block is to be produced.
+      -- | Round in which the block is to be produced.
       bbiRound :: Round,
-      -- |Epoch in which the block is to be produced.
-      -- Should always be either @blockEpoch bbiParent@ or @1 + blockEpoch bbiParent@.
+      -- | Epoch in which the block is to be produced.
+      --  Should always be either @blockEpoch bbiParent@ or @1 + blockEpoch bbiParent@.
       bbiEpoch :: Epoch,
-      -- |Parent block.
+      -- | Parent block.
       bbiParent :: BlockPointer pv,
-      -- |A valid quorum certificate for the parent block.
+      -- | A valid quorum certificate for the parent block.
       bbiQuorumCertificate :: QuorumCertificate,
-      -- |If the parent block belongs to a round earlier than @bbiRound - 1@, this is a valid
-      -- timeout certificate for round @bbiRound - 1@ in the same epoch as the parent block.
-      -- Otherwise, it is 'Absent'.
+      -- | If the parent block belongs to a round earlier than @bbiRound - 1@, this is a valid
+      --  timeout certificate for round @bbiRound - 1@ in the same epoch as the parent block.
+      --  Otherwise, it is 'Absent'.
       bbiTimeoutCertificate :: Option TimeoutCertificate,
-      -- |If the block is to be the first in a new epoch (i.e. @bbiEpoch@ is
-      -- @blockEpoch bbiParent + 1@) then this is a valid finalization entry for a block after the
-      -- trigger time in epoch @blockEpoch bbiParent@.
+      -- | If the block is to be the first in a new epoch (i.e. @bbiEpoch@ is
+      --  @blockEpoch bbiParent + 1@) then this is a valid finalization entry for a block after the
+      --  trigger time in epoch @blockEpoch bbiParent@.
       bbiEpochFinalizationEntry :: Option FinalizationEntry,
-      -- |The set of bakers for the epoch 'bbiEpoch'.
+      -- | The set of bakers for the epoch 'bbiEpoch'.
       bbiEpochBakers :: FullBakers,
-      -- |The leadership election nonce used in the election.
+      -- | The leadership election nonce used in the election.
       bbiLeadershipElectionNonce :: LeadershipElectionNonce
     }
 
--- |Determine if the node is a baker and eligible to bake in the current round, and produce
--- 'BakeBlockInputs' if so. This checks:
+-- | Determine if the node is a baker and eligible to bake in the current round, and produce
+--  'BakeBlockInputs' if so. This checks:
 --
---   * We have not already attempted to bake for this round.
+--    * We have not already attempted to bake for this round.
 --
---   * We have not baked for a more recent round.
+--    * We have not baked for a more recent round.
 --
---   * We have baker credentials.
+--    * We have baker credentials.
 --
---   * We are the winner of the round in the current epoch.
+--    * We are the winner of the round in the current epoch.
 --
---   * The baker's public keys match those in the baking committee.
+--    * The baker's public keys match those in the baking committee.
 --
--- Note, if any of the tests fails, it is expected to fail on subsequent calls in the same round.
--- (In particular, we do not expect the baker keys to change.) Thus, when 'prepareBakeBlockInputs'
--- is called, it marks that we have attempted to bake for the round, so subsequent calls will fail
--- until the round is advanced (and so the flag is reset).
+--  Note, if any of the tests fails, it is expected to fail on subsequent calls in the same round.
+--  (In particular, we do not expect the baker keys to change.) Thus, when 'prepareBakeBlockInputs'
+--  is called, it marks that we have attempted to bake for the round, so subsequent calls will fail
+--  until the round is advanced (and so the flag is reset).
 prepareBakeBlockInputs ::
     ( MonadReader r m,
       HasBakerContext r,
@@ -1142,7 +1142,7 @@ prepareBakeBlockInputs = runMaybeT $ do
         empty
     return BakeBlockInputs{..}
 
--- |Construct a block given 'BakeBlockInputs'.
+-- | Construct a block given 'BakeBlockInputs'.
 bakeBlock ::
     ( MonadState (SkovData (MPV m)) m,
       BlockStateStorage m,
@@ -1228,18 +1228,18 @@ bakeBlock BakeBlockInputs{..} = do
     pendingTransactionTable .=! newPTT
     return signedBlock
 
--- |Try to make a block, distribute it on the network and sign it as a finalizer.
--- This function should be called after any operation that can advance the current round to
--- attempt block production. A block will only be produced if we have credentials, are the
--- winner of the round in the current epoch, and have not already tried to produce a block in the
--- round.
+-- | Try to make a block, distribute it on the network and sign it as a finalizer.
+--  This function should be called after any operation that can advance the current round to
+--  attempt block production. A block will only be produced if we have credentials, are the
+--  winner of the round in the current epoch, and have not already tried to produce a block in the
+--  round.
 --
--- Note: We will only attempt to bake a block once for a round. It is possible (if unlikely) that
--- we might enter a round and subsequently advance epoch, while remaining in the same round.
--- It could be that we did not win the round in the old epoch, but do in the new one. In such a
--- case, it would be reasonable to produce a block for the round in the new epoch, but we do not.
--- The circumstances creating this scenario are sufficiently rare that it shouldn't be a problem to
--- allow the round to time out.
+--  Note: We will only attempt to bake a block once for a round. It is possible (if unlikely) that
+--  we might enter a round and subsequently advance epoch, while remaining in the same round.
+--  It could be that we did not win the round in the old epoch, but do in the new one. In such a
+--  case, it would be reasonable to produce a block for the round in the new epoch, but we do not.
+--  The circumstances creating this scenario are sufficiently rare that it shouldn't be a problem to
+--  allow the round to time out.
 makeBlock ::
     ( MonadReader r m,
       HasBakerContext r,

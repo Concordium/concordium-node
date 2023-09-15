@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- |This module contains functions to construct an initial block state from genesis data.
+-- | This module contains functions to construct an initial block state from genesis data.
 module Concordium.GlobalState.Persistent.Genesis (genesisState) where
 
 import qualified Concordium.Genesis.Data as GenesisData
@@ -47,9 +47,9 @@ import Lens.Micro.Platform
 
 ----------- API -----------
 
--- |Initial block state based on 'GenesisData', for a given protocol version.
--- This also returns the transaction table.
--- The result is immediately flushed to disc and cached.
+-- | Initial block state based on 'GenesisData', for a given protocol version.
+--  This also returns the transaction table.
+--  The result is immediately flushed to disc and cached.
 genesisState ::
     forall pv av m.
     (BS.SupportsPersistentState pv m, Types.AccountVersionFor pv ~ av) =>
@@ -77,13 +77,13 @@ genesisState gd = MTL.runExceptT $ case Types.protocolVersion @pv of
 
 -------- Types -----------
 
--- |A GADT that wraps the core genesis parameters for each consensus version.
+-- | A GADT that wraps the core genesis parameters for each consensus version.
 data VersionedCoreGenesisParameters (pv :: Types.ProtocolVersion) where
     CGPV0 :: (Types.IsConsensusV0 pv) => GenesisData.CoreGenesisParameters -> VersionedCoreGenesisParameters pv
     CGPV1 :: (Types.IsConsensusV1 pv) => GDBaseV1.CoreGenesisParametersV1 -> VersionedCoreGenesisParameters pv
 
--- |State being accumulated while iterating the accounts in genesis data.
--- It is then used to construct the initial block state from genesis.
+-- | State being accumulated while iterating the accounts in genesis data.
+--  It is then used to construct the initial block state from genesis.
 data AccumGenesisState pv = AccumGenesisState
     { -- | Tracking all the accounts.
       agsAllAccounts :: !(Accounts.Accounts pv),
@@ -299,7 +299,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                         }
             Nothing -> return updatedState
 
--- |Construct baker capital from genesis baker.
+-- | Construct baker capital from genesis baker.
 bakerCapitalFromGenesis :: GenesisData.GenesisBaker -> CapDist.BakerCapital
 bakerCapitalFromGenesis GenesisData.GenesisBaker{..} =
     CapDist.BakerCapital

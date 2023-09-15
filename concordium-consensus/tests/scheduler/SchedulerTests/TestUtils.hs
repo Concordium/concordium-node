@@ -10,7 +10,7 @@ module SchedulerTests.TestUtils (
 
 import Concordium.Scheduler.Types
 
--- |Protocol version
+-- | Protocol version
 type PV1 = 'P1
 
 type PV2 = 'P2

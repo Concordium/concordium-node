@@ -38,12 +38,12 @@ accountAddress0 = Helpers.accountAddressFromSeed 0
 keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
-senderAccount :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> Types.AccountAddress
+senderAccount :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Types.AccountAddress
 senderAccount spv
     | demoteProtocolVersion spv >= P3 = Types.createAlias accountAddress0 17
     | otherwise = accountAddress0
 
-transactionInputs :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> [Runner.TransactionJSON]
+transactionInputs :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> [Runner.TransactionJSON]
 transactionInputs spv =
     [ Runner.TJSON
         { metadata = makeDummyHeader (senderAccount spv) 1 100000,
@@ -57,7 +57,7 @@ transactionInputs spv =
         }
     ]
 
-testInit :: forall pv. IsProtocolVersion pv => SProtocolVersion pv -> String -> Spec
+testInit :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
 testInit spv pvString = specify
     (pvString ++ ": Passing init context to contract")
     $ do

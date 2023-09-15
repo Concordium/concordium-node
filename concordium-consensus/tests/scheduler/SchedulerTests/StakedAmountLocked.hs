@@ -54,7 +54,7 @@ keyPair2 :: SigScheme.KeyPair
 keyPair2 = Helpers.keyPairFromSeed 2
 
 makeTestBakerV0FromSeed ::
-    Blob.MonadBlobStore m =>
+    (Blob.MonadBlobStore m) =>
     -- | The initial balance of the account.
     Amount ->
     -- | The initial staked amount of the account.

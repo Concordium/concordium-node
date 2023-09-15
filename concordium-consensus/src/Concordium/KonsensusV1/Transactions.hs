@@ -5,10 +5,10 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |This module contains the functionality required for transaction processing for the consensus v1 protocol.
--- In particular it contains the following:
--- * 'AccountNonceQueryT' is responsible for retrieving the "next available account nonce"
---   from the underlying tree state, in this case the 'SkovData pv'.
+-- | This module contains the functionality required for transaction processing for the consensus v1 protocol.
+--  In particular it contains the following:
+--  * 'AccountNonceQueryT' is responsible for retrieving the "next available account nonce"
+--    from the underlying tree state, in this case the 'SkovData pv'.
 module Concordium.KonsensusV1.Transactions where
 
 import Control.Monad.Reader
@@ -40,8 +40,8 @@ import Concordium.Scheduler.Types (updateSeqNumber)
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
 
--- |Monad transformer for acquiring the next available account nonce from the
--- underlying tree state.
+-- | Monad transformer for acquiring the next available account nonce from the
+--  underlying tree state.
 newtype AccountNonceQueryT (m :: Type -> Type) (a :: Type) = AccountNonceQueryT {runAccountNonceQueryT :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, TimeMonad, MonadState s, MonadReader r)
     deriving (MonadTrans) via IdentityT
@@ -51,60 +51,60 @@ deriving via (MGSTrans AccountNonceQueryT m) instance (MonadProtocolVersion m) =
 
 -- Instances required in order to use the 'AccountNonceQueryT' monad from within a block state context.
 deriving via (MGSTrans AccountNonceQueryT m) instance GSTypes.BlockStateTypes (AccountNonceQueryT m)
-deriving via (MGSTrans AccountNonceQueryT m) instance BlockStateQuery m => BlockStateQuery (AccountNonceQueryT m)
-deriving via (MGSTrans AccountNonceQueryT m) instance ContractStateOperations m => ContractStateOperations (AccountNonceQueryT m)
-deriving via (MGSTrans AccountNonceQueryT m) instance AccountOperations m => AccountOperations (AccountNonceQueryT m)
-deriving via (MGSTrans AccountNonceQueryT m) instance ModuleQuery m => ModuleQuery (AccountNonceQueryT m)
+deriving via (MGSTrans AccountNonceQueryT m) instance (BlockStateQuery m) => BlockStateQuery (AccountNonceQueryT m)
+deriving via (MGSTrans AccountNonceQueryT m) instance (ContractStateOperations m) => ContractStateOperations (AccountNonceQueryT m)
+deriving via (MGSTrans AccountNonceQueryT m) instance (AccountOperations m) => AccountOperations (AccountNonceQueryT m)
+deriving via (MGSTrans AccountNonceQueryT m) instance (ModuleQuery m) => ModuleQuery (AccountNonceQueryT m)
 
--- |The instance used for acquiring the next available account nonce with respect to  consensus protocol v1.
+-- | The instance used for acquiring the next available account nonce with respect to  consensus protocol v1.
 instance (MonadState (SkovData (MPV m)) m) => AccountNonceQuery (AccountNonceQueryT m) where
     getNextAccountNonce addr = TT.nextAccountNonce addr . view transactionTable <$> get
     {-# INLINE getNextAccountNonce #-}
 
--- |Verify a block item. This wraps 'TVer.verify'.
+-- | Verify a block item. This wraps 'TVer.verify'.
 verifyBlockItem ::
     ( BlockStateQuery m,
       MonadProtocolVersion m,
       MonadState (SkovData (MPV m)) m
     ) =>
-    -- |Block time (if transaction is in a block) or current time.
+    -- | Block time (if transaction is in a block) or current time.
     Timestamp ->
-    -- |Transaction to verify,
+    -- | Transaction to verify,
     BlockItem ->
     Context (GSTypes.BlockState m) ->
     m TVer.VerificationResult
 verifyBlockItem ts bi ctx = runAccountNonceQueryT (runTransactionVerifierT (TVer.verify ts bi) ctx)
 
--- |Adds a transaction into the pending transaction table
--- if it's eligible.
+-- | Adds a transaction into the pending transaction table
+--  if it's eligible.
 --
--- Pre condition: A transaction must've been pre-verified prior to being called here.
+--  Pre condition: A transaction must've been pre-verified prior to being called here.
 --
--- Transactions received individually are always added to the pending transactions as
--- it is checked that the transaction nonce is at least what is recorded for the focus block.
--- (That is a pre condition of this function)
+--  Transactions received individually are always added to the pending transactions as
+--  it is checked that the transaction nonce is at least what is recorded for the focus block.
+--  (That is a pre condition of this function)
 --
--- This ensures the invariant of the pending transaction table and the focus block.
--- Namely that the recorded next available nonce with respect to the pending transaction table
--- must be the same of what is recorded in the focus block.
+--  This ensures the invariant of the pending transaction table and the focus block.
+--  Namely that the recorded next available nonce with respect to the pending transaction table
+--  must be the same of what is recorded in the focus block.
 --
--- For transactions received as part of a block we must check that the transaction nonce
--- is at least what the next available nonce recorded in the focus block before adding
--- it to the pending transaction table.
+--  For transactions received as part of a block we must check that the transaction nonce
+--  is at least what the next available nonce recorded in the focus block before adding
+--  it to the pending transaction table.
 --
--- This is to ensure the above mentioned invariant of the pending transaction table and focus block
--- as to make sure that if the parent block we verified the transaction within is above the focus block
--- then we need to record this fact in the pending transaction table as the transaction nonce
--- would very likely be above what is recorded in the focus block.
+--  This is to ensure the above mentioned invariant of the pending transaction table and focus block
+--  as to make sure that if the parent block we verified the transaction within is above the focus block
+--  then we need to record this fact in the pending transaction table as the transaction nonce
+--  would very likely be above what is recorded in the focus block.
 --
--- This is an internal function only and should not be called directly.
+--  This is an internal function only and should not be called directly.
 addPendingTransaction ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
       BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
-    -- |The transaction.
+    -- | The transaction.
     BlockItem ->
     m ()
 addPendingTransaction bi = do
@@ -128,10 +128,10 @@ addPendingTransaction bi = do
   where
     txHash = getHash bi
 
--- |Attempt to put the 'BlockItem' into the tree state.
--- If the the 'BlockItem' was successfully added then it will be
--- in 'Received' state where the associated 'CommitPoint' will be set to zero.
--- Return the resulting 'AddBlockItemResult'.
+-- | Attempt to put the 'BlockItem' into the tree state.
+--  If the the 'BlockItem' was successfully added then it will be
+--  in 'Received' state where the associated 'CommitPoint' will be set to zero.
+--  Return the resulting 'AddBlockItemResult'.
 processBlockItem ::
     ( MonadProtocolVersion m,
       IsConsensusV1 (MPV m),
@@ -140,9 +140,9 @@ processBlockItem ::
       BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
-    -- |The transaction we want to put into the state.
+    -- | The transaction we want to put into the state.
     BlockItem ->
-    -- |Whether it was @Accepted@, @Rejected@, @Duplicate@ or @Obsolete@.
+    -- | Whether it was @Accepted@, @Rejected@, @Duplicate@ or @Obsolete@.
     m AddTransactionResult
 processBlockItem bi = do
     -- First we check whether the transaction already exists in the transaction table.
@@ -176,16 +176,16 @@ processBlockItem bi = do
     -- 'TransactionHash' of the transaction we're processing.
     txHash = getHash bi
 
--- |Verify a transaction that was received separately from a block.
--- The return value consists of:
+-- | Verify a transaction that was received separately from a block.
+--  The return value consists of:
 --
--- * A 'Bool' that is 'True' if the transaction is already in the non-finalized pool.
+--  * A 'Bool' that is 'True' if the transaction is already in the non-finalized pool.
 --
--- * The 'TVer.VerificationResult' of verifying the transaction.
+--  * The 'TVer.VerificationResult' of verifying the transaction.
 --
--- The transaction is verified with respect to the last finalized block.
+--  The transaction is verified with respect to the last finalized block.
 --
--- This does not add the transaction to the transaction table, or otherwise modify the state.
+--  This does not add the transaction to the transaction table, or otherwise modify the state.
 preverifyTransaction ::
     ( BlockStateQuery m,
       MonadProtocolVersion m,
@@ -214,7 +214,7 @@ preverifyTransaction bi =
             return (False, verRes)
         Just status -> return (True, status ^. TT.tsVerRes)
 
--- |Add a transaction to the transaction table that has already been successfully verified.
+-- | Add a transaction to the transaction table that has already been successfully verified.
 addPreverifiedTransaction ::
     ( BlockStateQuery m,
       MonadState (SkovData (MPV m)) m,
@@ -233,14 +233,14 @@ addPreverifiedTransaction bi okRes = do
         else -- If the transaction was not added it means it contained an old nonce.
             return ObsoleteNonce
 
--- |Process the 'BlockItem's of a 'BakedBlock', verifying them and adding them to the transaction
--- table and pending transactions, marking them as committed for the block. If any of the
--- transactions does not pass the transaction verifier, this returns 'Nothing' as the block is
--- invalid. Otherwise, the list of the transactions and their verification results is returned.
+-- | Process the 'BlockItem's of a 'BakedBlock', verifying them and adding them to the transaction
+--  table and pending transactions, marking them as committed for the block. If any of the
+--  transactions does not pass the transaction verifier, this returns 'Nothing' as the block is
+--  invalid. Otherwise, the list of the transactions and their verification results is returned.
 --
--- If the transaction is already in the transaction table, then the returned 'BlockItem' will be
--- the copy from the transaction table. It is intended that this copy should replace the copy from
--- the block to avoid duplication.
+--  If the transaction is already in the transaction table, then the returned 'BlockItem' will be
+--  the copy from the transaction table. It is intended that this copy should replace the copy from
+--  the block to avoid duplication.
 processBlockItems ::
     forall m pv.
     ( MonadProtocolVersion m,
@@ -251,12 +251,12 @@ processBlockItems ::
       MPV m ~ pv,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
-    -- |The baked block
+    -- | The baked block
     BakedBlock ->
-    -- |Pointer to the parent block.
+    -- | Pointer to the parent block.
     BlockPointer pv ->
-    -- |Return 'True' only if all transactions were
-    -- successfully processed otherwise 'False'.
+    -- | Return 'True' only if all transactions were
+    --  successfully processed otherwise 'False'.
     m (Maybe [(BlockItem, TVer.VerificationResult)])
 processBlockItems bb parentPointer = do
     verificationContext <- getCtx

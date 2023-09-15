@@ -18,15 +18,15 @@ import Data.IORef
 import GHC.Event
 #endif
 
--- |Representation of a waiting period.
+-- | Representation of a waiting period.
 data Timeout
-    = -- |Wait for a certain period of time
+    = -- | Wait for a certain period of time
       DelayFor NominalDiffTime
-    | -- |Wait until a given time
+    | -- | Wait until a given time
       DelayUntil UTCTime
     deriving (Show)
 
-class Monad m => TimerMonad m where
+class (Monad m) => TimerMonad m where
     type Timer m
     onTimeout :: Timeout -> m a -> m (Timer m)
     cancelTimer :: Timer m -> m ()
@@ -37,9 +37,9 @@ data ThreadTimer = ThreadTimer !ThreadId !(IORef Bool)
 data ThreadTimer = ThreadTimer !TimerManager !TimeoutKey
 #endif
 
--- |Compute a delay in microseconds. This assumes that the delay will
--- fit into an Int. On 64-bit platforms this means the delay should be no more
--- than 290000 years.
+-- | Compute a delay in microseconds. This assumes that the delay will
+--  fit into an Int. On 64-bit platforms this means the delay should be no more
+--  than 290000 years.
 getDelay :: Timeout -> IO Int
 getDelay (DelayFor d) = return (truncate (d * 1e6))
 getDelay (DelayUntil t) = do
@@ -63,9 +63,9 @@ makeThreadTimer timeout action = do
   return $! ThreadTimer manager key
 #endif
 
--- |Cancel the timer created by 'makeThreadTimer'. Note that if the given
--- computation (second argument of 'makeThreadTimer') has already started it is
--- not interrupted.
+-- | Cancel the timer created by 'makeThreadTimer'. Note that if the given
+--  computation (second argument of 'makeThreadTimer') has already started it is
+--  not interrupted.
 cancelThreadTimer :: ThreadTimer -> IO ()
 #if defined(mingw32_HOST_OS)
 cancelThreadTimer (ThreadTimer _ enabled) =

@@ -146,17 +146,17 @@ outcomeVal (OSFrozen v) = Just v
 outcomeVal (OSDone v) = Just v
 outcomeVal _ = Nothing
 
--- |The collection of signatures gathered by finalization.
+-- | The collection of signatures gathered by finalization.
 --
--- INVARIANT: `knownGoodSigs` and `unknownSigs` must be disjoint
--- (in their domains), and both should also be disjoint from
--- `knownBadSigs`.
+--  INVARIANT: `knownGoodSigs` and `unknownSigs` must be disjoint
+--  (in their domains), and both should also be disjoint from
+--  `knownBadSigs`.
 data OutputWitnesses = OutputWitnesses
-    { -- |The signatures that are known to be valid.
+    { -- | The signatures that are known to be valid.
       knownGoodSigs :: !(Map Party Bls.Signature),
-      -- |The signatures that have not been checked.
+      -- | The signatures that have not been checked.
       unknownSigs :: !(Map Party Bls.Signature),
-      -- |The parties that are known to have sent bad signatures.
+      -- | The parties that are known to have sent bad signatures.
       knownBadSigs :: !BitSet.BitSet
     }
 
@@ -200,8 +200,8 @@ instance Show WMVBAMessage where
     show (WMVBAABBAMessage (WeAreDone b)) = "WeAreDone: " ++ show b
     show (WMVBAWitnessCreatorMessage v) = "Witness: " ++ show v
 
--- |Serialize the part of a 'WMVBAMessage' that should be signed.
--- (This is everything except the ticket in a 'Justified' message.)
+-- | Serialize the part of a 'WMVBAMessage' that should be signed.
+--  (This is everything except the ticket in a 'Justified' message.)
 putWMVBAMessageBody :: WMVBAMessage -> Put
 putWMVBAMessageBody (WMVBAFreezeMessage (Proposal val)) = putWord8 0 >> putVal val
 putWMVBAMessageBody (WMVBAFreezeMessage (Vote Nothing)) = putWord8 1
@@ -291,15 +291,15 @@ data WMVBAInstance = WMVBAInstance
       partyWeight :: Party -> VoterPower,
       maxParty :: Party,
       publicKeys :: Party -> VRF.PublicKey,
-      -- |NB: This field must be non-strict right now since it is
-      -- sometimes used with undefined.
+      -- | NB: This field must be non-strict right now since it is
+      --  sometimes used with undefined.
       me :: Party,
-      -- |NB: This field must be non-strict right now since it is
-      -- sometimes used with undefined.
+      -- | NB: This field must be non-strict right now since it is
+      --  sometimes used with undefined.
       privateKey :: VRF.KeyPair,
       publicBlsKeys :: Party -> Bls.PublicKey,
-      -- |NB: This field must be non-strict right now since it is
-      -- sometimes used with undefined.
+      -- | NB: This field must be non-strict right now since it is
+      --  sometimes used with undefined.
       privateBlsKey :: Bls.SecretKey
     }
 
@@ -336,11 +336,11 @@ initialWMVBAState =
           _badJustifications = Map.empty
         }
 
--- |Get the collection of signatures on @WeAreDone False@.
+-- | Get the collection of signatures on @WeAreDone False@.
 wmvbaWADBot :: WMVBAState sig -> Map Party sig
 wmvbaWADBot = PM.partyMap . _botWeAreDone . _abbaState
 
--- |Get the finalization witness signatures received.
+-- | Get the finalization witness signatures received.
 getOutputWitnesses :: Val -> WMVBAState sig -> OutputWitnesses
 getOutputWitnesses v WMVBAState{..} = OutputWitnesses{..}
   where
@@ -443,26 +443,26 @@ liftABBA a = do
 --------------------------------------------------------------------------------
 -- Protocol
 
--- |Start the WMVBA for us with a given input.  This should only be called once
--- per instance, and the input should already be justified.
+-- | Start the WMVBA for us with a given input.  This should only be called once
+--  per instance, and the input should already be justified.
 --
--- This implements __step 1 of Propose of Freeze__.
+--  This implements __step 1 of Propose of Freeze__.
 startWMVBA :: (WMVBAMonad sig m) => Val -> m ()
 startWMVBA val = sendWMVBAMessage (WMVBAFreezeMessage (Proposal val))
 
--- |Record that an input is justified.
+-- | Record that an input is justified.
 --
--- This could trigger the starting of Freeze
+--  This could trigger the starting of Freeze
 justifyWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m ()
 justifyWMVBAInput val = liftFreeze $ justifyCandidate val
 
--- |Determine if an input is justified.
+-- | Determine if an input is justified.
 isJustifiedWMVBAInput :: forall sig m. (WMVBAMonad sig m) => Val -> m Bool
 isJustifiedWMVBAInput val = liftFreeze $ isProposalJustified val
 
--- |Handle an incoming 'WMVBAMessage'.
+-- | Handle an incoming 'WMVBAMessage'.
 --
--- The message is dispatched to Freeze, ABBA or prepare for finishing WMVBA.
+--  The message is dispatched to Freeze, ABBA or prepare for finishing WMVBA.
 receiveWMVBAMessage :: (WMVBAMonad sig m, Eq sig) => Party -> sig -> WMVBAMessage -> m ()
 receiveWMVBAMessage src sig (WMVBAFreezeMessage msg) = liftFreeze $ receiveFreezeMessage src msg sig
 receiveWMVBAMessage src sig (WMVBAABBAMessage msg) = do
@@ -483,18 +483,18 @@ receiveWMVBAMessage src sig (WMVBAWitnessCreatorMessage (v, blssig)) = do
 -- TODO: check if finalization can still finish. If enough bad justifications has been seen,
 -- finalization may not be able to finish.
 
--- |Construct an aggregate signature. This aggregates all of the
--- valid signatures (except those already marked as bad). It returns
--- the aggregated signature and an updated set of bad parties. No signature
--- is returned if enough bad justifications are found that the good ones no
--- longer exceed the corruption threshold
+-- | Construct an aggregate signature. This aggregates all of the
+--  valid signatures (except those already marked as bad). It returns
+--  the aggregated signature and an updated set of bad parties. No signature
+--  is returned if enough bad justifications are found that the good ones no
+--  longer exceed the corruption threshold
 createAggregateSig ::
     WMVBAInstance ->
-    -- |Value chosen
+    -- | Value chosen
     Val ->
-    -- |Parties' BLS signatures
+    -- | Parties' BLS signatures
     PartyMap Bls.Signature ->
-    -- |Parties with known bad signatures
+    -- | Parties with known bad signatures
     PartySet ->
     (Maybe ([Party], Bls.Signature), PartySet)
 createAggregateSig WMVBAInstance{..} v allJV badJV
@@ -537,7 +537,7 @@ findCulprits lst toSign keys = culprits lst1 <> culprits lst2
         | Bls.verifyAggregate toSign (keys . fst <$> lst') (Bls.aggregateMany (snd <$> lst')) = []
         | otherwise = findCulprits lst' toSign keys
 
--- |Trigger a delayed action.
+-- | Trigger a delayed action.
 triggerWMVBAAction :: (WMVBAMonad sig m) => DelayedABBAAction -> m ()
 triggerWMVBAAction a = liftABBA (triggerABBAAction a)
 
@@ -547,8 +547,8 @@ triggerWMVBAAction a = liftABBA (triggerABBAAction a)
 data WMVBASummary sig = WMVBASummary
     { summaryFreeze :: Maybe (FreezeSummary sig),
       summaryABBA :: Maybe (ABBASummary sig),
-      -- |If freeze has completed and we have witness creation signatures,
-      -- then this records them.
+      -- | If freeze has completed and we have witness creation signatures,
+      --  then this records them.
       summaryWitnessCreation :: Maybe (Val, Map Party (sig, Bls.Signature))
     }
 
@@ -637,15 +637,15 @@ processWMVBASummary WMVBASummary{..} checkSig = do
     checkABBASig p am sig = checkSig p (WMVBAABBAMessage am) sig
     checkWCSig v p (sig, blssig) = checkSig p (WMVBAWitnessCreatorMessage (v, blssig)) sig
 
--- |Create a 'WMVBASummary' from a collection of signatures on @WeAreDone False@.
+-- | Create a 'WMVBASummary' from a collection of signatures on @WeAreDone False@.
 wmvbaFailedSummary :: Map Party sig -> WMVBASummary sig
 wmvbaFailedSummary wadBotSigs = WMVBASummary Nothing (Just (ABBASummary [] Map.empty wadBotSigs)) Nothing
 
 --------------------------------------------------------------------------------
 -- Passive
 
--- |The 'WMVBAPassiveState' collects WitnessCreator signatures for generating a
--- finalization proof, without participating in the WMVBA protocol.
+-- | The 'WMVBAPassiveState' collects WitnessCreator signatures for generating a
+--  finalization proof, without participating in the WMVBA protocol.
 data WMVBAPassiveState = WMVBAPassiveState
     { _passiveWitnesses :: !(Map Val (PartyMap Bls.Signature, PartySet))
     }
@@ -677,9 +677,9 @@ passiveReceiveWMVBASignatures wi@WMVBAInstance{..} v partyMap voterPower = do
 passiveReceiveWMVBAMessage ::
     (MonadState WMVBAPassiveState m) =>
     WMVBAInstance ->
-    -- |Message sender
+    -- | Message sender
     Party ->
-    -- |Message
+    -- | Message
     WMVBAMessage ->
     m (Maybe (Val, ([Party], Bls.Signature)))
 passiveReceiveWMVBAMessage wi@WMVBAInstance{..} src (WMVBAWitnessCreatorMessage (v, blssig)) =

@@ -69,7 +69,7 @@ instance Show PartyInfo where
     show = show . partyIndex
 
 data FinalizationCommittee = FinalizationCommittee
-    { -- |All eligible parties, in ascending order of baker ID
+    { -- | All eligible parties, in ascending order of baker ID
       parties :: !(Vector PartyInfo),
       totalWeight :: !VoterPower,
       corruptWeight :: !VoterPower
@@ -79,8 +79,8 @@ data FinalizationCommittee = FinalizationCommittee
 committeeMaxParty :: FinalizationCommittee -> Party
 committeeMaxParty FinalizationCommittee{..} = fromIntegral (Vec.length parties)
 
--- |Create a finalization committee by selecting only the bakers whose stake exceeds
--- a certain fraction of the total stake. The fraction is taken from the FinalizationParameters.
+-- | Create a finalization committee by selecting only the bakers whose stake exceeds
+--  a certain fraction of the total stake. The fraction is taken from the FinalizationParameters.
 makeFinalizationCommittee :: FinalizationParameters -> Amount -> FullBakers -> FinalizationCommittee
 makeFinalizationCommittee FinalizationParameters{..} totalGTU bakers = FinalizationCommittee{..}
   where
@@ -99,9 +99,9 @@ makeFinalizationCommittee FinalizationParameters{..} totalGTU bakers = Finalizat
     totalWeight = sum (partyWeight <$> parties)
     corruptWeight = (totalWeight - 1) `div` 3
 
--- |A finalization committee with no parties. No finalization record is
--- ever valid with respect to such a committee, since at least one honest
--- party must sign a finalization record for it to be valid.
+-- | A finalization committee with no parties. No finalization record is
+--  ever valid with respect to such a committee, since at least one honest
+--  party must sign a finalization record for it to be valid.
 emptyFinalizationCommittee :: FinalizationCommittee
 emptyFinalizationCommittee =
     FinalizationCommittee
@@ -188,10 +188,10 @@ checkMessage com msg = all validParty (messageParties $ msgBody msg) && checkMes
     numParties = fromIntegral $ Vec.length $ parties com
 
 data FinalizationSummary = FinalizationSummary
-    { -- |For each failed round (in order of increasing delta),
-      -- a collection of signatures on 'WeAreDone False'.
+    { -- | For each failed round (in order of increasing delta),
+      --  a collection of signatures on 'WeAreDone False'.
       summaryFailedRounds :: ![Map Party Sig.Signature],
-      -- |Summary for the current round.
+      -- | Summary for the current round.
       summaryCurrentRound :: !(WMVBASummary Sig.Signature)
     }
 
@@ -288,27 +288,27 @@ instance S.Serialize FinalizationPseudoMessage where
                 msgSignature <- S.get
                 return $ FPMMessage FinalizationMessage{..}
 
--- |Read a finalization pseudo message according to the V0 format.
+-- | Read a finalization pseudo message according to the V0 format.
 getFPMV0 :: Get FinalizationPseudoMessage
 getFPMV0 = S.get
 
--- |Serialize a finalization pseudo message according to the V0 format.
+-- | Serialize a finalization pseudo message according to the V0 format.
 putFPMV0 :: FinalizationPseudoMessage -> Put
 putFPMV0 = S.put
 
--- |Deserialize a versioned finalization pseudo message.
--- Read the version and decide how to parse the remaining data based on the
--- version.
+-- | Deserialize a versioned finalization pseudo message.
+--  Read the version and decide how to parse the remaining data based on the
+--  version.
 --
--- Currently only supports version 0
+--  Currently only supports version 0
 getExactVersionedFPM :: Get FinalizationPseudoMessage
 getExactVersionedFPM =
     getVersion >>= \case
         0 -> getFPMV0
         n -> fail $ "Unsupported FinalizationPseudoMessage version: " ++ show n
 
--- |Serialize a Finalization Pseudo Message with a version according to the V0 format.
--- In contrast to 'putFPMV0' this function also prepends the version.
+-- | Serialize a Finalization Pseudo Message with a version according to the V0 format.
+--  In contrast to 'putFPMV0' this function also prepends the version.
 putVersionedFPMV0 :: FinalizationPseudoMessage -> Put
 putVersionedFPMV0 fpm = S.put (0 :: Version) <> putFPMV0 fpm
 

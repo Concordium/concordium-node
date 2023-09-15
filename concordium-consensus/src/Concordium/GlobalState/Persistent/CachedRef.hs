@@ -4,7 +4,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |Cached references.
+-- | Cached references.
 module Concordium.GlobalState.Persistent.CachedRef where
 
 import Control.Monad
@@ -21,22 +21,22 @@ import Concordium.GlobalState.Persistent.Cache
 
 -- * 'CachedRef'
 
--- |A value that is either stored on disk as a 'BlobRef' or in memory only.
+-- | A value that is either stored on disk as a 'BlobRef' or in memory only.
 data MaybeMem a
-    = -- |A value stored on disk as a 'BlobRef'
+    = -- | A value stored on disk as a 'BlobRef'
       Disk !(BlobRef a)
-    | -- |A value held directly in memory
+    | -- | A value held directly in memory
       Mem !a
 
--- |A reference that is backed by a cache.
--- Before it is first written to disk, the value is stored in memory.
--- Once it is first written to disk, only the reference is directly maintained, but the value
--- is stored in the cache.
+-- | A reference that is backed by a cache.
+--  Before it is first written to disk, the value is stored in memory.
+--  Once it is first written to disk, only the reference is directly maintained, but the value
+--  is stored in the cache.
 --
--- The use of an 'IORef' is to allow for the possibility of references being duplicated
--- between block states, which can happen if finalization is lagging the head of the chain.
--- The IORef is shared among all copies of the reference, which ensures that it is not unnecessarily
--- held in memory and is not written to disk in duplicate.
+--  The use of an 'IORef' is to allow for the possibility of references being duplicated
+--  between block states, which can happen if finalization is lagging the head of the chain.
+--  The IORef is shared among all copies of the reference, which ensures that it is not unnecessarily
+--  held in memory and is not written to disk in duplicate.
 newtype CachedRef c a = CachedRef {crIORef :: IORef (MaybeMem a)}
 
 instance
@@ -121,19 +121,19 @@ instance
     where
     getHashM ref = getHashM =<< refLoad ref
 
-instance Show a => Show (CachedRef c a) where
+instance (Show a) => Show (CachedRef c a) where
     show _ = "<CachedRef>"
 
--- |We do nothing to cache a 'CachedRef'. Since 'cache' is generally used to cache the entire
--- global state, it is generally undesirable to load every 'CachedRef' into the cache, as this
--- can result in evictions and wasted effort if the cache size is insufficient.
+-- | We do nothing to cache a 'CachedRef'. Since 'cache' is generally used to cache the entire
+--  global state, it is generally undesirable to load every 'CachedRef' into the cache, as this
+--  can result in evictions and wasted effort if the cache size is insufficient.
 instance (Applicative m) => Cacheable m (CachedRef c a) where
     cache = pure
 
 -- * 'LazilyHashedCachedRef'
 
--- |A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
--- reference is cached (via 'refCache' or 'cache').
+-- | A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
+--  reference is cached (via 'refCache' or 'cache').
 data LazilyHashedCachedRef' h c a = LazilyHashedCachedRef
     { lhCachedRef :: !(CachedRef c a),
       lhHash :: !(IORef (Nullable h))
@@ -196,7 +196,7 @@ instance
         cr <- refUncache (lhCachedRef ref)
         return LazilyHashedCachedRef{lhCachedRef = cr, lhHash = lhHash ref}
 
--- |Construct a 'LazilyHashedCachedRef'' given the value and hash.
+-- | Construct a 'LazilyHashedCachedRef'' given the value and hash.
 makeLazilyHashedCachedRef :: (MonadIO m) => a -> h -> m (LazilyHashedCachedRef' h c a)
 makeLazilyHashedCachedRef val hsh = liftIO $ do
     lhCachedRef <- CachedRef <$> (newIORef $! Mem val)
@@ -243,16 +243,16 @@ instance
 
 -- * 'EagerlyHashedCachedRef'
 
--- |A 'CachedRef' with a hash that is always computed. In particular, this means that 'load'ing
--- the reference will also load the referenced data (consequently caching it) in order to
--- compute the hash.
+-- | A 'CachedRef' with a hash that is always computed. In particular, this means that 'load'ing
+--  the reference will also load the referenced data (consequently caching it) in order to
+--  compute the hash.
 data EagerlyHashedCachedRef' h c a = EagerlyHashedCachedRef
     { ehCachedRef :: !(CachedRef c a),
       ehHash :: !h
     }
     deriving (Show)
 
--- |A 'CachedRef' with a hash that is eagerly computed.
+-- | A 'CachedRef' with a hash that is eagerly computed.
 type EagerlyHashedCachedRef = EagerlyHashedCachedRef' H.Hash
 
 instance HashableTo h (EagerlyHashedCachedRef' h c a) where
@@ -290,7 +290,7 @@ instance
         cr <- refUncache (ehCachedRef ref)
         return EagerlyHashedCachedRef{ehCachedRef = cr, ehHash = ehHash ref}
 
--- |Construct an 'EagerlyHashedCachedRef'' given the value and hash.
+-- | Construct an 'EagerlyHashedCachedRef'' given the value and hash.
 makeEagerlyHashedCachedRef :: (MonadIO m) => a -> h -> m (EagerlyHashedCachedRef' h c a)
 makeEagerlyHashedCachedRef val ehHash = do
     ehCachedRef <- liftIO $ CachedRef <$> (newIORef $! Mem val)
@@ -317,7 +317,7 @@ instance
             ehHash <- getHashM ehCachedRef
             return EagerlyHashedCachedRef{..}
 
--- |See implementation for 'CachedRef'.
+-- | See implementation for 'CachedRef'.
 instance
     ( Applicative m
     ) =>
@@ -329,8 +329,8 @@ instance
 
 data MaybeHashedCachedRef h c a = HCRMem !a | HCRMemHashed !a !h | HCRDisk !(HashedCachedRef' h c a)
 
--- |A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
--- reference is cached (via 'refCache' or 'cache').
+-- | A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
+--  reference is cached (via 'refCache' or 'cache').
 data HashedCachedRef' h c a
     = HCRUnflushed {hcrUnflushed :: !(IORef (MaybeHashedCachedRef h c a))}
     | HCRFlushed
@@ -421,16 +421,16 @@ instance
     {-# INLINE refMake #-}
     {-# INLINE refUncache #-}
 
--- |Construct a 'HashedCachedRef'' given the value and hash.
--- The value is in memory, and is __not__ stored to disk.
+-- | Construct a 'HashedCachedRef'' given the value and hash.
+--  The value is in memory, and is __not__ stored to disk.
 makeHashedCachedRef :: (MonadIO m) => a -> h -> m (HashedCachedRef' h c a)
 makeHashedCachedRef val hsh =
     liftIO $
         HCRUnflushed <$!> (newIORef $! HCRMemHashed val hsh)
 
--- |Construct a 'HashedCachedRef'' given the value. The value is hashed and then
--- stored to disk and only a reference to blob store, and the hash of the value,
--- are retained.
+-- | Construct a 'HashedCachedRef'' given the value. The value is hashed and then
+--  stored to disk and only a reference to blob store, and the hash of the value,
+--  are retained.
 makeFlushedHashedCachedRef :: (MHashableTo m h a, DirectBlobStorable m a) => a -> m (HashedCachedRef' h c a)
 makeFlushedHashedCachedRef val = do
     h <- getHashM val
@@ -464,8 +464,8 @@ instance
             hcrHash <- getHashM val
             return HCRFlushed{..}
 
--- |Caching a 'HashedCachedRef' does nothing on the principle that it is generally undesirable to
--- load every 'HashedCachedRef' into the cache at load time.
+-- | Caching a 'HashedCachedRef' does nothing on the principle that it is generally undesirable to
+--  load every 'HashedCachedRef' into the cache at load time.
 instance (Applicative m) => Cacheable m (HashedCachedRef c a) where
     cache = pure
 
@@ -496,11 +496,11 @@ instance
                 Just val -> putCachedValue (Proxy @c) hcrBlob =<< csh val
         return hcr
 
--- |Migrate a 'HashedCachedRef' from context @m@ to context @t m@. See
--- documentation of @migratePersistentBlockState@. This uncaches the the input
--- reference and computes the hash of the new reference. The new reference is
--- flushed, but cached and the value is retained in memory in so far as there is
--- space in the cache.
+-- | Migrate a 'HashedCachedRef' from context @m@ to context @t m@. See
+--  documentation of @migratePersistentBlockState@. This uncaches the the input
+--  reference and computes the hash of the new reference. The new reference is
+--  flushed, but cached and the value is retained in memory in so far as there is
+--  space in the cache.
 migrateHashedCachedRef' ::
     forall h c c' a b t m.
     ( Cache c,

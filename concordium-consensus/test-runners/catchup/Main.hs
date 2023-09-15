@@ -5,8 +5,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
--- |This module defines a test runner for consensus that spawns multiple baker instances and allows
--- them to communicate. It produces a graph-viz formatted graph as output showing the blocks.
+-- | This module defines a test runner for consensus that spawns multiple baker instances and allows
+--  them to communicate. It produces a graph-viz formatted graph as output showing the blocks.
 module Main where
 
 import Control.Concurrent
@@ -43,14 +43,14 @@ import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 
--- |Protocol version
+-- | Protocol version
 type PV = 'P1
 
--- |Number of bakers to create.
-numberOfBakers :: Num n => n
+-- | Number of bakers to create.
+numberOfBakers :: (Num n) => n
 numberOfBakers = 10
 
--- |Finalization parameters to use for the test.
+-- | Finalization parameters to use for the test.
 myFinalizationParameters :: FinalizationParameters
 myFinalizationParameters =
     defaultFinalizationParameters
@@ -60,8 +60,8 @@ myFinalizationParameters =
           finalizationAllowZeroDelay = True
         }
 
--- |A protocol update payload that will restart the chain (still at protocol version P1), but
--- with an updated slot duration and election difficulty.
+-- | A protocol update payload that will restart the chain (still at protocol version P1), but
+--  with an updated slot duration and election difficulty.
 updatePayload :: ProtocolUpdate
 updatePayload =
     ProtocolUpdate
@@ -79,9 +79,9 @@ updatePayload =
                     }
         }
 
--- |Produces a list consisting of a single protocol update transaction.
--- The transaction is scheduled for one minute after the suppied timestamp, and will
--- time out 30 seconds prior to this.
+-- | Produces a list consisting of a single protocol update transaction.
+--  The transaction is scheduled for one minute after the suppied timestamp, and will
+--  time out 30 seconds prior to this.
 protocolUpdateTransactions :: Timestamp -> [BlockItem]
 protocolUpdateTransactions (Timestamp ts) = [ui]
   where
@@ -97,7 +97,7 @@ protocolUpdateTransactions (Timestamp ts) = [ui]
                         }
                     (Map.singleton 0 Dummy.dummyAuthorizationKeyPair)
 
--- |Generates an infinite list of transfer transactions from a single account to itself.
+-- | Generates an infinite list of transfer transactions from a single account to itself.
 transferTransactions :: StdGen -> [BlockItem]
 transferTransactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
   where
@@ -110,15 +110,15 @@ transferTransactions gen = trs (0 :: Nonce) (randoms gen :: [Word8])
             : trs (n + 1) amnts
     trs _ _ = error "Ran out of transaction data"
 
--- |Notification of a block being baked, or a protocol update occurring, that should be rendered
--- as part of the produced graph.
+-- | Notification of a block being baked, or a protocol update occurring, that should be rendered
+--  as part of the produced graph.
 data MonitorEvent
     = MEBlock GenesisIndex BS.ByteString
     | MERegenesis BlockHash
     | METoggle PeerId Bool
 
--- |A loop that continuously reads the monitor channel and prints a graphviz directed graph to
--- stdout.
+-- | A loop that continuously reads the monitor channel and prints a graphviz directed graph to
+--  stdout.
 monitorLoop :: Chan MonitorEvent -> IO ()
 monitorLoop chan =
     bracket_ (putStrLn "digraph {") (putStrLn "}") $
@@ -153,16 +153,16 @@ monitorLoop chan =
                             ++ if newState then "connected" else "disconnected"
                     hFlush stdout
 
--- |A random distribution
+-- | A random distribution
 type Distribution x = StdGen -> (x, StdGen)
 
--- |Delay for a random time sampled from a distribution (in microseconds).
+-- | Delay for a random time sampled from a distribution (in microseconds).
 randomDelay :: Distribution Int -> IO ()
 randomDelay distr = do
     delay <- getStdRandom distr
     threadDelay delay
 
--- |Fork a thread to perform an action after a random delay.
+-- | Fork a thread to perform an action after a random delay.
 eventually :: Distribution Int -> IO a -> IO ()
 eventually distr act = void $
     forkIO $ do
@@ -177,24 +177,24 @@ quadDelay factor g = (r, g')
     (r0, g') = randomR (0, 7800) g
     r = truncate $ factor * fromInteger (r0 * r0 `div` 10)
 
--- |Identifier for a peer. Since all peers are bakers, we just use 'BakerId'.
+-- | Identifier for a peer. Since all peers are bakers, we just use 'BakerId'.
 type PeerId = BakerId
 
--- |Representation of a peer, including its 'MultiVersionRunner' and catch-up information.
+-- | Representation of a peer, including its 'MultiVersionRunner' and catch-up information.
 data Peer finconfig = Peer
-    { -- |Runner for the peer.
+    { -- | Runner for the peer.
       peerMVR :: MultiVersionRunner finconfig,
-      -- |List of peers that are pending catch-up.
+      -- | List of peers that are pending catch-up.
       peerCatchUp :: MVar [PeerId],
-      -- |'MVar' is written to signal that catch-up is required.
+      -- | 'MVar' is written to signal that catch-up is required.
       peerCatchUpSignal :: MVar (),
-      -- |The peer's 'PeerId'.
+      -- | The peer's 'PeerId'.
       peerId :: PeerId,
-      -- |The peer's connection status
+      -- | The peer's connection status
       peerConnectionStatus :: IORef Bool
     }
 
--- |Construct a peer from its 'PeerId' and 'MultiVersionRunner'. Does not start any threads.
+-- | Construct a peer from its 'PeerId' and 'MultiVersionRunner'. Does not start any threads.
 makePeer :: PeerId -> MultiVersionRunner finconfig -> IO (Peer finconfig)
 makePeer peerId peerMVR = do
     peerCatchUp <- newMVar []
@@ -202,7 +202,7 @@ makePeer peerId peerMVR = do
     peerConnectionStatus <- newIORef True
     return Peer{..}
 
--- |For a given 'Peer', consider the 'PeerId' to be a pending peer.
+-- | For a given 'Peer', consider the 'PeerId' to be a pending peer.
 markPeerPending :: Peer f -> PeerId -> IO ()
 markPeerPending Peer{..} newPending = unless (newPending == peerId) $ do
     cul <- takeMVar peerCatchUp
@@ -212,11 +212,11 @@ markPeerPending Peer{..} newPending = unless (newPending == peerId) $ do
             putMVar peerCatchUp (cul ++ [newPending])
             void $ tryPutMVar peerCatchUpSignal ()
 
--- |Interval (microseconds) at which to process the catch-up queue
+-- | Interval (microseconds) at which to process the catch-up queue
 catchUpInterval :: Int
 catchUpInterval = 5_000_000
 
--- |Start the catch-up thread for a peer.
+-- | Start the catch-up thread for a peer.
 startCatchUpThread :: Peer f -> Map.Map PeerId (Peer f) -> IO ThreadId
 startCatchUpThread myPeer peers = forkIO $
     forever $ do
@@ -234,7 +234,7 @@ startCatchUpThread myPeer peers = forkIO $
                     mvLog (peerMVR myPeer) External LLDebug $ "Sending catch-up request to " ++ show (peerId peer)
                     peerReceive peer myPeer MessageCatchUpStatus gi (LBS.toStrict curBS)
 
--- |Handle an incoming message at the given target from the given source.
+-- | Handle an incoming message at the given target from the given source.
 peerReceive :: Peer f -> Peer f -> MessageType -> GenesisIndex -> BS.ByteString -> IO ()
 peerReceive target src MessageBlock genIndex msg = do
     mvLog (peerMVR target) External LLDebug $ "Received block from " ++ show (peerId src) ++ " genesisIndex:" ++ show genIndex
@@ -257,14 +257,14 @@ peerReceive target src MessageCatchUpStatus genIndex msg = do
     res <- runMVR (receiveCatchUpStatus genIndex msg cuc) (peerMVR target)
     when (isPending res || res == ResultContinueCatchUp) $ markPeerPending target (peerId src)
 
--- |Check if an 'UpdateResult' indicates a pending status.
+-- | Check if an 'UpdateResult' indicates a pending status.
 isPending :: UpdateResult -> Bool
 isPending ResultPendingBlock = True
 isPending ResultPendingFinalization = True
 isPending ResultIncorrectFinalizationSession = True
 isPending _ = False
 
--- |Send a given message to all peers.
+-- | Send a given message to all peers.
 toAllPeers ::
     PeerId ->
     IORef (Map.Map PeerId (Peer finconfig)) ->
@@ -285,7 +285,7 @@ toAllPeers src peersRef mt genIndex msg = do
                         eventually (quadDelay 0.05) $
                             peerReceive peer myPeer mt genIndex msg
 
--- |Instance of 'Callbacks' for a specific peer.
+-- | Instance of 'Callbacks' for a specific peer.
 callbacks ::
     PeerId ->
     IORef (Map.Map PeerId (Peer finconfig)) ->
@@ -312,7 +312,7 @@ callbacks myPeerId peersRef monitorChan = Callbacks{..}
     notifyBlockFinalized = Nothing
     notifyUnsupportedProtocolUpdate = Nothing
 
--- |Construct a 'MultiVersionConfiguration' to use for each baker node.
+-- | Construct a 'MultiVersionConfiguration' to use for each baker node.
 config :: FilePath -> BakerIdentity -> MultiVersionConfiguration (BufferedFinalization ThreadTimer)
 config dataPath bid = MultiVersionConfiguration{..}
   where
@@ -326,7 +326,7 @@ config dataPath bid = MultiVersionConfiguration{..}
             )
     mvcRuntimeParameters = defaultRuntimeParameters
 
--- |Start a thread sending transactions to a particular node.
+-- | Start a thread sending transactions to a particular node.
 startTransactionThread :: [BlockItem] -> MultiVersionRunner finconfig -> IO ThreadId
 startTransactionThread trs0 mvr = forkIO $ transactionLoop trs0
   where
@@ -349,7 +349,7 @@ startTogglePeersThread monitorChan peers = forkIO $
             when otherStatus $ markPeerPending peer (peerId otherPeer)
         writeChan monitorChan $ METoggle (peerId peer) (not oldStatus)
 
--- |Main runner that starts the bakers and monitors the results.
+-- | Main runner that starts the bakers and monitors the results.
 main :: IO ()
 main = do
     -- Set genesis at the next whole second

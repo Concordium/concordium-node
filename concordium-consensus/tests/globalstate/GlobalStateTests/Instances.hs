@@ -59,7 +59,7 @@ validContractArtifactsV1 = mapMaybe packModule contractSourcesV1
         let source = Wasm.ModuleSource sourceBytes
         in  (source,) <$> WasmV1.processModule SP5 (Wasm.WasmModuleV source)
 
-checkBinary :: Show a => (a -> a -> Bool) -> a -> a -> String -> String -> String -> Either String ()
+checkBinary :: (Show a) => (a -> a -> Bool) -> a -> a -> String -> String -> String -> Either String ()
 checkBinary bop x y sbop sx sy = unless (bop x y) $ Left $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
 invariantIT :: ContractIndex -> IT -> Either String (Word8, Bool, Bool, ContractIndex, H.Hash, Word64)
@@ -176,7 +176,7 @@ modelGetInstanceData (ContractAddress ci csi) m = do
     guard $ csi == csi'
     return idata
 
-modelUpdateInstanceAt :: forall v. Wasm.IsWasmVersion v => ContractAddress -> Amount -> InstanceStateV v -> Model -> Model
+modelUpdateInstanceAt :: forall v. (Wasm.IsWasmVersion v) => ContractAddress -> Amount -> InstanceStateV v -> Model -> Model
 modelUpdateInstanceAt (ContractAddress ci csi) amt val m = m{modelInstances = Map.adjust upd ci (modelInstances m)}
   where
     upd o@(csi', ex)

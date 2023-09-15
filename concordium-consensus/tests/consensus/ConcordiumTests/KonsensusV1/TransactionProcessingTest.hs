@@ -6,13 +6,13 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |This module tests processing of transactions for consensus V1.
--- The tests included here does not differentiate between the individual
--- verification results, the tests care about if a particular block item can
--- be deemed verifiable or not.
--- The module 'ConcordiumTests.ReceiveTransactionsTest' contains more fine grained tests
--- for each individual type of transaction, this is ok since the two
--- consensus implementations share the same transaction verifier.
+-- | This module tests processing of transactions for consensus V1.
+--  The tests included here does not differentiate between the individual
+--  verification results, the tests care about if a particular block item can
+--  be deemed verifiable or not.
+--  The module 'ConcordiumTests.ReceiveTransactionsTest' contains more fine grained tests
+--  for each individual type of transaction, this is ok since the two
+--  consensus implementations share the same transaction verifier.
 module ConcordiumTests.KonsensusV1.TransactionProcessingTest (tests) where
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -68,12 +68,12 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
--- |Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
+-- | Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
 dummyEpochBakers :: EpochBakers
 dummyEpochBakers = EpochBakers dummyBakersAndFinalizers dummyBakersAndFinalizers dummyBakersAndFinalizers 1
 
--- |Dummy bakers and finalizers with no bakers or finalizers.
--- This is only suitable for when the value is not meaningfully used.
+-- | Dummy bakers and finalizers with no bakers or finalizers.
+--  This is only suitable for when the value is not meaningfully used.
 dummyBakersAndFinalizers :: BakersAndFinalizers
 dummyBakersAndFinalizers =
     BakersAndFinalizers
@@ -81,57 +81,57 @@ dummyBakersAndFinalizers =
           _bfFinalizers = FinalizationCommittee Vec.empty 0
         }
 
--- |A valid 'AccountCreation' with expiry 1596409020
+-- | A valid 'AccountCreation' with expiry 1596409020
 validAccountCreation :: AccountCreation
 validAccountCreation = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-credential.json" >>= embedFile)
 
--- |The identity providers required for succesfully verifying 'validAccountCreation'.
+-- | The identity providers required for succesfully verifying 'validAccountCreation'.
 myIdentityProviders :: IdentityProviders
 myIdentityProviders = case readIps . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-ips.json" >>= embedFile) of
     Just x -> x
     Nothing -> error "oops"
 
--- |The anonymity revokers required for succesfully verifying 'validAccountCreation'.
+-- | The anonymity revokers required for succesfully verifying 'validAccountCreation'.
 myAnonymityRevokers :: AnonymityRevokers
 myAnonymityRevokers = case readArs . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-ars.json" >>= embedFile) of
     Just x -> x
     Nothing -> error "oops"
 
--- |The cryptographic parameters required for succesfully verifying 'validAccountCreation'.
+-- | The cryptographic parameters required for succesfully verifying 'validAccountCreation'.
 myCryptographicParameters :: CryptographicParameters
 myCryptographicParameters =
     case getExactVersionedCryptographicParameters (BSL.fromStrict $(makeRelativeToProject "testdata/transactionverification/verifiable-global.json" >>= embedFile)) of
         Nothing -> error "Could not read cryptographic parameters."
         Just params -> params
 
--- |The valid credential deployment wrapped in 'WithMetadata' and @1@ for the transaction time.
+-- | The valid credential deployment wrapped in 'WithMetadata' and @1@ for the transaction time.
 credentialDeploymentWM :: WithMetadata AccountCreation
 credentialDeploymentWM = addMetadata CredentialDeployment 1 validAccountCreation
 
--- |The valid credential deployment wrapped in a 'BlockItem'.
+-- | The valid credential deployment wrapped in a 'BlockItem'.
 dummyCredentialDeployment :: BlockItem
 dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
 
--- |A dummy credential deployment 'TransactionHash'.
+-- | A dummy credential deployment 'TransactionHash'.
 dummyCredentialDeploymentHash :: TransactionHash
 dummyCredentialDeploymentHash = getHash dummyCredentialDeployment
 
--- |A monad for deriving 'MonadTime' by means of a provided time.
+-- | A monad for deriving 'MonadTime' by means of a provided time.
 newtype FixedTimeT (m :: Type -> Type) a = FixedTime {runDeterministic :: UTCTime -> m a}
     deriving (Functor, Applicative, Monad, MonadIO) via ReaderT UTCTime m
     deriving (MonadTrans) via ReaderT UTCTime
 
-instance Monad m => TimeMonad (FixedTimeT m) where
+instance (Monad m) => TimeMonad (FixedTimeT m) where
     currentTime = FixedTime return
 
-instance MonadReader r m => MonadReader r (FixedTimeT m) where
+instance (MonadReader r m) => MonadReader r (FixedTimeT m) where
     ask = lift ask
     local f (FixedTime k) = FixedTime $ local f . k
 
--- |A test monad that is suitable for testing transaction processing
--- as it derives the required capabilities.
--- I.e. 'BlockStateQuery' is supported via the 'PersistentBlockStateMonad and a 'MonadState' over the 'SkovData pv'.
--- Further it makes use of the 'FixedTimeT' which has an instance for the 'TimeMonad'.
+-- | A test monad that is suitable for testing transaction processing
+--  as it derives the required capabilities.
+--  I.e. 'BlockStateQuery' is supported via the 'PersistentBlockStateMonad and a 'MonadState' over the 'SkovData pv'.
+--  Further it makes use of the 'FixedTimeT' which has an instance for the 'TimeMonad'.
 type MyTestMonad =
     AccountNonceQueryT
         ( PersistentBlockStateMonad
@@ -143,12 +143,12 @@ type MyTestMonad =
             )
         )
 
--- |Run an action within the 'MyTestMonad'.
--- The 'IdentityProviders' and 'UTCTime' is required to setup
--- the monad to run the action within.
--- In particular the @idps@ indicate which identity providers are registered
--- on the chain and the @time@ indicates the actual time that the action is running within.
--- The @time@ is used for transaction verification.
+-- | Run an action within the 'MyTestMonad'.
+--  The 'IdentityProviders' and 'UTCTime' is required to setup
+--  the monad to run the action within.
+--  In particular the @idps@ indicate which identity providers are registered
+--  on the chain and the @time@ indicates the actual time that the action is running within.
+--  The @time@ is used for transaction verification.
 runMyTestMonad :: IdentityProviders -> UTCTime -> MyTestMonad a -> IO (a, SkovData 'P6)
 runMyTestMonad idps time action = do
     runBlobStoreTemp "." $
@@ -169,7 +169,7 @@ runMyTestMonad idps time action = do
                 Right x -> return x
         return $! initialSkovData bs
 
--- |Initialize a 'SkovData pv' with the provided block state.
+-- | Initialize a 'SkovData pv' with the provided block state.
 initialSkovData :: HashedPersistentBlockState pv -> SkovData pv
 initialSkovData bs =
     mkInitialSkovData
@@ -181,11 +181,11 @@ initialSkovData bs =
         emptyTransactionTable
         emptyPendingTransactionTable
 
--- |A block hash for the genesis.
+-- | A block hash for the genesis.
 dummyGenesisBlockHash :: BlockHash
 dummyGenesisBlockHash = BlockHash $ Hash.hash "DummyGenesis"
 
--- |A dummy 'GenesisMetadata'
+-- | A dummy 'GenesisMetadata'
 dummyGenesisMetadata :: StateHash -> GenesisMetadata
 dummyGenesisMetadata stHash =
     GenesisMetadata
@@ -198,10 +198,10 @@ dummyGenesisMetadata stHash =
 coreGenesisParams :: CoreGenesisParametersV1
 coreGenesisParams = CoreGenesisParametersV1{genesisTime = 0, genesisEpochDuration = 3_600_000, genesisSignatureThreshold = 2 % 3}
 
--- |Genesis data for P6 suitable for testing transaction processing.
--- The identity providers should be passed in as it makes it easier
--- to test some scenarios for credential deployments.
--- See the tests for these scenarios.
+-- | Genesis data for P6 suitable for testing transaction processing.
+--  The identity providers should be passed in as it makes it easier
+--  to test some scenarios for credential deployments.
+--  See the tests for these scenarios.
 makeTestingGenesisDataP6 :: IdentityProviders -> GenesisData 'P6
 makeTestingGenesisDataP6 idps =
     let genesisCryptographicParameters = myCryptographicParameters
@@ -217,7 +217,7 @@ makeTestingGenesisDataP6 idps =
                   genesisInitialState = Base.GenesisState{..}
                 }
 
--- |Utility function for parrsing identity providers.
+-- | Utility function for parrsing identity providers.
 readIps :: BSL.ByteString -> Maybe IdentityProviders
 readIps bs = do
     v <- AE.decode bs
@@ -227,7 +227,7 @@ readIps bs = do
     guard (vVersion v == 0)
     return (vValue v)
 
--- |Utility function for parsing anonymity revokers.
+-- | Utility function for parsing anonymity revokers.
 readArs :: BSL.ByteString -> Maybe AnonymityRevokers
 readArs bs = do
     v <- AE.decode bs
@@ -237,7 +237,7 @@ readArs bs = do
     guard (vVersion v == 0)
     return (vValue v)
 
--- |Utility function for parsing cryptographic parameters.
+-- | Utility function for parsing cryptographic parameters.
 getExactVersionedCryptographicParameters :: BSL.ByteString -> Maybe CryptographicParameters
 getExactVersionedCryptographicParameters bs = do
     v <- AE.decode bs
@@ -247,28 +247,28 @@ getExactVersionedCryptographicParameters bs = do
     guard (vVersion v == 0)
     return (vValue v)
 
--- |An arbitrary generated pair of keys suitable for signing a transaction.
+-- | An arbitrary generated pair of keys suitable for signing a transaction.
 dummySigSchemeKeys :: SigScheme.KeyPair
 {-# NOINLINE dummySigSchemeKeys #-}
 dummySigSchemeKeys =
     let ((signKey, verifyKey), _) = randomEd25519KeyPair $ mkStdGen 42
     in  SigScheme.KeyPairEd25519{..}
 
--- |A transaction signtaure on "transaction" hence it
--- has no relation to any transaction.
+-- | A transaction signtaure on "transaction" hence it
+--  has no relation to any transaction.
 dummyTransactionSignature :: TransactionSignature
 dummyTransactionSignature = TransactionSignature $ Map.singleton 0 (Map.singleton 0 sig)
   where
     sig = SigScheme.sign dummySigSchemeKeys "transaction"
 
--- |An arbitrary chosen 'AccountAddress'
+-- | An arbitrary chosen 'AccountAddress'
 dummyAccountAddress :: AccountAddress
 dummyAccountAddress = fst $ randomAccountAddress (mkStdGen 42)
 
--- |A Normal transfer transaction that has no
--- relation to the tree state in this test, hence
--- when processed it will fail on looking up the sender.
--- Note. that the signature is not correct either.
+-- | A Normal transfer transaction that has no
+--  relation to the tree state in this test, hence
+--  when processed it will fail on looking up the sender.
+--  Note. that the signature is not correct either.
 dummyTransaction :: Transaction
 dummyTransaction =
     addMetadata NormalTransaction 0 $
@@ -287,11 +287,11 @@ dummyTransaction =
             }
     payload = encodePayload $ Transfer dummyAccountAddress 10
 
--- |The block item for 'dummyTransaction'.
+-- | The block item for 'dummyTransaction'.
 dummyTransactionBI :: BlockItem
 dummyTransactionBI = normalTransaction dummyTransaction
 
--- |Testing various cases for processing a block item individually.
+-- | Testing various cases for processing a block item individually.
 testProcessBlockItem :: Spec
 testProcessBlockItem = describe "processBlockItem" $ do
     -- Test that an 'Ok' transaction is accepted into the state when being received individually.
@@ -380,7 +380,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
     theTime :: UTCTime
     theTime = posixSecondsToUTCTime 1 -- after genesis
 
--- |Testing cases for processing the transactions of a block received.
+-- | Testing cases for processing the transactions of a block received.
 testProcessBlockItems :: Spec
 testProcessBlockItems = describe "processBlockItems" $ do
     it "A non verifiable transaction first in the block makes it fail and stop processing the rest" $ do

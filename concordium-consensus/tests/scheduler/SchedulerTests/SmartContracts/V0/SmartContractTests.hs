@@ -50,7 +50,7 @@ import qualified SchedulerTests.Helpers as Helpers
 -- | Run a number of init tests from a specific file.
 runInitTestsFromFile ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     FilePath ->
@@ -103,7 +103,7 @@ runInitTestsFromFile _ testCaseDescription testFile testCases =
 --   and a number of receive functions, each prefixed with 'test.'.
 runReceiveTestsFromFile ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     FilePath ->
@@ -199,7 +199,7 @@ expectCCDTransferred expectedAmnt events = foldr sumTransfers 0 events `shouldBe
 -- ** Tests **
 
 logEventTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -218,7 +218,7 @@ logEventTestCases spv pvString =
         ]
 
 getParameterSizeTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -235,7 +235,7 @@ getParameterSizeTestCases spv pvString =
     maxSizedParam = mkParamOfSize 1_024
 
 getParameterSectionTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -264,7 +264,7 @@ getParameterSectionTestCases spv pvString =
     param100 = mkParamOfSize 100
 
 stateSizeTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -278,7 +278,7 @@ stateSizeTestCases spv pvString =
         ]
 
 loadStateTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -305,7 +305,7 @@ loadStateTestCases spv pvString =
         ]
 
 writeStateTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -328,7 +328,7 @@ writeStateTestCases spv pvString =
         ]
 
 resizeStateTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -345,7 +345,7 @@ resizeStateTestCases spv pvString =
         ]
 
 onlyInInitTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -367,7 +367,7 @@ onlyInInitTestCases spv pvString = do
     file = "../concordium-base/smart-contracts/testdata/contracts/only-in-init-tests.wasm"
 
 onlyInReceiveTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -410,7 +410,7 @@ onlyInReceiveTestCases spv pvString = do
     file = "../concordium-base/smart-contracts/testdata/contracts/only-in-receive-tests.wasm"
 
 simpleTransferTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -454,7 +454,7 @@ simpleTransferTestCases spv pvString =
             $ ID.addressFromText "2wkBET2rRgE8pahuaczxKbmv7ciehqsne57F9gtzf1PVdr2VP3"
 
 sendTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -506,7 +506,7 @@ sendTestCases spv pvString =
     rcvNameParam = BSS.toShort "test.accept"
 
 actionTreeTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -536,7 +536,7 @@ actionTreeTestCases spv pvString =
         ]
 
 memoryTestCases ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec

@@ -9,24 +9,24 @@ import Data.Serialize
 import Concordium.Types
 
 data CatchUpStatus = CatchUpStatus
-    { -- |If this flag is set, the recipient is expected to send any
-      -- blocks and finalization records the sender may be missing,
-      -- followed by a CatchUpStatus message with the response flag
-      -- set.
+    { -- | If this flag is set, the recipient is expected to send any
+      --  blocks and finalization records the sender may be missing,
+      --  followed by a CatchUpStatus message with the response flag
+      --  set.
       cusIsRequest :: Bool,
-      -- |If this flag is set, this message concludes a catch-up
-      -- response. (The receiver should not expect to be sent
-      -- further catch-up blocks unless it sends a further catch-up
-      -- request.)
+      -- | If this flag is set, this message concludes a catch-up
+      --  response. (The receiver should not expect to be sent
+      --  further catch-up blocks unless it sends a further catch-up
+      --  request.)
       cusIsResponse :: Bool,
-      -- |Hash of the sender's last finalized block.
+      -- | Hash of the sender's last finalized block.
       cusLastFinalizedBlock :: BlockHash,
-      -- |Height of the sender's last finalized block.
+      -- | Height of the sender's last finalized block.
       cusLastFinalizedHeight :: BlockHeight,
-      -- |Hashes of all live non-finalized leaf blocks.
+      -- | Hashes of all live non-finalized leaf blocks.
       cusLeaves :: [BlockHash],
-      -- |Hashes of all live non-finalized non-leaf blocks, if the message
-      -- is a request.
+      -- | Hashes of all live non-finalized non-leaf blocks, if the message
+      --  is a request.
       cusBranches :: [BlockHash]
     }
     deriving (Show)

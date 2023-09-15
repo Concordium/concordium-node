@@ -106,13 +106,13 @@ data T v
 -------------------------------------------------------------------------------
 -}
 
-instance HashableTo H.Hash v => HashableTo H.Hash (T v) where
+instance (HashableTo H.Hash v) => HashableTo H.Hash (T v) where
     getHash (Leaf v) = getHash v
     getHash (Node _ l r) = H.hashOfHashes (getHash l) (getHash r)
 
 -- | The hash of a LFMBTree is defined as the hash of the string "EmptyLFMBTree" if it
 -- is empty or the hash of the tree otherwise.
-instance HashableTo H.Hash v => HashableTo H.Hash (LFMBTree k v) where
+instance (HashableTo H.Hash v) => HashableTo H.Hash (LFMBTree k v) where
     getHash Empty = H.hash "EmptyLFMBTree"
     getHash (NonEmpty _ v) = getHash v
 
@@ -243,12 +243,12 @@ toAscList (NonEmpty _ t) = toListT t
 
 -- | Return the pairs (key, value) sorted by their keys. This list will contain
 -- all the elements starting on the index 0.
-toAscPairList :: Coercible k Word64 => LFMBTree k v -> [(k, v)]
+toAscPairList :: (Coercible k Word64) => LFMBTree k v -> [(k, v)]
 toAscPairList = zip (map coerce [0 :: Word64 ..]) . toList
 
 -- | If a tree contains values of type Maybe, a `Nothing` is considered a deletion.
 -- This function filters out the `Nothing` items and unwraps the `Just` items.
-toAscPairListMaybes :: Coercible k Word64 => LFMBTree k (Maybe v) -> [(k, v)]
+toAscPairListMaybes :: (Coercible k Word64) => LFMBTree k (Maybe v) -> [(k, v)]
 toAscPairListMaybes l = [(i, v) | (i, Just v) <- toAscPairList l]
 
 -- | Create a tree from a 'Foldable'. The items will be inserted sequentially
@@ -290,12 +290,12 @@ fromAscListMaybes l = fromList $ go l 0
 hashFromFoldable :: (Foldable f, HashableTo H.Hash v) => f v -> H.Hash
 hashFromFoldable = getHash . fromFoldable @Word64
 
--- |Hash a list of hashes in the LFMBTree format, using the specified hash for the empty tree.
--- This avoids building the full tree.
+-- | Hash a list of hashes in the LFMBTree format, using the specified hash for the empty tree.
+--  This avoids building the full tree.
 hashAsLFMBT ::
-    -- |Hash to use for empty list
+    -- | Hash to use for empty list
     H.Hash ->
-    -- |List of hashes to construct into Merkle tree
+    -- | List of hashes to construct into Merkle tree
     [H.Hash] ->
     H.Hash
 hashAsLFMBT e = go

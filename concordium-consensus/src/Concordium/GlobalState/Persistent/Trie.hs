@@ -8,12 +8,12 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |This module provides an implementation of indexes that may be persisted to
--- disk.  Keys in the index are effectively fixed-length byte strings.  The
--- index is implemented as a Trie, where each branching node has degree 256.
+-- | This module provides an implementation of indexes that may be persisted to
+--  disk.  Keys in the index are effectively fixed-length byte strings.  The
+--  index is implemented as a Trie, where each branching node has degree 256.
 --
--- TODO: It is likely desirable to replace this with a B-Tree in many applications,
--- especially where the keys are randomly distributed.
+--  TODO: It is likely desirable to replace this with a B-Tree in many applications,
+--  especially where the keys are randomly distributed.
 module Concordium.GlobalState.Persistent.Trie where
 
 import Control.Monad
@@ -53,20 +53,20 @@ import Concordium.GlobalState.Persistent.BlobStore (
 import Concordium.GlobalState.Persistent.MonadicRecursive
 
 class FixedTrieKey a where
-    -- |Unpack a key to a list of bytes.
-    -- The length of the list must be independent of the value.
+    -- | Unpack a key to a list of bytes.
+    --  The length of the list must be independent of the value.
     unpackKey :: a -> [Word8]
     default unpackKey :: (Serialize a) => a -> [Word8]
     unpackKey = BS.unpack . encode
 
-    -- |Pack a key from a list of bytes.
+    -- | Pack a key from a list of bytes.
     packKey :: [Word8] -> a
     default packKey :: (Serialize a) => [Word8] -> a
     packKey = fromRight (error "FixedTrieKey: deserialization failed") . decode . BS.pack
 
 instance FixedTrieKey Word64
 instance FixedTrieKey Word32
-instance FBS.FixedLength len => FixedTrieKey (FBS.FixedByteString len) where
+instance (FBS.FixedLength len) => FixedTrieKey (FBS.FixedByteString len) where
     unpackKey = FBS.unpack
     packKey = FBS.pack
 deriving via (FBS.FixedByteString SHA256.DigestSize) instance FixedTrieKey SHA256.Hash
@@ -81,8 +81,8 @@ instance FixedTrieKey IDTypes.RawCredentialRegistrationID where
     unpackKey (IDTypes.RawCredentialRegistrationID x) = FBS.unpack x
     packKey = IDTypes.RawCredentialRegistrationID . FBS.pack
 
--- |Class for Trie keys that respect the 'Ord' instance.
--- That is, @a `compare` b == unpackKey a `compare` unpackKey b@.
+-- | Class for Trie keys that respect the 'Ord' instance.
+--  That is, @a `compare` b == unpackKey a `compare` unpackKey b@.
 class (Ord a, FixedTrieKey a) => OrdFixedTrieKey a
 
 instance OrdFixedTrieKey Word64
@@ -91,34 +91,34 @@ deriving via Word64 instance OrdFixedTrieKey BakerId
 deriving via Word64 instance OrdFixedTrieKey DelegatorId
 deriving via Word64 instance OrdFixedTrieKey Timestamp
 
--- |A pair of an index and a sub-trie.
--- Branching in the Trie is on a 'Word8' in the key, which is referred to here as the index of
--- the sub-trie.
+-- | A pair of an index and a sub-trie.
+--  Branching in the Trie is on a 'Word8' in the key, which is referred to here as the index of
+--  the sub-trie.
 data BranchEntry r = BranchEntry
-    { -- |The index of the branch entry.
+    { -- | The index of the branch entry.
       beIndex :: {-# UNPACK #-} !Word8,
-      -- |The sub-trie itself.
+      -- | The sub-trie itself.
       beBranch :: !r
     }
     deriving (Show, Functor, Foldable, Traversable)
 
--- |Data structure representing the branches of the Trie.
+-- | Data structure representing the branches of the Trie.
 newtype Branches r = Branches
-    { -- |The branches, represented as an ordered array of pairs of indices and non-null values.
+    { -- | The branches, represented as an ordered array of pairs of indices and non-null values.
       theBranches :: Array.Array (BranchEntry r)
     }
     deriving (Show, Functor, Foldable, Traversable)
 
--- |Convert 'Branches' to a list. The list will have length 256 (i.e. the branching degree of
--- the Trie).
+-- | Convert 'Branches' to a list. The list will have length 256 (i.e. the branching degree of
+--  the Trie).
 branchesToList :: Branches r -> [Nullable r]
 branchesToList = mkl 0 . Foldable.toList . theBranches
   where
     mkl n [] = replicate (256 - n) Null
     mkl n (BranchEntry i v : r) = replicate (fromIntegral i - n) Null ++ Some v : mkl (fromIntegral i + 1) r
 
--- |Convert a list to 'Branches'. The list MUST have length 256 (i.e. the branching degree of
--- the Trie).
+-- | Convert a list to 'Branches'. The list MUST have length 256 (i.e. the branching degree of
+--  the Trie).
 branchesFromList :: [Nullable r] -> Branches r
 branchesFromList = Branches . Array.fromList . mkl 0
   where
@@ -126,19 +126,19 @@ branchesFromList = Branches . Array.fromList . mkl 0
     mkl !i (Null : r) = mkl (i + 1) r
     mkl !i (Some v : r) = BranchEntry i v : mkl (i + 1) r
 
--- |Convert a 'Branches' to a list of pairs of indices and (non-null) sub-tries.
+-- | Convert a 'Branches' to a list of pairs of indices and (non-null) sub-tries.
 branchesToPairs :: Branches r -> [(Word8, r)]
 branchesToPairs = map (\BranchEntry{..} -> (beIndex, beBranch)) . Foldable.toList . theBranches
 
--- |Get the branch at a particular index.
+-- | Get the branch at a particular index.
 branchAt :: Branches r -> Word8 -> Nullable r
 branchAt br i =
     case binarySearch beIndex (V.fromArray (theBranches br)) i of
         Nothing -> Null
         Just (BranchEntry _ v) -> Some v
 
--- |Update the branch at a particular index.
--- This is strict in the value.
+-- | Update the branch at a particular index.
+--  This is strict in the value.
 updateBranch :: Word8 -> Nullable r -> Branches r -> Branches r
 updateBranch i (Some v) = Branches . Array.fromList . updl . Foldable.toList . theBranches
   where
@@ -155,31 +155,31 @@ updateBranch i Null = Branches . Array.fromList . updl . Foldable.toList . theBr
         EQ -> r
         GT -> p : updl r
 
--- |Construct a 'Branches' with two given entries. The indexes of the entries must
--- be distinct.
+-- | Construct a 'Branches' with two given entries. The indexes of the entries must
+--  be distinct.
 pairBranch :: (Word8, r) -> (Word8, r) -> Branches r
 pairBranch (k1, v1) (k2, v2)
     | k1 <= k2 = Branches $ Array.fromListN 2 [BranchEntry k1 v1, BranchEntry k2 v2]
     | otherwise = Branches $ Array.fromListN 2 [BranchEntry k2 v2, BranchEntry k1 v1]
 
--- |Trie with keys all of same fixed length treated as lists of bytes.
--- The first parameter of 'TrieF' is the type of keys, which should
--- by an instance of 'FixedTrieKey'.
--- The second parameter is the type of values.
--- The third parameter is the recursive type argument: a type for Tries
--- is obtained by applying a fixed-point combinator to @TrieF k v@.
+-- | Trie with keys all of same fixed length treated as lists of bytes.
+--  The first parameter of 'TrieF' is the type of keys, which should
+--  by an instance of 'FixedTrieKey'.
+--  The second parameter is the type of values.
+--  The third parameter is the recursive type argument: a type for Tries
+--  is obtained by applying a fixed-point combinator to @TrieF k v@.
 data TrieF k v r
-    = -- |Branch on the next byte of the key (256, possibly null children)
+    = -- | Branch on the next byte of the key (256, possibly null children)
       Branch {-# UNPACK #-} !(Branches r)
-    | -- |The next bytes of the key are given
+    | -- | The next bytes of the key are given
       Stem {-# UNPACK #-} !SBS.ShortByteString !r
-    | -- |A value
+    | -- | A value
       Tip !v
     deriving (Show, Functor, Foldable, Traversable)
 
--- |Render a 'TrieF', where the children have already been rendered
--- as 'String's.
-showTrieFString :: Show v => TrieF k v String -> String
+-- | Render a 'TrieF', where the children have already been rendered
+--  as 'String's.
+showTrieFString :: (Show v) => TrieF k v String -> String
 showTrieFString (Branch vec) = "[ " ++ ss (0 :: Int) (branchesToList vec) ++ "]"
   where
     ss _ [] = ""
@@ -220,13 +220,13 @@ instance (Serialize r, Serialize (Nullable r), Serialize v) => Serialize (TrieF 
                         else return (fromIntegral (v - 3))
                 Stem <$> getShortByteString len <*> get
 
--- |The 'BlobStorable' format for 'TrieF' uses a single-byte tag that determines the constructor
--- and, in the 'Stem' case, may also encode information about the length.
--- In the 'Branch' case, the branches are represented as a list of 256 entries, some of which
--- may be null. While a more efficient representation would be possible where there are fewer
--- entries, currently this is not done to preserve compatibility.
--- TODO: Since all the keys we use are shorter than 251, we can repurpose higher tag numbers to
--- support more efficient branch representations.
+-- | The 'BlobStorable' format for 'TrieF' uses a single-byte tag that determines the constructor
+--  and, in the 'Stem' case, may also encode information about the length.
+--  In the 'Branch' case, the branches are represented as a list of 256 entries, some of which
+--  may be null. While a more efficient representation would be possible where there are fewer
+--  entries, currently this is not done to preserve compatibility.
+--  TODO: Since all the keys we use are shorter than 251, we can repurpose higher tag numbers to
+--  support more efficient branch representations.
 instance (BlobStorable m r, BlobStorable m (Nullable r), BlobStorable m v) => BlobStorable m (TrieF k v r) where
     storeUpdate (Branch vec) = do
         pvec <- mapM storeUpdate (branchesToList vec)
@@ -267,7 +267,7 @@ instance (Monad m, Cacheable m r, Cacheable m v) => Cacheable m (TrieF k v r) wh
     cache (Stem s r) = Stem s <$> cache r
     cache (Tip v) = Tip <$> cache v
 
--- |@Trie k v@ is defined as a simple fixed-point of @TrieF k v@.
+-- | @Trie k v@ is defined as a simple fixed-point of @TrieF k v@.
 newtype Trie k v = Trie (TrieF k v (Trie k v)) deriving (Show)
 
 type instance Base (Trie k v) = TrieF k v
@@ -292,9 +292,9 @@ instance Functor (Trie k) where
 -- The rolling and unrolling can correspond to simply adding or removing constructors
 -- (as for 'Trie'), but also correspond to creating and traversing disk references.
 
--- |Retrieve the value (if any) corresponding to a given key.
--- TODO: With bytestring-0.11.3.0 and later, the operations on 'SBS.ShortByteString' can
--- be used to implement this more efficiently without unpacking.
+-- | Retrieve the value (if any) corresponding to a given key.
+--  TODO: With bytestring-0.11.3.0 and later, the operations on 'SBS.ShortByteString' can
+--  be used to implement this more efficiently without unpacking.
 lookupF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k) => k -> t -> m (Maybe v)
 lookupF k = lu (unpackKey k) <=< mproject
   where
@@ -308,7 +308,7 @@ lookupF k = lu (unpackKey k) <=< mproject
         Null -> return Nothing
         Some r -> mproject r >>= lu key'
 
--- |Find the entry in the trie with the minimal key, returning the key and value.
+-- | Find the entry in the trie with the minimal key, returning the key and value.
 findMinF :: (MRecursive m t, Base t ~ TrieF k v, OrdFixedTrieKey k) => t -> m (k, v)
 findMinF = fm [] <=< mproject
   where
@@ -318,21 +318,21 @@ findMinF = fm [] <=< mproject
         (i, r) : _ -> fm (k <> [i]) =<< mproject r
         _ -> error "findMin: Empty branches in trie"
 
--- |An auxiliary datatype used by lookupPrefix.
+-- | An auxiliary datatype used by lookupPrefix.
 data FollowStemResult
     = -- | The key and the stem are equal.
       Equal
     | -- | Key is a strict prefix of the stem.
       KeyIsPrefix
-    | -- |Stem is a prefix of the key. The remaining key is returned. If it is empty
-      -- then key and stem are equal.
+    | -- | Stem is a prefix of the key. The remaining key is returned. If it is empty
+      --  then key and stem are equal.
       StemIsPrefix {remainingKey :: [Word8]}
-    | -- |The key and stem differ at some point.
+    | -- | The key and stem differ at some point.
       Diff
 
--- |Given the key (first argument) and stem (second argument) of the trie
--- compare them and return the result of the comparison. See 'FollowStem'
--- datatype documentation for the meaning of return values.
+-- | Given the key (first argument) and stem (second argument) of the trie
+--  compare them and return the result of the comparison. See 'FollowStem'
+--  datatype documentation for the meaning of return values.
 followStem :: [Word8] -> [Word8] -> FollowStemResult
 followStem = go
   where
@@ -342,8 +342,8 @@ followStem = go
     go [] (_ : _) = KeyIsPrefix
     go remainingKey [] = StemIsPrefix{..}
 
--- |Retrieve all the keys and values with the given prefix in the Trie.
--- In case of multiple return values the order of keys is not specified.
+-- | Retrieve all the keys and values with the given prefix in the Trie.
+--  In case of multiple return values the order of keys is not specified.
 lookupPrefixF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k) => [Word8] -> t -> m [(k, v)]
 lookupPrefixF ks = lu [] ks <=< mproject
   where
@@ -367,9 +367,9 @@ lookupPrefixF ks = lu [] ks <=< mproject
                 return (childList ++ acc)
         foldM handleBranch [] (branchesToPairs vec)
 
--- |Traverse the trie, applying a function to each key value pair and concatenating the
--- results monoidally.  Keys are traversed from lowest to highest in their byte-wise
--- representation.
+-- | Traverse the trie, applying a function to each key value pair and concatenating the
+--  results monoidally.  Keys are traversed from lowest to highest in their byte-wise
+--  representation.
 mapReduceF :: (MRecursive m t, Base t ~ TrieF k v, FixedTrieKey k, Monoid a) => (k -> v -> m a) -> t -> m a
 mapReduceF mfun = mr [] <=< mproject
   where
@@ -379,12 +379,12 @@ mapReduceF mfun = mr [] <=< mproject
         let handleBranch (i, r) = mr (keyPrefix ++ [i]) =<< mproject r
         mconcat <$> mapM handleBranch (branchesToPairs vec)
 
--- |Essentially 'mapReduceF', but the constraint implies that keys are traversed lowest to
--- highest with respect to their 'Ord' instance.
+-- | Essentially 'mapReduceF', but the constraint implies that keys are traversed lowest to
+--  highest with respect to their 'Ord' instance.
 mapReduceAscF :: (MRecursive m t, Base t ~ TrieF k v, OrdFixedTrieKey k, Monoid a) => (k -> v -> m a) -> t -> m a
 mapReduceAscF = mapReduceF
 
--- |Compute the common prefix and distinct suffixes of two lists.
+-- | Compute the common prefix and distinct suffixes of two lists.
 commonPrefix :: (Eq a) => [a] -> [a] -> ([a], [a], [a])
 commonPrefix [] [] = ([], [], [])
 commonPrefix l1@(h1 : t1) l2@(h2 : t2)
@@ -392,31 +392,31 @@ commonPrefix l1@(h1 : t1) l2@(h2 : t2)
     | otherwise = ([], l1, l2)
 commonPrefix l1 l2 = ([], l1, l2)
 
--- |Representation of an alteration to make in a map at some key.
+-- | Representation of an alteration to make in a map at some key.
 data Alteration v
-    = -- |Leave the value as it was
+    = -- | Leave the value as it was
       NoChange
-    | -- |Remove the entry
+    | -- | Remove the entry
       Remove
-    | -- |Insert or replace the old value with the given one
+    | -- | Insert or replace the old value with the given one
       Insert !v
 
--- |A generalised update function for updating the value of the map at a given key.
--- 'alterM' takes the key to alter and an update function.  The return value is @Nothing@
--- if the result would be an empty trie.
+-- | A generalised update function for updating the value of the map at a given key.
+--  'alterM' takes the key to alter and an update function.  The return value is @Nothing@
+--  if the result would be an empty trie.
 --
--- If the key is already present in the map, the update function is called with @Just v@;
--- otherwise it is called with @Nothing@.  The return value of the update function determines
--- whether the key is added, removed, or no change occurs.  The update operation is monadic,
--- which can allow for values to be stored as references, which are written out as part of the
--- update.  The update function can also return a value that is passed back to the caller.
+--  If the key is already present in the map, the update function is called with @Just v@;
+--  otherwise it is called with @Nothing@.  The return value of the update function determines
+--  whether the key is added, removed, or no change occurs.  The update operation is monadic,
+--  which can allow for values to be stored as references, which are written out as part of the
+--  update.  The update function can also return a value that is passed back to the caller.
 --
--- Note that, while @NoChange@ is theoretically redundant it provides an important optimisation
--- when the trie will be stored on disk: no writes are needed when no change is made.
+--  Note that, while @NoChange@ is theoretically redundant it provides an important optimisation
+--  when the trie will be stored on disk: no writes are needed when no change is made.
 --
--- The trie implementation is intended to be persistent in that the old trie will still be valid
--- and represent the same map after an update is made.  Thus, there is no explicit reclamation of
--- storage.
+--  The trie implementation is intended to be persistent in that the old trie will still be valid
+--  and represent the same map after an update is made.  Thus, there is no explicit reclamation of
+--  storage.
 alterM :: forall m t k v a. (MRecursive m t, MCorecursive m t, Base t ~ TrieF k v, FixedTrieKey k) => k -> (Maybe v -> m (a, Alteration v)) -> t -> m (a, Maybe t)
 alterM k upd pt0 = do
     t0 <- mproject pt0
@@ -482,14 +482,14 @@ alterM k upd pt0 = do
                     update res pref' branches
                 (res, _) -> nochange res
 
--- |A trie constructed using the specified fixed-point combinator.
+-- | A trie constructed using the specified fixed-point combinator.
 data TrieN fix k v
-    = -- |The empty trie
+    = -- | The empty trie
       EmptyTrieN
-    | -- |A non empty trie with its size
+    | -- | A non empty trie with its size
       TrieN !Int !(fix (TrieF k v))
 
--- |Migrate a trie from one blob store to another.
+-- | Migrate a trie from one blob store to another.
 migrateTrieN ::
     forall v1 v2 k m t.
     (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
@@ -530,7 +530,7 @@ migrateTrieF cacheNew f (Branch branches) = do
         return $! BufferedFix childRefFlushed
     return $! Branch newBranches
 
--- |Migrate a trie from one blob store to another.
+-- | Migrate a trie from one blob store to another.
 migrateUnbufferedTrieN ::
     forall v1 v2 k m t.
     (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
@@ -580,15 +580,15 @@ instance (BlobStorable m (fix (TrieF k v)), BlobStorable m v, Base (fix (TrieF k
                 mt <- load
                 return $! (TrieN size <$> mt)
 
--- |The empty trie.
+-- | The empty trie.
 empty :: TrieN fix k v
 empty = EmptyTrieN
 
--- |A singleton trie.
+-- | A singleton trie.
 singleton :: (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => k -> v -> m (TrieN fix k v)
 singleton k v = membed (Tip v) >>= membed . (Stem (SBS.pack $ unpackKey k)) >>= return . (TrieN 1)
 
--- |Insert/update a given key.
+-- | Insert/update a given key.
 insert ::
     (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     k ->
@@ -605,7 +605,7 @@ insert k v (TrieN s t) = do
         Just t' -> return $! TrieN (if inc then s + 1 else s) t'
         Nothing -> return EmptyTrieN
 
--- |Remove a given key.
+-- | Remove a given key.
 delete ::
     (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     k ->
@@ -621,18 +621,18 @@ delete k (TrieN s t) = do
         Just t' -> return $! TrieN (if dec then s - 1 else s) t'
         Nothing -> return EmptyTrieN
 
--- |Lookup the value at a given key.
+-- | Lookup the value at a given key.
 lookup :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => k -> TrieN fix k v -> m (Maybe v)
 lookup _ EmptyTrieN = return Nothing
 lookup k (TrieN _ t) = lookupF k t
 
--- |Given a key prefix, look up all the keys and values where the key has the prefix.
--- In case of multiple return values the order of keys is not specified.
+-- | Given a key prefix, look up all the keys and values where the key has the prefix.
+--  In case of multiple return values the order of keys is not specified.
 lookupPrefix :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => [Word8] -> TrieN fix k v -> m [(k, v)]
 lookupPrefix _ EmptyTrieN = return []
 lookupPrefix k (TrieN _ t) = lookupPrefixF k t
 
--- |Alter the value at a particular key.
+-- | Alter the value at a particular key.
 adjust ::
     (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     (Maybe v -> m (a, Alteration v)) ->
@@ -656,8 +656,8 @@ adjust adj k (TrieN s t) = do
         Just t' -> return (res, TrieN s' t')
         Nothing -> return (res, EmptyTrieN)
 
--- |Apply a monadic filter on a Trie.
--- TODO: This could be made more performant.
+-- | Apply a monadic filter on a Trie.
+--  TODO: This could be made more performant.
 filterKeysM ::
     (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     (k -> m Bool) ->
@@ -668,9 +668,9 @@ filterKeysM f t = do
     keysToDelete <- filterM (fmap not . f) k
     foldM (flip delete) t keysToDelete
 
--- |Apply a monadic alteration to each element of a Trie.
--- The update function will be called once for each entry in the Trie.
--- The order is not specified.
+-- | Apply a monadic alteration to each element of a Trie.
+--  The update function will be called once for each entry in the Trie.
+--  The order is not specified.
 alterMapM ::
     (MRecursive m (fix (TrieF k v)), MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) =>
     (k -> v -> m (Alteration v)) ->
@@ -684,31 +684,31 @@ alterMapM upd t0 = do
         doAlteration t (k, Insert v) = insert k v t
     foldM doAlteration t0 alterations
 
--- |Get the list of keys of a trie.
+-- | Get the list of keys of a trie.
 keys :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [k]
 keys EmptyTrieN = return []
 keys (TrieN _ t) = mapReduceF (\k _ -> pure [k]) t
 
--- |Get the list of keys of a trie in ascending order.
+-- | Get the list of keys of a trie in ascending order.
 keysAsc :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, OrdFixedTrieKey k) => TrieN fix k v -> m [k]
 keysAsc = keys
 
--- |Find the entry in the trie with the minimal key, returning the key and value. Returns 'Nothing'
--- if the trie is empty.
+-- | Find the entry in the trie with the minimal key, returning the key and value. Returns 'Nothing'
+--  if the trie is empty.
 findMin :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, OrdFixedTrieKey k) => TrieN fix k v -> m (Maybe (k, v))
 findMin EmptyTrieN = return Nothing
 findMin (TrieN _ t) = Just <$!> findMinF t
 
--- |Get the list of keys and values in the trie.
+-- | Get the list of keys and values in the trie.
 toList :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => TrieN fix k v -> m [(k, v)]
 toList EmptyTrieN = return []
 toList (TrieN _ t) = mapReduceF (\k v -> pure [(k, v)]) t
 
--- |Get the list of keys and values in the trie in ascending order of keys.
+-- | Get the list of keys and values in the trie in ascending order of keys.
 toAscList :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, OrdFixedTrieKey k) => TrieN fix k v -> m [(k, v)]
 toAscList = toList
 
--- |Convert from a trie using 'Fix' (i.e. direct unrolling) to a trie using a different fixpoint combinator.
+-- | Convert from a trie using 'Fix' (i.e. direct unrolling) to a trie using a different fixpoint combinator.
 fromTrie :: forall m fix k v. (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v) => TrieN Fix k v -> m (TrieN fix k v)
 fromTrie EmptyTrieN = return EmptyTrieN
 fromTrie (TrieN s t) = do
@@ -720,13 +720,13 @@ fromTrie (TrieN s t) = do
         t1 <- mapM conv (project t0)
         membed t1
 
--- |Construct a trie from a list. (The order is not important.)
+-- | Construct a trie from a list. (The order is not important.)
 fromList :: (MCorecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k) => [(k, v)] -> m (TrieN fix k v)
 fromList l = do
     t <- foldM (\tt (k, v) -> insert k v tt) empty l
     fromTrie t
 
--- |Convert a trie to a 'Map'.
+-- | Convert a trie to a 'Map'.
 toMap :: (MRecursive m (fix (TrieF k v)), Base (fix (TrieF k v)) ~ TrieF k v, FixedTrieKey k, Ord k) => TrieN fix k v -> m (Map.Map k v)
 toMap EmptyTrieN = return Map.empty
 toMap (TrieN _ t) = mapReduceF (\k v -> return (Map.singleton k v)) t

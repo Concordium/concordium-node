@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies #-}
 
--- |This module provides high-level entrypoints for the version 1 consensus.
+-- | This module provides high-level entrypoints for the version 1 consensus.
 module Concordium.KonsensusV1 where
 
 import Control.Monad
@@ -33,10 +33,10 @@ import Concordium.TimerMonad
 import Concordium.Types
 import Concordium.Types.Parameters
 
--- |Handle receiving a finalization message (either a 'QuorumMessage' or a 'TimeoutMessage').
--- Returns @Left res@ in the event of a failure, with the appropriate failure code.
--- Otherwise, returns @Right followup@, in which case the message should be relayed to peers
--- and the @followup@ action invoked (while retaining the global state lock).
+-- | Handle receiving a finalization message (either a 'QuorumMessage' or a 'TimeoutMessage').
+--  Returns @Left res@ in the event of a failure, with the appropriate failure code.
+--  Otherwise, returns @Right followup@, in which case the message should be relayed to peers
+--  and the @followup@ action invoked (while retaining the global state lock).
 receiveFinalizationMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
@@ -80,7 +80,7 @@ receiveFinalizationMessage (FMTimeoutMessage tm) = do
         Timeout.CatchupRequired -> return $ Left ResultUnverifiable
         Timeout.ConsensusShutdown -> return $ Left ResultConsensusShutDown
 
--- |Convert an 'Transactions.AddTransactionResult' to the corresponding 'UpdateResult'.
+-- | Convert an 'Transactions.AddTransactionResult' to the corresponding 'UpdateResult'.
 addTransactionResult :: Transactions.AddTransactionResult -> UpdateResult
 addTransactionResult Transactions.Duplicate{} = ResultDuplicate
 addTransactionResult Transactions.Added{} = ResultSuccess
@@ -88,11 +88,11 @@ addTransactionResult Transactions.ObsoleteNonce{} = ResultStale
 addTransactionResult (Transactions.NotAdded verRes) =
     transactionVerificationResultToUpdateResult verRes
 
--- |Force a purge of the transaction table.
+-- | Force a purge of the transaction table.
 purgeTransactions :: (TimeMonad m, MonadState (SkovData pv) m) => m ()
 purgeTransactions = purgeTransactionTable True =<< currentTime
 
--- |Start the timeout timer and trigger baking (if possible).
+-- | Start the timeout timer and trigger baking (if possible).
 startEvents ::
     ( MonadReader r m,
       HasBakerContext r,
@@ -121,18 +121,18 @@ startEvents = do
             resetTimerWithCurrentTimeout
             makeBlock
 
--- |Get the block state of the terminal block.
--- This MUST only be called once the consensus is in shutdown.
-getTerminalBlockState :: MonadState (SkovData (MPV m)) m => m (PBS.HashedPersistentBlockState (MPV m))
+-- | Get the block state of the terminal block.
+--  This MUST only be called once the consensus is in shutdown.
+getTerminalBlockState :: (MonadState (SkovData (MPV m)) m) => m (PBS.HashedPersistentBlockState (MPV m))
 getTerminalBlockState =
     use terminalBlock <&> \case
         Absent -> error "Consensus was expected to be shut down, but terminal block is not present."
         Present terminal -> bpState terminal
 
--- |Archive blockstate, update the focus block and clear out non-finalized and pending blocks.
--- This SHOULD NOT be called unless the consensus is in shutdown.
--- This returns the transaction table and the pending transaction table (which is with respect to
--- the last finalized block).
+-- | Archive blockstate, update the focus block and clear out non-finalized and pending blocks.
+--  This SHOULD NOT be called unless the consensus is in shutdown.
+--  This returns the transaction table and the pending transaction table (which is with respect to
+--  the last finalized block).
 clearSkov ::
     ( MonadState (SkovData (MPV m)) m
     ) =>
@@ -148,9 +148,9 @@ clearSkov = do
     ptt <- use pendingTransactionTable
     return (tt, ptt)
 
--- |Clear up the remaining state that is not required after migration to a new protocol version.
--- This clears the transaction table and pending transactions, ensures that the block states are
--- archived, and collapses the block state caches.
+-- | Clear up the remaining state that is not required after migration to a new protocol version.
+--  This clears the transaction table and pending transactions, ensures that the block states are
+--  archived, and collapses the block state caches.
 terminateSkov ::
     ( MonadState (SkovData (MPV m)) m,
       BlockState m ~ HashedPersistentBlockState (MPV m),

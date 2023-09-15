@@ -44,30 +44,30 @@ instance HashableTo H.Hash FullBakerInfo where
     getHash = H.hash . encode
 
 data FullBakers = FullBakers
-    { -- |All bakers in ascending order of BakerId.
+    { -- | All bakers in ascending order of BakerId.
       fullBakerInfos :: !(Vec.Vector FullBakerInfo),
-      -- |The total stake of all bakers.
+      -- | The total stake of all bakers.
       bakerTotalStake :: !Amount
     }
     deriving (Eq, Show)
 
--- |Serialize 'FullBakers'. This is used in updating the leadership election nonce for a new epoch.
--- The serialization format is:
+-- | Serialize 'FullBakers'. This is used in updating the leadership election nonce for a new epoch.
+--  The serialization format is:
 --
--- * Number of bakers (64 bit, big endian)
--- * For each baker in ascending order of baker ID:
---     * Baker ID
---     * Election (VRF) public key
---     * Signature public key
---     * Aggregate signature public key
---     * Effective stake amount of the baker
+--  * Number of bakers (64 bit, big endian)
+--  * For each baker in ascending order of baker ID:
+--      * Baker ID
+--      * Election (VRF) public key
+--      * Signature public key
+--      * Aggregate signature public key
+--      * Effective stake amount of the baker
 putFullBakers :: Putter FullBakers
 putFullBakers FullBakers{..} = do
     putLength (Vec.length fullBakerInfos)
     mapM_ put fullBakerInfos
 
--- |Look up a baker by its identifier.
--- This is implemented with binary search.
+-- | Look up a baker by its identifier.
+--  This is implemented with binary search.
 fullBaker :: FullBakers -> BakerId -> Maybe FullBakerInfo
 fullBaker FullBakers{..} = binarySearch (_bakerIdentity . _theBakerInfo) fullBakerInfos
 
@@ -76,7 +76,7 @@ lotteryBaker fbs bid = lp <$> fullBaker fbs bid
   where
     lp fb = (fb ^. bakerInfo, fb ^. bakerStake % bakerTotalStake fbs)
 
--- |'FullBakerInfo' plus the baker's 'CommissionRates'.
+-- | 'FullBakerInfo' plus the baker's 'CommissionRates'.
 data FullBakerInfoEx = FullBakerInfoEx
     { _exFullBakerInfo :: !FullBakerInfo,
       _bakerPoolCommissionRates :: !CommissionRates
@@ -91,32 +91,32 @@ instance HasFullBakerInfo FullBakerInfoEx where
 instance HasBakerInfo FullBakerInfoEx where
     bakerInfo = exFullBakerInfo . theBakerInfo
 
--- |An extended version of 'FullBakers' that includes commission rates.
--- This is used for handling rewards in P4 onwards.
+-- | An extended version of 'FullBakers' that includes commission rates.
+--  This is used for handling rewards in P4 onwards.
 data FullBakersEx = FullBakersEx
-    { -- |All bakers in ascending order of BakerId.
+    { -- | All bakers in ascending order of BakerId.
       bakerInfoExs :: !(Vec.Vector FullBakerInfoEx),
-      -- |The total stake of all bakers.
+      -- | The total stake of all bakers.
       bakerPoolTotalStake :: !Amount
     }
     deriving (Eq, Show)
 
 data BakerKeyUpdate = BakerKeyUpdate
-    { -- |New public sign key
+    { -- | New public sign key
       bkuSignKey :: !BakerSignVerifyKey,
-      -- |New public aggregation key
+      -- | New public aggregation key
       bkuAggregationKey :: !BakerAggregationVerifyKey,
-      -- |New public election key
+      -- | New public election key
       bkuElectionKey :: !BakerElectionVerifyKey
     }
     deriving (Eq, Ord, Show)
 
 data BakerKeyUpdateResult
-    = -- |The keys were updated successfully
+    = -- | The keys were updated successfully
       BKUSuccess !BakerId
-    | -- |The account is not currently a baker
+    | -- | The account is not currently a baker
       BKUInvalidBaker
-    | -- |The aggregation key is a duplicate
+    | -- | The aggregation key is a duplicate
       BKUDuplicateAggregationKey
     deriving (Eq, Ord, Show)
 
@@ -130,53 +130,53 @@ bakerKeyUpdateToInfo _bakerIdentity BakerKeyUpdate{..} =
         }
 
 data BakerStakeUpdateResult
-    = -- |The stake was increased. (Takes effect in epoch after next.)
+    = -- | The stake was increased. (Takes effect in epoch after next.)
       BSUStakeIncreased !BakerId
-    | -- |The stake was reduced, effective from the given epoch.
+    | -- | The stake was reduced, effective from the given epoch.
       BSUStakeReduced !BakerId !Epoch
-    | -- |The stake was not changed. (Either no change was specified, or the amount was identical.)
+    | -- | The stake was not changed. (Either no change was specified, or the amount was identical.)
       BSUStakeUnchanged !BakerId
-    | -- |The specified baker was not valid.
+    | -- | The specified baker was not valid.
       BSUInvalidBaker
-    | -- |A stake change is already pending, so the change could not be made.
+    | -- | A stake change is already pending, so the change could not be made.
       BSUChangePending !BakerId
-    | -- |Tried to update the stake under the threshold specified in current chain parameters.
+    | -- | Tried to update the stake under the threshold specified in current chain parameters.
       BSUStakeUnderThreshold
     deriving (Eq, Ord, Show)
 
 data BakerRestakeEarningsUpdateResult
-    = -- |The flag was updated.
+    = -- | The flag was updated.
       BREUUpdated !BakerId
-    | -- |The specified baker was not valid.
+    | -- | The specified baker was not valid.
       BREUInvalidBaker
     deriving (Eq, Ord, Show)
 
 data BakerAdd = BakerAdd
-    { -- |The keys for the baker.
+    { -- | The keys for the baker.
       baKeys :: !BakerKeyUpdate,
-      -- |The initial stake.
+      -- | The initial stake.
       baStake :: !Amount,
-      -- |Whether to restake GTU earned from rewards.
+      -- | Whether to restake GTU earned from rewards.
       baStakeEarnings :: !Bool
     }
     deriving (Eq, Ord, Show)
 
 data BakerAddResult
-    = -- |Adding baker successful.
+    = -- | Adding baker successful.
       BASuccess !BakerId
-    | -- |Account unknown.
+    | -- | Account unknown.
       BAInvalidAccount
-    | -- |The account is already registered as a baker.
+    | -- | The account is already registered as a baker.
       BAAlreadyBaker !BakerId
-    | -- |The aggregation key already exists.
+    | -- | The aggregation key already exists.
       BADuplicateAggregationKey
-    | -- |The stake is below the required threshold dictated by current chain parameters.
+    | -- | The stake is below the required threshold dictated by current chain parameters.
       BAStakeUnderThreshold
     deriving (Eq, Ord, Show)
 
--- |Data structure used to add/remove/update baker.
+-- | Data structure used to add/remove/update baker.
 data BakerConfigure
-    = -- |Add a baker, all fields are required.
+    = -- | Add a baker, all fields are required.
       BakerConfigureAdd
         { bcaKeys :: !BakerKeyUpdate,
           bcaCapital :: !Amount,
@@ -187,9 +187,9 @@ data BakerConfigure
           bcaBakingRewardCommission :: !AmountFraction,
           bcaFinalizationRewardCommission :: !AmountFraction
         }
-    | -- |Update baker with optional fields.
+    | -- | Update baker with optional fields.
       BakerConfigureUpdate
-        { -- |The timestamp of the current slot (slot time).
+        { -- | The timestamp of the current slot (slot time).
           bcuSlotTimestamp :: !Timestamp,
           bcuKeys :: !(Maybe BakerKeyUpdate),
           bcuCapital :: !(Maybe Amount),
@@ -202,8 +202,8 @@ data BakerConfigure
         }
     deriving (Eq, Show)
 
--- |A baker update change result from configure baker. Used to indicate whether the configure will cause
--- any changes to the baker's stake, keys, etc.
+-- | A baker update change result from configure baker. Used to indicate whether the configure will cause
+--  any changes to the baker's stake, keys, etc.
 data BakerConfigureUpdateChange
     = BakerConfigureStakeIncreased !Amount
     | BakerConfigureStakeReduced !Amount
@@ -216,49 +216,49 @@ data BakerConfigureUpdateChange
     | BakerConfigureFinalizationRewardCommission !AmountFraction
     deriving (Eq, Show)
 
--- |Result of configure baker.
+-- | Result of configure baker.
 data BakerConfigureResult
-    = -- |Configure baker successful.
+    = -- | Configure baker successful.
       BCSuccess ![BakerConfigureUpdateChange] !BakerId
-    | -- |Account unknown.
+    | -- | Account unknown.
       BCInvalidAccount
-    | -- |The aggregation key already exists.
+    | -- | The aggregation key already exists.
       BCDuplicateAggregationKey !BakerAggregationVerifyKey
-    | -- |The stake is below the required threshold dictated by current chain parameters.
+    | -- | The stake is below the required threshold dictated by current chain parameters.
       BCStakeUnderThreshold
-    | -- |The finalization reward commission is not in the allowed range.
+    | -- | The finalization reward commission is not in the allowed range.
       BCFinalizationRewardCommissionNotInRange
-    | -- |The baking reward commission is not in the allowed range.
+    | -- | The baking reward commission is not in the allowed range.
       BCBakingRewardCommissionNotInRange
-    | -- |The transaction fee commission is not in the allowed range.
+    | -- | The transaction fee commission is not in the allowed range.
       BCTransactionFeeCommissionNotInRange
-    | -- |A change is already pending on this baker.
+    | -- | A change is already pending on this baker.
       BCChangePending
-    | -- |This is not a valid baker.
+    | -- | This is not a valid baker.
       BCInvalidBaker
     deriving (Eq, Show)
 
--- |Result of remove baker.
+-- | Result of remove baker.
 data BakerRemoveResult
-    = -- |The baker was removed, effective from the given epoch.
+    = -- | The baker was removed, effective from the given epoch.
       BRRemoved !BakerId !Epoch
-    | -- |This is not a valid baker.
+    | -- | This is not a valid baker.
       BRInvalidBaker
-    | -- |A change is already pending on this baker.
+    | -- | A change is already pending on this baker.
       BRChangePending !BakerId
     deriving (Eq, Ord, Show)
 
--- |Data structure used to add/remove/update delegator.
+-- | Data structure used to add/remove/update delegator.
 data DelegationConfigure
-    = -- |Add a delegator, all fields are required.
+    = -- | Add a delegator, all fields are required.
       DelegationConfigureAdd
         { dcaCapital :: !Amount,
           dcaRestakeEarnings :: !Bool,
           dcaDelegationTarget :: !DelegationTarget
         }
-    | -- |Update delegator with optional fields.
+    | -- | Update delegator with optional fields.
       DelegationConfigureUpdate
-        { -- |The timestamp of the current slot (slot time of the block in which the update occurs).
+        { -- | The timestamp of the current slot (slot time of the block in which the update occurs).
           dcuSlotTimestamp :: !Timestamp,
           dcuCapital :: !(Maybe Amount),
           dcuRestakeEarnings :: !(Maybe Bool),
@@ -266,8 +266,8 @@ data DelegationConfigure
         }
     deriving (Eq, Show)
 
--- |A delegation update change result from configure delegation. Used to indicate whether the
--- configure will cause any changes to the delegator's stake, restake earnings flag, etc.
+-- | A delegation update change result from configure delegation. Used to indicate whether the
+--  configure will cause any changes to the delegator's stake, restake earnings flag, etc.
 data DelegationConfigureUpdateChange
     = DelegationConfigureStakeIncreased !Amount
     | DelegationConfigureStakeReduced !Amount
@@ -275,29 +275,29 @@ data DelegationConfigureUpdateChange
     | DelegationConfigureDelegationTarget !DelegationTarget
     deriving (Eq, Show)
 
--- |Result of configure delegator.
+-- | Result of configure delegator.
 data DelegationConfigureResult
-    = -- |Configure delegation successful.
+    = -- | Configure delegation successful.
       DCSuccess ![DelegationConfigureUpdateChange] !DelegatorId
-    | -- |Account unknown.
+    | -- | Account unknown.
       DCInvalidAccount
-    | -- |A change is already pending on this delegator.
+    | -- | A change is already pending on this delegator.
       DCChangePending
-    | -- |This is not a valid delegator.
+    | -- | This is not a valid delegator.
       DCInvalidDelegator
-    | -- |Delegation target is not a valid baker.
+    | -- | Delegation target is not a valid baker.
       DCInvalidDelegationTarget !BakerId
-    | -- |The pool is not open for delegators.
+    | -- | The pool is not open for delegators.
       DCPoolClosed
-    | -- |The pool's total capital would become too large.
+    | -- | The pool's total capital would become too large.
       DCPoolStakeOverThreshold
-    | -- |The delegated capital would become too large in comparison with pool owner's equity capital.
+    | -- | The delegated capital would become too large in comparison with pool owner's equity capital.
       DCPoolOverDelegated
     deriving (Eq, Show)
 
--- |Construct an 'AccountBaker' from a 'GenesisBaker'.
--- For 'P4', this creates the baker with the initial pool status being open for all, the
--- empty metadata URL and the maximum commission rates allowable under the chain parameters.
+-- | Construct an 'AccountBaker' from a 'GenesisBaker'.
+--  For 'P4', this creates the baker with the initial pool status being open for all, the
+--  empty metadata URL and the maximum commission rates allowable under the chain parameters.
 genesisBakerInfo :: forall pv. SProtocolVersion pv -> ChainParameters pv -> GenesisBaker -> AccountBaker (AccountVersionFor pv)
 genesisBakerInfo spv cp baker@GenesisBaker{..} = AccountBaker{..}
   where
@@ -306,9 +306,9 @@ genesisBakerInfo spv cp baker@GenesisBaker{..} = AccountBaker{..}
     _accountBakerInfo = genesisBakerInfoEx spv cp baker
     _bakerPendingChange = NoChange
 
--- |Construct an 'BakerInfoEx' from a 'GenesisBaker'.
--- For 'P4', this creates the baker with the initial pool status being open for all, the
--- empty metadata URL and the maximum commission rates allowable under the chain parameters.
+-- | Construct an 'BakerInfoEx' from a 'GenesisBaker'.
+--  For 'P4', this creates the baker with the initial pool status being open for all, the
+--  empty metadata URL and the maximum commission rates allowable under the chain parameters.
 genesisBakerInfoEx :: forall pv. SProtocolVersion pv -> ChainParameters pv -> GenesisBaker -> BakerInfoEx (AccountVersionFor pv)
 genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
     SP1 -> BakerInfoExV0 bkrInfo

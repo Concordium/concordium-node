@@ -33,7 +33,7 @@ import Concordium.Wasm
 import qualified SchedulerTests.Helpers as Helpers
 
 initialBlockState ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM

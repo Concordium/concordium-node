@@ -33,16 +33,16 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
--- |Ensure that the given certified block is written to the low-level database.
--- Check if the certified block causes its parent to become finalized.
--- If so, the block and its ancestors are finalized, the tree is pruned to the decendants of the
--- new last finalized block, and, if applicable, the epoch is advanced.
--- If the block is already written, then it is assumed that it has already been processed in this
--- manner, and so no further action is taken. (Normally, `processCertifiedBlock` should not be
--- called on a block that is already finalized, but it can happen if a roll-back occurred at
--- start up.)
+-- | Ensure that the given certified block is written to the low-level database.
+--  Check if the certified block causes its parent to become finalized.
+--  If so, the block and its ancestors are finalized, the tree is pruned to the decendants of the
+--  new last finalized block, and, if applicable, the epoch is advanced.
+--  If the block is already written, then it is assumed that it has already been processed in this
+--  manner, and so no further action is taken. (Normally, `processCertifiedBlock` should not be
+--  called on a block that is already finalized, but it can happen if a roll-back occurred at
+--  start up.)
 --
--- This function incorporates the functionality of @checkFinality@ from the bluepaper.
+--  This function incorporates the functionality of @checkFinality@ from the bluepaper.
 processCertifiedBlock ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
@@ -56,7 +56,7 @@ processCertifiedBlock ::
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>
-    -- |The newly-certified block.
+    -- | The newly-certified block.
     CertifiedBlock (MPV m) ->
     m ()
 processCertifiedBlock cb@CertifiedBlock{..}
@@ -164,11 +164,11 @@ catchupFinalizationEntry finEntry = do
 
 -- |Process a finalization entry that finalizes a block that is not currently considered finalized.
 --
--- PRECONDITION:
---  * The block is live and not already finalized.
---  * The finalization entry is valid.
---  * The block is at most one epoch later than the last finalized block. (This is implied by
---    the block being live.)
+--  PRECONDITION:
+--   * The block is live and not already finalized.
+--   * The finalization entry is valid.
+--   * The block is at most one epoch later than the last finalized block. (This is implied by
+--     the block being live.)
 processFinalizationEntry ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
@@ -181,16 +181,16 @@ processFinalizationEntry ::
       MonadLogger m,
       IsConsensusV1 (MPV m)
     ) =>
-    -- |Pointer to the block that is finalized.
+    -- | Pointer to the block that is finalized.
     BlockPointer (MPV m) ->
-    -- |Finalization entry for the block.
+    -- | Finalization entry for the block.
     FinalizationEntry ->
     m ()
 processFinalizationEntry newFinalizedPtr newFinalizationEntry =
     processFinalizationHelper newFinalizedPtr newFinalizationEntry Nothing
 
--- |Write a block's state out to the block state database and construct a 'LowLevel.StoredBlock'
--- that can be written to the tree state database.
+-- | Write a block's state out to the block state database and construct a 'LowLevel.StoredBlock'
+--  that can be written to the tree state database.
 makeStoredBlock ::
     ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       BlockStateStorage m
@@ -206,14 +206,14 @@ makeStoredBlock blockPtr = do
               stbStatePointer = statePointer
             }
 
--- |Process the finalization of a block. The block must be live (not finalized) and the finalization
--- entry must be a valid finalization entry for the block.
+-- | Process the finalization of a block. The block must be live (not finalized) and the finalization
+--  entry must be a valid finalization entry for the block.
 --
--- The new finalized block MUST be at most one epoch later than the prior last finalized block.
+--  The new finalized block MUST be at most one epoch later than the prior last finalized block.
 --
--- This optionally takes the certified block following the newly-finalized block as a parameter.
--- If this is provided, the certified block and its QC are written to the tree state database
--- together with updating the finalized block and transaction indexes.
+--  This optionally takes the certified block following the newly-finalized block as a parameter.
+--  If this is provided, the certified block and its QC are written to the tree state database
+--  together with updating the finalized block and transaction indexes.
 processFinalizationHelper ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
@@ -227,11 +227,11 @@ processFinalizationHelper ::
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>
-    -- |The newly finalized block.
+    -- | The newly finalized block.
     BlockPointer (MPV m) ->
-    -- |Finalization entry for the block.
+    -- | Finalization entry for the block.
     FinalizationEntry ->
-    -- |Optional newly-certified block to write to the low-level store.
+    -- | Optional newly-certified block to write to the low-level store.
     Maybe (CertifiedBlock (MPV m)) ->
     m ()
 {-# INLINE processFinalizationHelper #-}
@@ -340,27 +340,27 @@ processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock
                 ++ show (blockHeight block)
     onFinalize newFinalizationEntry prFinalized
 
--- |Advance the current epoch if the new finalized block indicates that it is necessary.
--- This is deemed to be the case if the following hold:
+-- | Advance the current epoch if the new finalized block indicates that it is necessary.
+--  This is deemed to be the case if the following hold:
 --
---  * The block is in the current epoch; and
+--   * The block is in the current epoch; and
 --
---  * The block timestamp is past the epoch transition time, as indicated by the
---    'epochTransitionTriggered' flag in the block's seed state.
+--   * The block timestamp is past the epoch transition time, as indicated by the
+--     'epochTransitionTriggered' flag in the block's seed state.
 --
--- Note: the implementation here relies on not skipping epochs. In particular, when a block is
--- finalized, it must either be in the current epoch or the previous epoch. (The latter can occur
--- if we have seen a QC on a block that justifies finalization of a trigger block, causing us to
--- advance the epoch, but others did not see it and moved on.)
+--  Note: the implementation here relies on not skipping epochs. In particular, when a block is
+--  finalized, it must either be in the current epoch or the previous epoch. (The latter can occur
+--  if we have seen a QC on a block that justifies finalization of a trigger block, causing us to
+--  advance the epoch, but others did not see it and moved on.)
 checkedAdvanceEpoch ::
     ( MonadState (SkovData (MPV m)) m,
       IsConsensusV1 (MPV m),
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       BlockStateQuery m
     ) =>
-    -- |Finalization entry.
+    -- | Finalization entry.
     FinalizationEntry ->
-    -- |The block that becomes finalized.
+    -- | The block that becomes finalized.
     BlockPointer (MPV m) ->
     m ()
 checkedAdvanceEpoch finEntry newFinalizedBlock = do
@@ -374,7 +374,7 @@ checkedAdvanceEpoch finEntry newFinalizedBlock = do
   where
     finState = bpState newFinalizedBlock
 
--- |Get the computed 'BakersAndFinalizers' for the next epoch from a given block state.
+-- | Get the computed 'BakersAndFinalizers' for the next epoch from a given block state.
 getNextEpochBakersAndFinalizers ::
     ( IsConsensusV1 (MPV m),
       BlockStateQuery m
@@ -386,10 +386,10 @@ getNextEpochBakersAndFinalizers finState = do
     nextFCParams <- getNextEpochFinalizationCommitteeParameters finState
     return $! computeBakersAndFinalizers nextFullBakers nextFCParams
 
--- |Update the 'epochBakers' to be relative to the new last finalized block.
--- This only updates the bakers if the new last finalized block is in the next epoch from the
--- previous last finalized block. The new last finalized block MUST be at most one epoch after the
--- previous one.
+-- | Update the 'epochBakers' to be relative to the new last finalized block.
+--  This only updates the bakers if the new last finalized block is in the next epoch from the
+--  previous last finalized block. The new last finalized block MUST be at most one epoch after the
+--  previous one.
 checkedAdvanceEpochBakers ::
     ( IsConsensusV1 (MPV m),
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
@@ -397,9 +397,9 @@ checkedAdvanceEpochBakers ::
       BlockStateQuery m,
       HasEpochBakers s
     ) =>
-    -- |The previous last finalized block.
+    -- | The previous last finalized block.
     BlockPointer (MPV m) ->
-    -- |The new last finalized block.
+    -- | The new last finalized block.
     BlockPointer (MPV m) ->
     m ()
 checkedAdvanceEpochBakers oldFinalizedBlock newFinalizedBlock
@@ -427,30 +427,30 @@ checkedAdvanceEpochBakers oldFinalizedBlock newFinalizedBlock
     newEpoch = blockEpoch newFinalizedBlock
     finState = bpState newFinalizedBlock
 
--- |A result of 'pruneBranches'.
+-- | A result of 'pruneBranches'.
 data PruneResult bp = PruneResult
-    { -- |Blocks that should be removed as a result of pruning.
+    { -- | Blocks that should be removed as a result of pruning.
       prRemoved :: [bp],
-      -- |Blocks that should be marked as finalized as a result of pruning.
-      -- Note that the finalized blocks are ordered in ascending order of block height.
+      -- | Blocks that should be marked as finalized as a result of pruning.
+      --  Note that the finalized blocks are ordered in ascending order of block height.
       prFinalized :: [bp],
-      -- |The updated branches as a result of pruning.
+      -- | The updated branches as a result of pruning.
       prNewBranches :: Seq.Seq [bp]
     }
 
--- |Construct a 'PruneResult' given the existing branches, finalization target and height.
--- This function is written rather abstract as it only relies on the 'Eq' constraint
--- (for the block height) and this makes it easier for testing.
+-- | Construct a 'PruneResult' given the existing branches, finalization target and height.
+--  This function is written rather abstract as it only relies on the 'Eq' constraint
+--  (for the block height) and this makes it easier for testing.
 pruneBranches ::
     (Eq blockPointer) =>
-    -- |Function for obtaining the parent of a live block.
-    -- In practice this is 'parentOfLive' with the correct 'SkovData pv' applied partially.
+    -- | Function for obtaining the parent of a live block.
+    --  In practice this is 'parentOfLive' with the correct 'SkovData pv' applied partially.
     (blockPointer -> blockPointer) ->
-    -- |Finalization target
+    -- | Finalization target
     blockPointer ->
-    -- |Height of the target after the last finalized block
+    -- | Height of the target after the last finalized block
     Int ->
-    -- |Existing branches
+    -- | Existing branches
     Seq.Seq [blockPointer] ->
     PruneResult blockPointer
 pruneBranches parent newFin deltaHeight oldBranches = PruneResult{..}

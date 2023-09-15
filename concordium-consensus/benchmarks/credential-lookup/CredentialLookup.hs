@@ -2,13 +2,13 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
--- |A benchmark for credential lookup. This compares three approaches:
+-- | A benchmark for credential lookup. This compares three approaches:
 --
--- 1. A map stored in memory.
+--  1. A map stored in memory.
 --
--- 2. A trie that is cached in the memory.
+--  2. A trie that is cached in the memory.
 --
--- 3. A trie that is not cached in the memory and always accessed from the disk.
+--  3. A trie that is not cached in the memory and always accessed from the disk.
 module Main where
 
 import Control.DeepSeq
@@ -27,8 +27,8 @@ import qualified Data.FixedByteString as FBS
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
--- |The starting state from which the benchmarks are run.
--- This consists of the blob store, and indexes in the three forms required for testing.
+-- | The starting state from which the benchmarks are run.
+--  This consists of the blob store, and indexes in the three forms required for testing.
 data Setup = Setup
     { setupBlobStore :: !BlobStore,
       setupMemMap :: !(Map.Map RawCredentialRegistrationID AccountIndex),
@@ -45,14 +45,14 @@ instance NFData RawCredentialRegistrationID where
 instance NFData AccountIndex where
     rnf (AccountIndex x) = rnf x
 
--- |Generate a pseudo-randoming registration ID given a seed.
+-- | Generate a pseudo-randoming registration ID given a seed.
 genRegID :: Int -> RawCredentialRegistrationID
 genRegID seed = RawCredentialRegistrationID $! FBS.pack (randoms (mkStdGen seed))
 
--- |Create a benchmark environment by populating the map and tries with the given number of
--- generated credentials. The trie is written out after each insertion. This decreases the locality
--- of the trie in the blob store and gives a more realistic scenario than if the trie is only
--- written a single time.
+-- | Create a benchmark environment by populating the map and tries with the given number of
+--  generated credentials. The trie is written out after each insertion. This decreases the locality
+--  of the trie in the blob store and gives a more realistic scenario than if the trie is only
+--  written a single time.
 setup :: Int -> IO Setup
 setup size = do
     tempBlobStoreFile <- emptySystemTempFile "blb.dat"
@@ -75,7 +75,7 @@ setup size = do
 cleanup :: Setup -> IO ()
 cleanup = destroyBlobStore . setupBlobStore
 
--- |Benchmark looking up specific registration IDs.
+-- | Benchmark looking up specific registration IDs.
 benches :: Int -> Benchmark
 benches size = envWithCleanup (setup size) cleanup $ \cnf ->
     let testRegID x = env (pure (genRegID x)) $ \regid ->
@@ -107,8 +107,8 @@ benches size = envWithCleanup (setup size) cleanup $ \cnf ->
               testRegID (-1)
             ]
 
--- |Benchmark looking up random registration IDs. There should be a 50% chance of each occurring
--- in the map.
+-- | Benchmark looking up random registration IDs. There should be a 50% chance of each occurring
+--  in the map.
 benchesRandom :: Int -> Benchmark
 benchesRandom size = envWithCleanup (setup size) cleanup $ \cnf ->
     bgroup

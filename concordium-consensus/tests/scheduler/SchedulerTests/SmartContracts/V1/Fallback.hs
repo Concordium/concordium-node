@@ -76,9 +76,9 @@ initContracts (bs, miv, wm) = do
             (miv, wm)
     ((ca1, ca2),) <$> freezeBlockState pbs1
 
--- |Invoke the fallback directly. This should fail with execution failure/trap
--- because it will redirect to "two." which does not exist. Hence this will fail
--- and the fallback will try to look up a non-existing return value.
+-- | Invoke the fallback directly. This should fail with execution failure/trap
+--  because it will redirect to "two." which does not exist. Hence this will fail
+--  and the fallback will try to look up a non-existing return value.
 invokeContract1 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->
@@ -96,7 +96,7 @@ invokeContract1 ccContract bs = do
                 }
     InvokeContract.invokeContract ctx cm bs
 
--- |Invoke "two.do" via "one.do" and the fallback.
+-- | Invoke "two.do" via "one.do" and the fallback.
 invokeContract2 ::
     Types.ContractAddress ->
     HashedPersistentBlockState PV4 ->

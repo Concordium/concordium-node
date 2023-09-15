@@ -24,19 +24,19 @@ import Concordium.Scheduler.Types
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
 
--- |Context for executing a scheduler computation.
+-- | Context for executing a scheduler computation.
 data ContextState = ContextState
-    { -- |Chain metadata
+    { -- | Chain metadata
       _chainMetadata :: !ChainMetadata,
-      -- |Maximum allowed block energy.
+      -- | Maximum allowed block energy.
       _maxBlockEnergy :: !Energy,
-      -- |Maximum number of accounts to be created in the same block.
+      -- | Maximum number of accounts to be created in the same block.
       _accountCreationLimit :: !CredentialsPerBlockLimit
     }
 
 makeLenses ''ContextState
 
--- |State accumulated during execution of a scheduler computation.
+-- | State accumulated during execution of a scheduler computation.
 data SchedulerState (m :: DK.Type -> DK.Type) = SchedulerState
     { -- | Current block state.
       _ssBlockState :: !(UpdatableBlockState m),
@@ -50,7 +50,7 @@ data SchedulerState (m :: DK.Type -> DK.Type) = SchedulerState
 
 makeLenses ''SchedulerState
 
--- |Create an initial state for running a scheduler computation.
+-- | Create an initial state for running a scheduler computation.
 makeInitialSchedulerState :: UpdatableBlockState m -> SchedulerState m
 makeInitialSchedulerState _ssBlockState =
     SchedulerState
@@ -63,8 +63,8 @@ makeInitialSchedulerState _ssBlockState =
 -- | Alias for the internal type used in @SchedulerT@.
 type InternalSchedulerT m = RWST ContextState () (SchedulerState m)
 
--- |Scheduler monad transformer. Extends a monad with the ability to execute scheduler computations.
--- Use @runSchedulerT@ to run the computation.
+-- | Scheduler monad transformer. Extends a monad with the ability to execute scheduler computations.
+--  Use @runSchedulerT@ to run the computation.
 newtype SchedulerT (m :: DK.Type -> DK.Type) (a :: DK.Type) = SchedulerT
     { _runSchedulerT :: InternalSchedulerT m m a
     }
@@ -357,7 +357,7 @@ instance
 -- | Execute the computation using the provided context and scheduler state.
 -- The return value is the value produced by the computation and the updated state of the scheduler.
 runSchedulerT ::
-    Monad m =>
+    (Monad m) =>
     SchedulerT m a ->
     ContextState ->
     SchedulerState m ->

@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
--- |Tests for the payday-related functionality.
+-- | Tests for the payday-related functionality.
 module SchedulerTests.Payday (tests) where
 
 import Control.Exception (bracket)
@@ -226,25 +226,25 @@ propMintDistributionMostRecent md mr ps updates amt =
 propMintDistributionImmediate ::
     forall m.
     (IsConsensusV0 (MPV m), BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
-    -- |Block state
+    -- | Block state
     UpdatableBlockState m ->
-    -- |Parent block
+    -- | Parent block
     BlockPointerType m ->
-    -- |Block slot
+    -- | Block slot
     Slot ->
-    -- |Baker ID
+    -- | Baker ID
     BakerId ->
-    -- |Epoch of the new block
+    -- | Epoch of the new block
     Epoch ->
-    -- |Info on finalization committee for included record, if any
+    -- | Info on finalization committee for included record, if any
     Maybe FinalizerInfo ->
-    -- |New seed state
+    -- | New seed state
     SeedState (SeedStateVersionFor (MPV m)) ->
-    -- |Transaction fees
+    -- | Transaction fees
     Amount ->
-    -- |Number of "free" transactions of each type
+    -- | Number of "free" transactions of each type
     FreeTransactionCounts ->
-    -- |Ordered chain updates since the last block
+    -- | Ordered chain updates since the last block
     [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))] ->
     m Bool
 propMintDistributionImmediate bs0 blockParent slotNumber bid newEpoch mfinInfo newSeedState transFees freeCounts updates = do
@@ -261,13 +261,13 @@ propMintDistributionImmediate bs0 blockParent slotNumber bid newEpoch mfinInfo n
 propTransactionFeesDistributionP4 ::
     forall m.
     (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1, AccountVersionFor (MPV m) ~ 'AccountV1, IsConsensusV0 (MPV m)) =>
-    -- |Transaction fees paid
+    -- | Transaction fees paid
     Amount ->
-    -- |Counts of unpaid transactions
+    -- | Counts of unpaid transactions
     FreeTransactionCounts ->
-    -- |Block baker
+    -- | Block baker
     BakerId ->
-    -- |Block state
+    -- | Block state
     UpdatableBlockState m ->
     m Bool
 propTransactionFeesDistributionP4 transFees freeCounts bid bs0 = do
@@ -285,7 +285,7 @@ propTransactionFeesDistributionP4 transFees freeCounts bid bs0 = do
             == rewardsTotal rewardAccountsAfter + atfPassiveAfter + atfFoundationAccountAfter + transactionFeesAccrued (bakerPoolRewardDetailsAfter ! bid)
 
 initialPersistentBlockState ::
-    IsProtocolVersion pv => Helpers.PersistentBSM pv (HashedPersistentBlockState pv)
+    (IsProtocolVersion pv) => Helpers.PersistentBSM pv (HashedPersistentBlockState pv)
 initialPersistentBlockState =
     Helpers.createTestBlockStateWithAccountsM $ fmap (Helpers.makeTestAccountFromSeed initBal) [0 .. 10]
   where
@@ -395,7 +395,7 @@ testRewardDistribution = do
     freeCounts = FreeTransactionCounts 10 10 1
     updates = []
 
--- |Test that 'scaleAmount' performs correctly by multiplying by the denominator and adding the remainder.
+-- | Test that 'scaleAmount' performs correctly by multiplying by the denominator and adding the remainder.
 testScaleAmount1 :: Property
 testScaleAmount1 = property $ \(a :: Amount) b c ->
     let num = min a b
@@ -403,33 +403,33 @@ testScaleAmount1 = property $ \(a :: Amount) b c ->
         cTimesNum = toInteger c * toInteger num
     in  toInteger (scaleAmount num den c) * toInteger den + cTimesNum `mod` toInteger den === cTimesNum
 
--- |Test that 'scaleAmount' performs correctly
+-- | Test that 'scaleAmount' performs correctly
 testScaleAmount2 :: Property
 testScaleAmount2 = property $ \(a :: Amount) b c ->
     let num = min a b
         den = max 1 (max a b)
     in  scaleAmount num den c === floor ((toInteger num % toInteger den) * toRational c)
 
--- |A test case for 'rewardDelegators'.
+-- | A test case for 'rewardDelegators'.
 data DelegatorRewardTestCase = DelegatorRewardTestCase
-    { -- |Name to identify the case
+    { -- | Name to identify the case
       drtcName :: String,
-      -- |Baking reward distributed to delegators
+      -- | Baking reward distributed to delegators
       drtcBakingReward :: Amount,
-      -- |Finalization reward distributed to delegators
+      -- | Finalization reward distributed to delegators
       drtcFinalizationReward :: Amount,
-      -- |Transaction fee reward distributed to delegators
+      -- | Transaction fee reward distributed to delegators
       drtcTransactionFeeReward :: Amount,
-      -- |Capital held by the pool owner
+      -- | Capital held by the pool owner
       drtcBakerCapital :: Amount,
-      -- |Capital held by each delegator
+      -- | Capital held by each delegator
       drtcDelegatorCapitals :: [Amount],
-      -- |Expected baking, finalization and transaction fee rewards to each delegator.
+      -- | Expected baking, finalization and transaction fee rewards to each delegator.
       drtcDelegatorExpectedRewards :: [(Amount, Amount, Amount)],
       drtcExpectedBalances :: [Amount]
     }
 
--- |Test cases for 'rewardDelegators'.
+-- | Test cases for 'rewardDelegators'.
 drtcs :: [DelegatorRewardTestCase]
 drtcs =
     [ DelegatorRewardTestCase

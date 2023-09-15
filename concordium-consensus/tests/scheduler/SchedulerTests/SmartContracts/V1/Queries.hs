@@ -85,7 +85,7 @@ accountBalanceSourceFile = "../concordium-base/smart-contracts/testdata/contract
 
 accountBalanceTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -162,7 +162,7 @@ accountBalanceTestCase spv pvString =
 
 accountBalanceInvokerTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -231,7 +231,7 @@ accountBalanceTransferSourceFile = "../concordium-base/smart-contracts/testdata/
 
 accountBalanceTransferTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -301,7 +301,7 @@ accountBalanceMissingAccountSourceFile = "../concordium-base/smart-contracts/tes
 
 accountBalanceMissingAccountTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -366,7 +366,7 @@ contractBalanceSourceFile = "../concordium-base/smart-contracts/testdata/contrac
 
 contractBalanceTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -441,7 +441,7 @@ contractBalanceTestCase spv pvString =
 
 contractBalanceSelfTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -510,7 +510,7 @@ contractBalanceTransferSourceFile = "../concordium-base/smart-contracts/testdata
 
 contractBalanceTransferTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -584,7 +584,7 @@ contractBalanceMissingContractSourceFile = "../concordium-base/smart-contracts/t
 
 contractBalanceMissingContractTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -650,7 +650,7 @@ exchangeRatesSourceFile = "../concordium-base/smart-contracts/testdata/contracts
 
 exchangeRatesTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -719,7 +719,7 @@ allSourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/querie
 
 allTestCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec

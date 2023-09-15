@@ -41,16 +41,16 @@ import qualified Concordium.GlobalState.Wasm as GSWasm
 
 ----------------------------------------------------------------------------------------------------
 
--- |State of a smart contract parametrized by the contract version. This is the
--- persistent version which supports storing and loading the state from a blob
--- store.
+-- | State of a smart contract parametrized by the contract version. This is the
+--  persistent version which supports storing and loading the state from a blob
+--  store.
 data InstanceStateV (v :: Wasm.WasmVersion) where
     InstanceStateV0 :: !Wasm.ContractState -> InstanceStateV GSWasm.V0
     InstanceStateV1 :: !StateV1.PersistentState -> InstanceStateV GSWasm.V1
 
 migrateInstanceStateV ::
     forall v t m.
-    SupportMigration m t =>
+    (SupportMigration m t) =>
     InstanceStateV v ->
     t m (InstanceStateV v)
 migrateInstanceStateV (InstanceStateV0 s) = return (InstanceStateV0 s) -- flat state, no inner references.
@@ -59,19 +59,19 @@ migrateInstanceStateV (InstanceStateV1 s) = do
     (_, newStoreCallback) <- getCallbacks
     InstanceStateV1 <$> liftIO (StateV1.migratePersistentState oldLoadCallback newStoreCallback s)
 
--- |The fixed parameters associated with a smart contract instance
+-- | The fixed parameters associated with a smart contract instance
 data PersistentInstanceParameters = PersistentInstanceParameters
-    { -- |Address of the instance
+    { -- | Address of the instance
       pinstanceAddress :: !ContractAddress,
-      -- |Address of this contract instance owner, i.e., the creator account.
+      -- | Address of this contract instance owner, i.e., the creator account.
       pinstanceOwner :: !AccountAddress,
-      -- |The module that the contract is defined in
+      -- | The module that the contract is defined in
       pinstanceContractModule :: !ModuleRef,
-      -- |The name of the contract
+      -- | The name of the contract
       pinstanceInitName :: !Wasm.InitName,
-      -- |The contract's allowed receive functions.
+      -- | The contract's allowed receive functions.
       pinstanceReceiveFuns :: !(Set.Set Wasm.ReceiveName),
-      -- |Hash of the fixed parameters
+      -- | Hash of the fixed parameters
       pinstanceParameterHash :: !H.Hash
     }
 
@@ -97,28 +97,28 @@ instance Serialize PersistentInstanceParameters where
         let pinstanceParameterHash = makeInstanceParameterHash pinstanceAddress pinstanceOwner pinstanceContractModule pinstanceInitName
         return PersistentInstanceParameters{..}
 
-instance MonadBlobStore m => BlobStorable m PersistentInstanceParameters
-instance Applicative m => Cacheable m PersistentInstanceParameters
+instance (MonadBlobStore m) => BlobStorable m PersistentInstanceParameters
+instance (Applicative m) => Cacheable m PersistentInstanceParameters
 
 ----------------------------------------------------------------------------------------------------
 
--- |An instance of a smart contract. This is parametrized by the Wasm version
--- `v` that is used to tie the instance version to the module version. At
--- present the version only appears in the module, but with the state changes it
--- will also appear in the contract state.
+-- | An instance of a smart contract. This is parametrized by the Wasm version
+--  `v` that is used to tie the instance version to the module version. At
+--  present the version only appears in the module, but with the state changes it
+--  will also appear in the contract state.
 data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV
-    { -- |The fixed parameters of the instance.
+    { -- | The fixed parameters of the instance.
       pinstanceParameters :: !(BufferedRef PersistentInstanceParameters),
-      -- |The interface of 'pinstanceContractModule'. Note this is a 'HashedCachedRef' to a Module as this
-      -- is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
-      -- but that reference should never be consulted in the scope of Instance operations.
-      -- Invariant: the module will always be of the appropriate version.
+      -- | The interface of 'pinstanceContractModule'. Note this is a 'HashedCachedRef' to a Module as this
+      --  is how the data is stored in the Modules table. A 'Module' carries a BlobRef to the source
+      --  but that reference should never be consulted in the scope of Instance operations.
+      --  Invariant: the module will always be of the appropriate version.
       pinstanceModuleInterface :: !(HashedCachedRef Modules.ModuleCache Modules.Module),
-      -- |The current local state of the instance
+      -- | The current local state of the instance
       pinstanceModel :: !(InstanceStateV v),
-      -- |The current amount of GTU owned by the instance
+      -- | The current amount of GTU owned by the instance
       pinstanceAmount :: !Amount,
-      -- |Hash of the smart contract instance
+      -- | Hash of the smart contract instance
       pinstanceHash :: H.Hash
     }
 
@@ -129,7 +129,7 @@ migratePersistentInstanceV ::
       SupportsPersistentModule (t m),
       MonadTrans t
     ) =>
-    -- |The already migrated modules.
+    -- | The already migrated modules.
     Modules.Modules ->
     PersistentInstanceV v ->
     t m (PersistentInstanceV v)
@@ -162,25 +162,25 @@ migratePersistentInstanceV modules PersistentInstanceV{..} = do
                       ..
                     }
 
--- |Either a V0 or V1 instance. V1 instance is only allowed in protocol versions
--- P4 and up, however this is not explicit here since it needlessly complicates
--- code. The Scheduler ensures that no V1 instances can be constructed prior to
--- P4 version. This type exists since we need to store all versions of instances
--- in the instance table, as opposed to having multiple instance tables for
--- different instance versions. This is necessary because there is a single
--- address space for all contract instances.
+-- | Either a V0 or V1 instance. V1 instance is only allowed in protocol versions
+--  P4 and up, however this is not explicit here since it needlessly complicates
+--  code. The Scheduler ensures that no V1 instances can be constructed prior to
+--  P4 version. This type exists since we need to store all versions of instances
+--  in the instance table, as opposed to having multiple instance tables for
+--  different instance versions. This is necessary because there is a single
+--  address space for all contract instances.
 data PersistentInstance (pv :: ProtocolVersion) where
     PersistentInstanceV0 :: !(PersistentInstanceV GSWasm.V0) -> PersistentInstance pv
     PersistentInstanceV1 :: !(PersistentInstanceV GSWasm.V1) -> PersistentInstance pv
 
--- |Migrate persistent instances from the old to the new protocol version.
+-- | Migrate persistent instances from the old to the new protocol version.
 migratePersistentInstance ::
     forall oldpv pv t m.
     (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t) =>
-    -- |The __already migrated__ modules. The modules were already migrated by the
-    -- module migration, so we want to insert references to the existing modules
-    -- in the instances so that we don't end up with duplicates both in-memory
-    -- and on disk.
+    -- | The __already migrated__ modules. The modules were already migrated by the
+    --  module migration, so we want to insert references to the existing modules
+    --  in the instances so that we don't end up with duplicates both in-memory
+    --  and on disk.
     Modules.Modules ->
     PersistentInstance oldpv ->
     t m (PersistentInstance pv)
@@ -191,15 +191,15 @@ instance Show (PersistentInstance pv) where
     show (PersistentInstanceV0 PersistentInstanceV{pinstanceModel = InstanceStateV0 model, ..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ ", model=" ++ show model ++ "}"
     show (PersistentInstanceV1 PersistentInstanceV{..}) = show pinstanceParameters ++ " {balance=" ++ show pinstanceAmount ++ "}"
 
-loadInstanceParameters :: MonadBlobStore m => PersistentInstance pv -> m PersistentInstanceParameters
+loadInstanceParameters :: (MonadBlobStore m) => PersistentInstance pv -> m PersistentInstanceParameters
 loadInstanceParameters (PersistentInstanceV0 PersistentInstanceV{..}) = loadBufferedRef pinstanceParameters
 loadInstanceParameters (PersistentInstanceV1 PersistentInstanceV{..}) = loadBufferedRef pinstanceParameters
 
-cacheInstanceParameters :: MonadBlobStore m => PersistentInstance pv -> m (PersistentInstanceParameters, BufferedRef PersistentInstanceParameters)
+cacheInstanceParameters :: (MonadBlobStore m) => PersistentInstance pv -> m (PersistentInstanceParameters, BufferedRef PersistentInstanceParameters)
 cacheInstanceParameters (PersistentInstanceV0 PersistentInstanceV{..}) = cacheBufferedRef pinstanceParameters
 cacheInstanceParameters (PersistentInstanceV1 PersistentInstanceV{..}) = cacheBufferedRef pinstanceParameters
 
-loadInstanceModule :: SupportsPersistentModule m => PersistentInstance pv -> m Module
+loadInstanceModule :: (SupportsPersistentModule m) => PersistentInstance pv -> m Module
 loadInstanceModule (PersistentInstanceV0 PersistentInstanceV{..}) = refLoad pinstanceModuleInterface
 loadInstanceModule (PersistentInstanceV1 PersistentInstanceV{..}) = refLoad pinstanceModuleInterface
 
@@ -299,12 +299,12 @@ instance (IsProtocolVersion pv, SupportsPersistentModule m) => BlobStorable m (P
                 pinstanceHash <- makeInstanceHashV1State (pinstanceParameterHash pip) pinstanceModel pinstanceAmount
                 return $! PersistentInstanceV1 (PersistentInstanceV{..})
 
-instance MonadBlobStore m => Cacheable m (InstanceStateV GSWasm.V1) where
+instance (MonadBlobStore m) => Cacheable m (InstanceStateV GSWasm.V1) where
     cache (InstanceStateV1 model) = InstanceStateV1 <$> cache model
 
 -- This cacheable instance is a bit unusual. Caching instances requires us to have access
 -- to the modules so that we can share the module interfaces from different instances.
-instance SupportsPersistentModule m => Cacheable (ReaderT Modules m) (PersistentInstance pv) where
+instance (SupportsPersistentModule m) => Cacheable (ReaderT Modules m) (PersistentInstance pv) where
     cache (PersistentInstanceV0 p@PersistentInstanceV{..}) = do
         modules <- ask
         lift $! do
@@ -337,9 +337,9 @@ instance SupportsPersistentModule m => Cacheable (ReaderT Modules m) (Persistent
                 -- The module version is V1 as we're caching an instance of version V1.
                 Just iface -> return (PersistentInstanceV1 p{pinstanceModuleInterface = iface, pinstanceParameters = ips, pinstanceModel = imodel})
 
--- |Construct instance information from a persistent instance, loading as much
--- data as necessary from persistent storage.
-mkInstanceInfo :: SupportsPersistentModule m => PersistentInstance pv -> m (InstanceInfoType PersistentInstrumentedModuleV InstanceStateV)
+-- | Construct instance information from a persistent instance, loading as much
+--  data as necessary from persistent storage.
+mkInstanceInfo :: (SupportsPersistentModule m) => PersistentInstance pv -> m (InstanceInfoType PersistentInstrumentedModuleV InstanceStateV)
 mkInstanceInfo (PersistentInstanceV0 inst) = InstanceInfoV0 <$> mkInstanceInfoV inst
 mkInstanceInfo (PersistentInstanceV1 inst) = InstanceInfoV1 <$> mkInstanceInfoV inst
 
@@ -362,7 +362,7 @@ mkInstanceInfoV PersistentInstanceV{..} = do
               ..
             }
 
--- |Serialize a V0 smart contract instance in V0 format.
+-- | Serialize a V0 smart contract instance in V0 format.
 putV0InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V0 -> m ()
 putV0InstanceV0 PersistentInstanceV{pinstanceModel = InstanceStateV0 model, ..} = do
     -- Instance parameters
@@ -376,7 +376,7 @@ putV0InstanceV0 PersistentInstanceV{pinstanceModel = InstanceStateV0 model, ..} 
         put model
         put pinstanceAmount
 
--- |Serialize a V1 smart contract instance in V0 format.
+-- | Serialize a V1 smart contract instance in V0 format.
 putV1InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V1 -> m ()
 putV1InstanceV0 PersistentInstanceV{pinstanceModel = InstanceStateV1 model, ..} = do
     -- Instance parameters
@@ -393,13 +393,13 @@ putV1InstanceV0 PersistentInstanceV{pinstanceModel = InstanceStateV1 model, ..} 
 
 ----------------------------------------------------------------------------------------------------
 
--- |An alias to document when a hash is intended to be the parameter hash.
+-- | An alias to document when a hash is intended to be the parameter hash.
 type InstanceParametersHash = H.Hash
 
--- |An alias to document when a hash is intended to be the instance state hash.
+-- | An alias to document when a hash is intended to be the instance state hash.
 type InstanceStateHash = H.Hash
 
--- |An alias to document when a hash is intended to be the instance hash.
+-- | An alias to document when a hash is intended to be the instance hash.
 type InstanceHash = H.Hash
 
 makeInstanceParameterHash :: ContractAddress -> AccountAddress -> ModuleRef -> Wasm.InitName -> InstanceParametersHash
@@ -418,7 +418,7 @@ makeInstanceHashV0 paramsHash csHash a = H.hash $ runPut $ do
     put csHash
     put a
 
-makeInstanceHashV1State :: MonadBlobStore m => InstanceParametersHash -> InstanceStateV GSWasm.V1 -> Amount -> m InstanceHash
+makeInstanceHashV1State :: (MonadBlobStore m) => InstanceParametersHash -> InstanceStateV GSWasm.V1 -> Amount -> m InstanceHash
 makeInstanceHashV1State paramsHash (InstanceStateV1 conState) a = do
     csHash <- getHashM conState
     return $! makeInstanceHashV1 paramsHash csHash a
@@ -433,20 +433,20 @@ makeInstanceHashV1 paramsHash csHash a =
 makeBranchHash :: H.Hash -> H.Hash -> H.Hash
 makeBranchHash h1 h2 = H.hashShort $! (H.hashToShortByteString h1 <> H.hashToShortByteString h2)
 
--- |Internal tree nodes of an 'InstanceTable'.
--- Branches satisfy the following invariant properties:
--- * The left branch is always a full sub-tree with height 1 less than the parent (or a leaf if the parent height is 0)
--- * The right branch has height less than the parent
--- * The hash is @computeBranchHash l r@ where @l@ and @r@ are the left and right subtrees
--- * The first @Bool@ is @True@ if the tree is full, i.e. the right sub-tree is full with height 1 less than the parent
--- * The second @Bool@ is @True@ if the either subtree has vacant leaves
+-- | Internal tree nodes of an 'InstanceTable'.
+--  Branches satisfy the following invariant properties:
+--  * The left branch is always a full sub-tree with height 1 less than the parent (or a leaf if the parent height is 0)
+--  * The right branch has height less than the parent
+--  * The hash is @computeBranchHash l r@ where @l@ and @r@ are the left and right subtrees
+--  * The first @Bool@ is @True@ if the tree is full, i.e. the right sub-tree is full with height 1 less than the parent
+--  * The second @Bool@ is @True@ if the either subtree has vacant leaves
 data IT pv r
-    = -- |A branch has the following fields:
-      -- * the height of the branch (0 if all children are leaves)
-      -- * whether the branch is a full binary tree
-      -- * whether the tree has vacant leaves
-      -- * the Merkle hash (lazy)
-      -- * the left and right subtrees
+    = -- | A branch has the following fields:
+      --  * the height of the branch (0 if all children are leaves)
+      --  * whether the branch is a full binary tree
+      --  * whether the tree has vacant leaves
+      --  * the Merkle hash (lazy)
+      --  * the left and right subtrees
       Branch
         { branchHeight :: !Word8,
           branchFull :: !Bool,
@@ -455,10 +455,10 @@ data IT pv r
           branchLeft :: r,
           branchRight :: r
         }
-    | -- |A leaf holds a contract instance
+    | -- | A leaf holds a contract instance
       Leaf !(PersistentInstance pv)
-    | -- |A vacant leaf records the 'ContractSubindex' of the last instance
-      -- with this 'ContractIndex'.
+    | -- | A vacant leaf records the 'ContractSubindex' of the last instance
+      --  with this 'ContractIndex'.
       VacantLeaf !ContractSubindex
     deriving (Show, Functor, Foldable, Traversable)
 
@@ -522,11 +522,11 @@ instance (IsProtocolVersion pv, BlobStorable m r, Cache.MonadCache ModuleCache m
                     else -- tag == 9
                         return . VacantLeaf <$> get
 
--- |Fold the instance table using the provided accumulator function. The tree is
--- traversed in-order from left to right and the accumulator is called on each
--- leaf. The accumulator is called with @Left addr@ when the leaf is vacant,
--- i.e. the instance on that address was deleted. It is called with @Right inst@
--- when there is an instance in the spot.
+-- | Fold the instance table using the provided accumulator function. The tree is
+--  traversed in-order from left to right and the accumulator is called on each
+--  leaf. The accumulator is called with @Left addr@ when the leaf is vacant,
+--  i.e. the instance on that address was deleted. It is called with @Right inst@
+--  when there is an instance in the spot.
 mapReduceIT :: forall a m pv t. (Monoid a, MRecursive m t, Base t ~ IT pv) => (Either ContractAddress (PersistentInstance pv) -> m a) -> t -> m a
 mapReduceIT mfun = mr 0 <=< mproject
   where
@@ -608,9 +608,9 @@ migrateIT modules (BufferedFix bf) = BufferedFix <$> migrateReference go bf
     go (VacantLeaf i) = return (VacantLeaf i)
 
 data Instances pv
-    = -- |The empty instance table
+    = -- | The empty instance table
       InstancesEmpty
-    | -- |A non-empty instance table (recording the size)
+    | -- | A non-empty instance table (recording the size)
       InstancesTree !Word64 !(BufferedFix (IT pv))
 
 migrateInstances ::
@@ -745,7 +745,7 @@ updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contra
             in  upd newCont (i - 2 ^ h) =<< mproject r
         | otherwise = return Nothing
 
--- |Retrieve the list of all instance addresses. The addresses are returned in increasing order.
+-- | Retrieve the list of all instance addresses. The addresses are returned in increasing order.
 allInstances :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => Instances pv -> m [ContractAddress]
 allInstances InstancesEmpty = return []
 allInstances (InstancesTree _ it) = mapReduceIT mfun it
@@ -753,7 +753,7 @@ allInstances (InstancesTree _ it) = mapReduceIT mfun it
     mfun (Left _) = return mempty
     mfun (Right inst) = (: []) . pinstanceAddress <$> loadInstanceParameters inst
 
--- |Serialize instances in V0 format.
+-- | Serialize instances in V0 format.
 putInstancesV0 :: (IsProtocolVersion pv, SupportsPersistentModule m, MonadPut m) => Instances pv -> m ()
 putInstancesV0 InstancesEmpty = liftPut $ putWord8 0
 putInstancesV0 (InstancesTree _ it) = do

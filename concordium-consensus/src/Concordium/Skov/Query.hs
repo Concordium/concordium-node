@@ -23,7 +23,7 @@ import Concordium.Types.Transactions
 import Concordium.Types.UpdateQueues (ProtocolUpdateStatus (..))
 import Concordium.Utils.InterpolationSearch
 
-doResolveBlock :: TreeStateMonad m => BlockHash -> m (Maybe (BlockPointerType m))
+doResolveBlock :: (TreeStateMonad m) => BlockHash -> m (Maybe (BlockPointerType m))
 {- - INLINE doResolveBlock - -}
 doResolveBlock cbp =
     getBlockStatus cbp <&> \case
@@ -31,7 +31,7 @@ doResolveBlock cbp =
         Just (BlockFinalized bp _) -> Just bp
         _ -> Nothing
 
-doIsBlockKnownAndLive :: TreeStateMonad m => BlockHash -> m Bool
+doIsBlockKnownAndLive :: (TreeStateMonad m) => BlockHash -> m Bool
 doIsBlockKnownAndLive cbp =
     getRecentBlockStatus cbp <&> \case
         RecentBlock bs -> case bs of
@@ -41,28 +41,28 @@ doIsBlockKnownAndLive cbp =
         OldFinalized -> True
         Unknown -> False
 
-doIsFinalized :: TreeStateMonad m => BlockHash -> m Bool
+doIsFinalized :: (TreeStateMonad m) => BlockHash -> m Bool
 {- - INLINE doIsFinalized - -}
 doIsFinalized =
     getBlockStatus >=> \case
         Just (BlockFinalized _ _) -> return True
         _ -> return False
 
-doGetCurrentHeight :: TreeStateMonad m => m BlockHeight
+doGetCurrentHeight :: (TreeStateMonad m) => m BlockHeight
 {- - INLINE doGetCurrentHeight - -}
 doGetCurrentHeight = do
     lfHeight <- getLastFinalizedHeight
     branchLen <- fromIntegral . Seq.length <$> getBranches
     return $ lfHeight + branchLen
 
-doBranchesFromTop :: TreeStateMonad m => m [[BlockPointerType m]]
+doBranchesFromTop :: (TreeStateMonad m) => m [[BlockPointerType m]]
 {- - INLINE doBranchesFromTop - -}
 doBranchesFromTop = revSeqToList <$> getBranches
   where
     revSeqToList Seq.Empty = []
     revSeqToList (r Seq.:|> t) = t : revSeqToList r
 
-doGetBlocksAtHeight :: TreeStateMonad m => BlockHeight -> m [BlockPointerType m]
+doGetBlocksAtHeight :: (TreeStateMonad m) => BlockHeight -> m [BlockPointerType m]
 {- - INLINE doGetBlocksAtHeight - -}
 doGetBlocksAtHeight h = do
     lastFin <- fst <$> getLastFinalized
@@ -77,15 +77,15 @@ doGetBlocksAtHeight h = do
             mb <- getFinalizedAtHeight h
             return (toList mb)
 
--- |Result of querying for the first finalized block in an epoch, when the query fails.
+-- | Result of querying for the first finalized block in an epoch, when the query fails.
 data EpochFailureResult
-    = -- |There are currently no finalized blocks in the given epoch.
+    = -- | There are currently no finalized blocks in the given epoch.
       FutureEpoch
-    | -- |The epoch is in the past, but was empty.
+    | -- | The epoch is in the past, but was empty.
       EmptyEpoch
 
 doGetFirstFinalizedOfEpoch ::
-    TreeStateMonad m =>
+    (TreeStateMonad m) =>
     Either Epoch (BlockPointerType m) ->
     m (Either EpochFailureResult (BlockPointerType m))
 doGetFirstFinalizedOfEpoch epochOrBlock = do
@@ -120,15 +120,15 @@ doGetFirstFinalizedOfEpoch epochOrBlock = do
                 Nothing -> Left EmptyEpoch
                 Just (_, block) -> Right block
 
-doBlockLastFinalizedIndex :: TreeStateMonad m => BlockPointerType m -> m FinalizationIndex
+doBlockLastFinalizedIndex :: (TreeStateMonad m) => BlockPointerType m -> m FinalizationIndex
 {- - INLINE doBlockLastFinalizedIndex - -}
 doBlockLastFinalizedIndex bp =
     getBlockStatus (bpLastFinalizedHash bp) <&> \case
         Just (BlockFinalized _ fr) -> finalizationIndex fr
         _ -> error "Invariant violation: last finalized block is not finalized."
 
--- |Get a catch-up status message. The flag indicates if the
--- message should be a catch-up request.
+-- | Get a catch-up status message. The flag indicates if the
+--  message should be a catch-up request.
 doGetCatchUpStatus :: (TreeStateMonad m) => Bool -> m CatchUpStatus
 doGetCatchUpStatus cusIsRequest = do
     lfb <- fst <$> getLastFinalized
@@ -149,18 +149,18 @@ doIsShutDown = do
         ProtocolUpdated _ -> True
         PendingProtocolUpdates _ -> False
 
--- |Construct a 'CatchUpStatus' message.
+-- | Construct a 'CatchUpStatus' message.
 makeCatchUpStatus ::
     (BlockPointerData (BlockPointerType m), BlockPointerMonad m) =>
-    -- |'True' if the message is a request
+    -- | 'True' if the message is a request
     Bool ->
-    -- |'True' if the message is a response
+    -- | 'True' if the message is a response
     Bool ->
-    -- |Last finalized block pointer
+    -- | Last finalized block pointer
     BlockPointerType m ->
-    -- |Leaves
+    -- | Leaves
     [BlockPointerType m] ->
-    -- |Branches
+    -- | Branches
     [BlockPointerType m] ->
     m CatchUpStatus
 makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchUpStatus{..}
@@ -170,10 +170,10 @@ makeCatchUpStatus cusIsRequest cusIsResponse lfb leaves branches = return CatchU
     cusLeaves = bpHash <$> leaves
     cusBranches = bpHash <$> branches
 
--- |Given a list of lists representing branches (ordered by height),
--- produce a pair of lists @(leaves, branches)@, which partions
--- those blocks that are leaves (@leaves@) from those that are not
--- (@branches@).
+-- | Given a list of lists representing branches (ordered by height),
+--  produce a pair of lists @(leaves, branches)@, which partions
+--  those blocks that are leaves (@leaves@) from those that are not
+--  (@branches@).
 leavesBranches ::
     forall m.
     ( BlockPointerData (BlockPointerType m),
@@ -191,12 +191,12 @@ leavesBranches = lb ([], [])
         let (bs', ls') = List.partition (`elem` parent) s
         lb (ls ++ ls', bs ++ bs') r
 
--- |Verify a transaction that was received separately from a block.
--- The return value consists of:
+-- | Verify a transaction that was received separately from a block.
+--  The return value consists of:
 --
--- * A 'Bool' that is 'True' if the transaction is already in the non-finalized pool.
+--  * A 'Bool' that is 'True' if the transaction is already in the non-finalized pool.
 --
--- * The 'TV.VerificationResult' of verifying the transaction.
+--  * The 'TV.VerificationResult' of verifying the transaction.
 doVerifyTransaction :: (TreeStateMonad m, TimeMonad m) => BlockItem -> m (Bool, TV.VerificationResult)
 doVerifyTransaction bi =
     getNonFinalizedTransactionVerificationResult bi >>= \case

@@ -2,54 +2,54 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- |This module implements the P1.ProtocolP2 protocol update.
--- This protocol update is valid at protocol version P1, and updates
--- to protocol version P2.
--- The block state is preserved across the update.
+-- | This module implements the P1.ProtocolP2 protocol update.
+--  This protocol update is valid at protocol version P1, and updates
+--  to protocol version P2.
+--  The block state is preserved across the update.
 --
--- This produces a new 'GenesisDataP2' using the 'GDP2Regenesis' constructor,
--- as follows:
+--  This produces a new 'GenesisDataP2' using the 'GDP2Regenesis' constructor,
+--  as follows:
 --
--- * 'genesisCore':
+--  * 'genesisCore':
 --
---     * 'genesisTime' is the timestamp of the last finalized block of the previous chain.
---     * 'genesisSlotDuration' is unchanged.
---     * 'genesisEpochLength' is unchanged.
---     * 'genesisMaxBlockEnergy' is unchanged.
---     * 'genesisFinalizationParameters' is unchanged.
+--      * 'genesisTime' is the timestamp of the last finalized block of the previous chain.
+--      * 'genesisSlotDuration' is unchanged.
+--      * 'genesisEpochLength' is unchanged.
+--      * 'genesisMaxBlockEnergy' is unchanged.
+--      * 'genesisFinalizationParameters' is unchanged.
 --
--- * 'genesisFirstGenesis' is either:
+--  * 'genesisFirstGenesis' is either:
 --
---     * the hash of the genesis block of the previous chain, if it is a 'GDP1Initial'; or
---     * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
---       is a 'GDP1Regenesis'.
+--      * the hash of the genesis block of the previous chain, if it is a 'GDP1Initial'; or
+--      * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
+--        is a 'GDP1Regenesis'.
 --
--- * 'genesisPreviousGenesis' is the hash of the previous genesis block.
+--  * 'genesisPreviousGenesis' is the hash of the previous genesis block.
 --
--- * 'genesisTerminalBlock' is the hash of the last finalized block of the previous chain.
+--  * 'genesisTerminalBlock' is the hash of the last finalized block of the previous chain.
 --
--- * 'genesisStateHash' and 'genesisNewState' are the hash and (V0) serialized state of the
---   new genesis block, which are derived from the block state of the last finalized block of
---   the previous chain by applying the following changes:
+--  * 'genesisStateHash' and 'genesisNewState' are the hash and (V0) serialized state of the
+--    new genesis block, which are derived from the block state of the last finalized block of
+--    the previous chain by applying the following changes:
 --
---     * The 'SeedState' is updated with:
+--      * The 'SeedState' is updated with:
 --
---         * 'epochLength' is unchanged;
---         * 'epoch' is @0@;
---         * 'currentLeadershipElectionNonce' is the SHA256 hash of (@"Regenesis" <> encode (updatedNonce oldSeedState)@); and
---         * 'updatedNonce' is the same as 'currentLeadershipElectionNonce'.
+--          * 'epochLength' is unchanged;
+--          * 'epoch' is @0@;
+--          * 'currentLeadershipElectionNonce' is the SHA256 hash of (@"Regenesis" <> encode (updatedNonce oldSeedState)@); and
+--          * 'updatedNonce' is the same as 'currentLeadershipElectionNonce'.
 --
---     * The 'Updates' are updated with:
+--      * The 'Updates' are updated with:
 --
---         * the current protocol update is set to 'Nothing'; and
---         * the protocol update queue is emptied.
+--          * the current protocol update is set to 'Nothing'; and
+--          * the protocol update queue is emptied.
 --
--- Note that, while the seed state is revised, the initial epoch of the new chain is not considered
--- a new epoch for the purposes of block rewards and baker/finalization committee determination.
--- This means that block rewards at the end of this epoch are paid for all blocks baked in this epoch
--- and in the final epoch of the previous chain.
--- Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
--- initial epoch of the new chain.
+--  Note that, while the seed state is revised, the initial epoch of the new chain is not considered
+--  a new epoch for the purposes of block rewards and baker/finalization committee determination.
+--  This means that block rewards at the end of this epoch are paid for all blocks baked in this epoch
+--  and in the final epoch of the previous chain.
+--  Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
+--  initial epoch of the new chain.
 module Concordium.ProtocolUpdate.P1.ProtocolP2 where
 
 import Data.Serialize
@@ -69,15 +69,15 @@ import Concordium.GlobalState.Types
 import Concordium.Kontrol
 import Concordium.Types.ProtocolVersion
 
--- |The hash that identifies a update from P1 to P2 protocol.
--- This is the hash of the published specification document.
+-- | The hash that identifies a update from P1 to P2 protocol.
+--  This is the hash of the published specification document.
 updateHash :: SHA256.Hash
 updateHash = read "9b1f206bbe230fef248c9312805460b4f1b05c1ef3964946981a8d4abb58b923"
 
--- |Construct the genesis data for a P1.Reboot update.
--- It is assumed that the last finalized block is the terminal block of the old chain:
--- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
--- update takes effect.
+-- | Construct the genesis data for a P1.Reboot update.
+--  It is assumed that the last finalized block is the terminal block of the old chain:
+--  i.e. it is the first (and only) explicitly-finalized block with timestamp after the
+--  update takes effect.
 updateRegenesis :: (MPV m ~ 'P1, BlockStateStorage m, SkovMonad m) => m (PVInit m)
 updateRegenesis = do
     lfb <- lastFinalizedBlock

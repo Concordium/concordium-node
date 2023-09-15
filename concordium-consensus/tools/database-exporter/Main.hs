@@ -1,6 +1,6 @@
--- |This tools provides functionality for exporting a node database for use with the out-of-band
--- catch up mechanism.  It also provides functionality for checking that such an exported set of
--- blocks is correctly serialized.
+-- | This tools provides functionality for exporting a node database for use with the out-of-band
+--  catch up mechanism.  It also provides functionality for checking that such an exported set of
+--  blocks is correctly serialized.
 module Main where
 
 import Control.Monad
@@ -22,9 +22,9 @@ import Concordium.Types.Parameters
 
 import DatabaseExporter.CommandLineParser
 
--- |Check an exported block file.
--- Note that for 'ConsensusV1' we only check the blocks since
--- that is the only thing being exported.
+-- | Check an exported block file.
+--  Note that for 'ConsensusV1' we only check the blocks since
+--  that is the only thing being exported.
 checkDatabase :: FilePath -> IO ()
 checkDatabase filepath = do
     logm External LLInfo $ "Checking database: " ++ filepath
@@ -35,7 +35,7 @@ checkDatabase filepath = do
         Right _ -> putStrLn "Done."
   where
     logm _ lvl s = putStrLn $ show lvl ++ ": " ++ s
-    handleImport :: MonadLogger m => UTCTime -> ImportData -> m (ImportResult a ())
+    handleImport :: (MonadLogger m) => UTCTime -> ImportData -> m (ImportResult a ())
     handleImport t (ImportBlock pv gi bs) = case promoteProtocolVersion pv of
         SomeProtocolVersion spv -> case consensusVersionFor spv of
             ConsensusV0 -> case deserializeExactVersionedPendingBlock spv bs t of
@@ -61,7 +61,7 @@ checkDatabase filepath = do
                 logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finentry for: " ++ show ((KonsensusV1.qcBlock . KonsensusV1.feFinalizedQuorumCertificate) finEntry)
                 return $ Right ()
 
--- |Export a block database, or check and exported block file, depending on the command line.
+-- | Export a block database, or check and exported block file, depending on the command line.
 main :: IO ()
 main = do
     Identity conf <- execParser opts

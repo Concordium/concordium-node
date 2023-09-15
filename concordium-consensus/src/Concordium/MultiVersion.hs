@@ -15,11 +15,11 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |This module defines a multi-version consensus runner. In particular, this supports protocol
--- updates by restarting the consensus with a new genesis block derived from the state of the last
--- finalized block of the previous chain. This is embodied in the 'MultiVersionRunner' type, which
--- encapsulates the state and context required to run multiple consensus instances. The 'MVR' monad
--- is used to run operations within the multi-version runner.
+-- | This module defines a multi-version consensus runner. In particular, this supports protocol
+--  updates by restarting the consensus with a new genesis block derived from the state of the last
+--  finalized block of the previous chain. This is embodied in the 'MultiVersionRunner' type, which
+--  encapsulates the state and context required to run multiple consensus instances. The 'MVR' monad
+--  is used to run operations within the multi-version runner.
 module Concordium.MultiVersion where
 
 import Control.Concurrent
@@ -75,23 +75,23 @@ import Concordium.TimerMonad
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.CatchUp
 
--- |Handler configuration for supporting protocol updates.
--- This handler defines an instance of 'HandlerConfigHandlers' that responds to finalization events
--- by checking for protocol updates (see 'checkForProtocolUpdate').
+-- | Handler configuration for supporting protocol updates.
+--  This handler defines an instance of 'HandlerConfigHandlers' that responds to finalization events
+--  by checking for protocol updates (see 'checkForProtocolUpdate').
 data UpdateHandler = UpdateHandler
 
--- |State for the 'UpdateHandler' handler configuration.
--- This records whether the handler was notified about a (pending) protocol update.
--- Since a pending protocol update may be replaced, the last seen pending protocol update is
--- recorded to detect any such replacement.
+-- | State for the 'UpdateHandler' handler configuration.
+--  This records whether the handler was notified about a (pending) protocol update.
+--  Since a pending protocol update may be replaced, the last seen pending protocol update is
+--  recorded to detect any such replacement.
 data UpdateHandlerState
-    = -- |Indicates that no pending update has been notified.
+    = -- | Indicates that no pending update has been notified.
       NeverNotified
-    | -- |Indicates that the specified protocol update has already been notified.
+    | -- | Indicates that the specified protocol update has already been notified.
       AlreadyNotified
-        { -- |The effective time of the update.
+        { -- | The effective time of the update.
           uhNotifiedEffectiveTimestamp :: !TransactionTime,
-          -- |The contents of the update itself.
+          -- | The contents of the update itself.
           uhNotifiedProtocolUpdate :: !ProtocolUpdate
         }
     deriving (Eq)
@@ -164,31 +164,31 @@ instance
         -- And then check for protocol update.
         checkForProtocolUpdateV0
 
--- |Configuration for the global state that uses disk storage
--- for both tree state and block state.
+-- | Configuration for the global state that uses disk storage
+--  for both tree state and block state.
 newtype DiskStateConfig = DiskStateConfig
-    { -- |Root directory for the global state.
+    { -- | Root directory for the global state.
       stateBasePath :: FilePath
     }
 
--- |Configuration information for a multi-version runner.
--- The type parameter defines the finalization configuration, and should be an instance of
--- 'FinalizationConfig'.
+-- | Configuration information for a multi-version runner.
+--  The type parameter defines the finalization configuration, and should be an instance of
+--  'FinalizationConfig'.
 data MultiVersionConfiguration finconf = MultiVersionConfiguration
-    { -- |Configuration for the global state.
+    { -- | Configuration for the global state.
       mvcStateConfig :: !DiskStateConfig,
-      -- |Configuration for finalization.
+      -- | Configuration for finalization.
       mvcFinalizationConfig :: !finconf,
-      -- |Runtime parameters.
+      -- | Runtime parameters.
       mvcRuntimeParameters :: !RuntimeParameters
     }
 
--- |Create a global state configuration for a specific genesis.
+-- | Create a global state configuration for a specific genesis.
 globalStateConfig ::
     DiskStateConfig ->
     RuntimeParameters ->
     GenesisIndex ->
-    -- |Absolute height of the genesis block.
+    -- | Absolute height of the genesis block.
     AbsoluteBlockHeight ->
     GlobalStateConfig
 globalStateConfig DiskStateConfig{..} rtp gi _ =
@@ -199,7 +199,7 @@ globalStateConfig DiskStateConfig{..} rtp gi _ =
         }
     )
 
--- |Create a global state configuration for a specific genesis.
+-- | Create a global state configuration for a specific genesis.
 globalStateConfigV1 ::
     DiskStateConfig ->
     RuntimeParameters ->
@@ -213,7 +213,7 @@ globalStateConfigV1 DiskStateConfig{..} rtp gi =
         }
     )
 
--- |Callback functions for communicating with the network layer.
+-- | Callback functions for communicating with the network layer.
 data Callbacks = Callbacks
     { -- | Broadcast a (versioned) block on the network.
       broadcastBlock :: GenesisIndex -> ByteString -> IO (),
@@ -222,29 +222,29 @@ data Callbacks = Callbacks
       -- | Broadcast a (versioned) finalization record on the network.
       -- TODO: Possibly deprecate this.
       broadcastFinalizationRecord :: GenesisIndex -> ByteString -> IO (),
-      -- |Send a catch-up status message to all (non-pending) peers.
-      -- This should be used when a pending block becomes live.
-      -- The status message should be neither a request nor a response.
+      -- | Send a catch-up status message to all (non-pending) peers.
+      --  This should be used when a pending block becomes live.
+      --  The status message should be neither a request nor a response.
       notifyCatchUpStatus :: GenesisIndex -> ByteString -> IO (),
-      -- |Notify the P2P layer that we have a new genesis block, or Nothing
-      -- if an unrecognized update took effect.
+      -- | Notify the P2P layer that we have a new genesis block, or Nothing
+      --  if an unrecognized update took effect.
       notifyRegenesis :: Maybe BlockHash -> IO (),
-      -- |Notify a block was added to the tree. The arguments are
-      -- the hash of the block, its absolute height and whether the block was produced by the baker id configured for this node.
+      -- | Notify a block was added to the tree. The arguments are
+      --  the hash of the block, its absolute height and whether the block was produced by the baker id configured for this node.
       notifyBlockArrived :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
-      -- |Notify a block was finalized. The arguments are the hash of the block,
-      -- its absolute height and whether the block was produced by the baker id configured for this node.
+      -- | Notify a block was finalized. The arguments are the hash of the block,
+      --  its absolute height and whether the block was produced by the baker id configured for this node.
       notifyBlockFinalized :: Maybe (BlockHash -> AbsoluteBlockHeight -> Bool -> IO ()),
-      -- |Notify unsupported protocol update is pending when called.
-      -- Takes the effective time of the update as argument.
+      -- | Notify unsupported protocol update is pending when called.
+      --  Takes the effective time of the update as argument.
       notifyUnsupportedProtocolUpdate :: Maybe (Timestamp -> IO ())
     }
 
--- |Handler context used by the version-1 consensus. The handlers run on the 'MVR' monad, which
--- they use to resolve the appropriate callbacks.
+-- | Handler context used by the version-1 consensus. The handlers run on the 'MVR' monad, which
+--  they use to resolve the appropriate callbacks.
 --
--- NOTE: This function may only be called with a valid genesis index. This means that the MVR MUST
--- be populated with a configuration for the genesis index prior to calling this function.
+--  NOTE: This function may only be called with a valid genesis index. This means that the MVR MUST
+--  be populated with a configuration for the genesis index prior to calling this function.
 skovV1Handlers ::
     forall pv finconf.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
@@ -314,58 +314,58 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
         -- blocks.
         bufferedSendCatchUpStatus
 
--- |Baker identity and baking thread 'MVar'.
+-- | Baker identity and baking thread 'MVar'.
 data Baker = Baker
-    { -- |The baker ID and keys to use for baking.
+    { -- | The baker ID and keys to use for baking.
       bakerIdentity :: !BakerIdentity,
-      -- |An 'MVar' holding the 'ThreadId' of the baker thread.
-      -- If present, the 'ThreadId' should be that of the singular baker thread.
-      -- Stopping the baker thread is accomplished by taking the 'MVar' and
-      -- calling 'killThread'.
+      -- | An 'MVar' holding the 'ThreadId' of the baker thread.
+      --  If present, the 'ThreadId' should be that of the singular baker thread.
+      --  Stopping the baker thread is accomplished by taking the 'MVar' and
+      --  calling 'killThread'.
       bakerThread :: !(MVar ThreadId)
     }
 
--- |Configuration for the version-0 consensus at a particular genesis index.
+-- | Configuration for the version-0 consensus at a particular genesis index.
 data VersionedConfigurationV0 finconf (pv :: ProtocolVersion) = VersionedConfigurationV0
-    { -- |The 'SkovContext' (immutable)
+    { -- | The 'SkovContext' (immutable)
       vc0Context :: !(Skov.SkovContext (Skov.SkovConfig pv finconf UpdateHandler)),
-      -- |The 'SkovState' (mutable) via an 'IORef'. This should only be updated
-      -- by a thread that holds the global lock.
+      -- | The 'SkovState' (mutable) via an 'IORef'. This should only be updated
+      --  by a thread that holds the global lock.
       vc0State :: !(IORef (Skov.SkovState (Skov.SkovConfig pv finconf UpdateHandler))),
-      -- |The genesis index
+      -- | The genesis index
       vc0Index :: GenesisIndex,
-      -- |The absolute block height of the genesis block
+      -- | The absolute block height of the genesis block
       vc0GenesisHeight :: AbsoluteBlockHeight,
-      -- |Shutdown the skov. This should only be called by a thread that holds the global lock
-      -- and the configuration should not be used subsequently.
+      -- | Shutdown the skov. This should only be called by a thread that holds the global lock
+      --  and the configuration should not be used subsequently.
       vc0Shutdown :: LogIO ()
     }
 
--- |Configuration for the version-1 consensus at a particular genesis index.
+-- | Configuration for the version-1 consensus at a particular genesis index.
 data VersionedConfigurationV1 finconf (pv :: ProtocolVersion) = VersionedConfigurationV1
-    { -- |The immutable 'SkovV1.SkovV1Context'.
+    { -- | The immutable 'SkovV1.SkovV1Context'.
       vc1Context :: !(SkovV1.SkovV1Context pv (MVR finconf)),
-      -- |The 'SkovV1.SkovV1State' (mutable), wrapped in an 'IORef'. This should only be updated
-      -- by a thread that holds the global lock.
+      -- | The 'SkovV1.SkovV1State' (mutable), wrapped in an 'IORef'. This should only be updated
+      --  by a thread that holds the global lock.
       vc1State :: !(IORef (SkovV1.SkovV1State pv)),
-      -- |The genesis index
+      -- | The genesis index
       vc1Index :: GenesisIndex,
-      -- |The absolute block height of the genesis block
+      -- | The absolute block height of the genesis block
       vc1GenesisHeight :: AbsoluteBlockHeight,
-      -- |Shutdown the skov. This should only be called by a thread that holds the global lock
-      -- and the configuration should not be used subsequently.
+      -- | Shutdown the skov. This should only be called by a thread that holds the global lock
+      --  and the configuration should not be used subsequently.
       vc1Shutdown :: LogIO ()
     }
 
--- |'SkovConfig' instantiated for the multi-version runner.
+-- | 'SkovConfig' instantiated for the multi-version runner.
 type VersionedConfig finconf pv = Skov.SkovConfig pv finconf UpdateHandler
 
--- |'SkovHandlers' instantiated for the multi-version runner.
+-- | 'SkovHandlers' instantiated for the multi-version runner.
 type VersionedHandlers finconf (pv :: ProtocolVersion) =
     Skov.SkovHandlers pv ThreadTimer (VersionedConfig finconf pv) (MVR finconf)
 
--- |The 'SkovT' monad instantiated for the multi-version runner.
--- This monad is used for running operations on the version-0 consensus.
+-- | The 'SkovT' monad instantiated for the multi-version runner.
+--  This monad is used for running operations on the version-0 consensus.
 type VersionedSkovV0M finconf pv =
     Skov.SkovT
         pv
@@ -373,86 +373,86 @@ type VersionedSkovV0M finconf pv =
         (VersionedConfig finconf pv)
         (MVR finconf)
 
--- |The monad used for running operations on the version-1 consensus.
+-- | The monad used for running operations on the version-1 consensus.
 type VersionedSkovV1M finconf pv =
     SkovV1.SkovV1T pv (MVR finconf)
 
--- |An existential wrapper around a 'VersionedConfigurationV0' or 'VersionedConfigurationV1' that
--- abstracts the protocol version. For 'VersionedConfigurationV0', we require 'SkovMonad' and
--- 'FinalizationMonad' instances for 'VersionedSkovV0M' instantiated at the abstracted protocol
--- version. For 'VersionedConfigurationV1', it is sufficient to have 'IsConsensusV1' and
--- 'IsProtocolVersion' for the protocol version.
+-- | An existential wrapper around a 'VersionedConfigurationV0' or 'VersionedConfigurationV1' that
+--  abstracts the protocol version. For 'VersionedConfigurationV0', we require 'SkovMonad' and
+--  'FinalizationMonad' instances for 'VersionedSkovV0M' instantiated at the abstracted protocol
+--  version. For 'VersionedConfigurationV1', it is sufficient to have 'IsConsensusV1' and
+--  'IsProtocolVersion' for the protocol version.
 data EVersionedConfiguration finconf
-    = -- |A configuration for consensus version 0.
+    = -- | A configuration for consensus version 0.
       forall (pv :: ProtocolVersion).
         ( Skov.SkovMonad (VersionedSkovV0M finconf pv),
           FinalizationMonad (VersionedSkovV0M finconf pv),
           BakerMonad (VersionedSkovV0M finconf pv)
         ) =>
       EVersionedConfigurationV0 (VersionedConfigurationV0 finconf pv)
-    | -- |A configuration for consensus version 1.
+    | -- | A configuration for consensus version 1.
       forall (pv :: ProtocolVersion).
         ( IsConsensusV1 pv,
           IsProtocolVersion pv
         ) =>
       EVersionedConfigurationV1 (VersionedConfigurationV1 finconf pv)
 
--- |Get the genesis height of an 'EVersionedConfiguration'.
+-- | Get the genesis height of an 'EVersionedConfiguration'.
 evcGenesisHeight :: EVersionedConfiguration finconf -> AbsoluteBlockHeight
 evcGenesisHeight (EVersionedConfigurationV0 vc) = vc0GenesisHeight vc
 evcGenesisHeight (EVersionedConfigurationV1 vc) = vc1GenesisHeight vc
 
--- |Shutdown the skov of an 'EVersionedConfiguration'. This should only by invoked by a thread
--- that holds the global lock, and the configuration should not be used subsequently.
+-- | Shutdown the skov of an 'EVersionedConfiguration'. This should only by invoked by a thread
+--  that holds the global lock, and the configuration should not be used subsequently.
 evcShutdown :: EVersionedConfiguration finconf -> LogIO ()
 evcShutdown (EVersionedConfigurationV0 vc) = vc0Shutdown vc
 evcShutdown (EVersionedConfigurationV1 vc) = vc1Shutdown vc
 
--- |Get the genesis index of an 'EVersionedConfiguration'.
+-- | Get the genesis index of an 'EVersionedConfiguration'.
 evcIndex :: EVersionedConfiguration finconf -> GenesisIndex
 evcIndex (EVersionedConfigurationV0 vc) = vc0Index vc
 evcIndex (EVersionedConfigurationV1 vc) = vc1Index vc
 
--- |Get the protocol version associated with an 'EVersionedConfiguration'.
+-- | Get the protocol version associated with an 'EVersionedConfiguration'.
 evcProtocolVersion :: EVersionedConfiguration finconf -> ProtocolVersion
 evcProtocolVersion (EVersionedConfigurationV0 (_ :: VersionedConfigurationV0 finconf pv)) =
     demoteProtocolVersion (protocolVersion @pv)
 evcProtocolVersion (EVersionedConfigurationV1 (_ :: VersionedConfigurationV1 finconf pv)) =
     demoteProtocolVersion (protocolVersion @pv)
 
--- |Activate an 'EVersionedConfiguration'. This means caching the state and
--- establishing state invariants so that the configuration can be used as the
--- currently active one for processing blocks, transactions, etc.
-activateConfiguration :: Skov.SkovConfiguration finconf UpdateHandler => EVersionedConfiguration finconf -> MVR finconf ()
+-- | Activate an 'EVersionedConfiguration'. This means caching the state and
+--  establishing state invariants so that the configuration can be used as the
+--  currently active one for processing blocks, transactions, etc.
+activateConfiguration :: (Skov.SkovConfiguration finconf UpdateHandler) => EVersionedConfiguration finconf -> MVR finconf ()
 activateConfiguration (EVersionedConfigurationV0 vc) = do
     activeState <- mvrLogIO . Skov.activateSkovState (vc0Context vc) =<< liftIO (readIORef (vc0State vc))
     liftIO (writeIORef (vc0State vc) activeState)
 activateConfiguration (EVersionedConfigurationV1 vc) =
     liftSkovV1Update vc SkovV1.activateSkovV1State
 
--- |This class makes it possible to use a multi-version configuration at a specific version.
--- Essentially, this class provides instances of 'SkovMonad', 'FinalizationMonad' and
--- 'TreeStateMonad' for 'VersionedSkovV0M' instantiated with the configuration parameters and at any
--- 'ProtocolVersion'.
+-- | This class makes it possible to use a multi-version configuration at a specific version.
+--  Essentially, this class provides instances of 'SkovMonad', 'FinalizationMonad' and
+--  'TreeStateMonad' for 'VersionedSkovV0M' instantiated with the configuration parameters and at any
+--  'ProtocolVersion'.
 --
--- There is only one instance for this class, but it is fully general.  The reason that this needs
--- to be a class (rather than a constraint alias) is that the constraints involved are quantified.
--- This makes it problematic for the type-checker to correctly simplify them.
+--  There is only one instance for this class, but it is fully general.  The reason that this needs
+--  to be a class (rather than a constraint alias) is that the constraints involved are quantified.
+--  This makes it problematic for the type-checker to correctly simplify them.
 class MultiVersion finconf where
-    -- |Convert a 'VersionedConfigurationV0' to an 'EVersionedConfiguration'.
+    -- | Convert a 'VersionedConfigurationV0' to an 'EVersionedConfiguration'.
     newVersionV0 ::
         (IsProtocolVersion pv, IsConsensusV0 pv) =>
         VersionedConfigurationV0 finconf pv ->
         EVersionedConfiguration finconf
 
-    -- |Convert a 'VersionedConfigurationV1' to an 'EVersionedConfiguration'.
+    -- | Convert a 'VersionedConfigurationV1' to an 'EVersionedConfiguration'.
     newVersionV1 ::
         (IsProtocolVersion pv, IsConsensusV1 pv) =>
         VersionedConfigurationV1 finconf pv ->
         EVersionedConfiguration finconf
 
-    -- |Supply a 'VersionedSkovV0M' action with instances of 'SkovMonad', 'FinalizationMonad' and
-    -- 'TreeStateMonad'.
+    -- | Supply a 'VersionedSkovV0M' action with instances of 'SkovMonad', 'FinalizationMonad' and
+    --  'TreeStateMonad'.
     liftSkov ::
         (IsProtocolVersion pv, IsConsensusV0 pv) =>
         ( ( Skov.SkovMonad (VersionedSkovV0M finconf pv),
@@ -465,7 +465,7 @@ class MultiVersion finconf where
 
 instance
     ( forall pv. (IsProtocolVersion pv, IsConsensusV0 pv) => BakerMonad (VersionedSkovV0M finconf pv),
-      forall pv. IsProtocolVersion pv => TreeStateMonad (VersionedSkovV0M finconf pv)
+      forall pv. (IsProtocolVersion pv) => TreeStateMonad (VersionedSkovV0M finconf pv)
     ) =>
     MultiVersion finconf
     where
@@ -473,51 +473,51 @@ instance
     newVersionV1 = EVersionedConfigurationV1
     liftSkov a = a
 
--- |State of catch-up buffering.  This is used for buffering the sending of catch-up status messages
--- that need to be sent as a result of pending blocks becoming live, or as a result of making
--- progress due to catch-up.  See
--- 'bufferedSendCatchUpStatus' for details.
+-- | State of catch-up buffering.  This is used for buffering the sending of catch-up status messages
+--  that need to be sent as a result of pending blocks becoming live, or as a result of making
+--  progress due to catch-up.  See
+--  'bufferedSendCatchUpStatus' for details.
 data CatchUpStatusBufferState
-    = -- |We are not currently waiting to send a catch-up status message.
+    = -- | We are not currently waiting to send a catch-up status message.
       BufferEmpty
-    | -- |We are currently waiting to send a catch-up status message.
+    | -- | We are currently waiting to send a catch-up status message.
       BufferPending
-        { -- |The soonest the status message should be sent.
+        { -- | The soonest the status message should be sent.
           cusbsSoonest :: !UTCTime,
-          -- |The latest the status message should be sent.
+          -- | The latest the status message should be sent.
           cusbsLatest :: !UTCTime
         }
-    | -- |We should not send any more catch-up status messages.
+    | -- | We should not send any more catch-up status messages.
       BufferShutdown
 
--- |The context for managing multi-version consensus.
+-- | The context for managing multi-version consensus.
 data MultiVersionRunner finconf = MultiVersionRunner
-    { -- |Base configuration.
+    { -- | Base configuration.
       mvConfiguration :: !(MultiVersionConfiguration finconf),
-      -- |Callback functions for sending messsages to the network.
+      -- | Callback functions for sending messsages to the network.
       mvCallbacks :: !Callbacks,
-      -- |Baker identity.
+      -- | Baker identity.
       mvBaker :: !(Maybe Baker),
-      -- |Thread that periodically purges uncommitted transactions.
+      -- | Thread that periodically purges uncommitted transactions.
       mvTransactionPurgingThread :: !(MVar ThreadId),
-      -- |Vector of states, indexed by the genesis index.
-      -- This is only ever updated by extending the vector, and only while
-      -- the write lock is held.
+      -- | Vector of states, indexed by the genesis index.
+      --  This is only ever updated by extending the vector, and only while
+      --  the write lock is held.
       mvVersions :: !(IORef (Vec.Vector (EVersionedConfiguration finconf))),
-      -- |Global write lock.
+      -- | Global write lock.
       mvWriteLock :: !(MVar ()),
-      -- |Flag to stop importing blocks. When importing blocks from a file is in progress,
-      -- setting this flag to True will cause the import to stop.
+      -- | Flag to stop importing blocks. When importing blocks from a file is in progress,
+      --  setting this flag to True will cause the import to stop.
       mvShouldStopImportingBlocks :: !(IORef Bool),
-      -- |State for buffering catch-up status message events.
+      -- | State for buffering catch-up status message events.
       mvCatchUpStatusBuffer :: !(MVar CatchUpStatusBufferState),
-      -- |Log method.
+      -- | Log method.
       mvLog :: LogMethod IO
     }
 
--- |Multi-version runner monad. Ultimately, @MVR finconf@ is a newtype wrapper around
--- @ReaderT (MultiVersionRunner finconf) IO@. That is, it is an @IO@ monad with a
--- @MultiVersionRunner@ context.
+-- | Multi-version runner monad. Ultimately, @MVR finconf@ is a newtype wrapper around
+--  @ReaderT (MultiVersionRunner finconf) IO@. That is, it is an @IO@ monad with a
+--  @MultiVersionRunner@ context.
 newtype MVR finconf a = MVR {runMVR :: MultiVersionRunner finconf -> IO a}
     deriving
         ( Functor,
@@ -536,16 +536,16 @@ instance MonadLogger (MVR finconf) where
     logEvent src lvl msg = MVR $ \mvr -> mvLog mvr src lvl msg
     {-# INLINE logEvent #-}
 
--- |Perform an action while holding the global state write lock.
--- If the action throws an exception, this ensures that the lock is
--- released.
+-- | Perform an action while holding the global state write lock.
+--  If the action throws an exception, this ensures that the lock is
+--  released.
 withWriteLock :: MVR finconf a -> MVR finconf a
 {-# INLINE withWriteLock #-}
 withWriteLock a = MVR $ \mvr -> withWriteLockIO mvr (runMVR a mvr)
 
--- |Perform an action while holding the global state write lock.
--- If the action throws an exception, this ensures that the lock is
--- released.
+-- | Perform an action while holding the global state write lock.
+--  If the action throws an exception, this ensures that the lock is
+--  released.
 withWriteLockIO :: MultiVersionRunner finconf -> IO a -> IO a
 {-# INLINE withWriteLockIO #-}
 withWriteLockIO MultiVersionRunner{..} a =
@@ -560,18 +560,18 @@ withWriteLockIO MultiVersionRunner{..} a =
             putMVar mvWriteLock ()
             return res
 
--- |Perform an action while holding the global state write lock. Optionally, when the action
--- completes, a thread is forked to perform a follow-up action before releasing the lock.
--- If either the action or the follow-up action throws an exception, the write lock will be
--- released.
+-- | Perform an action while holding the global state write lock. Optionally, when the action
+--  completes, a thread is forked to perform a follow-up action before releasing the lock.
+--  If either the action or the follow-up action throws an exception, the write lock will be
+--  released.
 withWriteLockMaybeFork :: MVR finconf (a, Maybe b) -> (b -> MVR finconf ()) -> MVR finconf a
 withWriteLockMaybeFork action followup = MVR $ \mvr ->
     withWriteLockMaybeForkIO mvr (runMVR action mvr) (\b -> runMVR (followup b) mvr)
 
--- |Perform an action while holding the global state write lock. Optionally, when the action
--- completes, a thread is forked to perform a follow-up action before releasing the lock.
--- If either the action or the follow-up action throws an exception, the write lock will be
--- released.
+-- | Perform an action while holding the global state write lock. Optionally, when the action
+--  completes, a thread is forked to perform a follow-up action before releasing the lock.
+--  If either the action or the follow-up action throws an exception, the write lock will be
+--  released.
 withWriteLockMaybeForkIO :: MultiVersionRunner finconf -> IO (a, Maybe b) -> (b -> IO ()) -> IO a
 {-# INLINE withWriteLockMaybeForkIO #-}
 withWriteLockMaybeForkIO MultiVersionRunner{..} action followup = mask $ \unmask -> do
@@ -588,30 +588,30 @@ withWriteLockMaybeForkIO MultiVersionRunner{..} action followup = mask $ \unmask
             putMVar mvWriteLock ()
     return res
 
--- |Lift a 'LogIO' action into the 'MVR' monad.
+-- | Lift a 'LogIO' action into the 'MVR' monad.
 mvrLogIO :: LogIO a -> MVR finconf a
 {-# INLINE mvrLogIO #-}
 mvrLogIO a = MVR $ \mvr -> runLoggerT a (mvLog mvr)
 
--- |Start a consensus with a new genesis.
--- It is assumed that the thread holds the write lock. This calls
--- 'notifyRegenesis' to alert the P2P layer of the new genesis block and that
--- catch-up should be invoked.
+-- | Start a consensus with a new genesis.
+--  It is assumed that the thread holds the write lock. This calls
+--  'notifyRegenesis' to alert the P2P layer of the new genesis block and that
+--  catch-up should be invoked.
 --
--- This should only be used to process a live protocol update, i.e., a protocol
--- update that will start an additional genesis that the node does not yet know
--- about.
+--  This should only be used to process a live protocol update, i.e., a protocol
+--  update that will start an additional genesis that the node does not yet know
+--  about.
 --
--- 'startupSkov' should be used for starting a node up until the last genesis we
--- know about.
+--  'startupSkov' should be used for starting a node up until the last genesis we
+--  know about.
 newGenesis ::
     forall finconf.
     ( MultiVersion finconf,
       Skov.SkovConfiguration finconf UpdateHandler
     ) =>
-    -- |Genesis data
+    -- | Genesis data
     PVGenesisData ->
-    -- |Absolute height of the new genesis block
+    -- | Absolute height of the new genesis block
     AbsoluteBlockHeight ->
     MVR finconf ()
 newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensusVersionFor (protocolVersion @pv) of
@@ -698,14 +698,14 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                     -- Start the consensus
                     runMVR (liftSkovV1Update newEConfig KonsensusV1.startEvents) mvr
 
--- |Determine if a protocol update has occurred from consensus version 0, and handle it.
--- When a protocol update first becomes pending, this logs the update that will occur (if it is
--- of a known type) or logs an error message (if it is unknown).
--- When the protocol update takes effect, this will create the new genesis block, starting up a
--- new instances of consensus and shutting down the old one (which is still available for queries).
--- However, if the new protocol is unknown, no update will take place, but the old consensus will
--- effectively stop accepting blocks.
--- It is assumed that the thread holds the write lock.
+-- | Determine if a protocol update has occurred from consensus version 0, and handle it.
+--  When a protocol update first becomes pending, this logs the update that will occur (if it is
+--  of a known type) or logs an error message (if it is unknown).
+--  When the protocol update takes effect, this will create the new genesis block, starting up a
+--  new instances of consensus and shutting down the old one (which is still available for queries).
+--  However, if the new protocol is unknown, no update will take place, but the old consensus will
+--  effectively stop accepting blocks.
+--  It is assumed that the thread holds the write lock.
 checkForProtocolUpdateV0 ::
     forall lastpv fc.
     ( IsProtocolVersion lastpv,
@@ -912,14 +912,14 @@ checkForProtocolUpdateV0 = liftSkov body
                                 ++ show upd
                 return Nothing
 
--- |Determine if a protocol update has occurred from consensus version 1, and handle it.
--- When a protocol update first becomes pending, this logs the update that will occur (if it is
--- of a known type) or logs an error message (if it is unknown).
--- When the protocol update takes effect, this will create the new genesis block, starting up a
--- new instances of consensus and shutting down the old one (which is still available for queries).
--- However, if the new protocol is unknown, no update will take place, but the old consensus will
--- effectively stop accepting blocks.
--- It is assumed that the thread holds the write lock.
+-- | Determine if a protocol update has occurred from consensus version 1, and handle it.
+--  When a protocol update first becomes pending, this logs the update that will occur (if it is
+--  of a known type) or logs an error message (if it is unknown).
+--  When the protocol update takes effect, this will create the new genesis block, starting up a
+--  new instances of consensus and shutting down the old one (which is still available for queries).
+--  However, if the new protocol is unknown, no update will take place, but the old consensus will
+--  effectively stop accepting blocks.
+--  It is assumed that the thread holds the write lock.
 checkForProtocolUpdateV1 ::
     forall lastpv fc.
     ( IsProtocolVersion lastpv,
@@ -1073,7 +1073,7 @@ checkForProtocolUpdateV1 = body
                         ++ "\n"
                         ++ show upd
 
--- |Make a 'MultiVersionRunner' for a given configuration.
+-- | Make a 'MultiVersionRunner' for a given configuration.
 makeMultiVersionRunner ::
     ( MultiVersion finconf,
       Skov.SkovConfiguration finconf UpdateHandler
@@ -1082,8 +1082,8 @@ makeMultiVersionRunner ::
     Callbacks ->
     Maybe BakerIdentity ->
     LogMethod IO ->
-    -- |Either encoded or already parsed genesis data. The former is useful
-    -- when genesis data is large and expensive to decode.
+    -- | Either encoded or already parsed genesis data. The former is useful
+    --  when genesis data is large and expensive to decode.
     Either ByteString PVGenesisData ->
     IO (MultiVersionRunner finconf)
 makeMultiVersionRunner
@@ -1106,35 +1106,35 @@ makeMultiVersionRunner
         startTransactionPurgingThread mvr
         return mvr
 
--- |Start a consensus with a new genesis.
--- It is assumed that the thread holds the write lock.
--- This calls 'notifyRegenesis' to alert the P2P layer of the new genesis block so that p2p layer
--- starts up with a correct list of genesis blocks.
+-- | Start a consensus with a new genesis.
+--  It is assumed that the thread holds the write lock.
+--  This calls 'notifyRegenesis' to alert the P2P layer of the new genesis block so that p2p layer
+--  starts up with a correct list of genesis blocks.
 --
--- Startup works as follows.
+--  Startup works as follows.
 --
--- 1. Genesis data is partially decoded to determine the protocol version where
--- the chain is supposed to start.
--- 2. For each protocol version starting at the initial one we attempt to load
--- the existing state for the protocol version and genesis index. This loading
--- is minimal and no state caching is done. Only enough state is loaded so that
--- queries for old blocks, data in blocks, are supported.
--- 3. After this process we end up in one of two slightly different options.
---    - Either there is no state at all. In that case we need to decode the
---    supplied genesis data fully and start a chain with it. We start a new
---    chain with 'newGenesis'.
---    - Or we have loaded at least one state. In this case we must check whether
---      the state already contains an effective protocol update or not.
---      'checkForProtocolUpdate' is used for this and it might start a new chain.
+--  1. Genesis data is partially decoded to determine the protocol version where
+--  the chain is supposed to start.
+--  2. For each protocol version starting at the initial one we attempt to load
+--  the existing state for the protocol version and genesis index. This loading
+--  is minimal and no state caching is done. Only enough state is loaded so that
+--  queries for old blocks, data in blocks, are supported.
+--  3. After this process we end up in one of two slightly different options.
+--     - Either there is no state at all. In that case we need to decode the
+--     supplied genesis data fully and start a chain with it. We start a new
+--     chain with 'newGenesis'.
+--     - Or we have loaded at least one state. In this case we must check whether
+--       the state already contains an effective protocol update or not.
+--       'checkForProtocolUpdate' is used for this and it might start a new chain.
 startupSkov ::
     forall finconf.
     ( MultiVersion finconf,
       Skov.SkovConfiguration finconf UpdateHandler
     ) =>
-    -- |Genesis data, either an unparsed byte array or already deserialized. The
-    -- former is useful when genesis is expensive to deserialize, and its
-    -- parsing is not needed if the node already has an existing state. The
-    -- latter is useful for testing and test runners.
+    -- | Genesis data, either an unparsed byte array or already deserialized. The
+    --  former is useful when genesis is expensive to deserialize, and its
+    --  parsing is not needed if the node already has an existing state. The
+    --  latter is useful for testing and test runners.
     Either ByteString PVGenesisData ->
     MVR finconf ()
 startupSkov genesis = do
@@ -1300,12 +1300,12 @@ startupSkov genesis = do
                 Right gd -> newGenesis gd 0
             Right gd -> newGenesis gd 0
 
--- |Start a thread to periodically purge uncommitted transactions.
--- This is only intended to be called once, during 'makeMultiVersionRunner'.
--- Calling it a second time is expected to deadlock.
+-- | Start a thread to periodically purge uncommitted transactions.
+--  This is only intended to be called once, during 'makeMultiVersionRunner'.
+--  Calling it a second time is expected to deadlock.
 --
--- If the specified delay is less than or equal to zero, no purging thread
--- will be started.
+--  If the specified delay is less than or equal to zero, no purging thread
+--  will be started.
 startTransactionPurgingThread :: MultiVersionRunner finconf -> IO ()
 startTransactionPurgingThread mvr@MultiVersionRunner{..} =
     when (delay > 0) $
@@ -1327,10 +1327,10 @@ startTransactionPurgingThread mvr@MultiVersionRunner{..} =
   where
     delay = rpTransactionsPurgingDelay (mvcRuntimeParameters mvConfiguration) * 1_000_000
 
--- |Start a baker thread associated with a 'MultiVersionRunner'.
--- This will only succeed if the runner was initialised with baker credentials.
--- A baker thread will only be started if the current consensus version is 0, since baking
--- is not handled as a separate thread in consensus version 1.
+-- | Start a baker thread associated with a 'MultiVersionRunner'.
+--  This will only succeed if the runner was initialised with baker credentials.
+--  A baker thread will only be started if the current consensus version is 0, since baking
+--  is not handled as a separate thread in consensus version 1.
 startBaker :: MultiVersionRunner finconf -> IO ()
 startBaker MultiVersionRunner{mvBaker = Nothing, ..} =
     mvLog
@@ -1402,7 +1402,7 @@ startBaker mvr@MultiVersionRunner{mvBaker = Just Baker{..}, ..} = whenBakerRequi
                     \will shut down."
                 void $ takeMVar bakerThread
 
--- |Stop the baker thread associated with a 'MultiVersionRunner'.
+-- | Stop the baker thread associated with a 'MultiVersionRunner'.
 stopBaker :: MultiVersionRunner finconf -> IO ()
 stopBaker MultiVersionRunner{mvBaker = Nothing, ..} =
     mvLog
@@ -1415,7 +1415,7 @@ stopBaker MultiVersionRunner{mvBaker = Just Baker{..}, ..} = do
             Nothing -> mvLog Runner LLWarning "Attempted to stop baker thread, but it was not running."
             Just thrd -> killThread thrd
 
--- |Set the flag to stop importing the blocks to `True`.
+-- | Set the flag to stop importing the blocks to `True`.
 stopImportingBlocks :: MultiVersionRunner finconf -> IO ()
 stopImportingBlocks MultiVersionRunner{..} = mask_ $ do
     writeIORef mvShouldStopImportingBlocks True
@@ -1431,10 +1431,10 @@ shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
     versions <- readIORef mvVersions
     runLoggerT (forM_ versions evcShutdown) mvLog
 
--- |Lift a version-0 consensus skov action to the 'MVR' monad, running it on a
--- particular 'VersionedConfigurationV0'. Note that this does not
--- acquire the write lock: the caller must ensure that the lock
--- is held.
+-- | Lift a version-0 consensus skov action to the 'MVR' monad, running it on a
+--  particular 'VersionedConfigurationV0'. Note that this does not
+--  acquire the write lock: the caller must ensure that the lock
+--  is held.
 liftSkovV0Update ::
     VersionedConfigurationV0 finconf pv ->
     VersionedSkovV0M finconf pv a ->
@@ -1445,9 +1445,9 @@ liftSkovV0Update vc a = MVR $ \mvr -> do
     writeIORef (vc0State vc) $! newState
     return $! res
 
--- |Lift a version-1 consensus skov action to the 'MVR' monad, running it on a particular
--- 'VersionedConfigurationV1'. Note that this does not acquire the write lock: the caller must
--- ensure that the lock is held.
+-- | Lift a version-1 consensus skov action to the 'MVR' monad, running it on a particular
+--  'VersionedConfigurationV1'. Note that this does not acquire the write lock: the caller must
+--  ensure that the lock is held.
 liftSkovV1Update ::
     VersionedConfigurationV1 finconf pv ->
     VersionedSkovV1M finconf pv a ->
@@ -1458,28 +1458,28 @@ liftSkovV1Update vc a = MVR $ \mvr -> do
     writeIORef (vc1State vc) $! newState
     return $! res
 
--- |Run a version-0 consensus transaction that may affect the state.
--- This acquires the write lock for the duration of the operation.
--- If the action throws an exception, the state will not be updated,
--- but the lock is guaranteed to be released.
+-- | Run a version-0 consensus transaction that may affect the state.
+--  This acquires the write lock for the duration of the operation.
+--  If the action throws an exception, the state will not be updated,
+--  but the lock is guaranteed to be released.
 runSkovV0Transaction ::
     VersionedConfigurationV0 finconf pv ->
     VersionedSkovV0M finconf pv a ->
     MVR finconf a
 runSkovV0Transaction vc a = withWriteLock $ liftSkovV0Update vc a
 
--- |Run a version-1 consensus transaction that may affect the state.
--- This acquires the write lock for the duration of the operation.
--- If the action throws an exception, the state will not be updated,
--- but the lock is guaranteed to be released.
+-- | Run a version-1 consensus transaction that may affect the state.
+--  This acquires the write lock for the duration of the operation.
+--  If the action throws an exception, the state will not be updated,
+--  but the lock is guaranteed to be released.
 runSkovV1Transaction ::
     VersionedConfigurationV1 finconf pv ->
     VersionedSkovV1M finconf pv a ->
     MVR finconf a
 runSkovV1Transaction vc a = withWriteLock $ liftSkovV1Update vc a
 
--- |An instance of 'SkovHandlers' for running operations on a
--- 'VersionedConfigurationV0' within a 'MultiVersionRunner'.
+-- | An instance of 'SkovHandlers' for running operations on a
+--  'VersionedConfigurationV0' within a 'MultiVersionRunner'.
 mvrSkovHandlers ::
     VersionedConfigurationV0 finconf pv ->
     MultiVersionRunner finconf ->
@@ -1498,16 +1498,16 @@ mvrSkovHandlers vc mvr@MultiVersionRunner{mvCallbacks = Callbacks{..}} =
           shPendingLive = bufferedSendCatchUpStatus
         }
 
--- |Send out a catch-up status message within at most 30 seconds (subject to scheduling).
--- This uses the following principles:
+-- | Send out a catch-up status message within at most 30 seconds (subject to scheduling).
+--  This uses the following principles:
 --
---   * If we are not already waiting to send a catch-up status message, start
---     waiting for at least 5 seconds and at most 30 seconds.
---   * If we are already waiting to send a catch-up status message, update the
---     soonest time to send that to be 5 seconds from now, or the latest possible
---     time, whichever is sooner.
---   * If the buffer has been shut down (i.e. the entire consensus is being torn
---     down) then do nothing.
+--    * If we are not already waiting to send a catch-up status message, start
+--      waiting for at least 5 seconds and at most 30 seconds.
+--    * If we are already waiting to send a catch-up status message, update the
+--      soonest time to send that to be 5 seconds from now, or the latest possible
+--      time, whichever is sooner.
+--    * If the buffer has been shut down (i.e. the entire consensus is being torn
+--      down) then do nothing.
 bufferedSendCatchUpStatus ::
     MVR finconf ()
 bufferedSendCatchUpStatus = MVR $ \mvr@MultiVersionRunner{..} -> do
@@ -1548,7 +1548,7 @@ bufferedSendCatchUpStatus = MVR $ \mvr@MultiVersionRunner{..} -> do
                             restore $ waitLoop mvr cusbsSoonest
                 BufferShutdown -> return ()
 
--- |Send a catch-up status message for the latest genesis index.
+-- | Send a catch-up status message for the latest genesis index.
 sendCatchUpStatus :: MVR finconf ()
 sendCatchUpStatus = MVR $ \mvr@MultiVersionRunner{..} -> do
     vvec <- readIORef mvVersions
@@ -1574,26 +1574,26 @@ sendCatchUpStatus = MVR $ \mvr@MultiVersionRunner{..} -> do
                 encode $
                     VersionedCatchUpStatusV1 cus
 
--- |Perform an operation with the latest chain version, as long as
--- it is at the expected genesis index. The function returns a tuple consisting
--- of a 'Skov.UpdateResult and an optional 'a'.
--- This variant is used if the (typically) underlying 'Skov' action also returns some value 'a' in
--- addition to the 'Skov.UpdateResult'.
--- If the genesis index is for an older version, this returns 'ResultConsensusShutDown'
--- instead.  If the genesis index is for an (as yet) unknown version,
--- this returns 'ResultInvalidGenesisIndex'.
+-- | Perform an operation with the latest chain version, as long as
+--  it is at the expected genesis index. The function returns a tuple consisting
+--  of a 'Skov.UpdateResult and an optional 'a'.
+--  This variant is used if the (typically) underlying 'Skov' action also returns some value 'a' in
+--  addition to the 'Skov.UpdateResult'.
+--  If the genesis index is for an older version, this returns 'ResultConsensusShutDown'
+--  instead.  If the genesis index is for an (as yet) unknown version,
+--  this returns 'ResultInvalidGenesisIndex'.
 --
--- Note that if it is absolutely necessary that the genesis index
--- should be for the latest version, then the write lock needs to
--- be acquired when the check is made.  However, typically the
--- operation should respond with 'ResultConsensusShutDown' in any
--- case if the genesis index is not the latest version.
+--  Note that if it is absolutely necessary that the genesis index
+--  should be for the latest version, then the write lock needs to
+--  be acquired when the check is made.  However, typically the
+--  operation should respond with 'ResultConsensusShutDown' in any
+--  case if the genesis index is not the latest version.
 --
--- TODO: Currently, when the genesis index is in the future (and
--- thus unknown) we simply respond with 'ResultInvalidGenesisIndex'.
--- During a protocol update, it might be wise to cache messages for
--- the forthcoming protocol version. For the time being, we will
--- simply rely on catch-up.
+--  TODO: Currently, when the genesis index is in the future (and
+--  thus unknown) we simply respond with 'ResultInvalidGenesisIndex'.
+--  During a protocol update, it might be wise to cache messages for
+--  the forthcoming protocol version. For the time being, we will
+--  simply rely on catch-up.
 withLatestExpectedVersion ::
     GenesisIndex ->
     (EVersionedConfiguration finconf -> MVR finconf (Skov.UpdateResult, Maybe a)) ->
@@ -1607,30 +1607,30 @@ withLatestExpectedVersion gi a = do
         LT -> return (Skov.ResultInvalidGenesisIndex, Nothing)
         GT -> return (Skov.ResultConsensusShutDown, Nothing)
 
--- |Performs an operation with the latest chain version via 'withLatestExectedVersion'.
--- This variant throws away the second component of the tuple result returned from 'withLatestExectedVersion',
--- i.e. this version of 'withLatestExpectedVersion' only yields the 'Skov.UpdateResult'
+-- | Performs an operation with the latest chain version via 'withLatestExectedVersion'.
+--  This variant throws away the second component of the tuple result returned from 'withLatestExectedVersion',
+--  i.e. this version of 'withLatestExpectedVersion' only yields the 'Skov.UpdateResult'
 withLatestExpectedVersion_ ::
     GenesisIndex ->
     (EVersionedConfiguration finconf -> MVR finconf Skov.UpdateResult) ->
     MVR finconf Skov.UpdateResult
 withLatestExpectedVersion_ gi a = fst <$> withLatestExpectedVersion gi (fmap (,Nothing) <$> a)
 
--- |A continuation for executing a block that has been received
--- and verified.
+-- | A continuation for executing a block that has been received
+--  and verified.
 newtype ExecuteBlock = ExecuteBlock {runBlock :: IO Skov.UpdateResult}
 
--- |Deserialize and receive a block at a given genesis index.
--- Return a continuation ('Maybe ExecuteBlock') only if the 'Skov.UpdateResult' is 'ResultSuccess'.
+-- | Deserialize and receive a block at a given genesis index.
+--  Return a continuation ('Maybe ExecuteBlock') only if the 'Skov.UpdateResult' is 'ResultSuccess'.
 --
--- An initial write lock is acquired and released for receiving the block.
--- This is used for marking blocks as pending or even dead
+--  An initial write lock is acquired and released for receiving the block.
+--  This is used for marking blocks as pending or even dead
 --
--- The continuation for executing the block is running a skov transaction thus
--- the continuation when called is holding the write lock when executing the block
--- and releasing it again when it is finished.
+--  The continuation for executing the block is running a skov transaction thus
+--  the continuation when called is holding the write lock when executing the block
+--  and releasing it again when it is finished.
 --
--- The continuation is expected to be invoked via 'executeBlock'.
+--  The continuation is expected to be invoked via 'executeBlock'.
 receiveBlock ::
     GenesisIndex ->
     ByteString ->
@@ -1678,13 +1678,13 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
                         SkovV1.BlockResultDuplicate -> return (Skov.ResultDuplicate, Nothing)
                         SkovV1.BlockResultConsensusShutdown -> return (Skov.ResultConsensusShutDown, Nothing)
 
--- |Invoke the continuation yielded by 'receiveBlock'.
--- The continuation performs a transaction which will acquire the write lock
--- before trying to add the block to the tree and release the lock again afterwards.
+-- | Invoke the continuation yielded by 'receiveBlock'.
+--  The continuation performs a transaction which will acquire the write lock
+--  before trying to add the block to the tree and release the lock again afterwards.
 executeBlock :: ExecuteBlock -> MVR finconf Skov.UpdateResult
 executeBlock = liftIO . runBlock
 
--- |Deserialize and receive a finalization message at a given genesis index.
+-- | Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
 receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion_ gi $ \case
     (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
@@ -1710,7 +1710,7 @@ receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion_ gi $ \case
                 -- finalizing blocks and baking a new block).
                 withWriteLockMaybeFork receive followup
 
--- |Deserialize and receive a finalization record at a given genesis index.
+-- | Deserialize and receive a finalization record at a given genesis index.
 receiveFinalizationRecord :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
 receiveFinalizationRecord gi finRecBS = withLatestExpectedVersion_ gi $ \case
     (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
@@ -1743,14 +1743,14 @@ receiveFinalizationEntry gi finEntryBS =
 
 -- |Configuration parameters for handling receipt of a catch-up status message.
 data CatchUpConfiguration = CatchUpConfiguration
-    { -- |Maximum number of block and finalization record messages to send in response.
+    { -- | Maximum number of block and finalization record messages to send in response.
       catchUpMessageLimit :: Int,
-      -- |Callback for sending blocks, finalization records and the response catch up status
-      -- message.
+      -- | Callback for sending blocks, finalization records and the response catch up status
+      --  message.
       catchUpCallback :: Skov.MessageType -> ByteString -> IO ()
     }
 
--- |Handle receipt of a catch-up message.
+-- | Handle receipt of a catch-up message.
 receiveCatchUpStatus ::
     forall finconf.
     GenesisIndex ->
@@ -1909,8 +1909,8 @@ handleCatchUpStatusV1 CatchUpConfiguration{..} vc msg = do
                 then if isResponse then Skov.ResultPendingBlock else Skov.ResultContinueCatchUp
                 else Skov.ResultSuccess
 
--- |Get the catch-up status for the current version of the chain.  This returns the current
--- genesis index, as well as the catch-up request message serialized with its version.
+-- | Get the catch-up status for the current version of the chain.  This returns the current
+--  genesis index, as well as the catch-up request message serialized with its version.
 getCatchUpRequest :: forall finconf. MVR finconf (GenesisIndex, LBS.ByteString)
 getCatchUpRequest = do
     mvr <- ask
@@ -1926,31 +1926,31 @@ getCatchUpRequest = do
             logEvent Runner LLTrace $ "Sending catch-up request: " ++ show cus
             return (vc1Index vc, encodeLazy $ VersionedCatchUpStatusV1 cus)
 
--- |Deserialize and receive a transaction.  The transaction is passed to
--- the current version of the chain.
+-- | Deserialize and receive a transaction.  The transaction is passed to
+--  the current version of the chain.
 --
--- Currently, the 'BlockItem' type is common among all protocol versions.
--- We deserialize it using the current protocol version.
--- We then (pre)verify the transaction in a snapshot of the state.
--- If the verification is successful, we take the write lock.
--- In principle, a protocol update could have occurred since verifying the transaction.
--- If none has occurred, we call 'Skov.addPreverifiedTransaction' to add the transaction.
--- However, if a protocol update has occurred, we instead call 'Skov.receiveTransaction', which
--- re-does the transaction verification. While in practice we could probably still use the known
--- verification result, we opt not to on the basis that in future we may need to perform non-trivial
--- migration on the verification result to do so correctly.
+--  Currently, the 'BlockItem' type is common among all protocol versions.
+--  We deserialize it using the current protocol version.
+--  We then (pre)verify the transaction in a snapshot of the state.
+--  If the verification is successful, we take the write lock.
+--  In principle, a protocol update could have occurred since verifying the transaction.
+--  If none has occurred, we call 'Skov.addPreverifiedTransaction' to add the transaction.
+--  However, if a protocol update has occurred, we instead call 'Skov.receiveTransaction', which
+--  re-does the transaction verification. While in practice we could probably still use the known
+--  verification result, we opt not to on the basis that in future we may need to perform non-trivial
+--  migration on the verification result to do so correctly.
 --
--- We rely on two principles to ensure that it is OK to call 'Skov.receiveTransaction' even when
--- the protocol version has changed since the 'BlockItem' was deserialized:
+--  We rely on two principles to ensure that it is OK to call 'Skov.receiveTransaction' even when
+--  the protocol version has changed since the 'BlockItem' was deserialized:
 --
--- 1. 'Skov.receiveTransaction' must gracefully handle block items from legacy protocol versions.
+--  1. 'Skov.receiveTransaction' must gracefully handle block items from legacy protocol versions.
 --
--- 2. A transaction cannot be deserialized to two different block items in different protocol
---    versions.
+--  2. A transaction cannot be deserialized to two different block items in different protocol
+--     versions.
 --
--- The return value is a pair of potentially the hash of the transaction, and
--- the result of the update. The hash is present unless the transaction could
--- not be deserialized.
+--  The return value is a pair of potentially the hash of the transaction, and
+--  the result of the update. The hash is present unless the transaction could
+--  not be deserialized.
 receiveTransaction :: forall finconf. ByteString -> MVR finconf (Maybe TransactionHash, Skov.UpdateResult)
 receiveTransaction transactionBS = do
     now <- utcTimeToTransactionTime <$> currentTime
@@ -2024,8 +2024,8 @@ receiveTransaction transactionBS = do
             KonsensusV1.addTransactionResult
                 <$> SkovV1.processBlockItem transaction
 
--- |Receive and execute the block immediately.
--- Used for importing blocks i.e. out of band catchup.
+-- | Receive and execute the block immediately.
+--  Used for importing blocks i.e. out of band catchup.
 receiveExecuteBlock :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
 receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $ \case
     EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv) -> do
@@ -2056,7 +2056,7 @@ receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $ \case
                         SkovV1.BlockResultDuplicate -> return Skov.ResultDuplicate
                         SkovV1.BlockResultConsensusShutdown -> return Skov.ResultConsensusShutDown
 
--- |Import a block file for out-of-band catch-up.
+-- | Import a block file for out-of-band catch-up.
 importBlocks :: FilePath -> MVR finconf Skov.UpdateResult
 importBlocks importFile = do
     vvec <- liftIO . readIORef =<< asks mvVersions

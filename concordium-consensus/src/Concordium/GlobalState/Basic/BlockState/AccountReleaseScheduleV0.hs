@@ -104,7 +104,7 @@ data AccountReleaseSchedule = AccountReleaseSchedule
 
 makeLenses ''AccountReleaseSchedule
 
--- |Produce an 'AccountReleaseSummary' from an 'AccountReleaseSchedule'.
+-- | Produce an 'AccountReleaseSummary' from an 'AccountReleaseSchedule'.
 toAccountReleaseSummary :: AccountReleaseSchedule -> AccountReleaseSummary
 toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
   where
@@ -234,12 +234,12 @@ unlockAmountsUntil up ars =
                         & totalLockedUpBalance -~ minusAmount
                     )
 
--- |Get the timestamp at which the next scheduled release will occur (if any).
+-- | Get the timestamp at which the next scheduled release will occur (if any).
 nextReleaseTimestamp :: AccountReleaseSchedule -> Maybe Timestamp
 nextReleaseTimestamp = fmap fst . Map.lookupMin . _pendingReleases
 
--- |Compute the sum of releases in the release schedule.
--- This should produce the same result as '_totalLockedUpBalance', and is provided for testing
--- purposes.
+-- | Compute the sum of releases in the release schedule.
+--  This should produce the same result as '_totalLockedUpBalance', and is provided for testing
+--  purposes.
 sumOfReleases :: AccountReleaseSchedule -> Amount
 sumOfReleases ars = sum [am | Just (r, _) <- Vector.toList (ars ^. values), Release _ am <- r]

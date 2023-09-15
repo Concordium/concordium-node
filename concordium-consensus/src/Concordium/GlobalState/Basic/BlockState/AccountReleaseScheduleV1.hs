@@ -44,8 +44,8 @@ hashReleases Releases{..} = hshRels relReleases
     hshRels (rel :| []) = Hash.hashLazy . runPutLazy $ serRel rel
     hshRels (rel :| (h : t)) = Hash.hashLazy . runPutLazy $ serRel rel >> put (hshRels (h :| t))
 
--- |A release schedule produced by a single scheduled transfer. An account can
--- have any number (including 0) of release schedule entries.
+-- | A release schedule produced by a single scheduled transfer. An account can
+--  have any number (including 0) of release schedule entries.
 data ReleaseScheduleEntry = ReleaseScheduleEntry
     { rseReleases :: !Releases,
       rseReleasesHash :: !Hash.Hash,
@@ -63,20 +63,20 @@ instance Serialize ReleaseScheduleEntry where
         let rseReleasesHash = hashReleases rseReleases
         return $! ReleaseScheduleEntry{..}
 
--- |Timestamp of the earliest release in the given 'ReleaseScheduleEntry'
+-- | Timestamp of the earliest release in the given 'ReleaseScheduleEntry'
 rseNextTimestamp :: ReleaseScheduleEntry -> Timestamp
 rseNextTimestamp = fst . NE.head . relReleases . rseReleases
 
--- |The key used to order release schedule entries. An account has a list of
--- 'ReleaseScheduleEntry', and they are maintained ordered by this key. The
--- ordering is first by timestamp, and ties are resolved by the hash of the
--- releases.
+-- | The key used to order release schedule entries. An account has a list of
+--  'ReleaseScheduleEntry', and they are maintained ordered by this key. The
+--  ordering is first by timestamp, and ties are resolved by the hash of the
+--  releases.
 rseSortKey :: ReleaseScheduleEntry -> (Timestamp, Hash.Hash)
 rseSortKey rse = (rseNextTimestamp rse, rseReleasesHash rse)
 
--- |Unlock releases on the given 'ReleaseScheduleEntry' up to, and including,
--- the given timestamp. The unlocked amount is returned, as well as potentially
--- the remaining release schedule if any releases are remaining.
+-- | Unlock releases on the given 'ReleaseScheduleEntry' up to, and including,
+--  the given timestamp. The unlocked amount is returned, as well as potentially
+--  the remaining release schedule if any releases are remaining.
 unlockEntryUntil :: Timestamp -> ReleaseScheduleEntry -> (Amount, Maybe ReleaseScheduleEntry)
 unlockEntryUntil ts ReleaseScheduleEntry{..} = (sum (snd <$> lapsed), mrse)
   where
@@ -94,9 +94,9 @@ unlockEntryUntil ts ReleaseScheduleEntry{..} = (sum (snd <$> lapsed), mrse)
             newReleases = Releases (h :| t)
 
 data AccountReleaseSchedule = AccountReleaseSchedule
-    { -- |The release entries ordered on 'rseSortKey'.
+    { -- | The release entries ordered on 'rseSortKey'.
       arsReleases :: ![ReleaseScheduleEntry],
-      -- |The total locked amount of all releases.
+      -- | The total locked amount of all releases.
       arsTotalLockedAmount :: !Amount
     }
     deriving (Eq, Show)
@@ -137,14 +137,14 @@ emptyAccountReleaseSchedule = AccountReleaseSchedule [] 0
 isEmptyAccountReleaseSchedule :: AccountReleaseSchedule -> Bool
 isEmptyAccountReleaseSchedule = null . arsReleases
 
--- |Get the timestamp at which the next scheduled release will occur (if any).
+-- | Get the timestamp at which the next scheduled release will occur (if any).
 nextReleaseTimestamp :: AccountReleaseSchedule -> Maybe Timestamp
 nextReleaseTimestamp ars = case arsReleases ars of
     [] -> Nothing
     (h : _) -> Just $! rseNextTimestamp h
 
--- |Insert an entry in an ordered list of entries at the first point that preserves the ordering.
--- The ordering is defined by 'rseSortKey'.
+-- | Insert an entry in an ordered list of entries at the first point that preserves the ordering.
+--  The ordering is defined by 'rseSortKey'.
 insertEntry :: ReleaseScheduleEntry -> [ReleaseScheduleEntry] -> [ReleaseScheduleEntry]
 insertEntry entry = ins
   where
@@ -179,7 +179,7 @@ unlockAmountsUntil ts ars0 = (relAmt, nextReleaseTimestamp newArs, newArs)
     (!relAmt, !newEntries) = foldr updateEntry (0, staticReleases) elapsedReleases
     newArs = AccountReleaseSchedule newEntries (arsTotalLockedAmount ars0 - relAmt)
 
--- |Migrate a V0 'ARSV0.AccountReleaseSchedule' to a V1 'ARSV1.AccountReleaseSchedule'.
+-- | Migrate a V0 'ARSV0.AccountReleaseSchedule' to a V1 'ARSV1.AccountReleaseSchedule'.
 fromAccountReleaseScheduleV0 :: ARSV0.AccountReleaseSchedule -> AccountReleaseSchedule
 fromAccountReleaseScheduleV0 ARSV0.AccountReleaseSchedule{..} = AccountReleaseSchedule newReleases _totalLockedUpBalance
   where
@@ -195,7 +195,7 @@ fromAccountReleaseScheduleV0 ARSV0.AccountReleaseSchedule{..} = AccountReleaseSc
     mkEntry _ = error "fromAccountReleaseScheduleV0: missing release"
     newReleases = sortOn rseSortKey $ mkEntry <$> pendRels
 
--- |Produce an 'AccountReleaseSummary' from an 'AccountReleaseSchedule'.
+-- | Produce an 'AccountReleaseSummary' from an 'AccountReleaseSchedule'.
 toAccountReleaseSummary :: AccountReleaseSchedule -> AccountReleaseSummary
 toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
   where
@@ -210,8 +210,8 @@ toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
     makeSR (releaseTimestamp, (releaseAmount, releaseTransactions)) = ScheduledRelease{..}
     releaseSchedule = makeSR <$> Map.toList releaseMap
 
--- |Compute the sum of releases in the release schedule.
--- This should produce the same result as 'arsTotalLockedAmount', and is provided for testing
--- purposes.
+-- | Compute the sum of releases in the release schedule.
+--  This should produce the same result as 'arsTotalLockedAmount', and is provided for testing
+--  purposes.
 sumOfReleases :: AccountReleaseSchedule -> Amount
 sumOfReleases ars = sum [sum (snd <$> relReleases (rseReleases rse)) | rse <- arsReleases ars]

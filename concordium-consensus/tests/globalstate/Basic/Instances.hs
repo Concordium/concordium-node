@@ -35,23 +35,23 @@ import qualified Data.Set as Set
 import Data.Word
 import Lens.Micro.Platform
 
--- |The empty set of smart contract instances.
+-- | The empty set of smart contract instances.
 emptyInstances :: Instances
 emptyInstances = Instances Empty
 
--- |Get the smart contract instance at the given address, if it exists.
+-- | Get the smart contract instance at the given address, if it exists.
 getInstance :: ContractAddress -> Instances -> Maybe BasicInstance
 getInstance addr (Instances iss) = iss ^? ix addr
 
--- |Update the instance at the specified address with an amount delta and
--- potentially new state and module. If new state is not provided the state of the instance
--- is not changed. If a new module is not provided the module of the instance
--- is not changed. If there is no instance with the given address, this does
--- nothing. If the instance at the given address has a different version than
--- given this function raises an exception.
+-- | Update the instance at the specified address with an amount delta and
+--  potentially new state and module. If new state is not provided the state of the instance
+--  is not changed. If a new module is not provided the module of the instance
+--  is not changed. If there is no instance with the given address, this does
+--  nothing. If the instance at the given address has a different version than
+--  given this function raises an exception.
 updateInstanceAt ::
     forall v.
-    Wasm.IsWasmVersion v =>
+    (Wasm.IsWasmVersion v) =>
     ContractAddress ->
     AmountDelta ->
     Maybe (InstanceStateV v) ->
@@ -69,13 +69,13 @@ updateInstanceAt ca amt val maybeModule (Instances iss) = Instances (iss & ix ca
             InstanceV0 _ -> error "Expected a V1 instance, but got V0"
             InstanceV1 i -> InstanceV1 $ updateInstanceV amt val maybeModule i
 
--- |Update the instance at the specified address with a __new amount__ and
--- potentially new state. If new state is not provided the state of the instance
--- is not changed. If a new module is not provided the module of the instance
--- is not changed. If there is no instance with the given address, this does
--- nothing. If the instance at the given address has a different version than
--- given this function raises an exception.
-updateInstanceAt' :: forall v. Wasm.IsWasmVersion v => ContractAddress -> Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceV v, Set.Set Wasm.ReceiveName) -> Instances -> Instances
+-- | Update the instance at the specified address with a __new amount__ and
+--  potentially new state. If new state is not provided the state of the instance
+--  is not changed. If a new module is not provided the module of the instance
+--  is not changed. If there is no instance with the given address, this does
+--  nothing. If the instance at the given address has a different version than
+--  given this function raises an exception.
+updateInstanceAt' :: forall v. (Wasm.IsWasmVersion v) => ContractAddress -> Amount -> Maybe (InstanceStateV v) -> Maybe (GSWasm.ModuleInterfaceV v, Set.Set Wasm.ReceiveName) -> Instances -> Instances
 updateInstanceAt' ca amt val maybeModule (Instances iss) = Instances (iss & ix ca %~ updateOnlyV)
   where
     -- only update if the instance matches the state version. Otherwise raise an exception.
@@ -87,16 +87,16 @@ updateInstanceAt' ca amt val maybeModule (Instances iss) = Instances (iss & ix c
             InstanceV0 _ -> error "Expected a V1 instance, but got V0"
             InstanceV1 i -> InstanceV1 $ updateInstanceV' amt val maybeModule i
 
--- |Create a new smart contract instance.
+-- | Create a new smart contract instance.
 createInstance :: (ContractAddress -> BasicInstance) -> Instances -> (BasicInstance, Instances)
 createInstance mkInst (Instances iss) = Instances <$> (iss & newContractInstance <%~ mkInst)
 
--- |Delete the instance with the given address.  Does nothing
--- if there is no such instance.
+-- | Delete the instance with the given address.  Does nothing
+--  if there is no such instance.
 deleteInstance :: ContractAddress -> Instances -> Instances
 deleteInstance ca (Instances i) = Instances (deleteContractInstanceExact ca i)
 
--- |A fold over smart contract instances.
+-- | A fold over smart contract instances.
 foldInstances :: SimpleFold Instances BasicInstance
 foldInstances _ is@(Instances Empty) = is <$ mempty
 foldInstances f is@(Instances (Tree _ t)) = is <$ (foldIT . _Right) f t
@@ -105,7 +105,7 @@ instanceCount :: Instances -> Word64
 instanceCount (Instances Empty) = 0
 instanceCount (Instances (Tree c _)) = c
 
--- |Serialize 'Instances' in V0 format.
+-- | Serialize 'Instances' in V0 format.
 putInstancesV0 :: Putter Instances
 putInstancesV0 (Instances Empty) = putWord8 0
 putInstancesV0 (Instances (Tree _ t)) = do
@@ -124,7 +124,7 @@ putInstancesV0 (Instances (Tree _ t)) = do
                 putWord8 3
                 putV1InstanceV0 i
 
--- |Deserialize 'Instances' in V0 format.
+-- | Deserialize 'Instances' in V0 format.
 getInstancesV0 ::
     (ModuleRef -> Wasm.InitName -> Maybe (Set.Set Wasm.ReceiveName, GSWasm.ModuleInterface GSWasm.InstrumentedModuleV)) ->
     Get Instances

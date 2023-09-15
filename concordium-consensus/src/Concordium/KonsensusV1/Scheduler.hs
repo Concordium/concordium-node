@@ -32,122 +32,122 @@ import qualified Concordium.TransactionVerification as TVer
 
 -- * Helper types
 
--- |Parameters that are used frozen/reset at the start of a payday and used to determine minting and
--- reward distribution. When the block is the first in a new payday, the prologue of the block
--- determines the 'PaydayParameters' for the previous payday, which are subsequently used in the
--- epilogue to distribute rewards.
+-- | Parameters that are used frozen/reset at the start of a payday and used to determine minting and
+--  reward distribution. When the block is the first in a new payday, the prologue of the block
+--  determines the 'PaydayParameters' for the previous payday, which are subsequently used in the
+--  epilogue to distribute rewards.
 --
--- This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
+--  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
 data PaydayParameters = PaydayParameters
-    { -- |The capital distribution among the baker pools.
+    { -- | The capital distribution among the baker pools.
       paydayCapitalDistribution :: CapitalDistribution,
-      -- |The effective stake distribution among the baker pools.
+      -- | The effective stake distribution among the baker pools.
       paydayBakers :: FullBakersEx,
-      -- |The rewards accruing to each baker pool.
+      -- | The rewards accruing to each baker pool.
       paydayPoolRewards :: Map.Map BakerId BakerPoolRewardDetails,
-      -- |The mint rate for the payday.
+      -- | The mint rate for the payday.
       paydayMintRate :: MintRate
     }
 
--- |The bakers that participated in the block. Used for determining rewards.
+-- | The bakers that participated in the block. Used for determining rewards.
 --
--- This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
+--  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
 data ParticipatingBakers = ParticipatingBakers
-    { -- |The 'BakerId' of the block baker.
+    { -- | The 'BakerId' of the block baker.
       pbBlockBaker :: BakerId,
-      -- |The 'BakerId's of the signatories to the block QC.
-      -- No particular ordering is assumed.
+      -- | The 'BakerId's of the signatories to the block QC.
+      --  No particular ordering is assumed.
       pbQCSignatories :: [BakerId]
     }
 
--- |Input data used for executing a block (besides the transactions).
+-- | Input data used for executing a block (besides the transactions).
 --
--- This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
+--  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
 data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
-    { -- |Indicates if the block is the first in a new epoch.
+    { -- | Indicates if the block is the first in a new epoch.
       bedIsNewEpoch :: Bool,
-      -- |The duration of an epoch. (Obtained from genesis data.)
+      -- | The duration of an epoch. (Obtained from genesis data.)
       bedEpochDuration :: Duration,
-      -- |The block timestamp.
+      -- | The block timestamp.
       bedTimestamp :: Timestamp,
-      -- |The block nonce. Used to update the seed state.
+      -- | The block nonce. Used to update the seed state.
       bedBlockNonce :: BlockNonce,
-      -- |The block baker and QC signatories.
+      -- | The block baker and QC signatories.
       bedParticipatingBakers :: ParticipatingBakers,
-      -- |The block state of the parent block.
+      -- | The block state of the parent block.
       bedParentState :: PBS.HashedPersistentBlockState pv
     }
 
--- |Details of the transactions in a block that are used for computing rewards that accrue to the
--- baker and the reward accounts.
+-- | Details of the transactions in a block that are used for computing rewards that accrue to the
+--  baker and the reward accounts.
 --
--- This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
+--  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
 data TransactionRewardParameters = TransactionRewardParameters
-    { -- |Total transaction fees for the block.
+    { -- | Total transaction fees for the block.
       trpTransactionFees :: Amount,
-      -- |Number of "free" transactions of each type in the block.
+      -- | Number of "free" transactions of each type in the block.
       trpFreeTransactionCounts :: FreeTransactionCounts
     }
 
--- |The outcome of successfully executing a block's transactions.
+-- | The outcome of successfully executing a block's transactions.
 --
--- This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
+--  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
 data TransactionExecutionResult m = TransactionExecutionResult
-    { -- |Transaction details used for computing the block reward.
+    { -- | Transaction details used for computing the block reward.
       terTransactionRewardParameters :: TransactionRewardParameters,
-      -- |The total energy used in executing the block.
+      -- | The total energy used in executing the block.
       terEnergyUsed :: Energy,
-      -- |The block state after executing the transactions.
+      -- | The block state after executing the transactions.
       terBlockState :: UpdatableBlockState m
     }
 
--- |The result of executing the prologue.
+-- | The result of executing the prologue.
 --
--- This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
+--  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
 data PrologueResult m = PrologueResult
-    { -- |The block state after prologue execution.
+    { -- | The block state after prologue execution.
       prologueBlockState :: UpdatableBlockState m,
-      -- |If the block should pay out for a payday, these parameters determine the pay out.
-      -- Otherwise, they are 'Nothing'.
+      -- | If the block should pay out for a payday, these parameters determine the pay out.
+      --  Otherwise, they are 'Nothing'.
       prologuePaydayParameters :: Maybe PaydayParameters
     }
 
 -- * Block prologue
 
--- |Update the state to reflect an epoch transition.  If the block is not the first in a new epoch
--- then this does nothing.  Otherwise, it makes the following changes:
+-- | Update the state to reflect an epoch transition.  If the block is not the first in a new epoch
+--  then this does nothing.  Otherwise, it makes the following changes:
 --
---  * If the new epoch is the first block of a new payday:
+--   * If the new epoch is the first block of a new payday:
 --
---      - Captures the 'PaydayParameters' from the state, which are returned.
+--       - Captures the 'PaydayParameters' from the state, which are returned.
 --
---      - Rotates the capital distribution and epoch bakers so that the values snapshotted at the
---        start of the previous epoch become the current values.
+--       - Rotates the capital distribution and epoch bakers so that the values snapshotted at the
+--         start of the previous epoch become the current values.
 --
---      - Updates the time and mint rate for the next payday, based on the current chain parameters.
+--       - Updates the time and mint rate for the next payday, based on the current chain parameters.
 --
---      - Process pending cooldowns on bakers and delegators that were set to elapse by the
---        trigger block time for the previous epoch.
+--       - Process pending cooldowns on bakers and delegators that were set to elapse by the
+--         trigger block time for the previous epoch.
 --
---  * The seed state is updated to reflect the epoch transition.
+--   * The seed state is updated to reflect the epoch transition.
 --
---  * If the new epoch is the epoch before the next payday, take a snapshot of bakers and
---    delegators, allowing for cooldowns that are set to elapse at by the trigger block time for
---    this epoch.
+--   * If the new epoch is the epoch before the next payday, take a snapshot of bakers and
+--     delegators, allowing for cooldowns that are set to elapse at by the trigger block time for
+--     this epoch.
 --
--- Note: If the baker or delegator cooldown period is ever less than the duration of an epoch, then
--- it would be possible to have a baker not in cooldown when the baker snapshot is taken, but be
--- removed when the cooldowns are processed at the payday. This is bad, because the baker/delegator
--- would not have their stake locked while they are baking/delegating. However, this should not be
--- a catastrophic invariant violation.
+--  Note: If the baker or delegator cooldown period is ever less than the duration of an epoch, then
+--  it would be possible to have a baker not in cooldown when the baker snapshot is taken, but be
+--  removed when the cooldowns are processed at the payday. This is bad, because the baker/delegator
+--  would not have their stake locked while they are baking/delegating. However, this should not be
+--  a catastrophic invariant violation.
 doEpochTransition ::
     forall m.
     (BlockStateOperations m, IsConsensusV1 (MPV m)) =>
-    -- |Whether the block is the first in a new epoch
+    -- | Whether the block is the first in a new epoch
     Bool ->
-    -- |The epoch duration
+    -- | The epoch duration
     Duration ->
-    -- |State to update
+    -- | State to update
     UpdatableBlockState m ->
     m (Maybe PaydayParameters, UpdatableBlockState m)
 doEpochTransition False _ theState = return (Nothing, theState)
@@ -207,8 +207,8 @@ doEpochTransition True epochDuration theState0 = do
             else return theState7
     return (mPaydayParams, theState9)
 
--- |Update the seed state to account for a block.
--- See 'updateSeedStateForBlock' for details of what this entails.
+-- | Update the seed state to account for a block.
+--  See 'updateSeedStateForBlock' for details of what this entails.
 doUpdateSeedStateForBlock ::
     (BlockStateOperations m, IsConsensusV1 (MPV m)) =>
     Timestamp ->
@@ -221,18 +221,18 @@ doUpdateSeedStateForBlock blkTimestamp blkNonce theState = do
     let newSeedState = updateSeedStateForBlock blkTimestamp blkNonce isEffective oldSeedState
     bsoSetSeedState theState newSeedState
 
--- |Execute the block prologue. This does the following:
+-- | Execute the block prologue. This does the following:
 --
---  * Thaw the block state.
---  * Process any chain parameter updates that are effective at or before the timestamp of the block.
---  * If the commission bounds are updated, then constrain the baker commission rates accordingly.
---    (This is done for each commission bound update in sequence).
---  * Unlock scheduled releases that have expired.
---  * Update the seed state and bakers appropriately if transitioning to a new epoch.
---  * Update the seed state to reflect the block nonce.
+--   * Thaw the block state.
+--   * Process any chain parameter updates that are effective at or before the timestamp of the block.
+--   * If the commission bounds are updated, then constrain the baker commission rates accordingly.
+--     (This is done for each commission bound update in sequence).
+--   * Unlock scheduled releases that have expired.
+--   * Update the seed state and bakers appropriately if transitioning to a new epoch.
+--   * Update the seed state to reflect the block nonce.
 --
--- Returns the updated state, and, when the block is the first in a new payday, the parameters for
--- paying rewards for the previous payday.
+--  Returns the updated state, and, when the block is the first in a new payday, the parameters for
+--  paying rewards for the previous payday.
 executeBlockPrologue ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -267,20 +267,20 @@ executeBlockPrologue BlockExecutionData{..} = do
 
 -- * Block epilogue
 
--- |Mint for the payday and record a special transaction outcome for the minting.
--- The amount to mint is determined from the specified mint rate.
--- The mint distribution (how much goes to each reward account) is determined by the current chain
--- parameters.
+-- | Mint for the payday and record a special transaction outcome for the minting.
+--  The amount to mint is determined from the specified mint rate.
+--  The mint distribution (how much goes to each reward account) is determined by the current chain
+--  parameters.
 doMintingP6 ::
     ( pv ~ MPV m,
       BlockStateStorage m,
       IsConsensusV1 pv
     ) =>
-    -- |Current mint rate.
+    -- | Current mint rate.
     MintRate ->
-    -- |Current foundation account address.
+    -- | Current foundation account address.
     AccountAddress ->
-    -- |Block state.
+    -- | Block state.
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 doMintingP6 mintRate foundationAddr theState0 = do
@@ -301,7 +301,7 @@ doMintingP6 mintRate foundationAddr theState0 = do
               stoFoundationAccount = foundationAddr
             }
 
--- |If a payday has elapsed, this mints and distributes rewards for the payday.
+-- | If a payday has elapsed, this mints and distributes rewards for the payday.
 processPaydayRewards ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -318,19 +318,19 @@ processPaydayRewards (Just PaydayParameters{..}) theState0 = do
     theState1 <- doMintingP6 paydayMintRate foundationAddr theState0
     distributeRewards foundationAddr paydayCapitalDistribution paydayBakers paydayPoolRewards theState1
 
--- |Records that the baker baked this block (so it is eligible for baking rewards) and that the
--- finalizers that signed the QC in the block are awake (and eligible for finalizer rewards).
--- Distributes the transaction fees to the appropriate reward accounts.
+-- | Records that the baker baked this block (so it is eligible for baking rewards) and that the
+--  finalizers that signed the QC in the block are awake (and eligible for finalizer rewards).
+--  Distributes the transaction fees to the appropriate reward accounts.
 processBlockRewards ::
     ( pv ~ MPV m,
       BlockStateStorage m,
       IsConsensusV1 pv
     ) =>
-    -- |Block baker and QC signatories.
+    -- | Block baker and QC signatories.
     ParticipatingBakers ->
-    -- |Transaction fees and number of "free" transactions.
+    -- | Transaction fees and number of "free" transactions.
     TransactionRewardParameters ->
-    -- |Block state.
+    -- | Block state.
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} theState0 = do
@@ -338,9 +338,9 @@ processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} theS
     theState2 <- bsoMarkFinalizationAwakeBakers theState1 pbQCSignatories
     doBlockRewardP4 trpTransactionFees trpFreeTransactionCounts pbBlockBaker theState2
 
--- |Execute the block epilogue. This mints and distributes the rewards for a payday if the block is
--- in a new payday. This also accrues the rewards for the block that will be paid at the next
--- payday.
+-- | Execute the block epilogue. This mints and distributes the rewards for a payday if the block is
+--  in a new payday. This also accrues the rewards for the block that will be paid at the next
+--  payday.
 executeBlockEpilogue ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -359,14 +359,14 @@ executeBlockEpilogue participants paydayParams transactionRewardParams theState0
 
 -- * Transactions
 
--- |Execute transactions for constructing a block. This draws transactions from the transaction
--- table (that are pending according to the pending transaction table) and executes them, selecting
--- only valid transactions for inclusion.  The runtime parameters limit the block size and time to
--- spend on constructing the block.
--- The return value is the 'TransactionExecutionResult', which records the energy used, reward
--- parameters (fees and free transaction counts), and the resulting block state.
+-- | Execute transactions for constructing a block. This draws transactions from the transaction
+--  table (that are pending according to the pending transaction table) and executes them, selecting
+--  only valid transactions for inclusion.  The runtime parameters limit the block size and time to
+--  spend on constructing the block.
+--  The return value is the 'TransactionExecutionResult', which records the energy used, reward
+--  parameters (fees and free transaction counts), and the resulting block state.
 --
--- Note that this does not update the transaction table or pending transaction table.
+--  Note that this does not update the transaction table or pending transaction table.
 constructBlockTransactions ::
     ( BlockStateStorage m,
       IsConsensusV1 (MPV m),
@@ -375,13 +375,13 @@ constructBlockTransactions ::
       MonadProtocolVersion m
     ) =>
     RuntimeParameters ->
-    -- |Time at start of block construction.
+    -- | Time at start of block construction.
     UTCTime ->
     TransactionTable ->
     PendingTransactionTable ->
-    -- |Block timestamp.
+    -- | Block timestamp.
     Timestamp ->
-    -- |Block state.
+    -- | Block state.
     UpdatableBlockState m ->
     m (FilteredTransactions, TransactionExecutionResult m)
 constructBlockTransactions runtimeParams startTime transTable pendingTable blockTimestamp theState0 = do
@@ -420,11 +420,11 @@ constructBlockTransactions runtimeParams startTime transTable pendingTable block
     transactionGroups = groupPendingTransactions transTable pendingTable
     maxBlockSize = fromIntegral (rpBlockSize runtimeParams)
 
--- |Execute the transactions within a block. If successful, the return value is the
--- 'TransactionExecutionResult', which records the energy used, reward parameters (fees and free
--- transaction counts), and the resulting block state. If unsuccessful, a result of @Left Nothing@
--- indicates that the block energy limit was succeeded, and otherwise a result of @Left (Just fk)@
--- indicates the failure kind of the first failed transaction.
+-- | Execute the transactions within a block. If successful, the return value is the
+--  'TransactionExecutionResult', which records the energy used, reward parameters (fees and free
+--  transaction counts), and the resulting block state. If unsuccessful, a result of @Left Nothing@
+--  indicates that the block energy limit was succeeded, and otherwise a result of @Left (Just fk)@
+--  indicates the failure kind of the first failed transaction.
 executeBlockTransactions ::
     (BlockStateStorage m, IsConsensusV1 (MPV m), MonadLogger m, MonadProtocolVersion m) =>
     Timestamp ->
@@ -476,21 +476,21 @@ executeBlockTransactions blockTimestamp transactions theState0 = do
 
 -- * Blocks
 
--- |Update the state for a block after the trigger block for consensus shut down.
--- This does nothing except clear the transaction outcomes.
-executePostShutdownBlock :: BlockStateStorage m => BlockState m -> m (BlockState m)
+-- | Update the state for a block after the trigger block for consensus shut down.
+--  This does nothing except clear the transaction outcomes.
+executePostShutdownBlock :: (BlockStateStorage m) => BlockState m -> m (BlockState m)
 executePostShutdownBlock parentState = do
     state0 <- thawBlockState parentState
     freezeBlockState =<< bsoSetTransactionOutcomes state0 []
 
--- |Execute a block, computing the new block state. If successful, the return value is the
--- resulting block state and used energy. If unsuccessful, a result of @Left Nothing@ indicates that
--- the block energy limit was exceeded or a protocol update has been triggered and there is no
--- transactions, and otherwise a result of @Left (Just fk)@ indicates the failure kind of the first
--- failed transaction.
+-- | Execute a block, computing the new block state. If successful, the return value is the
+--  resulting block state and used energy. If unsuccessful, a result of @Left Nothing@ indicates that
+--  the block energy limit was exceeded or a protocol update has been triggered and there is no
+--  transactions, and otherwise a result of @Left (Just fk)@ indicates the failure kind of the first
+--  failed transaction.
 --
--- Note that if consensus is in shutdown, then we return the parent state, hence all transactions
--- and chain updates are discarded.
+--  Note that if consensus is in shutdown, then we return the parent state, hence all transactions
+--  and chain updates are discarded.
 executeBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,
@@ -528,17 +528,17 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
                         terBlockState
                 return (endState, terEnergyUsed)
 
--- |Construct a block, computing the new block state. This draws transactions from the transaction
--- table (that are pending according to the pending transaction table) and executes them, selecting
--- only valid transactions for inclusion.  The runtime parameters limit the block size and time to
--- spend on constructing the block.  This returns a 'FilteredTransactions' that indicates which
--- transactions were included in the block, as well as any that were found to be invalid. It also
--- returns the new block state and the energy used by the transactions.
+-- | Construct a block, computing the new block state. This draws transactions from the transaction
+--  table (that are pending according to the pending transaction table) and executes them, selecting
+--  only valid transactions for inclusion.  The runtime parameters limit the block size and time to
+--  spend on constructing the block.  This returns a 'FilteredTransactions' that indicates which
+--  transactions were included in the block, as well as any that were found to be invalid. It also
+--  returns the new block state and the energy used by the transactions.
 --
--- Note that this does not update the transaction table.
+--  Note that this does not update the transaction table.
 --
--- Note that if consensus is in shutdown, then we return the parent state, hence all transactions
--- and chain updates are discarded.
+--  Note that if consensus is in shutdown, then we return the parent state, hence all transactions
+--  and chain updates are discarded.
 constructBlockState ::
     ( pv ~ MPV m,
       BlockStateStorage m,

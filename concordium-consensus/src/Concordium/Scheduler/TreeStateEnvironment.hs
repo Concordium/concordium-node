@@ -59,9 +59,9 @@ type ExecutionResult m = ExecutionResult' (BlockState m)
 
 makeLenses ''ExecutionResult'
 
--- |Distribute the baking rewards for the last epoch to the bakers of
--- blocks in that epoch. This should be called in the first block of
--- a new epoch. This resets the list of blocks baked in the epoch.
+-- | Distribute the baking rewards for the last epoch to the bakers of
+--  blocks in that epoch. This should be called in the first block of
+--  a new epoch. This resets the list of blocks baked in the epoch.
 rewardLastEpochBakers ::
     (SupportsTransactionOutcomes (MPV m), BlockStateOperations m, AccountVersionFor (MPV m) ~ 'AccountV0) =>
     UpdatableBlockState m ->
@@ -87,31 +87,31 @@ rewardLastEpochBakers bs0 = do
             (m, bs3) <- foldM rewardBaker (Map.empty, bs2) bakerShares
             bsoAddSpecialTransactionOutcome bs3 BakingRewards{stoBakerRewards = AccountAmounts m, stoRemainder = braRem}
 
--- |Determine the amount and distribution of minting.
+-- | Determine the amount and distribution of minting.
 --
--- * First slot to mint for should be @1 + parent block slot@.
--- * Last slot to mint for should be @new block slot@.
--- * Initial reward parameters should be the parameters as of the parent block.
--- * Updates to the reward parameters should be the queued updates to reward
---   parameters, as of the parent block, with the slot they take effect, in
---   order.
--- * Total GTU should be as of the parent block.
+--  * First slot to mint for should be @1 + parent block slot@.
+--  * Last slot to mint for should be @new block slot@.
+--  * Initial reward parameters should be the parameters as of the parent block.
+--  * Updates to the reward parameters should be the queued updates to reward
+--    parameters, as of the parent block, with the slot they take effect, in
+--    order.
+--  * Total GTU should be as of the parent block.
 --
--- The calculation mints in periods for each change of reward parameters
--- with the amounts being distributed among the recipients separately
--- for each period.  This is significant, since rounding off occurs with
--- each minting and each distribution, so a comptabile implementation MUST
--- round in the same fashion.
+--  The calculation mints in periods for each change of reward parameters
+--  with the amounts being distributed among the recipients separately
+--  for each period.  This is significant, since rounding off occurs with
+--  each minting and each distribution, so a comptabile implementation MUST
+--  round in the same fashion.
 calculateMintAmounts ::
-    -- |First slot to mint for
+    -- | First slot to mint for
     Slot ->
-    -- |Last slot to mint for
+    -- | Last slot to mint for
     Slot ->
-    -- |Initial mint distribution
+    -- | Initial mint distribution
     MintDistribution 'MintDistributionVersion0 ->
-    -- |Ordered updates to the minting parameters
+    -- | Ordered updates to the minting parameters
     [(Slot, MintDistribution 'MintDistributionVersion0)] ->
-    -- |Total GTU
+    -- | Total GTU
     Amount ->
     MintAmounts
 calculateMintAmounts = go mempty
@@ -134,13 +134,13 @@ calculateMintAmounts = go mempty
             mintDevelopmentCharge = newMint - (mintBakingReward + mintFinalizationReward)
         in  (newTotal, MintAmounts{..})
 
--- |Determine the amount and distribution of minting for one payday.
+-- | Determine the amount and distribution of minting for one payday.
 doCalculatePaydayMintAmounts ::
-    -- |Initial mint distribution
+    -- | Initial mint distribution
     MintDistribution 'MintDistributionVersion1 ->
-    -- |Payday mint rate
+    -- | Payday mint rate
     MintRate ->
-    -- |Total GTU
+    -- | Total GTU
     Amount ->
     MintAmounts
 doCalculatePaydayMintAmounts md mr amt =
@@ -150,18 +150,18 @@ doCalculatePaydayMintAmounts md mr amt =
         mintDevelopmentCharge = newMint - (mintBakingReward + mintFinalizationReward)
     in  MintAmounts{..}
 
--- |Determine the amount and distribution of minting for one payday, taking updates to mint distribution and mint rate into account.
+-- | Determine the amount and distribution of minting for one payday, taking updates to mint distribution and mint rate into account.
 calculatePaydayMintAmounts ::
     (MintDistributionVersionFor cpv ~ 'MintDistributionVersion1) =>
-    -- |Initial mint distribution
+    -- | Initial mint distribution
     MintDistribution 'MintDistributionVersion1 ->
-    -- |Payday mint rate
+    -- | Payday mint rate
     MintRate ->
-    -- |Payday slot
+    -- | Payday slot
     Slot ->
-    -- |Changes to mint distribution or mint rate
+    -- | Changes to mint distribution or mint rate
     [(Slot, UpdateValue cpv)] ->
-    -- |Total GTU
+    -- | Total GTU
     Amount ->
     MintAmounts
 calculatePaydayMintAmounts md mr ps updates amt =
@@ -171,8 +171,8 @@ calculatePaydayMintAmounts md mr ps updates amt =
         newMintDistribution = snd $ foldl' selectBestSlotMintDistribution (0, md) updates
     in  doCalculatePaydayMintAmounts newMintDistribution mr amt
 
--- |Mint for all slots since the last block, recording a
--- special transaction outcome for the minting.
+-- | Mint for all slots since the last block, recording a
+--  special transaction outcome for the minting.
 doMinting ::
     ( ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0,
       BlockStateOperations m,
@@ -180,15 +180,15 @@ doMinting ::
       BlockPointerMonad m,
       SupportsTransactionOutcomes (MPV m)
     ) =>
-    -- |Parent block
+    -- | Parent block
     BlockPointerType m ->
-    -- |New slot
+    -- | New slot
     Slot ->
-    -- |Current foundation account
+    -- | Current foundation account
     AccountAddress ->
-    -- |Ordered updates to the minting parameters
+    -- | Ordered updates to the minting parameters
     [(Slot, MintDistribution 'MintDistributionVersion0)] ->
-    -- |Block state
+    -- | Block state
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
@@ -211,25 +211,25 @@ doMinting blockParent slotNumber foundationAddr mintUpds bs0 = do
               stoFoundationAccount = foundationAddr
             }
 
--- |Mint for the given payday, recording a
--- special transaction outcome for the minting.
+-- | Mint for the given payday, recording a
+--  special transaction outcome for the minting.
 doMintingP4 ::
     ( ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m,
       SupportsTransactionOutcomes (MPV m),
       SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
     ) =>
-    -- |Chain parameters
+    -- | Chain parameters
     ChainParameters (MPV m) ->
-    -- |Payday epoch to mint for
+    -- | Payday epoch to mint for
     Epoch ->
-    -- |Payday mint rate
+    -- | Payday mint rate
     MintRate ->
-    -- |Current foundation account
+    -- | Current foundation account
     AccountAddress ->
-    -- |Ordered updates to the minting parameters
+    -- | Ordered updates to the minting parameters
     [(Slot, UpdateValue 'ChainParametersV1)] ->
-    -- |Block state
+    -- | Block state
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 doMintingP4 oldChainParameters paydayEpoch paydayMintRate foundationAddr mintUpds bs0 = do
@@ -252,19 +252,19 @@ doMintingP4 oldChainParameters paydayEpoch paydayMintRate foundationAddr mintUpd
               stoFoundationAccount = foundationAddr
             }
 
--- |Info about finalizers used for distributing rewards.
+-- | Info about finalizers used for distributing rewards.
 data FinalizerInfo = FinalizerInfo
-    { -- |List of the parties in the finalization committee, with their relative voting power.
-      -- Finalization rewards are distributed in proportion to their power for protocol
-      -- version <= 3.
+    { -- | List of the parties in the finalization committee, with their relative voting power.
+      --  Finalization rewards are distributed in proportion to their power for protocol
+      --  version <= 3.
       committeeVoterPower :: !(Vec.Vector (BakerId, VoterPower)),
-      -- |List of bakers who signed finalization proof. This is used for protocol version >= 4.
+      -- | List of bakers who signed finalization proof. This is used for protocol version >= 4.
       committeeSigners :: ![BakerId]
     }
 
--- |Distribute the finalization rewards to the finalizers
--- in proportion to their voting weight. This also adds a
--- special transaction outcome recording the reward.
+-- | Distribute the finalization rewards to the finalizers
+--  in proportion to their voting weight. This also adds a
+--  special transaction outcome recording the reward.
 doFinalizationRewards ::
     (BlockStateOperations m, SupportsTransactionOutcomes (MPV m)) =>
     FinalizerInfo ->
@@ -293,36 +293,36 @@ doFinalizationRewards finInfo bs0
   where
     totalPower = sum (snd <$> committeeVoterPower finInfo)
 
--- |The counts of the various 'free' transactions for the
--- purposes of determining the block reward.
+-- | The counts of the various 'free' transactions for the
+--  purposes of determining the block reward.
 data FreeTransactionCounts = FreeTransactionCounts
-    { -- |Number of credential deployment transactions.
+    { -- | Number of credential deployment transactions.
       countAccountCreation :: !Word16,
-      -- |Number of chain update transactions.
+      -- | Number of chain update transactions.
       countUpdate :: !Word16,
-      -- |Number of finalization records included.
-      -- (Currently can only be 0 or 1, but higher values
-      -- could be possible if the block format is revised.)
+      -- | Number of finalization records included.
+      --  (Currently can only be 0 or 1, but higher values
+      --  could be possible if the block format is revised.)
       countFinRecs :: !Word16
     }
 
--- |Distribute the transaction fees between the baker,
--- foundation, and GAS account.  Additionally, a proportion
--- of the GAS account is paid to the baker, consisting of a
--- base fraction and additional fractions for the 'free'
--- transactions in the block.
+-- | Distribute the transaction fees between the baker,
+--  foundation, and GAS account.  Additionally, a proportion
+--  of the GAS account is paid to the baker, consisting of a
+--  base fraction and additional fractions for the 'free'
+--  transactions in the block.
 doBlockReward ::
     forall m.
     (BlockStateOperations m, MonadProtocolVersion m, ChainParametersVersionFor (MPV m) ~ 'ChainParametersV0, AccountVersionFor (MPV m) ~ 'AccountV0) =>
-    -- |Transaction fees paid
+    -- | Transaction fees paid
     Amount ->
-    -- |Counts of unpaid transactions
+    -- | Counts of unpaid transactions
     FreeTransactionCounts ->
-    -- |Block baker
+    -- | Block baker
     BakerId ->
-    -- |Foundation account
+    -- | Foundation account
     AccountAddress ->
-    -- |Block state
+    -- | Block state
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr bs0 = do
@@ -364,20 +364,20 @@ doBlockReward transFees FreeTransactionCounts{..} (BakerId aid) foundationAddr b
               stoFoundationAccount = foundationAddr
             }
 
--- |Accrue the rewards for a block to the relevant pool, the passive delegators, and the foundation.
+-- | Accrue the rewards for a block to the relevant pool, the passive delegators, and the foundation.
 doBlockRewardP4 ::
     forall m.
     ( BlockStateOperations m,
       PoolParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'PoolParametersVersion1,
       PVSupportsDelegation (MPV m)
     ) =>
-    -- |Transaction fees paid
+    -- | Transaction fees paid
     Amount ->
-    -- |Counts of unpaid transactions
+    -- | Counts of unpaid transactions
     FreeTransactionCounts ->
-    -- |Block baker
+    -- | Block baker
     BakerId ->
-    -- |Block state
+    -- | Block state
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
@@ -475,47 +475,47 @@ doBlockRewardP4 transFees FreeTransactionCounts{..} bid bs0 = do
               stoBakerId = bid
             }
 
--- |@scaleAmount a b c@ computes @(a * c) `div` b@. It is expected that @0 <= a <= b@ and @0 < b@.
--- This is used to scale an amount in proportion to a ratio of two quantities for the purposes of
--- computing rewards.
-scaleAmount :: Integral a => a -> a -> Amount -> Amount
+-- | @scaleAmount a b c@ computes @(a * c) `div` b@. It is expected that @0 <= a <= b@ and @0 < b@.
+--  This is used to scale an amount in proportion to a ratio of two quantities for the purposes of
+--  computing rewards.
+scaleAmount :: (Integral a) => a -> a -> Amount -> Amount
 scaleAmount num den amt = fromInteger $ (toInteger num * toInteger amt) `div` toInteger den
 
--- |Accumulated rewards and outcomes to a set of delegators.
+-- | Accumulated rewards and outcomes to a set of delegators.
 data DelegatorRewardOutcomes = DelegatorRewardOutcomes
-    { -- |Total finalization rewards distributed.
+    { -- | Total finalization rewards distributed.
       _delegatorAccumFinalization :: !Amount,
-      -- |Total baking rewards distributed.
+      -- | Total baking rewards distributed.
       _delegatorAccumBaking :: !Amount,
-      -- |Total transaction fees distributed.
+      -- | Total transaction fees distributed.
       _delegatorAccumTransaction :: !Amount,
-      -- |Accumulated transaction outcomes.
+      -- | Accumulated transaction outcomes.
       _delegatorOutcomes :: !(Seq.Seq Types.SpecialTransactionOutcome)
     }
 
 makeLenses ''DelegatorRewardOutcomes
 
--- |Reward each delegator in a pool.
--- Each type of reward is distributed separately, and the amounts to each delegator are rounded down.
--- The fraction awarded to each delegator is its capital divided by the total pool capital.
--- For baking pools, the total capital also includes the baker's equity capital.
+-- | Reward each delegator in a pool.
+--  Each type of reward is distributed separately, and the amounts to each delegator are rounded down.
+--  The fraction awarded to each delegator is its capital divided by the total pool capital.
+--  For baking pools, the total capital also includes the baker's equity capital.
 --
--- Where the reward would be 0, no reward is paid, and no outcome is generated.
+--  Where the reward would be 0, no reward is paid, and no outcome is generated.
 rewardDelegators ::
     forall m.
     ( PVSupportsDelegation (MPV m),
       BlockStateOperations m
     ) =>
     UpdatableBlockState m ->
-    -- |Finalization reward to distribute
+    -- | Finalization reward to distribute
     Amount ->
-    -- |Baking reward to distribute
+    -- | Baking reward to distribute
     Amount ->
-    -- |Transaction fee reward to distribute
+    -- | Transaction fee reward to distribute
     Amount ->
-    -- |Total capital of the pool (including owner)
+    -- | Total capital of the pool (including owner)
     Amount ->
-    -- |Identity and capital of each delegator to the pool
+    -- | Identity and capital of each delegator to the pool
     Vec.Vector DelegatorCapital ->
     m (DelegatorRewardOutcomes, UpdatableBlockState m)
 rewardDelegators bs totalFinalizationReward totalBakingReward totalTransactionReward totalCapital dcs
@@ -555,34 +555,34 @@ rewardDelegators bs totalFinalizationReward totalBakingReward totalTransactionRe
                       bs2
                     )
 
--- |Accumulated rewards and outcomes to a set of baker pools.
+-- | Accumulated rewards and outcomes to a set of baker pools.
 data BakerRewardOutcomes = BakerRewardOutcomes
-    { -- |Total finalization rewards distributed.
+    { -- | Total finalization rewards distributed.
       _bakerAccumFinalization :: !Amount,
-      -- |Total baking rewards distributed.
+      -- | Total baking rewards distributed.
       _bakerAccumBaking :: !Amount,
-      -- |Accumulated transaction outcomes.
+      -- | Accumulated transaction outcomes.
       _bakerOutcomes :: Seq.Seq Types.SpecialTransactionOutcome
     }
 
 makeLenses ''BakerRewardOutcomes
 
--- |Distribute the rewards for a reward period to the baker pools.
+-- | Distribute the rewards for a reward period to the baker pools.
 rewardBakers ::
     forall m.
     ( PVSupportsDelegation (MPV m),
       BlockStateOperations m
     ) =>
     UpdatableBlockState m ->
-    -- |The baker stakes and commission rates in the reward period
+    -- | The baker stakes and commission rates in the reward period
     BI.FullBakersEx ->
-    -- |The total baking rewards payable to baker pools
+    -- | The total baking rewards payable to baker pools
     Amount ->
-    -- |The total finalization rewards payable to baker pools
+    -- | The total finalization rewards payable to baker pools
     Amount ->
-    -- |The capital of bakers and delegators in the reward period
+    -- | The capital of bakers and delegators in the reward period
     Vec.Vector BakerCapital ->
-    -- |The details of rewards earned by each baker pool
+    -- | The details of rewards earned by each baker pool
     Map.Map BakerId BakerPoolRewardDetails ->
     m (BakerRewardOutcomes, UpdatableBlockState m)
 rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs poolRewardDetails
@@ -701,14 +701,14 @@ rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs
                       bsBak
                     )
 
--- |Distribute the rewards that have accrued as part of a payday.
+-- | Distribute the rewards that have accrued as part of a payday.
 distributeRewards ::
     forall m.
     ( PVSupportsDelegation (MPV m),
       PoolParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'PoolParametersVersion1,
       BlockStateOperations m
     ) =>
-    -- |Foundation account address
+    -- | Foundation account address
     AccountAddress ->
     CapitalDistribution ->
     BI.FullBakersEx ->
@@ -789,14 +789,14 @@ distributeRewards foundationAddr capitalDistribution bakers poolRewardDetails bs
     bs9 <- foldM bsoAddSpecialTransactionOutcome bs8 (passiveRes ^. delegatorOutcomes)
     foldM bsoAddSpecialTransactionOutcome bs9 _bakerOutcomes
 
--- |Get the updated value of the time parameters at a given slot, given the original time
--- parameters and the elapsed updates.
+-- | Get the updated value of the time parameters at a given slot, given the original time
+--  parameters and the elapsed updates.
 updatedTimeParameters ::
-    -- |Target slot
+    -- | Target slot
     Slot ->
-    -- |Original time parameters
+    -- | Original time parameters
     TimeParameters ->
-    -- |Updates
+    -- | Updates
     [(Slot, UpdateValue cpv)] ->
     TimeParameters
 updatedTimeParameters targetSlot tp0 upds =
@@ -805,33 +805,33 @@ updatedTimeParameters targetSlot tp0 upds =
         tp0
         [(slot, tp) | (slot, UVTimeParameters tp) <- upds]
 
--- |Mint for any skipped paydays, returning the epoch of the next future payday, the mint rate
--- for that payday, and the updated block state.  This does not mint for the first payday after
--- the previous block, which is assumed to have already been minted.  This is only invoked in the
--- first block after a payday.
+-- | Mint for any skipped paydays, returning the epoch of the next future payday, the mint rate
+--  for that payday, and the updated block state.  This does not mint for the first payday after
+--  the previous block, which is assumed to have already been minted.  This is only invoked in the
+--  first block after a payday.
 --
--- This function does the following:
---   - Compute the first payday after the most recently minted payday, accounting for any changes
---     in payday length and mint rate that occurred prior to the most recently minted payday.
---   - If this payday has elapsed, mint for it, and continue recursively.
---   - Otherwise, return the payday and mint rate.
+--  This function does the following:
+--    - Compute the first payday after the most recently minted payday, accounting for any changes
+--      in payday length and mint rate that occurred prior to the most recently minted payday.
+--    - If this payday has elapsed, mint for it, and continue recursively.
+--    - Otherwise, return the payday and mint rate.
 mintForSkippedPaydays ::
     ( ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
       BlockStateOperations m,
       SupportsTransactionOutcomes (MPV m),
       SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
     ) =>
-    -- |Epoch of the current block
+    -- | Epoch of the current block
     Epoch ->
-    -- |Epoch of the most recently minted payday
+    -- | Epoch of the most recently minted payday
     Epoch ->
-    -- |Chain parameters at the parent block
+    -- | Chain parameters at the parent block
     ChainParameters (MPV m) ->
-    -- |Foundation account address
+    -- | Foundation account address
     AccountAddress ->
-    -- |Updates processed in this block
+    -- | Updates processed in this block
     [(Slot, UpdateValue 'ChainParametersV1)] ->
-    -- |Block state
+    -- | Block state
     UpdatableBlockState m ->
     m (Epoch, MintRate, UpdatableBlockState m)
 mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updates bs0 = do
@@ -847,7 +847,7 @@ mintForSkippedPaydays newEpoch payday oldChainParameters foundationAccount updat
             bs1 <- doMintingP4 oldChainParameters nextPayday nextMintRate foundationAccount updates bs0
             mintForSkippedPaydays newEpoch nextPayday oldChainParameters foundationAccount updates bs1
 
--- |Find committee signers in 'FinalizerInfo' and mark them as awake finalizers.
+-- | Find committee signers in 'FinalizerInfo' and mark them as awake finalizers.
 addAwakeFinalizers ::
     (BlockStateOperations m, PVSupportsDelegation (MPV m)) =>
     Maybe FinalizerInfo ->
@@ -857,108 +857,108 @@ addAwakeFinalizers Nothing bs = return bs
 addAwakeFinalizers (Just FinalizerInfo{..}) bs0 =
     bsoMarkFinalizationAwakeBakers bs0 committeeSigners
 
--- |Parameters used by 'mintAndReward' that are determined by 'updateBirkParameters'.
--- 'updateBirkParameters' determines these, since it makes state changes that would make them
--- inaccessible in 'mintAndReward'.
+-- | Parameters used by 'mintAndReward' that are determined by 'updateBirkParameters'.
+--  'updateBirkParameters' determines these, since it makes state changes that would make them
+--  inaccessible in 'mintAndReward'.
 data MintRewardParams (cpv :: ChainParametersVersion) where
     MintRewardParamsV0 ::
-        { -- |Whether the block is in a different epoch to its parent.
+        { -- | Whether the block is in a different epoch to its parent.
           isNewEpoch :: !Bool
         } ->
         MintRewardParams 'ChainParametersV0
-    -- |Indicates that no payday has elapsed since the parent block.
+    -- | Indicates that no payday has elapsed since the parent block.
     MintRewardParamsV1NoPayday :: MintRewardParams 'ChainParametersV1
-    -- |Indicates that at least one payday has elapsed since the parent block.
+    -- | Indicates that at least one payday has elapsed since the parent block.
     MintRewardParamsV1Payday ::
-        { -- |The distribution of the capital at the first elapsed payday.
+        { -- | The distribution of the capital at the first elapsed payday.
           paydayCapitalDistribution :: !CapitalDistribution,
-          -- |The baker stakes at the first elapsed payday.
+          -- | The baker stakes at the first elapsed payday.
           paydayBakers :: !BI.FullBakersEx,
-          -- |The reward details for each baker pool at the first payday.
+          -- | The reward details for each baker pool at the first payday.
           paydayBakerPoolRewards :: !(Map.Map BakerId BakerPoolRewardDetails),
-          -- |The epoch of the latest elapsed payday.
+          -- | The epoch of the latest elapsed payday.
           lastElapsedPayday :: !Epoch
         } ->
         MintRewardParams 'ChainParametersV1
 
--- |Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
+-- | Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
 --
--- For P1 to P3, the process consists of the following four steps:
+--  For P1 to P3, the process consists of the following four steps:
 --
--- 1. If the block is the first in a new epoch, distribute the baking reward account
---    to the bakers of the previous epoch in proportion to the number of blocks they
---    baked. (The reward per block is BakingRewardAccount/#blocks, rounded down.
---    Any remainder is kept in the account.)
+--  1. If the block is the first in a new epoch, distribute the baking reward account
+--     to the bakers of the previous epoch in proportion to the number of blocks they
+--     baked. (The reward per block is BakingRewardAccount/#blocks, rounded down.
+--     Any remainder is kept in the account.)
 --
--- 2. GTU is minted for each slot since the previous block.  The minted GTUs are
---    distributed to the baker reward account, finalization reward account, and
---    foundation account. (Rounding favours the foundation account.  GTU is minted
---    for a series of slots before it is divided among the recipients, which should
---    reduce the effect of rounding.  The series of slots is typically the entire
---    number between blocks, but is broken for updates to the mint rate and distribution
---    fractions.)
+--  2. GTU is minted for each slot since the previous block.  The minted GTUs are
+--     distributed to the baker reward account, finalization reward account, and
+--     foundation account. (Rounding favours the foundation account.  GTU is minted
+--     for a series of slots before it is divided among the recipients, which should
+--     reduce the effect of rounding.  The series of slots is typically the entire
+--     number between blocks, but is broken for updates to the mint rate and distribution
+--     fractions.)
 --
--- 3. If the block contains a finalization record, the finalizers are rewarded with
---    the balance of the finalization reward account, distributed according to their
---    voting power (i.e. their stake).  The reward to each finalizer is rounded down,
---    with any remaining balance remaining in the reward account.  (Note: the rounding
---    here is different to the baking reward distribution.)
+--  3. If the block contains a finalization record, the finalizers are rewarded with
+--     the balance of the finalization reward account, distributed according to their
+--     voting power (i.e. their stake).  The reward to each finalizer is rounded down,
+--     with any remaining balance remaining in the reward account.  (Note: the rounding
+--     here is different to the baking reward distribution.)
 --
--- 4. The transaction fees are distributed between the baker, GAS account, and foundation
---    account.  Additionally, a fraction of the old GAS account is paid to the baker,
---    including incentives for including the 'free' transaction types.  (Rounding of
---    the fee distribution favours the foundation.  The GAS reward is rounded down.)
+--  4. The transaction fees are distributed between the baker, GAS account, and foundation
+--     account.  Additionally, a fraction of the old GAS account is paid to the baker,
+--     including incentives for including the 'free' transaction types.  (Rounding of
+--     the fee distribution favours the foundation.  The GAS reward is rounded down.)
 --
--- For P4 onwards, the process is as follows:
+--  For P4 onwards, the process is as follows:
 --
--- 1. If a payday has elapsed then:
+--  1. If a payday has elapsed then:
 --
---    (1) Mint for the (first) elapsed payday. Minting is distributed to the foundation account,
---        finalization reward account and baking reward account.  The amount is determined by the
---        mint rate set at the last payday.  The distribution is determined by the state of the
---        chain parameters as of the first slot of the payday.
+--     (1) Mint for the (first) elapsed payday. Minting is distributed to the foundation account,
+--         finalization reward account and baking reward account.  The amount is determined by the
+--         mint rate set at the last payday.  The distribution is determined by the state of the
+--         chain parameters as of the first slot of the payday.
 --
---    (2) Distribute the rewards earned over the reward period to the bakers and delegators.
---        Note that the stakes, capital and accrued rewards are determined in 'updateBirkParameters'.
---        This is important, because that function rotates the stakes and capital, and clears the
---        accrued rewards.
+--     (2) Distribute the rewards earned over the reward period to the bakers and delegators.
+--         Note that the stakes, capital and accrued rewards are determined in 'updateBirkParameters'.
+--         This is important, because that function rotates the stakes and capital, and clears the
+--         accrued rewards.
 --
---    (3) Mint for any additional paydays. The amount is determined by the mint rate
+--     (3) Mint for any additional paydays. The amount is determined by the mint rate
 --
---    (4) Set the mint rate and payday epoch for the next payday based on the time parameters
---        at the most recent payday.
+--     (4) Set the mint rate and payday epoch for the next payday based on the time parameters
+--         at the most recent payday.
 --
--- 2. If the block contains a finalization record, mark all finalizers in that record as being
---    awake.
+--  2. If the block contains a finalization record, mark all finalizers in that record as being
+--     awake.
 --
--- 3. Record that the baker has baked a block in the current reward period.
+--  3. Record that the baker has baked a block in the current reward period.
 --
--- 4. The transaction fees are distributed between the GAS account, foundation accrued transaction
---    rewards, baker pool accrued transaction rewards and passive delegation accrued transaction rewards.
---    Additionally, a fraction of the old GAS account accrues to the baker pool transaction rewards,
---    including incentives for including the 'free' transaction types.
+--  4. The transaction fees are distributed between the GAS account, foundation accrued transaction
+--     rewards, baker pool accrued transaction rewards and passive delegation accrued transaction rewards.
+--     Additionally, a fraction of the old GAS account accrues to the baker pool transaction rewards,
+--     including incentives for including the 'free' transaction types.
 mintAndReward ::
     forall m.
     (IsConsensusV0 (MPV m), BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
-    -- |Block state
+    -- | Block state
     UpdatableBlockState m ->
-    -- |Parent block
+    -- | Parent block
     BlockPointerType m ->
-    -- |Block slot
+    -- | Block slot
     Slot ->
-    -- |Baker ID
+    -- | Baker ID
     BakerId ->
-    -- |Epoch of the new block
+    -- | Epoch of the new block
     Epoch ->
-    -- |Parameters determined by 'updateBirkParameters'
+    -- | Parameters determined by 'updateBirkParameters'
     MintRewardParams (ChainParametersVersionFor (MPV m)) ->
-    -- |Info on finalization committee for included record, if any
+    -- | Info on finalization committee for included record, if any
     Maybe FinalizerInfo ->
-    -- |Transaction fees
+    -- | Transaction fees
     Amount ->
-    -- |Number of "free" transactions of each type
+    -- | Number of "free" transactions of each type
     FreeTransactionCounts ->
-    -- |Ordered chain updates since the last block
+    -- | Ordered chain updates since the last block
     [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))] ->
     m (UpdatableBlockState m)
 mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo transFees freeCounts updates =
@@ -1030,36 +1030,36 @@ mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo t
         bshandleNotify <- bsoNotifyBlockBaked bshandleFinAwake bid
         doBlockRewardP4 transFees freeCounts bid bshandleNotify
 
--- |Update the bakers and seed state of the block state.
--- The epoch for the new seed state must be at least the epoch of
--- the old seed state (currently on the block state).
+-- | Update the bakers and seed state of the block state.
+--  The epoch for the new seed state must be at least the epoch of
+--  the old seed state (currently on the block state).
 --
--- Prior to protocol version P4, if the epoch is new, the old bakers are rewarded with the balance
--- of the baking reward account, in proportion to the number of blocks they baked in that epoch.
--- If the new epoch is not the same as or direct successor of the current
--- one, then 'bsoTransitionEpochBakers' is called twice. This should be
--- sufficient because the bakers will not change in the intervening epochs.
--- The return value indicates if the epoch is new.
+--  Prior to protocol version P4, if the epoch is new, the old bakers are rewarded with the balance
+--  of the baking reward account, in proportion to the number of blocks they baked in that epoch.
+--  If the new epoch is not the same as or direct successor of the current
+--  one, then 'bsoTransitionEpochBakers' is called twice. This should be
+--  sufficient because the bakers will not change in the intervening epochs.
+--  The return value indicates if the epoch is new.
 --
--- From protocol version P4, we consider the paydays after the previous block and update the next
--- bakers if the epoch before that payday has since elapsed, and rotate the current bakers if the
--- payday itself has since elapsed.  If a payday has elapsed, the baker and delegator cooldowns
--- are processed by calling 'bsoProcessPendingChanges' with the time of the last elapsed payday.
--- The return value indicates whether a payday has elapsed, and if so, the bakers and capital
--- distribution for that payday, the accrued rewards to each baker pool, and the epoch of the
--- last elapsed payday.  Returning the bakers, capital distribution and accrued rewards is
--- necessary, since they are rotated, but the old values are required later for distributing
--- rewards.
+--  From protocol version P4, we consider the paydays after the previous block and update the next
+--  bakers if the epoch before that payday has since elapsed, and rotate the current bakers if the
+--  payday itself has since elapsed.  If a payday has elapsed, the baker and delegator cooldowns
+--  are processed by calling 'bsoProcessPendingChanges' with the time of the last elapsed payday.
+--  The return value indicates whether a payday has elapsed, and if so, the bakers and capital
+--  distribution for that payday, the accrued rewards to each baker pool, and the epoch of the
+--  last elapsed payday.  Returning the bakers, capital distribution and accrued rewards is
+--  necessary, since they are rotated, but the old values are required later for distributing
+--  rewards.
 updateBirkParameters ::
     forall m.
     (IsConsensusV0 (MPV m), BlockStateOperations m, TreeStateMonad m, MonadProtocolVersion m) =>
-    -- |New seed state
+    -- | New seed state
     SeedState (SeedStateVersionFor (MPV m)) ->
-    -- |Block state
+    -- | Block state
     UpdatableBlockState m ->
-    -- |Chain parameters at the previous block
+    -- | Chain parameters at the previous block
     ChainParameters (MPV m) ->
-    -- |Chain updates since the previous block
+    -- | Chain updates since the previous block
     [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))] ->
     m (MintRewardParams (ChainParametersVersionFor (MPV m)), UpdatableBlockState m)
 updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocolVersion @(MPV m) of
@@ -1070,7 +1070,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
     SP5 -> updateCPV1AccountV1
   where
     updateCPV0AccountV0 ::
-        AccountVersionFor (MPV m) ~ 'AccountV0 =>
+        (AccountVersionFor (MPV m) ~ 'AccountV0) =>
         m (MintRewardParams 'ChainParametersV0, UpdatableBlockState m)
     updateCPV0AccountV0 = do
         oldSeedState <- bsoGetSeedState bs0
@@ -1149,8 +1149,8 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
                         bsoProcessPendingChanges bs1 et
                 (res,) <$> bsoSetSeedState bs2 newSeedState
 
--- |Count the free transactions of each kind in a list.
--- The second argument indicates if the block contains a finalization record.
+-- | Count the free transactions of each kind in a list.
+--  The second argument indicates if the block contains a finalization record.
 countFreeTransactions :: [BlockItem] -> Bool -> FreeTransactionCounts
 countFreeTransactions bis hasFinRec = foldl' cft f0 bis
   where
@@ -1165,8 +1165,8 @@ countFreeTransactions bis hasFinRec = foldl' cft f0 bis
         ChainUpdate{} -> let !c = countUpdate f + 1 in f{countUpdate = c}
         _ -> f
 
--- |Given 'CommissionRanges' and a 'BakerId', update the baker's commission rates to fall within
--- the ranges (at the closest rate to the existing rate).
+-- | Given 'CommissionRanges' and a 'BakerId', update the baker's commission rates to fall within
+--  the ranges (at the closest rate to the existing rate).
 putBakerCommissionsInRange ::
     forall m.
     ( PoolParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'PoolParametersVersion1,
@@ -1182,42 +1182,42 @@ putBakerCommissionsInRange ranges bs (BakerId ai) = case protocolVersion @(MPV m
     SP5 -> bsoConstrainBakerCommission bs ai ranges
     SP6 -> bsoConstrainBakerCommission bs ai ranges
 
--- |The result of executing the block prologue.
+-- | The result of executing the block prologue.
 data PrologueResult m = PrologueResult
-    { -- |Ordered list of chain parameter updates that have occurred since the previous block.
+    { -- | Ordered list of chain parameter updates that have occurred since the previous block.
       prologueUpdates :: [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))],
-      -- |The parameters required for mint and rewarding in the block epilogue.
+      -- | The parameters required for mint and rewarding in the block epilogue.
       prologueMintRewardParams :: MintRewardParams (ChainParametersVersionFor (MPV m)),
-      -- |The updated block state after executing the prologue.
+      -- | The updated block state after executing the prologue.
       prologueBlockState :: UpdatableBlockState m
     }
 
--- |Execute the prologue of a block, i.e. the state updates that occur before the (explicit)
--- block transactions are executed.  This consists of:
+-- | Execute the prologue of a block, i.e. the state updates that occur before the (explicit)
+--  block transactions are executed.  This consists of:
 --
--- 1. Process the update queues, enacting any chain parameter updates that have occurred since the
---    parent block.
+--  1. Process the update queues, enacting any chain parameter updates that have occurred since the
+--     parent block.
 --
--- 2. When the commission ranges have been updated, adjust all bakers to be inside the new
---    commission ranges. (If multiple changes are made then all of them are enacted sequentially,
---    as this can have a different outcome from simply enacting the last change.)
+--  2. When the commission ranges have been updated, adjust all bakers to be inside the new
+--     commission ranges. (If multiple changes are made then all of them are enacted sequentially,
+--     as this can have a different outcome from simply enacting the last change.)
 --
--- 3. Process scheduled releases, unlocking the amounts when the release time has expired.
+--  3. Process scheduled releases, unlocking the amounts when the release time has expired.
 --
--- 4. Update the bakers and seed state. (See 'updateBirkParameters' for details.)
+--  4. Update the bakers and seed state. (See 'updateBirkParameters' for details.)
 --
--- The result of the function includes the processed updates, parameters for minting and rewarding,
--- and the updated block state.
+--  The result of the function includes the processed updates, parameters for minting and rewarding,
+--  and the updated block state.
 executeBlockPrologue ::
     forall m.
     (IsConsensusV0 (MPV m), BlockPointerMonad m, TreeStateMonad m, MonadLogger m) =>
-    -- |Slot time of the new block
+    -- | Slot time of the new block
     Timestamp ->
-    -- |New seed state
+    -- | New seed state
     SeedState (SeedStateVersionFor (MPV m)) ->
-    -- |Chain parameters from the parent block
+    -- | Chain parameters from the parent block
     ChainParameters (MPV m) ->
-    -- |Block state from the parent block
+    -- | Block state from the parent block
     UpdatableBlockState m ->
     m (PrologueResult m)
 executeBlockPrologue slotTime newSeedState oldChainParameters bsStart = do
@@ -1243,30 +1243,30 @@ executeBlockPrologue slotTime newSeedState oldChainParameters bsStart = do
         updateBirkParameters newSeedState bsDoneReleases oldChainParameters prologueUpdates
     return PrologueResult{..}
 
--- |Execute a block from a given starting state.
--- Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
--- during this block execution.
+-- | Execute a block from a given starting state.
+--  Fail if any of the transactions fails, otherwise return the new 'BlockState' and the amount of energy used
+--  during this block execution.
 --
--- The slot number must exceed the slot of the parent block, and the seed state
--- must indicate the correct epoch of the block.
+--  The slot number must exceed the slot of the parent block, and the seed state
+--  must indicate the correct epoch of the block.
 executeFrom ::
     forall m.
     (IsConsensusV0 (MPV m), BlockPointerMonad m, TreeStateMonad m, MonadLogger m) =>
-    -- |Hash of the block we are executing. Used only for committing transactions.
+    -- | Hash of the block we are executing. Used only for committing transactions.
     BlockHash ->
-    -- |Slot number of the block being executed.
+    -- | Slot number of the block being executed.
     Slot ->
-    -- |Unix timestamp of the beginning of the slot.
+    -- | Unix timestamp of the beginning of the slot.
     Timestamp ->
-    -- |Parent pointer from which to start executing
+    -- | Parent pointer from which to start executing
     BlockPointerType m ->
-    -- |Identity of the baker who should be rewarded.
+    -- | Identity of the baker who should be rewarded.
     BakerId ->
-    -- |Parties to the finalization record in this block, if any
+    -- | Parties to the finalization record in this block, if any
     Maybe FinalizerInfo ->
-    -- |New seed state
+    -- | New seed state
     SeedState (SeedStateVersionFor (MPV m)) ->
-    -- |Transactions on this block with their associated verification result.
+    -- | Transactions on this block with their associated verification result.
     [TVer.BlockItemWithStatus] ->
     m (Either (Maybe FailureKind) (ExecutionResult m))
 executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSeedState txs =
@@ -1321,25 +1321,25 @@ executeFrom blockHash slotNumber slotTime blockParent blockBaker mfinInfo newSee
                                     )
                                 )
 
--- |PRECONDITION: Focus block is the parent block of the block we wish to make,
--- hence the pending transaction table is correct for the new block.
--- EFFECTS: This function only updates the block state. It has no effects on the transaction table.
--- POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
--- and also returns a list of transactions which failed, and a list of those which were not processed.
+-- | PRECONDITION: Focus block is the parent block of the block we wish to make,
+--  hence the pending transaction table is correct for the new block.
+--  EFFECTS: This function only updates the block state. It has no effects on the transaction table.
+--  POSTCONDITION: The function always returns a list of transactions which make a valid block in `ftAdded`,
+--  and also returns a list of transactions which failed, and a list of those which were not processed.
 constructBlock ::
     forall m.
     (IsConsensusV0 (MPV m), BlockPointerMonad m, TreeStateMonad m, MonadLogger m, TimeMonad m) =>
-    -- |Slot number of the block to bake
+    -- | Slot number of the block to bake
     Slot ->
-    -- |Unix timestamp of the beginning of the slot.
+    -- | Unix timestamp of the beginning of the slot.
     Timestamp ->
-    -- |Parent pointer from which to start executing
+    -- | Parent pointer from which to start executing
     BlockPointerType m ->
-    -- |The baker of the block.
+    -- | The baker of the block.
     BakerId ->
-    -- |Parties to the finalization record in this block, if any
+    -- | Parties to the finalization record in this block, if any
     Maybe FinalizerInfo ->
-    -- |New seed state
+    -- | New seed state
     SeedState (SeedStateVersionFor (MPV m)) ->
     m (Sch.FilteredTransactions, ExecutionResult m)
 constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState =

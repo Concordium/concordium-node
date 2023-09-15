@@ -21,186 +21,186 @@ import Concordium.Types.Updates (UpdateSequenceNumber)
 import qualified Concordium.Types.Updates as Updates
 import Control.Monad.Except
 
--- |Type for describing the origin of the transaction.
--- The transaction can either arrive at the consensus individually,
--- or the transaction can be received as part of a block.
+-- | Type for describing the origin of the transaction.
+--  The transaction can either arrive at the consensus individually,
+--  or the transaction can be received as part of a block.
 data TransactionOrigin = Individual | Block
     deriving (Eq, Show)
 
--- |VerificationResults of transactions.
--- A verification result can either be 'Ok', 'MaybeOk' or 'NotOk'.
+-- | VerificationResults of transactions.
+--  A verification result can either be 'Ok', 'MaybeOk' or 'NotOk'.
 --
--- This type exists as an intermediate type for decoupling the internal verification process from the outcome of processing a transaction.
+--  This type exists as an intermediate type for decoupling the internal verification process from the outcome of processing a transaction.
 data VerificationResult
-    = -- |The transaction successfully passed the verification check.
+    = -- | The transaction successfully passed the verification check.
       Ok !OkResult
-    | -- |The transaction did not pass the verification check, but it might
-      -- be valid at a later point in time. As such if the transaction was received individually
-      -- it must be rejected at once. However if the transaction was received as part of a block,
-      -- then it must be accepted and re-verified in the 'Scheduler'.
+    | -- | The transaction did not pass the verification check, but it might
+      --  be valid at a later point in time. As such if the transaction was received individually
+      --  it must be rejected at once. However if the transaction was received as part of a block,
+      --  then it must be accepted and re-verified in the 'Scheduler'.
       MaybeOk !MaybeOkResult
-    | -- |The transaction is definitely not valid and must be rejected.
+    | -- | The transaction is definitely not valid and must be rejected.
       NotOk !NotOkResult
     deriving (Eq, Show, Ord)
 
--- |The transaction was verified successfully and was valid at the point of receiving it.
--- The OkResult's should contain enough information for the scheduler to verify if it is still valid
--- or if it needs a new verification before executing.
+-- | The transaction was verified successfully and was valid at the point of receiving it.
+--  The OkResult's should contain enough information for the scheduler to verify if it is still valid
+--  or if it needs a new verification before executing.
 --
--- 'CredentialDeploymentSuccess' as ip's or ar's cannot be removed then nothing needs to be checked before executing
--- 'ChainUpdateSuccess' it should be checked that the authorization keys match the current ones before executing
--- 'NormalTransactionSuccess' it should be checked that the account information can still verify before executing
--- 'TrustedSuccess' the signatures should be checked before executing
+--  'CredentialDeploymentSuccess' as ip's or ar's cannot be removed then nothing needs to be checked before executing
+--  'ChainUpdateSuccess' it should be checked that the authorization keys match the current ones before executing
+--  'NormalTransactionSuccess' it should be checked that the account information can still verify before executing
+--  'TrustedSuccess' the signatures should be checked before executing
 data OkResult
-    = -- |The 'CredentialDeployment' passed verification.
+    = -- | The 'CredentialDeployment' passed verification.
       CredentialDeploymentSuccess
-    | -- |The 'ChainUpdate' passed verification.
-      -- The result contains the hash of the authorization keys and the `UpdateSequenceNumber`
-      -- It must be checked that this hash corresponds to the hash of the current authorization keys before
-      -- executing the transaction.
+    | -- | The 'ChainUpdate' passed verification.
+      --  The result contains the hash of the authorization keys and the `UpdateSequenceNumber`
+      --  It must be checked that this hash corresponds to the hash of the current authorization keys before
+      --  executing the transaction.
       ChainUpdateSuccess
         { keysHash :: !Sha256.Hash,
           seqNumber :: !Updates.UpdateSequenceNumber
         }
-    | -- |The 'NormalTransaction' passed verification.
-      -- The result contains the hash of the keys and the transaction nonce.
-      -- The `keysHash` can be used to short-circuit the signature verification when executing the transaction.
-      -- Note. If in the meantime the keys have changed for the account then the signature has to be verified again.
+    | -- | The 'NormalTransaction' passed verification.
+      --  The result contains the hash of the keys and the transaction nonce.
+      --  The `keysHash` can be used to short-circuit the signature verification when executing the transaction.
+      --  Note. If in the meantime the keys have changed for the account then the signature has to be verified again.
       NormalTransactionSuccess
         { keysHash :: !Sha256.Hash,
           nonce :: !Types.Nonce
         }
-    | -- |At start-up, the transaction was taken from a block that has already been verified, so
-      -- we trust that it was verified correctly, but do not have the keys used to verify it.
+    | -- | At start-up, the transaction was taken from a block that has already been verified, so
+      --  we trust that it was verified correctly, but do not have the keys used to verify it.
       TrustedSuccess
     deriving (Eq, Show, Ord)
 
--- |Verification results which are rejectable if the transaction was received individually.
--- However if the transaction was received as part of a block, then the transaction is considered maybe valid.
--- Note. It could be the case that transactions received individually and failing verification with
--- one of the below status codes could be valid for a future block. However we choose not to accept these
--- in order to protect the network.
+-- | Verification results which are rejectable if the transaction was received individually.
+--  However if the transaction was received as part of a block, then the transaction is considered maybe valid.
+--  Note. It could be the case that transactions received individually and failing verification with
+--  one of the below status codes could be valid for a future block. However we choose not to accept these
+--  in order to protect the network.
 data MaybeOkResult
-    = -- |The IdentityProvider does not exist for this 'CredentialDeployment'.
-      -- Reason for 'MaybeOk': the IP could've been added at a later point in time.
+    = -- | The IdentityProvider does not exist for this 'CredentialDeployment'.
+      --  Reason for 'MaybeOk': the IP could've been added at a later point in time.
       CredentialDeploymentInvalidIdentityProvider !ID.IdentityProviderIdentity
-    | -- |The anonymity revokers does not exist for this 'CredentialDeployment'.
-      -- Reason for 'MaybeOk': the AR could've been added at a later point in time.
+    | -- | The anonymity revokers does not exist for this 'CredentialDeployment'.
+      --  Reason for 'MaybeOk': the AR could've been added at a later point in time.
       CredentialDeploymentInvalidAnonymityRevokers
-    | -- |The sequence number was not sequential.
-      -- Reason for `MaybeOk`: it could be that former chain update was simply not received yet.
+    | -- | The sequence number was not sequential.
+      --  Reason for `MaybeOk`: it could be that former chain update was simply not received yet.
       ChainUpdateInvalidNonce !Updates.UpdateSequenceNumber
-    | -- |The 'ChainUpdate' contained invalid signatures.
-      -- Reason for 'MaybeOk': the keys might have been updated in a later block resulting in a valid signature
+    | -- | The 'ChainUpdate' contained invalid signatures.
+      --  Reason for 'MaybeOk': the keys might have been updated in a later block resulting in a valid signature
       ChainUpdateInvalidSignatures
-    | -- |The 'NormalTransaction' contained an invalid sender
-      -- Reason for 'MaybeOk': the sender could exist at a later point in time.
+    | -- | The 'NormalTransaction' contained an invalid sender
+      --  Reason for 'MaybeOk': the sender could exist at a later point in time.
       NormalTransactionInvalidSender !Types.AccountAddress
-    | -- |The 'NormalTransaction' contained an invalid nonce.
-      -- The result contains the next nonce.
-      -- Reason for 'MaybeOk': the nonce could be valid at a later point in time.
+    | -- | The 'NormalTransaction' contained an invalid nonce.
+      --  The result contains the next nonce.
+      --  Reason for 'MaybeOk': the nonce could be valid at a later point in time.
       NormalTransactionInvalidNonce !Types.Nonce
-    | -- |The sender does not have enough funds to cover the transfer.
-      -- Reason for 'MaybeOk': the sender could have enough funds at a later point in time.
+    | -- | The sender does not have enough funds to cover the transfer.
+      --  Reason for 'MaybeOk': the sender could have enough funds at a later point in time.
       NormalTransactionInsufficientFunds
-    | -- |The 'NormalTransaction' contained invalid signatures.
-      -- Reason for 'MaybeOk': the sender could've changed account information at a later point in time.
+    | -- | The 'NormalTransaction' contained invalid signatures.
+      --  Reason for 'MaybeOk': the sender could've changed account information at a later point in time.
       NormalTransactionInvalidSignatures
-    | -- |The energy requirement of the transaction exceeds the maximum allowed for a block.
-      -- P6 makes the maxBlockEnergy configurable as a chain parameter, so it could be valid in a future block where
-      -- we have not yet processed the chain update.
-      -- This is treated as a 'MaybeOk' for simplicity also for older protocol versions as the transaction will
-      -- be rejected when executed anyhow if it is surpassing the maximum block energy limit.
+    | -- | The energy requirement of the transaction exceeds the maximum allowed for a block.
+      --  P6 makes the maxBlockEnergy configurable as a chain parameter, so it could be valid in a future block where
+      --  we have not yet processed the chain update.
+      --  This is treated as a 'MaybeOk' for simplicity also for older protocol versions as the transaction will
+      --  be rejected when executed anyhow if it is surpassing the maximum block energy limit.
       NormalTransactionEnergyExceeded
     deriving (Eq, Show, Ord)
 
--- |Verification results which always should result in a transaction being rejected.
+-- | Verification results which always should result in a transaction being rejected.
 data NotOkResult
-    = -- |The 'AccountCreation' contained an expired 'validTo'
+    = -- | The 'AccountCreation' contained an expired 'validTo'
       CredentialDeploymentExpired
-    | -- |The 'CredentialDeployment' contained an invalid registration id.
-      -- There already exists an account with the registration id.
-      -- Reason for 'NotOk': As we verify against the last finalized block or the parent block of which it was received within then
-      -- under no circumstances must there be duplicate registration ids.
+    | -- | The 'CredentialDeployment' contained an invalid registration id.
+      --  There already exists an account with the registration id.
+      --  Reason for 'NotOk': As we verify against the last finalized block or the parent block of which it was received within then
+      --  under no circumstances must there be duplicate registration ids.
       CredentialDeploymentDuplicateAccountRegistrationID !ID.CredentialRegistrationID
-    | -- |The 'AccountCreation' contained invalid identity provider and/or anonymity revoker signatures.
-      -- Reason for 'NotOk': IdentityProvider and AnonymityRevoker keys cannot be updated.
+    | -- | The 'AccountCreation' contained invalid identity provider and/or anonymity revoker signatures.
+      --  Reason for 'NotOk': IdentityProvider and AnonymityRevoker keys cannot be updated.
       CredentialDeploymentInvalidSignatures
-    | -- |The 'ChainUpdate' had an expiry set too late.
+    | -- | The 'ChainUpdate' had an expiry set too late.
       ChainUpdateEffectiveTimeBeforeTimeout
-    | -- |The `UpdateSequenceNumber` of the 'ChainUpdate' was too old.
-      -- Reason for 'NotOk': the UpdateSequenceNumber can never be valid in a later block if the
-      -- nonce is already used.
+    | -- | The `UpdateSequenceNumber` of the 'ChainUpdate' was too old.
+      --  Reason for 'NotOk': the UpdateSequenceNumber can never be valid in a later block if the
+      --  nonce is already used.
       ChainUpdateSequenceNumberTooOld !UpdateSequenceNumber
-    | -- |Not enough energy was supplied for the transaction.
+    | -- | Not enough energy was supplied for the transaction.
       NormalTransactionDepositInsufficient
-    | -- |The 'NormalTransaction' contained an already used nonce.
+    | -- | The 'NormalTransaction' contained an already used nonce.
       NormalTransactionDuplicateNonce !Types.Nonce
-    | -- |The transaction was expired
+    | -- | The transaction was expired
       Expired
-    | -- |Transaction payload size exceeds protocol limit.
+    | -- | Transaction payload size exceeds protocol limit.
       InvalidPayloadSize
     deriving (Eq, Show, Ord)
 
--- |Type which can verify transactions in a monadic context.
--- The type is responsible for retrieving the necessary information
--- in order to deem a transaction `Ok`, `MaybeOk` or `NotOk`.
--- See above for explanations of the distinction between these types.
+-- | Type which can verify transactions in a monadic context.
+--  The type is responsible for retrieving the necessary information
+--  in order to deem a transaction `Ok`, `MaybeOk` or `NotOk`.
+--  See above for explanations of the distinction between these types.
 class (Monad m, Types.MonadProtocolVersion m) => TransactionVerifier m where
-    -- |Get the provider identity data for the given identity provider, or Nothing if
-    -- the identity provider with given ID does not exist.
+    -- | Get the provider identity data for the given identity provider, or Nothing if
+    --  the identity provider with given ID does not exist.
     getIdentityProvider :: ID.IdentityProviderIdentity -> m (Maybe IP.IpInfo)
 
-    -- |Get the anonymity revokers with given ids. Returns 'Nothing' if any of the
-    -- anonymity revokers are not found.
+    -- | Get the anonymity revokers with given ids. Returns 'Nothing' if any of the
+    --  anonymity revokers are not found.
     getAnonymityRevokers :: [ID.ArIdentity] -> m (Maybe [AR.ArInfo])
 
-    -- |Get cryptographic parameters for the current state.
+    -- | Get cryptographic parameters for the current state.
     getCryptographicParameters :: m Params.CryptographicParameters
 
-    -- |Check whether the given credential registration ID exists.
+    -- | Check whether the given credential registration ID exists.
     registrationIdExists :: ID.CredentialRegistrationID -> m Bool
 
-    -- |Get the account associated for the given account address.
-    -- Returns 'Nothing' if no such account exists.
+    -- | Get the account associated for the given account address.
+    --  Returns 'Nothing' if no such account exists.
     getAccount :: Types.AccountAddress -> m (Maybe (GSTypes.Account m))
 
-    -- |Get the next 'SequenceNumber' given the 'UpdateType'.
+    -- | Get the next 'SequenceNumber' given the 'UpdateType'.
     getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
 
-    -- |Get the UpdateKeysCollection
+    -- | Get the UpdateKeysCollection
     getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Params.AuthorizationsVersionForPV (Types.MPV m)))
 
-    -- |Get the current available amount for the specified account.
+    -- | Get the current available amount for the specified account.
     getAccountAvailableAmount :: GSTypes.Account m -> m Types.Amount
 
-    -- |Get the next account nonce.
+    -- | Get the next account nonce.
     getNextAccountNonce :: GSTypes.Account m -> m Types.Nonce
 
-    -- |Get the verification keys associated with an Account.
+    -- | Get the verification keys associated with an Account.
     getAccountVerificationKeys :: GSTypes.Account m -> m ID.AccountInformation
 
-    -- |Convert the given energy to CCD at the current block.
+    -- | Convert the given energy to CCD at the current block.
     energyToCcd :: Types.Energy -> m Types.Amount
 
-    -- |Get the maximum energy for a block.
+    -- | Get the maximum energy for a block.
     getMaxBlockEnergy :: m Types.Energy
 
-    -- |If the nonce should be checked if it is exactly the next one for the given account
-    -- or not (from the perspective of the verification context).
-    -- When transactions are received initially via a block we allow some slack with regard to exactness of the
-    -- provided nonce. The node may just not have received a parent block.
-    -- On the other hand when a transaction is received individually we must check that the nonce is exactly the next one for
-    -- the associated account and vice versa before executing the transaction in the `Scheduler`.
+    -- | If the nonce should be checked if it is exactly the next one for the given account
+    --  or not (from the perspective of the verification context).
+    --  When transactions are received initially via a block we allow some slack with regard to exactness of the
+    --  provided nonce. The node may just not have received a parent block.
+    --  On the other hand when a transaction is received individually we must check that the nonce is exactly the next one for
+    --  the associated account and vice versa before executing the transaction in the `Scheduler`.
     checkExactNonce :: m Bool
 
--- |Convenience function for verifying a transaction.
--- This function takes the time of verification and the actual `BlockItem`.
--- If the transaction was received individually then @time@ is 'now'.
--- Otherwise if the transaction was received as part of a block then @now@ refers the timestamp of the `Slot` associated with the `Block`.
+-- | Convenience function for verifying a transaction.
+--  This function takes the time of verification and the actual `BlockItem`.
+--  If the transaction was received individually then @time@ is 'now'.
+--  Otherwise if the transaction was received as part of a block then @now@ refers the timestamp of the `Slot` associated with the `Block`.
 --
--- See @verifyCredentialDeployment@, @verifyChainUpdate@ and @verifyNormalTransaction@.
-verify :: TransactionVerifier m => Types.Timestamp -> Tx.BlockItem -> m VerificationResult
+--  See @verifyCredentialDeployment@, @verifyChainUpdate@ and @verifyNormalTransaction@.
+verify :: (TransactionVerifier m) => Types.Timestamp -> Tx.BlockItem -> m VerificationResult
 verify now bi = do
     if Types.transactionExpired (Tx.msgExpiry bi) now
         then return (NotOk Expired)
@@ -212,15 +212,15 @@ verify now bi = do
             Tx.WithMetadata{wmdData = Tx.NormalTransaction tx} -> do
                 verifyNormalTransaction tx
 
--- |Verifies a 'CredentialDeployment' transaction.
+-- | Verifies a 'CredentialDeployment' transaction.
 --
--- This function verifies the following:
--- * Checks that the 'CredentialDeployment' is not expired
--- * Making sure that an registration id does not already exist
---   The `Scheduler` ensures that an account address doesn't clash with an existing one on the chain.
--- * Validity of the 'IdentityProvider' and 'AnonymityRevokers' provided.
--- * That the 'CredentialDeployment' contains valid signatures.
-verifyCredentialDeployment :: TransactionVerifier m => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
+--  This function verifies the following:
+--  * Checks that the 'CredentialDeployment' is not expired
+--  * Making sure that an registration id does not already exist
+--    The `Scheduler` ensures that an account address doesn't clash with an existing one on the chain.
+--  * Validity of the 'IdentityProvider' and 'AnonymityRevokers' provided.
+--  * That the 'CredentialDeployment' contains valid signatures.
+verifyCredentialDeployment :: (TransactionVerifier m) => Types.Timestamp -> Tx.AccountCreation -> m VerificationResult
 verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
     either id id
         <$> runExceptT
@@ -256,12 +256,12 @@ verifyCredentialDeployment now accountCreation@Tx.AccountCreation{..} =
                 return $ Ok CredentialDeploymentSuccess
             )
 
--- |Verifies a 'ChainUpdate' transaction.
--- This function verifies the following:
--- * Checks that the effective time is no later than the timeout of the chain update.
--- * Checks that provided sequence number is sequential.
--- * Checks that the 'ChainUpdate' is correctly signed.
-verifyChainUpdate :: forall m. TransactionVerifier m => Updates.UpdateInstruction -> m VerificationResult
+-- | Verifies a 'ChainUpdate' transaction.
+--  This function verifies the following:
+--  * Checks that the effective time is no later than the timeout of the chain update.
+--  * Checks that provided sequence number is sequential.
+--  * Checks that the 'ChainUpdate' is correctly signed.
+verifyChainUpdate :: forall m. (TransactionVerifier m) => Updates.UpdateInstruction -> m VerificationResult
 verifyChainUpdate ui@Updates.UpdateInstruction{..} =
     either id id
         <$> runExceptT
@@ -288,12 +288,12 @@ verifyChainUpdate ui@Updates.UpdateInstruction{..} =
                 return $ Ok $ ChainUpdateSuccess (getHash keys) nonce
             )
 
--- |Verifies a 'NormalTransaction' transaction.
--- This function verifies the following:
--- * Checks that enough energy is supplied for the transaction.
--- * Checks that the sender is a valid account.
--- * Checks that the nonce is correct.
--- * Checks that the 'NormalTransaction' is correctly signed.
+-- | Verifies a 'NormalTransaction' transaction.
+--  This function verifies the following:
+--  * Checks that enough energy is supplied for the transaction.
+--  * Checks that the sender is a valid account.
+--  * Checks that the nonce is correct.
+--  * Checks that the 'NormalTransaction' is correctly signed.
 verifyNormalTransaction ::
     forall m msg.
     (TransactionVerifier m, Tx.TransactionData msg) =>
@@ -342,34 +342,34 @@ verifyNormalTransaction meta =
                         return $ Ok $ NormalTransactionSuccess (getHash keys) nonce
             )
 
--- |Wrapper types for pairing a transaction with its verification result (if it has one).
--- The purpose of these types is to provide a uniform api between the 'TransactionTable' and the 'TreeState'.
+-- | Wrapper types for pairing a transaction with its verification result (if it has one).
+--  The purpose of these types is to provide a uniform api between the 'TransactionTable' and the 'TreeState'.
 --
--- The verification result is computed when the transaction is received either by 'doReceiveTransaction' or 'doReceiveTransactionInternal'.
--- The verification results are used by the scheduler when executing transactions, hence finalized transactions
--- are not required to store the verification results.
--- But it happens that a finalized transaction is included in multiple blocks while finalized in a parent block.
--- This will ultimately result in a duplicate transaction and the child block will fail execution.
--- But to accommodate the above mentioned scenario the verification results are wrapped in a `Maybe`.
+--  The verification result is computed when the transaction is received either by 'doReceiveTransaction' or 'doReceiveTransactionInternal'.
+--  The verification results are used by the scheduler when executing transactions, hence finalized transactions
+--  are not required to store the verification results.
+--  But it happens that a finalized transaction is included in multiple blocks while finalized in a parent block.
+--  This will ultimately result in a duplicate transaction and the child block will fail execution.
+--  But to accommodate the above mentioned scenario the verification results are wrapped in a `Maybe`.
 
--- |A 'BlockItem' with its associated 'VerificationResult'
+-- | A 'BlockItem' with its associated 'VerificationResult'
 type BlockItemWithStatus = (Tx.BlockItem, Maybe VerificationResult)
 
--- |A 'Transaction' with its associated 'VerificationResult'
+-- | A 'Transaction' with its associated 'VerificationResult'
 type TransactionWithStatus = (Tx.Transaction, Maybe VerificationResult)
 
--- |A 'CredentialDeployment' with its associated 'VerificationResult'
+-- | A 'CredentialDeployment' with its associated 'VerificationResult'
 type CredentialDeploymentWithStatus = (Tx.CredentialDeploymentWithMeta, Maybe VerificationResult)
 
--- |A 'ChainUpdate' with its associated 'VerificationResult'
+-- | A 'ChainUpdate' with its associated 'VerificationResult'
 type ChainUpdateWithStatus = (Tx.WithMetadata Updates.UpdateInstruction, Maybe VerificationResult)
 
--- |Determines if a transaction definitely cannot be valid now or in a future block based
--- on its 'VerificationResult' and 'TransactionOrigin'.
+-- | Determines if a transaction definitely cannot be valid now or in a future block based
+--  on its 'VerificationResult' and 'TransactionOrigin'.
 --
--- Transactions received individually must be verified successfully.
--- However there is a looser requirement for transactions received
--- as part of a block.
+--  Transactions received individually must be verified successfully.
+--  However there is a looser requirement for transactions received
+--  as part of a block.
 definitelyNotValid :: VerificationResult -> TransactionOrigin -> Bool
 definitelyNotValid (Ok _) Block = False
 definitelyNotValid (MaybeOk _) Block = False

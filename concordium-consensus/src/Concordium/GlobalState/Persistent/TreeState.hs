@@ -8,8 +8,8 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- |This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
--- and `TreeStateMonad` effectively adding persistence to the tree state.
+-- | This module provides a monad that is an instance of both `LMDBStoreMonad`, `LMDBQueryMonad`,
+--  and `TreeStateMonad` effectively adding persistence to the tree state.
 module Concordium.GlobalState.Persistent.TreeState where
 
 import Concordium.GlobalState.Block
@@ -57,25 +57,25 @@ import System.Mem.Weak
 
 -- * Exceptions
 
--- |Exceptions that can be thrown while the TreeState is being initialized
+-- | Exceptions that can be thrown while the TreeState is being initialized
 data InitException
-    = -- |Block state path is a directory.
+    = -- | Block state path is a directory.
       BlockStatePathDir
-    | -- |Cannot get the read/write permissions for the block state file.
+    | -- | Cannot get the read/write permissions for the block state file.
       BlockStatePermissionError
-    | -- |Cannot get the read/write permissions for the tree state file.
+    | -- | Cannot get the read/write permissions for the tree state file.
       TreeStatePermissionError
-    | -- |Generic database opening error
+    | -- | Generic database opening error
       DatabaseOpeningError !IOError
-    | -- |Genesis block not in the database, but it should be.
+    | -- | Genesis block not in the database, but it should be.
       GenesisBlockNotInDataBaseError
-    | -- |Genesis block incorrect.
+    | -- | Genesis block incorrect.
       GenesisBlockIncorrect
-        { -- |Hash of genesis as in the database.
+        { -- | Hash of genesis as in the database.
           ieIs :: !BlockHash
         }
     | DatabaseInvariantViolation !String
-    | -- |The database version is not correct.
+    | -- | The database version is not correct.
       IncorrectDatabaseVersion !String
     deriving (Show, Typeable)
 
@@ -101,58 +101,58 @@ logErrorAndThrowTS = logErrorAndThrow TreeState
 
 -- * Persistent version of the Skov Data
 
--- |BlockStatus as recorded in the persistent implementation
+-- | BlockStatus as recorded in the persistent implementation
 data PersistentBlockStatus pv bs
     = BlockAlive !(PersistentBlockPointer pv bs)
     | BlockPending !PendingBlock
     deriving (Eq, Show)
 
--- |Cache of dead blocks, which are blocks which have been either pending or
--- alive once, but have been marked dead by finalization, or which we have
--- received and deemed as invalid. The intention is that this acts as a kind of
--- FIFO cache, except that inserting a duplicate into the cache has no effect on
--- it.
+-- | Cache of dead blocks, which are blocks which have been either pending or
+--  alive once, but have been marked dead by finalization, or which we have
+--  received and deemed as invalid. The intention is that this acts as a kind of
+--  FIFO cache, except that inserting a duplicate into the cache has no effect on
+--  it.
 --
--- One question is why this is even needed and it is indeed unclear that it is
--- needed. It should not be necessary for correctness, but it likely does help
--- performance in some cases.
+--  One question is why this is even needed and it is indeed unclear that it is
+--  needed. It should not be necessary for correctness, but it likely does help
+--  performance in some cases.
 --
--- - Live blocks are only marked dead upon finalization (this is done
---   transitively, i.e., a descendant of a dead block is marked as dead). Blocks
---   can only arrive if they are no more than 30s in the future, and are above
---   (i.e., later than) the last finalized block. This cache helps in the case
---   where a branch is declared dead, and either duplicate blocks from that
---   branch, or successors of blocks on that branch, arrive. Without the cache
---   they would end up (potentially) in the pending state, with the cache they
---   might be deemed as duplicate (but they might be deemed duplicate at the
---   network already) or dead quickly. If finalization is reliable then even if
---   we get duplicate pending blocks they will be relatively quickly marked dead
---   themselves. The node itself has deduplication at the network layer.
+--  - Live blocks are only marked dead upon finalization (this is done
+--    transitively, i.e., a descendant of a dead block is marked as dead). Blocks
+--    can only arrive if they are no more than 30s in the future, and are above
+--    (i.e., later than) the last finalized block. This cache helps in the case
+--    where a branch is declared dead, and either duplicate blocks from that
+--    branch, or successors of blocks on that branch, arrive. Without the cache
+--    they would end up (potentially) in the pending state, with the cache they
+--    might be deemed as duplicate (but they might be deemed duplicate at the
+--    network already) or dead quickly. If finalization is reliable then even if
+--    we get duplicate pending blocks they will be relatively quickly marked dead
+--    themselves. The node itself has deduplication at the network layer.
 --
--- - If a block is received and immediately deemed invalid, then it is marked as
---   dead. In such a case it is good to remember this for some time in case the
---   network layer deduplication is insufficient.
+--  - If a block is received and immediately deemed invalid, then it is marked as
+--    dead. In such a case it is good to remember this for some time in case the
+--    network layer deduplication is insufficient.
 data DeadCache = DeadCache
-    { -- |Set of hashes currently in the cache.
+    { -- | Set of hashes currently in the cache.
       _dcHashes :: !(HS.HashSet BlockHash),
-      -- |Queue of hashes. The beginning of the queue is the item that was
-      -- inserted first (i.e., oldest hash).
+      -- | Queue of hashes. The beginning of the queue is the item that was
+      --  inserted first (i.e., oldest hash).
       _dcQueue :: !(Seq.Seq BlockHash)
     }
     deriving (Eq, Show)
 
--- |Maximum number of hashes to maintain in the cache. There is no particularly
--- strong reason for using 1000 other than it seems like it should be big enough
--- with realistic block times, as well as not too large so that cache
--- performance is still excellent.
+-- | Maximum number of hashes to maintain in the cache. There is no particularly
+--  strong reason for using 1000 other than it seems like it should be big enough
+--  with realistic block times, as well as not too large so that cache
+--  performance is still excellent.
 deadCacheSize :: Int
 deadCacheSize = 1000
 
 emptyDeadCache :: DeadCache
 emptyDeadCache = DeadCache HS.empty Seq.empty
 
--- |Update the cache with the given block hash. If the block hash is already in
--- the cache do nothing.
+-- | Update the cache with the given block hash. If the block hash is already in
+--  the cache do nothing.
 insertDeadCache :: BlockHash -> DeadCache -> DeadCache
 insertDeadCache !bh dc@DeadCache{..}
     | HS.member bh _dcHashes = dc
@@ -173,12 +173,12 @@ insertDeadCache !bh dc@DeadCache{..}
                           _dcQueue = _dcQueue Seq.|> bh
                         }
 
--- |Return whether the given block hash is in the cache.
+-- | Return whether the given block hash is in the cache.
 memberDeadCache :: BlockHash -> DeadCache -> Bool
 memberDeadCache bh DeadCache{..} = HS.member bh _dcHashes
 
--- |A table of live and non-finalized blocks together with a small cache of dead
--- ones.
+-- | A table of live and non-finalized blocks together with a small cache of dead
+--  ones.
 data BlockTable pv bs = BlockTable
     { _deadCache :: !DeadCache,
       _liveMap :: !(HM.HashMap BlockHash (PersistentBlockStatus pv bs))
@@ -187,53 +187,53 @@ data BlockTable pv bs = BlockTable
 
 makeLenses ''BlockTable
 
--- |A block table that does not contain any blocks, and has an empty cache of
--- dead blocks.
+-- | A block table that does not contain any blocks, and has an empty cache of
+--  dead blocks.
 emptyBlockTable :: BlockTable pv bs
 emptyBlockTable = BlockTable emptyDeadCache HM.empty
 
--- |Skov data for the persistent tree state version that also holds the database handlers.
--- The first type parameter, @pv@, is the protocol version.
--- The second type parameter, @ati@, is a type determining the account transaction index to use.
--- The third type parameter, @bs@, is the type of block states.
+-- | Skov data for the persistent tree state version that also holds the database handlers.
+--  The first type parameter, @pv@, is the protocol version.
+--  The second type parameter, @ati@, is a type determining the account transaction index to use.
+--  The third type parameter, @bs@, is the type of block states.
 data SkovPersistentData (pv :: ProtocolVersion) = SkovPersistentData
-    { -- |Map of all received blocks by hash.
+    { -- | Map of all received blocks by hash.
       _blockTable :: !(BlockTable pv (PBS.HashedPersistentBlockState pv)),
-      -- |Map of (possibly) pending blocks by hash
+      -- | Map of (possibly) pending blocks by hash
       _possiblyPendingTable :: !(HM.HashMap BlockHash [PendingBlock]),
-      -- |Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
+      -- | Priority queue of pairs of (block, parent) hashes where the block is (possibly) pending its parent, by block slot
       _possiblyPendingQueue :: !(MPQ.MinPQueue Slot (BlockHash, BlockHash)),
-      -- |Pointer to the last finalized block
+      -- | Pointer to the last finalized block
       _lastFinalized :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)),
-      -- |Pointer to the last finalization record
+      -- | Pointer to the last finalization record
       _lastFinalizationRecord :: !FinalizationRecord,
-      -- |Branches of the tree by height above the last finalized block
+      -- | Branches of the tree by height above the last finalized block
       _branches :: !(Seq.Seq [PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)]),
-      -- |Genesis data
+      -- | Genesis data
       _genesisData :: !GenesisConfiguration,
-      -- |Block pointer to genesis block
+      -- | Block pointer to genesis block
       _genesisBlockPointer :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)),
-      -- |Current focus block
+      -- | Current focus block
       _focusBlock :: !(PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv)),
-      -- |Pending transaction table
+      -- | Pending transaction table
       _pendingTransactions :: !PendingTransactionTable,
-      -- |Transaction table
+      -- | Transaction table
       _transactionTable :: !TransactionTable,
-      -- |Transaction table purge counter
+      -- | Transaction table purge counter
       _transactionTablePurgeCounter :: !Int,
-      -- |Consensus statistics
+      -- | Consensus statistics
       _statistics :: !ConsensusStatistics,
-      -- |Runtime parameters
+      -- | Runtime parameters
       _runtimeParameters :: !RuntimeParameters,
-      -- |Tree state directory
+      -- | Tree state directory
       _treeStateDirectory :: !FilePath,
       -- | Database handlers
       _db :: !(DatabaseHandlers pv (TS.BlockStatePointer (PBS.HashedPersistentBlockState pv))),
-      -- |State where we store the initial state for the new protocol update.
-      -- TODO: This is not an ideal solution, but seems simplest in terms of abstractions.
-      -- If we only had the one state implementation this would not be necessary, and we could simply
-      -- return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
-      -- specify the types of these values due to the way the relevant types are parameterized.
+      -- | State where we store the initial state for the new protocol update.
+      --  TODO: This is not an ideal solution, but seems simplest in terms of abstractions.
+      --  If we only had the one state implementation this would not be necessary, and we could simply
+      --  return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
+      --  specify the types of these values due to the way the relevant types are parameterized.
       _nextGenesisInitialState :: !(Maybe (PBS.HashedPersistentBlockState pv))
     }
 
@@ -245,43 +245,43 @@ instance
     where
     dbHandlers = db
 
--- |Initial skov data with default runtime parameters (block size = 10MB).
+-- | Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovPersistentDataDefault ::
     (IsProtocolVersion pv, MonadIO m) =>
     FilePath ->
     GenesisConfiguration ->
     PBS.HashedPersistentBlockState pv ->
-    -- |How to serialize the block state reference for inclusion in the table.
+    -- | How to serialize the block state reference for inclusion in the table.
     TS.BlockStatePointer (PBS.HashedPersistentBlockState pv) ->
     TransactionTable ->
     Maybe PendingTransactionTable ->
     m (SkovPersistentData pv)
 initialSkovPersistentDataDefault = initialSkovPersistentData defaultRuntimeParameters
 
--- |Create an initial 'SkovPersistentData'.
--- The state does not need to be activated if the supplied 'TransactionTable' is correctly
--- initialised with the nonces and sequence numbers of the accounts and update types.
+-- | Create an initial 'SkovPersistentData'.
+--  The state does not need to be activated if the supplied 'TransactionTable' is correctly
+--  initialised with the nonces and sequence numbers of the accounts and update types.
 initialSkovPersistentData ::
     (IsProtocolVersion pv, MonadIO m) =>
-    -- |Runtime parameters
+    -- | Runtime parameters
     RuntimeParameters ->
-    -- |Tree state directory
+    -- | Tree state directory
     FilePath ->
-    -- |Genesis data
+    -- | Genesis data
     GenesisConfiguration ->
-    -- |Genesis state
+    -- | Genesis state
     PBS.HashedPersistentBlockState pv ->
-    -- |Genesis block state
+    -- | Genesis block state
     TS.BlockStatePointer (PBS.HashedPersistentBlockState pv) ->
-    -- |The table of transactions to start the configuration with. If this
-    -- transaction table has any non-finalized transactions then the pending
-    -- table corresponding to those non-finalized transactions must be supplied.
-    -- This table should never have "Committed" transactions.
+    -- | The table of transactions to start the configuration with. If this
+    --  transaction table has any non-finalized transactions then the pending
+    --  table corresponding to those non-finalized transactions must be supplied.
+    --  This table should never have "Committed" transactions.
     TransactionTable ->
-    -- |The initial pending transaction table. If the supplied __transaction
-    -- table__ has transactions that are not finalized the pending table must be
-    -- supplied to record these, satisfying the usual properties. See
-    -- documentation of the 'PendingTransactionTable' for details.
+    -- | The initial pending transaction table. If the supplied __transaction
+    --  table__ has transactions that are not finalized the pending table must be
+    --  supplied to record these, satisfying the usual properties. See
+    --  documentation of the 'PendingTransactionTable' for details.
     Maybe PendingTransactionTable ->
     m (SkovPersistentData pv)
 initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = do
@@ -320,9 +320,9 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = 
 checkExistingDatabase ::
     forall m.
     (MonadLogger m, MonadIO m) =>
-    -- |Tree state path
+    -- | Tree state path
     FilePath ->
-    -- |Block state file
+    -- | Block state file
     FilePath ->
     m Bool
 checkExistingDatabase treeStateDir blockStateFile = do
@@ -350,47 +350,47 @@ checkExistingDatabase treeStateDir blockStateFile = do
     -- if both files exist we check whether they are both readable and writable.
     -- In case only one of them exists we raise an appropriate exception. We don't want to delete any data.
     if
-            | bsPathEx && tsPathEx -> do
-                -- check whether it is a normal file and whether we have the right permissions
-                checkRWFile blockStateFile BlockStatePermissionError
-                checkRWFile treeStateFile TreeStatePermissionError
-                mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
-                return True
-            | bsPathEx -> do
-                logEvent GlobalState LLWarning "Block state file exists, but tree state database does not. Deleting the block state file."
-                liftIO $ removeFile blockStateFile
-                return False
-            | tsPathEx -> do
-                logEvent GlobalState LLWarning "Tree state database exists, but block state file does not. Deleting the tree state database."
-                liftIO . removeDirectoryRecursive $ treeStateDir
-                return False
-            | otherwise ->
-                return False
+        | bsPathEx && tsPathEx -> do
+            -- check whether it is a normal file and whether we have the right permissions
+            checkRWFile blockStateFile BlockStatePermissionError
+            checkRWFile treeStateFile TreeStatePermissionError
+            mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
+            return True
+        | bsPathEx -> do
+            logEvent GlobalState LLWarning "Block state file exists, but tree state database does not. Deleting the block state file."
+            liftIO $ removeFile blockStateFile
+            return False
+        | tsPathEx -> do
+            logEvent GlobalState LLWarning "Tree state database exists, but block state file does not. Deleting the tree state database."
+            liftIO . removeDirectoryRecursive $ treeStateDir
+            return False
+        | otherwise ->
+            return False
 
--- |Try to load an existing instance of skov persistent data.
--- This function will raise an exception if it detects invariant violation in the
--- existing state.
--- This can be for a number of reasons, but what is checked currently is
+-- | Try to load an existing instance of skov persistent data.
+--  This function will raise an exception if it detects invariant violation in the
+--  existing state.
+--  This can be for a number of reasons, but what is checked currently is
 --
---   * blocks cannot be deserialized.
---   * database does not contain a block at height 0, i.e., genesis block
---   * database does not contain the right genesis block (one that would match genesis data)
---   * hash under which the genesis block is stored is not the computed hash of the genesis block
---   * missing finalization record for the last stored block in the database.
+--    * blocks cannot be deserialized.
+--    * database does not contain a block at height 0, i.e., genesis block
+--    * database does not contain the right genesis block (one that would match genesis data)
+--    * hash under which the genesis block is stored is not the computed hash of the genesis block
+--    * missing finalization record for the last stored block in the database.
 --
--- The state that is loaded is usable for queries (except the next nonce query),
--- but it is not usable for active consensus operation. For that,
--- 'activateSkovPersistentData' should be called which establishes the necessary
--- invariants in the transaction table, and caches the relevant state.
+--  The state that is loaded is usable for queries (except the next nonce query),
+--  but it is not usable for active consensus operation. For that,
+--  'activateSkovPersistentData' should be called which establishes the necessary
+--  invariants in the transaction table, and caches the relevant state.
 --
--- The reason for the split design is that activating the state is very time
--- consuming, and it is not needed when starting a node on a chain which had
--- multiple protocol updates.
+--  The reason for the split design is that activating the state is very time
+--  consuming, and it is not needed when starting a node on a chain which had
+--  multiple protocol updates.
 loadSkovPersistentData ::
     forall pv.
     (IsProtocolVersion pv) =>
     RuntimeParameters ->
-    -- |Tree state directory
+    -- | Tree state directory
     FilePath ->
     PBS.PersistentBlockStateContext pv ->
     LogIO (SkovPersistentData pv)
@@ -457,14 +457,14 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
     isBlockStateCorrupted block =
         not <$> runBlobStoreT (isValidBlobRef (sbState block)) pbsc
 
--- |Activate the state and make it usable for use by consensus. This concretely
--- means that the block state for the last finalized block is cached, and that
--- the transaction table invariants are established. The latter means that the
--- next nonce recorded in the pending table is correct for the focus block
--- (which is the last finalized block).
+-- | Activate the state and make it usable for use by consensus. This concretely
+--  means that the block state for the last finalized block is cached, and that
+--  the transaction table invariants are established. The latter means that the
+--  next nonce recorded in the pending table is correct for the focus block
+--  (which is the last finalized block).
 --
--- This function will raise an IO exception in the following scenarios
--- * in the block state, an account which is listed cannot be loaded
+--  This function will raise an IO exception in the following scenarios
+--  * in the block state, an account which is listed cannot be loaded
 activateSkovPersistentData ::
     forall pv.
     (IsProtocolVersion pv) =>
@@ -481,24 +481,24 @@ activateSkovPersistentData pbsc uninitState =
   where
     runBlockState a = runReaderT (PBS.runPersistentBlockStateMonad @pv a) pbsc
 
--- |Close the database associated with a 'SkovPersistentData'.
--- The database should not be used after this.
+-- | Close the database associated with a 'SkovPersistentData'.
+--  The database should not be used after this.
 closeSkovPersistentData :: SkovPersistentData pv -> IO ()
 closeSkovPersistentData = closeDatabase . _db
 
--- |Newtype wrapper that provides an implementation of the TreeStateMonad using a persistent tree state.
--- The underlying Monad must provide instances for:
+-- | Newtype wrapper that provides an implementation of the TreeStateMonad using a persistent tree state.
+--  The underlying Monad must provide instances for:
 --
--- * `BlockStateTypes`
--- * `BlockStateQuery`
--- * `BlockStateOperations`
--- * `BlockStateStorage`
--- * `MonadLogger`
--- * `BirkParametersOperations`
--- * `MonadState (SkovPersistentData bs)`
--- * `PerAccountDBOperations`
+--  * `BlockStateTypes`
+--  * `BlockStateQuery`
+--  * `BlockStateOperations`
+--  * `BlockStateStorage`
+--  * `MonadLogger`
+--  * `BirkParametersOperations`
+--  * `MonadState (SkovPersistentData bs)`
+--  * `PerAccountDBOperations`
 --
--- This newtype establishes types for the @GlobalStateTypes@.
+--  This newtype establishes types for the @GlobalStateTypes@.
 newtype PersistentTreeStateMonad state (m :: Type -> Type) (a :: Type) = PersistentTreeStateMonad {runPersistentTreeStateMonad :: m a}
     deriving
         ( Functor,
@@ -530,7 +530,7 @@ deriving instance
 instance GlobalStateTypes (PersistentTreeStateMonad state m) where
     type BlockPointerType (PersistentTreeStateMonad state m) = PersistentBlockPointer (MPV m) (BlockState m)
 
-class HasDatabaseHandlers pv (BlockStatePointer (PBS.PersistentBlockState pv)) s => HasSkovPersistentData pv s | s -> pv where
+class (HasDatabaseHandlers pv (BlockStatePointer (PBS.PersistentBlockState pv)) s) => HasSkovPersistentData pv s | s -> pv where
     skovPersistentData :: Lens' s (SkovPersistentData pv)
 
 instance HasSkovPersistentData pv (SkovPersistentData pv) where

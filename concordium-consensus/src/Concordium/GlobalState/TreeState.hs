@@ -52,46 +52,46 @@ instance Show (BlockStatus bp pb) where
     show (BlockFinalized _ _) = "Finalized"
     show (BlockPending _) = "Pending"
 
--- |Branches of a tree represented as a sequence of lists of block pointers. All pointers within a
--- list point to blocks of equal height above the last finalized block. The sequence is ordered by
--- the block height. The blocks in the branches should be exactly the live blocks.  If a block is in
--- the branches, then either it is at the lowest level and its parent is the last finalized block,
--- or its parent is also in the branches at the level below.
+-- | Branches of a tree represented as a sequence of lists of block pointers. All pointers within a
+--  list point to blocks of equal height above the last finalized block. The sequence is ordered by
+--  the block height. The blocks in the branches should be exactly the live blocks.  If a block is in
+--  the branches, then either it is at the lowest level and its parent is the last finalized block,
+--  or its parent is also in the branches at the level below.
 type Branches m = Seq.Seq [BlockPointerType m]
 
--- |Status of a "recent" block. Recent here means that instead of looking up the
--- full status of a block that is older than the last finalized one, we return
--- only the fact that it is older than last finalized. This performs better in
--- cases where this is the only information that is needed. It avoids loading
--- finalized blocks from the database.
+-- | Status of a "recent" block. Recent here means that instead of looking up the
+--  full status of a block that is older than the last finalized one, we return
+--  only the fact that it is older than last finalized. This performs better in
+--  cases where this is the only information that is needed. It avoids loading
+--  finalized blocks from the database.
 data RecentBlockStatus bp pb
-    = -- |The block is either pending, dead, or no older than the last finalized block.
+    = -- | The block is either pending, dead, or no older than the last finalized block.
       RecentBlock !(BlockStatus bp pb)
-    | -- |The block is known, and is strictly older than the last finalized block.
+    | -- | The block is known, and is strictly older than the last finalized block.
       OldFinalized
-    | -- |The block is unknown
+    | -- | The block is unknown
       Unknown
     deriving (Eq, Show)
 
--- |Status of a transaction.
+-- | Status of a transaction.
 data TransactionStatus
-    = -- |Transaction is either pending (i.e. in no blocks) or committed (i.e. in a live block).
+    = -- | Transaction is either pending (i.e. in no blocks) or committed (i.e. in a live block).
       Live !LiveTransactionStatus
-    | -- |Transaction is finalized in a given block.
+    | -- | Transaction is finalized in a given block.
       Finalized
-        { -- |The commit point of the block that that the transaction is part of.
+        { -- | The commit point of the block that that the transaction is part of.
           ftsCommitPoint :: !CommitPoint,
-          -- |The hash of the block that this transaction is part of.
+          -- | The hash of the block that this transaction is part of.
           ftsBlockHash :: !BlockHash,
-          -- |Index of the transaction in the finalized block.
-          -- The 'TransactionIndex' can be used to query the outcome
-          -- via the associated block state.
+          -- | Index of the transaction in the finalized block.
+          --  The 'TransactionIndex' can be used to query the outcome
+          --  via the associated block state.
           ftsFinResult :: !TransactionIndex
         }
 
--- |Monad that provides operations for working with the low-level tree state.
--- These operations are abstracted where possible to allow for a range of implementation
--- choices.
+-- | Monad that provides operations for working with the low-level tree state.
+--  These operations are abstracted where possible to allow for a range of implementation
+--  choices.
 class
     ( Eq (BlockPointerType m),
       Ord (BlockPointerType m),
@@ -108,65 +108,65 @@ class
     where
     -- * 'PendingBlock' operations
 
-    -- |Create and sign a 'PendingBlock`.
+    -- | Create and sign a 'PendingBlock`.
     makePendingBlock ::
-        -- |Key for signing the new block
+        -- | Key for signing the new block
         BakerSignPrivateKey ->
-        -- |Block slot (must be non-zero)
+        -- | Block slot (must be non-zero)
         Slot ->
-        -- |Hash of parent block
+        -- | Hash of parent block
         BlockHash ->
-        -- |Identifier of block baker
+        -- | Identifier of block baker
         BakerId ->
-        -- |Block proof
+        -- | Block proof
         BlockProof ->
-        -- |Block nonce
+        -- | Block nonce
         BlockNonce ->
-        -- |Finalization data
+        -- | Finalization data
         BlockFinalizationData ->
-        -- |List of transactions
+        -- | List of transactions
         [BlockItem] ->
-        -- |Statehash of the block.
+        -- | Statehash of the block.
         StateHash ->
-        -- |TransactionOutcomesHash of block.
+        -- | TransactionOutcomesHash of block.
         TransactionOutcomesHash ->
-        -- |Block receive time
+        -- | Block receive time
         UTCTime ->
         m PendingBlock
 
     -- * Operations on the block table
 
-    -- |Get the current status of a block.
+    -- | Get the current status of a block.
     getBlockStatus :: BlockHash -> m (Maybe (BlockStatus (BlockPointerType m) PendingBlock))
 
-    -- |Get a 'RecentBlockStatus'. See documentation of 'RecentBlockStatus' for
-    -- the meaning of the return value.
+    -- | Get a 'RecentBlockStatus'. See documentation of 'RecentBlockStatus' for
+    --  the meaning of the return value.
     getRecentBlockStatus :: BlockHash -> m (RecentBlockStatus (BlockPointerType m) PendingBlock)
 
-    -- |Make a live 'BlockPointer' from a 'PendingBlock'.
-    -- The parent and last finalized pointers must be correct.
+    -- | Make a live 'BlockPointer' from a 'PendingBlock'.
+    --  The parent and last finalized pointers must be correct.
     makeLiveBlock ::
-        -- |Block to make live
+        -- | Block to make live
         PendingBlock ->
-        -- |Parent block pointer
+        -- | Parent block pointer
         BlockPointerType m ->
-        -- |Last finalized block pointer
+        -- | Last finalized block pointer
         BlockPointerType m ->
-        -- |Block state
+        -- | Block state
         BlockState m ->
-        -- |Block arrival time
+        -- | Block arrival time
         UTCTime ->
-        -- |Energy cost of the transactions in the block.
+        -- | Energy cost of the transactions in the block.
         Energy ->
         m (BlockPointerType m)
 
-    -- |Mark a block as dead. This should only be used directly if there are no other state invariants
-    -- which should be maintained. See 'markLiveBlockDead' for an alternative method which maintains more invariants.
+    -- | Mark a block as dead. This should only be used directly if there are no other state invariants
+    --  which should be maintained. See 'markLiveBlockDead' for an alternative method which maintains more invariants.
     markDead :: BlockHash -> m ()
 
-    -- |Mark a live block as dead. In addition, purge the block state and maintain invariants in the
-    -- transaction table by purging all transaction outcomes that refer to this block.
-    -- This has a default implementation in terms of 'markDead', 'purgeBlockState' and 'markDeadTransaction'.
+    -- | Mark a live block as dead. In addition, purge the block state and maintain invariants in the
+    --  transaction table by purging all transaction outcomes that refer to this block.
+    --  This has a default implementation in terms of 'markDead', 'purgeBlockState' and 'markDeadTransaction'.
     markLiveBlockDead :: BlockPointerType m -> m ()
     markLiveBlockDead bp = do
         let bh = getHash bp
@@ -182,68 +182,68 @@ class
     -- `wrapupFinalization` which will write it to disk, without relying on monadic state.
     type MarkFin m
 
-    -- |Mark a block as finalized (by a particular 'FinalizationRecord').
+    -- | Mark a block as finalized (by a particular 'FinalizationRecord').
     --
-    -- Precondition: The block must be alive.
+    --  Precondition: The block must be alive.
     --
-    -- The finalization is considered fully done when 'wrapUpFinalization' is
-    -- called. In between calling 'markFinalized' and 'wrapUpFinalization' calls
-    -- to 'getBlockStatus' may return inconsistent results and thus should not
-    -- be used.
+    --  The finalization is considered fully done when 'wrapUpFinalization' is
+    --  called. In between calling 'markFinalized' and 'wrapUpFinalization' calls
+    --  to 'getBlockStatus' may return inconsistent results and thus should not
+    --  be used.
     markFinalized :: BlockHash -> FinalizationRecord -> m (MarkFin m)
 
-    -- |Mark a block as pending (i.e. awaiting parent)
+    -- | Mark a block as pending (i.e. awaiting parent)
     markPending :: PendingBlock -> m ()
 
     -- * Queries on genesis block
 
-    -- |Get the genesis 'BlockPointer'.
+    -- | Get the genesis 'BlockPointer'.
     getGenesisBlockPointer :: m (BlockPointerType m)
 
-    -- |Get the 'GenesisData'.
+    -- | Get the 'GenesisData'.
     getGenesisData :: m GenesisConfiguration
 
     -- * Operations on the finalization list
 
-    -- |Get the last finalized block.
+    -- | Get the last finalized block.
     getLastFinalized :: m (BlockPointerType m, FinalizationRecord)
 
-    -- |Get the slot number of the last finalized block
+    -- | Get the slot number of the last finalized block
     getLastFinalizedSlot :: m Slot
     getLastFinalizedSlot = blockSlot . fst <$> getLastFinalized
 
-    -- |Get the height of the last finalized block
+    -- | Get the height of the last finalized block
     getLastFinalizedHeight :: m BlockHeight
     getLastFinalizedHeight = bpHeight . fst <$> getLastFinalized
 
-    -- |Get the next finalization index.
+    -- | Get the next finalization index.
     getNextFinalizationIndex :: m FinalizationIndex
     getNextFinalizationIndex = (+ 1) . finalizationIndex . snd <$> getLastFinalized
 
-    -- |Add a block and finalization record to the finalization list.
-    -- The block must be the one finalized by the record, and the finalization
-    -- index must be the next finalization index.  These are not checked.
+    -- | Add a block and finalization record to the finalization list.
+    --  The block must be the one finalized by the record, and the finalization
+    --  index must be the next finalization index.  These are not checked.
     addFinalization :: BlockPointerType m -> FinalizationRecord -> m ()
 
-    -- |Get the block that is finalized at the given index.
-    -- Returns 'Nothing' if no such block exists.
+    -- | Get the block that is finalized at the given index.
+    --  Returns 'Nothing' if no such block exists.
     getFinalizedAtIndex :: FinalizationIndex -> m (Maybe (BlockPointerType m))
 
-    -- |Get the finalization record at the given index, if any.
+    -- | Get the finalization record at the given index, if any.
     getRecordAtIndex :: FinalizationIndex -> m (Maybe FinalizationRecord)
 
-    -- |Get the block that is finalized at the given height, if any.
+    -- | Get the block that is finalized at the given height, if any.
     getFinalizedAtHeight :: BlockHeight -> m (Maybe (BlockPointerType m))
 
-    -- |Persist finalization, if the tree state implementation supports it
+    -- | Persist finalization, if the tree state implementation supports it
     wrapupFinalization :: FinalizationRecord -> [(MarkFin m, FinTrans m)] -> m ()
 
     -- * Operations on branches
 
-    -- |Get the branches.
+    -- | Get the branches.
     getBranches :: m (Branches m)
 
-    -- |Set the branches.
+    -- | Set the branches.
     putBranches :: Branches m -> m ()
 
     -- * Operations on blocks that are pending the arrival of other blocks
@@ -264,12 +264,12 @@ class
     -- removing them from the pending table.
     takePendingChildren :: BlockHash -> m [PendingBlock]
 
-    -- |Add a pending block, that is pending on the arrival of its parent.
+    -- | Add a pending block, that is pending on the arrival of its parent.
     addPendingBlock :: PendingBlock -> m ()
 
-    -- |Return the next block that is pending its parent with slot number
-    -- less than or equal to the given value, removing it from the pending
-    -- table.  Returns 'Nothing' if there is no such pending block.
+    -- | Return the next block that is pending its parent with slot number
+    --  less than or equal to the given value, removing it from the pending
+    --  table.  Returns 'Nothing' if there is no such pending block.
     takeNextPendingUntil :: Slot -> m (Maybe PendingBlock)
 
     -- * Operations on the pending transaction table
@@ -283,49 +283,49 @@ class
     -- |Return the focus block.
     getFocusBlock :: m (BlockPointerType m)
 
-    -- |Update the focus block.
+    -- | Update the focus block.
     putFocusBlock :: BlockPointerType m -> m ()
 
-    -- |Get the pending transactions after execution of the focus block.
+    -- | Get the pending transactions after execution of the focus block.
     getPendingTransactions :: m PendingTransactionTable
 
-    -- |Set the pending transactions after execution of the focus block.
+    -- | Set the pending transactions after execution of the focus block.
     putPendingTransactions :: PendingTransactionTable -> m ()
 
     -- * Operations on the transaction table
 
-    -- |Get non-finalized transactions for the given account starting at the given nonce (inclusive).
-    -- These are returned as an ordered list of pairs of nonce and non-empty set of transactions
-    -- with that nonce. Transaction groups are ordered by increasing nonce.
+    -- | Get non-finalized transactions for the given account starting at the given nonce (inclusive).
+    --  These are returned as an ordered list of pairs of nonce and non-empty set of transactions
+    --  with that nonce. Transaction groups are ordered by increasing nonce.
     getAccountNonFinalized ::
         AccountAddressEq ->
         Nonce ->
         m [(Nonce, Map.Map Transaction TVer.VerificationResult)]
 
-    -- |Get a credential which has not yet been finalized, i.e., it is correct for this function
-    -- to return 'Nothing' if the requested credential has already been finalized.
+    -- | Get a credential which has not yet been finalized, i.e., it is correct for this function
+    --  to return 'Nothing' if the requested credential has already been finalized.
     getCredential :: TransactionHash -> m (Maybe (CredentialDeploymentWithMeta, TVer.VerificationResult))
 
-    -- |Get non-finalized chain updates of a given type starting at the given sequence number
-    -- (inclusive). This are returned as an ordered list of pairs of sequence number and
-    -- non-empty set of updates with that sequence number. Update groups are ordered by
-    -- increasing sequence number.
+    -- | Get non-finalized chain updates of a given type starting at the given sequence number
+    --  (inclusive). This are returned as an ordered list of pairs of sequence number and
+    --  non-empty set of updates with that sequence number. Update groups are ordered by
+    --  increasing sequence number.
     getNonFinalizedChainUpdates ::
         UpdateType ->
         UpdateSequenceNumber ->
         m [(UpdateSequenceNumber, Map.Map (WithMetadata UpdateInstruction) TVer.VerificationResult)]
 
-    -- |Get the pending transactions grouped for use in constructing a block.
-    -- Each group consists of one of the following:
+    -- | Get the pending transactions grouped for use in constructing a block.
+    --  Each group consists of one of the following:
     --
-    --   * A single credential.
+    --    * A single credential.
     --
-    --   * The pending transactions on a single account, ordered by increasing account nonce.
+    --    * The pending transactions on a single account, ordered by increasing account nonce.
     --
-    --   * The pending chain update instructions, ordered by increasing sequence number.
+    --    * The pending chain update instructions, ordered by increasing sequence number.
     --
-    -- The transaction groups are ordered by the earliest arrival time of a transaction in the group
-    -- with minimal nonce/sequence number.
+    --  The transaction groups are ordered by the earliest arrival time of a transaction in the group
+    --  with minimal nonce/sequence number.
     getGroupedPendingTransactions :: m [TransactionGroup]
 
     -- | Depending on the implementation, `finalizeTransactions` may return a value of this
@@ -334,78 +334,78 @@ class
     -- without relying on monadic state.
     type FinTrans m
 
-    -- |Finalize a list of transactions on a given block. Per account, the transactions must be in
-    -- continuous sequence by nonce, starting from the next available non-finalized
-    -- nonce.
+    -- | Finalize a list of transactions on a given block. Per account, the transactions must be in
+    --  continuous sequence by nonce, starting from the next available non-finalized
+    --  nonce.
     finalizeTransactions :: BlockHash -> Slot -> [BlockItem] -> m (FinTrans m)
 
-    -- |Mark a transaction as committed on a block with the given slot number,
-    -- as well as add any additional outcomes for the given block (outcomes are given
-    -- as the index of the transaction in the given block).
-    -- This will prevent it from being purged while the slot number exceeds
-    -- that of the last finalized block.
+    -- | Mark a transaction as committed on a block with the given slot number,
+    --  as well as add any additional outcomes for the given block (outcomes are given
+    --  as the index of the transaction in the given block).
+    --  This will prevent it from being purged while the slot number exceeds
+    --  that of the last finalized block.
     commitTransaction :: Slot -> BlockHash -> BlockItem -> TransactionIndex -> m ()
 
-    -- |@addCommitTransaction tr verResCtx timestamp slot@ verifies a transaction within the
-    -- given context and adds the transaction and marks it committed
-    -- for the given slot number. If the transaction was deemed verifiable in the future.
-    -- By default the transaction is created in the 'Received' state,
-    -- but if the transaction is already in the table the outcomes are retained.
-    -- See documentation of 'AddTransactionResult' for meaning of the return value.
-    -- The time is indicative of the receive time of the transaction. It is used to prioritize transactions
-    -- when constructing a block.
-    -- Before the transaction is added the transaction will be verified. If it is not ok then it will return
-    -- `NotAdded` together with the verification result.
-    -- The scheduler will need to consult the resulting `VerificationResult` and based on that carry out the correct
-    -- verification before executing the transaction.
+    -- | @addCommitTransaction tr verResCtx timestamp slot@ verifies a transaction within the
+    --  given context and adds the transaction and marks it committed
+    --  for the given slot number. If the transaction was deemed verifiable in the future.
+    --  By default the transaction is created in the 'Received' state,
+    --  but if the transaction is already in the table the outcomes are retained.
+    --  See documentation of 'AddTransactionResult' for meaning of the return value.
+    --  The time is indicative of the receive time of the transaction. It is used to prioritize transactions
+    --  when constructing a block.
+    --  Before the transaction is added the transaction will be verified. If it is not ok then it will return
+    --  `NotAdded` together with the verification result.
+    --  The scheduler will need to consult the resulting `VerificationResult` and based on that carry out the correct
+    --  verification before executing the transaction.
     addCommitTransaction :: BlockItem -> Context (BlockState m) -> Timestamp -> Slot -> m AddTransactionResult
 
-    -- |Add a transaction that has already been verified with the supplied verification result.
-    -- This is called for adding transactions that are not already part of a block, so the
-    -- transaction will not become committed to any block.
-    -- By default the transaction is created in the 'Received' state,
-    -- but if the transaction is already in the table the outcomes are retained.
-    -- See documentation of 'AddTransactionResult' for meaning of the return value.
+    -- | Add a transaction that has already been verified with the supplied verification result.
+    --  This is called for adding transactions that are not already part of a block, so the
+    --  transaction will not become committed to any block.
+    --  By default the transaction is created in the 'Received' state,
+    --  but if the transaction is already in the table the outcomes are retained.
+    --  See documentation of 'AddTransactionResult' for meaning of the return value.
     addVerifiedTransaction :: BlockItem -> TVer.OkResult -> m AddTransactionResult
 
-    -- |Get the `VerificationResult` for a `BlockItem` if such one exist.
-    -- A `VerificationResult` exists for `Received` and `Committed` transactions while
-    -- finalized transactions will yield a `Nothing`.
+    -- | Get the `VerificationResult` for a `BlockItem` if such one exist.
+    --  A `VerificationResult` exists for `Received` and `Committed` transactions while
+    --  finalized transactions will yield a `Nothing`.
     getNonFinalizedTransactionVerificationResult :: BlockItem -> m (Maybe TVer.VerificationResult)
 
-    -- |Purge transactions from the transaction table and pending transactions.
-    -- Transactions are purged only if they are not included in a live block, and
-    -- have either expired or arrived longer ago than the transaction keep alive time.
+    -- | Purge transactions from the transaction table and pending transactions.
+    --  Transactions are purged only if they are not included in a live block, and
+    --  have either expired or arrived longer ago than the transaction keep alive time.
     --
-    -- If the first argument is @False@, the transaction table is only purged if
-    -- 'rpInsertionsBeforeTransactionPurged' transactions have been inserted since
-    -- the last purge.  If it is true, the table is purged regardless.
+    --  If the first argument is @False@, the transaction table is only purged if
+    --  'rpInsertionsBeforeTransactionPurged' transactions have been inserted since
+    --  the last purge.  If it is true, the table is purged regardless.
     --
-    -- WARNING: This function violates the independence of the tree state components.
-    -- In particular, the following invariants are assumed and maintained:
+    --  WARNING: This function violates the independence of the tree state components.
+    --  In particular, the following invariants are assumed and maintained:
     --
-    --   * Every 'BlockItem' in the transaction table that is not included in a live
-    --     or finalized block is referenced in the pending transaction table.  That is,
-    --     for a basic transaction the '_pttWithSender' table contains an entry for
-    --     the sender where the nonce of the transaction falls within the range,
-    --     and for a credential deployment the transaction hash is included in '_pttDeployCredential'.
+    --    * Every 'BlockItem' in the transaction table that is not included in a live
+    --      or finalized block is referenced in the pending transaction table.  That is,
+    --      for a basic transaction the '_pttWithSender' table contains an entry for
+    --      the sender where the nonce of the transaction falls within the range,
+    --      and for a credential deployment the transaction hash is included in '_pttDeployCredential'.
     --
-    --   * The low nonce for each entry in '_pttWithSender' is at least the last finalized
-    --     nonce recorded in the account's non-finalized transactions in the transaction
-    --     table.
+    --    * The low nonce for each entry in '_pttWithSender' is at least the last finalized
+    --      nonce recorded in the account's non-finalized transactions in the transaction
+    --      table.
     --
-    --   * The finalization list must reflect the current last finalized block.
+    --    * The finalization list must reflect the current last finalized block.
     --
-    --   * The pending transaction table only references transactions that are in the
-    --     transaction table.  That is, the high nonce in a range is a tight bound and
-    --     the deploy credential hashes correspond to transactions in the table.
+    --    * The pending transaction table only references transactions that are in the
+    --      transaction table.  That is, the high nonce in a range is a tight bound and
+    --      the deploy credential hashes correspond to transactions in the table.
     --
-    --   * No non-finalized block is considered live or will become live if its slot
-    --     is less than or equal to the slot number of the last finalized block.
+    --    * No non-finalized block is considered live or will become live if its slot
+    --      is less than or equal to the slot number of the last finalized block.
     --
-    --   * If a transaction is known to be in any block that is not finalized or dead,
-    --     then 'commitTransaction' or 'addCommitTransaction' has been called with a
-    --     slot number at least as high as the slot number of the block.
+    --    * If a transaction is known to be in any block that is not finalized or dead,
+    --      then 'commitTransaction' or 'addCommitTransaction' has been called with a
+    --      slot number at least as high as the slot number of the block.
     purgeTransactionTable ::
         -- | Whether to ignore the amount of insertions and forcedly perform a purge
         Bool ->
@@ -413,66 +413,66 @@ class
         UTCTime ->
         m ()
 
-    -- |Update the transaction table and pending transaction table as a result of constructing a
-    -- block. The transactions added to the block are marked as committed. Failed transactions are
-    -- purged from the transaction table if they are not committed since the last finalized block.
-    -- The pending transaction table is updated to reflect the executed transactions and the purged
-    -- transactions.
+    -- | Update the transaction table and pending transaction table as a result of constructing a
+    --  block. The transactions added to the block are marked as committed. Failed transactions are
+    --  purged from the transaction table if they are not committed since the last finalized block.
+    --  The pending transaction table is updated to reflect the executed transactions and the purged
+    --  transactions.
     --
-    -- PRECONDITION: All of the filtered transactions are present in the transaction table and
-    -- pending transaction table.
+    --  PRECONDITION: All of the filtered transactions are present in the transaction table and
+    --  pending transaction table.
     filterTransactionTables ::
-        -- |Slot of the block being constructed.
+        -- | Slot of the block being constructed.
         Slot ->
-        -- |Hash of the block being constructed.
+        -- | Hash of the block being constructed.
         BlockHash ->
-        -- |Filtered transactions as a result of constructing the block.
+        -- | Filtered transactions as a result of constructing the block.
         FilteredTransactions ->
         m ()
 
-    -- |Mark a transaction as no longer on a given block. This is used when a block is
-    -- marked as dead.
+    -- | Mark a transaction as no longer on a given block. This is used when a block is
+    --  marked as dead.
     markDeadTransaction :: BlockHash -> BlockItem -> m ()
 
-    -- |Lookup a transaction status by its hash.
+    -- | Lookup a transaction status by its hash.
     lookupTransaction :: TransactionHash -> m (Maybe TransactionStatus)
 
-    -- |Get the number of non-finalized transactions stored in the transaction table.
+    -- | Get the number of non-finalized transactions stored in the transaction table.
     numberOfNonFinalizedTransactions :: m Int
 
     -- * Operations on statistics
 
-    -- |Get the current consensus statistics.
+    -- | Get the current consensus statistics.
     getConsensusStatistics :: m ConsensusStatistics
 
-    -- |Set the consensus statistics.
+    -- | Set the consensus statistics.
     putConsensusStatistics :: ConsensusStatistics -> m ()
 
-    -- |Get other runtime parameters that are implementation detail, and hence do
-    -- not belong to genesis data.
+    -- | Get other runtime parameters that are implementation detail, and hence do
+    --  not belong to genesis data.
     getRuntimeParameters :: m RuntimeParameters
 
     -- * Operations related to shutdown upon protocol update.
 
-    -- |Remove all blocks that are made redundant by the protocol update
-    -- taking effect. This is intended to be called after the first block
-    -- after the effective time is finalized. It will
+    -- | Remove all blocks that are made redundant by the protocol update
+    --  taking effect. This is intended to be called after the first block
+    --  after the effective time is finalized. It will
     --
-    --   - Clear all non-finalized blocks from the block table.
-    --   - Remove all blocks from the pending table.
-    --   - Mark all 'Committed' transactions as 'Received'.
-    --   - Reset the 'CommitPoint' on all non finalized transactions.
+    --    - Clear all non-finalized blocks from the block table.
+    --    - Remove all blocks from the pending table.
+    --    - Mark all 'Committed' transactions as 'Received'.
+    --    - Reset the 'CommitPoint' on all non finalized transactions.
     clearOnProtocolUpdate :: m ()
 
-    -- |Do any cleanup of resources that are no longer needed after the protocol
-    -- update has been processed.
+    -- | Do any cleanup of resources that are no longer needed after the protocol
+    --  update has been processed.
     clearAfterProtocolUpdate :: m ()
 
-    -- |Record the final block state, derived from the last finalized block to
-    -- prepare for the construction of the new genesis for the chain after the
-    -- protocol update. This state is not associated with any specific block of
-    -- the chain. This function is only meant to be used during a protocol
-    -- update.
+    -- | Record the final block state, derived from the last finalized block to
+    --  prepare for the construction of the new genesis for the chain after the
+    --  protocol update. This state is not associated with any specific block of
+    --  the chain. This function is only meant to be used during a protocol
+    --  update.
     storeFinalState :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTrans t m) where
@@ -568,5 +568,5 @@ instance (Monad (t m), MonadTrans t, TreeStateMonad m) => TreeStateMonad (MGSTra
     {-# INLINE clearOnProtocolUpdate #-}
     {-# INLINE clearAfterProtocolUpdate #-}
 
-deriving via (MGSTrans MaybeT m) instance TreeStateMonad m => TreeStateMonad (MaybeT m)
-deriving via (MGSTrans (ExceptT e) m) instance TreeStateMonad m => TreeStateMonad (ExceptT e m)
+deriving via (MGSTrans MaybeT m) instance (TreeStateMonad m) => TreeStateMonad (MaybeT m)
+deriving via (MGSTrans (ExceptT e) m) instance (TreeStateMonad m) => TreeStateMonad (ExceptT e m)
