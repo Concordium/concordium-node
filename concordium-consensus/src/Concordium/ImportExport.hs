@@ -13,8 +13,7 @@
 --
 --  Each section consists of:
 --
--- * The version of the section header (Word32be)
--- * The length of the section including the header, length, etc. (Word32be)
+-- * The length of the section including the header, length, etc. (Word64be)
 -- * The genesis index of blocks in the section (Word32be)
 -- * The protocol version of this section (Word64be)
 -- * The genesis block hash (32 bytes)
@@ -59,7 +58,6 @@ import Data.Sequence (
     (><),
  )
 import Data.Serialize
-import Data.Singletons.Base.TH (sing)
 import qualified Data.Text as T
 import Data.Word
 import System.Directory
@@ -79,7 +77,6 @@ import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
-import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import Lens.Micro.Platform
 
@@ -98,32 +95,10 @@ makeLenses ''DBState
 instance HasDatabaseHandlers pv () (DBState pv) where
     dbHandlers = dbsHandlers
 
--- | Version indicating the format of the 'SectionHeader'.
-data SectionHeaderVersion
-    = -- | Section header version 0.
-      SHV0
-    | -- | Section header version 1.
-      --  As opposed to 'SHV0' this section header also
-      --  includes a flag indicating whether a finalization
-      --  entry is present at the end of a section.
-      SHV1
-    deriving (Eq, Show)
-
-instance Serialize SectionHeaderVersion where
-    put SHV0 = putWord32be 0
-    put SHV1 = putWord32be 1
-    get = do
-        getWord32be >>= \case
-            0 -> return SHV0
-            1 -> return SHV1
-            _ -> error "invalid section header version"
-
 -- | A section header of an exported block database
 data SectionHeader = SectionHeader
-    { -- | The version of the section.
-      sectionVersion :: !SectionHeaderVersion,
-      -- | The length (in bytes) of the section.
-      sectionLength :: !Word32,
+    { -- | The length (in bytes) of the section.
+      sectionLength :: !Word64,
       -- | The genesis index for the section.
       --  Note that a section is exclusive for a
       --  particular genesis index.
@@ -143,20 +118,18 @@ data SectionHeader = SectionHeader
       sectionBlocksLength :: !Word64,
       -- | The number of finalization records present
       --  in the section.
-      sectionFinalizationCount :: !Word64,
-      -- | Whether a finalization entry is present
-      --  or not in the section.
-      --  These are only ever present for 'SHV1' as they are
-      --  required to catch-up through protocols beyond protocol
-      --  version 6.
-      sectionFinalizationEntryPresent :: !Bool
+      --  For consensus version 0 this indicates how many finalization
+      --  records that are present in the export.
+      --  For consensus version 1 if this is non zero,
+      --  then it indicates that there is a finalization entry present
+      --  in the export.
+      sectionFinalizationCount :: !Word64
     }
     deriving (Eq, Show)
 
 instance Serialize SectionHeader where
     put SectionHeader{..} = do
-        put sectionVersion
-        putWord32be sectionLength
+        putWord64be sectionLength
         put sectionGenesisIndex
         put sectionProtocolVersion
         put sectionGenesisHash
@@ -164,10 +137,8 @@ instance Serialize SectionHeader where
         putWord64be sectionBlockCount
         putWord64be sectionBlocksLength
         putWord64be sectionFinalizationCount
-        putBool sectionFinalizationEntryPresent
     get = do
-        sectionVersion <- get
-        sectionLength <- getWord32be
+        sectionLength <- getWord64be
         sectionGenesisIndex <- get
         sectionProtocolVersion <- get
         sectionGenesisHash <- get
@@ -175,19 +146,12 @@ instance Serialize SectionHeader where
         sectionBlockCount <- getWord64be
         sectionBlocksLength <- getWord64be
         sectionFinalizationCount <- getWord64be
-        -- For 'SHV0' we always return 'False' as
-        -- a finalization entry was not exported in
-        -- this version. For 'SHV1' we read the 'Bool'.
-        sectionFinalizationEntryPresent <-
-            case sectionVersion of
-                SHV0 -> return False
-                SHV1 -> getBool
         return SectionHeader{..}
 
 -- | A dummy 'SectionHeader' that is used as a placeholder when writing a section, before being
 --  overwritten with the correct data.
 placeholderSectionHeader :: SectionHeader
-placeholderSectionHeader = SectionHeader SHV0 0 0 P1 (BlockHash minBound) 0 0 0 0 False
+placeholderSectionHeader = SectionHeader 0 0 P1 (BlockHash minBound) 0 0 0 0
 
 -- | The length of a section header in bytes.
 sectionHeaderLength :: Word64
@@ -837,21 +801,18 @@ writeChunks
         blocksEnd <- liftIO $ hTell chunkHdl
         -- Only write finalization records to a chunk if it's the last one for the section
         let lastExportedBlockHeight = sectionFirstBlockHeight + BlockHeight sectionBlockCount - 1
-        (sectionFinalizationCount, sectionFinalizationEntryPresent) <-
+        sectionFinalizationCount <-
             if lastExportedBlockHeight < sectionLastBlockHeight
-                then return (0, False)
+                then return 0
                 else do
-                    finRecs <- exportFinRecsToChunk chunkHdl lastFinalizationRecordIndex' getFinalizationRecordAt
-                    finEntryPresent <- exportFinalizationEntryToChunk chunkHdl lastExportedBlock getFinalizationEntry
-                    return (finRecs, finEntryPresent)
+                    if sectionProtocolVersion <= P5
+                        then exportFinRecsToChunk chunkHdl lastFinalizationRecordIndex' getFinalizationRecordAt
+                        else exportFinalizationEntryToChunk chunkHdl lastExportedBlock getFinalizationEntry
         liftIO $ do
             sectionEnd <- hTell chunkHdl
             -- Go back to the start and rewrite the section header with the correct data
             hSeek chunkHdl AbsoluteSeek sectionStart
-            let sectionVersion = case sing @cpv of
-                    SConsensusParametersVersion0 -> SHV0
-                    SConsensusParametersVersion1 -> SHV1
-                sectionHeader =
+            let sectionHeader =
                     SectionHeader
                         { sectionLength = fromInteger (sectionEnd - sectionStart),
                           sectionBlocksLength = fromInteger (blocksEnd - blocksStart),
@@ -868,9 +829,7 @@ writeChunks
                 ++ (show . theBlockHeight) lastExportedBlockHeight
                 ++ " and "
                 ++ show sectionFinalizationCount
-                ++ " finalization record(s)."
-                ++ " Finalization entry present: "
-                ++ show sectionFinalizationEntryPresent
+                ++ " finalization record(s)/finalization entry."
         let chunkInfo =
                 BlockIndexChunkInfo
                     (T.pack $ takeFileName chunkName)
@@ -981,20 +940,23 @@ exportFinalizationEntryToChunk ::
     Handle ->
     Maybe BlockHash ->
     GetFinalizationEntry cpv m ->
-    m Bool
-exportFinalizationEntryToChunk _ _ GetFinalizationEntryV0 = return False
+    -- | There can only be one finalization entry for a section.
+    --  However we return a Word64 here as we repurpose the existing finalization record count
+    --  for indicating whether a finalization entry is part of the section export or not.
+    m Word64
+exportFinalizationEntryToChunk _ _ GetFinalizationEntryV0 = return 0
 exportFinalizationEntryToChunk hdl lastExportedBlockM (GetFinalizationEntryV1 f) =
     case lastExportedBlockM of
-        Nothing -> return False
+        Nothing -> return 0
         Just lastExportedBlock ->
             f lastExportedBlock >>= \case
-                Nothing -> return False
+                Nothing -> return 0
                 Just serializedFinEntry -> do
                     let len = fromIntegral $ BS.length serializedFinEntry
                     liftIO $ do
                         BS.hPut hdl $ runPut $ putWord64be len
                         BS.hPut hdl serializedFinEntry
-                    return True
+                    return 1
 
 -- | Imported data for processing.
 data ImportData
@@ -1074,14 +1036,17 @@ importBlocksV3 inFile firstGenIndex cbk = runExceptT $
                             ( importData hdl fileSize $
                                 ImportBlock sectionProtocolVersion sectionGenesisIndex
                             )
-                        replicateM_
-                            (fromIntegral sectionFinalizationCount)
-                            ( importData hdl fileSize $
-                                ImportFinalizationRecord sectionProtocolVersion sectionGenesisIndex
-                            )
-                        when sectionFinalizationEntryPresent $
-                            importData hdl fileSize $
-                                ImportFinalizationEntry sectionProtocolVersion sectionGenesisIndex
+                        if sectionProtocolVersion <= P5
+                            then
+                                replicateM_
+                                    (fromIntegral sectionFinalizationCount)
+                                    ( importData hdl fileSize $
+                                        ImportFinalizationRecord sectionProtocolVersion sectionGenesisIndex
+                                    )
+                            else
+                                when (sectionFinalizationCount /= 0) $
+                                    importData hdl fileSize $
+                                        ImportFinalizationEntry sectionProtocolVersion sectionGenesisIndex
 
                     -- Move to the next section
                     liftIO $ hSeek hdl AbsoluteSeek (sectionStart + toInteger sectionLength)
