@@ -104,6 +104,9 @@ data CatchupFinalizationEntryResult
     | -- | The finalization entry pointed to a block that was not
       --  alive.
       CFERNotAlive
+   | -- | The baking committee could not be looked up for the 'Epoch'
+     --  of the finalized 'QuorumCertificate'.
+      CFERUnknownBakers
 
 -- | Receive a 'FinalizationEntry' as part of catch-up.
 --  This function checks whether the finalization entry is
@@ -133,7 +136,7 @@ catchupFinalizationEntry finEntry = do
         Just block ->
             checkConsistency finQC block $
                 gets (getBakersForEpoch (qcEpoch finQC)) >>= \case
-                    Nothing -> undefined
+                    Nothing -> return CFERUnknownBakers
                     Just BakersAndFinalizers{..} -> do
                         gm <- use genesisMetadata
                         checkFinEntry _bfFinalizers gm $ do

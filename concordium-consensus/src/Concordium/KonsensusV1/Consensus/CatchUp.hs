@@ -464,6 +464,7 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
             CFERInconsistent -> escape currentProgress "finalization entry is inconsistent with the block it finalizes."
             CFERInvalid -> escape currentProgress "finalization entry is invalid."
             CFERNotAlive -> return currentProgress
+            CFERUnknownBakers -> return currentProgress
     processQC currentProgress qc = do
         -- The QC is only relevant if it is for a live block.
         gets (getLiveBlock (qcBlock qc)) >>= \case

@@ -1738,8 +1738,9 @@ receiveFinalizationEntry gi finEntryBS =
                     runSkovV1Transaction vc (SkovV1.catchupFinalizationEntry finEntry) >>= \case
                         SkovV1.CFERSuccess -> return Skov.ResultSuccess
                         SkovV1.CFERInconsistent -> return Skov.ResultUnverifiable
-                        SkovV1.CFERInvalid -> return Skov.ResultUnverifiable
+                        SkovV1.CFERInvalid -> return Skov.ResultInvalid
                         SkovV1.CFERNotAlive -> return Skov.ResultInvalid
+                        SkovV1.CFERUnknownBakers -> return Skov.ResultUnverifiable
 
 -- | Configuration parameters for handling receipt of a catch-up status message.
 data CatchUpConfiguration = CatchUpConfiguration
