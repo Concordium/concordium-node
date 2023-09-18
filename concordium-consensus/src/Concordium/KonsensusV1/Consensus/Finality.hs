@@ -104,8 +104,8 @@ data CatchupFinalizationEntryResult
     | -- | The finalization entry pointed to a block that was not
       --  alive.
       CFERNotAlive
-   | -- | The baking committee could not be looked up for the 'Epoch'
-     --  of the finalized 'QuorumCertificate'.
+    | -- | The baking committee could not be looked up for the 'Epoch'
+      --  of the finalized 'QuorumCertificate'.
       CFERUnknownBakers
 
 -- | Receive a 'FinalizationEntry' as part of catch-up.
