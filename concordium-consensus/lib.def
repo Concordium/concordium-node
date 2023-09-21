@@ -91,3 +91,10 @@ EXPORTS
 
  dryRunStart
  dryRunEnd
+ dryRunGetAccountInfo
+ dryRunGetInstanceInfo
+ dryRunLoadBlockState
+ dryRunInvokeInstance
+ dryRunSetTimestamp
+ dryRunMintToAccount
+ dryRunTransaction

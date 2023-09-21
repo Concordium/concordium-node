@@ -257,7 +257,7 @@ pub struct execute_block {
     private: [u8; 0],
 }
 
-/// An opaque reference to a dry run handle, which is created when 
+/// An opaque reference to a dry run handle, which is created when
 #[repr(C)]
 pub struct DryRunHandle {
     private: [u8; 0],
@@ -1479,9 +1479,108 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Start a dry-run sequence. The returned handle must be freed with a call
+    /// to `dryRunEnd` once it is no longer required. (Failure to do so will
+    /// leak memory.)
+    ///
+    /// * `consensus` - Pointer to the consensus.
+    /// * `copier` - Callback for appending a bytestring to a vector.
     pub fn dryRunStart(
         consensus: *mut consensus_runner,
+        copier: CopyToVecCallback,
     ) -> *mut DryRunHandle;
+
+    /// Terminate a dry-run sequence, freeing up the resources associated with
+    /// the handle.
+    pub fn dryRunEnd(dry_run_handle: *mut DryRunHandle);
+
+    /// Load state from a specified block as part of a dry-run sequence.
+    pub fn dryRunLoadBlockState(
+        dry_run_handle: *mut DryRunHandle,
+        block_id_type: u8,
+        block_id: *const u8,
+        out: *mut Vec<u8>,
+    );
+
+    pub fn dryRunGetAccountInfo(
+        dry_run_handle: *mut DryRunHandle,
+        account_identifier_tag: u8,
+        account_identifier_data: *const u8,
+        out: *mut Vec<u8>,
+    ) -> i64;
+
+    pub fn dryRunGetInstanceInfo(
+        dry_run_handle: *mut DryRunHandle,
+        contract_index: u64,
+        contract_subindex: u64,
+        out: *mut Vec<u8>,
+    ) -> i64;
+
+    /// Run the smart contract entrypoint in a given context as part of a
+    /// dry-run sequence.
+    ///
+    /// * `dry_run_handle` - Handle created with `dryRunStart`.
+    /// * `contract_index` - The contact index to invoke.
+    /// * `contract_subindex` - The contact subindex to invoke.
+    /// * `invoker_address_type` - Tag for whether an account or a contract
+    ///   address is provided. If 0 no address is provided, if 1 the
+    ///   `invoker_account_address_ptr` is 32 bytes for an account address, if 2
+    ///   the `invoker_contract_index` and `invoker_contract_subindex` is used
+    ///   for the contract address.
+    /// * `invoker_account_address_ptr` - Pointer to the address if this is
+    ///   provided. The length will depend on the value of
+    ///   `invoker_address_type`.
+    /// * `invoker_contract_index` - The invoker contact index. Only used if
+    ///   `invoker_address_type` is 2.
+    /// * `invoker_contract_subindex` - The invoker contact subindex. Only used
+    ///   if `invoker_address_type` is 2.
+    /// * `amount` - The amount to use for the invocation.
+    /// * `receive_name_ptr` - Pointer to the entrypoint to invoke.
+    /// * `receive_name_len` - Length of the bytes for the entrypoint.
+    /// * `parameter_ptr` - Pointer to the parameter to invoke with.
+    /// * `parameter_len` - Length of the bytes for the parameter.
+    /// * `energy` - The energy to use for the invocation.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn dryRunInvokeInstance(
+        dry_run_handle: *mut DryRunHandle,
+        contract_index: u64,
+        contract_subindex: u64,
+        invoker_address_type: u8,
+        invoker_account_address_ptr: *const u8,
+        invoker_contract_index: u64,
+        invoker_contract_subindex: u64,
+        amount: u64,
+        receive_name_ptr: *const u8,
+        receive_name_len: u32,
+        parameter_ptr: *const u8,
+        parameter_len: u32,
+        energy: u64,
+        out: *mut Vec<u8>,
+    ) -> i64;
+
+    pub fn dryRunSetTimestamp(
+        dry_run_handle: *mut DryRunHandle,
+        new_timestamp: u64,
+        out: *mut Vec<u8>,
+    ) -> i64;
+
+    pub fn dryRunMintToAccount(
+        dry_run_handle: *mut DryRunHandle,
+        account_address: *const u8,
+        amount: u64,
+        out: *mut Vec<u8>,
+    ) -> i64;
+
+    pub fn dryRunTransaction(
+        dry_run_handle: *mut DryRunHandle,
+        sender_address_ptr: *const u8,
+        energy: u64,
+        payload: *const u8,
+        payload_length: u64,
+        out: *mut Vec<u8>,
+    ) -> i64;
 }
 
 /// This is the callback invoked by consensus on newly arrived, and newly
@@ -1672,6 +1771,198 @@ pub fn get_consensus_ptr(
         10 => bail!("Database invariant violation. See logs for details."),
         11 => bail!("Block state database has incorrect version information."),
         n => bail!("Unknown error code: {}.", n),
+    }
+}
+
+pub struct DryRun {
+    handle: *mut DryRunHandle,
+}
+
+unsafe impl Send for DryRun {}
+
+impl Drop for DryRun {
+    fn drop(&mut self) { unsafe { dryRunEnd(self.handle) } }
+}
+
+impl DryRun {
+    pub fn load_block_state(
+        &mut self,
+        request: &crate::grpc2::types::BlockHashInput,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        let mut out_data: Vec<u8> = Vec::new();
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_id) = bhi.to_ptr();
+        unsafe {
+            dryRunLoadBlockState(self.handle, block_id_type, block_id.as_ptr(), &mut out_data)
+        }
+        Ok(out_data)
+    }
+
+    pub fn get_account_info(
+        &mut self,
+        target: &crate::grpc2::types::AccountIdentifierInput,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        let mut out_data: Vec<u8> = Vec::new();
+        let (acc_type, acc_id) =
+            crate::grpc2::types::account_identifier_to_ffi(target).require()?;
+        let res = unsafe { dryRunGetAccountInfo(self.handle, acc_type, acc_id, &mut out_data) };
+        DryRun::check_result(res, "get account info")?;
+        Ok(out_data)
+    }
+
+    pub fn get_instance_info(
+        &mut self,
+        target: &crate::grpc2::types::ContractAddress,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut out_data: Vec<u8> = Vec::new();
+        let res = unsafe {
+            dryRunGetInstanceInfo(self.handle, target.index, target.subindex, &mut out_data)
+        };
+        DryRun::check_result(res, "get instance info")?;
+        Ok(out_data)
+    }
+
+    pub fn invoke_instance(
+        &mut self,
+        request: &crate::grpc2::types::DryRunInvokeInstance,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        let mut out_data: Vec<u8> = Vec::new();
+
+        // Optional Address to ffi
+        let (
+            invoker_address_type,
+            invoker_account_address_ptr,
+            invoker_contract_index,
+            invoker_contract_subindex,
+        ) = if let Some(address) = &request.invoker {
+            match address.r#type.as_ref().require()? {
+                crate::grpc2::types::address::Type::Account(account) => {
+                    (1, crate::grpc2::types::account_address_to_ffi(account).require()?, 0, 0)
+                }
+                crate::grpc2::types::address::Type::Contract(contract) => {
+                    (2, std::ptr::null(), contract.index, contract.subindex)
+                }
+            }
+        } else {
+            (0, std::ptr::null(), 0, 0)
+        };
+
+        let amount = request.amount.as_ref().require()?.value;
+
+        let (receive_name_ptr, receive_name_len) =
+            crate::grpc2::types::receive_name_to_ffi(request.entrypoint.as_ref().require()?)
+                .require()?;
+
+        // Parameter to ffi
+        let (parameter_ptr, parameter_len) = {
+            let bytes = &request.parameter.as_ref().require()?.value;
+            (
+                bytes.as_ptr(),
+                bytes.len().try_into().map_err(|_| {
+                    tonic::Status::invalid_argument("Parameter exceeds maximum supported size.")
+                })?,
+            )
+        };
+
+        let energy = request.energy.as_ref().require()?.value;
+
+        let contract = request.instance.as_ref().require()?;
+
+        let res = unsafe {
+            dryRunInvokeInstance(
+                self.handle,
+                contract.index,
+                contract.subindex,
+                invoker_address_type,
+                invoker_account_address_ptr,
+                invoker_contract_index,
+                invoker_contract_subindex,
+                amount,
+                receive_name_ptr,
+                receive_name_len,
+                parameter_ptr,
+                parameter_len,
+                energy,
+                &mut out_data,
+            )
+        };
+        DryRun::check_result(res, "invoke instance")?;
+        Ok(out_data)
+    }
+
+    pub fn set_timestamp(
+        &mut self,
+        new_timestamp: crate::grpc2::types::Timestamp,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let mut out_data: Vec<u8> = Vec::new();
+
+        let res = unsafe { dryRunSetTimestamp(self.handle, new_timestamp.value, &mut out_data) };
+        DryRun::check_result(res, "set timestamp")?;
+        Ok(out_data)
+    }
+
+    pub fn mint_to_account(
+        &mut self,
+        mint: crate::grpc2::types::DryRunMintToAccount,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        let mut out_data: Vec<u8> = Vec::new();
+        let account_address =
+            crate::grpc2::types::account_address_to_ffi(mint.account.as_ref().require()?)
+                .require()?;
+
+        let amount = mint.amount.require()?;
+        let res = unsafe {
+            dryRunMintToAccount(self.handle, account_address, amount.value, &mut out_data)
+        };
+        DryRun::check_result(res, "mint to account")?;
+        Ok(out_data)
+    }
+
+    pub fn transaction(
+        &mut self,
+        request: crate::grpc2::types::DryRunTransaction,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        use crate::grpc2::Require;
+        let mut out_data: Vec<u8> = Vec::new();
+        let energy = request.energy_amount.as_ref().require()?.value;
+
+        let sender_address =
+            crate::grpc2::types::account_address_to_ffi(request.sender.as_ref().require()?)
+                .require()?;
+        let encoded_payload =
+            concordium_base::transactions::EncodedPayload::try_from(request.payload.require()?)?;
+        let payload_bytes: Vec<u8> = encoded_payload.into();
+        let res = unsafe {
+            dryRunTransaction(
+                self.handle,
+                sender_address,
+                energy,
+                payload_bytes.as_ptr(),
+                payload_bytes.len() as u64,
+                &mut out_data,
+            )
+        };
+        DryRun::check_result(res, "run transaction")?;
+        Ok(out_data)
+    }
+
+    fn check_result(result: i64, origin: &str) -> Result<(), tonic::Status> {
+        match result {
+            0 => Ok(()),
+            1 => Err(tonic::Status::internal(format!(
+                "Internal error: {} could not be completed",
+                origin
+            ))),
+            2 => Err(tonic::Status::resource_exhausted("Energy quota exceeded")),
+            _ => Err(tonic::Status::internal(format!(
+                "Internal error: unexpected error code in {}",
+                origin
+            ))),
+        }
     }
 }
 
@@ -3247,6 +3538,15 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("baker")?;
         Ok(out_data)
+    }
+
+    /// Start a dry-run operation sequence.
+    pub fn dry_run(&self) -> DryRun {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let handle = unsafe { dryRunStart(consensus, copy_to_vec_callback) };
+        DryRun {
+            handle,
+        }
     }
 }
 

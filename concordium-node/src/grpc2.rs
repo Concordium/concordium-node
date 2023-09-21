@@ -2448,10 +2448,48 @@ pub mod server {
             }
 
             let mut input = request.into_inner();
+            let mut dry_run = self.consensus.dry_run();
             let output = async_stream::stream! {
-
                 while let Some(dry_run_request) = input.next().await {
-                    yield Err(tonic::Status::unimplemented("Not implemented yet"));
+                    match dry_run_request {
+                        Ok(request) => {
+                            use crate::grpc2::types::dry_run_request::Request::*;
+                            match request.request.require()? {
+                                LoadBlockState(block_hash_input) => {
+                                    yield dry_run.load_block_state(&block_hash_input)
+                                }
+                                StateQuery(query) => {
+                                    use crate::grpc2::types::dry_run_state_query::Query::*;
+                                    match query.query.require()? {
+                                        GetAccountInfo(account) => {
+                                            yield dry_run.get_account_info(&account)
+                                        }
+                                        GetInstanceInfo(instance) => {
+                                            yield dry_run.get_instance_info(&instance)
+                                        }
+                                        InvokeInstance(invoke_instance_input) => {
+                                            yield dry_run.invoke_instance(&invoke_instance_input)
+                                        }
+                                    }
+                                }
+                                StateOperation(operation) => {
+                                    use crate::grpc2::types::dry_run_state_operation::Operation::*;
+                                    match operation.operation.require()? {
+                                        SetTimestamp(timestamp) => {
+                                            yield dry_run.set_timestamp(timestamp)
+                                        }
+                                        MintToAccount(mint) => {
+                                            yield dry_run.mint_to_account(mint)
+                                        }
+                                        RunTransaction(run_transaction_input) => {
+                                            yield dry_run.transaction(run_transaction_input)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        _ => yield Err(tonic::Status::unimplemented("Not implemented yet")),
+                    }
                 }
             };
             Ok(tonic::Response::new(Box::pin(output) as Self::DryRunStream))
