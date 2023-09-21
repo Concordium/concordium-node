@@ -16,48 +16,51 @@ import Data.Time.Clock.POSIX
 import Data.Word
 
 class (Eq bp, Show bp, BlockData bp) => BlockPointerData bp where
-    -- |Hash of the block
+    -- | Hash of the block
     bpHash :: bp -> BlockHash
 
-    -- |Height of the block in the tree
+    -- | Height of the block in the tree
     bpHeight :: bp -> BlockHeight
 
-    -- |Time at which the block was first received
+    -- | Time at which the block was first received
     bpReceiveTime :: bp -> UTCTime
 
-    -- |Time at which the block was first considered part of the tree (validated)
+    -- | Time at which the block was first considered part of the tree (validated)
     bpArriveTime :: bp -> UTCTime
 
-    -- |Number of transactions in a block
+    -- | Number of transactions in a block
     bpTransactionCount :: bp -> Int
 
-    -- |Energy cost of all transactions in the block.
+    -- | Energy cost of all transactions in the block.
     bpTransactionsEnergyCost :: bp -> Energy
 
-    -- |Size of the transaction data in bytes.
+    -- | Size of the transaction data in bytes.
     bpTransactionsSize :: bp -> Int
 
-    -- |Hash of last-finalized block
+    -- | Hash of last-finalized block
     bpLastFinalizedHash :: bp -> BlockHash
 
--- |Block pointer data. The minimal data that should be the same among all
--- block pointer instantiations.
+    -- | Hash of the block state
+    bpBlockStateHash :: bp -> StateHash
+
+-- | Block pointer data. The minimal data that should be the same among all
+--  block pointer instantiations.
 data BasicBlockPointerData = BasicBlockPointerData
-    { -- |Hash of the block
+    { -- | Hash of the block
       _bpHash :: !BlockHash,
-      -- |Height of the block in the tree
+      -- | Height of the block in the tree
       _bpHeight :: !BlockHeight,
-      -- |Time at which the block was first received
+      -- | Time at which the block was first received
       _bpReceiveTime :: !UTCTime,
-      -- |Time at which the block was first considered part of the tree (validated)
+      -- | Time at which the block was first considered part of the tree (validated)
       _bpArriveTime :: !UTCTime,
-      -- |Number of transactions in a block
+      -- | Number of transactions in a block
       _bpTransactionCount :: !Int,
-      -- |Energy cost of all transactions in the block.
+      -- | Energy cost of all transactions in the block.
       _bpTransactionsEnergyCost :: !Energy,
-      -- |Size of the transaction data in bytes.
+      -- | Size of the transaction data in bytes.
       _bpTransactionsSize :: !Int,
-      -- |Hash of last-finalized block
+      -- | Hash of last-finalized block
       _bpLastFinalizedHash :: !BlockHash
     }
 
@@ -123,34 +126,34 @@ instance Serialize BasicBlockPointerData where
         _bpLastFinalizedHash <- get
         return BasicBlockPointerData{..}
 
--- |The type of a block pointer that was added to the tree and is
--- linked to the blockstate and its parent and last finalized blocks.
+-- | The type of a block pointer that was added to the tree and is
+--  linked to the blockstate and its parent and last finalized blocks.
 --
--- @s@ stands for the blockstate type and @p@ stands for the type of the
--- pointers.
+--  @s@ stands for the blockstate type and @p@ stands for the type of the
+--  pointers.
 --
--- An in-memory implementation should use `p ~ Identity` to make it
--- work as a normal reference. A disk implementation might consider
--- using `p ~ Weak` to get pointers that don't retain the parent
--- and last finalized blocks. The type @p (BlockPointer t p s)@ will
--- be used inside the `BlockPointerMonad` to resolve the actual blocks.
+--  An in-memory implementation should use `p ~ Identity` to make it
+--  work as a normal reference. A disk implementation might consider
+--  using `p ~ Weak` to get pointers that don't retain the parent
+--  and last finalized blocks. The type @p (BlockPointer t p s)@ will
+--  be used inside the `BlockPointerMonad` to resolve the actual blocks.
 --
--- All instances of this type will implement automatically:
+--  All instances of this type will implement automatically:
 --
--- * BlockFieldType & BlockTransactionType
--- * BlockData
--- * BlockPointerData
--- * HashableTo BlockHash
+--  * BlockFieldType & BlockTransactionType
+--  * BlockData
+--  * BlockPointerData
+--  * HashableTo BlockHash
 data BlockPointer (pv :: ProtocolVersion) (p :: Type -> Type) s = BlockPointer
-    { -- |Information about the block, e.g., height, transactions, ...
+    { -- | Information about the block, e.g., height, transactions, ...
       _bpInfo :: !BasicBlockPointerData,
-      -- |Pointer to the parent (circular reference for genesis block)
+      -- | Pointer to the parent (circular reference for genesis block)
       _bpParent :: p (BlockPointer pv p s),
-      -- |Pointer to the last finalized block (circular for genesis)
+      -- | Pointer to the last finalized block (circular for genesis)
       _bpLastFinalized :: p (BlockPointer pv p s),
-      -- |The block itself
+      -- | The block itself
       _bpBlock :: !(Block pv),
-      -- |The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
+      -- | The handle for accessing the state (of accounts, contracts, etc.) after execution of the block.
       _bpState :: !s
     }
 
@@ -176,22 +179,20 @@ instance (IsProtocolVersion pv) => BlockData (BlockPointer pv p s) where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
-    blockStateHash = blockStateHash . _bpBlock
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . _bpBlock
     blockSignature = blockSignature . _bpBlock
     verifyBlockSignature = verifyBlockSignature . _bpBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
-    {-# INLINE blockStateHash #-}
     {-# INLINE blockTransactionOutcomesHash #-}
     {-# INLINE blockSignature #-}
     {-# INLINE verifyBlockSignature #-}
 
-instance IsProtocolVersion pv => EncodeBlock pv (BlockPointer pv p s) where
+instance (IsProtocolVersion pv) => EncodeBlock pv (BlockPointer pv p s) where
     putBlock spv = putBlock spv . _bpBlock
 
-instance (IsProtocolVersion pv) => BlockPointerData (BlockPointer pv p s) where
+instance (IsProtocolVersion pv, HashableTo StateHash s) => BlockPointerData (BlockPointer pv p s) where
     bpHash = _bpHash . _bpInfo
     bpHeight = _bpHeight . _bpInfo
     bpReceiveTime = _bpReceiveTime . _bpInfo
@@ -200,3 +201,4 @@ instance (IsProtocolVersion pv) => BlockPointerData (BlockPointer pv p s) where
     bpTransactionsEnergyCost = _bpTransactionsEnergyCost . _bpInfo
     bpTransactionsSize = _bpTransactionsSize . _bpInfo
     bpLastFinalizedHash = _bpLastFinalizedHash . _bpInfo
+    bpBlockStateHash = getHash . _bpState

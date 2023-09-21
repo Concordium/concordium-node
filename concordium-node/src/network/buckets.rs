@@ -62,8 +62,10 @@ impl Buckets {
                 networks,
                 last_seen: get_current_stamp(),
             })
-            .is_some()
+            .is_none()
         {
+            // If the peer is new in the bucket reflect that in the
+            // metric.
             bucket_size_gauge.with_label_values(&["0"]).inc();
         }
     }

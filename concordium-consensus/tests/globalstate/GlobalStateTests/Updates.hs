@@ -134,7 +134,7 @@ addBakerWith am (bs, ai) = do
     (bar, bs') <- bsoConfigureBaker bs ai conf
     return (bar, (bs', ai))
 
--- |Modify the staked amount to the given value.
+-- | Modify the staked amount to the given value.
 modifyStakeTo :: Amount -> (PBS.PersistentBlockState PV, AccountIndex) -> ThisMonadConcrete PV (BakerConfigureResult, (PBS.PersistentBlockState PV, AccountIndex))
 modifyStakeTo a (bs, ai) = do
     let conf =
@@ -152,11 +152,11 @@ modifyStakeTo a (bs, ai) = do
     (bsur, bs') <- bsoConfigureBaker bs ai conf
     return (bsur, (bs', ai))
 
--- |Increase the current threshold for baking. This uses some trickery to run a
--- side monad that will be a MonadBlobStore that can retrieve the required
--- fields from the persistent block state and write them again after modifying
--- them. This is quite ad-hoc and probably should not be replicated in other
--- tests.
+-- | Increase the current threshold for baking. This uses some trickery to run a
+--  side monad that will be a MonadBlobStore that can retrieve the required
+--  fields from the persistent block state and write them again after modifying
+--  them. This is quite ad-hoc and probably should not be replicated in other
+--  tests.
 increaseLimit :: Amount -> (PBS.PersistentBlockState PV, AccountIndex) -> ThisMonadConcrete PV (PBS.PersistentBlockState PV, AccountIndex)
 increaseLimit newLimit (bs2, ai) = do
     -- load the block from the IORef

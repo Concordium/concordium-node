@@ -39,8 +39,8 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
 
--- |A list of references to 'BakerInfo's, ordered by increasing 'BakerId'.
--- (This structure is always fully cached in memory, so the 'Cacheable' instance is trivial. See
+-- | A list of references to 'BakerInfo's, ordered by increasing 'BakerId'.
+--  (This structure is always fully cached in memory, so the 'Cacheable' instance is trivial. See
 
 -- $Concordium.GlobalState.Persistent.Account.PersistentAccountCacheable for details.)
 
@@ -48,7 +48,7 @@ newtype BakerInfos (av :: AccountVersion)
     = BakerInfos (Vec.Vector (PersistentBakerInfoRef av))
     deriving (Show)
 
--- |See documentation of @migratePersistentBlockState@.
+-- | See documentation of @migratePersistentBlockState@.
 migrateBakerInfos ::
     forall oldpv pv t m.
     ( IsProtocolVersion pv,
@@ -71,7 +71,7 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BakerInfos a
         v <- Vec.replicateM len load
         return $ BakerInfos <$> sequence v
 
--- |This hashing should match (part of) the hashing for 'Basic.EpochBakers'.
+-- | This hashing should match (part of) the hashing for 'Basic.EpochBakers'.
 instance (IsAccountVersion av, MonadBlobStore m) => MHashableTo m H.Hash (BakerInfos av) where
     getHashM (BakerInfos v) = do
         v' <- mapM loadPersistentBakerInfoRef v
@@ -79,14 +79,14 @@ instance (IsAccountVersion av, MonadBlobStore m) => MHashableTo m H.Hash (BakerI
 
 instance (Applicative m) => Cacheable m (BakerInfos av)
 
--- |A list of stakes for bakers.
+-- | A list of stakes for bakers.
 newtype BakerStakes = BakerStakes (Vec.Vector Amount) deriving (Show)
 
--- |This hashing should match (part of) the hashing for 'Basic.EpochBakers'.
+-- | This hashing should match (part of) the hashing for 'Basic.EpochBakers'.
 instance HashableTo H.Hash BakerStakes where
     getHash (BakerStakes v) = H.hashLazy $ runPutLazy $ mapM_ put v
 
-instance Monad m => MHashableTo m H.Hash BakerStakes
+instance (Monad m) => MHashableTo m H.Hash BakerStakes
 
 instance Serialize BakerStakes where
     put (BakerStakes v) = putLength (Vec.length v) >> mapM_ put v
@@ -94,13 +94,13 @@ instance Serialize BakerStakes where
         len <- getLength
         BakerStakes <$> Vec.replicateM len get
 
-instance MonadBlobStore m => BlobStorable m BakerStakes
+instance (MonadBlobStore m) => BlobStorable m BakerStakes
 
 instance (Applicative m) => Cacheable m BakerStakes
 
--- |The set of bakers that are eligible to bake in a particular epoch.
+-- | The set of bakers that are eligible to bake in a particular epoch.
 --
--- The hashing scheme separately hashes the baker info and baker stakes.
+--  The hashing scheme separately hashes the baker info and baker stakes.
 data PersistentEpochBakers (pv :: ProtocolVersion) = PersistentEpochBakers
     { _bakerInfos :: !(HashedBufferedRef (BakerInfos (AccountVersionFor pv))),
       _bakerStakes :: !(HashedBufferedRef BakerStakes),
@@ -111,9 +111,9 @@ data PersistentEpochBakers (pv :: ProtocolVersion) = PersistentEpochBakers
 
 makeLenses ''PersistentEpochBakers
 
--- |Extract the list of pairs of (baker id, staked amount). The list is ordered
--- by increasing 'BakerId'.
--- The intention is that the list will be consumed immediately.
+-- | Extract the list of pairs of (baker id, staked amount). The list is ordered
+--  by increasing 'BakerId'.
+--  The intention is that the list will be consumed immediately.
 extractBakerStakes :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentEpochBakers pv -> m [(BakerId, Amount)]
 extractBakerStakes PersistentEpochBakers{..} = do
     BakerInfos infos <- refLoad _bakerInfos
@@ -126,7 +126,7 @@ extractBakerStakes PersistentEpochBakers{..} = do
         (Vec.toList infos)
         (Vec.toList stakes)
 
--- |See documentation of @migratePersistentBlockState@.
+-- | See documentation of @migratePersistentBlockState@.
 migratePersistentEpochBakers ::
     forall oldpv pv t m.
     ( IsProtocolVersion oldpv,
@@ -155,7 +155,7 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
               ..
             }
 
--- |Look up a baker and its stake in a 'PersistentEpochBakers'.
+-- | Look up a baker and its stake in a 'PersistentEpochBakers'.
 epochBaker :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m) => BakerId -> PersistentEpochBakers pv -> m (Maybe (BaseAccounts.BakerInfo, Amount))
 epochBaker bid PersistentEpochBakers{..} = do
     (BakerInfos infoVec) <- refLoad _bakerInfos
@@ -164,7 +164,7 @@ epochBaker bid PersistentEpochBakers{..} = do
         (BakerStakes stakeVec) <- refLoad _bakerStakes
         return (binfo, stakeVec Vec.! idx)
 
--- |Serialize 'PersistentEpochBakers'.
+-- | Serialize 'PersistentEpochBakers'.
 putEpochBakers :: (IsProtocolVersion pv, MonadBlobStore m, MonadPut m) => PersistentEpochBakers pv -> m ()
 putEpochBakers peb = do
     BakerInfos bi <- refLoad (peb ^. bakerInfos)
@@ -217,7 +217,7 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => Cacheable m (PersistentEpoc
         cBkrStakes <- cache (_bakerStakes peb)
         return peb{_bakerInfos = cBkrInfos, _bakerStakes = cBkrStakes}
 
--- |Derive a 'FullBakers' from a 'PersistentEpochBakers'.
+-- | Derive a 'FullBakers' from a 'PersistentEpochBakers'.
 epochToFullBakers :: (IsProtocolVersion pv, MonadBlobStore m) => PersistentEpochBakers pv -> m FullBakers
 epochToFullBakers PersistentEpochBakers{..} = do
     BakerInfos infoRefs <- refLoad _bakerInfos
@@ -231,7 +231,7 @@ epochToFullBakers PersistentEpochBakers{..} = do
   where
     mkFullBakerInfo info stake = FullBakerInfo info stake
 
--- |Derive a 'FullBakers' from a 'PersistentEpochBakers'.
+-- | Derive a 'FullBakers' from a 'PersistentEpochBakers'.
 epochToFullBakersEx ::
     forall m pv.
     (MonadBlobStore m, IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -255,20 +255,20 @@ type DelegatorIdTrieSet = Trie.TrieN BufferedFix DelegatorId ()
 
 type BakerIdTrieMap av = Trie.TrieN BufferedFix BakerId (PersistentActiveDelegators av)
 
--- |The set of delegators to a particular pool.
--- For 'AccountV0', delegation is not supported, and this is essentially the unit type.
+-- | The set of delegators to a particular pool.
+--  For 'AccountV0', delegation is not supported, and this is essentially the unit type.
 data PersistentActiveDelegators (av :: AccountVersion) where
     PersistentActiveDelegatorsV0 :: PersistentActiveDelegators 'AccountV0
     PersistentActiveDelegatorsV1 ::
         (AVSupportsDelegation av) =>
-        { -- |The set of delegators to this pool.
+        { -- | The set of delegators to this pool.
           adDelegators :: !DelegatorIdTrieSet,
-          -- |The total capital of the delegators to this pool.
+          -- | The total capital of the delegators to this pool.
           adDelegatorTotalCapital :: !Amount
         } ->
         PersistentActiveDelegators av
 
--- |See documentation of @migratePersistentBlockState@.
+-- | See documentation of @migratePersistentBlockState@.
 migratePersistentActiveDelegators ::
     (BlobStorable m (), BlobStorable (t m) (), MonadTrans t) =>
     StateMigrationParameters oldpv pv ->
@@ -299,7 +299,7 @@ migratePersistentActiveDelegators StateMigrationParametersP5ToP6{} = \case
         newDelegators <- Trie.migrateTrieN True return adDelegators
         return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
 
-emptyPersistentActiveDelegators :: forall av. IsAccountVersion av => PersistentActiveDelegators av
+emptyPersistentActiveDelegators :: forall av. (IsAccountVersion av) => PersistentActiveDelegators av
 emptyPersistentActiveDelegators =
     case delegationSupport @av of
         SAVDelegationNotSupported -> PersistentActiveDelegatorsV0
@@ -307,8 +307,8 @@ emptyPersistentActiveDelegators =
 
 deriving instance Show (PersistentActiveDelegators av)
 
--- |This instance cases on the account version (hence the @IsAccountVersion av@ constraint).
--- The storage for each version is thus essentially independent.
+-- | This instance cases on the account version (hence the @IsAccountVersion av@ constraint).
+--  The storage for each version is thus essentially independent.
 instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentActiveDelegators av) where
     storeUpdate PersistentActiveDelegatorsV0 =
         return (return (), PersistentActiveDelegatorsV0)
@@ -325,18 +325,18 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAc
                     adDelegators <- madDelegators
                     return PersistentActiveDelegatorsV1{..}
 
--- |The total active capital as stored as part of the 'PersistentActiveBakers' structure.
--- This is not stored for 'AccountV0', so behaves as the unit type in that case.
+-- | The total active capital as stored as part of the 'PersistentActiveBakers' structure.
+--  This is not stored for 'AccountV0', so behaves as the unit type in that case.
 data TotalActiveCapital (av :: AccountVersion) where
     TotalActiveCapitalV0 :: TotalActiveCapital 'AccountV0
     TotalActiveCapitalV1 :: (AVSupportsDelegation av) => !Amount -> TotalActiveCapital av
 
 deriving instance Show (TotalActiveCapital av)
 
--- |See documentation of @migratePersistentBlockState@.
+-- | See documentation of @migratePersistentBlockState@.
 migrateTotalActiveCapital ::
     StateMigrationParameters oldpv pv ->
-    -- |The total amount staked by all the __bakers__.
+    -- | The total amount staked by all the __bakers__.
     Amount ->
     TotalActiveCapital (AccountVersionFor oldpv) ->
     TotalActiveCapital (AccountVersionFor pv)
@@ -347,21 +347,21 @@ migrateTotalActiveCapital (StateMigrationParametersP3ToP4 _) bts TotalActiveCapi
 migrateTotalActiveCapital StateMigrationParametersP4ToP5 _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
 migrateTotalActiveCapital StateMigrationParametersP5ToP6{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
 
-instance IsAccountVersion av => Serialize (TotalActiveCapital av) where
+instance (IsAccountVersion av) => Serialize (TotalActiveCapital av) where
     put TotalActiveCapitalV0 = return ()
     put (TotalActiveCapitalV1 amt) = put amt
     get = case delegationSupport @av of
         SAVDelegationNotSupported -> return TotalActiveCapitalV0
         SAVDelegationSupported -> TotalActiveCapitalV1 <$> get
 
--- |Add an amount to a 'TotalActiveCapital'.
+-- | Add an amount to a 'TotalActiveCapital'.
 addActiveCapital :: Amount -> TotalActiveCapital av -> TotalActiveCapital av
 addActiveCapital _ TotalActiveCapitalV0 = TotalActiveCapitalV0
 addActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ amt0 + amt1
 
--- |Subtract a given 'Amount' from a 'TotalActiveCapital'.
--- The amount to subtract should not exceed the total active capital.
--- This is not checked, and could cause an underflow if violated.
+-- | Subtract a given 'Amount' from a 'TotalActiveCapital'.
+--  The amount to subtract should not exceed the total active capital.
+--  This is not checked, and could cause an underflow if violated.
 subtractActiveCapital :: Amount -> TotalActiveCapital av -> TotalActiveCapital av
 subtractActiveCapital _ TotalActiveCapitalV0 = TotalActiveCapitalV0
 subtractActiveCapital amt0 (TotalActiveCapitalV1 amt1) = TotalActiveCapitalV1 $ amt1 - amt0
@@ -381,7 +381,7 @@ data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers
 
 makeLenses ''PersistentActiveBakers
 
--- |See documentation of @migratePersistentBlockState@.
+-- | See documentation of @migratePersistentBlockState@.
 migratePersistentActiveBakers ::
     forall oldpv pv t m.
     ( IsProtocolVersion oldpv,
@@ -390,7 +390,7 @@ migratePersistentActiveBakers ::
       Accounts.SupportsPersistentAccount pv (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
-    -- |Already migrated accounts.
+    -- | Already migrated accounts.
     Accounts.Accounts pv ->
     PersistentActiveBakers (AccountVersionFor oldpv) ->
     t m (PersistentActiveBakers (AccountVersionFor pv))
@@ -426,8 +426,8 @@ totalActiveCapitalV1 = totalActiveCapital . tac
     tac :: (AVSupportsDelegation av) => Lens' (TotalActiveCapital av) Amount
     tac f (TotalActiveCapitalV1 v) = TotalActiveCapitalV1 <$> f v
 
--- |A helper function that adds a delegator to a 'PersistentActiveDelegators'.
--- It is assumed that the delegator is not already in the delegators.
+-- | A helper function that adds a delegator to a 'PersistentActiveDelegators'.
+--  It is assumed that the delegator is not already in the delegators.
 addDelegatorHelper ::
     (MonadBlobStore m, AVSupportsDelegation av) =>
     DelegatorId ->
@@ -438,13 +438,13 @@ addDelegatorHelper did amt (PersistentActiveDelegatorsV1 dset tot) = do
     newDset <- Trie.insert did () dset
     return $ PersistentActiveDelegatorsV1 newDset (tot + amt)
 
--- |Add a delegator to the persistent active bakers at a particular target.
--- It is assumed that the delegator is not already delegated to this target.
--- If the target is not valid (i.e. it is a baker, but not in the active bakers) then the result
--- is @Left bid@, where @bid@ is the id of the target baker.  Otherwise, the return value is
--- @Right pab'@ where @pab'@ is the updated 'PersistentActiveBakers'.
+-- | Add a delegator to the persistent active bakers at a particular target.
+--  It is assumed that the delegator is not already delegated to this target.
+--  If the target is not valid (i.e. it is a baker, but not in the active bakers) then the result
+--  is @Left bid@, where @bid@ is the id of the target baker.  Otherwise, the return value is
+--  @Right pab'@ where @pab'@ is the updated 'PersistentActiveBakers'.
 --
--- IMPORTANT: This does not update the total active capital!
+--  IMPORTANT: This does not update the total active capital!
 addDelegator ::
     (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
     DelegationTarget ->
@@ -462,8 +462,8 @@ addDelegator (DelegateToBaker bid) did amt pab =
             newActiveBakers <- Trie.insert bid pad' (pab ^. activeBakers)
             return $ Right $ pab & activeBakers .~ newActiveBakers
 
--- |A helper function that removes a delegator from a 'PersistentActiveDelegators'.
--- It is assumed that the delegator is in the delegators with the specified amount.
+-- | A helper function that removes a delegator from a 'PersistentActiveDelegators'.
+--  It is assumed that the delegator is in the delegators with the specified amount.
 removeDelegatorHelper ::
     (MonadBlobStore m, AVSupportsDelegation av) =>
     DelegatorId ->
@@ -474,10 +474,10 @@ removeDelegatorHelper did amt (PersistentActiveDelegatorsV1 dset tot) = do
     newDset <- Trie.delete did dset
     return $ PersistentActiveDelegatorsV1 newDset (tot - amt)
 
--- |Remove a delegator from 'PersistentActiveBakers'. It is assumed that the delegator
--- belongs to the pool, and the 'Amount' correctly represents the delegator's contribution.
+-- | Remove a delegator from 'PersistentActiveBakers'. It is assumed that the delegator
+--  belongs to the pool, and the 'Amount' correctly represents the delegator's contribution.
 --
--- IMPORTANT: This does not update the total active capital!
+--  IMPORTANT: This does not update the total active capital!
 removeDelegator ::
     (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
     DelegationTarget ->
@@ -494,10 +494,10 @@ removeDelegator (DelegateToBaker bid) did amt pab = do
     newActiveBakers <- snd <$> Trie.adjust rdh bid (pab ^. activeBakers)
     return $ pab & activeBakers .~ newActiveBakers
 
--- |Transfer all delegators from a baker to passive delegation in the 'PersistentActiveBakers'. This does
--- not affect the total stake, and does not remove the baker itself. This returns the list of
--- affected delegators.  (This will have no effect if the baker is not actually a baker, although
--- this function should not be used in that case.)
+-- | Transfer all delegators from a baker to passive delegation in the 'PersistentActiveBakers'. This does
+--  not affect the total stake, and does not remove the baker itself. This returns the list of
+--  affected delegators.  (This will have no effect if the baker is not actually a baker, although
+--  this function should not be used in that case.)
 transferDelegatorsToPassive ::
     (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
     BakerId ->

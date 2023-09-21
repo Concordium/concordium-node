@@ -40,8 +40,8 @@ import Data.Serialize
 import qualified Data.Set as Set
 import Data.Word
 
--- |A processed module artifact as a 'BS.ByteString', as returned by the @validate_and_process_v*@
--- Rust functions, and used by the @call_receive_v*@ and @call_init_v*@ functions.
+-- | A processed module artifact as a 'BS.ByteString', as returned by the @validate_and_process_v*@
+--  Rust functions, and used by the @call_receive_v*@ and @call_init_v*@ functions.
 newtype ModuleArtifactBytes (v :: WasmVersion) = ModuleArtifactBytes {maBytes :: BS.ByteString}
     deriving (Eq, Show)
 
@@ -57,9 +57,9 @@ instance Serialize (ModuleArtifactBytes v) where
     put ModuleArtifactBytes{..} =
         putWord32be (fromIntegral (BS.length maBytes)) <> putByteString maBytes
 
--- |Web assembly module in binary format, instrumented with whatever it needs to
--- be instrumented with, and preprocessed to an executable format, ready to be
--- instantiated and run.
+-- | Web assembly module in binary format, instrumented with whatever it needs to
+--  be instrumented with, and preprocessed to an executable format, ready to be
+--  instantiated and run.
 data InstrumentedModuleV v where
     InstrumentedWasmModuleV0 :: {imWasmArtifactV0 :: !(ModuleArtifactBytes V0)} -> InstrumentedModuleV V0
     InstrumentedWasmModuleV1 :: {imWasmArtifactV1 :: !(ModuleArtifactBytes V1)} -> InstrumentedModuleV V1
@@ -87,54 +87,54 @@ instance Serialize (InstrumentedModuleV V1) where
             V0 -> fail "Expected Wasm version 1, got 0."
             V1 -> InstrumentedWasmModuleV1 <$> get
 
--- |Get the 'BS.ByteString' serialized module artifact.
+-- | Get the 'BS.ByteString' serialized module artifact.
 imWasmArtifactBytes :: InstrumentedModuleV v -> BS.ByteString
 imWasmArtifactBytes InstrumentedWasmModuleV0{..} = maBytes imWasmArtifactV0
 imWasmArtifactBytes InstrumentedWasmModuleV1{..} = maBytes imWasmArtifactV1
 
--- |Construct an 'InstrumentedModuleV' from the serialized bytes.
--- (This does no checking of the 'BS.ByteString'.)
+-- | Construct an 'InstrumentedModuleV' from the serialized bytes.
+--  (This does no checking of the 'BS.ByteString'.)
 instrumentedModuleFromBytes :: SWasmVersion v -> BS.ByteString -> InstrumentedModuleV v
 instrumentedModuleFromBytes SV0 = InstrumentedWasmModuleV0 . ModuleArtifactBytes
 instrumentedModuleFromBytes SV1 = InstrumentedWasmModuleV1 . ModuleArtifactBytes
 
 --------------------------------------------------------------------------------
 
--- |A Wasm module interface, parametrised by the type of the "Artifact" i.e. an instrumented module.
--- The instrumented module should be e.g. @InstrumentedModuleV v@.
+-- | A Wasm module interface, parametrised by the type of the "Artifact" i.e. an instrumented module.
+--  The instrumented module should be e.g. @InstrumentedModuleV v@.
 data ModuleInterfaceA instrumentedModule = ModuleInterface
-    { -- |Reference of the module on the chain.
+    { -- | Reference of the module on the chain.
       miModuleRef :: !ModuleRef,
-      -- |Init methods exposed by this module.
-      -- They should each be exposed with a type Amount -> Word32
+      -- | Init methods exposed by this module.
+      --  They should each be exposed with a type Amount -> Word32
       miExposedInit :: !(Set.Set InitName),
-      -- |Receive methods exposed by this module, indexed by contract name.
-      -- They should each be exposed with a type Amount -> Word32
+      -- | Receive methods exposed by this module, indexed by contract name.
+      --  They should each be exposed with a type Amount -> Word32
       miExposedReceive :: !(Map.Map InitName (Set.Set ReceiveName)),
-      -- |Module source processed into an efficiently executable format.
-      -- For details see "Artifact" in smart-contracts/wasm-chain-integration
+      -- | Module source processed into an efficiently executable format.
+      --  For details see "Artifact" in smart-contracts/wasm-chain-integration
       miModule :: !instrumentedModule,
-      -- |Size of the module. In protocols 1-5 this is the size of the module as
-      -- deployed in the transaction. In P6 and later custom sections inside the
-      -- module no longer count towards it for V1 modules.
+      -- | Size of the module. In protocols 1-5 this is the size of the module as
+      --  deployed in the transaction. In P6 and later custom sections inside the
+      --  module no longer count towards it for V1 modules.
       miModuleSize :: !Word64
     }
     deriving (Eq, Show, Functor, Foldable, Traversable)
 
--- |A Wasm module interface, parametrised by the version of the instrumented module @v@.
+-- | A Wasm module interface, parametrised by the version of the instrumented module @v@.
 type ModuleInterfaceV (v :: WasmVersion) = ModuleInterfaceA (InstrumentedModuleV v)
 
 class HasModuleRef a where
-    -- |Retrieve the module reference (the way a module is identified on the chain).
+    -- | Retrieve the module reference (the way a module is identified on the chain).
     moduleReference :: a -> ModuleRef
 
--- |A class that makes it more convenient to retrieve certain fields both from
--- versioned and unversioned modules.
+-- | A class that makes it more convenient to retrieve certain fields both from
+--  versioned and unversioned modules.
 class HasEntrypoints a where
-    -- |Retrieve the set of contracts/init names from a module.
+    -- | Retrieve the set of contracts/init names from a module.
     exposedInit :: a -> Set.Set InitName
 
-    -- |Retrieve the set of exposed entrypoints indexed by contract names.
+    -- | Retrieve the set of exposed entrypoints indexed by contract names.
     exposedReceive :: a -> Map.Map InitName (Set.Set ReceiveName)
 
 instance HasEntrypoints (ModuleInterfaceA im) where
@@ -147,7 +147,7 @@ instance HasModuleRef (ModuleInterfaceA im) where
 
 -- This serialization instance relies on the versioning of the
 -- InstrumentedModuleV for its own versioning.
-instance Serialize im => Serialize (ModuleInterfaceA im) where
+instance (Serialize im) => Serialize (ModuleInterfaceA im) where
     get = do
         miModuleRef <- get
         miExposedInit <- getSafeSetOf get
@@ -162,11 +162,11 @@ instance Serialize im => Serialize (ModuleInterfaceA im) where
         put miModule
         putWord64be miModuleSize
 
--- |A module interface in either version 0 or 1. This is generally only used
--- when looking up a module before an instance is created. Afterwards an
--- explicitly versioned module interface (ModuleInterfaceV) is used.
--- This is parametrised by the type (family) of the instrumented module
--- @im :: WasmVersion -> Type@.
+-- | A module interface in either version 0 or 1. This is generally only used
+--  when looking up a module before an instance is created. Afterwards an
+--  explicitly versioned module interface (ModuleInterfaceV) is used.
+--  This is parametrised by the type (family) of the instrumented module
+--  @im :: WasmVersion -> Type@.
 data ModuleInterface (im :: WasmVersion -> Type) where
     ModuleInterfaceV0 :: !(ModuleInterfaceA (im V0)) -> ModuleInterface im
     ModuleInterfaceV1 :: !(ModuleInterfaceA (im V1)) -> ModuleInterface im

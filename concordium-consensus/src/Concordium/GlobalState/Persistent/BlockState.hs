@@ -385,14 +385,14 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (PersistentB
                 pnebs
                 pcebs
                 put _birkSeedState
-        return
-            $!! ( putBSP,
-                  bps
-                    { _birkActiveBakers = actBakers,
-                      _birkNextEpochBakers = nextBakers,
-                      _birkCurrentEpochBakers = currentBakers
-                    }
-                )
+        return $!!
+            ( putBSP,
+              bps
+                { _birkActiveBakers = actBakers,
+                  _birkNextEpochBakers = nextBakers,
+                  _birkCurrentEpochBakers = currentBakers
+                }
+            )
     load = withIsSeedStateVersionFor (protocolVersion @pv) $ do
         mabs <- label "Active bakers" load
         mnebs <- label "Next epoch bakers" load
@@ -1681,7 +1681,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                                 refMake $
                                     activeBkrs
                                         & totalActiveCapital
-                                        %~ addActiveCapital (capital - _stakedAmount oldBkr)
+                                            %~ addActiveCapital (capital - _stakedAmount oldBkr)
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
                         return $ setAccountStake capital
@@ -2101,8 +2101,8 @@ doRewardAccount pbs ai reward = do
         return $!
             activeBkrs
                 & passiveDelegators
-                %~ \dlgs ->
-                    dlgs{adDelegatorTotalCapital = tot + reward}
+                    %~ \dlgs ->
+                        dlgs{adDelegatorTotalCapital = tot + reward}
     updateDelegationPoolCapital activeBkrs (Transactions.DelegateToBaker bid) = do
         let activeBkrsMap = activeBkrs ^. activeBakers
             adj Nothing = error "Invariant violation: active baker account is not in active bakers map"
@@ -2186,9 +2186,9 @@ doMint pbs mint = do
     let newBank =
             bspBank bsp
                 & unhashed
-                %~ (Rewards.totalGTU +~ mintTotal mint)
-                . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
-                . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
+                    %~ (Rewards.totalGTU +~ mintTotal mint)
+                        . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
+                        . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
     let updAcc = addAccountAmount $ mintDevelopmentCharge mint
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)
@@ -2370,17 +2370,17 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 modRef <- fromJust <$> Modules.getModuleReference (GSWasm.miModuleRef nidInterface) mods
                 (csHash, initialState) <- freezeContractState nidInitialState
                 -- The module version is V0 because of the 'WasmVersion' is V0.
-                return
-                    $!! ( ca,
-                          PersistentInstanceV0
-                            Instances.PersistentInstanceV
-                                { pinstanceModuleInterface = modRef,
-                                  pinstanceModel = initialState,
-                                  pinstanceAmount = nidInitialAmount,
-                                  pinstanceHash = Instances.makeInstanceHashV0 (pinstanceParameterHash params) csHash nidInitialAmount,
-                                  ..
-                                }
-                        )
+                return $!!
+                    ( ca,
+                      PersistentInstanceV0
+                        Instances.PersistentInstanceV
+                            { pinstanceModuleInterface = modRef,
+                              pinstanceModel = initialState,
+                              pinstanceAmount = nidInitialAmount,
+                              pinstanceHash = Instances.makeInstanceHashV0 (pinstanceParameterHash params) csHash nidInitialAmount,
+                              ..
+                            }
+                    )
             Wasm.SV1 -> do
                 let params =
                         PersistentInstanceParameters
@@ -2399,16 +2399,16 @@ doPutNewInstance pbs NewInstanceData{..} = do
                 (csHash, initialState) <- freezeContractState nidInitialState
                 let pinstanceHash = Instances.makeInstanceHashV1 (pinstanceParameterHash params) csHash nidInitialAmount
                 -- The module version is V1 because of the 'WasmVersion' is V1.
-                return
-                    $!! ( ca,
-                          PersistentInstanceV1
-                            Instances.PersistentInstanceV
-                                { pinstanceModuleInterface = modRef,
-                                  pinstanceModel = initialState,
-                                  pinstanceAmount = nidInitialAmount,
-                                  ..
-                                }
-                        )
+                return $!!
+                    ( ca,
+                      PersistentInstanceV1
+                        Instances.PersistentInstanceV
+                            { pinstanceModuleInterface = modRef,
+                              pinstanceModel = initialState,
+                              pinstanceAmount = nidInitialAmount,
+                              ..
+                            }
+                    )
 
 doModifyInstance ::
     forall pv m v.
@@ -3111,11 +3111,11 @@ doProcessPendingChanges persistentBS isEffective = do
         let pab' =
                 pab
                     & activeBakers
-                    .~ newBakers
+                        .~ newBakers
                     & aggregationKeys
-                    .~ newAggs
+                        .~ newAggs
                     & passiveDelegators
-                    .~ newPassive
+                        .~ newPassive
         return ((pab', accts'), total)
 
     -- Process a set of delegators for elapsed cooldowns, updating the total delegated amount
@@ -3558,9 +3558,11 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         flushStore
         return ref
 
-    loadBlockState hpbsHash ref = do
+    loadBlockState hpbsHashM ref = do
         hpbsPointers <- liftIO $ newIORef $ blobRefToBufferedRef ref
-        return HashedPersistentBlockState{..}
+        case hpbsHashM of
+            Just hpbsHash -> return HashedPersistentBlockState{..}
+            Nothing -> hashBlockState hpbsPointers
 
     serializeBlockState hpbs = do
         p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))
@@ -3761,8 +3763,8 @@ cacheStateAndGetTransactionTable hpbs = do
                     return $!
                         tt
                             & TransactionTable.ttNonFinalizedChainUpdates
-                            . at' uty
-                            ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
+                                . at' uty
+                                ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
                 else return tt
     tt <- foldM updInTT tt0 [minBound ..]
     rels <- cache bspReleaseSchedule

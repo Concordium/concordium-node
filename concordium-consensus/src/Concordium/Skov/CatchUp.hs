@@ -27,14 +27,14 @@ import Concordium.Skov.CatchUp.Types
 import Concordium.Skov.Monad
 import Concordium.Skov.Query
 
--- |Handle a catch-up message from a peer. If the message is a catch-up request,
--- this returns a list of serialized and versioned blocks and finalization records.
--- The maximum length of this list is specified by the second parameter.
+-- | Handle a catch-up message from a peer. If the message is a catch-up request,
+--  this returns a list of serialized and versioned blocks and finalization records.
+--  The maximum length of this list is specified by the second parameter.
 doHandleCatchUp ::
     forall m.
     (TreeStateMonad m, SkovQueryMonad m, FinalizationMonad m, MonadLogger m) =>
     CatchUpStatus ->
-    -- |How many blocks + finalization records should be sent.
+    -- | How many blocks + finalization records should be sent.
     Int ->
     m (Maybe ([(MessageType, ByteString)], CatchUpStatus), UpdateResult)
 doHandleCatchUp peerCUS@CatchUpStatus{} limit = do

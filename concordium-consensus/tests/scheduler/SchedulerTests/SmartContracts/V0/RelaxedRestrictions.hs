@@ -55,7 +55,7 @@ wasmModVersion = V0
 -- | Ensure the parameter limit is correct before the relaxation in protocol version 5
 oldParameterLimitTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -111,7 +111,7 @@ oldParameterLimitTest spv pvString =
 -- | Ensure the log limit is correct before the relaxation in protocol version 5
 oldLogLimitTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -156,7 +156,7 @@ oldLogLimitTest spv pvString =
 -- | Ensure the parameter limit is correct after the relaxation in protocol version 5.
 newParameterLimitTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -190,7 +190,7 @@ newParameterLimitTest spv pvString =
 -- | Ensure the log limit is correct after the relaxation in protocol version 5.
 newLogLimitTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -220,7 +220,7 @@ newLogLimitTest spv pvString =
                     }
                ]
 
--- |Transactions and assertions for deploying and initializing the "relax" contract.
+-- | Transactions and assertions for deploying and initializing the "relax" contract.
 deployAndInitTransactions :: [Helpers.TransactionAndAssertion pv]
 deployAndInitTransactions =
     [ Helpers.TransactionAndAssertion
@@ -254,18 +254,18 @@ deployAndInitTransactions =
         }
     ]
 
--- |Creates a parameter for "relax.param".
+-- | Creates a parameter for "relax.param".
 --
--- The first input is the size of the internal parameter to be passed to "param-aux".
--- This is used to test the parameter limit checked inside the wasm interpreter.
+--  The first input is the size of the internal parameter to be passed to "param-aux".
+--  This is used to test the parameter limit checked inside the wasm interpreter.
 --
--- The second input is the desired total length of the bytestring produced by this function.
--- Once the necessary data is written, extra 1s are written until the desired length is reached.
--- This is used to test the parameter limit checked in the scheduler.
+--  The second input is the desired total length of the bytestring produced by this function.
+--  Once the necessary data is written, extra 1s are written until the desired length is reached.
+--  This is used to test the parameter limit checked in the scheduler.
 callArgsParam ::
-    -- |Size of the internal parameter to be used by the contract when invoking "param-aux".
+    -- | Size of the internal parameter to be used by the contract when invoking "param-aux".
     Word16 ->
-    -- |The (desired) length of bytestring returned by this function.
+    -- | The (desired) length of bytestring returned by this function.
     Int ->
     BSS.ShortByteString
 callArgsParam internalParamSize desiredLen = BSS.toShort $ runPut $ do
@@ -284,7 +284,7 @@ callArgsParam internalParamSize desiredLen = BSS.toShort $ runPut $ do
             - 2 -- auxNameLen
             - fromIntegral auxNameLen
 
--- |Create a Word32 parameter.
+-- | Create a Word32 parameter.
 callArgsWord32 :: Word32 -> BSS.ShortByteString
 callArgsWord32 = BSS.toShort . runPut . putWord32le
 

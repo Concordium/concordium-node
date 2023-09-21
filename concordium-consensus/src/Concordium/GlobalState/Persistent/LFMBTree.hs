@@ -93,17 +93,17 @@ type Height = Word64
 --  * the reference type to use for internal branches; and
 --  * the type of values to be stored at the leaves.
 data LFMBTree' k (ref :: Type -> Type) v
-    = -- |Empty tree
+    = -- | Empty tree
       Empty
-    | -- |Non-empty tree, with the number of elements in the tree (always non-zero).
+    | -- | Non-empty tree, with the number of elements in the tree (always non-zero).
       NonEmpty
         -- Number of elements in the tree. Always non-zero.
         !Word64
         -- The tree.
         !(T ref v)
 
--- |A left-full Merkle binary tree where the leaf values are stored under references of the
--- same type as used for internal branches.
+-- | A left-full Merkle binary tree where the leaf values are stored under references of the
+--  same type as used for internal branches.
 type LFMBTree k ref v = LFMBTree' k ref (ref v)
 
 deriving instance (Show v, Show (ref (T ref v))) => (Show (LFMBTree' k ref v))
@@ -157,7 +157,7 @@ type CanStoreLFMBTree m ref v =
       Reference m ref (T ref v) -- internal references are references
     )
 
-instance CanStoreLFMBTree m ref v => BlobStorable m (T ref v) where
+instance (CanStoreLFMBTree m ref v) => BlobStorable m (T ref v) where
     storeUpdate (Leaf ref) = do
         (pt, ref') <- storeUpdate ref
         return (putWord8 0 >> pt, Leaf ref')
@@ -185,7 +185,7 @@ instance CanStoreLFMBTree m ref v => BlobStorable m (T ref v) where
                 right <- load
                 return (Node h <$> left <*> right)
 
-instance CanStoreLFMBTree m ref1 v => BlobStorable m (LFMBTree' k ref1 v) where
+instance (CanStoreLFMBTree m ref1 v) => BlobStorable m (LFMBTree' k ref1 v) where
     storeUpdate t@Empty = return (putWord64be 0, t)
     storeUpdate (NonEmpty h t) = do
         (pt, t') <- storeUpdate t
@@ -286,7 +286,7 @@ appendWithRef v t = do
     (k, t') <- appendV ref t
     return (k, t', ref)
 
--- |Append a value to the tree, returning the assigned key and the updated tree.
+-- | Append a value to the tree, returning the assigned key and the updated tree.
 appendV :: forall m ref v k. (CanStoreLFMBTree m ref v, Coercible k Word64, Num k) => v -> LFMBTree' k ref v -> m (k, LFMBTree' k ref v)
 appendV value Empty = do
     return (0, NonEmpty 1 (Leaf value))

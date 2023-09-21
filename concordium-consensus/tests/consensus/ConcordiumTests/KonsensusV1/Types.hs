@@ -1,4 +1,4 @@
--- |Testing of 'Concordium.KonsensusV1.Types' and 'Concordium.KonsensusV1.TreeState.Types' modules.
+-- | Testing of 'Concordium.KonsensusV1.Types' and 'Concordium.KonsensusV1.TreeState.Types' modules.
 module ConcordiumTests.KonsensusV1.Types where
 
 import qualified Data.ByteString as BS
@@ -26,33 +26,33 @@ import qualified Data.FixedByteString as FBS
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
--- |Generate a 'FinalizerSet'. The size parameter determines the size of the committee that
--- the finalizers are (nominally) sampled from.
+-- | Generate a 'FinalizerSet'. The size parameter determines the size of the committee that
+--  the finalizers are (nominally) sampled from.
 genFinalizerSet :: Gen FinalizerSet
 genFinalizerSet = sized $ \s -> FinalizerSet . fromInteger <$> chooseInteger (0, 2 ^ s)
 
--- |An arbitrarily-chosen 'Bls.SecretKey'.
+-- | An arbitrarily-chosen 'Bls.SecretKey'.
 someBlsSecretKey :: Bls.SecretKey
 someBlsSecretKey = generateBlsSecretKeyFromSeed 123456
 
--- |Create a bls secret key from the provided seed.
+-- | Create a bls secret key from the provided seed.
 someOtherBlsSecretKey :: Word64 -> Bls.SecretKey
 someOtherBlsSecretKey = generateBlsSecretKeyFromSeed . fromIntegral
 
--- |Generate a 'Bls.Signature' by signing an arbitrary 10-byte string with the 'someBlsSecretKey'.
--- This should generate a representative sample of signatures for serialization purposes.
+-- | Generate a 'Bls.Signature' by signing an arbitrary 10-byte string with the 'someBlsSecretKey'.
+--  This should generate a representative sample of signatures for serialization purposes.
 genBlsSignature :: Gen Bls.Signature
 genBlsSignature = flip Bls.sign someBlsSecretKey . BS.pack <$> vector 10
 
--- |Generate a quorum signature.
+-- | Generate a quorum signature.
 genQuorumSignature :: Gen QuorumSignature
 genQuorumSignature = QuorumSignature <$> genBlsSignature
 
--- |Generate a quorum signature.
+-- | Generate a quorum signature.
 genTimeoutSignature :: Gen TimeoutSignature
 genTimeoutSignature = TimeoutSignature <$> genBlsSignature
 
--- |Generate a random quorum signature message.
+-- | Generate a random quorum signature message.
 genQuorumSignatureMessage :: Gen QuorumSignatureMessage
 genQuorumSignatureMessage = do
     qsmGenesis <- genBlockHash
@@ -61,7 +61,7 @@ genQuorumSignatureMessage = do
     qsmEpoch <- genEpoch
     return QuorumSignatureMessage{..}
 
--- |Generate a random timeout signature message.
+-- | Generate a random timeout signature message.
 genTimeoutSignatureMessage :: Gen TimeoutSignatureMessage
 genTimeoutSignatureMessage = do
     tsmGenesis <- genBlockHash
@@ -70,12 +70,12 @@ genTimeoutSignatureMessage = do
     tsmQCEpoch <- genEpoch
     return TimeoutSignatureMessage{..}
 
--- |Generate a block hash.
--- This generates an arbitrary hash.
+-- | Generate a block hash.
+--  This generates an arbitrary hash.
 genBlockHash :: Gen BlockHash
 genBlockHash = BlockHash . Hash.Hash . FBS.pack <$> vector 32
 
--- |Generate a quorum certificate in a way that is suitable for testing serialization.
+-- | Generate a quorum certificate in a way that is suitable for testing serialization.
 genQuorumCertificate :: Gen QuorumCertificate
 genQuorumCertificate = do
     qcBlock <- genBlockHash
@@ -94,8 +94,8 @@ genQuorumMessage = do
     qmEpoch <- genEpoch
     return QuorumMessage{..}
 
--- |Generate a 'FinalizationEntry' suitable for testing serialization.
--- The result satisfies the invariants.
+-- | Generate a 'FinalizationEntry' suitable for testing serialization.
+--  The result satisfies the invariants.
 genFinalizationEntry :: Gen FinalizationEntry
 genFinalizationEntry = do
     feFinalizedQuorumCertificate <- genQuorumCertificate
@@ -111,9 +111,9 @@ genFinalizationEntry = do
                 }
     return FinalizationEntry{..}
 
--- |Generate a 'FinalizerRounds' map. The number of entries is governed by the size parameter.
--- This satisfies the size invariant, but does guarantee that rounds have different sets of
--- finalizers.
+-- | Generate a 'FinalizerRounds' map. The number of entries is governed by the size parameter.
+--  This satisfies the size invariant, but does guarantee that rounds have different sets of
+--  finalizers.
 genFinalizerRounds :: Gen FinalizerRounds
 genFinalizerRounds =
     FinalizerRounds . Map.fromList
@@ -124,15 +124,15 @@ genFinalizerRounds =
         fs <- genFinalizerSet
         return (r, fs)
 
--- |Generate an arbitrary round.
+-- | Generate an arbitrary round.
 genRound :: Gen Round
 genRound = Round <$> arbitrary
 
--- |Generate an arbitrary epoch.
+-- | Generate an arbitrary epoch.
 genEpoch :: Gen Epoch
 genEpoch = arbitrary
 
--- |Generate a timeout certificate.
+-- | Generate a timeout certificate.
 genTimeoutCertificate :: Gen TimeoutCertificate
 genTimeoutCertificate = do
     tcRound <- genRound
@@ -145,11 +145,11 @@ genTimeoutCertificate = do
     tcAggregateSignature <- TimeoutSignature <$> genBlsSignature
     return TimeoutCertificate{..}
 
--- |Generate an arbitrary finalizer index
+-- | Generate an arbitrary finalizer index
 genFinalizerIndex :: Gen FinalizerIndex
 genFinalizerIndex = FinalizerIndex <$> arbitrary
 
--- |Generate a timeout message body.
+-- | Generate a timeout message body.
 genTimeoutMessageBody :: Gen TimeoutMessageBody
 genTimeoutMessageBody = do
     tmFinalizerIndex <- genFinalizerIndex
@@ -165,7 +165,7 @@ genTimeoutMessageBody = do
     let tmEpoch = qcEpoch tmQuorumCertificate -- FIXME: is this correct?
     return TimeoutMessageBody{..}
 
--- |Generate a 'TimeoutMessage' signed by an arbitrarily-generated keypair.
+-- | Generate a 'TimeoutMessage' signed by an arbitrarily-generated keypair.
 genTimeoutMessage :: Gen TimeoutMessage
 genTimeoutMessage = do
     body <- genTimeoutMessageBody
@@ -173,15 +173,15 @@ genTimeoutMessage = do
     genesis <- genBlockHash
     return $ signTimeoutMessage body genesis kp
 
--- |Generate an arbitrary timestamp.
+-- | Generate an arbitrary timestamp.
 genTimestamp :: Gen Timestamp
 genTimestamp = Timestamp <$> arbitrary
 
--- |Generate an arbitrary 'LeadershipElectionNonce'
+-- | Generate an arbitrary 'LeadershipElectionNonce'
 genLeadershipElectionNonce :: Gen LeadershipElectionNonce
 genLeadershipElectionNonce = Hash.Hash . FBS.pack <$> vector 32
 
--- |Generate a 'PersistentRoundStatus' suitable for testing serialization.
+-- | Generate a 'PersistentRoundStatus' suitable for testing serialization.
 genPersistentRoundStatus :: Gen PersistentRoundStatus
 genPersistentRoundStatus = do
     _prsLastSignedQuorumMessage <- oneof [Present <$> genQuorumMessage, return Absent]
@@ -190,27 +190,27 @@ genPersistentRoundStatus = do
     _prsLatestTimeout <- oneof [Present <$> genTimeoutCertificate, return Absent]
     return PersistentRoundStatus{..}
 
--- |Generate an arbitrary vrf key pair.
+-- | Generate an arbitrary vrf key pair.
 someVRFKeyPair :: VRF.KeyPair
 {-# NOINLINE someVRFKeyPair #-}
 someVRFKeyPair = unsafePerformIO VRF.newKeyPair
 
--- |Generate an arbitrary block nonce.
+-- | Generate an arbitrary block nonce.
 genBlockNonce :: Gen BlockNonce
 genBlockNonce = do
     let kp = someVRFKeyPair
         proof = VRF.prove kp BS.empty
     return proof
 
--- |An arbitrary account key pair.
+-- | An arbitrary account key pair.
 someAccountKeyPair :: SigScheme.KeyPair
 {-# NOINLINE someAccountKeyPair #-}
 someAccountKeyPair = unsafePerformIO $ SigScheme.newKeyPair SigScheme.Ed25519
 
--- |Generate a vector of simple transfer transactions. The length of the vector is determined by the
--- size parameter.
--- Each transaction is signed by 'someAccountKeyPair', with the sender, receiver, amount and nonce
--- generated arbitrarily. The arrival times are all set to @TransactionTime maxBound@.
+-- | Generate a vector of simple transfer transactions. The length of the vector is determined by the
+--  size parameter.
+--  Each transaction is signed by 'someAccountKeyPair', with the sender, receiver, amount and nonce
+--  generated arbitrarily. The arrival times are all set to @TransactionTime maxBound@.
 genTransactions :: Gen (Vector.Vector BlockItem)
 genTransactions = Vector.fromList <$> listOf trans
   where
@@ -221,8 +221,8 @@ genTransactions = Vector.fromList <$> listOf trans
         nonce <- Nonce <$> arbitrary `suchThat` (> 0)
         return $ Dummy.makeTransferTransaction (someAccountKeyPair, sender) receiver amt nonce
 
--- |Generate an arbitrary baked block with no transactions.
--- The baker of the block is number 42.
+-- | Generate an arbitrary baked block with no transactions.
+--  The baker of the block is number 42.
 genBakedBlock :: Gen BakedBlock
 genBakedBlock = do
     bbRound <- genRound
@@ -241,10 +241,10 @@ genBakedBlock = do
               ..
             }
 
--- |Generate an arbitrary signed block with no transactions.
--- The signer of the block is chosen among the arbitrary signers.
--- The baker of the block is number 42.
--- This generator is suitable for testing serialization.
+-- | Generate an arbitrary signed block with no transactions.
+--  The signer of the block is chosen among the arbitrary signers.
+--  The baker of the block is number 42.
+--  This generator is suitable for testing serialization.
 genSignedBlock :: Gen SignedBlock
 genSignedBlock = do
     kp <- genBlockKeyPair
@@ -252,38 +252,38 @@ genSignedBlock = do
     genesisHash <- genBlockHash
     return $! signBlock kp genesisHash bBlock
 
--- |Check that serialization followed by deserialization gives the identity.
+-- | Check that serialization followed by deserialization gives the identity.
 serCheck :: (Eq a, Serialize a, Show a) => a -> Property
 serCheck a = decode (encode a) === Right a
 
--- |Test that serializing then deserializing a finalizer set is the identity.
+-- | Test that serializing then deserializing a finalizer set is the identity.
 propSerializeFinalizerSet :: Property
 propSerializeFinalizerSet = forAll genFinalizerSet serCheck
 
--- |Test that serializing then deserializing a quorum certificate is the identity.
+-- | Test that serializing then deserializing a quorum certificate is the identity.
 propSerializeQuorumCertificate :: Property
 propSerializeQuorumCertificate = forAll genQuorumCertificate serCheck
 
 propSerializationQuorumMessage :: Property
 propSerializationQuorumMessage = forAll genQuorumMessage serCheck
 
--- |Test that serializing then deserializing a finalization entry is the identity.
+-- | Test that serializing then deserializing a finalization entry is the identity.
 propSerializeFinalizationEntry :: Property
 propSerializeFinalizationEntry = forAll genFinalizationEntry serCheck
 
--- |Test that serializing then deserializing a timeout certificate is the identity.
+-- | Test that serializing then deserializing a timeout certificate is the identity.
 propSerializeTimeoutCertificate :: Property
 propSerializeTimeoutCertificate = forAll genTimeoutCertificate serCheck
 
--- |Test that serializing then deserializing a timeout message body is the identity.
+-- | Test that serializing then deserializing a timeout message body is the identity.
 propSerializeTimeoutMessageBody :: Property
 propSerializeTimeoutMessageBody = forAll genTimeoutMessageBody serCheck
 
--- |Test that serializing then deserializing a timeout message is the identity.
+-- | Test that serializing then deserializing a timeout message is the identity.
 propSerializeTimeoutMessage :: Property
 propSerializeTimeoutMessage = forAll genTimeoutMessage serCheck
 
--- |Test that serializing then deserializing a baked block is the identity.
+-- | Test that serializing then deserializing a baked block is the identity.
 propSerializeBakedBlock :: Property
 propSerializeBakedBlock =
     forAll genBakedBlock $ \bb ->
@@ -291,7 +291,7 @@ propSerializeBakedBlock =
             Left _ -> False
             Right bb' -> bb == bb'
 
--- |Test that serializing then deserializing a signed block is the identity.
+-- | Test that serializing then deserializing a signed block is the identity.
 propSerializeSignedBlock :: Property
 propSerializeSignedBlock =
     forAll genSignedBlock $ \sb ->
@@ -302,7 +302,7 @@ propSerializeSignedBlock =
 propSerializePersistentRoundStatus :: Property
 propSerializePersistentRoundStatus = forAll genPersistentRoundStatus serCheck
 
--- |Check that a signing a timeout message produces a timeout message that verifies with the key.
+-- | Check that a signing a timeout message produces a timeout message that verifies with the key.
 propSignTimeoutMessagePositive :: Property
 propSignTimeoutMessagePositive =
     forAll genTimeoutMessageBody $ \body ->
@@ -310,8 +310,8 @@ propSignTimeoutMessagePositive =
             forAll genBlockHash $ \genesis ->
                 checkTimeoutMessageSignature (Sig.verifyKey kp) genesis (signTimeoutMessage body genesis kp)
 
--- |Check that a signing a timeout message produces a timeout message that does not verify with a
--- different key.
+-- | Check that a signing a timeout message produces a timeout message that does not verify with a
+--  different key.
 propSignTimeoutMessageDiffKey :: Property
 propSignTimeoutMessageDiffKey =
     forAll genTimeoutMessageBody $ \body ->
@@ -321,8 +321,8 @@ propSignTimeoutMessageDiffKey =
                     (kp1 /= kp2) ==>
                         not (checkTimeoutMessageSignature (Sig.verifyKey kp2) genesis (signTimeoutMessage body genesis kp1))
 
--- |Check that signing a timeout message and changing the body to something different produces a
--- timeout message that does not verify with the key.
+-- | Check that signing a timeout message and changing the body to something different produces a
+--  timeout message that does not verify with the key.
 propSignTimeoutMessageDiffBody :: Property
 propSignTimeoutMessageDiffBody =
     forAll genTimeoutMessageBody $ \body1 ->
@@ -333,19 +333,19 @@ propSignTimeoutMessageDiffBody =
                         \kp ->
                             not (checkTimeoutMessageSignature (Sig.verifyKey kp) genesis (signTimeoutMessage body1 genesis kp){tmBody = body2})
 
--- |Check that signing a quorum signature message produces a quorum signature that can be verified with the corresponding public key.
+-- | Check that signing a quorum signature message produces a quorum signature that can be verified with the corresponding public key.
 propSignQuorumSignatureMessageSingle :: Property
 propSignQuorumSignatureMessageSingle =
     forAll genQuorumSignatureMessage $ \qsm ->
         (checkQuorumSignatureSingle qsm (Bls.derivePublicKey someBlsSecretKey) (signQuorumSignatureMessage qsm someBlsSecretKey))
 
--- |Check that signing a quorum signature message produces a quorum signature that cannot be verified with a different public key.
+-- | Check that signing a quorum signature message produces a quorum signature that cannot be verified with a different public key.
 propSignQuorumSignatureMessageDiffKeySingle :: Property
 propSignQuorumSignatureMessageDiffKeySingle =
     forAll genQuorumSignatureMessage $ \qsm ->
         not (checkQuorumSignatureSingle qsm (Bls.derivePublicKey someBlsSecretKey) (signQuorumSignatureMessage qsm (someOtherBlsSecretKey 0)))
 
--- |Check that signing a quorum signature message produces a quorum signature that cannot be verified with different contents.
+-- | Check that signing a quorum signature message produces a quorum signature that cannot be verified with different contents.
 propSignQuorumSignatureMessageDiffBodySingle :: Property
 propSignQuorumSignatureMessageDiffBodySingle =
     forAll genQuorumSignatureMessage $ \qsm1 ->
@@ -353,7 +353,7 @@ propSignQuorumSignatureMessageDiffBodySingle =
             (qsm1 /= qsm2) ==>
                 not (checkQuorumSignatureSingle qsm1 (Bls.derivePublicKey someBlsSecretKey) (signQuorumSignatureMessage qsm2 someBlsSecretKey))
 
--- |Check that signing a quorum signature message produces a quorum signature that can be verified with the corresponding public key.
+-- | Check that signing a quorum signature message produces a quorum signature that can be verified with the corresponding public key.
 propSignQuorumSignatureMessage :: Property
 propSignQuorumSignatureMessage =
     forAll genQuorumSignatureMessage $ \qsm ->
@@ -362,7 +362,7 @@ propSignQuorumSignatureMessage =
             pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 0))]
         in  checkQuorumSignature qsm pubKeys qs'
 
--- |Check that signing a quorum signature message produces a quorum signature that cannot be verified with a different public key.
+-- | Check that signing a quorum signature message produces a quorum signature that cannot be verified with a different public key.
 propSignQuorumSignatureMessageDiffKey :: Property
 propSignQuorumSignatureMessageDiffKey =
     forAll genQuorumSignatureMessage $ \qsm ->
@@ -371,7 +371,7 @@ propSignQuorumSignatureMessageDiffKey =
             pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 1))]
         in  not (checkQuorumSignature qsm pubKeys qs')
 
--- |Check that signing a quorum signature message produces a quorum signature that cannot be verified with different contents.
+-- | Check that signing a quorum signature message produces a quorum signature that cannot be verified with different contents.
 propSignQuorumSignatureMessageDiffBody :: Property
 propSignQuorumSignatureMessageDiffBody =
     forAll genQuorumSignatureMessage $ \qsm1 ->

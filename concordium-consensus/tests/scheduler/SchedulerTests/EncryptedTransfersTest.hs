@@ -76,7 +76,7 @@ import Test.Hspec
 --- |------------------------------------+-----------------+-----------+---------------|
 
 initialBlockState ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
@@ -115,7 +115,7 @@ encryptionPublicKey1 =
             Helpers.makeTestCredentialFromSeed 1
 
 assertEncryptedBalance ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.AccountEncryptedAmount ->
     Types.AccountAddress ->
     BS.PersistentBlockState pv ->

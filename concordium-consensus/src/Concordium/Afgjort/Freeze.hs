@@ -4,61 +4,61 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE ViewPatterns #-}
 
--- |Freeze is the protocol to generate a consistent decision for generating finalization proofs.
+-- | Freeze is the protocol to generate a consistent decision for generating finalization proofs.
 --
--- For more information, check the konsensus paper, section 5.6.3
+--  For more information, check the konsensus paper, section 5.6.3
 --
--- = Definitions
+--  = Definitions
 --
--- There are three types of messages in Freeze and each one entails one type of justification:
+--  There are three types of messages in Freeze and each one entails one type of justification:
 --
--- * Proposal: a proposal message @(baid, PROPOSAL, p)@ from a remote party is considered Jprop-justified for us if
---   it is signed by the remote party and the value @p@ is J-justified for us.
--- * Vote: a vote message @(baid, VOTE, v)@ from a remote party is considered Jvote-justified for us if it is signed
---   by the remote party and:
+--  * Proposal: a proposal message @(baid, PROPOSAL, p)@ from a remote party is considered Jprop-justified for us if
+--    it is signed by the remote party and the value @p@ is J-justified for us.
+--  * Vote: a vote message @(baid, VOTE, v)@ from a remote party is considered Jvote-justified for us if it is signed
+--    by the remote party and:
 --
---   - @v == bottom@ and we have received Jprop-justified messages for different values (from different parties).
---   - we have received Jprop-justified messages for the same value @v@ from @n-2t@ parties.
+--    - @v == bottom@ and we have received Jprop-justified messages for different values (from different parties).
+--    - we have received Jprop-justified messages for the same value @v@ from @n-2t@ parties.
 --
--- * Decision: a decision message @(baid, FROZEN, d)@ is Jdec-justified for us if we have collected Jvote-justified messages
---   with the same @d@ from at least @t+1@ parties.
+--  * Decision: a decision message @(baid, FROZEN, d)@ is Jdec-justified for us if we have collected Jvote-justified messages
+--    with the same @d@ from at least @t+1@ parties.
 --
--- These messages are defined in @FreezeMessage@.
+--  These messages are defined in @FreezeMessage@.
 --
--- = Protocol
+--  = Protocol
 --
--- The Freeze protocol works dividided in 3 phases as follows:
+--  The Freeze protocol works dividided in 3 phases as follows:
 --
--- == Input:
---   - @baid@: the WMVBA invocation identifier.
---   - @J@: a justification.
+--  == Input:
+--    - @baid@: the WMVBA invocation identifier.
+--    - @J@: a justification.
 --
--- == Precondition:
---   Each party has a proposal p (J-justified) as input.
+--  == Precondition:
+--    Each party has a proposal p (J-justified) as input.
 --
--- == Execution
+--  == Execution
 --
--- A) Propose:
+--  A) Propose:
 --
---    1. Each party broadcasts a signed proposal message @(baid, PROPOSAL, p)@.
+--     1. Each party broadcasts a signed proposal message @(baid, PROPOSAL, p)@.
 --
--- B) Vote:
+--  B) Vote:
 --
---    2. Each party receives the proposal messages and after messages from @n-t@ parties do:
+--     2. Each party receives the proposal messages and after messages from @n-t@ parties do:
 --
---        a) If the same proposal (@p@) is received from @n-t@ parties, broadcast vote message @(baid, VOTE, p)@.
+--         a) If the same proposal (@p@) is received from @n-t@ parties, broadcast vote message @(baid, VOTE, p)@.
 --
---        b) If two different proposals are received, then broadcast message @(baid, VOTE, bottom)@.
+--         b) If two different proposals are received, then broadcast message @(baid, VOTE, bottom)@.
 --
--- C) Freeze:
+--  C) Freeze:
 --
---    3. Once @n-t@ vote messages are collected:
+--     3. Once @n-t@ vote messages are collected:
 --
---        a) If the same vote (@p@) is received from strictly more than @t@ parties, output @(baid, FROZEN, p)@.
+--         a) If the same vote (@p@) is received from strictly more than @t@ parties, output @(baid, FROZEN, p)@.
 --
---        b) If votes on @bottom@ are received from strictly more than @t@ parties, output @(baid, FROZEN, bottom)@.
+--         b) If votes on @bottom@ are received from strictly more than @t@ parties, output @(baid, FROZEN, bottom)@.
 --
---    4. Keep collecting votes until WMVBA is terminated. Each party stores all decisions that became Jdec-justified.
+--     4. Keep collecting votes until WMVBA is terminated. Each party stores all decisions that became Jdec-justified.
 module Concordium.Afgjort.Freeze (
     -- * Messages
     FreezeMessage (..),
@@ -115,23 +115,23 @@ import Concordium.Utils
 --------------------------------------------------------------------------------
 -- Messages
 
--- |Freeze protocol messages
+-- | Freeze protocol messages
 data FreezeMessage
-    = -- |Propose a value
+    = -- | Propose a value
       Proposal Val
-    | -- |Vote for a value (or nothing)
+    | -- | Vote for a value (or nothing)
       Vote (Maybe Val)
     deriving (Eq, Ord, Show)
 
 --------------------------------------------------------------------------------
 -- Instance
 
--- |The context for running the Freeze protocol, which includes
+-- | The context for running the Freeze protocol, which includes
 --
--- * The total weight of all parties participating in the protocol
--- * The maximum weight of corrupt parties (must be less than @totalWeight/3@)
--- * The weight of each party
--- * My party
+--  * The total weight of all parties participating in the protocol
+--  * The maximum weight of corrupt parties (must be less than @totalWeight/3@)
+--  * The weight of each party
+--  * My party
 data FreezeInstance = FreezeInstance
     { totalWeight :: !VoterPower,
       corruptWeight :: !VoterPower,
@@ -142,39 +142,39 @@ data FreezeInstance = FreezeInstance
 --------------------------------------------------------------------------------
 -- State
 
--- |The state of the Freeze protocol.
+-- | The state of the Freeze protocol.
 data FreezeState sig = FreezeState
-    { -- |The proposals.  Each proposal is associated with a pair consisting of:
-      -- a @Bool@ indicating whether the proposed candidate is justified; and
-      -- the parties that have made the proposal with their signatures.
-      -- Note that each party can have more than one justified proposal.
+    { -- | The proposals.  Each proposal is associated with a pair consisting of:
+      --  a @Bool@ indicating whether the proposed candidate is justified; and
+      --  the parties that have made the proposal with their signatures.
+      --  Note that each party can have more than one justified proposal.
       _proposals :: !(Map Val (Bool, PartyMap sig)),
-      -- |The set of parties that have submitted justified proposals.
+      -- | The set of parties that have submitted justified proposals.
       _justifiedProposers :: !PartySet,
-      -- |The number of distinct justified proposals.  This is used to determine
-      -- when a vote for no value is justified.
+      -- | The number of distinct justified proposals.  This is used to determine
+      --  when a vote for no value is justified.
       _distinctJustifiedProposals :: !Int,
-      -- |The votes.  Each vote is associated with a pair consisting of:
-      -- a @Bool@ indicating whether the vote is justified; and
-      -- the parties that have voted for the value with their signatures.
-      -- Like proposals, we only consider the first vote for a given party.
+      -- | The votes.  Each vote is associated with a pair consisting of:
+      --  a @Bool@ indicating whether the vote is justified; and
+      --  the parties that have voted for the value with their signatures.
+      --  Like proposals, we only consider the first vote for a given party.
       _votes :: !(Map (Maybe Val) (Bool, PartyMap sig)),
-      -- |The set of parties from which justified votes have been received.
+      -- | The set of parties from which justified votes have been received.
       _justifiedVoters :: !PartySet,
-      -- |The set of decisions that have become justified.
+      -- | The set of decisions that have become justified.
       _justifiedDecisions :: !(Set (Maybe Val)),
-      -- |Whether we have output a justifed decision already.
+      -- | Whether we have output a justifed decision already.
       _completed :: !Bool
     }
     deriving (Eq, Ord, Show)
 
 makeLenses ''FreezeState
 
--- |The initial state of the Freeze protocol.
+-- | The initial state of the Freeze protocol.
 initialFreezeState :: FreezeState sig
 initialFreezeState = FreezeState Map.empty PS.empty 0 Map.empty PS.empty Set.empty False
 
--- |Whether the Freeze protocol has produced a justified decision.
+-- | Whether the Freeze protocol has produced a justified decision.
 freezeCompleted :: SimpleGetter (FreezeState sig) Bool
 freezeCompleted = to _completed
 
@@ -183,14 +183,14 @@ freezeCompleted = to _completed
 
 -- | 'FreezeMonad' is implemented by a client that wishes to use the Freeze protocol
 class (MonadReader FreezeInstance m, MonadState (FreezeState sig) m) => FreezeMonad sig m where
-    -- |Broadcast a 'FreezeMessage' to all parties.  It is assumed that the message
-    -- will be looped back.
+    -- | Broadcast a 'FreezeMessage' to all parties.  It is assumed that the message
+    --  will be looped back.
     sendFreezeMessage :: FreezeMessage -> m ()
 
-    -- |Output the decision from running the freeze protocol.
+    -- | Output the decision from running the freeze protocol.
     frozen :: Maybe Val -> m ()
 
-    -- |Notify that a decision from the freeze protocol has become justified.
+    -- | Notify that a decision from the freeze protocol has become justified.
     decisionJustified :: Maybe Val -> m ()
 
 --------------------------------------------------------------------------------
@@ -217,9 +217,9 @@ instance FreezeMonad sig (Freeze sig) where
 --------------------------------------------------------------------------------
 -- Protocol
 
--- |Add a proposal to the known proposals, possibly Jvote-justifying the input, and if possible, send a @VOTE@ message.
+-- | Add a proposal to the known proposals, possibly Jvote-justifying the input, and if possible, send a @VOTE@ message.
 --
--- This implements logic in __Vote phase__.
+--  This implements logic in __Vote phase__.
 addProposal :: (FreezeMonad sig m) => Party -> Val -> sig -> m ()
 addProposal party value sig = do
     FreezeInstance{..} <- ask
@@ -236,7 +236,7 @@ addProposal party value sig = do
                     when (PM.weight newParties >= totalWeight - 2 * corruptWeight) $ justifyVote (Just value)
                     when (PS.weight newJustifiedProposers >= totalWeight - corruptWeight) doVote
 
--- |Jvote-justify the vote, possibly Jdec-justifying the vote, and if possible proceed to finish the protocol (__step 3__).
+-- | Jvote-justify the vote, possibly Jdec-justifying the vote, and if possible proceed to finish the protocol (__step 3__).
 justifyVote :: (FreezeMonad sig m) => Maybe Val -> m ()
 justifyVote vote = do
     FreezeInstance{..} <- ask
@@ -254,7 +254,7 @@ justifyVote vote = do
             when (PS.weight newJustifiedVoters >= totalWeight - corruptWeight) doFinish
         Just (True, _) -> return () -- Vote already justified, so nothing to do
 
--- |Add the vote to the known votes and possibly Jdec-justify the vote and/or proceed to finish the protocol (__step 3__).
+-- | Add the vote to the known votes and possibly Jdec-justify the vote and/or proceed to finish the protocol (__step 3__).
 addVote :: (FreezeMonad sig m) => Party -> Maybe Val -> sig -> m ()
 addVote party vote sig = do
     FreezeInstance{..} <- ask
@@ -272,13 +272,13 @@ addVote party vote sig = do
                 when (PM.weight newParties > corruptWeight) $ justifyDecision vote
                 when (PS.weight newJustifiedVoters >= totalWeight - corruptWeight) doFinish
 
--- |Jdec-justify a decision and possibly send a @JUSTIFIED@ message.
+-- | Jdec-justify a decision and possibly send a @JUSTIFIED@ message.
 justifyDecision :: (FreezeMonad sig m) => Maybe Val -> m ()
 justifyDecision decision = whenAddToSet decision justifiedDecisions $ decisionJustified decision
 
--- |Send a vote message, either `Nothing` or `Just vote`.
+-- | Send a vote message, either `Nothing` or `Just vote`.
 --
--- This implements __a) and b) on Vote Phase__.
+--  This implements __a) and b) on Vote Phase__.
 doVote :: (FreezeMonad sig m) => m ()
 doVote = do
     FreezeInstance{..} <- ask
@@ -292,7 +292,7 @@ doVote = do
         -- addVote me vote
         sendFreezeMessage (Vote vote)
 
--- |Get the first justified decision and generate a @FROZEN@ message.
+-- | Get the first justified decision and generate a @FROZEN@ message.
 doFinish :: (FreezeMonad sig m) => m ()
 doFinish = do
     alreadyCompleted <- completed <<.= True
@@ -301,15 +301,15 @@ doFinish = do
             [] -> completed .= False -- If this occurs, there's too much corruption.
             (res : _) -> frozen res -- Take the first justified decision. Using toDescList ensures that Nothing is the least preferred decision.
 
--- |Only used in testing, in order to start the protocol call `startWMVBA`.
+-- | Only used in testing, in order to start the protocol call `startWMVBA`.
 --
--- Propose a candidate value.  The value must already be a candidate (i.e.
--- 'justifyCandidate' should have been called for this value).
--- This should only be called once per instance.  If it is called more than once,
--- or if it is called after receiving a proposal from our own party, only the first
--- proposal is considered, and subsequent proposals are not broadcast.
+--  Propose a candidate value.  The value must already be a candidate (i.e.
+--  'justifyCandidate' should have been called for this value).
+--  This should only be called once per instance.  If it is called more than once,
+--  or if it is called after receiving a proposal from our own party, only the first
+--  proposal is considered, and subsequent proposals are not broadcast.
 --
--- This implements __step 1 of Propose__.
+--  This implements __step 1 of Propose__.
 propose :: (FreezeMonad sig m) => Val -> m ()
 {-# SPECIALIZE propose :: Val -> Freeze sig () #-}
 propose candidate = do
@@ -318,9 +318,9 @@ propose candidate = do
     unless (me `PS.member` pps) $
         sendFreezeMessage (Proposal candidate)
 
--- |Justify a value as a candidate.
+-- | Justify a value as a candidate.
 --
--- This will be called when justifying our own candidate, so __before starting the protocol__.
+--  This will be called when justifying our own candidate, so __before starting the protocol__.
 justifyCandidate :: (FreezeMonad sig m) => Val -> m ()
 {-# SPECIALIZE justifyCandidate :: Val -> Freeze sig () #-}
 justifyCandidate value = do
@@ -337,16 +337,16 @@ justifyCandidate value = do
                 when (PS.weight newJustifiedProposers >= totalWeight - corruptWeight) doVote
         Just (True, _) -> return ()
 
--- |Handle a Freeze message from the network
+-- | Handle a Freeze message from the network
 --
--- Depending on the received message this will could trigger starting __Vote Phase__ or __Freeze Phase__.
+--  Depending on the received message this will could trigger starting __Vote Phase__ or __Freeze Phase__.
 receiveFreezeMessage :: (FreezeMonad sig m) => Party -> FreezeMessage -> sig -> m ()
 {-# SPECIALIZE receiveFreezeMessage :: Party -> FreezeMessage -> sig -> Freeze sig () #-}
 {-# SPECIALIZE receiveFreezeMessage :: Party -> FreezeMessage -> Signature -> Freeze Signature () #-}
 receiveFreezeMessage party (Proposal val) sig = addProposal party val sig
 receiveFreezeMessage party (Vote vote) sig = addVote party vote sig
 
--- |Check if a given value is a justified candidate.
+-- | Check if a given value is a justified candidate.
 isProposalJustified :: (FreezeMonad sig m) => Val -> m Bool
 {-# SPECIALIZE isProposalJustified :: Val -> Freeze sig Bool #-}
 isProposalJustified value =
@@ -362,7 +362,7 @@ data FreezeSummary sig = FreezeSummary
       summaryBotVotes :: Map Party sig
     }
 
--- |Generate a summary of the justified freeze messages.
+-- | Generate a summary of the justified freeze messages.
 freezeSummary :: SimpleGetter (FreezeState sig) (FreezeSummary sig)
 freezeSummary = to fs
   where
@@ -376,7 +376,7 @@ freezeSummary = to fs
             Just (True, pm) -> PM.partyMap pm
             _ -> Map.empty
 
--- |Process a freeze summary, handling the new messages, and determining when we have more to offer.
+-- | Process a freeze summary, handling the new messages, and determining when we have more to offer.
 processFreezeSummary :: (FreezeMonad sig m, Eq sig) => FreezeSummary sig -> (Party -> FreezeMessage -> sig -> Bool) -> m CatchUpResult
 processFreezeSummary FreezeSummary{..} checkSig = do
     r1 <-

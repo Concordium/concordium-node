@@ -51,7 +51,7 @@ on:
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 14                 # change to force cache invalidation
+  dummy: 15                 # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
   TEST_LEVEL: 1            # for stack tests
 
@@ -65,9 +65,9 @@ jobs:
     - name: Download fourmolu
       uses: supplypike/setup-bin@v1
       with:
-        uri: 'https://github.com/fourmolu/fourmolu/releases/download/v0.9.0.0/fourmolu-0.9.0.0-linux-x86_64'
+        uri: 'https://github.com/fourmolu/fourmolu/releases/download/v0.13.1.0/fourmolu-0.13.1.0-linux-x86_64'
         name: 'fourmolu'
-        version: '0.9.0.0'
+        version: '0.13.1.0'
 
     - name: Checkout project
       uses: actions/checkout@v2

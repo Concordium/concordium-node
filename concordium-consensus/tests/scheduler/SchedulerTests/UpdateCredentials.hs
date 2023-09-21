@@ -82,7 +82,7 @@ cdi11kp1 = keys cdi11keys Map.! 1
 
 updateAccountCredentialTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec

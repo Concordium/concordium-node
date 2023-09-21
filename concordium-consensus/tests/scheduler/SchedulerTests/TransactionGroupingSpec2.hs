@@ -4,11 +4,11 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- |
---Testing of 'Concordium.Scheduler.filterTransactions'.
+-- Testing of 'Concordium.Scheduler.filterTransactions'.
 --
---See also 'SchedulerTests.TransactionGroupingSpec'.
---This module uses a different test setup as 'SchedulerTests.TransactionGroupingSpec' which makes
---it easier to define many test cases with expected result and variations thereof.
+-- See also 'SchedulerTests.TransactionGroupingSpec'.
+-- This module uses a different test setup as 'SchedulerTests.TransactionGroupingSpec' which makes
+-- it easier to define many test cases with expected result and variations thereof.
 module SchedulerTests.TransactionGroupingSpec2 (tests) where
 
 import Data.Foldable

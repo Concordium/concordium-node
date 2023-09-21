@@ -34,15 +34,15 @@ accountAddress0 = Helpers.accountAddressFromSeed 0
 keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
 
--- |A module with globals in initialization sections.
+-- | A module with globals in initialization sections.
 modDataGlobals :: FilePath
 modDataGlobals = "../concordium-base/smart-contracts/testdata/contracts/global-data-section-test.wasm"
 
--- |A module with globals in initialization sections.
+-- | A module with globals in initialization sections.
 modElemGlobals :: FilePath
 modElemGlobals = "../concordium-base/smart-contracts/testdata/contracts/global-element-section-test.wasm"
 
--- |Modules testing whether sign extension instructions are allowed or not.
+-- | Modules testing whether sign extension instructions are allowed or not.
 modi32extend8s :: FilePath
 modi32extend8s = "../concordium-base/smart-contracts/testdata/contracts/v1/i32.extend8_s.wasm"
 
@@ -59,16 +59,16 @@ modi64extend32s = "../concordium-base/smart-contracts/testdata/contracts/v1/i64.
 wasmModVersion1 :: WasmVersion
 wasmModVersion1 = V1
 
--- |Test the different modules for whether they can be deployed or not.
+-- | Test the different modules for whether they can be deployed or not.
 testCase ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
-    -- |Assertion that will be used to check the transaction outcome.
+    -- | Assertion that will be used to check the transaction outcome.
     Helpers.TransactionAssertion pv ->
-    -- |Description of the test.
+    -- | Description of the test.
     String ->
-    -- |Path to the module to attempt to deploy.
+    -- | Path to the module to attempt to deploy.
     FilePath ->
     Spec
 testCase spv taaAssertion pvString sourceFile =
@@ -94,16 +94,16 @@ testCase spv taaAssertion pvString sourceFile =
             }
         ]
 
--- |Ensure that the outcome is success before P6, and ModuleNotWF after P6.
-validBeforeP6 :: forall pv. Types.IsProtocolVersion pv => Helpers.TransactionAssertion pv
+-- | Ensure that the outcome is success before P6, and ModuleNotWF after P6.
+validBeforeP6 :: forall pv. (Types.IsProtocolVersion pv) => Helpers.TransactionAssertion pv
 validBeforeP6 result _ =
     return $
         if Types.supportsGlobalsInInitSections (Types.protocolVersion @pv)
             then Helpers.assertSuccess result
             else Helpers.assertRejectWithReason Types.ModuleNotWF result
 
--- |Ensure that the outcome is success after P6, and ModuleNotWF before P6.
-validAfterP6 :: forall pv. Types.IsProtocolVersion pv => Helpers.TransactionAssertion pv
+-- | Ensure that the outcome is success after P6, and ModuleNotWF before P6.
+validAfterP6 :: forall pv. (Types.IsProtocolVersion pv) => Helpers.TransactionAssertion pv
 validAfterP6 result _ =
     return $
         if Types.supportsSignExtensionInstructions (Types.protocolVersion @pv)

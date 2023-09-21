@@ -63,8 +63,8 @@ insertionTests lvl = it "insert and lookup" $
                 in  let trie = constructTrie inputs
                     in  conjoin (map (\k -> Map.lookup k referenceMap === trieLookup k trie) (map fst inputs ++ extraKeys))
 
--- |Check that using the empty prefix with 'Trie.lookupPrefix' is equivalent to
--- 'toList' modulo the order.
+-- | Check that using the empty prefix with 'Trie.lookupPrefix' is equivalent to
+--  'toList' modulo the order.
 emptyPrefixTest :: Word -> Spec
 emptyPrefixTest lvl = it "lookup empty prefix is the same as toList" $
     withMaxSuccess (10000 * fromIntegral lvl) $
@@ -74,9 +74,9 @@ emptyPrefixTest lvl = it "lookup empty prefix is the same as toList" $
                 in  let trie = constructTrie inputs
                     in  sort (triePrefixLookup [] trie) === Map.toAscList referenceMap
 
--- |Check that 'Trie.lookupPrefix' reduces to 'Trie.lookup' in case of an exact
--- match. That this is a property relies on the fact that all keys have the same
--- length, which is a requirement for this trie implementation.
+-- | Check that 'Trie.lookupPrefix' reduces to 'Trie.lookup' in case of an exact
+--  match. That this is a property relies on the fact that all keys have the same
+--  length, which is a requirement for this trie implementation.
 exactPrefixTest :: Word -> Spec
 exactPrefixTest lvl = it "lookup exact prefix matches lookup" $
     withMaxSuccess (10000 * fromIntegral lvl) $
@@ -89,12 +89,12 @@ exactPrefixTest lvl = it "lookup exact prefix matches lookup" $
                             (map fst inputs ++ extraKeys)
                         )
 
--- |Generate all possible prefix sizes, including empty prefix.
+-- | Generate all possible prefix sizes, including empty prefix.
 genPrefixSizes :: Gen Int
 genPrefixSizes = choose (0, 32)
 
--- |Check that 'Trie.lookupPrefix' returns exactly the right keys. This is
--- compared to the obvious implementation using the reference map.
+-- | Check that 'Trie.lookupPrefix' returns exactly the right keys. This is
+--  compared to the obvious implementation using the reference map.
 allPrefixes :: Word -> Spec
 allPrefixes lvl = it "lookup prefix" $
     withMaxSuccess (10000 * fromIntegral lvl) $
@@ -118,8 +118,8 @@ allPrefixes lvl = it "lookup prefix" $
                             (map fst inputs)
                         )
 
--- |Generate some aliases for the given account address. All aliases are unique
--- and the return list will have at least one.
+-- | Generate some aliases for the given account address. All aliases are unique
+--  and the return list will have at least one.
 genAliases :: AccountAddress -> Gen [AccountAddress]
 genAliases (AccountAddress addr) = sized $ \n -> do
     len <- choose (1, min n 1000)
@@ -129,7 +129,7 @@ genAliases (AccountAddress addr) = sized $ \n -> do
 constructAccountMap :: forall pv. [(AccountAddress, AccountIndex)] -> AccountMap.PureAccountMap pv
 constructAccountMap = AccountMap.AccountMap . runIdentity . Trie.fromList
 
--- |Check that for protocol version 3
+-- | Check that for protocol version 3
 checkClashesP3 :: Word -> Spec
 checkClashesP3 lvl = it "check aliases for P3" $
     withMaxSuccess (10000 * fromIntegral lvl) $
@@ -144,11 +144,11 @@ checkClashesP3 lvl = it "check aliases for P3" $
                             inputs
                         )
 
--- |Check that for protocol versions P1 and P2 addressWouldClash implies
--- equality of addresses. This test is only meant to be instantiated with P1 and
--- P2 protocol versions since it should fail for protocol version 3.
--- See 'checkClashesP3' for that protocol version.
-checkClashesP1P2 :: forall pv. IsProtocolVersion pv => Proxy pv -> Word -> Spec
+-- | Check that for protocol versions P1 and P2 addressWouldClash implies
+--  equality of addresses. This test is only meant to be instantiated with P1 and
+--  P2 protocol versions since it should fail for protocol version 3.
+--  See 'checkClashesP3' for that protocol version.
+checkClashesP1P2 :: forall pv. (IsProtocolVersion pv) => Proxy pv -> Word -> Spec
 checkClashesP1P2 Proxy lvl = it ("check aliases for protocol version " ++ show (demoteProtocolVersion (protocolVersion @pv))) $
     withMaxSuccess (10000 * fromIntegral lvl) $
         property $

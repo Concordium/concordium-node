@@ -66,7 +66,7 @@ v0ProxySourceFile = "../concordium-base/smart-contracts/testdata/contracts/v1/se
 -- Only V1 contracts are being used.
 checkpointingTest1 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -170,7 +170,7 @@ checkpointingTest1 spv pvString =
 -- Only V1 contracts are being used.
 checkpointingTest2 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -272,7 +272,7 @@ checkpointingTest2 spv pvString =
 -- Only V1 contracts are being used.
 checkpointingTest3 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -359,7 +359,7 @@ checkpointingTest3 spv pvString =
 -- Only V1 contracts are being used.
 checkpointingTest4 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -465,7 +465,7 @@ checkpointingTest4 spv pvString =
 -- Contract A is V1, contract B is V1, and the proxy contract is V0.
 checkpointingTest5 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -609,7 +609,7 @@ checkpointingTest5 spv pvString =
 -- Contract A is V1, contract B is V1, and the proxy contract is V0.
 checkpointingTest6 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -756,7 +756,7 @@ checkpointing2SourceFile = "../concordium-base/smart-contracts/testdata/contract
 -- assertion violation. In P6 the behaviour is fixed.
 checkpointingTest7 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -833,7 +833,7 @@ checkpointingTest7 spv pvString =
 -- assertion violation. In P6 the behaviour is fixed.
 checkpointingTest8 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -907,7 +907,7 @@ checkpointingTest8 spv pvString =
 -- assertion violation. In P6 the behaviour is fixed.
 checkpointingTest9 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec

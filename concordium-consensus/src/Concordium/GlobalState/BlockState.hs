@@ -1231,6 +1231,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  This increases the total GTU in circulation.
     bsoMint :: UpdatableBlockState m -> MintAmounts -> m (UpdatableBlockState m)
 
+    -- | Mint an amount directly to an account, increasing the total supply by the minted amount.
+    --  If minting to the account would overflow the total supply, then the minting does not
+    --  occur and the maximum amount that could be minted without overflowing is returned.
+    --  (The operation is "safe" in so far as it does not cause an overflow in the supply.)
+    --  If minting to the account is successful, 'Nothing' is returned.
+    --  The caller must ensure that the account exists. If it does not, the behaviour is
+    --  unspecified. (In particular, the amount may be minted, but not credited to any account.)
+    bsoSafeMintToAccount :: UpdatableBlockState m -> AccountIndex -> Amount -> m (Maybe Amount)
+
     -- | Get the identity provider data for the given identity provider, or Nothing if
     --  the identity provider with given ID does not exist.
     bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
@@ -1376,8 +1385,10 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- | Load a block state from a reference, given its state hash.
-    loadBlockState :: StateHash -> BlockStateRef m -> m (BlockState m)
+    -- | Load a block state from a reference, given its state hash if provided,
+    --  otherwise calculate the state hash upon loading.
+    --  In particular the 'StateHash' should be supplied if loading a non-genesis block state.
+    loadBlockState :: Maybe StateHash -> BlockStateRef m -> m (BlockState m)
 
     -- | Serialize the block state to a byte string.
     --  This serialization does not include transaction outcomes.

@@ -43,15 +43,15 @@ data PersistentAccountEncryptedAmount = PersistentAccountEncryptedAmount
       -- They are assumed to be numbered sequentially. This list will never contain more than 'maxNumIncoming'
       -- (or @maxNumIncoming - 1@ if there is an aggregated amount present) values.
       _incomingEncryptedAmounts :: !(Seq.Seq (EagerBufferedRef EncryptedAmount)),
-      -- |If 'Just', the amount that has resulted from aggregating other amounts and the
-      -- number of aggregated amounts (must be at least 2 if present).
+      -- | If 'Just', the amount that has resulted from aggregating other amounts and the
+      --  number of aggregated amounts (must be at least 2 if present).
       _aggregatedAmount :: !(Maybe (EagerBufferedRef EncryptedAmount, Word32))
     }
     deriving (Show)
 
 -- | Create a PersistentAccountEncryptedAmount with the initial, 0 encrypted balance (with
 -- randomness 0) and no incoming amounts.
-initialPersistentAccountEncryptedAmount :: MonadBlobStore m => m PersistentAccountEncryptedAmount
+initialPersistentAccountEncryptedAmount :: (MonadBlobStore m) => m PersistentAccountEncryptedAmount
 initialPersistentAccountEncryptedAmount = do
     _selfAmount <- refMake mempty
     return $!
@@ -62,8 +62,8 @@ initialPersistentAccountEncryptedAmount = do
               ..
             }
 
--- |Check whether the account encrypted amount is identically the initial encrypted amount.
-isInitialPersistentAccountEncryptedAmount :: MonadBlobStore m => PersistentAccountEncryptedAmount -> m Bool
+-- | Check whether the account encrypted amount is identically the initial encrypted amount.
+isInitialPersistentAccountEncryptedAmount :: (MonadBlobStore m) => PersistentAccountEncryptedAmount -> m Bool
 isInitialPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} =
     if _startIndex == 0 && Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount
         then isZeroEncryptedAmount <$> refLoad _selfAmount
@@ -72,16 +72,16 @@ isInitialPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} =
 -- Checks whether the account encrypted amount is zero. This checks that there
 -- are no incoming amounts, and that the self amount is a specific encryption of
 -- 0, with randomness 0.
-isZeroPersistentAccountEncryptedAmount :: MonadBlobStore m => PersistentAccountEncryptedAmount -> m Bool
+isZeroPersistentAccountEncryptedAmount :: (MonadBlobStore m) => PersistentAccountEncryptedAmount -> m Bool
 isZeroPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} =
     if Seq.null _incomingEncryptedAmounts && isNothing _aggregatedAmount
         then isZeroEncryptedAmount <$> refLoad _selfAmount
         else return False
 
--- |Serialize a 'PersistentAccountEncryptedAmount' if it is not the initial
--- encrypted amount (in which case, @Nothing@ is returned).
+-- | Serialize a 'PersistentAccountEncryptedAmount' if it is not the initial
+--  encrypted amount (in which case, @Nothing@ is returned).
 --
--- This should match the serialization format of 'AccountEncryptedAmount' exactly.
+--  This should match the serialization format of 'AccountEncryptedAmount' exactly.
 putAccountEncryptedAmountV0 ::
     (MonadBlobStore m) =>
     PersistentAccountEncryptedAmount ->
@@ -109,7 +109,7 @@ putAccountEncryptedAmountV0 ea@PersistentAccountEncryptedAmount{..} = do
 
 -- | Given an AccountEncryptedAmount, create a Persistent version of it
 storePersistentAccountEncryptedAmount ::
-    MonadBlobStore m =>
+    (MonadBlobStore m) =>
     AccountEncryptedAmount ->
     m PersistentAccountEncryptedAmount
 storePersistentAccountEncryptedAmount AccountEncryptedAmount{..} = do
@@ -122,7 +122,7 @@ storePersistentAccountEncryptedAmount AccountEncryptedAmount{..} = do
 
 -- | Given a PersistentAccountEncryptedAmount, load its equivalent AccountEncryptedAmount
 loadPersistentAccountEncryptedAmount ::
-    MonadBlobStore m =>
+    (MonadBlobStore m) =>
     PersistentAccountEncryptedAmount ->
     m AccountEncryptedAmount
 loadPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} = do
@@ -133,7 +133,7 @@ loadPersistentAccountEncryptedAmount PersistentAccountEncryptedAmount{..} = do
         Just (e, n) -> Just . (,n) <$> refLoad e
     return $! AccountEncryptedAmount{..}
 
-instance MonadBlobStore m => BlobStorable m PersistentAccountEncryptedAmount where
+instance (MonadBlobStore m) => BlobStorable m PersistentAccountEncryptedAmount where
     storeUpdate PersistentAccountEncryptedAmount{..} = do
         (pSelf, _selfAmount) <- storeUpdate _selfAmount
         (pAmounts, _incomingEncryptedAmounts) <- Seq.unzip <$> mapM storeUpdate _incomingEncryptedAmounts
@@ -177,7 +177,7 @@ instance (MonadBlobStore m) => Cacheable m PersistentAccountEncryptedAmount
 -- go over the threshold for the maximum number of incoming amounts then
 -- aggregate the first two incoming amounts.
 addIncomingEncryptedAmount ::
-    MonadBlobStore m =>
+    (MonadBlobStore m) =>
     EncryptedAmount ->
     PersistentAccountEncryptedAmount ->
     m PersistentAccountEncryptedAmount
@@ -225,7 +225,7 @@ addIncomingEncryptedAmount !newAmount old = do
 -- As mentioned above, the whole 'selfBalance' must always be used in any
 -- outgoing action of the account.
 replaceUpTo ::
-    MonadBlobStore m =>
+    (MonadBlobStore m) =>
     EncryptedAmountAggIndex ->
     EncryptedAmount ->
     PersistentAccountEncryptedAmount ->
@@ -253,7 +253,7 @@ replaceUpTo newIndex newAmount PersistentAccountEncryptedAmount{..} = do
 -- | Add the given encrypted amount to 'selfAmount'
 -- This is used when the account is transferring from public to secret balance.
 addToSelfEncryptedAmount ::
-    MonadBlobStore m =>
+    (MonadBlobStore m) =>
     EncryptedAmount ->
     PersistentAccountEncryptedAmount ->
     m PersistentAccountEncryptedAmount
@@ -261,9 +261,9 @@ addToSelfEncryptedAmount newAmount old@PersistentAccountEncryptedAmount{..} = do
     newSelf <- refMake . (<> newAmount) =<< refLoad _selfAmount
     return $! old{_selfAmount = newSelf}
 
--- |See documentation of @migratePersistentBlockState@.
+-- | See documentation of @migratePersistentBlockState@.
 migratePersistentEncryptedAmount ::
-    SupportMigration m t =>
+    (SupportMigration m t) =>
     PersistentAccountEncryptedAmount ->
     t m PersistentAccountEncryptedAmount
 migratePersistentEncryptedAmount PersistentAccountEncryptedAmount{..} = do

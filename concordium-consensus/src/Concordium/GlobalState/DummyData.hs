@@ -77,7 +77,7 @@ dummyAuthorizationKeyPair = uncurry SigScheme.KeyPairEd25519 . fst $ randomEd255
 
 {-# NOINLINE dummyAuthorizations #-}
 {-# WARNING dummyAuthorizations "Do not use in production." #-}
-dummyAuthorizations :: forall auv. IsAuthorizationsVersion auv => Authorizations auv
+dummyAuthorizations :: forall auv. (IsAuthorizationsVersion auv) => Authorizations auv
 dummyAuthorizations =
     Authorizations
         { asKeys = Vec.singleton (correspondingVerifyKey dummyAuthorizationKeyPair),
@@ -110,7 +110,7 @@ dummyHigherLevelKeys =
 
 {-# NOINLINE dummyKeyCollection #-}
 {-# WARNING dummyKeyCollection "Do not use in production." #-}
-dummyKeyCollection :: IsAuthorizationsVersion auv => UpdateKeysCollection auv
+dummyKeyCollection :: (IsAuthorizationsVersion auv) => UpdateKeysCollection auv
 dummyKeyCollection =
     UpdateKeysCollection
         { rootKeys = dummyHigherLevelKeys,
@@ -120,9 +120,9 @@ dummyKeyCollection =
 
 {-# WARNING makeFakeBakers "Do not use in production" #-}
 
--- |Make a given number of baker accounts for use in genesis.
--- These bakers should be the first accounts in a genesis block (because
--- the baker ids must match the account indexes).
+-- | Make a given number of baker accounts for use in genesis.
+--  These bakers should be the first accounts in a genesis block (because
+--  the baker ids must match the account indexes).
 makeFakeBakers :: Word -> [GenesisAccount]
 makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
   where
@@ -135,10 +135,10 @@ makeFakeBakers nBakers = take (fromIntegral nBakers) $ mbs (mkStdGen 17) 0
         blspk = Bls.derivePublicKey blssk
         account = makeFakeBakerAccount bid epk spk blspk
 
--- |Make a baker deterministically from a given seed and with the given reward account.
--- Uses 'bakerElectionKey' and 'bakerSignKey' with the given seed to generate the keys.
--- The baker has 0 lottery power.
--- mkBaker :: Int -> AccountAddress -> (BakerInfo
+-- | Make a baker deterministically from a given seed and with the given reward account.
+--  Uses 'bakerElectionKey' and 'bakerSignKey' with the given seed to generate the keys.
+--  The baker has 0 lottery power.
+--  mkBaker :: Int -> AccountAddress -> (BakerInfo
 {-# WARNING mkFullBaker "Do not use in production." #-}
 mkFullBaker :: Int -> BakerId -> (FullBakerInfo, VRF.SecretKey, Sig.SignKey, Bls.SecretKey)
 mkFullBaker seed _bakerIdentity =
@@ -163,27 +163,27 @@ mkFullBaker seed _bakerIdentity =
 
 {-# WARNING makeTestingGenesisDataP1 "Do not use in production" #-}
 makeTestingGenesisDataP1 ::
-    -- |Genesis time
+    -- | Genesis time
     Timestamp ->
-    -- |Initial number of bakers.
+    -- | Initial number of bakers.
     Word ->
-    -- |Slot duration in seconds.
+    -- | Slot duration in seconds.
     Duration ->
-    -- |Minimum finalization interval - 1
+    -- | Minimum finalization interval - 1
     BlockHeight ->
-    -- |Maximum number of parties in the finalization committee
+    -- | Maximum number of parties in the finalization committee
     FinalizationCommitteeSize ->
-    -- |Initial cryptographic parameters.
+    -- | Initial cryptographic parameters.
     CryptographicParameters ->
-    -- |List of initial identity providers.
+    -- | List of initial identity providers.
     IdentityProviders ->
-    -- |Initial anonymity revokers.
+    -- | Initial anonymity revokers.
     AnonymityRevokers ->
-    -- |Maximum limit on the total stated energy of the transactions in a block
+    -- | Maximum limit on the total stated energy of the transactions in a block
     Energy ->
-    -- |Initial update authorizations
+    -- | Initial update authorizations
     UpdateKeysCollection 'AuthorizationsVersion0 ->
-    -- |Initial chain parameters
+    -- | Initial chain parameters
     ChainParameters 'P1 ->
     GenesisData 'P1
 makeTestingGenesisDataP1
@@ -220,27 +220,27 @@ makeTestingGenesisDataP1
 
 {-# WARNING makeTestingGenesisDataP5 "Do not use in production" #-}
 makeTestingGenesisDataP5 ::
-    -- |Genesis time
+    -- | Genesis time
     Timestamp ->
-    -- |Initial number of bakers.
+    -- | Initial number of bakers.
     Word ->
-    -- |Slot duration in seconds.
+    -- | Slot duration in seconds.
     Duration ->
-    -- |Minimum finalization interval - 1
+    -- | Minimum finalization interval - 1
     BlockHeight ->
-    -- |Maximum number of parties in the finalization committee
+    -- | Maximum number of parties in the finalization committee
     FinalizationCommitteeSize ->
-    -- |Initial cryptographic parameters.
+    -- | Initial cryptographic parameters.
     CryptographicParameters ->
-    -- |List of initial identity providers.
+    -- | List of initial identity providers.
     IdentityProviders ->
-    -- |Initial anonymity revokers.
+    -- | Initial anonymity revokers.
     AnonymityRevokers ->
-    -- |Maximum limit on the total stated energy of the transactions in a block
+    -- | Maximum limit on the total stated energy of the transactions in a block
     Energy ->
-    -- |Initial update authorizations
+    -- | Initial update authorizations
     UpdateKeysCollection 'AuthorizationsVersion1 ->
-    -- |Initial chain parameters
+    -- | Initial chain parameters
     ChainParameters 'P5 ->
     GenesisData 'P5
 makeTestingGenesisDataP5
@@ -345,7 +345,7 @@ dummyRewardParametersV2 =
                 }
         }
 
--- |Consensus parameters for the second consensus protocol.
+-- | Consensus parameters for the second consensus protocol.
 dummyConsensusParametersV1 :: ConsensusParameters' 'ConsensusParametersVersion1
 dummyConsensusParametersV1 =
     ConsensusParametersV1
@@ -359,12 +359,12 @@ dummyConsensusParametersV1 =
           _cpBlockEnergyLimit = maxBound -- the maximum energy a block can consume.
         }
 
--- |Finalization parameters for the second consensus protocol.
--- @_fcpMinFinalizers = 50@
--- @_fcpMaxFinalizers = 500@
--- @_fcpFinalizerRelativeStakeThreshold = 1/10@
--- Hence required stake to be eligible for becoming part of the finalization committe
--- (if there are 50 or more finalizers already) is 10% of the total stake in pools.
+-- | Finalization parameters for the second consensus protocol.
+--  @_fcpMinFinalizers = 50@
+--  @_fcpMaxFinalizers = 500@
+--  @_fcpFinalizerRelativeStakeThreshold = 1/10@
+--  Hence required stake to be eligible for becoming part of the finalization committe
+--  (if there are 50 or more finalizers already) is 10% of the total stake in pools.
 dummyFinalizationCommitteeParameters :: FinalizationCommitteeParameters
 dummyFinalizationCommitteeParameters =
     FinalizationCommitteeParameters
@@ -374,7 +374,7 @@ dummyFinalizationCommitteeParameters =
           _fcpFinalizerRelativeStakeThreshold = PartsPerHundredThousands 10000
         }
 
-dummyChainParameters :: forall cpv. IsChainParametersVersion cpv => ChainParameters' cpv
+dummyChainParameters :: forall cpv. (IsChainParametersVersion cpv) => ChainParameters' cpv
 dummyChainParameters = case chainParametersVersion @cpv of
     SChainParametersV0 ->
         ChainParameters
@@ -474,7 +474,7 @@ dummyChainParameters = case chainParametersVersion @cpv of
     fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
     cooldown = DurationSeconds (24 * 60 * 60)
 
--- |Make a baker account with the given baker verification keys and account keys that are seeded from the baker id.
+-- | Make a baker account with the given baker verification keys and account keys that are seeded from the baker id.
 {-# WARNING makeFakeBakerAccount "Do not use in production." #-}
 makeFakeBakerAccount :: BakerId -> BakerElectionVerifyKey -> BakerSignVerifyKey -> BakerAggregationVerifyKey -> GenesisAccount
 makeFakeBakerAccount gbBakerId gbElectionVerifyKey gbSignatureVerifyKey gbAggregationVerifyKey = GenesisAccount{..}

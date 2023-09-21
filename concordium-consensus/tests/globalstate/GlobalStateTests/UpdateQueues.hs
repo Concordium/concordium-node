@@ -20,7 +20,7 @@ import Concordium.Types
 
 -- This tests that chain parameter updates that are scheduled at the same time are not lost
 -- when calling 'PU.processUpdateQueues'.
-testCase :: forall cpv. IsChainParametersVersion cpv => SChainParametersVersion cpv -> String -> IO ()
+testCase :: forall cpv. (IsChainParametersVersion cpv) => SChainParametersVersion cpv -> String -> IO ()
 testCase scpv pvString = do
     -- Schedule three updates
     let rootKeyUpdate = UVRootKeys dummyHigherLevelKeys

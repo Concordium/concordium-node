@@ -29,14 +29,14 @@ import SchedulerTests.TestUtils
 
 type PersistentModuleInterfaceV v = GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
 
--- |Deploy a V1 module in the given state. The source file should be a raw Wasm file.
--- If the module is invalid this will raise an exception.
+-- | Deploy a V1 module in the given state. The source file should be a raw Wasm file.
+--  If the module is invalid this will raise an exception.
 deployModuleV1 ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
-    -- |Source file.
+    -- | Source file.
     FilePath ->
-    -- |State to add the module to.
+    -- | State to add the module to.
     BS.PersistentBlockState pv ->
     Helpers.PersistentBSM pv ((PersistentModuleInterfaceV V1, WasmModuleV V1), BS.PersistentBlockState pv)
 deployModuleV1 spv sourceFile bs = do
@@ -50,12 +50,12 @@ deployModuleV1 spv sourceFile bs = do
                 Just (GSWasm.ModuleInterfaceV1 miv') -> return ((miv', wm), modState)
                 _ -> liftIO $ assertFailure "bsoGetModule failed to return put module."
 
--- |Deploy a V0 module in the given state. The source file should be a raw Wasm file.
--- If the module is invalid this will raise an exception.
+-- | Deploy a V0 module in the given state. The source file should be a raw Wasm file.
+--  If the module is invalid this will raise an exception.
 deployModuleV0 ::
-    -- |Source file.
+    -- | Source file.
     FilePath ->
-    -- |State to add the module to.
+    -- | State to add the module to.
     BS.PersistentBlockState PV4 ->
     Helpers.PersistentBSM PV4 ((PersistentModuleInterfaceV V0, WasmModuleV V0), BS.PersistentBlockState PV4)
 deployModuleV0 sourceFile bs = do
@@ -69,18 +69,18 @@ deployModuleV0 sourceFile bs = do
                 Just (GSWasm.ModuleInterfaceV0 miv') -> return ((miv', wm), modState)
                 _ -> liftIO $ assertFailure "bsoGetModule failed to return put module."
 
--- |Initialize a contract from the supplied module in the given state, and return its address.
--- The state is assumed to contain the module.
+-- | Initialize a contract from the supplied module in the given state, and return its address.
+--  The state is assumed to contain the module.
 initContractV1 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
-    -- |Sender address
+    (Types.IsProtocolVersion pv) =>
+    -- | Sender address
     Types.AccountAddress ->
-    -- |Contract to initialize.
+    -- | Contract to initialize.
     InitName ->
-    -- |Parameter to initialize with.
+    -- | Parameter to initialize with.
     Parameter ->
-    -- |Initial balance.
+    -- | Initial balance.
     Types.Amount ->
     BS.PersistentBlockState pv ->
     (PersistentModuleInterfaceV GSWasm.V1, WasmModuleV GSWasm.V1) ->
@@ -114,16 +114,16 @@ initContractV1 senderAddress initName initParam initAmount bs (miv, _) = do
                         }
             BS.bsoPutNewInstance bs ins
 
--- |Initialize a contract from the supplied module in the given state, and return its address.
--- The state is assumed to contain the module.
+-- | Initialize a contract from the supplied module in the given state, and return its address.
+--  The state is assumed to contain the module.
 initContractV0 ::
-    -- |Sender address
+    -- | Sender address
     Types.AccountAddress ->
-    -- |Contract to initialize.
+    -- | Contract to initialize.
     InitName ->
-    -- |Parameter to initialize with.
+    -- | Parameter to initialize with.
     Parameter ->
-    -- |Initial balance.
+    -- | Initial balance.
     Types.Amount ->
     BS.PersistentBlockState PV4 ->
     (PersistentModuleInterfaceV GSWasm.V0, WasmModuleV GSWasm.V0) ->

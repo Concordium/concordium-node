@@ -1,7 +1,7 @@
 {-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- |An implementation of a BlockPointer that doesn't retain the parent or last finalized block so that they can be written into the disk and dropped from the memory.
+-- | An implementation of a BlockPointer that doesn't retain the parent or last finalized block so that they can be written into the disk and dropped from the memory.
 module Concordium.GlobalState.Persistent.BlockPointer where
 
 import Concordium.GlobalState.Block
@@ -18,43 +18,43 @@ import System.Mem.Weak
 
 type PersistentBlockPointer pv = BlockPointer pv Weak
 
--- |Create an empty weak pointer
+-- | Create an empty weak pointer
 --
--- Creating a pointer that points to `undefined` with no finalizers and finalizing it
--- immediately, results in an empty pointer that always return `Nothing`
--- when dereferenced.
+--  Creating a pointer that points to `undefined` with no finalizers and finalizing it
+--  immediately, results in an empty pointer that always return `Nothing`
+--  when dereferenced.
 emptyWeak :: IO (Weak a)
 emptyWeak = do
     pointer <- mkWeakPtr undefined Nothing
     finalize pointer
     return pointer
 
--- |Creates a persistent block pointer with the provided block and metadata. Should not be called directly.
+-- | Creates a persistent block pointer with the provided block and metadata. Should not be called directly.
 makePersistentBlockPointer ::
     (Monad m, IsProtocolVersion pv) =>
-    -- |Pending block
+    -- | Pending block
     Block pv ->
-    -- |Precomputed hash of this block. If not provided, it will be computed in-place.
+    -- | Precomputed hash of this block. If not provided, it will be computed in-place.
     Maybe BlockHash ->
-    -- |Height of the block
+    -- | Height of the block
     BlockHeight ->
-    -- |Parent block pointer
+    -- | Parent block pointer
     Weak (PersistentBlockPointer pv bs) ->
-    -- |Last finalized block pointer
+    -- | Last finalized block pointer
     Weak (PersistentBlockPointer pv bs) ->
-    -- |Last finalized block hash
+    -- | Last finalized block hash
     BlockHash ->
-    -- |Block state
+    -- | Block state
     bs ->
-    -- |Block arrival time
+    -- | Block arrival time
     UTCTime ->
-    -- |Receive time
+    -- | Receive time
     UTCTime ->
-    -- |Transaction count (only non available if we are upgrading a pending block)
+    -- | Transaction count (only non available if we are upgrading a pending block)
     Maybe Int ->
-    -- |Transction size (only non available if we are upgrading a pending block)
+    -- | Transction size (only non available if we are upgrading a pending block)
     Maybe Int ->
-    -- |Energy cost of all transactions in the block. If not provided, it will be computed in-place.
+    -- | Energy cost of all transactions in the block. If not provided, it will be computed in-place.
     Energy ->
     m (PersistentBlockPointer pv bs)
 makePersistentBlockPointer b hs _bpHeight _bpParent _bpLastFinalized _bpLastFinalizedHash _bpState _bpArriveTime _bpReceiveTime txcount txsize _bpTransactionsEnergyCost = do
@@ -71,12 +71,12 @@ makePersistentBlockPointer b hs _bpHeight _bpParent _bpLastFinalized _bpLastFina
             (Just x, Just y) -> (x, y)
             _ -> List.foldl' (\(clen, csize) tx -> (clen + 1, Transactions.biSize tx + csize)) (0, 0) (blockTransactions b)
 
--- |Creates the genesis persistent block pointer that has empty references to parent and last finalized.
+-- | Creates the genesis persistent block pointer that has empty references to parent and last finalized.
 --
--- The genesis block used to have circular references but doing recursive circular references in a recursive
--- do block with Weak pointers results in the pointer being deallocated immediately so instead of doing that
--- we will just put empty pointers there. In any case, when reading those values, if the block is the genesis
--- block we don't even deref these pointers so they can be empty.
+--  The genesis block used to have circular references but doing recursive circular references in a recursive
+--  do block with Weak pointers results in the pointer being deallocated immediately so instead of doing that
+--  we will just put empty pointers there. In any case, when reading those values, if the block is the genesis
+--  block we don't even deref these pointers so they can be empty.
 makeGenesisPersistentBlockPointer ::
     forall pv m bs.
     (MonadIO m) =>
@@ -105,21 +105,21 @@ makeGenesisPersistentBlockPointer genConf _bpState = liftIO $ do
               ..
             }
 
--- |Converts a Pending Block into a PersistentBlockPointer
+-- | Converts a Pending Block into a PersistentBlockPointer
 makePersistentBlockPointerFromPendingBlock ::
     forall pv m bs.
-    (IsProtocolVersion pv, MonadLogger m, MonadIO m) =>
-    -- |Pending block
+    (IsProtocolVersion pv, MonadLogger m, MonadIO m, HashableTo StateHash bs) =>
+    -- | Pending block
     PendingBlock ->
-    -- |Parent block
+    -- | Parent block
     PersistentBlockPointer pv bs ->
-    -- |Last finalized block
+    -- | Last finalized block
     PersistentBlockPointer pv bs ->
-    -- |Block state
+    -- | Block state
     bs ->
-    -- |Block arrival time
+    -- | Block arrival time
     UTCTime ->
-    -- |Energy cost of all transactions in the block
+    -- | Energy cost of all transactions in the block
     Energy ->
     m (PersistentBlockPointer pv bs)
 makePersistentBlockPointerFromPendingBlock pb parent lfin st arr ene = do
@@ -137,11 +137,11 @@ makePersistentBlockPointerFromPendingBlock pb parent lfin st arr ene = do
 -- | Create an unlinked persistent block pointer
 makeBlockPointerFromPersistentBlock ::
     (MonadIO m) =>
-    -- |Block deserialized as retrieved from the disk
+    -- | Block deserialized as retrieved from the disk
     Block pv ->
-    -- |Block state
+    -- | Block state
     bs ->
-    -- |Block info
+    -- | Block info
     BasicBlockPointerData ->
     m (PersistentBlockPointer pv bs)
 makeBlockPointerFromPersistentBlock _bpBlock _bpState _bpInfo = liftIO $ do

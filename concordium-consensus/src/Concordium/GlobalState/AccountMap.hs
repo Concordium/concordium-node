@@ -58,59 +58,59 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.Types
 
--- |An account map, mapping account addresses to account indices. Account
--- addresses are used externally to refer to accounts. Depending on the protocol
--- version, multiple account addresses may refer to the same account.
+-- | An account map, mapping account addresses to account indices. Account
+--  addresses are used externally to refer to accounts. Depending on the protocol
+--  version, multiple account addresses may refer to the same account.
 --
--- Currently, in protocol versions 1 and 2 each account has exactly one address.
--- In protocol version 3 an account may have up to 2^24 addresses.
+--  Currently, in protocol versions 1 and 2 each account has exactly one address.
+--  In protocol version 3 an account may have up to 2^24 addresses.
 newtype AccountMap (pv :: ProtocolVersion) fix = AccountMap
     { unAccountMap :: Trie.TrieN fix AccountAddress AccountIndex
     }
 
--- |The account map to be used in the persistent block state.
+-- | The account map to be used in the persistent block state.
 type PersistentAccountMap pv = AccountMap pv BufferedFix
 
--- |See documentation of @migratePersistentBlockState@.
+-- | See documentation of @migratePersistentBlockState@.
 migratePersistentAccountMap ::
     (BlobStorable m AccountIndex, BlobStorable (t m) AccountIndex, MonadTrans t) =>
     PersistentAccountMap oldpv ->
     t m (PersistentAccountMap pv)
 migratePersistentAccountMap (AccountMap am) = AccountMap <$> Trie.migrateTrieN True return am
 
--- |The account map that is purely in memory and used in the basic block state.
+-- | The account map that is purely in memory and used in the basic block state.
 type PureAccountMap pv = AccountMap pv Fix
 
 -- Necessary state storage instances for the persistent map. The pure one is not
 -- stored so does not need the related instances.
-instance MonadBlobStore m => Cacheable m (PersistentAccountMap pv) where
+instance (MonadBlobStore m) => Cacheable m (PersistentAccountMap pv) where
     cache (AccountMap am) = AccountMap <$> cache am
     {-# INLINE cache #-}
 
-instance MonadBlobStore m => BlobStorable m (PersistentAccountMap pv) where
+instance (MonadBlobStore m) => BlobStorable m (PersistentAccountMap pv) where
     storeUpdate (AccountMap am) = second AccountMap <$> storeUpdate am
     {-# INLINE storeUpdate #-}
 
     load = fmap AccountMap <$> load
     {-# INLINE load #-}
 
--- |Convert a pure account map to the persistent one.
-toPersistent :: MonadBlobStore m => PureAccountMap pv -> m (PersistentAccountMap pv)
+-- | Convert a pure account map to the persistent one.
+toPersistent :: (MonadBlobStore m) => PureAccountMap pv -> m (PersistentAccountMap pv)
 toPersistent = fmap AccountMap . Trie.fromTrie . unAccountMap
 
 -- Aliases for reducing constraint repetition in methods below.
 type TrieGetContext fix m = (MRecursive m (fix (Trie.TrieF AccountAddress AccountIndex)), Base (fix (Trie.TrieF AccountAddress AccountIndex)) ~ Trie.TrieF AccountAddress AccountIndex)
 type TrieModifyContext fix m = (TrieGetContext fix m, MCorecursive m (fix (Trie.TrieF AccountAddress AccountIndex)))
 
--- |Account map with no entries.
+-- | Account map with no entries.
 empty :: AccountMap pv fix
 empty = AccountMap Trie.empty
 
 mkPrefix :: AccountAddress -> [Word8]
 mkPrefix = take accountAddressPrefixSize . Trie.unpackKey
 
--- |Retrieve the account index for the given address if the address exists.
--- The semantics of this method depends on the protocol version.
+-- | Retrieve the account index for the given address if the address exists.
+--  The semantics of this method depends on the protocol version.
 lookup :: forall pv fix m. (IsProtocolVersion pv, TrieGetContext fix m) => AccountAddress -> AccountMap pv fix -> m (Maybe AccountIndex)
 lookup addr (AccountMap am) = case protocolVersion @pv of
     SP1 -> Trie.lookup addr am
@@ -130,55 +130,55 @@ lookup addr (AccountMap am) = case protocolVersion @pv of
                 [(_, v)] -> return (Just v)
                 _ -> return Nothing
 
--- |Check whether the given address would clash with any of the existing ones in the map.
--- The meaning of "clash" depends on the protocol version.
+-- | Check whether the given address would clash with any of the existing ones in the map.
+--  The meaning of "clash" depends on the protocol version.
 addressWouldClash :: forall pv fix m. (IsProtocolVersion pv, TrieGetContext fix m) => AccountAddress -> AccountMap pv fix -> m Bool
 addressWouldClash addr (AccountMap am) = case protocolVersion @pv of
     SP1 -> isJust <$> Trie.lookup addr am
     SP2 -> isJust <$> Trie.lookup addr am
     _ -> not . null <$> Trie.lookupPrefix (mkPrefix addr) am
 
--- |Insert a new key value pair if it is fresh. If the key already exists in the
--- map no changes are made and the existing 'AccountIndex' is returned.
-maybeInsert :: forall pv fix m. TrieModifyContext fix m => AccountAddress -> AccountIndex -> AccountMap pv fix -> m (Maybe AccountIndex, AccountMap pv fix)
+-- | Insert a new key value pair if it is fresh. If the key already exists in the
+--  map no changes are made and the existing 'AccountIndex' is returned.
+maybeInsert :: forall pv fix m. (TrieModifyContext fix m) => AccountAddress -> AccountIndex -> AccountMap pv fix -> m (Maybe AccountIndex, AccountMap pv fix)
 maybeInsert addr ai (AccountMap am) = second AccountMap <$> Trie.adjust upd addr am
   where
     upd Nothing = pure (Nothing, Trie.Insert ai)
     upd (Just eai) = pure (Just eai, Trie.NoChange)
 
--- |Insert a new value for the given key. If a key is already in the map the value is replaced with the new one.
-insert :: forall pv fix m. TrieModifyContext fix m => AccountAddress -> AccountIndex -> AccountMap pv fix -> m (AccountMap pv fix)
+-- | Insert a new value for the given key. If a key is already in the map the value is replaced with the new one.
+insert :: forall pv fix m. (TrieModifyContext fix m) => AccountAddress -> AccountIndex -> AccountMap pv fix -> m (AccountMap pv fix)
 insert addr ai (AccountMap am) = AccountMap <$> Trie.insert addr ai am
 
--- |Get a list of all key value pairs in the account map. The order
--- of keys is unspecified.
-toList :: TrieGetContext fix m => AccountMap pv fix -> m [(AccountAddress, AccountIndex)]
+-- | Get a list of all key value pairs in the account map. The order
+--  of keys is unspecified.
+toList :: (TrieGetContext fix m) => AccountMap pv fix -> m [(AccountAddress, AccountIndex)]
 toList = Trie.toList . unAccountMap
 
--- |Transform the account map into an ordinary Data.Map. This is mainly used for testing.
-toMap :: TrieGetContext fix m => AccountMap pv fix -> m (Map.Map AccountAddress AccountIndex)
+-- | Transform the account map into an ordinary Data.Map. This is mainly used for testing.
+toMap :: (TrieGetContext fix m) => AccountMap pv fix -> m (Map.Map AccountAddress AccountIndex)
 toMap = Trie.toMap . unAccountMap
 
--- |Get a list of all addresses stored in the account map.
-addresses :: TrieGetContext fix m => AccountMap pv fix -> m [AccountAddress]
+-- | Get a list of all addresses stored in the account map.
+addresses :: (TrieGetContext fix m) => AccountMap pv fix -> m [AccountAddress]
 addresses = Trie.keys . unAccountMap
 
--- |Check whether an there is an account with the specified address (which may
--- be an alias). Note that this is slightly different than 'addressWouldClash'
--- and it is in principle possible that 'isAddressAssigned' returns 'False', but
--- 'addressWouldClash' returns 'True'. This is the case for protocol version 3
--- where the first 29 bytes of the address match an existing address, there are
--- at least two addresses already with those same 29 bytes as prefix, but the
--- actual address does not match any of the existing ones.
+-- | Check whether an there is an account with the specified address (which may
+--  be an alias). Note that this is slightly different than 'addressWouldClash'
+--  and it is in principle possible that 'isAddressAssigned' returns 'False', but
+--  'addressWouldClash' returns 'True'. This is the case for protocol version 3
+--  where the first 29 bytes of the address match an existing address, there are
+--  at least two addresses already with those same 29 bytes as prefix, but the
+--  actual address does not match any of the existing ones.
 isAddressAssigned :: forall pv fix m. (IsProtocolVersion pv, TrieGetContext fix m) => AccountAddress -> AccountMap pv fix -> m Bool
 isAddressAssigned addr am = isJust <$> lookup addr am
 
 -- * Convenient specializations of the methods for the pure in-memory account map implementation.
 
-addressWouldClashPure :: forall pv. IsProtocolVersion pv => AccountAddress -> PureAccountMap pv -> Bool
+addressWouldClashPure :: forall pv. (IsProtocolVersion pv) => AccountAddress -> PureAccountMap pv -> Bool
 addressWouldClashPure addr = runIdentity . addressWouldClash addr
 
-lookupPure :: IsProtocolVersion pv => AccountAddress -> PureAccountMap pv -> Maybe AccountIndex
+lookupPure :: (IsProtocolVersion pv) => AccountAddress -> PureAccountMap pv -> Maybe AccountIndex
 lookupPure addr = runIdentity . lookup addr
 
 insertPure :: AccountAddress -> AccountIndex -> PureAccountMap pv -> PureAccountMap pv
@@ -196,5 +196,5 @@ toMapPure = runIdentity . toMap
 addressesPure :: PureAccountMap pv -> [AccountAddress]
 addressesPure = runIdentity . addresses
 
-isAddressAssignedPure :: forall pv. IsProtocolVersion pv => AccountAddress -> PureAccountMap pv -> Bool
+isAddressAssignedPure :: forall pv. (IsProtocolVersion pv) => AccountAddress -> PureAccountMap pv -> Bool
 isAddressAssignedPure addr = runIdentity . isAddressAssigned addr

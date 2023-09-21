@@ -197,7 +197,7 @@ testCase0 _ pvString = specify
                    ]
 
 initialBlockState ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
@@ -229,7 +229,7 @@ encryptionPublicKey1 =
         ID.credId $
             Helpers.makeTestCredentialFromSeed 1
 
-iterateLimitM :: Monad m => Int -> (a -> m a) -> a -> m [a]
+iterateLimitM :: (Monad m) => Int -> (a -> m a) -> a -> m [a]
 iterateLimitM n f = go 0
   where
     go m x
@@ -257,7 +257,7 @@ createSecToPubTransferData = makeSecToPubAmountTransferData dummyCryptographicPa
 
 -- Helper for checking the encrypted balance of an account.
 assertEncryptedBalance ::
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.AccountEncryptedAmount ->
     Types.AccountAddress ->
     BS.PersistentBlockState pv ->
@@ -274,7 +274,7 @@ assertEncryptedBalance expectedEncryptedAmount address blockState = do
                     accountEncryptedAmount
                     expectedEncryptedAmount
 
-numberOfTransactions :: Num a => a
+numberOfTransactions :: (Num a) => a
 numberOfTransactions = fromIntegral maxNumIncoming + 2
 
 -- Function used to generate all the transfer datas based on encryptedTransferData1

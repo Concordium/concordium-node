@@ -49,7 +49,7 @@ wasmModVersion = V1
 
 test1 ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec

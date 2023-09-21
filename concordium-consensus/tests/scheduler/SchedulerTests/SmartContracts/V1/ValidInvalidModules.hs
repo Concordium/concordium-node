@@ -17,7 +17,7 @@ import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Wasm
 
--- |A V1 module with extra exports.
+-- | A V1 module with extra exports.
 testModule1 :: Assertion
 testModule1 = do
     ws <- BS.readFile "../concordium-base/smart-contracts/testdata/contracts/v1/extra-exports.wasm"

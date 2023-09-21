@@ -5,8 +5,8 @@
 {-# OPTIONS_GHC -Wno-deprecations #-}
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
--- |This module provides functionality for generating startup data for
--- testing purposes.  It should not be used in production.
+-- | This module provides functionality for generating startup data for
+--  testing purposes.  It should not be used in production.
 module Concordium.Startup {-# WARNING "This module should not be used in production code." #-} where
 
 import qualified Data.Map.Strict as Map
@@ -79,8 +79,8 @@ generateBakerKeys bakerId = BakerIdentity{..}
     (bakerAggregationKey, _) = randomBlsSecretKey gen2
     bakerAggregationPublicKey = Bls.derivePublicKey bakerAggregationKey
 
--- |Creates a baker account and keys, with 99% of the account's balance staked.
--- Note that the credentials on the baker account are not valid, apart from their expiry is the maximum possible.
+-- | Creates a baker account and keys, with 99% of the account's balance staked.
+--  Note that the credentials on the baker account are not valid, apart from their expiry is the maximum possible.
 makeBakerAccountKeys :: BakerId -> Amount -> (GenesisAccount, SigScheme.KeyPair, BakerIdentity)
 makeBakerAccountKeys bid amount =
     (acct, kp, bkr)
@@ -126,31 +126,31 @@ defaultFinalizationParameters =
           finalizationAllowZeroDelay = True
         }
 
--- |Make genesis data for consensus version 0.
+-- | Make genesis data for consensus version 0.
 makeGenesisDataV0 ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV0 pv) =>
-    -- |Genesis time
+    -- | Genesis time
     Timestamp ->
-    -- |Initial number of bakers.
+    -- | Initial number of bakers.
     Word ->
-    -- |Slot duration (milliseconds).
+    -- | Slot duration (milliseconds).
     Duration ->
-    -- |Finalization parameters
+    -- | Finalization parameters
     FinalizationParameters ->
-    -- |Initial cryptographic parameters.
+    -- | Initial cryptographic parameters.
     CryptographicParameters ->
-    -- |List of initial identity providers.
+    -- | List of initial identity providers.
     IdentityProviders ->
-    -- |Initial anonymity revokers.
+    -- | Initial anonymity revokers.
     AnonymityRevokers ->
-    -- |Additional accounts.
+    -- | Additional accounts.
     [GenesisAccount] ->
-    -- |Maximum energy allowed to be consumed by the transactions in a block
+    -- | Maximum energy allowed to be consumed by the transactions in a block
     Energy ->
-    -- |Authorized keys for chain updates
+    -- | Authorized keys for chain updates
     UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
-    -- |Initial chain parameters
+    -- | Initial chain parameters
     ChainParameters pv ->
     (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 makeGenesisDataV0
@@ -207,27 +207,27 @@ makeGenesisDataV0
                           genesisInitialState = GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
                         }
 
--- |Make genesis data for consensus version 1.
+-- | Make genesis data for consensus version 1.
 makeGenesisDataV1 ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
-    -- |Genesis time
+    -- | Genesis time
     Timestamp ->
-    -- |Initial number of bakers.
+    -- | Initial number of bakers.
     Word ->
-    -- |Epoch duration (milliseconds).
+    -- | Epoch duration (milliseconds).
     Duration ->
-    -- |Initial cryptographic parameters.
+    -- | Initial cryptographic parameters.
     CryptographicParameters ->
-    -- |List of initial identity providers.
+    -- | List of initial identity providers.
     IdentityProviders ->
-    -- |Initial anonymity revokers.
+    -- | Initial anonymity revokers.
     AnonymityRevokers ->
-    -- |Additional accounts.
+    -- | Additional accounts.
     [GenesisAccount] ->
-    -- |Authorized keys for chain updates
+    -- | Authorized keys for chain updates
     UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
-    -- |Initial chain parameters
+    -- | Initial chain parameters
     ChainParameters pv ->
     (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
 makeGenesisDataV1

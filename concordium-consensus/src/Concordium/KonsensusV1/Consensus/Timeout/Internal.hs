@@ -1,9 +1,9 @@
 {-# LANGUAGE TypeFamilies #-}
 
--- |This module is to be considered internal for the consensus implementation.
--- Hence this module should only be used from within the 'Concordium.KonsensusV1.Consensus.*' modules.
--- In particular this module yields functions for growing and shrinking the timeout.
--- Timeout spans are growing when a round times out and upon finalization then the timeout timer shrinks.
+-- | This module is to be considered internal for the consensus implementation.
+--  Hence this module should only be used from within the 'Concordium.KonsensusV1.Consensus.*' modules.
+--  In particular this module yields functions for growing and shrinking the timeout.
+--  Timeout spans are growing when a round times out and upon finalization then the timeout timer shrinks.
 module Concordium.KonsensusV1.Consensus.Timeout.Internal where
 
 import Control.Monad.State
@@ -21,12 +21,12 @@ import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 
--- |Helper function for growing the @currentTimeout@ by a given @timeoutFactor@.
--- (The factor should be positive, as shrinking should be bounded by the timeout base.)
+-- | Helper function for growing the @currentTimeout@ by a given @timeoutFactor@.
+--  (The factor should be positive, as shrinking should be bounded by the timeout base.)
 updateCurrentTimeout ::
-    -- |@timeoutFactor@
+    -- | @timeoutFactor@
     Ratio Word64 ->
-    -- |@currentTimeout@
+    -- | @currentTimeout@
     Duration ->
     Duration
 updateCurrentTimeout timeoutFactor oldCurrentTimeout =
@@ -36,15 +36,15 @@ updateCurrentTimeout timeoutFactor oldCurrentTimeout =
         newCurrentTimeout = floor newCurrentTimeoutRational
     in  Duration newCurrentTimeout
 
--- |Grow the current timeout duration in response to an elapsed timeout.
--- This updates the timeout to @timeoutIncrease * oldTimeout@.
+-- | Grow the current timeout duration in response to an elapsed timeout.
+--  This updates the timeout to @timeoutIncrease * oldTimeout@.
 growTimeout ::
     ( BlockState m ~ HashedPersistentBlockState (MPV m),
       IsConsensusV1 (MPV m),
       BlockStateQuery m,
       MonadState (SkovData (MPV m)) m
     ) =>
-    -- |Block to take the timeout parameters from
+    -- | Block to take the timeout parameters from
     BlockPointer (MPV m) ->
     m ()
 growTimeout blockPtr = do
@@ -54,16 +54,16 @@ growTimeout blockPtr = do
                 ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutIncrease
     roundStatus . rsCurrentTimeout %=! updateCurrentTimeout timeoutIncrease
 
--- |Shrink the current timeout duration in response to a successful QC for a round.
--- This updates the current timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
--- @timeoutBase@ and @timeoutDecrease@ are taken from the chain parameters of the supplied block.
+-- | Shrink the current timeout duration in response to a successful QC for a round.
+--  This updates the current timeout to @max timeoutBase (timeoutDecrease * oldTimeout)@, where
+--  @timeoutBase@ and @timeoutDecrease@ are taken from the chain parameters of the supplied block.
 shrinkTimeout ::
     ( BlockState m ~ HashedPersistentBlockState (MPV m),
       IsConsensusV1 (MPV m),
       BlockStateQuery m,
       MonadState (SkovData (MPV m)) m
     ) =>
-    -- |Block to take the timeout parameters from
+    -- | Block to take the timeout parameters from
     BlockPointer (MPV m) ->
     m ()
 shrinkTimeout blockPtr = do

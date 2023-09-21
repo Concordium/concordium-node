@@ -21,14 +21,14 @@ import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Rewards
 import Concordium.Utils
 
--- |'BakerPoolRewardDetails' tracks the rewards that have been earned by a baker pool in the current
--- reward period. These are used to pay out the rewards at the payday.
+-- | 'BakerPoolRewardDetails' tracks the rewards that have been earned by a baker pool in the current
+--  reward period. These are used to pay out the rewards at the payday.
 data BakerPoolRewardDetails = BakerPoolRewardDetails
-    { -- |The number of blocks baked by this baker in the reward period
+    { -- | The number of blocks baked by this baker in the reward period
       blockCount :: !Word64,
-      -- |The total transaction fees accrued to this pool in the reward period
+      -- | The total transaction fees accrued to this pool in the reward period
       transactionFeesAccrued :: !Amount,
-      -- |Whether the pool contributed to a finalization proof in the reward period
+      -- | Whether the pool contributed to a finalization proof in the reward period
       finalizationAwake :: !Bool
     }
     deriving (Eq, Show)
@@ -44,7 +44,7 @@ instance Serialize BakerPoolRewardDetails where
 instance HashableTo Hash.Hash BakerPoolRewardDetails where
     getHash = Hash.hash . encode
 
--- |Baker pool reward details with no rewards accrued to the baker.
+-- | Baker pool reward details with no rewards accrued to the baker.
 emptyBakerPoolRewardDetails :: BakerPoolRewardDetails
 emptyBakerPoolRewardDetails =
     BakerPoolRewardDetails
@@ -53,32 +53,32 @@ emptyBakerPoolRewardDetails =
           finalizationAwake = False
         }
 
-instance Monad m => MHashableTo m Hash.Hash BakerPoolRewardDetails
+instance (Monad m) => MHashableTo m Hash.Hash BakerPoolRewardDetails
 
--- |Details of rewards accruing over the course of a reward period, and details about the capital
--- distribution for this reward period and (possibly) the next.
+-- | Details of rewards accruing over the course of a reward period, and details about the capital
+--  distribution for this reward period and (possibly) the next.
 data PoolRewards = PoolRewards
-    { -- |The capital distribution for the next reward period.
-      -- This is updated the epoch before a payday.
+    { -- | The capital distribution for the next reward period.
+      --  This is updated the epoch before a payday.
       nextCapital :: !(Hashed CapitalDistribution),
-      -- |The capital distribution for the current reward period.
+      -- | The capital distribution for the current reward period.
       currentCapital :: !(Hashed CapitalDistribution),
-      -- |The details of rewards accruing to baker pools.
-      -- These are indexed by the index of the baker in the capital distribution (_not_ the BakerId).
-      -- There must be an entry for each baker in 'currentCapital'.
+      -- | The details of rewards accruing to baker pools.
+      --  These are indexed by the index of the baker in the capital distribution (_not_ the BakerId).
+      --  There must be an entry for each baker in 'currentCapital'.
       bakerPoolRewardDetails :: !(LFMBT.LFMBTree Word64 BakerPoolRewardDetails),
-      -- |The transaction reward amount accruing to the passive delegators.
+      -- | The transaction reward amount accruing to the passive delegators.
       passiveDelegationTransactionRewards :: !Amount,
-      -- |The transaction reward fraction accruing to the foundation.
+      -- | The transaction reward fraction accruing to the foundation.
       foundationTransactionRewards :: !Amount,
-      -- |The next payday occurs at the start of this epoch.
+      -- | The next payday occurs at the start of this epoch.
       nextPaydayEpoch :: !Epoch,
-      -- |The rate at which tokens are minted for the current reward period.
+      -- | The rate at which tokens are minted for the current reward period.
       nextPaydayMintRate :: !MintRate
     }
     deriving (Show)
 
--- |Traversal for accessing the reward details for a particular baker ID.
+-- | Traversal for accessing the reward details for a particular baker ID.
 rewardDetails :: BakerId -> Traversal' PoolRewards BakerPoolRewardDetails
 rewardDetails bid f pr
     | Just (index, _) <- mindex =
@@ -88,7 +88,7 @@ rewardDetails bid f pr
   where
     mindex = binarySearchI bcBakerId (bakerPoolCapital $ _unhashed $ currentCapital pr) bid
 
--- |Look up the baker capital and reward details for a baker ID.
+-- | Look up the baker capital and reward details for a baker ID.
 lookupBakerCapitalAndRewardDetails :: BakerId -> PoolRewards -> Maybe (BakerCapital, BakerPoolRewardDetails)
 lookupBakerCapitalAndRewardDetails bid PoolRewards{..} = do
     (index, capital) <- binarySearchI bcBakerId (bakerPoolCapital $ _unhashed currentCapital) bid
@@ -107,8 +107,8 @@ instance HashableTo PoolRewardsHash PoolRewards where
                                 <> put nextPaydayEpoch
                                 <> put nextPaydayMintRate
 
--- |The empty 'PoolRewards', where there are no bakers, delegators or rewards.
--- This is generally not used except as a dummy value for testing.
+-- | The empty 'PoolRewards', where there are no bakers, delegators or rewards.
+--  This is generally not used except as a dummy value for testing.
 emptyPoolRewards :: PoolRewards
 emptyPoolRewards =
     PoolRewards
@@ -121,9 +121,9 @@ emptyPoolRewards =
           nextPaydayMintRate = MintRate 0 0
         }
 
--- |A 'Putter' for 'PoolRewards'.
--- The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
--- length of @bakerPoolCapital (_unhashed currentCapital)@.
+-- | A 'Putter' for 'PoolRewards'.
+--  The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
+--  length of @bakerPoolCapital (_unhashed currentCapital)@.
 putPoolRewards :: Putter PoolRewards
 putPoolRewards PoolRewards{..} = do
     put (_unhashed nextCapital)
@@ -137,9 +137,9 @@ putPoolRewards PoolRewards{..} = do
     put nextPaydayEpoch
     put nextPaydayMintRate
 
--- |Deserialize 'PoolRewards'.
--- The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
--- length of @bakerPoolCapital (_unhashed currentCapital)@.
+-- | Deserialize 'PoolRewards'.
+--  The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
+--  length of @bakerPoolCapital (_unhashed currentCapital)@.
 getPoolRewards :: Get PoolRewards
 getPoolRewards = do
     nextCapital <- makeHashed <$> get
@@ -155,7 +155,7 @@ getPoolRewards = do
     nextPaydayMintRate <- get
     return PoolRewards{..}
 
--- |List of baker and number of blocks baked by this baker in the reward period.
+-- | List of baker and number of blocks baked by this baker in the reward period.
 bakerBlockCounts :: PoolRewards -> [(BakerId, Word64)]
 bakerBlockCounts PoolRewards{..} =
     zipWith
@@ -165,8 +165,8 @@ bakerBlockCounts PoolRewards{..} =
   where
     bc BakerCapital{..} (_, BakerPoolRewardDetails{..}) = (bcBakerId, blockCount)
 
--- |Rotate the capital distribution, so that the current capital distribution is replaced by the
--- next one, and set up empty pool rewards.
+-- | Rotate the capital distribution, so that the current capital distribution is replaced by the
+--  next one, and set up empty pool rewards.
 rotateCapitalDistribution :: PoolRewards -> PoolRewards
 rotateCapitalDistribution pr =
     pr
@@ -178,7 +178,7 @@ rotateCapitalDistribution pr =
                     emptyBakerPoolRewardDetails
         }
 
--- |Set the next 'CapitalDistribution'.
+-- | Set the next 'CapitalDistribution'.
 setNextCapitalDistribution ::
     CapitalDistribution ->
     PoolRewards ->
@@ -186,18 +186,18 @@ setNextCapitalDistribution ::
 setNextCapitalDistribution cd pr =
     pr{nextCapital = makeHashed cd}
 
--- |Construct 'PoolRewards' for migrating from 'P3' to 'P4'.
--- This is used to construct the state of the genesis block.
+-- | Construct 'PoolRewards' for migrating from 'P3' to 'P4'.
+--  This is used to construct the state of the genesis block.
 makePoolRewardsForMigration ::
-    -- |Current epoch bakers and stakes, in ascending order of 'BakerId'.
+    -- | Current epoch bakers and stakes, in ascending order of 'BakerId'.
     Vec.Vector (BakerId, Amount) ->
-    -- |Next epoch bakers and stakes, in ascending order of 'BakerId'.
+    -- | Next epoch bakers and stakes, in ascending order of 'BakerId'.
     Vec.Vector (BakerId, Amount) ->
-    -- |'BakerId's of baked blocks
+    -- | 'BakerId's of baked blocks
     [BakerId] ->
-    -- |Epoch of next payday
+    -- | Epoch of next payday
     Epoch ->
-    -- |Mint rate for the next payday
+    -- | Mint rate for the next payday
     MintRate ->
     PoolRewards
 makePoolRewardsForMigration curBakers nextBakers bakedBlocks npEpoch npMintRate =
@@ -226,13 +226,13 @@ makePoolRewardsForMigration curBakers nextBakers bakedBlocks npEpoch npMintRate 
               finalizationAwake = False
             }
 
--- |Make initial pool rewards for a genesis block state.
+-- | Make initial pool rewards for a genesis block state.
 makeInitialPoolRewards ::
-    -- |Genesis capital distribution
+    -- | Genesis capital distribution
     CapitalDistribution ->
-    -- |Epoch of next payday
+    -- | Epoch of next payday
     Epoch ->
-    -- |Mint rate
+    -- | Mint rate
     MintRate ->
     PoolRewards
 makeInitialPoolRewards cdist npEpoch npMintRate =
@@ -249,7 +249,7 @@ makeInitialPoolRewards cdist npEpoch npMintRate =
     initCD = makeHashed cdist
     bprd = LFMBT.fromList (replicate (length (bakerPoolCapital cdist)) emptyBakerPoolRewardDetails)
 
--- |The total capital passively delegated in the current reward period's capital distribution.
+-- | The total capital passively delegated in the current reward period's capital distribution.
 currentPassiveDelegationCapital :: PoolRewards -> Amount
 currentPassiveDelegationCapital =
     Vec.sum . fmap dcDelegatorCapital . passiveDelegatorsCapital . _unhashed . currentCapital

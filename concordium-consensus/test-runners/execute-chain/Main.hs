@@ -1,9 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 
--- |A runner that takes a genesis data file and a block file and executes the chain.
--- This is currently configured to use the Paired global state with disk-based and
--- memory-based storage to ensure that the execution is consistent between these.
+-- | A runner that takes a genesis data file and a block file and executes the chain.
+--  This is currently configured to use the Paired global state with disk-based and
+--  memory-based storage to ensure that the execution is consistent between these.
 module Main where
 
 import qualified Data.ByteString as BS

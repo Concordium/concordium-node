@@ -108,7 +108,7 @@ transferWithMemoRejectTestP1 = specify
 
 simpleTransferTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -218,7 +218,7 @@ simpleTransferTest _ pvString = specify
 
 simpleTransferWithMemoTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec
@@ -348,7 +348,7 @@ simpleTransferWithMemoTest _ pvString = specify
 
 simpleTransferUsingAccountAliasesTest ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     Types.SProtocolVersion pv ->
     String ->
     Spec

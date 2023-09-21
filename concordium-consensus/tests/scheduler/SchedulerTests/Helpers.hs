@@ -58,10 +58,10 @@ import Concordium.TimeMonad
 getResults :: [(a, Types.TransactionSummary)] -> [(a, Types.ValidResult)]
 getResults = map (\(x, r) -> (x, Types.tsResult r))
 
--- |The cost for processing a simple transfer (account to account)
--- with one signature in the transaction.
+-- | The cost for processing a simple transfer (account to account)
+--  with one signature in the transaction.
 --
--- * @SPEC: <$DOCS/Transactions#transaction-cost-header-simple-transfer>
+--  * @SPEC: <$DOCS/Transactions#transaction-cost-header-simple-transfer>
 simpleTransferCost :: Types.Energy
 simpleTransferCost = Cost.baseCost (Types.transactionHeaderSize + 41) 1 + Cost.simpleTransferCost
 
@@ -115,10 +115,10 @@ instance MonadLogger (PersistentBSM pv) where
 instance TimeMonad (PersistentBSM pv) where
     currentTime = return $ read "1970-01-01 13:27:13.257285424 UTC"
 
--- |Call a function for each protocol version, returning a list of results.
--- Notice the return type for the function must be independent of the protocol version.
+-- | Call a function for each protocol version, returning a list of results.
+--  Notice the return type for the function must be independent of the protocol version.
 --
--- This is used to run a test against every protocol version.
+--  This is used to run a test against every protocol version.
 forEveryProtocolVersion ::
     (forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> String -> a) ->
     [a]
@@ -131,10 +131,10 @@ forEveryProtocolVersion check =
       check Types.SP6 "P6"
     ]
 
--- |Construct a test block state containing the provided accounts.
+-- | Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccounts ::
     forall pv.
-    Types.IsProtocolVersion pv =>
+    (Types.IsProtocolVersion pv) =>
     [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
 createTestBlockStateWithAccounts accounts =
@@ -152,7 +152,7 @@ createTestBlockStateWithAccounts accounts =
         Types.ConsensusV0 -> initialSeedStateV0 (Hash.hash "") 1_000
         Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "") 3_600_000
 
--- |Construct a test block state containing the provided accounts.
+-- | Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccountsM ::
     (Types.IsProtocolVersion pv) =>
     [PersistentBSM pv (BS.PersistentAccount (Types.AccountVersionFor pv))] ->
@@ -160,12 +160,12 @@ createTestBlockStateWithAccountsM ::
 createTestBlockStateWithAccountsM accounts =
     createTestBlockStateWithAccounts =<< sequence accounts
 
--- |Run test block state computation provided an account cache size.
--- The module cache size is 100.
+-- | Run test block state computation provided an account cache size.
+--  The module cache size is 100.
 --
--- This function creates a temporary file for the blobstore, which is removed right after the
--- running the computation, meaning the result of the computation should not retain any references
--- and should be fully evaluated.
+--  This function creates a temporary file for the blobstore, which is removed right after the
+--  running the computation, meaning the result of the computation should not retain any references
+--  and should be fully evaluated.
 runTestBlockStateWithCacheSize :: Int -> PersistentBSM pv a -> IO a
 runTestBlockStateWithCacheSize cacheSize computation =
     Blob.runBlobStoreTemp "." $
@@ -173,26 +173,26 @@ runTestBlockStateWithCacheSize cacheSize computation =
             BS.runPersistentBlockStateMonad $
                 _runPersistentBSM computation
 
--- |Run test block state computation with a account cache size and module cache size of 100.
+-- | Run test block state computation with a account cache size and module cache size of 100.
 --
--- This function creates a temporary file for the blobstore, which is removed right after the
--- running the computation, meaning the result of the computation should not retain any references
--- and should be fully evaluated.
+--  This function creates a temporary file for the blobstore, which is removed right after the
+--  running the computation, meaning the result of the computation should not retain any references
+--  and should be fully evaluated.
 runTestBlockState :: PersistentBSM pv a -> IO a
 runTestBlockState = runTestBlockStateWithCacheSize 100
 
--- |Config for running the scheduler in a test environment.
+-- | Config for running the scheduler in a test environment.
 data TestConfig = TestConfig
     { -- | Maximum block size in bytes.
       tcBlockSize :: Integer,
-      -- |Timeout for block construction in milliseconds.
-      -- This is the absolute time after which we stop trying to add new transactions to the block.
+      -- | Timeout for block construction in milliseconds.
+      --  This is the absolute time after which we stop trying to add new transactions to the block.
       tcBlockTimeout :: Time.Timestamp,
-      -- |The context state used for running the scheduler.
+      -- | The context state used for running the scheduler.
       tcContextState :: EI.ContextState
     }
 
--- |Default settings the running the scheduler in a test environment.
+-- | Default settings the running the scheduler in a test environment.
 defaultTestConfig :: TestConfig
 defaultTestConfig =
     TestConfig
@@ -209,7 +209,7 @@ defaultContextState =
           _accountCreationLimit = maxBound
         }
 
--- |Result from running the scheduler in a test environment.
+-- | Result from running the scheduler in a test environment.
 data SchedulerResult = SchedulerResult
     { -- | The outcome for constructing a block.
       srTransactions :: FilteredTransactions,
@@ -287,7 +287,7 @@ type TransactionAssertion pv =
     BS.PersistentBlockState pv ->
     PersistentBSM pv Assertion
 
--- |A test transaction paired with assertions to run on the scheduler result and block state.
+-- | A test transaction paired with assertions to run on the scheduler result and block state.
 data TransactionAndAssertion pv = TransactionAndAssertion
     { -- | A transaction to run in the scheduler.
       taaTransaction :: SchedTest.TransactionJSON,
@@ -295,12 +295,12 @@ data TransactionAndAssertion pv = TransactionAndAssertion
       taaAssertion :: TransactionAssertion pv
     }
 
--- |Run the scheduler on transactions in a test environment. Each transaction in the list of
--- transactions is paired with the assertions to run on the scheduler result and the resulting block
--- state right after executing each transaction in the intermediate block state.
+-- | Run the scheduler on transactions in a test environment. Each transaction in the list of
+--  transactions is paired with the assertions to run on the scheduler result and the resulting block
+--  state right after executing each transaction in the intermediate block state.
 --
--- This will also run invariant assertions on each intermediate block state, see
--- @assertBlockStateInvariantsH@ for more details.
+--  This will also run invariant assertions on each intermediate block state, see
+--  @assertBlockStateInvariantsH@ for more details.
 runSchedulerTestAssertIntermediateStates ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
@@ -337,8 +337,8 @@ runSchedulerTestAssertIntermediateStates config constructState transactionsAndAs
 -- | Intermediate results collected while running a number of transactions.
 type IntermediateResults a = [(SchedulerResult, a)]
 
--- |Run the scheduler on transactions in a test environment, while collecting all of the
--- intermediate results and extracted values.
+-- | Run the scheduler on transactions in a test environment, while collecting all of the
+--  intermediate results and extracted values.
 runSchedulerTestWithIntermediateStates ::
     forall pv a.
     (Types.IsProtocolVersion pv) =>
@@ -365,10 +365,10 @@ runSchedulerTestWithIntermediateStates config constructState extractor transacti
         nextState <- BS.freezeBlockState updatedState
         return (acc ++ [(result, extracted)], nextState)
 
--- |Save and load block state, used to test the block state written to disc.
+-- | Save and load block state, used to test the block state written to disc.
 --
--- This can be used together with `runSchedulerTest*` functions for creating assertions about the
--- block state on disc.
+--  This can be used together with `runSchedulerTest*` functions for creating assertions about the
+--  block state on disc.
 reloadBlockState ::
     (Types.IsProtocolVersion pv) =>
     BS.PersistentBlockState pv ->
@@ -376,13 +376,13 @@ reloadBlockState ::
 reloadBlockState persistentState = do
     frozen <- BS.freezeBlockState persistentState
     br <- BS.saveBlockState frozen
-    BS.thawBlockState =<< BS.loadBlockState (BS.hpbsHash frozen) br
+    BS.thawBlockState =<< BS.loadBlockState ((Just . BS.hpbsHash) frozen) br
 
--- |Takes a function for checking the block state, which is then run on the block state, the block
--- state is reloaded (save to the blobstore and loaded again) and the check is run again against the
--- reloaded state.
--- This is useful to run checks against both the current in-memory block state and on the block
--- state read from the disc.
+-- | Takes a function for checking the block state, which is then run on the block state, the block
+--  state is reloaded (save to the blobstore and loaded again) and the check is run again against the
+--  reloaded state.
+--  This is useful to run checks against both the current in-memory block state and on the block
+--  state read from the disc.
 checkReloadCheck ::
     (Types.IsProtocolVersion pv) =>
     TransactionAssertion pv ->
@@ -395,8 +395,8 @@ checkReloadCheck check result blockState = do
         doCheck
         doCheckReloadedState
 
--- |Information accumulated when iterating the accounts in block state during
--- checkBlockStateInvariants.
+-- | Information accumulated when iterating the accounts in block state during
+--  checkBlockStateInvariants.
 data AccountAccumulated av = AccountAccumulated
     { -- | Account addresses seen so far. Used to ensure no duplicates between accounts.
       aaAccountsSoFar :: Map.Map Types.AccountAddress Types.AccountIndex,
@@ -703,13 +703,13 @@ checkBlockStateInvariants bs extraBalance = do
                 "Duplicate account credentials: " ++ show credential
         return $ Map.insert credentialRegistrationId accountIndex credentialsSoFar
 
--- |Read a WASM file as a smart contract module V0.
+-- | Read a WASM file as a smart contract module V0.
 readV0ModuleFile :: FilePath -> IO Wasm.WasmModule
 readV0ModuleFile filePath = do
     moduleSource <- ByteString.readFile filePath
     return $ Wasm.WasmModuleV0 $ Wasm.WasmModuleV Wasm.ModuleSource{..}
 
--- |Read a WASM file as a smart contract module V1.
+-- | Read a WASM file as a smart contract module V1.
 readV1ModuleFile :: FilePath -> IO Wasm.WasmModule
 readV1ModuleFile filePath = do
     moduleSource <- ByteString.readFile filePath
@@ -768,9 +768,9 @@ assertFailureWithReason expectedReason result =
         [] -> assertFailure "No transaction failed"
         other -> assertFailure $ "Multiple transactions failed: " ++ show other
 
--- |Assert the scheduler have used energy the exact energy needed to deploy a provided V0 smart
--- contract module. Assuming the transaction was signed with a single signature.
--- The provided module should be a WASM module and without the smart contract version prefix.
+-- | Assert the scheduler have used energy the exact energy needed to deploy a provided V0 smart
+--  contract module. Assuming the transaction was signed with a single signature.
+--  The provided module should be a WASM module and without the smart contract version prefix.
 assertUsedEnergyDeploymentV0 :: FilePath -> SchedulerResult -> Assertion
 assertUsedEnergyDeploymentV0 sourceFile result = do
     contractModule <- readV0ModuleFile sourceFile
@@ -788,9 +788,9 @@ assertUsedEnergyDeploymentV0 sourceFile result = do
         (Cost.baseCost txSize 1 + Cost.deployModuleCost len)
         (srUsedEnergy result)
 
--- |Assert the scheduler have used energy the exact energy needed to deploy a provided V1 smart
--- contract module. Assuming the transaction was signed with a single signature.
--- The provided module should be a WASM module and without the smart contract version prefix.
+-- | Assert the scheduler have used energy the exact energy needed to deploy a provided V1 smart
+--  contract module. Assuming the transaction was signed with a single signature.
+--  The provided module should be a WASM module and without the smart contract version prefix.
 assertUsedEnergyDeploymentV1 :: FilePath -> SchedulerResult -> Assertion
 assertUsedEnergyDeploymentV1 sourceFile result = do
     contractModule <- readV0ModuleFile sourceFile
@@ -806,12 +806,12 @@ assertUsedEnergyDeploymentV1 sourceFile result = do
         (Cost.baseCost txSize 1 + Cost.deployModuleCost len)
         (srUsedEnergy result)
 
--- |Assert the scheduler have used energy at least the administrative energy needed to
--- initialization a smart contract. Assuming the transaction was signed with a single signature.
--- The provided module should be a WASM module and without the smart contract version prefix.
+-- | Assert the scheduler have used energy at least the administrative energy needed to
+--  initialization a smart contract. Assuming the transaction was signed with a single signature.
+--  The provided module should be a WASM module and without the smart contract version prefix.
 --
--- It is not practical to check the exact cost because the execution cost of the init function is hard to
--- have an independent number for, other than executing.
+--  It is not practical to check the exact cost because the execution cost of the init function is hard to
+--  have an independent number for, other than executing.
 assertUsedEnergyInitialization ::
     FilePath ->
     Wasm.InitName ->

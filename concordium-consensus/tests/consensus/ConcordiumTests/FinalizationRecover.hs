@@ -30,7 +30,7 @@ import Test.Hspec
 -- Test that 'recoverFinalizationState' recovers the initial finalization state
 -- when initialized from genesis state.
 
--- |Protocol version
+-- | Protocol version
 type PV = 'P1
 
 dummyArs :: AnonymityRevokers

@@ -67,17 +67,17 @@ bestBlockBranches l = bb l
             [] -> bb branches
             (b : bs) -> fst <$> foldrM compareBlocks (b, Nothing) bs
 
--- |Get the best block currently in the tree.
+-- | Get the best block currently in the tree.
 bestBlock :: forall m. (SkovQueryMonad m) => m (BlockPointerType m)
 bestBlock = bestBlockBranches =<< branchesFromTop
 
--- |Get the best non-finalized block in the tree with a slot time strictly below the given bound.
--- If there is no such block, the last finalized block is returned.
+-- | Get the best non-finalized block in the tree with a slot time strictly below the given bound.
+--  If there is no such block, the last finalized block is returned.
 bestBlockBefore :: forall m. (SkovQueryMonad m) => Slot -> m (BlockPointerType m)
 bestBlockBefore slotBound = bestBlockBranches . fmap (filter (\b -> blockSlot b < slotBound)) =<< branchesFromTop
 
--- |Given some 'Branches', determine the best block.
--- This will always be a block at the greatest height that is non-empty.
+-- | Given some 'Branches', determine the best block.
+--  This will always be a block at the greatest height that is non-empty.
 bestBlockOf :: (SkovQueryMonad m) => Branches m -> m (Maybe (BlockPointerType m))
 bestBlockOf Seq.Empty = return Nothing
 bestBlockOf (bs' Seq.:|> tbs) = case tbs of

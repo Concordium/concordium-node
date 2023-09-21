@@ -613,18 +613,18 @@ addAmountToCS' ai !amnt !cs =
     return $
         cs
             & accountUpdates
-            . at ai
-            %~ ( \case
-                    Just upd ->
-                        Just
-                            ( upd
-                                & auAmount
-                                %~ \case
-                                    Just x -> Just (x + amnt)
-                                    Nothing -> Just amnt
-                            )
-                    Nothing -> Just (emptyAccountUpdate ai & auAmount ?~ amnt)
-               )
+                . at ai
+                %~ ( \case
+                        Just upd ->
+                            Just
+                                ( upd
+                                    & auAmount
+                                        %~ \case
+                                            Just x -> Just (x + amnt)
+                                            Nothing -> Just amnt
+                                )
+                        Nothing -> Just (emptyAccountUpdate ai & auAmount ?~ amnt)
+                   )
 
 -- | Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
 --
@@ -637,19 +637,19 @@ addScheduledAmountToCS (ai, acc) rel@(((fstRel, _) : _), _) !cs = do
     return $
         cs
             & accountUpdates
-            . at ai
-            %~ ( \case
-                    Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe [rel] (rel :))
-                    Nothing -> Just (emptyAccountUpdate ai & auReleaseSchedule ?~ [rel])
-               )
+                . at ai
+                %~ ( \case
+                        Just upd -> Just (upd & auReleaseSchedule %~ Just . maybe [rel] (rel :))
+                        Nothing -> Just (emptyAccountUpdate ai & auReleaseSchedule ?~ [rel])
+                   )
             & addedReleaseSchedules
-            %~ ( Map.alter
-                    ( \case
-                        Nothing -> Just fstRel
-                        Just rel' -> Just $ min fstRel rel'
-                    )
-                    addr
-               )
+                %~ ( Map.alter
+                        ( \case
+                            Nothing -> Just fstRel
+                            Just rel' -> Just $ min fstRel rel'
+                        )
+                        addr
+                   )
 
 -- | Modify the amount on the given account in the changeset by a given delta.
 --  It is assumed that the account is already in the changeset and that its balance
@@ -689,10 +689,10 @@ addContractAmountToCSV0 addr amnt cs =
     pure $
         cs
             & instanceV0Updates
-            . at addr
-            %~ \case
-                Just (idx, d, v) -> Just (idx, d + amnt, v)
-                Nothing -> Just (0, amnt, Nothing)
+                . at addr
+                %~ \case
+                    Just (idx, d, v) -> Just (idx, d + amnt, v)
+                    Nothing -> Just (0, amnt, Nothing)
 
 -- | Add the given delta to the change set for the given contract instance.
 addContractAmountToCSV1 :: (Monad m) => ContractAddress -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
@@ -701,10 +701,10 @@ addContractAmountToCSV1 addr amnt cs =
     pure $
         cs
             & instanceV1Updates
-            . at addr
-            %~ \case
-                Just InstanceV1Update{..} -> Just $! InstanceV1Update index (amountChange + amnt) newState newInterface
-                Nothing -> Just $! InstanceV1Update 0 amnt Nothing Nothing
+                . at addr
+                %~ \case
+                    Just InstanceV1Update{..} -> Just $! InstanceV1Update index (amountChange + amnt) newState newInterface
+                    Nothing -> Just $! InstanceV1Update 0 amnt Nothing Nothing
 
 -- | Add the given contract address to the set of initialized contract instances.
 --  As the changes on the blockstate are already performed in the handler for this operation,
@@ -722,10 +722,10 @@ addContractUpgradeToCS :: Proxy m -> ContractAddress -> GSWasm.ModuleInterfaceA 
 addContractUpgradeToCS Proxy addr updatedMod updatedReceiveNames cs = do
     cs
         & instanceV1Updates
-        . at addr
-        %~ \case
-            Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just (updatedMod, updatedReceiveNames))
-            Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just (updatedMod, updatedReceiveNames))
+            . at addr
+            %~ \case
+                Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just (updatedMod, updatedReceiveNames))
+                Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just (updatedMod, updatedReceiveNames))
 
 -- | Whether the transaction energy limit is reached because of transaction max energy limit,
 --  or because of block energy limit

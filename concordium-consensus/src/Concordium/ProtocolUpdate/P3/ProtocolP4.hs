@@ -2,59 +2,59 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- |This module implements the P3.ProtocolP4 protocol update.
--- This protocol update is valid at protocol version P3, and updates to protocol version P4.
--- The block state is preserved across the update.
+-- | This module implements the P3.ProtocolP4 protocol update.
+--  This protocol update is valid at protocol version P3, and updates to protocol version P4.
+--  The block state is preserved across the update.
 --
--- This produces a new 'GenesisDataP4' using the 'GDP4MigrateFromP3' constructor,
--- as follows:
+--  This produces a new 'GenesisDataP4' using the 'GDP4MigrateFromP3' constructor,
+--  as follows:
 --
--- * 'genesisCore':
+--  * 'genesisCore':
 --
---     * 'genesisTime' is the timestamp of the last finalized block of the previous chain.
---     * 'genesisSlotDuration' is unchanged.
---     * 'genesisEpochLength' is unchanged.
---     * 'genesisMaxBlockEnergy' is unchanged.
---     * 'genesisFinalizationParameters' is unchanged.
+--      * 'genesisTime' is the timestamp of the last finalized block of the previous chain.
+--      * 'genesisSlotDuration' is unchanged.
+--      * 'genesisEpochLength' is unchanged.
+--      * 'genesisMaxBlockEnergy' is unchanged.
+--      * 'genesisFinalizationParameters' is unchanged.
 --
--- * 'genesisFirstGenesis' is either:
+--  * 'genesisFirstGenesis' is either:
 --
---     * the hash of the genesis block of the previous chain, if it is a 'GDP3Initial'; or
---     * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
---       is a 'GDP3Regenesis'.
+--      * the hash of the genesis block of the previous chain, if it is a 'GDP3Initial'; or
+--      * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
+--        is a 'GDP3Regenesis'.
 --
--- * 'genesisPreviousGenesis' is the hash of the previous genesis block.
+--  * 'genesisPreviousGenesis' is the hash of the previous genesis block.
 --
--- * 'genesisTerminalBlock' is the hash of the last finalized block of the previous chain.
+--  * 'genesisTerminalBlock' is the hash of the last finalized block of the previous chain.
 --
--- * 'genesisStateHash' and 'genesisNewState' are the hash and (V0) serialized block state,
---   which is derived from the block state of the last finalized block of
---   the previous chain by applying the following changes:
+--  * 'genesisStateHash' and 'genesisNewState' are the hash and (V0) serialized block state,
+--    which is derived from the block state of the last finalized block of
+--    the previous chain by applying the following changes:
 --
---     * The 'SeedState' is updated with:
+--      * The 'SeedState' is updated with:
 --
---         * 'epochLength' is unchanged;
---         * 'epoch' is @0@;
---         * 'currentLeadershipElectionNonce' is the SHA256 hash of (@"Regenesis" <> encode (updatedNonce oldSeedState)@); and
---         * 'updatedNonce' is the same as 'currentLeadershipElectionNonce'.
+--          * 'epochLength' is unchanged;
+--          * 'epoch' is @0@;
+--          * 'currentLeadershipElectionNonce' is the SHA256 hash of (@"Regenesis" <> encode (updatedNonce oldSeedState)@); and
+--          * 'updatedNonce' is the same as 'currentLeadershipElectionNonce'.
 --
---     * The 'Updates' are updated with:
+--      * The 'Updates' are updated with:
 --
---         * the current protocol update is set to 'Nothing'; and
---         * the protocol update queue is emptied.
+--          * the current protocol update is set to 'Nothing'; and
+--          * the protocol update queue is emptied.
 --
--- * 'genesisMigration' is derived from the data provided to the protocol update and the genesis
---   data of the previous chain.
+--  * 'genesisMigration' is derived from the data provided to the protocol update and the genesis
+--    data of the previous chain.
 --
--- Note that, while the seed state is revised, the initial epoch of the new chain is not considered
--- a new epoch for the purposes of block rewards and baker/finalization committee determination.
--- This means that block rewards at the end of this epoch are paid for all blocks baked in this epoch
--- and in the final epoch of the previous chain.
--- Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
--- initial epoch of the new chain.
+--  Note that, while the seed state is revised, the initial epoch of the new chain is not considered
+--  a new epoch for the purposes of block rewards and baker/finalization committee determination.
+--  This means that block rewards at the end of this epoch are paid for all blocks baked in this epoch
+--  and in the final epoch of the previous chain.
+--  Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
+--  initial epoch of the new chain.
 --
--- Since there are significant differences between the state representation of 'P3' and 'P4', the
--- 'genesisMigration' data is used to construct a 'P4' state from the serialized 'P3' state.
+--  Since there are significant differences between the state representation of 'P3' and 'P4', the
+--  'genesisMigration' data is used to construct a 'P4' state from the serialized 'P3' state.
 module Concordium.ProtocolUpdate.P3.ProtocolP4 where
 
 import Data.Serialize
@@ -74,15 +74,15 @@ import Concordium.GlobalState.Types
 import Concordium.Kontrol
 import Concordium.Types.ProtocolVersion
 
--- |The hash that identifies a update from P3 to P4 protocol.
--- This is the hash of the published specification document.
+-- | The hash that identifies a update from P3 to P4 protocol.
+--  This is the hash of the published specification document.
 updateHash :: SHA256.Hash
 updateHash = read "20c6f246713e573fb5bfdf1e59c0a6f1a37cded34ff68fda4a60aa2ed9b151aa"
 
--- |Construct the genesis data for a P3.ProtocolP4 update.
--- It is assumed that the last finalized block is the terminal block of the old chain:
--- i.e. it is the first (and only) explicitly-finalized block with timestamp after the
--- update takes effect.
+-- | Construct the genesis data for a P3.ProtocolP4 update.
+--  It is assumed that the last finalized block is the terminal block of the old chain:
+--  i.e. it is the first (and only) explicitly-finalized block with timestamp after the
+--  update takes effect.
 updateRegenesis ::
     (MPV m ~ 'P3, BlockStateStorage m, SkovMonad m) =>
     P4.ProtocolUpdateData ->
