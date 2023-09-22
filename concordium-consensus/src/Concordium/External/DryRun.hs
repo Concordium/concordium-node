@@ -8,7 +8,9 @@
 
 module Concordium.External.DryRun where
 
+import Control.Exception
 import Control.Monad
+import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
 import qualified Data.ByteString.Unsafe as BS
@@ -16,6 +18,7 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import qualified Data.ProtoLens as Proto
 import Foreign
+import GHC.Stack
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SignatureScheme as Sig
@@ -23,6 +26,7 @@ import Concordium.GRPC2
 import Concordium.Logger
 import Concordium.Types
 import qualified Concordium.Types.InvokeContract as InvokeContract
+import Concordium.Types.Parameters
 import Concordium.Types.Queries
 import Concordium.Types.Transactions
 import qualified Proto.V2.Concordium.Types as Proto
@@ -30,7 +34,6 @@ import qualified Proto.V2.Concordium.Types as Proto
 import qualified Concordium.Cost as Cost
 import qualified Concordium.External as Ext
 import Concordium.External.Helpers
-import Concordium.GlobalState.Account
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlockState
@@ -47,10 +50,7 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as Scheduler
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Skov as SkovV0
 import qualified Concordium.TransactionVerification as TVer
-import Concordium.Types.Parameters
-import Control.Exception
-import Control.Monad.IO.Class
-import GHC.Stack
+import Concordium.Types.Execution
 
 -- | An opaque rust vector.
 data ForeignVec
@@ -239,14 +239,13 @@ dryRunStateHelper ::
       (HasCallStack) =>
       MultiVersionRunner finconf ->
       (Ptr Word8 -> Int64 -> IO ()) ->
-      DryRunHandle ->
       EBlockStateContext finconf ->
       IO DryRunReturnCode
     ) ->
     IO Int64
 dryRunStateHelper dryRunPtr outVec cont =
     returnCode <$> do
-        drh@DryRunHandle{..} <- deRefStablePtr dryRunPtr
+        DryRunHandle{..} <- deRefStablePtr dryRunPtr
         let writeOut = drhWriteToVector outVec
         readIORef drhBlockStateContext >>= \case
             Nothing -> do
@@ -256,9 +255,12 @@ dryRunStateHelper dryRunPtr outVec cont =
                 let onExcept :: SomeException -> IO DryRunReturnCode
                     onExcept e = do
                         mvLog drhMVR External LLError $
-                            "Error occurred in dry run operation: " ++ displayException e ++ "\n" ++ prettyCallStack callStack
+                            "Error occurred in dry run operation: "
+                                ++ displayException e
+                                ++ "\n"
+                                ++ prettyCallStack callStack
                         return InternalError
-                cont drhMVR writeOut drh bsc `catch` onExcept
+                cont drhMVR writeOut bsc `catch` onExcept
 
 dryRunGetAccountInfo ::
     StablePtr DryRunHandle ->
@@ -269,49 +271,39 @@ dryRunGetAccountInfo ::
     -- | Output vector.
     Ptr ForeignVec ->
     IO Int64
-dryRunGetAccountInfo dryRunPtr acctTag acctPtr outVec =
-    returnCode <$> do
-        DryRunHandle{..} <- deRefStablePtr dryRunPtr
+dryRunGetAccountInfo dryRunPtr acctTag acctPtr outVec = dryRunStateHelper dryRunPtr outVec $
+    \mvr writeOut bsc -> do
         account <- decodeAccountIdentifierInput acctTag acctPtr
-        readIORef drhBlockStateContext >>= \case
+        macctInfo <- case bsc of
+            EBlockStateContextV0{..} -> do
+                DryRunState{..} <- liftIO $ readIORef bscState
+                let fbs = HashedPersistentBlockState drsBlockState dummyStateHash
+                st <- readIORef $ vc0State bsc0Config
+                runMVR
+                    ( SkovV0.evalSkovT
+                        (getAccountInfoV0 account fbs)
+                        (mvrSkovHandlers bsc0Config mvr)
+                        (vc0Context bsc0Config)
+                        st
+                    )
+                    mvr
+            EBlockStateContextV1{..} -> do
+                DryRunState{..} <- liftIO $ readIORef bscState
+                let fbs = HashedPersistentBlockState drsBlockState dummyStateHash
+                st <- readIORef $ vc1State bsc1Config
+                runMVR
+                    ( SkovV1.evalSkovT
+                        (getAccountInfoV1 account fbs)
+                        (vc1Context bsc1Config)
+                        st
+                    )
+                    mvr
+        case macctInfo of
             Nothing -> do
-                writeProtoResponse (drhWriteToVector outVec) DryRunErrorNoState
-                return OK
-            Just bsc -> do
-                macctInfo <- case bsc of
-                    EBlockStateContextV0{..} -> do
-                        DryRunState{..} <- liftIO $ readIORef bscState
-                        let fbs = HashedPersistentBlockState drsBlockState dummyStateHash
-                        st <- readIORef $ vc0State bsc0Config
-                        runMVR
-                            ( SkovV0.evalSkovT
-                                (getAccountInfoV0 account fbs)
-                                (mvrSkovHandlers bsc0Config drhMVR)
-                                (vc0Context bsc0Config)
-                                st
-                            )
-                            drhMVR
-                    EBlockStateContextV1{..} -> do
-                        DryRunState{..} <- liftIO $ readIORef bscState
-                        let fbs = HashedPersistentBlockState drsBlockState dummyStateHash
-                        st <- readIORef $ vc1State bsc1Config
-                        runMVR
-                            ( SkovV1.evalSkovT
-                                (getAccountInfoV1 account fbs)
-                                (vc1Context bsc1Config)
-                                st
-                            )
-                            drhMVR
-                case macctInfo of
-                    Nothing -> do
-                        writeProtoResponse
-                            (drhWriteToVector outVec)
-                            DryRunErrorAccountNotFound
-                    Just acctInfo ->
-                        writeProtoResponse
-                            (drhWriteToVector outVec)
-                            (DryRunSuccessAccountInfo acctInfo)
-                return OK
+                writeProtoResponse writeOut DryRunErrorAccountNotFound
+            Just acctInfo ->
+                writeProtoResponse writeOut (DryRunSuccessAccountInfo acctInfo)
+        return OK
 
 dryRunGetInstanceInfo ::
     StablePtr DryRunHandle ->
@@ -323,27 +315,15 @@ dryRunGetInstanceInfo ::
     Ptr ForeignVec ->
     IO Int64
 dryRunGetInstanceInfo dryRunPtr contractIndex contractSubindex outVec =
-    returnCode <$> do
-        DryRunHandle{..} <- deRefStablePtr dryRunPtr
-        readIORef drhBlockStateContext >>= \case
-            Nothing -> do
-                writeProtoResponse (drhWriteToVector outVec) DryRunErrorNoState
-                return OK
-            Just bsc -> do
-                res <- runWithEBlockStateContext drhMVR bsc $ \drsRef -> do
-                    DryRunState{..} <- liftIO $ readIORef drsRef
-                    let fbs = HashedPersistentBlockState drsBlockState dummyStateHash
-                    getInstanceInfoHelper ca fbs
-                case res of
-                    Nothing ->
-                        writeProtoResponse
-                            (drhWriteToVector outVec)
-                            DryRunErrorInstanceNotFound
-                    Just instInfo ->
-                        writeProtoResponse
-                            (drhWriteToVector outVec)
-                            (DryRunSuccessInstanceInfo instInfo)
-                return OK
+    dryRunStateHelper dryRunPtr outVec $ \mvr writeOut bsc -> do
+        res <- runWithEBlockStateContext mvr bsc $ \drsRef -> do
+            DryRunState{..} <- liftIO $ readIORef drsRef
+            let fbs = HashedPersistentBlockState drsBlockState dummyStateHash
+            getInstanceInfoHelper ca fbs
+        case res of
+            Nothing -> writeProtoResponse writeOut DryRunErrorInstanceNotFound
+            Just instInfo -> writeProtoResponse writeOut (DryRunSuccessInstanceInfo instInfo)
+        return OK
   where
     ca = ContractAddress (ContractIndex contractIndex) (ContractSubindex contractSubindex)
 
@@ -392,54 +372,48 @@ dryRunInvokeInstance
     parameterPtr
     parameterLen
     energy
-    outVec =
-        returnCode <$> do
-            DryRunHandle{..} <- deRefStablePtr dryRunPtr
-            readIORef drhBlockStateContext >>= \case
-                Nothing -> do
-                    writeProtoResponse (drhWriteToVector outVec) DryRunErrorNoState
-                    return OK
-                Just bsc -> do
-                    maybeInvoker <- case invokerAddressType of
-                        0 -> return Nothing
-                        1 -> Just . AddressAccount <$> decodeAccountAddress invokerAccountAddressPtr
-                        _ ->
-                            return $
-                                Just $
-                                    AddressContract $
-                                        ContractAddress
-                                            (ContractIndex invokerContractIndex)
-                                            (ContractSubindex invokerContractSubindex)
-                    method <- decodeReceiveName receiveNamePtr receiveNameLen
-                    parameter <- decodeParameter parameterPtr parameterLen
+    outVec = dryRunStateHelper dryRunPtr outVec $
+        \mvr writeOut bsc -> do
+            maybeInvoker <- case invokerAddressType of
+                0 -> return Nothing
+                1 -> Just . AddressAccount <$> decodeAccountAddress invokerAccountAddressPtr
+                _ ->
+                    return $
+                        Just $
+                            AddressContract $
+                                ContractAddress
+                                    (ContractIndex invokerContractIndex)
+                                    (ContractSubindex invokerContractSubindex)
+            method <- decodeReceiveName receiveNamePtr receiveNameLen
+            parameter <- decodeParameter parameterPtr parameterLen
 
-                    let context =
-                            InvokeContract.ContractContext
-                                { ccInvoker = maybeInvoker,
-                                  ccContract =
-                                    ContractAddress
-                                        (ContractIndex contractIndex)
-                                        (ContractSubindex contractSubindex),
-                                  ccAmount = Amount amount,
-                                  ccMethod = method,
-                                  ccParameter = parameter,
-                                  ccEnergy = Energy energy
-                                }
-                    res <- runWithEBlockStateContext drhMVR bsc $ \drsRef -> do
-                        -- We "freeze" the block state using a dummy hash so that we do not recompute the
-                        -- state hash, since it is not required by invokeContract.
-                        DryRunState{..} <- liftIO $ readIORef drsRef
-                        let chainMeta = ChainMetadata drsTimestamp
-                        let fbs = HashedPersistentBlockState drsBlockState dummyStateHash
-                        InvokeContract.invokeContract context chainMeta fbs
-                    writeProtoResponseEither (drhWriteToVector outVec) res >>= \case
-                        Left e -> do
-                            mvLog drhMVR External LLError $
-                                "An error occurred converting the result of a dry run invoke \
-                                \instance to protobuf: "
-                                    ++ show e
-                            return InternalError
-                        Right () -> return OK
+            let context =
+                    InvokeContract.ContractContext
+                        { ccInvoker = maybeInvoker,
+                          ccContract =
+                            ContractAddress
+                                (ContractIndex contractIndex)
+                                (ContractSubindex contractSubindex),
+                          ccAmount = Amount amount,
+                          ccMethod = method,
+                          ccParameter = parameter,
+                          ccEnergy = Energy energy
+                        }
+            res <- runWithEBlockStateContext mvr bsc $ \drsRef -> do
+                -- We "freeze" the block state using a dummy hash so that we do not recompute the
+                -- state hash, since it is not required by invokeContract.
+                DryRunState{..} <- liftIO $ readIORef drsRef
+                let chainMeta = ChainMetadata drsTimestamp
+                let fbs = HashedPersistentBlockState drsBlockState dummyStateHash
+                InvokeContract.invokeContract context chainMeta fbs
+            writeProtoResponseEither writeOut res >>= \case
+                Left e -> do
+                    mvLog mvr External LLError $
+                        "An error occurred converting the result of a dry run invoke \
+                        \instance to protobuf: "
+                            ++ show e
+                    return InternalError
+                Right () -> return OK
 
 dryRunSetTimestamp ::
     StablePtr DryRunHandle ->
@@ -448,20 +422,14 @@ dryRunSetTimestamp ::
     -- | Output vector.
     Ptr ForeignVec ->
     IO Int64
-dryRunSetTimestamp dryRunPtr newTimestamp outVec =
-    returnCode <$> do
-        DryRunHandle{..} <- deRefStablePtr dryRunPtr
-        readIORef drhBlockStateContext >>= \case
-            Nothing -> do
-                writeProtoResponse (drhWriteToVector outVec) DryRunErrorNoState
-                return OK
-            Just bsc -> do
-                runWithEBlockStateContext drhMVR bsc $ \st ->
-                    liftIO $
-                        atomicModifyIORef' st $
-                            \drs -> (drs{drsTimestamp = Timestamp newTimestamp}, ())
-                writeProtoResponse (drhWriteToVector outVec) DryRunSuccessTimestampSet
-                return OK
+dryRunSetTimestamp dryRunPtr newTimestamp outVec = dryRunStateHelper dryRunPtr outVec $
+    \mvr writeOut bsc -> do
+        runWithEBlockStateContext mvr bsc $ \st ->
+            liftIO $
+                atomicModifyIORef' st $
+                    \drs -> (drs{drsTimestamp = Timestamp newTimestamp}, ())
+        writeProtoResponse writeOut DryRunSuccessTimestampSet
+        return OK
 
 dryRunMintToAccount ::
     StablePtr DryRunHandle ->
@@ -473,7 +441,7 @@ dryRunMintToAccount ::
     Ptr ForeignVec ->
     IO Int64
 dryRunMintToAccount dryRunPtr senderPtr mintAmt outVec = dryRunStateHelper dryRunPtr outVec $
-    \drhMVR writeOut _ bsc -> do
+    \drhMVR writeOut bsc -> do
         sender <- decodeAccountAddress senderPtr
         runWithEBlockStateContext drhMVR bsc $ \drsRef -> do
             drs@DryRunState{..} <- liftIO $ readIORef drsRef
@@ -485,14 +453,16 @@ dryRunMintToAccount dryRunPtr senderPtr mintAmt outVec = dryRunStateHelper dryRu
                             DryRunErrorAccountNotFound
                     return OK
                 Just account -> do
-                    let mintUpd = emptyAccountUpdate account & auAmount ?~ amountToDelta (Amount mintAmt)
-                    newState <- bsoModifyAccount drsBlockState mintUpd
-                    liftIO $ do
-                        writeIORef drsRef drs{drsBlockState = newState}
-                        writeProtoResponse
-                            writeOut
-                            DryRunSuccessMintedToAccount
-                        return OK
+                    bsoSafeMintToAccount drsBlockState account (Amount mintAmt)
+                        >>= liftIO . \case
+                            Left safeMintAmount -> do
+                                writeProtoResponse writeOut $
+                                    DryRunErrorAmountOverLimit safeMintAmount
+                                return OK
+                            Right newState -> do
+                                writeIORef drsRef drs{drsBlockState = newState}
+                                writeProtoResponse writeOut DryRunSuccessMintedToAccount
+                                return OK
 
 dryRunTransaction ::
     StablePtr DryRunHandle ->
@@ -508,66 +478,68 @@ dryRunTransaction ::
     Ptr ForeignVec ->
     IO Int64
 dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen outVec =
-    returnCode <$> do
-        DryRunHandle{..} <- deRefStablePtr dryRunPtr
-        readIORef drhBlockStateContext >>= \case
-            Nothing -> do
-                writeProtoResponse (drhWriteToVector outVec) DryRunErrorNoState
-                return OK
-            Just bsc -> do
-                sender <- decodeAccountAddress senderPtr
-                payloadBytes <- BS.packCStringLen (castPtr payloadPtr, fromIntegral payloadLen)
-                let payload = EncodedPayload (SBS.toShort payloadBytes)
-                let dummySignature = TransactionSignature (Map.singleton 0 (Map.singleton 0 Sig.dummySignatureEd25519))
-                let signatureCount = 1
+    dryRunStateHelper dryRunPtr outVec $ \mvr writeOut bsc -> do
+        sender <- decodeAccountAddress senderPtr
+        payloadBytes <- BS.packCStringLen (castPtr payloadPtr, fromIntegral payloadLen)
+        let payload = EncodedPayload (SBS.toShort payloadBytes)
+        let dummySignature =
+                TransactionSignature
+                    (Map.singleton 0 (Map.singleton 0 Sig.dummySignatureEd25519))
+        let signatureCount = 1
 
-                res <- runWithEBlockStateContext drhMVR bsc $ \drsRef -> do
-                    drs@DryRunState{..} <- liftIO $ readIORef drsRef
-                    let context =
-                            Scheduler.ContextState
-                                { _chainMetadata = ChainMetadata drsTimestamp,
-                                  _maxBlockEnergy = maxBound,
-                                  _accountCreationLimit = 0
-                                }
-                    let schedulerState =
-                            Scheduler.SchedulerState
-                                { _ssNextIndex = 0,
-                                  _ssExecutionCosts = 0,
-                                  _ssEnergyUsed = 0,
-                                  _ssBlockState = drsBlockState
-                                }
-                    let exec = do
-                            srcAccount <- Scheduler.getStateAccount sender
-                            case srcAccount of
-                                Nothing -> return $ Right $ toProto $ DryRunResponse DryRunErrorAccountNotFound
-                                Just src@(_, acc) -> do
-                                    nextNonce <- TVer.getNextAccountNonce acc
-                                    let header =
-                                            TransactionHeader
-                                                { thSender = sender,
-                                                  thNonce = nextNonce,
-                                                  thEnergyAmount = Energy energyLimit,
-                                                  thPayloadSize = payloadSize payload,
-                                                  thExpiry = fromIntegral $ drsTimestamp `div` 1000 + 1
-                                                }
-                                    let transaction = makeAccountTransaction dummySignature header payload
-                                    let cost = Cost.baseCost (getTransactionHeaderPayloadSize header) signatureCount
-                                    Scheduler.dispatchTransactionBody transaction src cost >>= \case
-                                        Nothing -> return $ Left OutOfEnergyQuota
-                                        Just res -> return $ case toProto (DryRunResponse res) of
-                                            Left _ -> Left InternalError
-                                            Right r -> Right r
-                    (res, ss) <- Scheduler.runSchedulerT exec context schedulerState
-                    liftIO $ writeIORef drsRef (drs{drsBlockState = ss ^. Scheduler.ssBlockState})
-                    return res
-                case res of
-                    Left code -> return code
-                    Right message -> do
-                        let encoded = Proto.encodeMessage message
-                        BS.unsafeUseAsCStringLen
-                            encoded
-                            (\(ptr, len) -> drhWriteToVector outVec (castPtr ptr) (fromIntegral len))
-                        return OK
+        res <- runWithEBlockStateContext mvr bsc $ \drsRef -> do
+            drs@DryRunState{..} <- liftIO $ readIORef drsRef
+            let context =
+                    Scheduler.ContextState
+                        { _chainMetadata = ChainMetadata drsTimestamp,
+                          _maxBlockEnergy = maxBound,
+                          _accountCreationLimit = 0
+                        }
+            let schedulerState =
+                    Scheduler.SchedulerState
+                        { _ssNextIndex = 0,
+                          _ssExecutionCosts = 0,
+                          _ssEnergyUsed = 0,
+                          _ssBlockState = drsBlockState
+                        }
+            let exec = do
+                    srcAccount <- Scheduler.getStateAccount sender
+                    case srcAccount of
+                        Nothing ->
+                            return . Right . toProto . DryRunResponse $
+                                DryRunErrorAccountNotFound
+                        Just src@(_, acc) -> do
+                            nextNonce <- TVer.getNextAccountNonce acc
+                            let header =
+                                    TransactionHeader
+                                        { thSender = sender,
+                                          thNonce = nextNonce,
+                                          thEnergyAmount = Energy energyLimit,
+                                          thPayloadSize = payloadSize payload,
+                                          thExpiry = fromIntegral $ drsTimestamp `div` 1000 + 1
+                                        }
+                            let transaction = makeAccountTransaction dummySignature header payload
+                            let cost =
+                                    Cost.baseCost
+                                        (getTransactionHeaderPayloadSize header)
+                                        signatureCount
+                            Scheduler.dispatchTransactionBody transaction src cost <&> \case
+                                Nothing -> Left OutOfEnergyQuota
+                                Just (res :: TransactionSummary' ValidResultWithReturn) ->
+                                    case toProto (DryRunResponse res) of
+                                        Left _ -> Left InternalError
+                                        Right r -> Right r
+            (res, ss) <- Scheduler.runSchedulerT exec context schedulerState
+            liftIO $ writeIORef drsRef (drs{drsBlockState = ss ^. Scheduler.ssBlockState})
+            return res
+        case res of
+            Left code -> return code
+            Right message -> do
+                let encoded = Proto.encodeMessage message
+                BS.unsafeUseAsCStringLen
+                    encoded
+                    (\(ptr, len) -> writeOut (castPtr ptr) (fromIntegral len))
+                return OK
 
 foreign export ccall
     dryRunStart ::

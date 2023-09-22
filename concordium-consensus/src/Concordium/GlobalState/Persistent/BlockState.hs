@@ -2194,6 +2194,18 @@ doMint pbs mint = do
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)
     storePBS pbs (bsp{bspBank = newBank, bspAccounts = newAccounts})
 
+doSafeMintToAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (Either Amount (PersistentBlockState pv))
+doSafeMintToAccount pbs acctIdx mintAmt = do
+    bsp <- loadPBS pbs
+    let currentSupply = bspBank bsp ^. unhashed . Rewards.totalGTU
+    if maxBound - currentSupply >= mintAmt
+        then do
+            let newBank = bspBank bsp & unhashed . Rewards.totalGTU +~ mintAmt
+            let updAcc = addAccountAmount mintAmt
+            newAccounts <- Accounts.updateAccountsAtIndex' updAcc acctIdx (bspAccounts bsp)
+            Right <$> storePBS pbs (bsp{bspBank = newBank, bspAccounts = newAccounts})
+        else return $ Left (maxBound - currentSupply)
+
 doGetAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountAddress -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 doGetAccount pbs addr = do
     bsp <- loadPBS pbs
@@ -3499,6 +3511,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoRewardFoundationAccount = doRewardFoundationAccount
     bsoGetFoundationAccount = doGetFoundationAccount
     bsoMint = doMint
+    bsoSafeMintToAccount = doSafeMintToAccount
     bsoGetIdentityProvider = doGetIdentityProvider
     bsoGetAnonymityRevokers = doGetAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams

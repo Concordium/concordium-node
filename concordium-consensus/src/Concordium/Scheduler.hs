@@ -238,21 +238,26 @@ dispatch (msg, mVerRes) = do
 -- resulting energy cost. It is assumed that the transaction header has been checked for validity
 -- and the provided 'IndexedAccount' is the sender account.
 --
+-- This is parametric in the type of the transaction result @res@. This is instantiated as
+-- @ValidResult@ for block execution (in 'dispatch'), which ignores the return value of contract
+-- calls. It is instantiated as @ValidResultWithReturn@ for transaction dry-run, where we want
+-- the return value to be available.
+--
 -- Returns
 --
 -- * @Nothing@ if the transaction would exceed the remaining block energy.
 -- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
 dispatchTransactionBody ::
-    forall msg m.
-    (TransactionData msg, SchedulerMonad m) =>
+    forall msg m res.
+    (TransactionData msg, SchedulerMonad m, TransactionResult res) =>
     -- | Transaction to execute.
     msg ->
     -- | Sender account.
     IndexedAccount m ->
     -- | Energy cost to be charged for checking the transaction header.
     Energy ->
-    m (Maybe TransactionSummary)
+    m (Maybe (TransactionSummary' res))
 dispatchTransactionBody msg senderAccount checkHeaderCost = do
     let meta = transactionHeader msg
     -- At this point the transaction is going to be committed to the block.
@@ -279,7 +284,7 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                         { tsEnergyCost = checkHeaderCost,
                           tsCost = payment,
                           tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
-                          tsResult = TxReject SerializationFailure,
+                          tsResult = transactionReject SerializationFailure,
                           tsHash = transactionHash msg,
                           tsType = TSTAccountTransaction Nothing,
                           ..
@@ -308,55 +313,61 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
             -- those constraints are asserted.  'decodePayload' ensures that those assertions
             -- will not fail.
             case payload of
-                DeployModule mod ->
-                    handleDeployModule (mkWTC TTDeployModule) mod
-                InitContract{..} ->
-                    handleInitContract (mkWTC TTInitContract) icAmount icModRef icInitName icParam
-                Transfer toaddr amount ->
-                    handleSimpleTransfer (mkWTC TTTransfer) toaddr amount Nothing
+                -- Update is the only operation that can produce a return value, so
+                -- 'handleUpdateContract' is polymorphic in the result type.
                 Update{..} ->
                     handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
-                AddBaker{..} ->
-                    onlyWithoutDelegation $
-                        handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings
-                RemoveBaker ->
-                    onlyWithoutDelegation $
-                        handleRemoveBaker (mkWTC TTRemoveBaker)
-                UpdateBakerStake{..} ->
-                    onlyWithoutDelegation $
-                        handleUpdateBakerStake (mkWTC TTUpdateBakerStake) ubsStake
-                UpdateBakerRestakeEarnings{..} ->
-                    onlyWithoutDelegation $
-                        handleUpdateBakerRestakeEarnings (mkWTC TTUpdateBakerRestakeEarnings) ubreRestakeEarnings
-                UpdateBakerKeys{..} ->
-                    onlyWithoutDelegation $
-                        handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
-                UpdateCredentialKeys{..} ->
-                    handleUpdateCredentialKeys (mkWTC TTUpdateCredentialKeys) uckCredId uckKeys (transactionSignature msg)
-                EncryptedAmountTransfer{..} ->
-                    handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatData Nothing
-                TransferToEncrypted{..} ->
-                    handleTransferToEncrypted (mkWTC TTTransferToEncrypted) tteAmount
-                TransferToPublic{..} ->
-                    handleTransferToPublic (mkWTC TTTransferToPublic) ttpData
-                TransferWithSchedule{..} ->
-                    handleTransferWithSchedule (mkWTC TTTransferWithSchedule) twsTo twsSchedule Nothing
-                UpdateCredentials{..} ->
-                    handleUpdateCredentials (mkWTC TTUpdateCredentials) ucNewCredInfos ucRemoveCredIds ucNewThreshold
-                RegisterData{..} ->
-                    handleRegisterData (mkWTC TTRegisterData) rdData
-                TransferWithMemo toaddr memo amount ->
-                    handleSimpleTransfer (mkWTC TTTransferWithMemo) toaddr amount $ Just memo
-                EncryptedAmountTransferWithMemo{..} ->
-                    handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransferWithMemo) eatwmTo eatwmData $ Just eatwmMemo
-                TransferWithScheduleAndMemo{..} ->
-                    handleTransferWithSchedule (mkWTC TTTransferWithScheduleAndMemo) twswmTo twswmSchedule $ Just twswmMemo
-                ConfigureBaker{..} ->
-                    onlyWithDelegation $
-                        handleConfigureBaker (mkWTC TTConfigureBaker) cbCapital cbRestakeEarnings cbOpenForDelegation cbKeysWithProofs cbMetadataURL cbTransactionFeeCommission cbBakingRewardCommission cbFinalizationRewardCommission
-                ConfigureDelegation{..} ->
-                    onlyWithDelegation $
-                        handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
+                -- For the remaining operations, we map 'fromValidResult' on the result, to
+                -- avoid the handlers being needlessly polymorphic.
+                _ ->
+                    fmap (fmap fromValidResult) <$> case payload of
+                        DeployModule mod ->
+                            handleDeployModule (mkWTC TTDeployModule) mod
+                        InitContract{..} ->
+                            handleInitContract (mkWTC TTInitContract) icAmount icModRef icInitName icParam
+                        Transfer toaddr amount ->
+                            handleSimpleTransfer (mkWTC TTTransfer) toaddr amount Nothing
+                        AddBaker{..} ->
+                            onlyWithoutDelegation $
+                                handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings
+                        RemoveBaker ->
+                            onlyWithoutDelegation $
+                                handleRemoveBaker (mkWTC TTRemoveBaker)
+                        UpdateBakerStake{..} ->
+                            onlyWithoutDelegation $
+                                handleUpdateBakerStake (mkWTC TTUpdateBakerStake) ubsStake
+                        UpdateBakerRestakeEarnings{..} ->
+                            onlyWithoutDelegation $
+                                handleUpdateBakerRestakeEarnings (mkWTC TTUpdateBakerRestakeEarnings) ubreRestakeEarnings
+                        UpdateBakerKeys{..} ->
+                            onlyWithoutDelegation $
+                                handleUpdateBakerKeys (mkWTC TTUpdateBakerKeys) ubkElectionVerifyKey ubkSignatureVerifyKey ubkAggregationVerifyKey ubkProofSig ubkProofElection ubkProofAggregation
+                        UpdateCredentialKeys{..} ->
+                            handleUpdateCredentialKeys (mkWTC TTUpdateCredentialKeys) uckCredId uckKeys (transactionSignature msg)
+                        EncryptedAmountTransfer{..} ->
+                            handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransfer) eatTo eatData Nothing
+                        TransferToEncrypted{..} ->
+                            handleTransferToEncrypted (mkWTC TTTransferToEncrypted) tteAmount
+                        TransferToPublic{..} ->
+                            handleTransferToPublic (mkWTC TTTransferToPublic) ttpData
+                        TransferWithSchedule{..} ->
+                            handleTransferWithSchedule (mkWTC TTTransferWithSchedule) twsTo twsSchedule Nothing
+                        UpdateCredentials{..} ->
+                            handleUpdateCredentials (mkWTC TTUpdateCredentials) ucNewCredInfos ucRemoveCredIds ucNewThreshold
+                        RegisterData{..} ->
+                            handleRegisterData (mkWTC TTRegisterData) rdData
+                        TransferWithMemo toaddr memo amount ->
+                            handleSimpleTransfer (mkWTC TTTransferWithMemo) toaddr amount $ Just memo
+                        EncryptedAmountTransferWithMemo{..} ->
+                            handleEncryptedAmountTransfer (mkWTC TTEncryptedAmountTransferWithMemo) eatwmTo eatwmData $ Just eatwmMemo
+                        TransferWithScheduleAndMemo{..} ->
+                            handleTransferWithSchedule (mkWTC TTTransferWithScheduleAndMemo) twswmTo twswmSchedule $ Just twswmMemo
+                        ConfigureBaker{..} ->
+                            onlyWithDelegation $
+                                handleConfigureBaker (mkWTC TTConfigureBaker) cbCapital cbRestakeEarnings cbOpenForDelegation cbKeysWithProofs cbMetadataURL cbTransactionFeeCommission cbBakingRewardCommission cbFinalizationRewardCommission
+                        ConfigureDelegation{..} ->
+                            onlyWithDelegation $
+                                handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -967,7 +978,7 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
 
 -- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
-    (SchedulerMonad m) =>
+    (SchedulerMonad m, TransactionResult res) =>
     WithDepositContext m ->
     -- | Amount to invoke the contract's receive method with.
     Amount ->
@@ -977,9 +988,9 @@ handleUpdateContract ::
     Wasm.ReceiveName ->
     -- | Message to send to the receive method.
     Wasm.Parameter ->
-    m (Maybe TransactionSummary)
+    m (Maybe (TransactionSummary' res))
 handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
-    withDeposit wtc computeAndCharge (defaultSuccess wtc)
+    withDeposit wtc computeAndCharge (defaultSuccess' wtc)
   where
     senderAccount = wtc ^. wtcSenderAccount
     senderAddress = wtc ^. wtcSenderAddress
@@ -989,17 +1000,22 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
         getCurrentContractInstanceTicking uAddress >>= \case
             InstanceInfoV0 ins ->
                 -- Now invoke the general handler for contract messages.
-                handleContractUpdateV0
-                    senderAddress
-                    ins
-                    checkAndGetBalanceV0
-                    uAmount
-                    uReceiveName
-                    uMessage
+                transactionSuccess
+                    <$> handleContractUpdateV0
+                        senderAddress
+                        ins
+                        checkAndGetBalanceV0
+                        uAmount
+                        uReceiveName
+                        uMessage
             InstanceInfoV1 ins -> do
                 handleContractUpdateV1 senderAddress ins checkAndGetBalanceV1 uAmount uReceiveName uMessage >>= \case
-                    Left cer -> rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
-                    Right (_, events) -> return (reverse events)
+                    Left cer -> do
+                        transactionReturnValue .= WasmV1.ccfToReturnValue cer
+                        rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
+                    Right (ret, events) -> do
+                        transactionReturnValue ?= ret
+                        return $ transactionSuccess $ reverse events
     computeAndCharge = do
         r <- c
         chargeV1Storage -- charge for storing the new state of all V1 contracts. V0 state is already charged.
