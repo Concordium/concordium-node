@@ -1050,6 +1050,10 @@ pub mod server {
                 let in_flight_request_layer = tower_http::metrics::InFlightRequestsLayer::new(
                     node.stats.grpc_in_flight_requests_counter.clone(),
                 );
+                // Construct a server.
+                // We apply a number of layers to limit the service. Note that layers apply "top
+                // down", so for example the timeout layer applies on a request
+                // before, e.g., the log layer.
                 let mut builder = tonic::transport::Server::builder()
                     .concurrency_limit_per_connection(config.max_concurrent_requests_per_connection)
                     .max_concurrent_streams(config.max_concurrent_streams)
@@ -1061,6 +1065,9 @@ pub mod server {
                         config.keepalive_timeout,
                     )))
                     .layer(log_layer)
+                    .layer(tower::limit::ConcurrencyLimitLayer::new(config.max_concurrent_requests))
+                    // Note: the in-flight request layer applies after the limit layer. This is what we want so that the
+                    // metric reflects the actual number of in-flight requests.
                     .layer(in_flight_request_layer)
                     .layer(stats_layer);
                 if let Some(identity) = identity {
@@ -2700,17 +2707,20 @@ impl futures::Stream for ConnStreamWithTicket {
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
+        // Wait until a slot is available.
         let Some(permit) = futures::ready!(self.semaphore.poll_acquire(cx)) else {
             log::error!("Semaphore unexpectedly dropped. Stopping receiving new connections.");
             return std::task::Poll::Ready(None);
         };
+        // And then accept a new connection.
         std::pin::Pin::new(&mut self.stream).poll_next(cx).map_ok(|addr| {
             log::debug!("Accepting new GRPC connection from {}", addr.remote_addr());
-            self.grpc2_connected_clients.inc();
+            self.grpc_connected_clients.inc();
             AddrStreamWithTicket {
                 addr,
                 permit,
-                counter: self.grpc2_connected_clients.clone(),
+                counter: self.grpc_connected_clients.clone(), /* we will decrement this on a drop
+                                                               * of connection */
             }
         })
     }

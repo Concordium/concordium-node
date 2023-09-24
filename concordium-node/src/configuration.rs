@@ -450,9 +450,16 @@ pub struct GRPC2Config {
     #[structopt(
         long = "grpc2-max-concurrent-streams",
         help = "Maximum number of concurrently open streams.",
-        env = "CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_STREAMS",
+        env = "CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_STREAMS"
     )]
     pub max_concurrent_streams: Option<u32>,
+    #[structopt(
+        long = "grpc2-max-concurrent-requests",
+        help = "Maximum number of concurrent requests allowed for the grpc2 server.",
+        env = "CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS",
+        default_value = "100"
+    )]
+    pub max_concurrent_requests: usize,
     #[structopt(
         long = "grpc2-request-timeout",
         help = "Maximum amout of time to allow for processing a request (in seconds).",
@@ -462,13 +469,16 @@ pub struct GRPC2Config {
     pub request_timeout: u64,
     #[structopt(
         long = "grpc2-keep-alive-interval",
-        help = "Enable HTTP2 keepalive, and set the interval (in seconds) at which Ping frames are sent.",
-        env = "CONCORDIUM_NODE_GRPC2_KEEPALIVE_INTERVAL",
+        help = "Enable HTTP2 keepalive, and set the interval (in seconds) at which Ping frames \
+                are sent.",
+        env = "CONCORDIUM_NODE_GRPC2_KEEPALIVE_INTERVAL"
     )]
     pub keepalive_interval: Option<u64>,
     #[structopt(
         long = "grpc2-keep-alive-timeout",
-        help = "Timeout (in seconds) for responses to HTTP2 Ping frames. If the client does not respond in time then the connection will be closed. This has no effect unless `grpc2-keep-alive-interval` is set.",
+        help = "Timeout (in seconds) for responses to HTTP2 Ping frames. If the client does not \
+                respond in time then the connection will be closed. This has no effect unless \
+                `grpc2-keep-alive-interval` is set.",
         env = "CONCORDIUM_NODE_GRPC2_KEEPALIVE_TIMEOUT",
         default_value = "20"
     )]
