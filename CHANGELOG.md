@@ -2,6 +2,7 @@
 
 ## Unreleased changes
 
+- Expose the health check service via grpc-web when grpc-web is enabled.
 - Extend Prometheus exporter with metric `grpc_connected_clients`, see
   [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
 - Add configuration options for imposing resource limits to the V2 gRPC server.
@@ -19,7 +20,7 @@
   See
   [docs/grpc2.md](https://github.com/Concordium/concordium-node/blob/main/docs/grpc2.md)
   for an explanation of the options.
-
+ 
 ## 6.1.3
 
 - Fix a bug where stored peers are removed incorrectly.
