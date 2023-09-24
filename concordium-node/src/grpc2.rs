@@ -2639,9 +2639,15 @@ where
     }
 }
 
+/// Connection stream with an attached semaphore and gauge.
 pub struct ConnStreamWithTicket {
     stream:                 TcpIncoming,
+    /// The semaphore is used to keep track of the number of connections we
+    /// currently maintain. For each new connection we give out a ticket.
     semaphore:              tokio_util::sync::PollSemaphore,
+    /// A gauge to record the number of connected client. This is incremented
+    /// when we accept a new connection and decremented on the [`drop`] of
+    /// the connection.
     grpc_connected_clients: GenericGauge<AtomicU64>,
 }
 
@@ -2660,6 +2666,7 @@ impl Drop for AddrStreamWithTicket {
     fn drop(&mut self) { self.counter.dec() }
 }
 
+/// Forward implementation to that of the inner [`AddrStream`].
 impl tokio::io::AsyncRead for AddrStreamWithTicket {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
@@ -2670,6 +2677,7 @@ impl tokio::io::AsyncRead for AddrStreamWithTicket {
     }
 }
 
+/// Forward implementation to that of the inner [`AddrStream`].
 impl tokio::io::AsyncWrite for AddrStreamWithTicket {
     fn poll_write(
         mut self: std::pin::Pin<&mut Self>,
@@ -2694,6 +2702,7 @@ impl tokio::io::AsyncWrite for AddrStreamWithTicket {
     }
 }
 
+/// Forward implementation to that of the inner [`AddrStream`].
 impl Connected for AddrStreamWithTicket {
     type ConnectInfo = <AddrStream as Connected>::ConnectInfo;
 
@@ -2703,6 +2712,22 @@ impl Connected for AddrStreamWithTicket {
 impl futures::Stream for ConnStreamWithTicket {
     type Item = Result<AddrStreamWithTicket, std::io::Error>;
 
+    // This is where we limit the number of connections.
+    // We only return a new item if we can combine it with a permit.
+    //
+    // The choice made here is that we don't even try to accept new connections
+    // unless we have a permit. The connections will thus remain in the accept queue
+    // maintained by the OS. An alternative choice would have been to accept a
+    // connection, then check if we have a permit, and then drop the connection
+    // if we don't. This would be better in some circumstances, but it would
+    // also mean that if there is a short burst of short-lived connections they
+    // would not be handled, whereas with the current approach they do.
+    //
+    // The best option would be to have a full backlog handling with expiry, and
+    // some rate limiting based on IP (i.e., no more than X connections per IP).
+    // However that is a more extensive change. The primary purpose of the current
+    // solution is to ensure the node always has enough resources. Not load
+    // balancing.
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
