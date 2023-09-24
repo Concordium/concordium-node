@@ -1,6 +1,7 @@
 use crate::stats_export_service::StatsExportService;
 use anyhow::Context;
-use prometheus::core::Atomic;
+use hyper::server::conn::AddrStream;
+use prometheus::core::{Atomic, AtomicU64, GenericGauge};
 use prost::bytes::BufMut;
 use std::{
     convert::{TryFrom, TryInto},
@@ -8,6 +9,8 @@ use std::{
     path::Path,
     sync::Arc,
 };
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tonic::transport::server::{Connected, TcpIncoming};
 
 /// Types generated from the types.proto file, together
 /// with some auxiliary definitions that help passing values through the FFI
@@ -877,7 +880,11 @@ pub mod server {
         net::SocketAddr,
         sync::{Arc, Mutex},
     };
-    use tonic::{async_trait, transport::ServerTlsConfig};
+    use tokio_util::sync::PollSemaphore;
+    use tonic::{
+        async_trait,
+        transport::{server::TcpIncoming, ServerTlsConfig},
+    };
 
     use super::*;
 
@@ -1044,6 +1051,15 @@ pub mod server {
                     node.stats.grpc_in_flight_requests_counter.clone(),
                 );
                 let mut builder = tonic::transport::Server::builder()
+                    .concurrency_limit_per_connection(config.max_concurrent_requests_per_connection)
+                    .max_concurrent_streams(config.max_concurrent_streams)
+                    .timeout(std::time::Duration::from_secs(config.request_timeout))
+                    .http2_keepalive_interval(
+                        config.keepalive_interval.map(std::time::Duration::from_secs),
+                    )
+                    .http2_keepalive_timeout(Some(std::time::Duration::from_secs(
+                        config.keepalive_timeout,
+                    )))
                     .layer(log_layer)
                     .layer(in_flight_request_layer)
                     .layer(stats_layer);
@@ -1089,12 +1105,20 @@ pub mod server {
                         .add_service(reflection_service)
                 };
 
+                let stream = TcpIncoming::new(
+                    std::net::SocketAddr::new(listen_addr, listen_port),
+                    true,
+                    config.tcp_keepalive.map(std::time::Duration::from_secs),
+                )
+                .map_err(|e| anyhow::anyhow!("Error creating listener: {e}"))?;
+                let incoming = ConnStreamWithTicket {
+                    stream,
+                    grpc_connected_clients: node.stats.grpc_connected_clients.clone(),
+                    semaphore: PollSemaphore::new(Arc::new(Semaphore::new(config.max_connections))),
+                };
                 let task = tokio::spawn(async move {
                     let result = router
-                        .serve_with_shutdown(
-                            std::net::SocketAddr::new(listen_addr, listen_port),
-                            shutdown_receiver.map(|_| ()),
-                        )
+                        .serve_with_incoming_shutdown(incoming, shutdown_receiver.map(|_| ()))
                         .await;
                     if let Err(ref err) = result {
                         // Log an error and notify main thread that an error occured.
@@ -2604,6 +2628,90 @@ where
             }
 
             Ok(response)
+        })
+    }
+}
+
+pub struct ConnStreamWithTicket {
+    stream:                 TcpIncoming,
+    semaphore:              tokio_util::sync::PollSemaphore,
+    grpc_connected_clients: GenericGauge<AtomicU64>,
+}
+
+pub struct AddrStreamWithTicket {
+    addr:    AddrStream,
+    /// The permit is attached to the connection so that when the connection is
+    /// dropped the permit is also dropped, releasing a connection token.
+    /// Thus the permit itself is not used directly by the service, it is only
+    /// used for its drop behaviour.
+    #[allow(dead_code)]
+    permit:  OwnedSemaphorePermit,
+    counter: GenericGauge<AtomicU64>,
+}
+
+impl Drop for AddrStreamWithTicket {
+    fn drop(&mut self) { self.counter.dec() }
+}
+
+impl tokio::io::AsyncRead for AddrStreamWithTicket {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.addr).poll_read(cx, buf)
+    }
+}
+
+impl tokio::io::AsyncWrite for AddrStreamWithTicket {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+        std::pin::Pin::new(&mut self.addr).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        std::pin::Pin::new(&mut self.addr).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        std::pin::Pin::new(&mut self.addr).poll_shutdown(cx)
+    }
+}
+
+impl Connected for AddrStreamWithTicket {
+    type ConnectInfo = <AddrStream as Connected>::ConnectInfo;
+
+    fn connect_info(&self) -> Self::ConnectInfo { self.addr.connect_info() }
+}
+
+impl futures::Stream for ConnStreamWithTicket {
+    type Item = Result<AddrStreamWithTicket, std::io::Error>;
+
+    fn poll_next(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let Some(permit) = futures::ready!(self.semaphore.poll_acquire(cx)) else {
+            log::error!("Semaphore unexpectedly dropped. Stopping receiving new connections.");
+            return std::task::Poll::Ready(None);
+        };
+        std::pin::Pin::new(&mut self.stream).poll_next(cx).map_ok(|addr| {
+            log::debug!("Accepting new GRPC connection from {}", addr.remote_addr());
+            self.grpc2_connected_clients.inc();
+            AddrStreamWithTicket {
+                addr,
+                permit,
+                counter: self.grpc2_connected_clients.clone(),
+            }
         })
     }
 }

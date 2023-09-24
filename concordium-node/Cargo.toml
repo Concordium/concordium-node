@@ -13,10 +13,10 @@ license-file = "../LICENSE"
 
 [features]
 default = []
-test_utils = [ ]
+test_utils = []
 network_dump = []
-static = [ ]
-profiling = [ "static" ]
+static = []
+profiling = ["static"]
 
 [profile.release]
 codegen-units = 1
