@@ -150,7 +150,7 @@ connected clients are alive and responding in desired time.
   least 50 open file descriptors for consensus.
 
 - `--grpc2-request-timeout` (`CONCORDIUM_NODE_GRPC2_REQUEST_TIMEOUT`)
-  Maximum amout of time to allow for processing a request (in seconds). Defaults
+  Maximum amount of time to allow for processing a request (in seconds). Defaults
   to 30s. Note that as for `grpc2-max-concurrent-requests`, for streaming
   responses, this does not mean that the stream must be consumed in 30s. It only
   means that the time until the initial response must be less than 30s.

@@ -485,7 +485,7 @@ impl StatsExportService {
 
         let grpc_connected_clients = GenericGauge::with_opts(Opts::new(
             "grpc_connected_clients",
-            "Current number of clients connected to the GRPC V2 interface.",
+            "Current number of clients connected to the gRPC V2 interface",
         ))?;
         registry.register(Box::new(grpc_connected_clients.clone()))?;
 
