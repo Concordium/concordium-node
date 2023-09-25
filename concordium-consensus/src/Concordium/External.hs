@@ -879,7 +879,7 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
     mvLog mvr External LLTrace $ "Received finalization record, size = " ++ show msgLen ++ "."
     finRecBS <- BS.packCStringLen (msg, fromIntegral msgLen)
-    toReceiveResult <$> runMVR (MV.receiveFinalizationRecord genIndex finRecBS) mvr
+    toReceiveResult <$> runMVR (MV.receiveFinalization genIndex finRecBS) mvr
 
 -- | Handle receipt of a transaction.
 --  The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultDuplicate@,

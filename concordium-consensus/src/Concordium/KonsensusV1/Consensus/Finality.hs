@@ -102,7 +102,7 @@ data CatchupFinalizationEntryResult
     | -- | The finalization entry is invalid.
       CFERInvalid
     | -- | The finalization entry pointed to a block that was not
-      --  alive.
+      --  alive or the block is already finalized.
       CFERNotAlive
     | -- | The baking committee could not be looked up for the 'Epoch'
       --  of the finalized 'QuorumCertificate'.
@@ -133,8 +133,9 @@ catchupFinalizationEntry finEntry = do
     let finQC = feFinalizedQuorumCertificate finEntry
     let finBlockHash = qcBlock finQC
     gets (getLiveBlock finBlockHash) >>= \case
-        Just block ->
-            checkConsistency finQC block $
+        Just block
+            | blockRound block /= qcRound finQC || blockEpoch block /= qcEpoch finQC -> return CFERInconsistent
+            | otherwise ->
                 gets (getBakersForEpoch (qcEpoch finQC)) >>= \case
                     Nothing -> return CFERUnknownBakers
                     Just BakersAndFinalizers{..} -> do
@@ -150,20 +151,14 @@ catchupFinalizationEntry finEntry = do
                             return CFERSuccess
         Nothing -> return CFERNotAlive
   where
-    -- Checks whether the finalized qc of the finalization entry
-    -- is consistent with the block.
-    checkConsistency qc block cont =
-        if blockRound block /= qcRound qc || blockEpoch block /= qcEpoch qc
-            then return CFERInconsistent
-            else cont
     checkFinEntry finCommittee GenesisMetadata{..} cont =
-        let finEntryOk =
-                checkFinalizationEntry
-                    gmCurrentGenesisHash
-                    (toRational $ genesisSignatureThreshold gmParameters)
-                    finCommittee
-                    finEntry
-        in  if finEntryOk then cont else return CFERInvalid
+        if checkFinalizationEntry
+            gmCurrentGenesisHash
+            (toRational $ genesisSignatureThreshold gmParameters)
+            finCommittee
+            finEntry
+            then cont
+            else return CFERInvalid
 
 -- | Process a finalization entry that finalizes a block that is not currently considered finalized.
 --

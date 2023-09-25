@@ -48,18 +48,18 @@ checkDatabase filepath = do
                 Right pb -> do
                     logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " block: " ++ show ((blockHash . getHash) pb) ++ " round: " ++ show (KonsensusV1.blockRound pb)
                     return $ Right ()
-    handleImport _ (ImportFinalizationRecord _ gi bs) =
-        case runGet getExactVersionedFinalizationRecord bs of
-            Left _ -> return $ Left ImportSerializationFail
-            Right fr -> do
-                logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finrec for: " ++ show (finalizationBlockPointer fr)
-                return $ Right ()
-    handleImport _ (ImportFinalizationEntry _ gi bs) =
-        case runGet get bs of
-            Left _ -> return $ Left ImportSerializationFail
-            Right finEntry -> do
-                logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finentry for: " ++ show ((KonsensusV1.qcBlock . KonsensusV1.feFinalizedQuorumCertificate) finEntry)
-                return $ Right ()
+    handleImport _ (ImportFinalization pv gi bs) = case promoteProtocolVersion pv of
+        SomeProtocolVersion spv -> case consensusVersionFor spv of
+            ConsensusV0 -> case runGet getExactVersionedFinalizationRecord bs of
+                Left _ -> return $ Left ImportSerializationFail
+                Right fr -> do
+                    logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finrec for: " ++ show (finalizationBlockPointer fr)
+                    return $ Right ()
+            ConsensusV1 -> case runGet get bs of
+                Left _ -> return $ Left ImportSerializationFail
+                Right finEntry -> do
+                    logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finentry for: " ++ show ((KonsensusV1.qcBlock . KonsensusV1.feFinalizedQuorumCertificate) finEntry)
+                    return $ Right ()
 
 -- | Export a block database, or check and exported block file, depending on the command line.
 main :: IO ()

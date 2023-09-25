@@ -229,8 +229,8 @@ peerReceive target src MessageBlock genIndex msg = do
     res <- runMVR (receiveExecuteBlock genIndex msg) (peerMVR target)
     when (isPending res) $ markPeerPending target (peerId src)
 peerReceive target src MessageFinalizationRecord genIndex msg = do
-    mvLog (peerMVR target) External LLDebug $ "Received finalization record from " ++ show (peerId src)
-    res <- runMVR (receiveFinalizationRecord genIndex msg) (peerMVR target)
+    mvLog (peerMVR target) External LLDebug $ "Received entity record from " ++ show (peerId src)
+    res <- runMVR (receiveFinalization genIndex msg) (peerMVR target)
     when (isPending res) $ markPeerPending target (peerId src)
 peerReceive target src MessageFinalization genIndex msg = do
     mvLog (peerMVR target) External LLDebug $ "Received finalization message from " ++ show (peerId src)
