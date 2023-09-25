@@ -3,6 +3,7 @@
 ## Unreleased changes
 
 - Expose the health check service via grpc-web when grpc-web is enabled.
+- Support for out-of-band catch-up for protocol versions beyond P6.
  
 ## 6.1.3
 

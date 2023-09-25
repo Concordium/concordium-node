@@ -5,7 +5,7 @@ module Main where
 
 import Control.Monad
 import Data.Functor.Identity
-import Data.Serialize (runGet)
+import Data.Serialize (get, runGet)
 import Data.Time
 import Options.Applicative
 import System.Exit
@@ -39,21 +39,35 @@ checkDatabase filepath = do
     handleImport t (ImportBlock pv gi bs) = case promoteProtocolVersion pv of
         SomeProtocolVersion spv -> case consensusVersionFor spv of
             ConsensusV0 -> case deserializeExactVersionedPendingBlock spv bs t of
-                Left _ -> return $ Left ImportSerializationFail
+                Left err -> do
+                    logEvent External LLError $ "Deserialization failed for consensus v0 block: " <> err
+                    return $ Left ImportSerializationFail
                 Right pb -> do
                     logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " block: " ++ show (pbHash pb) ++ " slot: " ++ show (blockSlot pb)
                     return $ Right ()
             ConsensusV1 -> case SkovV1.deserializeExactVersionedPendingBlock spv bs t of
-                Left _ -> return $ Left ImportSerializationFail
+                Left err -> do
+                    logEvent External LLError $ "Deserialization failed for consensus v1 block: " <> err
+                    return $ Left ImportSerializationFail
                 Right pb -> do
                     logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " block: " ++ show ((blockHash . getHash) pb) ++ " round: " ++ show (KonsensusV1.blockRound pb)
                     return $ Right ()
-    handleImport _ (ImportFinalizationRecord _ gi bs) =
-        case runGet getExactVersionedFinalizationRecord bs of
-            Left _ -> return $ Left ImportSerializationFail
-            Right fr -> do
-                logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finrec for: " ++ show (finalizationBlockPointer fr)
-                return $ Right ()
+    handleImport _ (ImportFinalization pv gi bs) = case promoteProtocolVersion pv of
+        SomeProtocolVersion spv -> case consensusVersionFor spv of
+            ConsensusV0 -> case runGet getExactVersionedFinalizationRecord bs of
+                Left err -> do
+                    logEvent External LLError $ "Deserialization failed for finalization record: " <> err
+                    return $ Left ImportSerializationFail
+                Right fr -> do
+                    logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finrec for: " ++ show (finalizationBlockPointer fr)
+                    return $ Right ()
+            ConsensusV1 -> case runGet get bs of
+                Left err -> do
+                    logEvent External LLError $ "Deserialization failed for finalization entry: " <> err
+                    return $ Left ImportSerializationFail
+                Right finEntry -> do
+                    logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finentry for: " ++ show ((KonsensusV1.qcBlock . KonsensusV1.feFinalizedQuorumCertificate) finEntry)
+                    return $ Right ()
 
 -- | Export a block database, or check and exported block file, depending on the command line.
 main :: IO ()
