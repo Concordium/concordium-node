@@ -5,6 +5,9 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+-- Required because otherwise 'exportFinalizationEntryToChunk' will
+-- produce a warning.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- | Functionality for importing and exporting the block database.
 --
