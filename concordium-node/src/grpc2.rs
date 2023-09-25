@@ -2647,11 +2647,13 @@ where
     }
 }
 
-/// Connection stream with an attached semaphore and gauge.
+/// Connection stream ([`TcpIncoming`]) with an attached semaphore and gauge
+/// that are used to limit and keep track of the number of connected clients.
 pub struct ConnStreamWithTicket {
     stream:                 TcpIncoming,
-    /// The semaphore is used to keep track of the number of connections we
-    /// currently maintain. For each new connection we give out a ticket.
+    /// The semaphore is used to enforce a limit on the number of connected
+    /// clients. A ticket must be available before we accept each
+    /// connection.
     semaphore:              tokio_util::sync::PollSemaphore,
     /// A gauge to record the number of connected client. This is incremented
     /// when we accept a new connection and decremented on the [`drop`] of
@@ -2659,19 +2661,25 @@ pub struct ConnStreamWithTicket {
     grpc_connected_clients: GenericGauge<AtomicU64>,
 }
 
+/// A connection with attached permits and counters to enforce limits on the
+/// number of open connections maintained by the grpc server.
 pub struct AddrStreamWithTicket {
-    addr:    AddrStream,
+    /// The connection.
+    addr:                  AddrStream,
     /// The permit is attached to the connection so that when the connection is
     /// dropped the permit is also dropped, releasing a connection token.
     /// Thus the permit itself is not used directly by the service, it is only
     /// used for its drop behaviour.
     #[allow(dead_code)]
-    permit:  OwnedSemaphorePermit,
-    counter: GenericGauge<AtomicU64>,
+    permit:                OwnedSemaphorePermit,
+    /// The gauge that counts the number of open connections. This is attached
+    /// to the connection so that we can decrement it when the connection is
+    /// dropped.
+    num_connected_clients: GenericGauge<AtomicU64>,
 }
 
 impl Drop for AddrStreamWithTicket {
-    fn drop(&mut self) { self.counter.dec() }
+    fn drop(&mut self) { self.num_connected_clients.dec() }
 }
 
 /// Forward implementation to that of the inner [`AddrStream`].
@@ -2752,8 +2760,9 @@ impl futures::Stream for ConnStreamWithTicket {
             AddrStreamWithTicket {
                 addr,
                 permit,
-                counter: self.grpc_connected_clients.clone(), /* we will decrement this on a drop
-                                                               * of connection */
+                num_connected_clients: self.grpc_connected_clients.clone(), /* we will decrement
+                                                                             * this on a drop
+                                                                             * of connection */
             }
         })
     }

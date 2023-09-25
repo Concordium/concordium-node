@@ -111,7 +111,7 @@ The following configuration options for the GRPC2 server can be used to ensure
 connected clients are alive and responding in desired time.
 
 - `--grpc2-keep-alive-interval` (`CONCORDIUM_NODE_GRPC2_KEEPALIVE_INTERVAL`)
-  Enable HTTP2 keepalive, and set the interval (in seconds) at which Ping frames are sent. [env:
+  Enable HTTP2 keepalive, and set the interval (in seconds) at which Ping frames are sent.
 
 - `--grpc2-keep-alive-timeout` (`CONCORDIUM_NODE_GRPC2_KEEPALIVE_TIMEOUT`)
   Timeout (in seconds) for responses to HTTP2 Ping frames. If the client does not respond in time then the
@@ -123,7 +123,11 @@ connected clients are alive and responding in desired time.
 ### Configuration options for limiting resource usage
 
 - `--grpc2-invoke-max-energy` (`CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY`)
-  Maximum amount of energy allowed for the InvokeInstance and InvokeContract (V1 API) endpoints.
+  Maximum amount of energy allowed for a call to the InvokeInstance (and also
+  InvokeContract of the V1 API) endpoint. If the caller supplies the maximum
+  energy as part of the call then the energy used for the execution of
+  the call is the **minimum** of `CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY` and
+  the caller supplied energy.
 
 - `--grpc2-max-concurrent-requests` (`CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS`)
   Global (i.e., not per connection) number of concurrent requests allowed.
