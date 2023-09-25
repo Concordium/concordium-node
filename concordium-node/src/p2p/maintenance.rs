@@ -859,7 +859,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 // If the peer was connected then also expunge it from
                 // the database so the node does not try to reconnect to it upon a restart.
                 if is_conn {
-                    if let Err(err) = node.remove_persisted_peer(remote_peer.addr) {
+                    if let Err(err) = node.remove_persisted_peer(remote_peer.external_addr()) {
                         error!("Unable to remove 'StoredPeer' from database {}", err);
                     }
                 }
@@ -871,7 +871,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
                 // If the peer was connected then also expunge it from
                 // the database so the node does not try to reconnect to it upon a restart.
                 if is_conn {
-                    if let Err(err) = node.remove_persisted_peer(remote_peer.addr) {
+                    if let Err(err) = node.remove_persisted_peer(remote_peer.external_addr()) {
                         error!("Unable to remove 'StoredPeer' from database {}", err);
                     }
                 }
@@ -883,7 +883,7 @@ fn process_conn_change(node: &Arc<P2PNode>, conn_change: ConnChange) {
             for p in removed_connected_peers {
                 // If any connections were dropped, remove them
                 // from the database.
-                if let Err(err) = node.remove_persisted_peer(p.addr) {
+                if let Err(err) = node.remove_persisted_peer(p.external_addr()) {
                     error!("Unable to remove 'StoredPeer' from database {}", err);
                 }
             }

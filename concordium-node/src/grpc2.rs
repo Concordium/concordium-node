@@ -1084,9 +1084,17 @@ pub mod server {
                         health_max_finalization_delay: config.health_max_finalized_delay,
                         health_min_peers: config.health_min_peers,
                     };
-                    router
-                        .add_service(health::health_server::HealthServer::new(health_service))
-                        .add_service(reflection_service)
+                    if config.enable_grpc_web {
+                        router
+                            .add_service(tonic_web::enable(
+                                health::health_server::HealthServer::new(health_service),
+                            ))
+                            .add_service(tonic_web::enable(reflection_service))
+                    } else {
+                        router
+                            .add_service(health::health_server::HealthServer::new(health_service))
+                            .add_service(reflection_service)
+                    }
                 };
 
                 let task = tokio::spawn(async move {
