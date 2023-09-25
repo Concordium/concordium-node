@@ -3,7 +3,7 @@
 ## Unreleased changes
 
 - Expose the health check service via grpc-web when grpc-web is enabled.
-- Support for out-of-band catch-up across protocol versions for consensus version 1.
+- Support for out-of-band catch-up for protocol versions beyond P6.
  
 ## 6.1.3
 
@@ -34,7 +34,6 @@
 - Fix a bug where it was not possible to use the `collector` with a node configured with TLS.
   One has to configure the `grpc-host` flag of the `collector` with domain stated in the certificate that the
   node is configured with.
-- Support for out-of-band catch-up for protocol versions beyond P6.
 
 ## 6.1.1
 
