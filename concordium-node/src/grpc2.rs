@@ -2750,6 +2750,12 @@ impl futures::Stream for ConnStreamWithTicket {
     ) -> std::task::Poll<Option<Self::Item>> {
         // Wait until a slot is available.
         let Some(permit) = futures::ready!(self.semaphore.poll_acquire(cx)) else {
+            // This should never happen. The Semaphore is owned by `ConnStreamWithTicket`
+            // which is in turn owned by the tonic server so will not be dropped while this is being polled.
+            // We also never call `close` on the Semaphore, which is private to this struct so there is
+            // no chance this is done somewhere else.
+            //
+            // If by some miracle that were to happen, the outcome is that no new connections are accepted.
             log::error!("Semaphore unexpectedly dropped. Stopping receiving new connections.");
             return std::task::Poll::Ready(None);
         };
