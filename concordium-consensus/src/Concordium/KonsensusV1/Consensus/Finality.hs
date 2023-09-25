@@ -112,7 +112,7 @@ data CatchupFinalizationEntryResult
 --  This function checks whether the finalization entry is
 --  consistent with the block indicated by @feFinalizedQuorumCertificate@ of the
 --  finalization entry and that block is alive and non finalized.
---  If the finalization entry can be verified then it is being processed.
+--  If the finalization entry can be verified then it is processed.
 catchupFinalizationEntry ::
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
