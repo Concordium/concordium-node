@@ -3,6 +3,7 @@
 ## Unreleased changes
 
 - Expose the health check service via grpc-web when grpc-web is enabled.
+ Support for out-of-band catch-up for protocol versions beyond P6.
 - Extend Prometheus exporter with metric `grpc_connected_clients`, see
   [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
 - Add configuration options for imposing resource limits to the V2 gRPC server.
