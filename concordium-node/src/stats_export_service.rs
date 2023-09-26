@@ -275,6 +275,8 @@ pub struct StatsExportService {
     /// The number of peers that recently connected to the node labelled by the
     /// bucket in which they are contained.
     pub peer_bucket_size: IntGaugeVec,
+    /// The number of connections maintained by the GRPC V2 server.
+    pub grpc_connected_clients: GenericGauge<AtomicU64>,
 }
 
 impl StatsExportService {
@@ -481,6 +483,12 @@ impl StatsExportService {
         )?;
         registry.register(Box::new(peer_bucket_size.clone()))?;
 
+        let grpc_connected_clients = GenericGauge::with_opts(Opts::new(
+            "grpc_connected_clients",
+            "Current number of clients connected to the gRPC V2 interface",
+        ))?;
+        registry.register(Box::new(grpc_connected_clients.clone()))?;
+
         Ok(StatsExportService {
             registry,
             packets_received,
@@ -515,6 +523,7 @@ impl StatsExportService {
             avg_bps_in,
             avg_bps_out,
             peer_bucket_size,
+            grpc_connected_clients,
         })
     }
 
