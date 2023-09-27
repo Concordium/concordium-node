@@ -1485,9 +1485,12 @@ extern "C" {
     ///
     /// * `consensus` - Pointer to the consensus.
     /// * `copier` - Callback for appending a bytestring to a vector.
+    /// * `energy_quota` - Limit on total energy cost for operations in this
+    ///   dry-run sequence.
     pub fn dryRunStart(
         consensus: *mut consensus_runner,
         copier: CopyToVecCallback,
+        energy_quota: u64,
     ) -> *mut DryRunHandle;
 
     /// Terminate a dry-run sequence, freeing up the resources associated with
@@ -1500,7 +1503,7 @@ extern "C" {
         block_id_type: u8,
         block_id: *const u8,
         out: *mut Vec<u8>,
-    );
+    ) -> i64;
 
     pub fn dryRunGetAccountInfo(
         dry_run_handle: *mut DryRunHandle,
@@ -1579,6 +1582,8 @@ extern "C" {
         energy: u64,
         payload: *const u8,
         payload_length: u64,
+        signatures: *const u8,
+        signature_count: u64,
         out: *mut Vec<u8>,
     ) -> i64;
 }
@@ -1793,9 +1798,10 @@ impl DryRun {
         let mut out_data: Vec<u8> = Vec::new();
         let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
         let (block_id_type, block_id) = bhi.to_ptr();
-        unsafe {
+        let res = unsafe {
             dryRunLoadBlockState(self.handle, block_id_type, block_id.as_ptr(), &mut out_data)
-        }
+        };
+        DryRun::check_result(res, "load block state")?;
         Ok(out_data)
     }
 
@@ -1936,6 +1942,21 @@ impl DryRun {
         let encoded_payload =
             concordium_base::transactions::EncodedPayload::try_from(request.payload.require()?)?;
         let payload_bytes: Vec<u8> = encoded_payload.into();
+        let signature_count = request.signatures.len();
+        let mut signature_vec: Vec<u8> = Vec::with_capacity(signature_count * 2);
+        for sig in request.signatures {
+            signature_vec.push(
+                sig.credential.try_into().map_err(|_| {
+                    tonic::Status::invalid_argument("Credential index out of bounds")
+                })?,
+            );
+            signature_vec.push(
+                sig.key
+                    .try_into()
+                    .map_err(|_| tonic::Status::invalid_argument("Key index out of bounds"))?,
+            );
+        }
+
         let res = unsafe {
             dryRunTransaction(
                 self.handle,
@@ -1943,6 +1964,8 @@ impl DryRun {
                 energy,
                 payload_bytes.as_ptr(),
                 payload_bytes.len() as u64,
+                signature_vec.as_ptr(),
+                signature_count as u64,
                 &mut out_data,
             )
         };
@@ -3541,9 +3564,9 @@ impl ConsensusContainer {
     }
 
     /// Start a dry-run operation sequence.
-    pub fn dry_run(&self) -> DryRun {
+    pub fn dry_run(&self, energy_quota: u64) -> DryRun {
         let consensus = self.consensus.load(Ordering::SeqCst);
-        let handle = unsafe { dryRunStart(consensus, copy_to_vec_callback) };
+        let handle = unsafe { dryRunStart(consensus, copy_to_vec_callback, energy_quota) };
         DryRun {
             handle,
         }

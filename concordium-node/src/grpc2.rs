@@ -2456,7 +2456,8 @@ pub mod server {
             }
 
             let mut input = request.into_inner();
-            let mut dry_run = self.consensus.dry_run();
+            let energy_quota = 10000;
+            let mut dry_run = self.consensus.dry_run(energy_quota);
             let output = async_stream::stream! {
                 while let Some(dry_run_request) = input.next().await {
                     match dry_run_request {
@@ -2500,7 +2501,9 @@ pub mod server {
                     }
                 }
             };
-            Ok(tonic::Response::new(Box::pin(output) as Self::DryRunStream))
+            let mut response = tonic::Response::new(Box::pin(output) as Self::DryRunStream);
+            response.metadata_mut().insert("quota", energy_quota.into());
+            Ok(response)
         }
     }
 }
