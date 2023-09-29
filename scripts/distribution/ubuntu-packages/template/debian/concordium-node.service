@@ -49,6 +49,8 @@ Environment=CONCORDIUM_NODE_CONNECTION_MAX_ALLOWED_NODES=10
 Environment=CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS=0.0.0.0
 # And its port of the GRPC V2 server.
 Environment=CONCORDIUM_NODE_GRPC2_LISTEN_PORT=${build_grpc2_listen_port}
+# The url of the catchup file. This speeds up the catchup process.
+Environment=CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_FROM=${build_catchup_url}
 
 # maximum number of __connections__ the node can have. This can temporarily be more than
 # the number of peers when incoming connections are processed. 
