@@ -1,27 +1,69 @@
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
+-- Here because of the MonadReader instance for AccountMapStoreMonad
+-- Revise this.
+{-# LANGUAGE UndecidableInstances #-}
 
--- |Module for the low level LMDB account map.
+-- | This module exposes an account map backed by a LMDB database.
+--  The ‘AccountMap’ is a simple key/value store where the keys consists
+--  of the first 29 bytes of an ‘AccountAddress’ and the values are the
+--  associated ‘AccountIndex’.
+--
+--  The account map is integrated with the block state “on-the-fly” meaning that
+--  whenver the node starts up and the ‘AccountMap’ is not populated, then it will be
+--  initialized on startup via the existing ‘PersistentAccountMap’.
+--
+--  Invariants:
+--      * Only finalized accounts are present in the ‘AccountMap’
 module Concordium.GlobalState.AccountMap.LMDB where
 
 import Control.Concurrent
-import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
+import Control.Monad.Identity
 import Control.Monad.Reader.Class
-import Data.Data (Data, Typeable)
+import Control.Monad.Trans.Class
 import qualified Data.ByteString as BS
+import Data.Data (Data, Typeable)
 import qualified Data.Serialize as S
 import Database.LMDB.Raw
-import System.Directory
 import Lens.Micro.Platform
+import System.Directory
 
-import Concordium.Logger
-import qualified Data.FixedByteString as FBS
-import Concordium.Types
 import Concordium.GlobalState.LMDB.Helpers
+import Concordium.Logger
+import Concordium.Types
+import qualified Data.FixedByteString as FBS
+
+-- | The interface to the LMDB account map.
+--  For more information, refer to the module documentation.
+--  Invariants:
+--      * All accounts in the store are finalized.
+class (Monad m) => MonadAccountMapStore m where
+    -- | Create and initialize the ‘AccountMap’ via the supplied map of accounts
+    --  for the supplied 'BlockHash'.
+    --  The provided 'BlockHash' must correspond to the hash of last finalized block
+    --  when this function is invoked.
+    --  The @[(AccountAddress, AccountIndex)]@ should generally be obtained by the 'PersistentAccountMap'.
+    initialize :: BlockHash -> [(AccountAddress, AccountIndex)] -> m ()
+
+    -- | Check whether the ‘AccountMap’ is initialized.
+    --  Returns @Just BlockHash@ if the 'AccountMap' is initialized,
+    --  the ‘BlockHash’ indicates the last finalized block for the 'AccountMap'.
+    --  Returns @Nothing@ if the account map is not initialized.
+    isInitialized :: m (Maybe BlockHash)
+
+    -- | Adds an account to the 'AccountMap'.
+    addAccount :: BlockHash -> AccountAddress -> AccountIndex -> m ()
+
+    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’.
+    --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
+    --  and returns @Nothing@ if the account was not present.
+    lookupAccount :: AccountAddress -> m (Maybe AccountIndex)
 
 -- * Database stores
 
@@ -51,7 +93,7 @@ data PrefixAccountAddressSize
 
 instance FBS.FixedLength PrefixAccountAddressSize where
     fixedLength _ = prefixAccountAddressSize
-    
+
 -- | The prefix account address which is used as keys in the underlying store.
 newtype PrefixAccountAddress = PrefixAccountAddress (FBS.FixedByteString PrefixAccountAddressSize)
 
@@ -59,24 +101,27 @@ instance S.Serialize PrefixAccountAddress where
     put (PrefixAccountAddress addr) = S.putByteString $ FBS.toByteString addr
     get = PrefixAccountAddress . FBS.fromByteString <$> S.getByteString prefixAccountAddressSize
 
+-- | Create a 'PrefixAccountAddress' from the supplied 'AccountAddress'.
+--  The 'PrefixAccountAddress' is the first 29 bytes of the original 'AccountAddress'.
 accountAddressToPrefixAccountAddress :: AccountAddress -> PrefixAccountAddress
-accountAddressToPrefixAccountAddress = undefined
+accountAddressToPrefixAccountAddress (AccountAddress afbs) = toPrefixAccountAddress $ FBS.toByteString afbs
+  where
+    toPrefixAccountAddress = PrefixAccountAddress . FBS.fromByteString . first29Bytes
+    first29Bytes = BS.take prefixAccountAddressSize
 
 instance MDBDatabase AccountMapStore where
     type DBKey AccountMapStore = PrefixAccountAddress
     type DBValue AccountMapStore = AccountIndex
 
-
 lfbKey :: DBKey MetadataStore
 lfbKey = "lfb"
-  
+
 instance MDBDatabase MetadataStore where
     type DBKey MetadataStore = BS.ByteString
     type DBValue MetadataStore = BlockHash
 
 data DatabaseHandlers = DatabaseHandlers
-    {
-      _storeEnv :: !StoreEnv,
+    { _storeEnv :: !StoreEnv,
       _metadataStore :: !MetadataStore,
       _accountMapStore :: !AccountMapStore
     }
@@ -102,10 +147,8 @@ dbInitSize = dbStepSize
 
 -- ** Helpers
 
-
 -- TODO: These helper functions below should probably be refactored and moved into LDMBHelpers so
 -- they can be used across all lmdb database implementations.
-
 
 -- | Resize the LMDB map if the file size has changed.
 --  This is used to allow a secondary process that is reading the database
@@ -188,4 +231,62 @@ openDatabase accountMapDir = do
 -- | Close the database. The database should not be used after it is closed.
 closeDatabase :: DatabaseHandlers -> IO ()
 closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
-    
+
+-- ** Monad implementation
+newtype AccountMapStoreMonad m a = AccountMapStoreMonad {runAccountMapStoreMonad :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger) via m
+    deriving (MonadTrans) via IdentityT
+
+deriving instance (MonadReader r m) => MonadReader r (AccountMapStoreMonad m)
+
+-- | Run a read-only transaction.
+asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r) => (DatabaseHandlers -> MDB_txn -> IO a) -> AccountMapStoreMonad m a
+asReadTransaction t = do
+    dbh <- view databaseHandlers
+    liftIO $ transaction (dbh ^. storeEnv) True $ t dbh
+
+-- | Run a write transaction. If the transaction fails due to the database being full, this resizes
+--  the database and retries the transaction.
+asWriteTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r, MonadLogger m) => (DatabaseHandlers -> MDB_txn -> IO a) -> AccountMapStoreMonad m a
+asWriteTransaction t = do
+    dbh <- view databaseHandlers
+    let doTransaction = transaction (dbh ^. storeEnv) False $ t dbh
+        inner step = do
+            r <- liftIO $ tryJust selectDBFullError doTransaction
+            case r of
+                Left _ -> do
+                    -- We resize by the step size initially, and by double for each successive
+                    -- failure.
+                    resizeDatabaseHandlers dbh step
+                    inner (min (step * 2) dbMaxStepSize)
+                Right res -> return res
+    inner dbStepSize
+  where
+    -- only handle the db full error and propagate other exceptions.
+    selectDBFullError = \case
+        (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
+        _ -> Nothing
+
+instance
+    ( MonadReader r m,
+      HasDatabaseHandlers r,
+      MonadIO m,
+      MonadLogger m
+    ) =>
+    MonadAccountMapStore (AccountMapStoreMonad m)
+    where
+    initialize lfbHash accounts = asWriteTransaction $ \dbh txn -> do
+        forM_
+            accounts
+            ( \(accAddr, accIndex) -> do
+                storeRecord txn (dbh ^. accountMapStore) (accountAddressToPrefixAccountAddress accAddr) accIndex
+            )
+        storeRecord txn (dbh ^. metadataStore) lfbKey lfbHash
+    isInitialized = asReadTransaction $ \dbh txn ->
+        loadRecord txn (dbh ^. metadataStore) lfbKey
+    addAccount lfbHash accAddr accIndex = asWriteTransaction $ \dbh txn -> do
+        storeRecord txn (dbh ^. accountMapStore) (accountAddressToPrefixAccountAddress accAddr) accIndex
+        storeReplaceRecord txn (dbh ^. metadataStore) lfbKey lfbHash
+
+    lookupAccount accAddr = asReadTransaction $ \dbh txn ->
+        loadRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr
