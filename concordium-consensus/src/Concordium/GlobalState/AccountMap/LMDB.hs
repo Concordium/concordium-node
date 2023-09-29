@@ -197,14 +197,14 @@ makeDatabaseHandlers ::
     -- | Initial database size
     Int ->
     IO DatabaseHandlers
-makeDatabaseHandlers treeStateDir readOnly initSize = do
+makeDatabaseHandlers accountMapDir readOnly initSize = do
     _storeEnv <- makeStoreEnv
     -- here nobody else has access to the environment, so we need not lock
     let env = _storeEnv ^. seEnv
     mdb_env_set_mapsize env (initSize + dbStepSize - initSize `mod` dbStepSize)
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
-    mdb_env_open env treeStateDir [MDB_RDONLY | readOnly]
+    mdb_env_open env accountMapDir [MDB_RDONLY | readOnly]
     transaction _storeEnv readOnly $ \txn -> do
         _accountMapStore <-
             AccountMapStore
