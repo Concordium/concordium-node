@@ -48,8 +48,10 @@ class (Monad m) => MonadAccountMapStore m where
     --  for the supplied 'BlockHash'.
     --  The provided 'BlockHash' must correspond to the hash of last finalized block
     --  when this function is invoked.
-    --  The @[(AccountAddress, AccountIndex)]@ should generally be obtained by the 'PersistentAccountMap'.
-    initialize :: BlockHash -> [(AccountAddress, AccountIndex)] -> m ()
+    --  The @[AccountAddress]@ should be obtained by the account table.
+    --  Precondition: offset of the @AccountAddress@ in the list must correspond to
+    --  the account index of that particular account.
+    initialize :: BlockHash -> [AccountAddress] -> m ()
 
     -- | Check whether the ‘AccountMap’ is initialized.
     --  Returns @Just BlockHash@ if the 'AccountMap' is initialized,
@@ -57,13 +59,17 @@ class (Monad m) => MonadAccountMapStore m where
     --  Returns @Nothing@ if the account map is not initialized.
     isInitialized :: m (Maybe BlockHash)
 
-    -- | Adds an account to the 'AccountMap'.
-    addAccount :: BlockHash -> AccountAddress -> AccountIndex -> m ()
+    -- | Adds an account to the 'AccountMap' and return @Just AccountIndex@ if
+    --  the account was added.
+    insert :: BlockHash -> AccountAddress -> m (Maybe AccountIndex)
 
     -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
-    lookupAccount :: AccountAddress -> m (Maybe AccountIndex)
+    lookup :: AccountAddress -> m (Maybe AccountIndex)
+
+    -- | Get all account addresses
+    all :: m [AccountAddress] 
 
 -- * Database stores
 
@@ -277,16 +283,19 @@ instance
     where
     initialize lfbHash accounts = asWriteTransaction $ \dbh txn -> do
         forM_
-            accounts
+            (zip accounts [0..])
             ( \(accAddr, accIndex) -> do
                 storeRecord txn (dbh ^. accountMapStore) (accountAddressToPrefixAccountAddress accAddr) accIndex
             )
         storeRecord txn (dbh ^. metadataStore) lfbKey lfbHash
     isInitialized = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. metadataStore) lfbKey
-    addAccount lfbHash accAddr accIndex = asWriteTransaction $ \dbh txn -> do
+    insert lfbHash accAddr = asWriteTransaction $ \dbh txn -> do
         storeRecord txn (dbh ^. accountMapStore) (accountAddressToPrefixAccountAddress accAddr) accIndex
         storeReplaceRecord txn (dbh ^. metadataStore) lfbKey lfbHash
 
-    lookupAccount accAddr = asReadTransaction $ \dbh txn ->
+    lookup accAddr = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr
+    all = asReadTransaction $ \dbh txn -> do
+        map fst <$> loadAll txn (dbh ^.accountMapStore)
+

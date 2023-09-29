@@ -86,6 +86,7 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
@@ -3328,7 +3329,8 @@ type PersistentState av pv r m =
       HasBlobStore r,
       AccountVersionFor pv ~ av,
       Cache.HasCache (AccountCache av) r,
-      Cache.HasCache Modules.ModuleCache r
+      Cache.HasCache Modules.ModuleCache r,
+      LMDBAccountMap.MonadAccountMapStore m
     )
 
 instance MonadTrans (PersistentBlockStateMonad pv r) where
@@ -3340,6 +3342,8 @@ instance (PersistentState av pv r m) => MonadBlobStore (PutH (PersistentBlockSta
 
 instance (PersistentState av pv r m) => Cache.MonadCache (AccountCache av) (PersistentBlockStateMonad pv r m)
 instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
+
+instance (PersistentState av pv r m) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m)
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)

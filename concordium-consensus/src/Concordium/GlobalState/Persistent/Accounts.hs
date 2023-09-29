@@ -35,6 +35,9 @@ import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.ID.Parameters
 import Concordium.Types.HashableTo
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.AccountMap.LMDB (MonadAccountMapStore)
+import qualified Concordium.GlobalState.AccountMap as LMDB
 
 -- | Representation of the set of accounts on the chain.
 --  Each account has an 'AccountIndex' which is the order
@@ -69,9 +72,7 @@ import Concordium.Types.HashableTo
 --  hence the current solution was chosen. Caching by account index (probably with an LRU strategy)
 --  would likely be a more effective strategy over all.
 data Accounts (pv :: ProtocolVersion) = Accounts
-    { -- | Unique index of accounts by 'AccountAddress'
-      accountMap :: !(AccountMap.PersistentAccountMap pv),
-      -- | Hashed Merkle-tree of the accounts
+    { -- | Hashed Merkle-tree of the accounts
       accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (AccountRef (AccountVersionFor pv))),
       -- | Persisted representation of the map from registration ids to account indices.
       accountRegIdHistory :: !(Trie.TrieN UnbufferedFix ID.RawCredentialRegistrationID AccountIndex)
@@ -83,7 +84,8 @@ data Accounts (pv :: ProtocolVersion) = Accounts
 type SupportsPersistentAccount pv m =
     ( IsProtocolVersion pv,
       MonadBlobStore m,
-      MonadCache (AccountCache (AccountVersionFor pv)) m
+      MonadCache (AccountCache (AccountVersionFor pv)) m,
+      LMDBAccountMap.MonadAccountMapStore m
     )
 
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
@@ -94,50 +96,38 @@ instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (Accounts pv) 
 
 instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
-        (pMap, accountMap') <- storeUpdate accountMap
         (pTable, accountTable') <- storeUpdate accountTable
         (pRegIdHistory, regIdHistory') <- storeUpdate accountRegIdHistory
         let newAccounts =
                 Accounts
-                    { accountMap = accountMap',
-                      accountTable = accountTable',
+                    { accountTable = accountTable',
                       accountRegIdHistory = regIdHistory'
                     }
-        return (pMap >> pTable >> pRegIdHistory, newAccounts)
+        return (pTable >> pRegIdHistory, newAccounts)
     load = do
-        maccountMap <- load
         maccountTable <- load
         mrRIH <- load
         return $ do
-            accountMap <- maccountMap
             accountTable <- maccountTable
             accountRegIdHistory <- mrRIH
             return $ Accounts{..}
 
 instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
     liftCache cch accts@Accounts{..} = do
-        acctMap <- cache accountMap
         acctTable <- liftCache (liftCache @_ @(HashedCachedRef (AccountCache av) (PersistentAccount av)) cch) accountTable
         return
-            accts
-                { accountMap = acctMap,
-                  accountTable = acctTable
-                }
-
--- | An 'Accounts' with no accounts.
-emptyAccounts :: Accounts pv
-emptyAccounts = Accounts AccountMap.empty L.empty Trie.empty
+            accts { accountTable = acctTable }
 
 -- | Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 --  or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
 putNewAccount :: (SupportsPersistentAccount pv m) => PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
 putNewAccount !acct accts0 = do
     addr <- accountCanonicalAddress acct
-    (existingAccountId, newAccountMap) <- AccountMap.maybeInsert addr acctIndex (accountMap accts0)
+    mAccountIndex <- LMDBAccountMap.insert addr
     if isNothing existingAccountId
         then do
             (_, newAccountTable) <- L.append acct (accountTable accts0)
-            return (Just acctIndex, accts0{accountMap = newAccountMap, accountTable = newAccountTable})
+            return (Just acctIndex, accts0{accountTable = newAccountTable})
         else return (Nothing, accts0)
   where
     acctIndex = fromIntegral $ L.size (accountTable accts0)
@@ -154,9 +144,9 @@ exists addr Accounts{..} = AccountMap.isAddressAssigned addr accountMap
 
 -- | Retrieve an account with the given address.
 --  Returns @Nothing@ if no such account exists.
-getAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
+getAccount :: (SupportsPersistentAccount pv m, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> Accounts pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
 getAccount addr Accounts{..} =
-    AccountMap.lookup addr accountMap >>= \case
+    LMDBAccountMap.lookup addr >>= \case
         Nothing -> return Nothing
         Just ai -> L.lookup ai accountTable
 
@@ -174,9 +164,9 @@ getAccountIndex addr Accounts{..} = AccountMap.lookup addr accountMap
 
 -- | Retrieve an account and its index from a given address.
 --  Returns @Nothing@ if no such account exists.
-getAccountWithIndex :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
+getAccountWithIndex :: (SupportsPersistentAccount pv m, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 getAccountWithIndex addr Accounts{..} =
-    AccountMap.lookup addr accountMap >>= \case
+    LMDBAccountMap.lookup addr >>= \case
         Nothing -> return Nothing
         Just ai -> fmap (ai,) <$> L.lookup ai accountTable
 
@@ -186,7 +176,7 @@ indexedAccount ai Accounts{..} = L.lookup ai accountTable
 
 -- | Retrieve an account with the given address.
 --  An account with the address is required to exist.
-unsafeGetAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (PersistentAccount (AccountVersionFor pv))
+unsafeGetAccount :: (SupportsPersistentAccount pv m, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> Accounts pv -> m (PersistentAccount (AccountVersionFor pv))
 unsafeGetAccount addr accts =
     getAccount addr accts <&> \case
         Just acct -> acct
@@ -257,8 +247,8 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
     fupd' = fmap ((),) . fupd
 
 -- | Get a list of all account addresses.
-accountAddresses :: (MonadBlobStore m) => Accounts pv -> m [AccountAddress]
-accountAddresses = AccountMap.addresses . accountMap
+accountAddresses :: (MonadBlobStore m, LMDBAccountMap.MonadAccountMapStore m) => m [AccountAddress]
+accountAddresses = LMDBAccountMap.all
 
 -- | Serialize accounts in V0 format.
 serializeAccounts :: (SupportsPersistentAccount pv m, MonadPut m) => GlobalContext -> Accounts pv -> m ()
@@ -287,14 +277,12 @@ migrateAccounts ::
     Accounts oldpv ->
     t m (Accounts pv)
 migrateAccounts migration Accounts{..} = do
-    newAccountMap <- AccountMap.migratePersistentAccountMap accountMap
     newAccountTable <- L.migrateLFMBTree (migrateHashedCachedRef' (migratePersistentAccount migration)) accountTable
     -- The account registration IDs are not cached. There is a separate cache
     -- that is purely in-memory and just copied over.
     newAccountRegIds <- Trie.migrateUnbufferedTrieN return accountRegIdHistory
     return $!
         Accounts
-            { accountMap = newAccountMap,
-              accountTable = newAccountTable,
+            { accountTable = newAccountTable,
               accountRegIdHistory = newAccountRegIds
             }
