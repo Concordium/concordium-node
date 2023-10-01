@@ -40,7 +40,7 @@ pipeline {
             steps {
                 sh '''\
                         # Build
-                        powershell -File ./scripts/distribution/windows/build-all.ps1
+                        powershell -File ./scripts/distribution/windows/build-all.ps1 -nodeVersion $TAG
 
                         # Push
                         aws s3 cp ./service/windows/installer/Node.msi $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers

@@ -1,4 +1,4 @@
-﻿param ([string] $toolchain="")
+﻿param ([string] $toolchain="", [string] $nodeVersion)
 
 Write-Output "Building Windows node installer..."
 
@@ -30,6 +30,12 @@ try {
     Foreach ($LibDir in $StackLibsArr) {
         $Binds += "-b", ("lib=" + $LibDir)
     }
+
+    $env:_NodeProductId = [guid]::NewGuid().ToString();
+    Write-Output "Generated fresh GUID for the build: $env:_NodeProductId"
+
+    $env:_NodeVersion = $nodeVersion
+    Write-Output "Building installer for node version $nodeVersion"
 
     Write-Output "Compiling installer..."
     candle -arch x64 -ext WixUtilExtension Node.wxs CustomDlgs.wxs

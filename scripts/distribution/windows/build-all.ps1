@@ -1,4 +1,4 @@
-param ([string] $rustVersion = "1.68.2")
+param ([string] $rustVersion = "1.68.2", [string] $nodeVersion)
 
 Write-Output "stack version: $(stack --version)"
 Write-Output "cargo version: $(cargo --version)"
@@ -30,4 +30,4 @@ cargo +$rustVersion-x86_64-pc-windows-msvc build --release
 Pop-Location
 if ($LASTEXITCODE -ne 0) { throw "Failed building node runner service" }
 
-service\windows\installer\build.ps1 -toolchain $rustVersion-x86_64-pc-windows-msvc
+service\windows\installer\build.ps1 -toolchain $rustVersion-x86_64-pc-windows-msvc -nodeVersion $nodeVersion
