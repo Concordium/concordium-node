@@ -1,4 +1,3 @@
-{-# LANGUAGE TemplateHaskell #-}
 -- | The 'DifferenceMap' stores accounts have been created in a non-finalized block.
 --  When a block is being finalized then the assoicated 'DifferenceMap' must be written
 --  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insert'.
