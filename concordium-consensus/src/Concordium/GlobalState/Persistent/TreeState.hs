@@ -45,7 +45,7 @@ import qualified Data.HashSet as HS
 import Data.Kind (Type)
 import Data.List (partition)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, isNothing)
 import qualified Data.PQueue.Prio.Min as MPQ
 import qualified Data.Sequence as Seq
 import Data.Typeable
@@ -288,7 +288,7 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = 
     gb <- makeGenesisPersistentBlockPointer gd genState
     let gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
-    initialDb <- liftIO $ initializeDatabase gb serState treeStateDir
+    initialDb <- liftIO $ initializeDatabase gb serState (getHash genState) treeStateDir
     return
         SkovPersistentData
             { _blockTable = emptyBlockTable,
@@ -416,12 +416,17 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                 "The block state database is corrupt. Recovery attempt failed: " <> e
         Right (_lastFinalizationRecord, lfStoredBlock) -> do
             -- Truncate the blobstore beyond the last finalized blockstate.
-            liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
+            liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState . fst $ lfStoredBlock)
             -- Get the genesis block.
             genStoredBlock <-
                 maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return
                     =<< liftIO (getFirstBlock _db)
             _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
+            when (isNothing (snd genStoredBlock)) $ do
+                let genStateHash = bpBlockStateHash _genesisBlockPointer
+                logEvent GlobalState LLDebug $
+                    "Writing genesis state hash to tree state database: " ++ show genStateHash
+                writeGenesisBlockStateHash _db genStateHash
             _genesisData <- case _bpBlock _genesisBlockPointer of
                 GenesisBlock gd' -> return gd'
                 _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
@@ -446,11 +451,10 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                       ..
                     }
   where
-    makeBlockPointer :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
-    makeBlockPointer StoredBlock{..} = do
-        let stateHashM = case sbBlock of
-                GenesisBlock{} -> Nothing
-                NormalBlock bb -> Just $ bbStateHash bb
+    makeBlockPointer ::
+        (StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)), Maybe StateHash) ->
+        IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
+    makeBlockPointer (StoredBlock{..}, stateHashM) = do
         bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState stateHashM sbState)) pbsc
         makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
     isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
@@ -599,12 +603,10 @@ constructBlock ::
       BlockStateStorage m,
       TS.BlockState m ~ bs
     ) =>
-    StoredBlock pv (TS.BlockStatePointer bs) ->
+    -- | The stored block and its state hash (if known).
+    (StoredBlock pv (TS.BlockStatePointer bs), Maybe StateHash) ->
     m (PersistentBlockPointer pv bs)
-constructBlock StoredBlock{..} = do
-    let stateHashM = case sbBlock of
-            GenesisBlock{} -> Nothing
-            NormalBlock bb -> Just $ bbStateHash bb
+constructBlock (StoredBlock{..}, stateHashM) = do
     bstate <- loadBlockState stateHashM sbState
     makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
 
@@ -652,7 +654,7 @@ instance
                                         deadBlocks <- use (skovPersistentData . blockTable . deadCache)
                                         return $! if memberDeadCache bh deadBlocks then Just TS.BlockDead else Nothing
                                     Just sb -> do
-                                        fr <- readFinalizationRecord (sbFinalizationIndex sb)
+                                        fr <- readFinalizationRecord (sbFinalizationIndex (fst sb))
                                         case fr of
                                             Just finr -> do
                                                 block <- constructBlock sb

@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+- Fix a regression in the start up time. When upgrading from an earlier version, the first start-up
+  time may be longer than usual, as the genesis state hashes are computed. Subsequent restarts
+  will not suffer this penalty.
+
 ## 6.1.5
 
 - Enable out of band catchup by default in all distributions.
