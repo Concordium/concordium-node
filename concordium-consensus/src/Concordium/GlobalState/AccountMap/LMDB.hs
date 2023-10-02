@@ -13,6 +13,16 @@
 --  of the first 29 bytes of an ‘AccountAddress’ and the values are the
 --  associated ‘AccountIndex’.
 --
+--  The LMDB account map only stores finalized accounts.
+--  Non finalized accounts are being kept in a 'DifferenceMap' which
+--  is being written to this LMDB account map when a block is finalized.
+--
+--  As opposed to the account table of the block state this database does not
+--  include historical data i.e., the state of this database is from the perspective
+--  of the last finalized block always.
+--  For querying historical data (e.g. which accounts existed in a given block) then one
+--  should use the account table.
+--
 --  The account map is integrated with the block state “on-the-fly” meaning that
 --  whenver the node starts up and the ‘AccountMap’ is not populated, then it will be
 --  initialized on startup via the existing ‘PersistentAccountMap’.
@@ -34,10 +44,22 @@ import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
 
+import Concordium.GlobalState.AccountMap.DifferenceMap
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.Logger
 import Concordium.Types
 import qualified Data.FixedByteString as FBS
+
+-- * Exceptions
+
+-- | Exception occurring from a violation of database invariants in the LMDB database.
+newtype DatabaseInvariantViolation = DatabaseInvariantViolation String
+    deriving (Eq, Show, Typeable)
+
+instance Exception DatabaseInvariantViolation where
+    displayException (DatabaseInvariantViolation reason) =
+        "Database invariant violation: "
+            ++ show reason
 
 -- | The interface to the LMDB account map.
 --  For more information, refer to the module documentation.
@@ -51,25 +73,26 @@ class (Monad m) => MonadAccountMapStore m where
     --  The @[AccountAddress]@ should be obtained by the account table.
     --  Precondition: offset of the @AccountAddress@ in the list must correspond to
     --  the account index of that particular account.
-    initialize :: BlockHash -> [AccountAddress] -> m ()
+    initialize :: BlockHash -> BlockHeight -> [AccountAddress] -> m ()
 
     -- | Check whether the ‘AccountMap’ is initialized.
     --  Returns @Just BlockHash@ if the 'AccountMap' is initialized,
     --  the ‘BlockHash’ indicates the last finalized block for the 'AccountMap'.
     --  Returns @Nothing@ if the account map is not initialized.
-    isInitialized :: m (Maybe BlockHash)
+    isInitialized :: m (Maybe (BlockHash, BlockHeight))
 
-    -- | Adds an account to the 'AccountMap' and return @Just AccountIndex@ if
-    --  the account was added.
-    insert :: BlockHash -> AccountAddress -> m (Maybe AccountIndex)
+    -- | Adds accounts present in the provided difference maps to the lmdb store.
+    --  The argument is a list as multiple blocks can be finalized at the same time.
+    --  Implementations should update the last finalized block pointer.
+    --
+    --  Postcondition: The list of 'AccountMapDifferenceMap' MUST be provided in
+    --  ascending order of the block height.
+    insert :: BlockHash -> BlockHeight -> [DifferenceMap] -> m ()
 
     -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
     lookup :: AccountAddress -> m (Maybe AccountIndex)
-
-    -- | Get all account addresses
-    all :: m [AccountAddress] 
 
 -- * Database stores
 
@@ -124,7 +147,7 @@ lfbKey = "lfb"
 
 instance MDBDatabase MetadataStore where
     type DBKey MetadataStore = BS.ByteString
-    type DBValue MetadataStore = BlockHash
+    type DBValue MetadataStore = (BlockHash, BlockHeight)
 
 data DatabaseHandlers = DatabaseHandlers
     { _storeEnv :: !StoreEnv,
@@ -281,21 +304,28 @@ instance
     ) =>
     MonadAccountMapStore (AccountMapStoreMonad m)
     where
-    initialize lfbHash accounts = asWriteTransaction $ \dbh txn -> do
+    initialize lfbHash lfbHeight accounts = asWriteTransaction $ \dbh txn -> do
         forM_
-            (zip accounts [0..])
+            (zip accounts [0 ..])
             ( \(accAddr, accIndex) -> do
                 storeRecord txn (dbh ^. accountMapStore) (accountAddressToPrefixAccountAddress accAddr) accIndex
             )
-        storeRecord txn (dbh ^. metadataStore) lfbKey lfbHash
+        storeRecord txn (dbh ^. metadataStore) lfbKey (lfbHash, lfbHeight)
     isInitialized = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. metadataStore) lfbKey
-    insert lfbHash accAddr = asWriteTransaction $ \dbh txn -> do
-        storeRecord txn (dbh ^. accountMapStore) (accountAddressToPrefixAccountAddress accAddr) accIndex
-        storeReplaceRecord txn (dbh ^. metadataStore) lfbKey lfbHash
+    insert lfbHash lfbHeight differenceMaps = asWriteTransaction $ \dbh txn -> do
+        forM_ differenceMaps (doInsert dbh txn)
+      where
+        doInsert dbh txn DifferenceMap{..} = do
+            forM_ dmAccounts $ \(accAddr, expectedAccIndex) -> do
+                let addr = accountAddressToPrefixAccountAddress accAddr
+                accIndex <- AccountIndex . subtract 1 <$> databaseSize txn (dbh ^. accountMapStore)
+                when (accIndex /= expectedAccIndex) $
+                    throwM . DatabaseInvariantViolation $
+                        "The actual account index " <> show accIndex <> "did not match the expected one " <> show expectedAccIndex
+                storeRecord txn (dbh ^. accountMapStore) addr accIndex
+                storeReplaceRecord txn (dbh ^. metadataStore) lfbKey (lfbHash, lfbHeight)
+                return $ Just accIndex
 
     lookup accAddr = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr
-    all = asReadTransaction $ \dbh txn -> do
-        map fst <$> loadAll txn (dbh ^.accountMapStore)
-

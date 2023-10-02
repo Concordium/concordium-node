@@ -22,6 +22,7 @@ import Concordium.Types.SeedState
 import Concordium.Utils
 
 import Concordium.Genesis.Data.BaseV1
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Statistics
@@ -294,6 +295,7 @@ processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock
             -- Archive the state of the last finalized block and all newly finalized blocks
             -- excluding the new last finalized block.
             mapM_ (archiveBlockState . bpState) (init (oldLastFinalized : prFinalized))
+    -- TODO!: Record the accounts created in the finalized blocks in the LMDB database.
     -- Remove the blocks from the live block table.
     markLiveBlocksFinal prFinalized
     -- Finalize the transactions in the in-memory transaction table.
