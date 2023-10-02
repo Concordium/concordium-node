@@ -5,7 +5,7 @@ use gotham::{
     handler::{HandlerError, IntoResponse},
     helpers::http::response::{create_empty_response, create_response},
     middleware::state::StateMiddleware,
-    pipeline::{new_pipeline, single::single_pipeline},
+    pipeline::{new_pipeline, single_pipeline},
     router::{builder::*, Router},
     state::{FromState, State},
 };
@@ -255,7 +255,7 @@ pub fn main() -> anyhow::Result<()> {
     gotham::start(
         addr,
         router(node_info_map, conf.banned_versions, banned_node_names, conf.validation_config),
-    );
+    )?;
     Ok(())
 }
 

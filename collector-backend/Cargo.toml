@@ -12,8 +12,8 @@ serde = { version = "1.0", features = ["rc", "derive"] }
 rmp-serde = { version = "1.1.1" }
 serde_json = { version = "1" }
 mime = { version = "0.3"  }
-gotham = { version = "0.6" }
-gotham_derive = { version = "0.6" }
+gotham = { version = "0.7" }
+gotham_derive = { version = "0.7" }
 hyper = { version = "0.14" }
 futures = { version = "0.3"}
 structopt = "0.3"

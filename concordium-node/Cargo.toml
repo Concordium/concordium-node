@@ -39,7 +39,6 @@ preferences = "1.1"
 app_dirs2 = "2.3"
 chrono = "0.4"
 cfg-if = "1.0.0"
-base64 = "0.13.0"
 rkv = "0.17.0"
 circular-queue = "0.2"
 digest = "0.9"
@@ -66,8 +65,8 @@ csv = "1.1"
 tokio-util = { version = "0.7.3", features = ["io"] }
 libc = "0.2"
 mime = { version = "0.3" }
-gotham = { version = "0.6" }
-gotham_derive = { version = "0.6" }
+gotham = { version = "0.7" }
+gotham_derive = { version = "0.7" }
 # Disable default features of prometheus to disable the unneeded protobuf encoder.
 prometheus = { version = "0.13", default-features = false, features = ["push"] }
 http = { version = "0.2" }
