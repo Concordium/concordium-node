@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 6.1.5
+
+- Enable out of band catchup by default in all distributions.
+
 ## 6.1.4
 
 - Expose the health check service via grpc-web when grpc-web is enabled.
