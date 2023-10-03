@@ -34,6 +34,10 @@ try {
     $env:_NodeProductId = [guid]::NewGuid().ToString();
     Write-Output "Generated fresh GUID for the build: $env:_NodeProductId"
 
+    # We replace the - separator with a . since the convention at Concordium is
+    # to use `-` as the separator between the binary version and build number,
+    # but Wix only supports versions in the format X.Y.Z.B with all X,Y,Z,B
+    # being integers.
     $env:_NodeVersion = $nodeVersion.Replace('-', '.')
     Write-Output "Building installer for node version $nodeVersion"
 
