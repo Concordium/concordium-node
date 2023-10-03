@@ -31,6 +31,7 @@ import Concordium.GlobalState (GlobalStateInitException (..))
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
@@ -167,8 +168,10 @@ data SkovV1Context (pv :: ProtocolVersion) m = SkovV1Context
       _vcBakerContext :: !BakerContext,
       -- | Blob store and caches used by the block state storage.
       _vcPersistentBlockStateContext :: !(PersistentBlockStateContext pv),
-      -- | In-memory low-level tree state database.
+      -- | low-level tree state database.
       _vcDisk :: !(DatabaseHandlers pv),
+      -- | Persistent account map
+      _vcAccountMap :: !LMDBAccountMap.DatabaseHandlers,
       -- | Handler functions.
       _vcHandlers :: !(HandlerContext pv m),
       -- | A function for unlifting @'SkovV1T' pv m@ into the 'IO' monad.
@@ -328,7 +331,9 @@ data GlobalStateConfig = GlobalStateConfig
       -- | Path to the tree state directory.
       gscTreeStateDirectory :: !FilePath,
       -- | Path to the block state file.
-      gscBlockStateFile :: !FilePath
+      gscBlockStateFile :: !FilePath,
+      -- | Path to the account map directory
+      gscAccountMapDirectory :: !FilePath
     }
 
 -- | Context used by the 'InitMonad'.
@@ -460,7 +465,7 @@ initialiseExistingSkovV1 ::
     LogIO (Maybe (ExistingSkov pv m))
 initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Attempting to use existing global state."
-    existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile
+    existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile gscAccountMapDirectory
     if existingDB
         then do
             pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize gscRuntimeParameters)
@@ -492,6 +497,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                                         { _vcBakerContext = bakerCtx,
                                           _vcPersistentBlockStateContext = pbsc,
                                           _vcDisk = lldb,
+                                          _vcAccountMap = undefined, -- TODO: Fill in
                                           _vcHandlers = handlerCtx,
                                           _skovV1TUnliftIO = unliftSkov
                                         },

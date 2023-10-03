@@ -12,8 +12,7 @@ import Concordium.Types
 --  a block identified by a 'BlockHash' and its associated 'BlockHeight'.
 --  The difference map only contains accounds that was added since the '_dmParentMap'.
 data DifferenceMap = DifferenceMap
-    {
-      -- | Accounts added to the chain in the
+    { -- | Accounts added to the chain in the
       --  block 'amdmLfbHash'.
       --  Note. The list is in descending order of the 'AccountIndex'.
       --  TODO: Use Ordered set or a sequence instead?
@@ -57,10 +56,7 @@ lookup addr DifferenceMap{..} =
 --  If a an account was succesfully added the 'dmNextAccountIndex' is being incremented by one.
 addAccount :: AccountAddress -> AccountIndex -> DifferenceMap -> DifferenceMap
 addAccount addr accIndex diffMap =
-    diffMap {
-        dmAccounts = (addr,accIndex) : dmAccounts diffMap,
-        dmNextAccountIndex = 1 + dmNextAccountIndex diffMap
-    }
-    
-    
-
+    diffMap
+        { dmAccounts = (addr, accIndex) : dmAccounts diffMap,
+          dmNextAccountIndex = 1 + dmNextAccountIndex diffMap
+        }

@@ -12,6 +12,7 @@
 --  and `TreeStateMonad` effectively adding persistence to the tree state.
 module Concordium.GlobalState.Persistent.TreeState where
 
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
@@ -77,6 +78,10 @@ data InitException
     | DatabaseInvariantViolation !String
     | -- | The database version is not correct.
       IncorrectDatabaseVersion !String
+    | -- | Cannot get read/write permissions for the account map file.
+      AccountMapPermissionError
+    | -- | The account map does not match the last finalized block.
+      AccountMapMismatch {ieAccountMapLfb :: !BlockHash, ieTsLfb :: !BlockHash}
     deriving (Show, Typeable)
 
 instance Exception InitException where
@@ -90,6 +95,8 @@ instance Exception InitException where
     displayException (DatabaseInvariantViolation err) =
         "Database invariant violation: " ++ err
     displayException (IncorrectDatabaseVersion err) = "Incorrect database version: " ++ err
+    displayException AccountMapPermissionError = "Cannot get read and write permissions for the account map file."
+    displayException AccountMapMismatch{..} = "The lfb of the account map " <> show ieAccountMapLfb <> " does not match tree state lfb: " <> show ieTsLfb
 
 logExceptionAndThrowTS :: (MonadLogger m, MonadIO m, Exception e) => e -> m a
 logExceptionAndThrowTS = logExceptionAndThrow TreeState
@@ -234,7 +241,9 @@ data SkovPersistentData (pv :: ProtocolVersion) = SkovPersistentData
       --  If we only had the one state implementation this would not be necessary, and we could simply
       --  return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
       --  specify the types of these values due to the way the relevant types are parameterized.
-      _nextGenesisInitialState :: !(Maybe (PBS.HashedPersistentBlockState pv))
+      _nextGenesisInitialState :: !(Maybe (PBS.HashedPersistentBlockState pv)),
+      -- | Account map directory
+      _accountMapDb :: !LMDBAccountMap.DatabaseHandlers
     }
 
 makeLenses ''SkovPersistentData
@@ -248,6 +257,9 @@ instance
 -- | Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovPersistentDataDefault ::
     (IsProtocolVersion pv, MonadIO m) =>
+    -- | Tree state directory
+    FilePath ->
+    -- | Account map directory
     FilePath ->
     GenesisConfiguration ->
     PBS.HashedPersistentBlockState pv ->
@@ -267,6 +279,8 @@ initialSkovPersistentData ::
     RuntimeParameters ->
     -- | Tree state directory
     FilePath ->
+    -- | Account map directory
+    FilePath ->
     -- | Genesis data
     GenesisConfiguration ->
     -- | Genesis state
@@ -284,11 +298,15 @@ initialSkovPersistentData ::
     --  documentation of the 'PendingTransactionTable' for details.
     Maybe PendingTransactionTable ->
     m (SkovPersistentData pv)
-initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = do
+initialSkovPersistentData rp treeStateDir accountMapDir gd genState serState genTT mPending = do
     gb <- makeGenesisPersistentBlockPointer gd genState
     let gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
     initialDb <- liftIO $ initializeDatabase gb serState treeStateDir
+    accountMapDb <- liftIO $ LMDBAccountMap.openDatabase accountMapDir
+    LMDBAccountMap.isInitialized accountMapDb >>= \case
+        Nothing -> undefined -- todo: call 'initialize' for initializing the lmdb database.
+        Just (lfbHash, lfbHeight) -> undefined -- todo; check that the it's consistent with what is recorded in the tree state
     return
         SkovPersistentData
             { _blockTable = emptyBlockTable,
@@ -307,7 +325,8 @@ initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = 
               _runtimeParameters = rp,
               _treeStateDirectory = treeStateDir,
               _db = initialDb,
-              _nextGenesisInitialState = Nothing
+              _nextGenesisInitialState = Nothing,
+              _accountMapDb = accountMapDb
             }
 
 --------------------------------------------------------------------------------
@@ -324,11 +343,15 @@ checkExistingDatabase ::
     FilePath ->
     -- | Block state file
     FilePath ->
+    -- | Account map path
+    FilePath ->
     m Bool
-checkExistingDatabase treeStateDir blockStateFile = do
+checkExistingDatabase treeStateDir blockStateFile accountMapDir = do
     let treeStateFile = treeStateDir </> "data.mdb"
+    let accountMapFile = accountMapDir </> "data.mdb"
     bsPathEx <- liftIO $ doesPathExist blockStateFile
     tsPathEx <- liftIO $ doesPathExist treeStateFile
+    amPathEx <- liftIO $ doesPathExist accountMapFile
 
     -- Check whether a path is a normal file that is readable and writable
     let checkRWFile :: FilePath -> InitException -> m ()
@@ -347,13 +370,14 @@ checkExistingDatabase treeStateDir blockStateFile = do
                     unless (readable perms && writable perms) $ do
                         logExceptionAndThrowTS exc
 
-    -- if both files exist we check whether they are both readable and writable.
+    -- if all files exist we check whether they are both readable and writable.
     -- In case only one of them exists we raise an appropriate exception. We don't want to delete any data.
     if
-        | bsPathEx && tsPathEx -> do
+        | bsPathEx && tsPathEx && amPathEx -> do
             -- check whether it is a normal file and whether we have the right permissions
             checkRWFile blockStateFile BlockStatePermissionError
             checkRWFile treeStateFile TreeStatePermissionError
+            checkRWFile accountMapFile AccountMapPermissionError
             mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
             return True
         | bsPathEx -> do
@@ -363,6 +387,10 @@ checkExistingDatabase treeStateDir blockStateFile = do
         | tsPathEx -> do
             logEvent GlobalState LLWarning "Tree state database exists, but block state file does not. Deleting the tree state database."
             liftIO . removeDirectoryRecursive $ treeStateDir
+            return False
+        | amPathEx -> do
+            logEvent GlobalState LLWarning "Account map database exists, but block state file does not. Deleting the tree state database."
+            liftIO . removeDirectoryRecursive $ accountMapDir
             return False
         | otherwise ->
             return False
@@ -392,9 +420,11 @@ loadSkovPersistentData ::
     RuntimeParameters ->
     -- | Tree state directory
     FilePath ->
+    -- | Account map directory
+    FilePath ->
     PBS.PersistentBlockStateContext pv ->
     LogIO (SkovPersistentData pv)
-loadSkovPersistentData rp _treeStateDirectory pbsc = do
+loadSkovPersistentData rp _treeStateDirectory accountMapDir pbsc = do
     -- we open the environment first.
     -- It might be that the database is bigger than the default environment size.
     -- This seems to not be an issue while we only read from the database,
@@ -427,6 +457,22 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                 _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
             -- Get the last finalized block.
             _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
+
+            -- Check whether the account map is already setup.
+            -- If not then populate it now with the last finalized block,
+            -- otherwise check if the current one matches the last finalized block
+            -- of the tree state.
+            -- todo: factor this out.
+            _accountMapDb <- liftIO $ LMDBAccountMap.openDatabase accountMapDir
+            LMDBAccountMap.isInitialized _accountMapDb >>= \case
+                Nothing -> do
+                    accounts <- runReaderT (PBS.runPersistentBlockStateMonad (getAccountList $ _bpState _lastFinalized)) pbsc
+                    LMDBAccountMap.initialize (bpHash _lastFinalized) (bpHeight _lastFinalized) accounts _accountMapDb
+                Just (lfbHash, _) -> do
+                    let tsLfbHash = bpHash _lastFinalized
+                    when (lfbHash /= tsLfbHash) $
+                        logExceptionAndThrowTS $
+                            AccountMapMismatch lfbHash tsLfbHash
             return
                 SkovPersistentData
                     { _possiblyPendingTable = HM.empty,

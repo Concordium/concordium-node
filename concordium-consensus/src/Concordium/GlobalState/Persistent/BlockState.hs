@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -44,6 +45,7 @@ import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
+import Concordium.GlobalState.Classes
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
@@ -87,7 +89,6 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
-
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
@@ -3342,8 +3343,6 @@ instance (PersistentState av pv r m) => MonadBlobStore (PutH (PersistentBlockSta
 
 instance (PersistentState av pv r m) => Cache.MonadCache (AccountCache av) (PersistentBlockStateMonad pv r m)
 instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
-
-instance (PersistentState av pv r m) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m)
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)

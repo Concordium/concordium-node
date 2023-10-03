@@ -31,7 +31,8 @@ import Concordium.Types.ProtocolVersion
 data GlobalStateConfig = GlobalStateConfig
     { dtdbRuntimeParameters :: !RuntimeParameters,
       dtdbTreeStateDirectory :: !FilePath,
-      dtdbBlockStateFile :: !FilePath
+      dtdbBlockStateFile :: !FilePath,
+      dtdAccountMapDirectory :: !FilePath
     }
 
 -- | Exceptions that can occur when initialising the global state.
@@ -65,7 +66,7 @@ type GSState pv = SkovPersistentData pv
 initialiseExistingGlobalState :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> GlobalStateConfig -> LogIO (Maybe (GSContext pv, GSState pv))
 initialiseExistingGlobalState _ GlobalStateConfig{..} = do
     -- check if all the necessary database files exist
-    existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
+    existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile dtdAccountMapDirectory
     if existingDB
         then do
             logm <- ask
@@ -75,7 +76,7 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
                 pbscBlobStore <- loadBlobStore dtdbBlockStateFile
                 let pbsc = PersistentBlockStateContext{..}
                 skovData <-
-                    runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
+                    runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory dtdAccountMapDirectory pbsc) logm
                         `onException` closeBlobStore pbscBlobStore
                 return (Just (pbsc, skovData))
         else return Nothing
@@ -125,6 +126,7 @@ migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = 
             initialSkovPersistentData
                 dtdbRuntimeParameters
                 dtdbTreeStateDirectory
+                dtdAccountMapDirectory
                 (regenesisConfiguration genData)
                 newInitialBlockState
                 ser
@@ -153,7 +155,7 @@ initialiseNewGlobalState genData GlobalStateConfig{..} = do
             logEvent GlobalState LLTrace "Writing persistent global state"
             ser <- saveBlockState pbs
             logEvent GlobalState LLTrace "Creating persistent global state context"
-            initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory (genesisConfiguration genData) pbs ser genTT Nothing
+            initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory dtdAccountMapDirectory (genesisConfiguration genData) pbs ser genTT Nothing
     isd <-
         runReaderT (runPersistentBlockStateMonad initGS) pbsc
             `onException` liftIO (destroyBlobStore pbscBlobStore)

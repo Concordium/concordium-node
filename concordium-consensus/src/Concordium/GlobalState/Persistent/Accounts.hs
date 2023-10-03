@@ -80,7 +80,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts
 
 -- | A constraint that ensures a monad @m@ supports the persistent account operations.
 --  This essentially requires that the monad support 'MonadBlobStore', and 'MonadCache' for
---  the account cache.
+--  the account cache and 'MonadAccountMapStore' for the persistent account map.
 type SupportsPersistentAccount pv m =
     ( IsProtocolVersion pv,
       MonadBlobStore m,
@@ -153,7 +153,7 @@ fromList = foldlM insert emptyAccounts
     insert accounts account = snd <$> putNewAccount account accounts
 
 -- | Determine if an account with the given address exists.
-exists :: (IsProtocolVersion pv, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> Accounts pv -> m Bool
+exists :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m Bool
 exists addr accts = isJust <$> getAccountIndex addr accts
 
 -- | Retrieve an account with the given address.
@@ -183,7 +183,7 @@ getAccountIndex addr Accounts{..} = case DiffMap.lookup addr accountDifferenceMa
 
 -- | Retrieve an account and its index from a given address.
 --  Returns @Nothing@ if no such account exists.
-getAccountWithIndex :: (SupportsPersistentAccount pv m, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
+getAccountWithIndex :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 getAccountWithIndex addr Accounts{..} =
     LMDBAccountMap.lookup addr >>= \case
         Nothing -> return Nothing
@@ -195,7 +195,7 @@ indexedAccount ai Accounts{..} = L.lookup ai accountTable
 
 -- | Retrieve an account with the given address.
 --  An account with the address is required to exist.
-unsafeGetAccount :: (SupportsPersistentAccount pv m, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> Accounts pv -> m (PersistentAccount (AccountVersionFor pv))
+unsafeGetAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (PersistentAccount (AccountVersionFor pv))
 unsafeGetAccount addr accts =
     getAccount addr accts <&> \case
         Just acct -> acct
@@ -204,7 +204,7 @@ unsafeGetAccount addr accts =
 -- | Check whether the given account address would clash with any existing account address.
 --  The meaning of "clash" depends on the protocol version.
 -- todo: remove this ? exists would suffice.
-addressWouldClash :: (IsProtocolVersion pv, MonadBlobStore m, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> Accounts pv -> m Bool
+addressWouldClash :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m Bool
 addressWouldClash = exists
 
 -- | Check that an account registration ID is not already on the chain.

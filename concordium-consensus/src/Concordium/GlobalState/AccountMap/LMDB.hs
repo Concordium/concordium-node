@@ -35,8 +35,8 @@ import Control.Concurrent
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Identity
-import Control.Monad.Reader.Class
-import Control.Monad.Trans.Class
+import Control.Monad.Reader
+import Control.Monad.State
 import qualified Data.ByteString as BS
 import Data.Data (Data, Typeable)
 import qualified Data.Serialize as S
@@ -45,7 +45,10 @@ import Lens.Micro.Platform
 import System.Directory
 
 import Concordium.GlobalState.AccountMap.DifferenceMap
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Classes
 import Concordium.GlobalState.LMDB.Helpers
+import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.Logger
 import Concordium.Types
 import qualified Data.FixedByteString as FBS
@@ -61,26 +64,14 @@ instance Exception DatabaseInvariantViolation where
         "Database invariant violation: "
             ++ show reason
 
--- | The interface to the LMDB account map.
+-- | The interface to the LMDB account map to use under normal operation.
 --  For more information, refer to the module documentation.
+--
+--  An implementation should ensure atomicity of operations.
+--
 --  Invariants:
 --      * All accounts in the store are finalized.
 class (Monad m) => MonadAccountMapStore m where
-    -- | Create and initialize the ‘AccountMap’ via the supplied map of accounts
-    --  for the supplied 'BlockHash'.
-    --  The provided 'BlockHash' must correspond to the hash of last finalized block
-    --  when this function is invoked.
-    --  The @[AccountAddress]@ should be obtained by the account table.
-    --  Precondition: offset of the @AccountAddress@ in the list must correspond to
-    --  the account index of that particular account.
-    initialize :: BlockHash -> BlockHeight -> [AccountAddress] -> m ()
-
-    -- | Check whether the ‘AccountMap’ is initialized.
-    --  Returns @Just BlockHash@ if the 'AccountMap' is initialized,
-    --  the ‘BlockHash’ indicates the last finalized block for the 'AccountMap'.
-    --  Returns @Nothing@ if the account map is not initialized.
-    isInitialized :: m (Maybe (BlockHash, BlockHeight))
-
     -- | Adds accounts present in the provided difference maps to the lmdb store.
     --  The argument is a list as multiple blocks can be finalized at the same time.
     --  Implementations should update the last finalized block pointer.
@@ -263,10 +254,16 @@ closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. stor
 
 -- ** Monad implementation
 newtype AccountMapStoreMonad m a = AccountMapStoreMonad {runAccountMapStoreMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger) via m
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadState s, MonadReader r) via m
     deriving (MonadTrans) via IdentityT
 
-deriving instance (MonadReader r m) => MonadReader r (AccountMapStoreMonad m)
+deriving via (MGSTrans AccountMapStoreMonad m) instance GSTypes.BlockStateTypes (AccountMapStoreMonad m)
+
+-- deriving via (MGSTrans AccountMapStoreMonad m) instance (BlockStateQuery m) => BlockStateQuery (AccountMapStoreMonad m)
+deriving via (MGSTrans AccountMapStoreMonad m) instance (ContractStateOperations m) => ContractStateOperations (AccountMapStoreMonad m)
+
+-- deriving via (MGSTrans AccountMapStoreMonad m) instance (AccountOperations m) => AccountOperations (AccountMapStoreMonad m)
+deriving via (MGSTrans AccountMapStoreMonad m) instance (ModuleQuery m) => ModuleQuery (AccountMapStoreMonad m)
 
 -- | Run a read-only transaction.
 asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r) => (DatabaseHandlers -> MDB_txn -> IO a) -> AccountMapStoreMonad m a
@@ -296,6 +293,35 @@ asWriteTransaction t = do
         (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
         _ -> Nothing
 
+-- | Initialize the account map with the provided account addresses.
+--
+--  Before calling this function, then it MUST be checked that the database is not already
+--  initialized via 'isInitialized'.
+--
+--  Post condition: The provided list of account addresses MUST be in ascending order of their
+--  respective 'AccountIndex'.
+initialize :: (MonadIO m, MonadLogger m) => BlockHash -> BlockHeight -> [AccountAddress] -> DatabaseHandlers -> m ()
+initialize lfbHash lfbHeight accounts = runReaderT (runAccountMapStoreMonad initStore)
+  where
+    initStore = asWriteTransaction $ \dbh txn -> do
+        forM_
+            (zip accounts [0 ..])
+            ( \(accAddr, accIndex) -> do
+                storeRecord txn (dbh ^. accountMapStore) (accountAddressToPrefixAccountAddress accAddr) accIndex
+            )
+        storeRecord txn (dbh ^. metadataStore) lfbKey (lfbHash, lfbHeight)
+
+-- | Check if the database is initialized.
+--  If the database is initialized then the function will return
+--  @Just (BlockHash, BlockHeight)@ for the last finalized block.
+--  If the database has not yet been initialized via 'initialize' then
+--  this function will return @Nothing@.
+isInitialized :: (MonadIO m) => DatabaseHandlers -> m (Maybe (BlockHash, BlockHeight))
+isInitialized dbh =
+    liftIO $ transaction (dbh ^. storeEnv) True $ \txn -> getLfb txn
+  where
+    getLfb txn = loadRecord txn (dbh ^. metadataStore) lfbKey
+
 instance
     ( MonadReader r m,
       HasDatabaseHandlers r,
@@ -304,15 +330,6 @@ instance
     ) =>
     MonadAccountMapStore (AccountMapStoreMonad m)
     where
-    initialize lfbHash lfbHeight accounts = asWriteTransaction $ \dbh txn -> do
-        forM_
-            (zip accounts [0 ..])
-            ( \(accAddr, accIndex) -> do
-                storeRecord txn (dbh ^. accountMapStore) (accountAddressToPrefixAccountAddress accAddr) accIndex
-            )
-        storeRecord txn (dbh ^. metadataStore) lfbKey (lfbHash, lfbHeight)
-    isInitialized = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. metadataStore) lfbKey
     insert lfbHash lfbHeight differenceMaps = asWriteTransaction $ \dbh txn -> do
         forM_ differenceMaps (doInsert dbh txn)
       where
