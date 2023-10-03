@@ -34,7 +34,7 @@ try {
     $env:_NodeProductId = [guid]::NewGuid().ToString();
     Write-Output "Generated fresh GUID for the build: $env:_NodeProductId"
 
-    $env:_NodeVersion = $nodeVersion
+    $env:_NodeVersion = $nodeVersion.Replace('-', '.')
     Write-Output "Building installer for node version $nodeVersion"
 
     Write-Output "Compiling installer..."
