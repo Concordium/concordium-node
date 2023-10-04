@@ -9,7 +9,7 @@ use gotham::{
     handler::IntoResponse,
     helpers::http::response::create_response,
     middleware::state::StateMiddleware,
-    pipeline::{single::single_pipeline, single_middleware},
+    pipeline::{single_middleware, single_pipeline},
     router::{builder::*, Router},
     state::{FromState, State},
 };
@@ -567,14 +567,16 @@ impl StatsExportService {
     ) -> Result<(), ()> {
         log::info!("Starting Prometheus exporter listening on {}", listen_addr);
         let result = gotham::plain::init_server(listen_addr, self.router()).await;
-        if let Err(()) = result {
+        if let Err(e) = result {
             // Log an error and notify main thread that an error occured.
-            error!("A runtime error occurred in the Prometheus exporter.");
+            error!("A runtime error occurred in the Prometheus exporter: {e}");
             if error_sender.send(()).is_err() {
                 error!("An error occurred while trying to signal the main node thread.")
             }
+            Err(())
+        } else {
+            Ok(())
         }
-        result
     }
 
     fn start_push_to_gateway(
