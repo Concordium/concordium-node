@@ -416,13 +416,18 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                 "The block state database is corrupt. Recovery attempt failed: " <> e
         Right (_lastFinalizationRecord, lfStoredBlock) -> do
             -- Truncate the blobstore beyond the last finalized blockstate.
-            liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState . fst $ lfStoredBlock)
+            liftIO $
+                truncateBlobStore
+                    (bscBlobStore . PBS.pbscBlobStore $ pbsc)
+                    (sbState . sbshStoredBlock $ lfStoredBlock)
             -- Get the genesis block.
             genStoredBlock <-
                 maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return
                     =<< liftIO (getFirstBlock _db)
             _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
-            when (isNothing (snd genStoredBlock)) $ do
+            when (isNothing (sbshStateHash genStoredBlock)) $ do
+                -- This should only occur when updating from a node version prior to 6.1.6
+                -- the first time the database is loaded.
                 let genStateHash = bpBlockStateHash _genesisBlockPointer
                 logEvent GlobalState LLDebug $
                     "Writing genesis state hash to tree state database: " ++ show genStateHash
@@ -452,10 +457,10 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                     }
   where
     makeBlockPointer ::
-        (StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)), Maybe StateHash) ->
+        StoredBlockWithStateHash pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) ->
         IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
-    makeBlockPointer (StoredBlock{..}, stateHashM) = do
-        bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState stateHashM sbState)) pbsc
+    makeBlockPointer StoredBlockWithStateHash{sbshStoredBlock = StoredBlock{..}, ..} = do
+        bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState sbshStateHash sbState)) pbsc
         makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
     isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
     isBlockStateCorrupted block =
@@ -604,10 +609,10 @@ constructBlock ::
       TS.BlockState m ~ bs
     ) =>
     -- | The stored block and its state hash (if known).
-    (StoredBlock pv (TS.BlockStatePointer bs), Maybe StateHash) ->
+    StoredBlockWithStateHash pv (TS.BlockStatePointer bs) ->
     m (PersistentBlockPointer pv bs)
-constructBlock (StoredBlock{..}, stateHashM) = do
-    bstate <- loadBlockState stateHashM sbState
+constructBlock StoredBlockWithStateHash{sbshStoredBlock = StoredBlock{..}, ..} = do
+    bstate <- loadBlockState sbshStateHash sbState
     makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
 
 instance
@@ -654,7 +659,7 @@ instance
                                         deadBlocks <- use (skovPersistentData . blockTable . deadCache)
                                         return $! if memberDeadCache bh deadBlocks then Just TS.BlockDead else Nothing
                                     Just sb -> do
-                                        fr <- readFinalizationRecord (sbFinalizationIndex (fst sb))
+                                        fr <- readFinalizationRecord (sbFinalizationIndex (sbshStoredBlock sb))
                                         case fr of
                                             Just finr -> do
                                                 block <- constructBlock sb

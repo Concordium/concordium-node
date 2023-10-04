@@ -473,7 +473,7 @@ exportConsensusV0Blocks firstBlock outDir chunkSize genIndex startHeight blockIn
                     let getBlockAt height =
                             resizeOnResized (readFinalizedBlockAtHeight height) >>= \case
                                 Nothing -> return Nothing
-                                Just (b, _) | NormalBlock normalBlock <- sbBlock b -> do
+                                Just StoredBlockWithStateHash{..} | NormalBlock normalBlock <- sbBlock sbshStoredBlock -> do
                                     let serializedBlock = runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
                                     case blockFields normalBlock of
                                         Nothing -> throwM . userError $ "Error: Trying to export a genesis block."
@@ -673,9 +673,9 @@ exportSections dbDir outDir chunkSize genIndex startHeight blockIndex lastWritte
                                 Left err -> do
                                     logEvent External LLError $ "Database section " ++ show genIndex ++ " cannot be exported: " ++ err
                                     return (True, Empty)
-                                Right (_, (sb, _)) -> do
+                                Right (_, StoredBlockWithStateHash{..}) -> do
                                     evalStateT
-                                        (exportConsensusV0Blocks @pv sb outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM)
+                                        (exportConsensusV0Blocks @pv sbshStoredBlock outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM)
                                         (DBState dbh)
                         liftIO $ closeDatabase dbh
                         return exportResult

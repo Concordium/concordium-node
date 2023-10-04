@@ -132,7 +132,7 @@ testFinalizeABlock = do
         storedBlocks <- transaction env True (flip loadAll dbB)
         finRecs <- map snd <$> transaction env True (flip loadAll dbF)
         return (storedBlocks, finRecs)
-    blocks <- mapM (constructBlock . (,Nothing) . snd) storedBlocks
+    blocks <- mapM (constructBlock . (\sb -> StoredBlockWithStateHash sb Nothing) . snd) storedBlocks
     liftIO $ do
         forM_ blocks (`shouldSatisfy` flip elem [blockPtr, genesisBlock])
         forM_ finRecs (`shouldSatisfy` flip elem [frec, genesisFr])
@@ -168,7 +168,7 @@ testFinalizeABlock = do
         storedBlocks <- transaction env True (flip loadAll dbB)
         finRecs <- map snd <$> transaction env True (flip loadAll dbF)
         return (storedBlocks, finRecs)
-    blocks <- mapM (constructBlock . (,Nothing) . snd) storedBlocks
+    blocks <- mapM (constructBlock . (\sb -> StoredBlockWithStateHash sb Nothing) . snd) storedBlocks
     liftIO $ do
         forM_ blocks (`shouldSatisfy` flip elem [blockPtr2, blockPtr, genesisBlock])
         forM_ finRecs (`shouldSatisfy` flip elem [frec2, frec, genesisFr])
@@ -196,8 +196,8 @@ testEmptyGS = do
         sF `shouldBe` 1
     b <- readBlock gbh
     liftIO $ case b of
-        Just (b, _) ->
-            getHash (sbBlock b) `shouldBe` gbh
+        Just StoredBlockWithStateHash{..} ->
+            getHash (sbBlock sbshStoredBlock) `shouldBe` gbh
         _ -> expectationFailure "Genesis block is missing"
     fr <- readFinalizationRecord 0
     liftIO $ case fr of
