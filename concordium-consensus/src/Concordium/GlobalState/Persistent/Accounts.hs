@@ -1,4 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
+-- here because of the 'SupportsPersistentAccount' constraint is a bit too coarse right now.
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
@@ -12,13 +14,14 @@
 
 module Concordium.GlobalState.Persistent.Accounts where
 
-import Control.Monad
+import Control.Monad.State
 import Data.Foldable (foldlM)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Serialize
 import Lens.Micro.Platform
 
+import Concordium.Utils
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
@@ -70,13 +73,24 @@ import Concordium.Types.HashableTo
 --  hence the current solution was chosen. Caching by account index (probably with an LRU strategy)
 --  would likely be a more effective strategy over all.
 data Accounts (pv :: ProtocolVersion) = Accounts
-    { -- | Accounts that has been created since the last finalized block.
-      accountDifferenceMap :: !DiffMap.DifferenceMap,
-      -- | Hashed Merkle-tree of the accounts
+    { -- | Hashed Merkle-tree of the accounts
       accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (AccountRef (AccountVersionFor pv))),
       -- | Persisted representation of the map from registration ids to account indices.
       accountRegIdHistory :: !(Trie.TrieN UnbufferedFix ID.RawCredentialRegistrationID AccountIndex)
     }
+
+-- todo doc
+data AccountsAndDiffMap (pv :: ProtocolVersion) = AccountsAndDiffMap
+    { -- | The persistent accounts and what is stored on disk.
+      aadAccounts :: !(Accounts pv),
+      -- | An in-memory difference map used keeping track of accounts
+      --  added in live blocks.
+      --  This is 'Nothing' If the block is finalized.
+      aadDiffMap :: !(Maybe DiffMap.DifferenceMap)
+    }
+
+instance (IsProtocolVersion pv) => Show (AccountsAndDiffMap pv) where
+    show aad = show (aadAccounts aad) <> show (aadDiffMap aad)
 
 -- | A constraint that ensures a monad @m@ supports the persistent account operations.
 --  This essentially requires that the monad support 'MonadBlobStore', and 'MonadCache' for
@@ -101,10 +115,7 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         let newAccounts =
                 Accounts
                     { accountTable = accountTable',
-                      accountRegIdHistory = regIdHistory',
-                      -- Carry over the difference map. The difference map is persisted
-                      -- when the block is finalized.
-                      accountDifferenceMap = accountDifferenceMap
+                      accountRegIdHistory = regIdHistory'
                     }
         return (pTable >> pRegIdHistory, newAccounts)
     load = do
@@ -113,8 +124,6 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         return $ do
             accountTable <- maccountTable
             accountRegIdHistory <- mrRIH
-            -- Empty diff map is ok when loading an old block as lookups will just go through the LMDB database.
-            let accountDifferenceMap = DiffMap.empty . AccountIndex $ L.size accountTable
             return $ Accounts{..}
 
 instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
@@ -124,15 +133,15 @@ instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheabl
             accts{accountTable = acctTable}
 
 emptyAccounts :: Accounts pv
-emptyAccounts = Accounts (DiffMap.empty $ AccountIndex 0) L.empty Trie.empty
+emptyAccounts = Accounts L.empty Trie.empty
 
 -- | Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 --  or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
-putNewAccount :: (SupportsPersistentAccount pv m) => PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
+putNewAccount :: (SupportsPersistentAccount pv m, MonadState DiffMap.DifferenceMap m) => PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Maybe AccountIndex, Accounts pv)
 putNewAccount !acct accts0 = do
     addr <- accountCanonicalAddress acct
     -- check whether the account is in the difference map.
-    case DiffMap.lookup addr (accountDifferenceMap accts0) of
+    gets (DiffMap.lookup addr) >>= \case
         Just _ -> return (Nothing, accts0)
         Nothing -> do
             -- Check whether the account is present in a finalized block.
@@ -140,25 +149,25 @@ putNewAccount !acct accts0 = do
             if isNothing existingAccountId
                 then do
                     (_, newAccountTable) <- L.append acct (accountTable accts0)
-                    let accountDifferenceMap' = DiffMap.addAccount addr acctIndex (accountDifferenceMap accts0)
-                    return (Just acctIndex, accts0{accountTable = newAccountTable, accountDifferenceMap = accountDifferenceMap'})
+                    DiffMap.differenceMap %=! DiffMap.addAccount addr acctIndex
+                    return (Just acctIndex, accts0{accountTable = newAccountTable})
                 else return (Nothing, accts0)
   where
     acctIndex = fromIntegral $ L.size (accountTable accts0)
 
 -- | Construct an 'Accounts' from a list of accounts. Inserted in the order of the list.
-fromList :: (SupportsPersistentAccount pv m) => [PersistentAccount (AccountVersionFor pv)] -> m (Accounts pv)
+fromList :: (SupportsPersistentAccount pv m, MonadState DiffMap.DifferenceMap m) => [PersistentAccount (AccountVersionFor pv)] -> m (Accounts pv)
 fromList = foldlM insert emptyAccounts
   where
     insert accounts account = snd <$> putNewAccount account accounts
 
 -- | Determine if an account with the given address exists.
-exists :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m Bool
-exists addr accts = isJust <$> getAccountIndex addr accts
+exists :: (SupportsPersistentAccount pv m, MonadState DiffMap.DifferenceMap m) => AccountAddress -> m Bool
+exists addr = isJust <$> getAccountIndex addr
 
 -- | Retrieve an account with the given address.
 --  Returns @Nothing@ if no such account exists.
-getAccount :: (SupportsPersistentAccount pv m, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> Accounts pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
+getAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
 getAccount addr Accounts{..} =
     LMDBAccountMap.lookup addr >>= \case
         Nothing -> return Nothing
@@ -173,8 +182,8 @@ getAccountByCredId cid accs@Accounts{..} =
         Just ai -> fmap (ai,) <$> indexedAccount ai accs
 
 -- | Get the account at a given index (if any).
-getAccountIndex :: (IsProtocolVersion pv, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
-getAccountIndex addr Accounts{..} = case DiffMap.lookup addr accountDifferenceMap of
+getAccountIndex :: (IsProtocolVersion pv, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe AccountIndex)
+getAccountIndex addr _ = gets (DiffMap.lookup addr) >>= \case
     Just accIdx -> return $ Just accIdx
     Nothing ->
         LMDBAccountMap.lookup addr >>= \case
@@ -200,12 +209,6 @@ unsafeGetAccount addr accts =
     getAccount addr accts <&> \case
         Just acct -> acct
         Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
-
--- | Check whether the given account address would clash with any existing account address.
---  The meaning of "clash" depends on the protocol version.
--- todo: remove this ? exists would suffice.
-addressWouldClash :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m Bool
-addressWouldClash = exists
 
 -- | Check that an account registration ID is not already on the chain.
 --  See the foundation (Section 4.2) for why this is necessary.
@@ -238,9 +241,16 @@ loadRegIds accts = Trie.toMap (accountRegIdHistory accts)
 --
 --  This should not be used to alter the address of an account (which is
 --  disallowed).
-updateAccounts :: (SupportsPersistentAccount pv m) => (PersistentAccount (AccountVersionFor pv) -> m (a, PersistentAccount (AccountVersionFor pv))) -> AccountAddress -> Accounts pv -> m (Maybe (AccountIndex, a), Accounts pv)
-updateAccounts fupd addr a0@Accounts{..} =
-    case DiffMap.lookup addr accountDifferenceMap of
+updateAccounts ::
+    (SupportsPersistentAccount pv m)
+    =>
+    (PersistentAccount (AccountVersionFor pv) ->
+     m (a, PersistentAccount (AccountVersionFor pv))) ->
+    AccountAddress ->
+    AccountsAndDiffMap pv ->
+    m (Maybe (AccountIndex, a), AccountsAndDiffMap pv)
+updateAccounts fupd addr a@AccountsAndDiffMap{aadAccounts = a0@Accounts{..},..} =
+    case DiffMap.lookup addr aadDiffMap of
         Nothing ->
             LMDBAccountMap.lookup addr >>= \case
                 Nothing -> return (Nothing, a0)
@@ -250,7 +260,7 @@ updateAccounts fupd addr a0@Accounts{..} =
     update ai =
         L.update fupd ai accountTable >>= \case
             Nothing -> return (Nothing, a0)
-            Just (res, act') -> return (Just (ai, res), a0{accountTable = act'})
+            Just (res, act') -> return (Just (ai, res), a{aadAccounts = a0{accountTable = act'}})
 
 -- | Perform an update to an account with the given index.
 --  Does nothing (returning @Nothing@) if the account does not exist.
@@ -302,16 +312,17 @@ migrateAccounts ::
       SupportsPersistentAccount pv (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
-    Accounts oldpv ->
-    t m (Accounts pv)
-migrateAccounts migration Accounts{..} = do
+    AccountsAndDiffMap oldpv ->
+    t m (AccountsAndDiffMap pv)
+migrateAccounts migration AccountsAndDiffMap{aadAccounts = Accounts{..}} = do
     newAccountTable <- L.migrateLFMBTree (migrateHashedCachedRef' (migratePersistentAccount migration)) accountTable
     -- The account registration IDs are not cached. There is a separate cache
     -- that is purely in-memory and just copied over.
     newAccountRegIds <- Trie.migrateUnbufferedTrieN return accountRegIdHistory
     return $!
-        Accounts
-            { accountTable = newAccountTable,
-              accountRegIdHistory = newAccountRegIds,
-              accountDifferenceMap = DiffMap.empty . AccountIndex $ L.size newAccountTable
-            }
+        AccountsAndDiffMap {
+            aadAccounts = Accounts
+              { accountTable = newAccountTable,
+                accountRegIdHistory = newAccountRegIds
+              },
+              aadDiffMap = Nothing}

@@ -206,6 +206,9 @@ instance HasBakerContext (SkovV1Context pv m) where
 instance HasDatabaseHandlers (SkovV1Context pv m) pv where
     databaseHandlers = vcDisk
 
+instance LMDBAccountMap.HasDatabaseHandlers (SkovV1Context pv m) where
+    databaseHandlers = vcAccountMap
+
 instance (MonadTrans (SkovV1T pv)) where
     lift = SkovV1T . lift
 
@@ -264,6 +267,18 @@ deriving via
           MonadLogger m
         ) =>
         LowLevel.MonadTreeStateStore (SkovV1T pv m)
+
+deriving via
+     (LMDBAccountMap.AccountMapStoreMonad r (InnerSkovV1T pv m))
+     instance
+         ( IsProtocolVersion pv,
+           MonadIO m,
+           MonadCatch m,
+           MonadLogger m
+         ) =>
+         LMDBAccountMap.MonadAccountMapStore (SkovV1T pv m)
+
+    
 
 instance (Monad m) => MonadBroadcast (SkovV1T pv m) where
     sendTimeoutMessage tm = do

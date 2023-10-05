@@ -242,7 +242,7 @@ data SkovPersistentData (pv :: ProtocolVersion) = SkovPersistentData
       --  return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
       --  specify the types of these values due to the way the relevant types are parameterized.
       _nextGenesisInitialState :: !(Maybe (PBS.HashedPersistentBlockState pv)),
-      -- | Account map directory
+      -- | Account map db
       _accountMapDb :: !LMDBAccountMap.DatabaseHandlers
     }
 
@@ -378,7 +378,7 @@ checkExistingDatabase treeStateDir blockStateFile accountMapDir = do
             checkRWFile blockStateFile BlockStatePermissionError
             checkRWFile treeStateFile TreeStatePermissionError
             checkRWFile accountMapFile AccountMapPermissionError
-            mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
+            mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile ++ "AccountMap filepath: " ++ accountMapFile]
             return True
         | bsPathEx -> do
             logEvent GlobalState LLWarning "Block state file exists, but tree state database does not. Deleting the block state file."
@@ -387,10 +387,6 @@ checkExistingDatabase treeStateDir blockStateFile accountMapDir = do
         | tsPathEx -> do
             logEvent GlobalState LLWarning "Tree state database exists, but block state file does not. Deleting the tree state database."
             liftIO . removeDirectoryRecursive $ treeStateDir
-            return False
-        | amPathEx -> do
-            logEvent GlobalState LLWarning "Account map database exists, but block state file does not. Deleting the tree state database."
-            liftIO . removeDirectoryRecursive $ accountMapDir
             return False
         | otherwise ->
             return False

@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 -- | The 'DifferenceMap' stores accounts have been created in a non-finalized block.
 --  When a block is being finalized then the assoicated 'DifferenceMap' must be written
 --  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insert'.
@@ -5,6 +6,7 @@ module Concordium.GlobalState.AccountMap.DifferenceMap where
 
 import qualified Data.List as List
 import Prelude hiding (lookup)
+import Lens.Micro.Platform
 
 import Concordium.Types
 
@@ -24,7 +26,8 @@ data DifferenceMap = DifferenceMap
       --  then the parent map is @Nothing@ as the LMDB account map
       --  should be consulted instead.
       dmParentMap :: !(Maybe DifferenceMap)
-    }
+    } deriving (Eq, Show)
+makeClassy ''DifferenceMap
 
 -- | Create a new empty 'DifferenceMap' based on either a finalized block (in which case
 --  the @dmNextAccountIndex@ must be provided explicitly or in case that the parent block is

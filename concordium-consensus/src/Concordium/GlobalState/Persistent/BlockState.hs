@@ -45,7 +45,6 @@ import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
-import Concordium.GlobalState.Classes
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
@@ -736,7 +735,7 @@ emptyTransactionOutcomes Proxy = case transactionOutcomesVersion @(TransactionOu
 --  those components themselves should be parametrised by the protocol
 --  version.
 data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
-    { bspAccounts :: !(Accounts.Accounts pv),
+    { bspAccounts :: !(Accounts.AccountsAndDiffMap pv),
       bspInstances :: !(Instances.Instances pv),
       bspModules :: !(HashedBufferedRef Modules.Modules),
       bspBank :: !(Hashed Rewards.BankStatus),
@@ -3331,7 +3330,7 @@ type PersistentState av pv r m =
       AccountVersionFor pv ~ av,
       Cache.HasCache (AccountCache av) r,
       Cache.HasCache Modules.ModuleCache r,
-      LMDBAccountMap.MonadAccountMapStore m
+      LMDBAccountMap.HasDatabaseHandlers r
     )
 
 instance MonadTrans (PersistentBlockStateMonad pv r) where
@@ -3343,6 +3342,12 @@ instance (PersistentState av pv r m) => MonadBlobStore (PutH (PersistentBlockSta
 
 instance (PersistentState av pv r m) => Cache.MonadCache (AccountCache av) (PersistentBlockStateMonad pv r m)
 instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
+
+-- todo: derive it.
+instance (PersistentState av pv r m) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m) where
+    lookup = undefined
+    insert = undefined
+
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
@@ -3464,7 +3469,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetAccountIndex = doGetAccountIndex
     bsoGetAccountByIndex = doGetAccountByIndex
     bsoGetInstance = doGetInstance
-    bsoAddressWouldClash = doAddressWouldClash
+    bsoAddressWouldClash = doGetAccountExists
     bsoRegIdExists = doRegIdExists
     bsoCreateAccount = doCreateAccount
     bsoPutNewInstance = doPutNewInstance
@@ -3662,7 +3667,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
 
     return $!
         BlockStatePointers
-            { bspAccounts = newAccounts,
+            { bspAccounts = Accounts.AccountsAndDiffMap newAccounts Nothing,
               bspInstances = newInstances,
               bspModules = newModules,
               bspBank = newBank,

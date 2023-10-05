@@ -31,6 +31,8 @@
 --      * Only finalized accounts are present in the ‘AccountMap’
 module Concordium.GlobalState.AccountMap.LMDB where
 
+import Control.Monad.Trans.Writer
+import Control.Monad.Trans.Except
 import Control.Concurrent
 import Control.Monad.Catch
 import Control.Monad.IO.Class
@@ -43,15 +45,15 @@ import qualified Data.Serialize as S
 import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
+import Prelude hiding (lookup)
+import Data.Kind (Type)
 
-import Concordium.GlobalState.AccountMap.DifferenceMap
-import Concordium.GlobalState.BlockState
+import qualified Data.FixedByteString as FBS
+import Concordium.GlobalState.AccountMap.DifferenceMap (DifferenceMap(..))
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.LMDB.Helpers
-import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.Logger
 import Concordium.Types
-import qualified Data.FixedByteString as FBS
 
 -- * Exceptions
 
@@ -64,7 +66,8 @@ instance Exception DatabaseInvariantViolation where
         "Database invariant violation: "
             ++ show reason
 
--- | The interface to the LMDB account map to use under normal operation.
+-- | Monad for inserting and looking up accounts in the account map
+--  backed by an LMDB database.
 --  For more information, refer to the module documentation.
 --
 --  An implementation should ensure atomicity of operations.
@@ -84,6 +87,16 @@ class (Monad m) => MonadAccountMapStore m where
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
     lookup :: AccountAddress -> m (Maybe AccountIndex)
+
+instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
+    insert bh  height = lift . insert bh height
+    lookup = lift . lookup
+    {-# INLINE insert #-}
+    {-# INLINE lookup #-}
+
+deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
+deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
+deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
 
 -- * Database stores
 
@@ -253,17 +266,11 @@ closeDatabase :: DatabaseHandlers -> IO ()
 closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
 
 -- ** Monad implementation
-newtype AccountMapStoreMonad m a = AccountMapStoreMonad {runAccountMapStoreMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadState s, MonadReader r) via m
+-- The 'AccountMapStoreMonad' acquires the 'DatabaseHandlers' via a reader context.
+newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMonad {runAccountMapStoreMonad :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadReader r) via m
     deriving (MonadTrans) via IdentityT
 
-deriving via (MGSTrans AccountMapStoreMonad m) instance GSTypes.BlockStateTypes (AccountMapStoreMonad m)
-
--- deriving via (MGSTrans AccountMapStoreMonad m) instance (BlockStateQuery m) => BlockStateQuery (AccountMapStoreMonad m)
-deriving via (MGSTrans AccountMapStoreMonad m) instance (ContractStateOperations m) => ContractStateOperations (AccountMapStoreMonad m)
-
--- deriving via (MGSTrans AccountMapStoreMonad m) instance (AccountOperations m) => AccountOperations (AccountMapStoreMonad m)
-deriving via (MGSTrans AccountMapStoreMonad m) instance (ModuleQuery m) => ModuleQuery (AccountMapStoreMonad m)
 
 -- | Run a read-only transaction.
 asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r) => (DatabaseHandlers -> MDB_txn -> IO a) -> AccountMapStoreMonad m a
