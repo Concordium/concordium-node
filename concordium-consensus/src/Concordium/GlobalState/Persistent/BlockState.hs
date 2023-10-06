@@ -184,7 +184,7 @@ migratePersistentBirkParameters ::
       SupportsPersistentAccount pv (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
-    Accounts.Accounts pv ->
+    Accounts.AccountsAndDiffMap pv ->
     PersistentBirkParameters oldpv ->
     t m (PersistentBirkParameters pv)
 migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} = do
@@ -931,7 +931,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bsp <-
         makeBufferedRef $
             BlockStatePointers
-                { bspAccounts = Accounts.emptyAccounts,
+                { bspAccounts = Accounts.emptyAcocuntsAndDiffMap Nothing,
                   bspInstances = Instances.emptyInstances,
                   bspModules = modules,
                   bspBank = makeHashed Rewards.emptyBankStatus,
@@ -1439,9 +1439,9 @@ doAddBaker pbs ai ba@BakerAdd{..} = do
 redelegatePassive ::
     forall pv m.
     (SupportsPersistentAccount pv m, PVSupportsDelegation pv) =>
-    Accounts.Accounts pv ->
+    Accounts.AccountsAndDiffMap pv ->
     DelegatorId ->
-    m (Accounts.Accounts pv)
+    m (Accounts.AccountsAndDiffMap pv)
 redelegatePassive accounts (DelegatorId accId) =
     Accounts.updateAccountsAtIndex'
         (setAccountDelegationTarget Transactions.DelegatePassive)
@@ -2232,11 +2232,6 @@ doAccountList pbs = do
     bsp <- loadPBS pbs
     Accounts.accountAddresses (bspAccounts bsp)
 
-doAddressWouldClash :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountAddress -> m Bool
-doAddressWouldClash pbs addr = do
-    bsp <- loadPBS pbs
-    Accounts.addressWouldClash addr (bspAccounts bsp)
-
 doRegIdExists :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
     bsp <- loadPBS pbs
@@ -2790,9 +2785,9 @@ doProcessReleaseSchedule pbs ts = do
         else do
             let processAccountP1 ::
                     (RSAccountRef pv ~ AccountAddress) =>
-                    (Accounts.Accounts pv, ReleaseSchedule pv) ->
+                    (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv) ->
                     RSAccountRef pv ->
-                    m (Accounts.Accounts pv, ReleaseSchedule pv)
+                    m (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv)
                 processAccountP1 (accs, rs) addr = do
                     (reAdd, accs') <- Accounts.updateAccounts (unlockAccountReleases ts) addr accs
                     rs' <- case reAdd of
@@ -2802,9 +2797,9 @@ doProcessReleaseSchedule pbs ts = do
                     return (accs', rs')
                 processAccountP5 ::
                     (RSAccountRef pv ~ AccountIndex) =>
-                    (Accounts.Accounts pv, ReleaseSchedule pv) ->
+                    (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv) ->
                     RSAccountRef pv ->
-                    m (Accounts.Accounts pv, ReleaseSchedule pv)
+                    m (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv)
                 processAccountP5 (accs, rs) ai = do
                     (reAdd, accs') <- Accounts.updateAccountsAtIndex (unlockAccountReleases ts) ai accs
                     rs' <- case reAdd of
@@ -2812,7 +2807,7 @@ doProcessReleaseSchedule pbs ts = do
                         Just Nothing -> return rs
                         Nothing -> error "processReleaseSchedule: scheduled release for invalid account index"
                     return (accs', rs')
-                processAccount :: (Accounts.Accounts pv, ReleaseSchedule pv) -> RSAccountRef pv -> m (Accounts.Accounts pv, ReleaseSchedule pv)
+                processAccount :: (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv) -> RSAccountRef pv -> m (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv)
                 processAccount = case protocolVersion @pv of
                     SP1 -> processAccountP1
                     SP2 -> processAccountP1
@@ -3119,7 +3114,7 @@ doProcessPendingChanges persistentBS isEffective = do
     -- an entry for a particular pool.
     processDelegators ::
         PersistentActiveDelegators (AccountVersionFor pv) ->
-        MTL.StateT (Accounts.Accounts pv) m (PersistentActiveDelegators (AccountVersionFor pv))
+        MTL.StateT (Accounts.AccountsAndDiffMap pv) m (PersistentActiveDelegators (AccountVersionFor pv))
     processDelegators (PersistentActiveDelegatorsV1 dset _) = do
         (newDlgs, newAmt) <- MTL.runWriterT $ Trie.filterKeysM processDelegator dset
         return (PersistentActiveDelegatorsV1 newDlgs newAmt)
@@ -3127,7 +3122,7 @@ doProcessPendingChanges persistentBS isEffective = do
     -- Update the delegator on an account if its cooldown has expired.
     -- This only updates the account table, and not the active bakers index.
     -- This also 'MTL.tell's the (updated) staked amount of the account.
-    processDelegator :: DelegatorId -> MTL.WriterT Amount (MTL.StateT (Accounts.Accounts pv) m) Bool
+    processDelegator :: DelegatorId -> MTL.WriterT Amount (MTL.StateT (Accounts.AccountsAndDiffMap pv) m) Bool
     processDelegator (DelegatorId accId) = do
         accounts <- MTL.get
         Accounts.indexedAccount accId accounts >>= \case
@@ -3141,7 +3136,7 @@ doProcessPendingChanges persistentBS isEffective = do
     updateAccountDelegator ::
         AccountIndex ->
         PersistentAccount (AccountVersionFor pv) ->
-        MTL.WriterT Amount (MTL.StateT (Accounts.Accounts pv) m) Bool
+        MTL.WriterT Amount (MTL.StateT (Accounts.AccountsAndDiffMap pv) m) Bool
     updateAccountDelegator accId acct =
         accountDelegator acct >>= \case
             Just BaseAccounts.AccountDelegationV1{..} -> do
@@ -3162,7 +3157,7 @@ doProcessPendingChanges persistentBS isEffective = do
 
     -- Remove a delegator from an account.
     -- This only affects the account, and does not affect the active bakers index.
-    removeDelegatorStake :: AccountIndex -> MTL.StateT (Accounts.Accounts pv) m ()
+    removeDelegatorStake :: AccountIndex -> MTL.StateT (Accounts.AccountsAndDiffMap pv) m ()
     removeDelegatorStake accId = do
         accounts <- MTL.get
         newAccounts <- Accounts.updateAccountsAtIndex' removeAccountStaking accId accounts
@@ -3174,7 +3169,7 @@ doProcessPendingChanges persistentBS isEffective = do
     reduceDelegatorStake ::
         AccountIndex ->
         Amount ->
-        MTL.StateT (Accounts.Accounts pv) m ()
+        MTL.StateT (Accounts.AccountsAndDiffMap pv) m ()
     reduceDelegatorStake accId newAmt = do
         accounts <- MTL.get
         let updAcc = setAccountStake newAmt >=> setAccountStakePendingChange BaseAccounts.NoChange
@@ -3189,7 +3184,7 @@ doProcessPendingChanges persistentBS isEffective = do
     processBakers ::
         BakerIdTrieMap (AccountVersionFor pv) ->
         MTL.StateT
-            (Accounts.Accounts pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv))
+            (Accounts.AccountsAndDiffMap pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv))
             m
             (BakerIdTrieMap (AccountVersionFor pv), Amount)
     processBakers = MTL.runWriterT . Trie.alterMapM processBaker
@@ -3204,7 +3199,7 @@ doProcessPendingChanges persistentBS isEffective = do
         PersistentActiveDelegators (AccountVersionFor pv) ->
         MTL.WriterT
             Amount
-            (MTL.StateT (Accounts.Accounts pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv)) m)
+            (MTL.StateT (Accounts.AccountsAndDiffMap pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv)) m)
             (Trie.Alteration (PersistentActiveDelegators (AccountVersionFor pv)))
     processBaker bid@(BakerId accId) oldDelegators = do
         accts0 <- use _1
@@ -3251,7 +3246,7 @@ doProcessPendingChanges persistentBS isEffective = do
         BakerId ->
         AccountBaker av ->
         PersistentActiveDelegators (AccountVersionFor pv) ->
-        MTL.StateT (Accounts.Accounts pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv)) m ()
+        MTL.StateT (Accounts.AccountsAndDiffMap pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv)) m ()
     removeBaker (BakerId accId) acctBkr (PersistentActiveDelegatorsV1 dset dcapital) = do
         accounts0 <- use _1
         -- Update the baker's account to have no delegation
@@ -3273,7 +3268,7 @@ doProcessPendingChanges persistentBS isEffective = do
     reduceBakerStake ::
         BakerId ->
         Amount ->
-        MTL.StateT (Accounts.Accounts pv, a, b) m ()
+        MTL.StateT (Accounts.AccountsAndDiffMap pv, a, b) m ()
     reduceBakerStake (BakerId accId) newAmt = do
         let updAcc = setAccountStake newAmt >=> setAccountStakePendingChange BaseAccounts.NoChange
         accounts <- use _1
@@ -3347,7 +3342,6 @@ instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (Pe
 instance (PersistentState av pv r m) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m) where
     lookup = undefined
     insert = undefined
-
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
@@ -3539,8 +3533,12 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
-    thawBlockState HashedPersistentBlockState{..} =
-        liftIO $ newIORef =<< readIORef hpbsPointers
+    thawBlockState a@HashedPersistentBlockState{..} = do
+        bufferedPtrs <- liftIO $ readIORef hpbsPointers
+        ptrs0 <- loadBufferedRef bufferedPtrs
+        ptrs1 <- makeBufferedRef ptrs0{bspAccounts = Accounts.emptyAcocuntsAndDiffMap $ Just $ bspAccounts ptrs0}
+        ioref <- liftIO $ newIORef ptrs1 -- todo fix this. If a blobref already exists then carry this over.
+        return ioref
 
     freezeBlockState pbs = hashBlockState pbs
 
@@ -3667,7 +3665,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
 
     return $!
         BlockStatePointers
-            { bspAccounts = Accounts.AccountsAndDiffMap newAccounts Nothing,
+            { bspAccounts = newAccounts,
               bspInstances = newInstances,
               bspModules = newModules,
               bspBank = newBank,

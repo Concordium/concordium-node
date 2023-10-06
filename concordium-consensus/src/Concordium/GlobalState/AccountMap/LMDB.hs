@@ -31,29 +31,29 @@
 --      * Only finalized accounts are present in the ‘AccountMap’
 module Concordium.GlobalState.AccountMap.LMDB where
 
-import Control.Monad.Trans.Writer
-import Control.Monad.Trans.Except
 import Control.Concurrent
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State
+import Control.Monad.Trans.Except
+import Control.Monad.Trans.Writer
 import qualified Data.ByteString as BS
 import Data.Data (Data, Typeable)
+import Data.Kind (Type)
 import qualified Data.Serialize as S
 import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
 import Prelude hiding (lookup)
-import Data.Kind (Type)
 
-import qualified Data.FixedByteString as FBS
-import Concordium.GlobalState.AccountMap.DifferenceMap (DifferenceMap(..))
+import Concordium.GlobalState.AccountMap.DifferenceMap (DifferenceMap (..))
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.Logger
 import Concordium.Types
+import qualified Data.FixedByteString as FBS
 
 -- * Exceptions
 
@@ -89,7 +89,7 @@ class (Monad m) => MonadAccountMapStore m where
     lookup :: AccountAddress -> m (Maybe AccountIndex)
 
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
-    insert bh  height = lift . insert bh height
+    insert bh height = lift . insert bh height
     lookup = lift . lookup
     {-# INLINE insert #-}
     {-# INLINE lookup #-}
@@ -266,11 +266,11 @@ closeDatabase :: DatabaseHandlers -> IO ()
 closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
 
 -- ** Monad implementation
+
 -- The 'AccountMapStoreMonad' acquires the 'DatabaseHandlers' via a reader context.
 newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMonad {runAccountMapStoreMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadReader r) via m
     deriving (MonadTrans) via IdentityT
-
 
 -- | Run a read-only transaction.
 asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r) => (DatabaseHandlers -> MDB_txn -> IO a) -> AccountMapStoreMonad m a

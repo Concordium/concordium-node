@@ -269,16 +269,14 @@ deriving via
         LowLevel.MonadTreeStateStore (SkovV1T pv m)
 
 deriving via
-     (LMDBAccountMap.AccountMapStoreMonad r (InnerSkovV1T pv m))
-     instance
-         ( IsProtocolVersion pv,
-           MonadIO m,
-           MonadCatch m,
-           MonadLogger m
-         ) =>
-         LMDBAccountMap.MonadAccountMapStore (SkovV1T pv m)
-
-    
+    (LMDBAccountMap.AccountMapStoreMonad r (InnerSkovV1T pv m))
+    instance
+        ( IsProtocolVersion pv,
+          MonadIO m,
+          MonadCatch m,
+          MonadLogger m
+        ) =>
+        LMDBAccountMap.MonadAccountMapStore (SkovV1T pv m)
 
 instance (Monad m) => MonadBroadcast (SkovV1T pv m) where
     sendTimeoutMessage tm = do
