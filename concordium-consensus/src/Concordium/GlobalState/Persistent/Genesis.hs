@@ -223,7 +223,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
     bsp <-
         Blob.refMakeFlushed $
             BS.BlockStatePointers
-                { bspAccounts = agsAllAccounts,
+                { bspAccounts = Accounts.AccountsAndDiffMap agsAllAccounts Nothing,
                   bspInstances = Instances.emptyInstances,
                   bspModules = modules,
                   bspBank = Types.makeHashed $ Rewards.makeGenesisBankStatus agsTotal,
@@ -258,7 +258,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                 genesisChainParameters
                 genesisAccount
         -- Insert the account
-        (maybeIndex, nextAccounts0) <- Accounts.putNewAccount persistentAccount $ agsAllAccounts state
+        (maybeIndex, nextAccounts0) <- Accounts.putNewAccount persistentAccount $ Accounts.AccountsAndDiffMap (agsAllAccounts state) Nothing
         nextAccounts <- case maybeIndex of
             Nothing -> MTL.throwError "Duplicate account address in genesis accounts."
             Just ai ->
@@ -267,7 +267,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                 in  Accounts.recordRegIds newRegIds nextAccounts0
 
         let !nextTotalAmount = agsTotal state + GenesisData.gaBalance genesisAccount
-        let !updatedState = state{agsAllAccounts = nextAccounts, agsTotal = nextTotalAmount}
+        let !updatedState = state{agsAllAccounts = Accounts.aadAccounts nextAccounts, agsTotal = nextTotalAmount}
 
         case GenesisData.gaBaker genesisAccount of
             Just baker@GenesisData.GenesisBaker{..} -> do

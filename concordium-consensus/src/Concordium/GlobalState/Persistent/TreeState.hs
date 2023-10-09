@@ -12,7 +12,6 @@
 --  and `TreeStateMonad` effectively adding persistence to the tree state.
 module Concordium.GlobalState.Persistent.TreeState where
 
-import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
@@ -241,9 +240,7 @@ data SkovPersistentData (pv :: ProtocolVersion) = SkovPersistentData
       --  If we only had the one state implementation this would not be necessary, and we could simply
       --  return the value in the 'updateRegenesis' function. However as it is, it is challenging to properly
       --  specify the types of these values due to the way the relevant types are parameterized.
-      _nextGenesisInitialState :: !(Maybe (PBS.HashedPersistentBlockState pv)),
-      -- | Account map db
-      _accountMapDb :: !LMDBAccountMap.DatabaseHandlers
+      _nextGenesisInitialState :: !(Maybe (PBS.HashedPersistentBlockState pv))
     }
 
 makeLenses ''SkovPersistentData
@@ -258,8 +255,6 @@ instance
 initialSkovPersistentDataDefault ::
     (IsProtocolVersion pv, MonadIO m) =>
     -- | Tree state directory
-    FilePath ->
-    -- | Account map directory
     FilePath ->
     GenesisConfiguration ->
     PBS.HashedPersistentBlockState pv ->
@@ -279,8 +274,6 @@ initialSkovPersistentData ::
     RuntimeParameters ->
     -- | Tree state directory
     FilePath ->
-    -- | Account map directory
-    FilePath ->
     -- | Genesis data
     GenesisConfiguration ->
     -- | Genesis state
@@ -298,15 +291,11 @@ initialSkovPersistentData ::
     --  documentation of the 'PendingTransactionTable' for details.
     Maybe PendingTransactionTable ->
     m (SkovPersistentData pv)
-initialSkovPersistentData rp treeStateDir accountMapDir gd genState serState genTT mPending = do
+initialSkovPersistentData rp treeStateDir gd genState serState genTT mPending = do
     gb <- makeGenesisPersistentBlockPointer gd genState
     let gbh = bpHash gb
         gbfin = FinalizationRecord 0 gbh emptyFinalizationProof 0
     initialDb <- liftIO $ initializeDatabase gb serState treeStateDir
-    accountMapDb <- liftIO $ LMDBAccountMap.openDatabase accountMapDir
-    LMDBAccountMap.isInitialized accountMapDb >>= \case
-        Nothing -> undefined -- todo: call 'initialize' for initializing the lmdb database.
-        Just (lfbHash, lfbHeight) -> undefined -- todo; check that the it's consistent with what is recorded in the tree state
     return
         SkovPersistentData
             { _blockTable = emptyBlockTable,
@@ -325,8 +314,7 @@ initialSkovPersistentData rp treeStateDir accountMapDir gd genState serState gen
               _runtimeParameters = rp,
               _treeStateDirectory = treeStateDir,
               _db = initialDb,
-              _nextGenesisInitialState = Nothing,
-              _accountMapDb = accountMapDb
+              _nextGenesisInitialState = Nothing
             }
 
 --------------------------------------------------------------------------------
@@ -416,11 +404,9 @@ loadSkovPersistentData ::
     RuntimeParameters ->
     -- | Tree state directory
     FilePath ->
-    -- | Account map directory
-    FilePath ->
     PBS.PersistentBlockStateContext pv ->
     LogIO (SkovPersistentData pv)
-loadSkovPersistentData rp _treeStateDirectory accountMapDir pbsc = do
+loadSkovPersistentData rp _treeStateDirectory pbsc = do
     -- we open the environment first.
     -- It might be that the database is bigger than the default environment size.
     -- This seems to not be an issue while we only read from the database,
@@ -453,22 +439,6 @@ loadSkovPersistentData rp _treeStateDirectory accountMapDir pbsc = do
                 _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
             -- Get the last finalized block.
             _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
-
-            -- Check whether the account map is already setup.
-            -- If not then populate it now with the last finalized block,
-            -- otherwise check if the current one matches the last finalized block
-            -- of the tree state.
-            -- todo: factor this out.
-            _accountMapDb <- liftIO $ LMDBAccountMap.openDatabase accountMapDir
-            LMDBAccountMap.isInitialized _accountMapDb >>= \case
-                Nothing -> do
-                    accounts <- runReaderT (PBS.runPersistentBlockStateMonad (getAccountList $ _bpState _lastFinalized)) pbsc
-                    LMDBAccountMap.initialize (bpHash _lastFinalized) (bpHeight _lastFinalized) accounts _accountMapDb
-                Just (lfbHash, _) -> do
-                    let tsLfbHash = bpHash _lastFinalized
-                    when (lfbHash /= tsLfbHash) $
-                        logExceptionAndThrowTS $
-                            AccountMapMismatch lfbHash tsLfbHash
             return
                 SkovPersistentData
                     { _possiblyPendingTable = HM.empty,

@@ -3290,8 +3290,13 @@ data PersistentBlockStateContext pv = PersistentBlockStateContext
       -- | Cache used for caching accounts.
       pbscAccountCache :: !(AccountCache (AccountVersionFor pv)),
       -- | Cache used for caching modules.
-      pbscModuleCache :: !Modules.ModuleCache
+      pbscModuleCache :: !Modules.ModuleCache,
+      -- | LMDB account map
+      pbscAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
+
+instance LMDBAccountMap.HasDatabaseHandlers (PersistentBlockStateContext pv) where
+    databaseHandlers x u = undefined -- todo implement
 
 instance HasBlobStore (PersistentBlockStateContext av) where
     blobStore = bscBlobStore . pbscBlobStore
@@ -3313,7 +3318,7 @@ withNewAccountCache :: (MonadIO m) => Int -> BlobStoreT (PersistentBlockStateCon
 withNewAccountCache size bsm = do
     ac <- liftIO $ newAccountCache size
     mc <- liftIO $ Modules.newModuleCache 100
-    alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc) bsm
+    alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc undefined) bsm
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) (r :: Type) (m :: Type -> Type) (a :: Type) = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger, TimeMonad, MTL.MonadState s)
@@ -3338,10 +3343,11 @@ instance (PersistentState av pv r m) => MonadBlobStore (PutH (PersistentBlockSta
 instance (PersistentState av pv r m) => Cache.MonadCache (AccountCache av) (PersistentBlockStateMonad pv r m)
 instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
 
--- todo: derive it.
-instance (PersistentState av pv r m) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m) where
-    lookup = undefined
-    insert = undefined
+instance (PersistentState av pv r m, r ~ PersistentBlockStateContext pv) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m) where
+    insert bh height = undefined -- 
+    lookup accAddr = do
+        accountMapHandlers <- asks pbscAccountMap
+        return undefined
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
@@ -3533,12 +3539,11 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
-    thawBlockState a@HashedPersistentBlockState{..} = do
+    thawBlockState HashedPersistentBlockState{..} = do
         bufferedPtrs <- liftIO $ readIORef hpbsPointers
         ptrs0 <- loadBufferedRef bufferedPtrs
         ptrs1 <- makeBufferedRef ptrs0{bspAccounts = Accounts.emptyAcocuntsAndDiffMap $ Just $ bspAccounts ptrs0}
-        ioref <- liftIO $ newIORef ptrs1 -- todo fix this. If a blobref already exists then carry this over.
-        return ioref
+        liftIO $ newIORef ptrs1 -- todo fix this. If a blobref already exists then carry this over.
 
     freezeBlockState pbs = hashBlockState pbs
 

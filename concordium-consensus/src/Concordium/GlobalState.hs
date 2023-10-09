@@ -25,6 +25,7 @@ import Concordium.GlobalState.Persistent.Genesis
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.Logger
 import Concordium.Types.ProtocolVersion
+import Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 -- | Configuration that uses the disk implementation for both the tree state
 --  and the block state
@@ -74,6 +75,7 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
                 pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
                 pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
                 pbscBlobStore <- loadBlobStore dtdbBlockStateFile
+                pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
                 let pbsc = PersistentBlockStateContext{..}
                 skovData <-
                     runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory dtdAccountMapDirectory pbsc) logm
@@ -114,6 +116,7 @@ migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = 
     pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
     pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
     pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+    pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase accountMapDir
     let pbsc = PersistentBlockStateContext{..}
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
         case _nextGenesisInitialState oldState of
@@ -145,6 +148,7 @@ initialiseNewGlobalState genData GlobalStateConfig{..} = do
     pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
     pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
     pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+    pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase accountMapDir
     let pbsc = PersistentBlockStateContext{..}
     let initGS = do
             logEvent GlobalState LLTrace "Creating persistent global state"

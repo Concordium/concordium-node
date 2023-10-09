@@ -36,9 +36,9 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Identity
 import Control.Monad.Reader
-import Control.Monad.State
+import Control.Monad.State.Strict
 import Control.Monad.Trans.Except
-import Control.Monad.Trans.Writer
+import Control.Monad.Trans.Writer.Strict
 import qualified Data.ByteString as BS
 import Data.Data (Data, Typeable)
 import Data.Kind (Type)
@@ -54,6 +54,7 @@ import Concordium.GlobalState.LMDB.Helpers
 import Concordium.Logger
 import Concordium.Types
 import qualified Data.FixedByteString as FBS
+import Concordium.Utils.Serialization.Put
 
 -- * Exceptions
 
@@ -97,6 +98,10 @@ instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapS
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
+
+instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
+    insert bh height = lift . insert bh height
+    lookup = lift . lookup
 
 -- * Database stores
 
@@ -267,7 +272,7 @@ closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. stor
 
 -- ** Monad implementation
 
--- The 'AccountMapStoreMonad' acquires the 'DatabaseHandlers' via a reader context.
+-- | The 'AccountMapStoreMonad' for interacting with the LMDB database.
 newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMonad {runAccountMapStoreMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadReader r) via m
     deriving (MonadTrans) via IdentityT
