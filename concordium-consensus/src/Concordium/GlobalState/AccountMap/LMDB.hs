@@ -48,6 +48,7 @@ import Lens.Micro.Platform
 import System.Directory
 import Prelude hiding (lookup)
 
+import Concordium.TimeMonad
 import Concordium.GlobalState.AccountMap.DifferenceMap (DifferenceMap (..))
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.LMDB.Helpers
@@ -274,8 +275,10 @@ closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. stor
 
 -- | The 'AccountMapStoreMonad' for interacting with the LMDB database.
 newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMonad {runAccountMapStoreMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadReader r) via m
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadReader r, MonadState s, TimeMonad) via m
     deriving (MonadTrans) via IdentityT
+
+deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (AccountMapStoreMonad m)
 
 -- | Run a read-only transaction.
 asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r) => (DatabaseHandlers -> MDB_txn -> IO a) -> AccountMapStoreMonad m a

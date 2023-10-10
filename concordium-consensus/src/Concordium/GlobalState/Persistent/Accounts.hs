@@ -100,6 +100,7 @@ type SupportsPersistentAccount pv m =
       MonadCache (AccountCache (AccountVersionFor pv)) m,
       LMDBAccountMap.MonadAccountMapStore m
     )
+    
 
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
     show a = show (accountTable a)

@@ -48,6 +48,8 @@ import Concordium.KonsensusV1.Types
 import Concordium.TimerMonad (Timeout, TimerMonad (..))
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters hiding (getChainParameters)
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+
 
 -- | Context used for running the 'TestMonad'.
 data TestContext (pv :: ProtocolVersion) = TestContext
@@ -76,6 +78,9 @@ instance Cache.HasCache Module.ModuleCache (TestContext pv) where
 
 instance HasMemoryLLDB pv (TestContext pv) where
     theMemoryLLDB = _tcMemoryLLDB
+
+instance LMDBAccountMap.HasDatabaseHandlers (TestContext pv) where
+    databaseHandlers = databaseHandlers . _tcPersistentBlockStateContext
 
 -- | State used for running the 'TestMonad'.
 data TestState pv = TestState

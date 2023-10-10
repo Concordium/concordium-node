@@ -3286,28 +3286,29 @@ doSetRewardAccounts pbs rewards = do
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext
     { -- | The 'BlobStore' used for storing the persistent state.
-      pbscBlobStore :: !BlobStore,
+      _pbscBlobStore :: !BlobStore,
       -- | Cache used for caching accounts.
-      pbscAccountCache :: !(AccountCache (AccountVersionFor pv)),
+      _pbscAccountCache :: !(AccountCache (AccountVersionFor pv)),
       -- | Cache used for caching modules.
-      pbscModuleCache :: !Modules.ModuleCache,
+      _pbscModuleCache :: !Modules.ModuleCache,
       -- | LMDB account map
-      pbscAccountMap :: !LMDBAccountMap.DatabaseHandlers
+      _pbscAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
+makeLenses ''PersistentBlockStateContext
 
 instance LMDBAccountMap.HasDatabaseHandlers (PersistentBlockStateContext pv) where
-    databaseHandlers x u = undefined -- todo implement
+    databaseHandlers = pbscAccountMap
 
 instance HasBlobStore (PersistentBlockStateContext av) where
-    blobStore = bscBlobStore . pbscBlobStore
-    blobLoadCallback = bscLoadCallback . pbscBlobStore
-    blobStoreCallback = bscStoreCallback . pbscBlobStore
+    blobStore = bscBlobStore . _pbscBlobStore
+    blobLoadCallback = bscLoadCallback . _pbscBlobStore
+    blobStoreCallback = bscStoreCallback . _pbscBlobStore
 
 instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache av) (PersistentBlockStateContext pv) where
-    projectCache = pbscAccountCache
+    projectCache = _pbscAccountCache
 
 instance Cache.HasCache Modules.ModuleCache (PersistentBlockStateContext pv) where
-    projectCache = pbscModuleCache
+    projectCache = _pbscModuleCache
 
 instance (IsProtocolVersion pv) => MonadProtocolVersion (BlobStoreT (PersistentBlockStateContext pv) m) where
     type MPV (BlobStoreT (PersistentBlockStateContext pv) m) = pv
@@ -3330,7 +3331,8 @@ type PersistentState av pv r m =
       AccountVersionFor pv ~ av,
       Cache.HasCache (AccountCache av) r,
       Cache.HasCache Modules.ModuleCache r,
-      LMDBAccountMap.HasDatabaseHandlers r
+      LMDBAccountMap.HasDatabaseHandlers r,
+      MonadLogger m
     )
 
 instance MonadTrans (PersistentBlockStateMonad pv r) where
@@ -3343,11 +3345,7 @@ instance (PersistentState av pv r m) => MonadBlobStore (PutH (PersistentBlockSta
 instance (PersistentState av pv r m) => Cache.MonadCache (AccountCache av) (PersistentBlockStateMonad pv r m)
 instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
 
-instance (PersistentState av pv r m, r ~ PersistentBlockStateContext pv) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m) where
-    insert bh height = undefined -- 
-    lookup accAddr = do
-        accountMapHandlers <- asks pbscAccountMap
-        return undefined
+deriving via (LMDBAccountMap.AccountMapStoreMonad m) instance (MonadIO m, MonadLogger m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m)
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)

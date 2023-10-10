@@ -269,7 +269,7 @@ deriving via
         LowLevel.MonadTreeStateStore (SkovV1T pv m)
 
 deriving via
-    (LMDBAccountMap.AccountMapStoreMonad r (InnerSkovV1T pv m))
+    (LMDBAccountMap.AccountMapStoreMonad (InnerSkovV1T pv m))
     instance
         ( IsProtocolVersion pv,
           MonadIO m,

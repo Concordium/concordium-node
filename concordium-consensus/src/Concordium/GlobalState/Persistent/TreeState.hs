@@ -428,17 +428,17 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                 "The block state database is corrupt. Recovery attempt failed: " <> e
         Right (_lastFinalizationRecord, lfStoredBlock) -> do
             -- Truncate the blobstore beyond the last finalized blockstate.
-            liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
+            liftIO $ truncateBlobStore (bscBlobStore . PBS._pbscBlobStore $ pbsc) (sbState lfStoredBlock)
             -- Get the genesis block.
             genStoredBlock <-
                 maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return
                     =<< liftIO (getFirstBlock _db)
-            _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
+            _genesisBlockPointer <- makeBlockPointer genStoredBlock
             _genesisData <- case _bpBlock _genesisBlockPointer of
                 GenesisBlock gd' -> return gd'
                 _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
             -- Get the last finalized block.
-            _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
+            _lastFinalized <- makeBlockPointer lfStoredBlock
             return
                 SkovPersistentData
                     { _possiblyPendingTable = HM.empty,
@@ -458,7 +458,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                       ..
                     }
   where
-    makeBlockPointer :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
+    makeBlockPointer :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> LogIO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
     makeBlockPointer StoredBlock{..} = do
         let stateHashM = case sbBlock of
                 GenesisBlock{} -> Nothing
@@ -466,8 +466,8 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
         bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState stateHashM sbState)) pbsc
         makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
     isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
-    isBlockStateCorrupted block =
-        not <$> runBlobStoreT (isValidBlobRef (sbState block)) pbsc
+    isBlockStateCorrupted block = undefined -- todo
+--        not <$> runBlobStoreT (isValidBlobRef (sbState block)) pbsc
 
 -- | Activate the state and make it usable for use by consensus. This concretely
 --  means that the block state for the last finalized block is cached, and that
