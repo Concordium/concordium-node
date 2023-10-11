@@ -413,6 +413,29 @@ pub struct GRPC2Config {
     )]
     pub invoke_max_energy:          u64,
     #[structopt(
+        long = "grpc2-dry-run-max-energy",
+        help = "Maximum amount of energy allowed for a single invocation of the DryRun endpoint.",
+        env = "CONCORDIUM_NODE_GRPC2_DRY_RUN_MAX_ENERGY",
+        default_value = "1000000"
+    )]
+    pub dry_run_max_energy:         u64,
+    #[structopt(
+        long = "grpc2-dry-run-timeout",
+        help = "Maximum duration in milliseconds for a DryRun invocation. If it is not completed \
+                in this time, the server cancels the request with DEADLINE_EXCEEDED.",
+        env = "CONCORDIUM_NODE_GRPC2_DRY_RUN_TIMEOUT",
+        default_value = "30000"
+    )]
+    pub dry_run_timeout:            u64,
+    #[structopt(
+        long = "grpc2-dry-run-concurrency",
+        help = "Maximum number of concurrent invocations of the DryRun endpoint. If this is \
+                exceeded, the server responds to DryRun invocations with UNAVAILABLE. If it is \
+                not set, there is no explicit limit.",
+        env = "CONCORDIUM_NODE_GRPC2_DRY_RUN_CONCURRENCY"
+    )]
+    pub dry_run_concurrency:        Option<usize>,
+    #[structopt(
         long = "grpc2-health-max-finalized-delay",
         help = "Maximum amount of seconds that the time of the last finalized block can be behind \
                 present before the health check fails.",

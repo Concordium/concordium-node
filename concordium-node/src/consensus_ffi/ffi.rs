@@ -1779,6 +1779,8 @@ pub fn get_consensus_ptr(
     }
 }
 
+/// A dry-run session. This wraps the FFI operations on a dry-run handle, and
+/// ensures that `dryRunEnd` is called when the `DryRun` object is dropped.
 pub struct DryRun {
     handle: *mut DryRunHandle,
 }
@@ -1790,6 +1792,8 @@ impl Drop for DryRun {
 }
 
 impl DryRun {
+    /// Load the state of a particular block in the dry-run session, and use its
+    /// timestamp as the  current timestamp for the session.
     pub fn load_block_state(
         &mut self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -1805,6 +1809,8 @@ impl DryRun {
         Ok(out_data)
     }
 
+    /// Look up information on a particular account in the current dry-run
+    /// state.
     pub fn get_account_info(
         &mut self,
         target: &crate::grpc2::types::AccountIdentifierInput,
@@ -1818,6 +1824,8 @@ impl DryRun {
         Ok(out_data)
     }
 
+    /// Look up information on a particular smart contract instance in the
+    /// current dry-run state.
     pub fn get_instance_info(
         &mut self,
         target: &crate::grpc2::types::ContractAddress,
@@ -1830,6 +1838,9 @@ impl DryRun {
         Ok(out_data)
     }
 
+    /// Invoke an entrypoint on a smart contract instance in the current dry-run
+    /// state. No changes to the state are retained at the completion of
+    /// this operation.
     pub fn invoke_instance(
         &mut self,
         request: &crate::grpc2::types::DryRunInvokeInstance,
@@ -1899,6 +1910,7 @@ impl DryRun {
         Ok(out_data)
     }
 
+    /// Set the current block time for the dry-run session.
     pub fn set_timestamp(
         &mut self,
         new_timestamp: crate::grpc2::types::Timestamp,
@@ -1910,6 +1922,7 @@ impl DryRun {
         Ok(out_data)
     }
 
+    /// Mint a specified amount and credit it to the specified account.
     pub fn mint_to_account(
         &mut self,
         mint: crate::grpc2::types::DryRunMintToAccount,
@@ -1928,6 +1941,8 @@ impl DryRun {
         Ok(out_data)
     }
 
+    /// Run a transaction in the current dry-run state, updating the state if it
+    /// succeeds.
     pub fn transaction(
         &mut self,
         request: crate::grpc2::types::DryRunTransaction,
@@ -1973,6 +1988,8 @@ impl DryRun {
         Ok(out_data)
     }
 
+    /// Convert a result code returned by a dry-run FFI into an approriate
+    /// [tonic::Status].
     fn check_result(result: i64, origin: &str) -> Result<(), tonic::Status> {
         match result {
             0 => Ok(()),

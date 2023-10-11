@@ -98,18 +98,22 @@ costTransactionBase = 400
 -- | An opaque rust vector.
 data ForeignVec
 
+-- | A function that copies bytes to a rust vector.
 type CopyToForeignVec = Ptr ForeignVec -> Ptr Word8 -> Int64 -> IO ()
 
 -- | Boilerplate wrapper to invoke C callbacks.
 foreign import ccall "dynamic" callCopyToForeignVecCallback :: FunPtr CopyToForeignVec -> CopyToForeignVec
 
+-- | Write a value that represents a dry-run response.
 writeProtoResponse ::
     ( ToProto (DryRunResponse a),
       Output (DryRunResponse a) ~ Proto.DryRunResponse
     ) =>
+    -- | Writer function.
     (Ptr Word8 -> Int64 -> IO ()) ->
     -- | Remaining energy quota.
     Energy ->
+    -- | Value to write.
     a ->
     IO ()
 writeProtoResponse writer quotaRem p =
@@ -122,12 +126,16 @@ writeProtoResponse writer quotaRem p =
                   drrQuotaRemaining = quotaRem
                 }
 
+-- | Write a value that represents a dry-run response, but could fail in the conversion.
 writeProtoResponseEither ::
     ( ToProto (DryRunResponse a),
       Output (DryRunResponse a) ~ Either e Proto.DryRunResponse
     ) =>
+    -- | Writer function.
     (Ptr Word8 -> Int64 -> IO ()) ->
+    -- | Remaining energy quota.
     Energy ->
+    -- | Value to write.
     a ->
     IO (Either e ())
 writeProtoResponseEither writer quotaRem p = case toProto resp of
@@ -144,15 +152,21 @@ writeProtoResponseEither writer quotaRem p = case toProto resp of
               drrQuotaRemaining = quotaRem
             }
 
+-- | Return codes for the dry run FFI.
 data DryRunReturnCode
-    = OK
-    | InternalError
-    | OutOfEnergyQuota
+    = -- | The operation was successful.
+      OK
+    | -- | An internal error occurred.
+      InternalError
+    | -- | The operation could not be completed within the remaining energy quota.
+      OutOfEnergyQuota
     deriving (Enum)
 
+-- | Convert a 'DryRunReturnCode' to an 'Int64' that is actually sent across the FFI boundary.
 returnCode :: DryRunReturnCode -> Int64
 returnCode = fromIntegral . fromEnum
 
+-- | The set of constraints that apply to the monad used for dry-run operations.
 type StateConstraints m pv =
     ( BlockStateOperations m,
       BlockState m ~ HashedPersistentBlockState pv,
@@ -163,8 +177,11 @@ type StateConstraints m pv =
       MonadIO m
     )
 
-data DryRunState pv = DryRunState
-    { drsBlockState :: !(PersistentBlockState pv),
+-- | The current state of a dry-run session.
+data DryRunState (pv :: ProtocolVersion) = DryRunState
+    { -- | The current block state.
+      drsBlockState :: !(PersistentBlockState pv),
+      -- | The current timestamp.
       drsTimestamp :: !Timestamp
     }
 
@@ -187,10 +204,14 @@ data EBlockStateContext finconf
           bscState :: !(IORef (DryRunState pv))
         }
 
+-- | Extract the protocol version from a block state context.
 bscProtocolVersion :: EBlockStateContext finconf -> ProtocolVersion
 bscProtocolVersion (EBlockStateContextV0 @_ @pv _ _) = demoteProtocolVersion $ protocolVersion @pv
 bscProtocolVersion (EBlockStateContextV1 @_ @pv _ _) = demoteProtocolVersion $ protocolVersion @pv
 
+-- | Run an operation on the dry-run state in a block state context.
+--  The operation runs in a monad that is abstracted by 'StateConstraints', and can thus run on any
+--  consensus version.
 runWithEBlockStateContext ::
     MultiVersionRunner finconf ->
     EBlockStateContext finconf ->
@@ -216,7 +237,7 @@ runWithEBlockStateContext mvr (EBlockStateContextV1 vc1 drs) operation = do
         )
         mvr
 
--- | Handle that identifies a particular dry run instance.
+-- | Handle that identifies a particular dry-run session.
 data DryRunHandle = forall finconf.
       DryRunHandle
     { -- | Wrap the multi-version runner from the consensus runner.
@@ -229,7 +250,16 @@ data DryRunHandle = forall finconf.
       drhEnergyQuota :: !(IORef Energy)
     }
 
-dryRunStart :: StablePtr Ext.ConsensusRunner -> FunPtr CopyToForeignVec -> Word64 -> IO (StablePtr DryRunHandle)
+-- | Start a dry-run session, creating a new dry-run handle.
+-- Once completed, the handle must be disposed by calling 'dryRunEnd'.
+dryRunStart ::
+    -- | Pointer to the consensus runner.
+    StablePtr Ext.ConsensusRunner ->
+    -- | Callback to use for writing data to a vector.
+    FunPtr CopyToForeignVec ->
+    -- | The total energy quota to use for the dry-run session.
+    Word64 ->
+    IO (StablePtr DryRunHandle)
 dryRunStart consensusPtr vecCallback energyQuota = do
     Ext.ConsensusRunner mvr <- deRefStablePtr consensusPtr
     initialBSC <- newIORef Nothing
@@ -245,7 +275,12 @@ dryRunStart consensusPtr vecCallback energyQuota = do
     mvLog mvr External LLTrace $ "Dry run start " ++ show (castStablePtrToPtr dryRunPtr)
     return dryRunPtr
 
-dryRunEnd :: StablePtr DryRunHandle -> IO ()
+-- | Finish a dry-run session, allowing the resources associated with it to be freed.
+-- The handle must not be used after calling 'dryRunEnd'.
+dryRunEnd ::
+    -- | The dry-run handle.
+    StablePtr DryRunHandle ->
+    IO ()
 dryRunEnd dryRunPtr = do
     DryRunHandle{drhMVR = mvr} <- deRefStablePtr dryRunPtr
     mvLog mvr External LLTrace $ "Dry run end " ++ show (castStablePtrToPtr dryRunPtr)
@@ -260,7 +295,18 @@ tryTickQuota quotaRef amount cont = do
         if q >= amount then (q - amount, (True, q - amount)) else (q, (False, q))
     if inQuota then cont remQuota else return OutOfEnergyQuota
 
-dryRunLoadBlockState :: StablePtr DryRunHandle -> Word8 -> Ptr Word8 -> Ptr ForeignVec -> IO Int64
+-- | Load the state of a particular block in the dry-run session, and use its timestamp as the
+--  current timestamp for the session.
+dryRunLoadBlockState ::
+    -- | The dry-run handle.
+    StablePtr DryRunHandle ->
+    -- | Tag identifying the type of block hash input.
+    Word8 ->
+    -- | Payload data for the block hash input.
+    Ptr Word8 ->
+    -- | Vector in which to write the response.
+    Ptr ForeignVec ->
+    IO Int64
 dryRunLoadBlockState dryRunPtr bhiTag hashPtr outVec =
     returnCode <$> do
         DryRunHandle{..} <- deRefStablePtr dryRunPtr
@@ -345,7 +391,7 @@ dryRunStateHelper ::
       StateHelperInfo finconf ->
       IO DryRunReturnCode
     ) ->
-    -- | The return code.
+    -- | The return code (see 'DryRunReturnCode').
     IO Int64
 dryRunStateHelper dryRunPtr outVec baseCost cont =
     returnCode <$> do
@@ -375,7 +421,9 @@ dryRunStateHelper dryRunPtr outVec baseCost cont =
                                 }
                     cont shi `catch` onExcept
 
+-- | Look up information on a particular account in the current dry-run state.
 dryRunGetAccountInfo ::
+    -- | Dry-run handle.
     StablePtr DryRunHandle ->
     -- | Account identifier tag.
     Word8 ->
@@ -383,6 +431,7 @@ dryRunGetAccountInfo ::
     Ptr Word8 ->
     -- | Output vector.
     Ptr ForeignVec ->
+    -- | The return code (see 'DryRunReturnCode').
     IO Int64
 dryRunGetAccountInfo dryRunPtr acctTag acctPtr outVec = dryRunStateHelper dryRunPtr outVec costGetAccountInfo $
     \StateHelperInfo{..} -> do
@@ -418,7 +467,9 @@ dryRunGetAccountInfo dryRunPtr acctTag acctPtr outVec = dryRunStateHelper dryRun
                 writeProtoResponse shiWriteOut shiQuotaRem (DryRunSuccessAccountInfo acctInfo)
         return OK
 
+-- | Look up information on a particular smart contract instance in the current dry-run state.
 dryRunGetInstanceInfo ::
+    -- | Dry-run handle.
     StablePtr DryRunHandle ->
     -- | Contract index.
     Word64 ->
@@ -440,8 +491,8 @@ dryRunGetInstanceInfo dryRunPtr contractIndex contractSubindex outVec =
   where
     ca = ContractAddress (ContractIndex contractIndex) (ContractSubindex contractSubindex)
 
--- | A return value other than 0 indicates that an internal error occurred and no response was
---  produced.
+-- | Invoke an entrypoint on a smart contract instance in the current dry-run state.
+-- No changes to the state are retained at the completion of this operation.
 dryRunInvokeInstance ::
     StablePtr DryRunHandle ->
     -- | Contract index.
@@ -470,6 +521,7 @@ dryRunInvokeInstance ::
     Word64 ->
     -- | Output vector.
     Ptr ForeignVec ->
+    -- | The return code (see 'DryRunReturnCode').
     IO Int64
 dryRunInvokeInstance
     dryRunPtr
@@ -539,12 +591,15 @@ dryRunInvokeInstance
                         return InternalError
                     Right () -> return OK
 
+-- | Set the current block time for the dry-run session.
 dryRunSetTimestamp ::
+    -- | Dry-run handle.
     StablePtr DryRunHandle ->
-    -- | The new timestamp.
+    -- | The new timestamp (in ms since the epoch).
     Word64 ->
     -- | Output vector.
     Ptr ForeignVec ->
+    -- | The return code (see 'DryRunReturnCode').
     IO Int64
 dryRunSetTimestamp dryRunPtr newTimestamp outVec = dryRunStateHelper dryRunPtr outVec costSetTimestamp $
     \StateHelperInfo{..} -> do
@@ -555,7 +610,9 @@ dryRunSetTimestamp dryRunPtr newTimestamp outVec = dryRunStateHelper dryRunPtr o
         writeProtoResponse shiWriteOut shiQuotaRem DryRunSuccessTimestampSet
         return OK
 
+-- | Mint a specified amount and credit it to the specified account.
 dryRunMintToAccount ::
+    -- | Dry-run handle.
     StablePtr DryRunHandle ->
     -- | Account address to mint to.
     Ptr Word8 ->
@@ -563,6 +620,7 @@ dryRunMintToAccount ::
     Word64 ->
     -- | Output vector.
     Ptr ForeignVec ->
+    -- | The return code (see 'DryRunReturnCode').
     IO Int64
 dryRunMintToAccount dryRunPtr senderPtr mintAmt outVec = dryRunStateHelper dryRunPtr outVec costMintToAccount $
     \StateHelperInfo{..} -> do
@@ -592,7 +650,9 @@ dryRunMintToAccount dryRunPtr senderPtr mintAmt outVec = dryRunStateHelper dryRu
                                     DryRunSuccessMintedToAccount
                                 return OK
 
+-- | Run a transaction in the current dry-run state, updating the state if it succeeds.
 dryRunTransaction ::
+    -- | Dry run handle.
     StablePtr DryRunHandle ->
     -- | Sender account address.
     Ptr Word8 ->
@@ -608,6 +668,7 @@ dryRunTransaction ::
     Word64 ->
     -- | Output vector.
     Ptr ForeignVec ->
+    -- | The return code (see 'DryRunReturnCode').
     IO Int64
 dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs sigCount outVec =
     dryRunStateHelper dryRunPtr outVec costTransactionBase $ \StateHelperInfo{..} -> do

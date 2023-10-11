@@ -103,4 +103,10 @@ If these are enabled then the following options become available
   send_block_item = true
   get_account_transaction_sign_hash = true
   get_block_items = true
+  get_bakers_reward_period = true
+  get_block_certificates = true
+  get_baker_earliest_win_time = true
+  get_first_block_epoch = true
+  get_winning_bakers_epoch = true
+  dry_run = true
   ```

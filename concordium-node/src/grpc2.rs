@@ -880,6 +880,10 @@ pub mod server {
         net::SocketAddr,
         sync::{Arc, Mutex},
     };
+    use tokio::{
+        time,
+        time::{Duration, Instant},
+    };
     use tonic::{async_trait, transport::ServerTlsConfig};
 
     use super::*;
@@ -905,6 +909,12 @@ pub mod server {
         blocks_channels: Clients,
         /// The list of active clients listening for new finalized blocks.
         finalized_blocks_channels: Clients,
+        /// The maximum energy allowed to be used in a dry run invocation.
+        dry_run_max_energy: u64,
+        /// The timeout in milliseconds for a dry run invocation to complete.
+        dry_run_timeout_millis: u64,
+        /// Semaphore limiting the concurrent dry run sessions allowed.
+        dry_run_semaphore: Option<Arc<tokio::sync::Semaphore>>,
     }
 
     /// An administrative structure that collects objects needed to manage the
@@ -974,6 +984,11 @@ pub mod server {
                     consensus: consensus.clone(),
                     blocks_channels: Arc::new(Mutex::new(Vec::new())),
                     finalized_blocks_channels: Arc::new(Mutex::new(Vec::new())),
+                    dry_run_max_energy: config.dry_run_max_energy,
+                    dry_run_timeout_millis: config.dry_run_timeout,
+                    dry_run_semaphore: config
+                        .dry_run_concurrency
+                        .map(|n| Arc::new(tokio::sync::Semaphore::new(n))),
                 };
 
                 let NotificationHandlers {
@@ -2454,55 +2469,83 @@ pub mod server {
             if !self.service_config.dry_run {
                 return Err(tonic::Status::unimplemented("`DryRun` is not enabled."));
             }
+            // If the number of concurrent dry run sessions is limited, we try to get a
+            // permit from the semaphore.
+            let permit = match self.dry_run_semaphore.as_ref() {
+                None => None,
+                Some(semaphore) => {
+                    let permit = semaphore.clone().try_acquire_owned().map_err(|_| {
+                        tonic::Status::unavailable("Too many concurrent `DryRun` requests")
+                    })?;
+                    Some(permit)
+                }
+            };
 
             let mut input = request.into_inner();
-            let energy_quota = 10000;
+            let energy_quota = self.dry_run_max_energy;
+            let deadline = Instant::now() + Duration::from_millis(self.dry_run_timeout_millis);
             let mut dry_run = self.consensus.dry_run(energy_quota);
             let output = async_stream::stream! {
-                while let Some(dry_run_request) = input.next().await {
-                    match dry_run_request {
-                        Ok(request) => {
-                            use crate::grpc2::types::dry_run_request::Request::*;
-                            match request.request.require()? {
-                                LoadBlockState(block_hash_input) => {
-                                    yield dry_run.load_block_state(&block_hash_input)
-                                }
-                                StateQuery(query) => {
-                                    use crate::grpc2::types::dry_run_state_query::Query::*;
-                                    match query.query.require()? {
-                                        GetAccountInfo(account) => {
-                                            yield dry_run.get_account_info(&account)
-                                        }
-                                        GetInstanceInfo(instance) => {
-                                            yield dry_run.get_instance_info(&instance)
-                                        }
-                                        InvokeInstance(invoke_instance_input) => {
-                                            yield dry_run.invoke_instance(&invoke_instance_input)
-                                        }
+                let sleep = time::sleep_until(deadline);
+                tokio::pin!(sleep);
+                loop {
+                    let next = tokio::select! {
+                        request = input.next() => { Ok(request) }
+                        _ = &mut sleep => {
+                            Err(tonic::Status::deadline_exceeded("dry run deadline elapsed"))
+                        }
+                    }?;
+
+                    if let Some(dry_run_request) = next {
+                        let request = dry_run_request.map_err(|_| {
+                            tonic::Status::invalid_argument("invalid dry run request")
+                        })?;
+                        use crate::grpc2::types::dry_run_request::Request::*;
+                        match request.request.require()? {
+                            LoadBlockState(block_hash_input) => {
+                                yield dry_run.load_block_state(&block_hash_input)
+                            }
+                            StateQuery(query) => {
+                                use crate::grpc2::types::dry_run_state_query::Query::*;
+                                match query.query.require()? {
+                                    GetAccountInfo(account) => {
+                                        yield dry_run.get_account_info(&account)
+                                    }
+                                    GetInstanceInfo(instance) => {
+                                        yield dry_run.get_instance_info(&instance)
+                                    }
+                                    InvokeInstance(invoke_instance_input) => {
+                                        yield dry_run.invoke_instance(&invoke_instance_input)
                                     }
                                 }
-                                StateOperation(operation) => {
-                                    use crate::grpc2::types::dry_run_state_operation::Operation::*;
-                                    match operation.operation.require()? {
-                                        SetTimestamp(timestamp) => {
-                                            yield dry_run.set_timestamp(timestamp)
-                                        }
-                                        MintToAccount(mint) => {
-                                            yield dry_run.mint_to_account(mint)
-                                        }
-                                        RunTransaction(run_transaction_input) => {
-                                            yield dry_run.transaction(run_transaction_input)
-                                        }
+                            }
+                            StateOperation(operation) => {
+                                use crate::grpc2::types::dry_run_state_operation::Operation::*;
+                                match operation.operation.require()? {
+                                    SetTimestamp(timestamp) => {
+                                        yield dry_run.set_timestamp(timestamp)
+                                    }
+                                    MintToAccount(mint) => yield dry_run.mint_to_account(mint),
+                                    RunTransaction(run_transaction_input) => {
+                                        yield dry_run.transaction(run_transaction_input)
                                     }
                                 }
                             }
                         }
-                        _ => yield Err(tonic::Status::unimplemented("Not implemented yet")),
+                    } else {
+                        // The stream of requests has been closed by the sender.
+                        break;
                     }
+                }
+                // The permit is dropped here to ensure that it is held for the duration of the
+                // session.
+                if let Some(p) = permit {
+                    drop(p)
                 }
             };
             let mut response = tonic::Response::new(Box::pin(output) as Self::DryRunStream);
             response.metadata_mut().insert("quota", energy_quota.into());
+            response.metadata_mut().insert("timeout", self.dry_run_timeout_millis.into());
             Ok(response)
         }
     }
