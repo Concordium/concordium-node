@@ -28,7 +28,7 @@
 --  initialized on startup via the existing ‘PersistentAccountMap’.
 --
 --  Invariants:
---      * Only finalized accounts are present in the ‘AccountMap’
+--      * Only accounts that are in either certified or finalized blocks are present in the ‘AccountMap’
 module Concordium.GlobalState.AccountMap.LMDB where
 
 import Control.Concurrent
@@ -75,7 +75,7 @@ instance Exception DatabaseInvariantViolation where
 --  An implementation should ensure atomicity of operations.
 --
 --  Invariants:
---      * All accounts in the store are finalized.
+--      * All accounts in the store are either finalized or "certified".
 class (Monad m) => MonadAccountMapStore m where
     -- | Adds accounts present in the provided difference maps to the lmdb store.
     --  The argument is a list as multiple blocks can be finalized at the same time.
@@ -90,11 +90,17 @@ class (Monad m) => MonadAccountMapStore m where
     --  and returns @Nothing@ if the account was not present.
     lookup :: AccountAddress -> m (Maybe AccountIndex)
 
+    -- | Delete an account from the underlying lmdb store.
+    --  This should only be done when rolling back certified blocks.
+    delete :: AccountAddress -> m Bool
+
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
     insert bh height = lift . insert bh height
     lookup = lift . lookup
+    delete = lift . delete
     {-# INLINE insert #-}
     {-# INLINE lookup #-}
+    {-# INLINE delete #-}
 
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
@@ -103,6 +109,7 @@ deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m
 instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
     insert bh height = lift . insert bh height
     lookup = lift . lookup
+    delete = lift . delete
 
 -- * Database stores
 
@@ -361,3 +368,5 @@ instance
 
     lookup accAddr = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr
+    delete accAddr = asWriteTransaction $ \dbh txn ->
+        deleteRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr

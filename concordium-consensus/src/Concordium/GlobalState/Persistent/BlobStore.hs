@@ -10,7 +10,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- FIXME: GHC 9.2.5 reports that `MonadBlobStore m` is a redundant constraint in a
@@ -172,7 +171,7 @@ import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.Parameters as Parameters
-import Concordium.Logger (MonadLogger)
+import Concordium.Logger (MonadLogger, LogIO)
 import Concordium.Types
 import Concordium.Types.Accounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
@@ -309,8 +308,8 @@ destroyBlobStore bs@BlobStore{..} = do
 --  The given FilePath is a directory where the temporary blob
 --  store will be created.
 --  The blob store file is deleted afterwards.
-runBlobStoreTemp :: FilePath -> BlobStoreM a -> IO a
-runBlobStoreTemp dir a = bracket openf closef usef
+runBlobStoreTemp :: FilePath -> BlobStoreM a -> LogIO a
+runBlobStoreTemp dir a = liftIO $ bracket openf closef usef
   where
     openf = openBinaryTempFile dir "blb.dat"
     closef (tempFP, h) = do

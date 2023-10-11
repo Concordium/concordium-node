@@ -295,7 +295,6 @@ processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock
             -- Archive the state of the last finalized block and all newly finalized blocks
             -- excluding the new last finalized block.
             mapM_ (archiveBlockState . bpState) (init (oldLastFinalized : prFinalized))
-    -- TODO!: Record the accounts created in the finalized blocks in the LMDB database.
     -- Remove the blocks from the live block table.
     markLiveBlocksFinal prFinalized
     -- Finalize the transactions in the in-memory transaction table.

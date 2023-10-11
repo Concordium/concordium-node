@@ -80,7 +80,7 @@ instance HasMemoryLLDB pv (TestContext pv) where
     theMemoryLLDB = _tcMemoryLLDB
 
 instance LMDBAccountMap.HasDatabaseHandlers (TestContext pv) where
-    databaseHandlers = databaseHandlers . _tcPersistentBlockStateContext
+    databaseHandlers = undefined -- todo LMDBAccountMap.databaseHandlers . _tcPersistentBlockStateContext
 
 -- | State used for running the 'TestMonad'.
 data TestState pv = TestState
@@ -115,7 +115,7 @@ type TestWrite pv = [TestEvent pv]
 --  Hence the 'PersistentBlockStateMonadHelper' transformer is using this monad
 --  as is the 'TestMonad'
 --  This makes it possible to easily derive the required instances via the 'PersistentBlockStateMonad'.
-type InnerTestMonad (pv :: ProtocolVersion) = RWST (TestContext pv) (TestWrite pv) (TestState pv) IO
+type InnerTestMonad (pv :: ProtocolVersion) = RWST (TestContext pv) (TestWrite pv) (TestState pv) LogIO
 
 -- | This type is used to derive instances of various block state classes for 'TestMonad'.
 type PersistentBlockStateMonadHelper pv =
@@ -136,6 +136,7 @@ newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: (Inner
         (BlockStateTypes, ContractStateOperations, ModuleQuery)
         via (PersistentBlockStateMonadHelper pv)
 
+
 makeLenses ''TestContext
 makeLenses ''TestState
 
@@ -149,9 +150,9 @@ genesisCore = case protocolVersion @pv of
 
 -- | Run an operation in the 'TestMonad' with the given baker, time and genesis data.
 --  This sets up a temporary blob store for the block state that is deleted after use.
-runTestMonad :: (IsConsensusV1 pv, IsProtocolVersion pv) => BakerContext -> UTCTime -> GenesisData pv -> TestMonad pv a -> IO a
+runTestMonad :: (IsConsensusV1 pv, IsProtocolVersion pv) => BakerContext -> UTCTime -> GenesisData pv -> TestMonad pv a -> LogIO a
 runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
-    runBlobStoreTemp "." $ withNewAccountCache 1000 $ do
+    runBlobStoreTemp "." $ withNewAccountCacheAndLMDBAccountMap 1000 "." $ do
         (genState, genStateRef, initTT, genTimeoutBase, genEpochBakers) <- runPersistentBlockStateMonad $ do
             genesisState genData >>= \case
                 Left e -> error e
@@ -205,7 +206,7 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
         let ctx = TestContext{..}
         let _tsPendingTimers = Map.empty
         let st = TestState{..}
-        fst <$> liftIO (evalRWST a ctx st)
+        undefined -- todo fst <$> liftIO (evalRWST a ctx st)
 
 -- Instances that are required for the 'TestMonad'.
 deriving via

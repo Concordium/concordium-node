@@ -31,7 +31,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     PersistentState,
     BlockRewardDetails (..),
     PersistentBlockStateMonad (..),
-    withNewAccountCache,
+    withNewAccountCacheAndLMDBAccountMap,
     cacheState,
     cacheStateAndGetTransactionTable,
     migratePersistentBlockState,
@@ -3315,11 +3315,15 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (BlobStoreT (PersistentB
 
 -- | Create a new account cache of the specified size for running the given monadic operation by
 --  extending the 'BlobStore' context to a 'PersistentBlockStateContext'.
-withNewAccountCache :: (MonadIO m) => Int -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
-withNewAccountCache size bsm = do
+-- todo fix doc.
+withNewAccountCacheAndLMDBAccountMap :: (MonadIO m) => Int -> FilePath -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
+withNewAccountCacheAndLMDBAccountMap size lmdbAccountMapDir bsm = do
     ac <- liftIO $ newAccountCache size
     mc <- liftIO $ Modules.newModuleCache 100
-    alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc undefined) bsm
+    lmdbAccMap <- liftIO $ LMDBAccountMap.openDatabase lmdbAccountMapDir
+    res <- alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc lmdbAccMap) bsm
+    liftIO $ LMDBAccountMap.closeDatabase lmdbAccMap
+    return res
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) (r :: Type) (m :: Type -> Type) (a :: Type) = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger, TimeMonad, MTL.MonadState s)
@@ -3560,6 +3564,14 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         (!inner', !ref) <- flushBufferedRef inner
         liftIO $ writeIORef hpbsPointers inner'
         flushStore
+        -- todo: Write the the Account DifferenceMap to the LMDBAccountMap.
+        -- Note that for consensus version 1 this approach will write
+        -- accounts to the lmdb account map as blocks becomes certified also.
+        -- To support roll backs of certified blocks then,
+        -- accounts created in the rolled back blocks must be deleted from
+        -- the lmdb account map (these will be added again as the certified blocks
+        -- are potentially being executed once again)
+        -- This should be OK as roll backs happens under rare circumstances.
         return ref
 
     loadBlockState hpbsHashM ref = do
