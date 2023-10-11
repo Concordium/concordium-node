@@ -89,6 +89,7 @@ pipeline {
                         --build-arg static_binaries_image_tag=${STATIC_BINARIES_IMAGE_TAG}\
                         --build-arg build_env_name=${ENVIRONMENT_CAP}\
                         --build-arg build_env_name_lower=${ENVIRONMENT}\
+                        --build-arg build_catchup_url=https://catchup.${DOMAIN}/blocks.idx\
                         --build-arg build_genesis_hash=$(cat ${GENESIS_HASH_PATH} | tr -cd "[:alnum:]")\
                         --build-arg build_collector_backend_url=https://dashboard.${DOMAIN}/nodes/post\
                         --build-arg build_grpc2_listen_port=${GRPC2_PORT}\

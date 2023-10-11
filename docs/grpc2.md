@@ -47,8 +47,8 @@ If these are enabled then the following options become available
   available.
 
   The format of the file is a simple key-value list, with values being booleans.
-  Keys are names of endpoints in snake_case. For example the following configuration file 
-  would enable all available endpoints except the ones flagged with `false` i.e. `get_account_info`, 
+  Keys are names of endpoints in snake_case. For example the following configuration file
+  would enable all available endpoints except the ones flagged with `false` i.e. `get_account_info`,
   `shutdown`, `dump_start` and `dump_end`.
 
   ```toml
@@ -110,3 +110,53 @@ If these are enabled then the following options become available
   get_winning_bakers_epoch = true
   dry_run = true
   ```
+
+### Configuration options for checking client liveness
+
+The following configuration options for the GRPC2 server can be used to ensure
+connected clients are alive and responding in desired time.
+
+- `--grpc2-keep-alive-interval` (`CONCORDIUM_NODE_GRPC2_KEEPALIVE_INTERVAL`)
+  Enable HTTP2 keepalive, and set the interval (in seconds) at which Ping frames are sent.
+
+- `--grpc2-keep-alive-timeout` (`CONCORDIUM_NODE_GRPC2_KEEPALIVE_TIMEOUT`)
+  Timeout (in seconds) for responses to HTTP2 Ping frames. If the client does not respond in time then the
+  connection will be closed. This has no effect unless `grpc2-keep-alive-interval` is set.
+
+- `--grpc2-tcp-keep-alive-interval` (`CONCORDIUM_NODE_GRPC2_TCP_KEEPALIVE`)
+  The interval (in seconds) at which TCP keepalive probes are sent.
+
+### Configuration options for limiting resource usage
+
+- `--grpc2-invoke-max-energy` (`CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY`)
+  Maximum amount of energy allowed for a call to the InvokeInstance (and also
+  InvokeContract of the V1 API) endpoint. If the caller supplies the maximum
+  energy as part of the call then the energy used for the execution of
+  the call is the **minimum** of `CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY` and
+  the caller supplied energy.
+
+- `--grpc2-max-concurrent-requests` (`CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS`)
+  Global (i.e., not per connection) number of concurrent requests allowed.
+  Defaults to 100. Note that when a request has a streaming response, the
+  request counts as completed once the stream is constructed.
+
+- `--grpc2-max-concurrent-requests-per-connection` (`CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS_PER_CONNECTION`)
+  Maximum number of concurrent requests **per connection**. Defaults to 10.
+
+- `--grpc2-max-concurrent-streams` (`CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_STREAMS`)
+  Maximum number of concurrently open streams **per connection**. For requests with streaming
+  responses this limits the amount of unconsumed streams that the node will maintain.
+
+- `--grpc2-max-connections` (`CONCORDIUM_NODE_GRPC2_MAX_CONNECTIONS`)
+  Maximum number of **connections** that the GRPC server will allow at any given
+  time. Defaults to 500. This value should be set low enough so that the node
+  process will never run out of file descriptors for consensus and P2P
+  connection handling. This value should be set so that together with
+  `hard-connection-limit` and `grpc2-max-concurrent-requests` it still leaves at
+  least 50 open file descriptors for consensus.
+
+- `--grpc2-request-timeout` (`CONCORDIUM_NODE_GRPC2_REQUEST_TIMEOUT`)
+  Maximum amount of time to allow for processing a request (in seconds). Defaults
+  to 30s. Note that as for `grpc2-max-concurrent-requests`, for streaming
+  responses, this does not mean that the stream must be consumed in 30s. It only
+  means that the time until the initial response must be less than 30s.

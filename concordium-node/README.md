@@ -166,6 +166,9 @@ stack exec -- pacman -Syq mingw-w64-x86_64-lmdb --noconfirm
 ### Building and Running
 
 The simplest way to build the complete node, as well as the service runner and installer is with the [`build-all.ps1`](../scripts/distribution/windows/build-all.ps1`) powershell script.
+The script takes a `-nodeVersion` argument that must be of the form `X.Y.Z[-B]`
+or `X.Y.Z[.B]` where `X.Y.Z` should be the node binary version and the optional `B` is
+to be the build version. `X.Y.Z[.B]` is used as the product version in the installer.
 
 The node binary will be built at `.\target\release\concordium-node.exe`.
 However, running the node requires the consensus DLL, which is compiled to `..\concordium-consensus\HSdll.dll`.

@@ -190,6 +190,10 @@ Possible values of `status` are:
 Current number of gRPC requests being handled by the node.
 Streaming gRPC methods are counted as in flight until the response stream is closed.
 
+### `grpc_connected_clients`
+
+Current number of clients connected to the gRPC V2 interface.
+
 ### `consensus_baking_committee`
 
 The baking committee status of the node for the current best block.

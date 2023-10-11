@@ -2,7 +2,37 @@
 
 ## Unreleased changes
 
+## 6.1.6
+
+- Fix a regression in the start up time. When upgrading from an earlier version, the first start-up
+  time may be longer than usual, as the genesis state hashes are computed. Subsequent restarts
+  will not suffer this penalty.
+
+## 6.1.5
+
+- Enable out of band catchup by default in all distributions.
+
+## 6.1.4
+
 - Expose the health check service via grpc-web when grpc-web is enabled.
+ Support for out-of-band catch-up for protocol versions beyond P6.
+- Extend Prometheus exporter with metric `grpc_connected_clients`, see
+  [docs/prometheus-exporter.md](https://github.com/Concordium/concordium-node/blob/main/docs/prometheus-exporter.md) for more details.
+- Add configuration options for imposing resource limits to the V2 gRPC server.
+  The following environment variables are added
+  - `CONCORDIUM_NODE_GRPC2_KEEPALIVE_INTERVAL`
+  - `CONCORDIUM_NODE_GRPC2_KEEPALIVE_TIMEOUT`
+  - `CONCORDIUM_NODE_GRPC2_TCP_KEEPALIVE`
+  - `CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY`
+  - `CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS`
+  - `CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS_PER_CONNECTION`
+  - `CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_STREAMS`
+  - `CONCORDIUM_NODE_GRPC2_MAX_CONNECTIONS`
+  - `CONCORDIUM_NODE_GRPC2_REQUEST_TIMEOUT`
+
+  See
+  [docs/grpc2.md](https://github.com/Concordium/concordium-node/blob/main/docs/grpc2.md)
+  for an explanation of the options.
  
 ## 6.1.3
 

@@ -20,6 +20,10 @@
         <key>CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES</key>
         <string>bootstrap.testnet.concordium.com:8888</string>
 
+        <!-- The url of the catchup file. This speeds up the catchup process. -->
+        <key>CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_FROM</key>
+        <string>https://catchup.testnet.concordium.com/blocks.idx</string>
+
         <!-- Desired number of nodes to be connected to. -->
         <key>CONCORDIUM_NODE_CONNECTION_DESIRED_NODES</key>
         <string>5</string>

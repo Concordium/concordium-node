@@ -361,7 +361,7 @@ pub struct GRPC2Config {
         help = "Address the GRPC server should listen on, e.g., 127.0.0.1",
         env = "CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS"
     )]
-    pub listen_addr:                Option<std::net::IpAddr>,
+    pub listen_addr: Option<std::net::IpAddr>,
     #[structopt(
         name = "grpc2-listen-port",
         long = "grpc2-listen-port",
@@ -369,7 +369,7 @@ pub struct GRPC2Config {
         help = "Address the GRPC server should listen on, e.g. 11000",
         env = "CONCORDIUM_NODE_GRPC2_LISTEN_PORT"
     )]
-    pub listen_port:                Option<u16>,
+    pub listen_port: Option<u16>,
     #[structopt(
         name = "grpc2-x509-cert",
         long = "grpc2-x509-cert",
@@ -378,7 +378,7 @@ pub struct GRPC2Config {
         requires = "grpc2-listen-addr",
         requires = "grpc2-cert-private-key"
     )]
-    pub x509_cert:                  Option<PathBuf>,
+    pub x509_cert: Option<PathBuf>,
     #[structopt(
         name = "grpc2-cert-private-key",
         long = "grpc2-cert-private-key",
@@ -387,14 +387,14 @@ pub struct GRPC2Config {
         requires = "grpc2-listen-addr",
         requires = "grpc2-x509-cert"
     )]
-    pub cert_private_key:           Option<PathBuf>,
+    pub cert_private_key: Option<PathBuf>,
     #[structopt(
         long = "grpc2-enable-grpc-web",
         help = "Enable support for GRPC-Web protocol.",
         env = "CONCORDIUM_NODE_GRPC2_ENABLE_GRPC_WEB",
         requires = "grpc2-listen-addr"
     )]
-    pub enable_grpc_web:            bool,
+    pub enable_grpc_web: bool,
     #[structopt(
         long = "grpc2-endpoint-config",
         help = "Configuration file for endpoints, listing which endpoints should be enabled or \
@@ -403,7 +403,7 @@ pub struct GRPC2Config {
         env = "CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG",
         requires = "grpc2-listen-addr"
     )]
-    pub endpoint_config:            Option<PathBuf>,
+    pub endpoint_config: Option<PathBuf>,
     #[structopt(
         long = "grpc2-invoke-max-energy",
         help = "Maximum amount of energy allowed for the InvokeInstance and InvokeContract (V1 \
@@ -411,7 +411,7 @@ pub struct GRPC2Config {
         env = "CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY",
         default_value = "1000000"
     )]
-    pub invoke_max_energy:          u64,
+    pub invoke_max_energy: u64,
     #[structopt(
         long = "grpc2-dry-run-max-energy",
         help = "Maximum amount of energy allowed for a single invocation of the DryRun endpoint.",
@@ -449,7 +449,63 @@ pub struct GRPC2Config {
                 the number of peers does not affect the health check.",
         env = "CONCORDIUM_NODE_GRPC2_HEALTH_MIN_PEERS"
     )]
-    pub health_min_peers:           Option<usize>,
+    pub health_min_peers: Option<usize>,
+    #[structopt(
+        long = "grpc2-max-connections",
+        help = "Maximum number of connections that the GRPC server will allow at any given time.",
+        env = "CONCORDIUM_NODE_GRPC2_MAX_CONNECTIONS",
+        default_value = "500"
+    )]
+    pub max_connections: usize,
+    #[structopt(
+        long = "grpc2-tcp-keep-alive-interval",
+        help = "The interval (in seconds) at which TCP keepalive probes are sent.",
+        env = "CONCORDIUM_NODE_GRPC2_TCP_KEEPALIVE"
+    )]
+    pub tcp_keepalive: Option<u64>,
+    #[structopt(
+        long = "grpc2-max-concurrent-requests-per-connection",
+        help = "Maximum number of concurrent requests per connection.",
+        env = "CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS_PER_CONNECTION",
+        default_value = "10"
+    )]
+    pub max_concurrent_requests_per_connection: usize,
+    #[structopt(
+        long = "grpc2-max-concurrent-streams",
+        help = "Maximum number of concurrently open streams.",
+        env = "CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_STREAMS"
+    )]
+    pub max_concurrent_streams: Option<u32>,
+    #[structopt(
+        long = "grpc2-max-concurrent-requests",
+        help = "Maximum number of concurrent requests allowed for the grpc2 server.",
+        env = "CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS",
+        default_value = "100"
+    )]
+    pub max_concurrent_requests: usize,
+    #[structopt(
+        long = "grpc2-request-timeout",
+        help = "Maximum amout of time to allow for processing a request (in seconds).",
+        env = "CONCORDIUM_NODE_GRPC2_REQUEST_TIMEOUT",
+        default_value = "30"
+    )]
+    pub request_timeout: u64,
+    #[structopt(
+        long = "grpc2-keep-alive-interval",
+        help = "Enable HTTP2 keepalive, and set the interval (in seconds) at which Ping frames \
+                are sent.",
+        env = "CONCORDIUM_NODE_GRPC2_KEEPALIVE_INTERVAL"
+    )]
+    pub keepalive_interval: Option<u64>,
+    #[structopt(
+        long = "grpc2-keep-alive-timeout",
+        help = "Timeout (in seconds) for responses to HTTP2 Ping frames. If the client does not \
+                respond in time then the connection will be closed. This has no effect unless \
+                `grpc2-keep-alive-interval` is set.",
+        env = "CONCORDIUM_NODE_GRPC2_KEEPALIVE_TIMEOUT",
+        default_value = "20"
+    )]
+    pub keepalive_timeout: u64,
 }
 
 impl GRPC2Config {

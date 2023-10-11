@@ -176,8 +176,7 @@ fn calculate_average_throughput(
 /// The lmdb store name of the persisted peers.
 const PEERS_STORE_NAME: &str = "peers";
 
-/// Try connect to previously connected peers if
-/// anyone is stored.
+/// Try connect to previously connected peers if any.
 /// Note that as opposed to [`connect_to_config_nodes`] this function respects
 /// the maximum peers configured for the node.
 pub fn connect_to_stored_nodes(node: &Arc<P2PNode>) -> anyhow::Result<()> {

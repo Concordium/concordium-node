@@ -9,7 +9,7 @@ use gotham::{
     handler::IntoResponse,
     helpers::http::response::create_response,
     middleware::state::StateMiddleware,
-    pipeline::{single::single_pipeline, single_middleware},
+    pipeline::{single_middleware, single_pipeline},
     router::{builder::*, Router},
     state::{FromState, State},
 };
@@ -275,6 +275,8 @@ pub struct StatsExportService {
     /// The number of peers that recently connected to the node labelled by the
     /// bucket in which they are contained.
     pub peer_bucket_size: IntGaugeVec,
+    /// The number of connections maintained by the GRPC V2 server.
+    pub grpc_connected_clients: GenericGauge<AtomicU64>,
 }
 
 impl StatsExportService {
@@ -481,6 +483,12 @@ impl StatsExportService {
         )?;
         registry.register(Box::new(peer_bucket_size.clone()))?;
 
+        let grpc_connected_clients = GenericGauge::with_opts(Opts::new(
+            "grpc_connected_clients",
+            "Current number of clients connected to the gRPC V2 interface",
+        ))?;
+        registry.register(Box::new(grpc_connected_clients.clone()))?;
+
         Ok(StatsExportService {
             registry,
             packets_received,
@@ -515,6 +523,7 @@ impl StatsExportService {
             avg_bps_in,
             avg_bps_out,
             peer_bucket_size,
+            grpc_connected_clients,
         })
     }
 
@@ -558,14 +567,16 @@ impl StatsExportService {
     ) -> Result<(), ()> {
         log::info!("Starting Prometheus exporter listening on {}", listen_addr);
         let result = gotham::plain::init_server(listen_addr, self.router()).await;
-        if let Err(()) = result {
+        if let Err(e) = result {
             // Log an error and notify main thread that an error occured.
-            error!("A runtime error occurred in the Prometheus exporter.");
+            error!("A runtime error occurred in the Prometheus exporter: {e}");
             if error_sender.send(()).is_err() {
                 error!("An error occurred while trying to signal the main node thread.")
             }
+            Err(())
+        } else {
+            Ok(())
         }
-        result
     }
 
     fn start_push_to_gateway(
