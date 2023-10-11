@@ -257,7 +257,7 @@ pub struct execute_block {
     private: [u8; 0],
 }
 
-/// An opaque reference to a dry run handle, which is created when
+/// An opaque reference to a dry-run handle, which is managed in Haskell.
 #[repr(C)]
 pub struct DryRunHandle {
     private: [u8; 0],
@@ -1505,6 +1505,7 @@ extern "C" {
         out: *mut Vec<u8>,
     ) -> i64;
 
+    /// Get info about a specified account as part of a dry-run sequence.
     pub fn dryRunGetAccountInfo(
         dry_run_handle: *mut DryRunHandle,
         account_identifier_tag: u8,
@@ -1512,6 +1513,8 @@ extern "C" {
         out: *mut Vec<u8>,
     ) -> i64;
 
+    /// Get info about a specified smart contract instance as part of a dry-run
+    /// sequence.
     pub fn dryRunGetInstanceInfo(
         dry_run_handle: *mut DryRunHandle,
         contract_index: u64,
@@ -1543,9 +1546,7 @@ extern "C" {
     /// * `parameter_ptr` - Pointer to the parameter to invoke with.
     /// * `parameter_len` - Length of the bytes for the parameter.
     /// * `energy` - The energy to use for the invocation.
-    /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
-    /// * `copier` - Callback for writting the output.
     pub fn dryRunInvokeInstance(
         dry_run_handle: *mut DryRunHandle,
         contract_index: u64,
@@ -1563,12 +1564,14 @@ extern "C" {
         out: *mut Vec<u8>,
     ) -> i64;
 
+    /// Set the current timestamp to use as part of a dry-run sequence.
     pub fn dryRunSetTimestamp(
         dry_run_handle: *mut DryRunHandle,
         new_timestamp: u64,
         out: *mut Vec<u8>,
     ) -> i64;
 
+    /// Mint an amount to an account as part of a dry-run sequence.
     pub fn dryRunMintToAccount(
         dry_run_handle: *mut DryRunHandle,
         account_address: *const u8,
@@ -1576,6 +1579,20 @@ extern "C" {
         out: *mut Vec<u8>,
     ) -> i64;
 
+    /// Execute a transaction as part of a dry-run sequence.
+    ///
+    /// * `dry_run_handle` - Handle created with `dryRunStart`.
+    /// * `sender_address_ptr` - Pointer to the encoded account address of the
+    ///   transaction sender.
+    /// * `energy` - Limit on the energy to be used by the transaction.
+    /// * `payload` - Pointer to the encoded transaction payload.
+    /// * `payload_length` - Length in bytes of the encoded transaction payload.
+    /// * `signatures` - An array of pairs of credential ID (u8) and key ID (u8)
+    ///   that are deemed to have signed the transaction.
+    /// * `signature_count` - The number of signatures deemed to have signed the
+    ///   transaction. The length of `signatures` in bytes must be `2 *
+    ///   signature_count`.
+    /// * `out` - Vector to write the output of the query.
     pub fn dryRunTransaction(
         dry_run_handle: *mut DryRunHandle,
         sender_address_ptr: *const u8,

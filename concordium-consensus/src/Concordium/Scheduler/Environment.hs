@@ -619,10 +619,9 @@ addAmountToCS' ai !amnt !cs =
                         Just upd ->
                             Just
                                 ( upd
-                                    & auAmount
-                                        %~ \case
-                                            Just x -> Just (x + amnt)
-                                            Nothing -> Just amnt
+                                    & auAmount %~ \case
+                                        Just x -> Just (x + amnt)
+                                        Nothing -> Just amnt
                                 )
                         Nothing -> Just (emptyAccountUpdate ai & auAmount ?~ amnt)
                    )
@@ -689,11 +688,9 @@ addContractAmountToCSV0 addr amnt cs =
     -- updating amounts does not update the modification index. Only state updates do.
     pure $
         cs
-            & instanceV0Updates
-                . at addr
-                %~ \case
-                    Just (idx, d, v) -> Just (idx, d + amnt, v)
-                    Nothing -> Just (0, amnt, Nothing)
+            & instanceV0Updates . at addr %~ \case
+                Just (idx, d, v) -> Just (idx, d + amnt, v)
+                Nothing -> Just (0, amnt, Nothing)
 
 -- | Add the given delta to the change set for the given contract instance.
 addContractAmountToCSV1 :: (Monad m) => ContractAddress -> AmountDelta -> ChangeSet m -> m (ChangeSet m)
@@ -701,11 +698,9 @@ addContractAmountToCSV1 addr amnt cs =
     -- updating amounts does not update the modification index. Only state updates do.
     pure $
         cs
-            & instanceV1Updates
-                . at addr
-                %~ \case
-                    Just InstanceV1Update{..} -> Just $! InstanceV1Update index (amountChange + amnt) newState newInterface
-                    Nothing -> Just $! InstanceV1Update 0 amnt Nothing Nothing
+            & instanceV1Updates . at addr %~ \case
+                Just InstanceV1Update{..} -> Just $! InstanceV1Update index (amountChange + amnt) newState newInterface
+                Nothing -> Just $! InstanceV1Update 0 amnt Nothing Nothing
 
 -- | Add the given contract address to the set of initialized contract instances.
 --  As the changes on the blockstate are already performed in the handler for this operation,
@@ -722,11 +717,9 @@ addContractInitToCS Proxy addr cs =
 addContractUpgradeToCS :: Proxy m -> ContractAddress -> GSWasm.ModuleInterfaceA (InstrumentedModuleRef m GSWasm.V1) -> Set.Set GSWasm.ReceiveName -> ChangeSet m -> ChangeSet m
 addContractUpgradeToCS Proxy addr updatedMod updatedReceiveNames cs = do
     cs
-        & instanceV1Updates
-            . at addr
-            %~ \case
-                Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just (updatedMod, updatedReceiveNames))
-                Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just (updatedMod, updatedReceiveNames))
+        & instanceV1Updates . at addr %~ \case
+            Just InstanceV1Update{..} -> Just $! InstanceV1Update index amountChange newState (Just (updatedMod, updatedReceiveNames))
+            Nothing -> Just $! InstanceV1Update 0 0 Nothing (Just (updatedMod, updatedReceiveNames))
 
 -- | Whether the transaction energy limit is reached because of transaction max energy limit,
 --  or because of block energy limit
@@ -949,29 +942,24 @@ withDeposit wtc comp k = do
                           ..
                         }
 
-{-# INLINE defaultSuccess' #-}
+{-# INLINE defaultSuccess #-}
 
 -- | Default continuation to use with 'withDeposit'. It charges for the energy used, commits the changes
 --  from the current changeset and returns the recorded events, the amount corresponding to the
 --  used energy and the used energy.
-defaultSuccess' ::
-    (SchedulerMonad m) => WithDepositContext m -> LocalState m -> res -> m (res, Amount, Energy)
-defaultSuccess' wtc = \ls res -> do
-    let energyAllocated = wtc ^. wtcEnergyAmount
-        senderAccount = wtc ^. wtcSenderAccount
-    (usedEnergy, energyCost) <- computeExecutionCharge energyAllocated (ls ^. energyLeft)
-    chargeExecutionCost senderAccount energyCost
-    commitChanges (ls ^. changeSet)
-    return (res, energyCost, usedEnergy)
-
 defaultSuccess ::
     (SchedulerMonad m, TransactionResult res) =>
     WithDepositContext m ->
     LocalState m ->
     [Event] ->
     m (res, Amount, Energy)
-{-# INLINE defaultSuccess #-}
-defaultSuccess wtc = \ls res -> defaultSuccess' wtc ls (transactionSuccess res)
+defaultSuccess wtc = \ls res -> do
+    let energyAllocated = wtc ^. wtcEnergyAmount
+        senderAccount = wtc ^. wtcSenderAccount
+    (usedEnergy, energyCost) <- computeExecutionCharge energyAllocated (ls ^. energyLeft)
+    chargeExecutionCost senderAccount energyCost
+    commitChanges (ls ^. changeSet)
+    return (transactionSuccess res, energyCost, usedEnergy)
 
 {-# INLINE liftLocal #-}
 liftLocal :: (Monad m) => m a -> LocalT r m a

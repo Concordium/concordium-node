@@ -990,7 +990,7 @@ handleUpdateContract ::
     Wasm.Parameter ->
     m (Maybe (TransactionSummary' res))
 handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
-    withDeposit wtc computeAndCharge (defaultSuccess' wtc)
+    withDeposit wtc computeAndCharge (defaultSuccess wtc)
   where
     senderAccount = wtc ^. wtcSenderAccount
     senderAddress = wtc ^. wtcSenderAddress
@@ -1000,14 +1000,13 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
         getCurrentContractInstanceTicking uAddress >>= \case
             InstanceInfoV0 ins ->
                 -- Now invoke the general handler for contract messages.
-                transactionSuccess
-                    <$> handleContractUpdateV0
-                        senderAddress
-                        ins
-                        checkAndGetBalanceV0
-                        uAmount
-                        uReceiveName
-                        uMessage
+                handleContractUpdateV0
+                    senderAddress
+                    ins
+                    checkAndGetBalanceV0
+                    uAmount
+                    uReceiveName
+                    uMessage
             InstanceInfoV1 ins -> do
                 handleContractUpdateV1 senderAddress ins checkAndGetBalanceV1 uAmount uReceiveName uMessage >>= \case
                     Left cer -> do
@@ -1015,7 +1014,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
                         rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
                     Right (ret, events) -> do
                         transactionReturnValue ?= ret
-                        return $ transactionSuccess $ reverse events
+                        return $ reverse events
     computeAndCharge = do
         r <- c
         chargeV1Storage -- charge for storing the new state of all V1 contracts. V0 state is already charged.

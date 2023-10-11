@@ -2100,9 +2100,8 @@ doRewardAccount pbs ai reward = do
         let tot = adDelegatorTotalCapital $ activeBkrs ^. passiveDelegators
         return $!
             activeBkrs
-                & passiveDelegators
-                    %~ \dlgs ->
-                        dlgs{adDelegatorTotalCapital = tot + reward}
+                & passiveDelegators %~ \dlgs ->
+                    dlgs{adDelegatorTotalCapital = tot + reward}
     updateDelegationPoolCapital activeBkrs (Transactions.DelegateToBaker bid) = do
         let activeBkrsMap = activeBkrs ^. activeBakers
             adj Nothing = error "Invariant violation: active baker account is not in active bakers map"
@@ -3122,12 +3121,9 @@ doProcessPendingChanges persistentBS isEffective = do
                 (accts, pab ^. aggregationKeys, pab ^. passiveDelegators)
         let pab' =
                 pab
-                    & activeBakers
-                        .~ newBakers
-                    & aggregationKeys
-                        .~ newAggs
-                    & passiveDelegators
-                        .~ newPassive
+                    & activeBakers .~ newBakers
+                    & aggregationKeys .~ newAggs
+                    & passiveDelegators .~ newPassive
         return ((pab', accts'), total)
 
     -- Process a set of delegators for elapsed cooldowns, updating the total delegated amount
@@ -3751,8 +3747,7 @@ cacheStateAndGetTransactionTable hpbs = do
             unless (nonce == minNonce) $ do
                 addr <- accountCanonicalAddress acct
                 MTL.modify
-                    ( TransactionTable.ttNonFinalizedTransactions
-                        . at' (accountAddressEmbed addr)
+                    ( TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
                         ?~ TransactionTable.emptyANFTWithNonce nonce
                     )
             return acct
@@ -3775,8 +3770,7 @@ cacheStateAndGetTransactionTable hpbs = do
                 then
                     return $!
                         tt
-                            & TransactionTable.ttNonFinalizedChainUpdates
-                                . at' uty
+                            & TransactionTable.ttNonFinalizedChainUpdates . at' uty
                                 ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
                 else return tt
     tt <- foldM updInTT tt0 [minBound ..]
