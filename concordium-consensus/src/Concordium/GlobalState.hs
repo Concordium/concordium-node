@@ -72,14 +72,14 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
         then do
             logm <- ask
             liftIO $ do
-                _pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-                _pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-                _pbscBlobStore <- loadBlobStore dtdbBlockStateFile
-                _pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
+                pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+                pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+                pbscBlobStore <- loadBlobStore dtdbBlockStateFile
+                pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
                 let pbsc = PersistentBlockStateContext{..}
                 skovData <-
                     runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
-                        `onException` closeBlobStore _pbscBlobStore
+                        `onException` closeBlobStore pbscBlobStore
                 return (Just (pbsc, skovData))
         else return Nothing
 
@@ -113,10 +113,10 @@ migrateExistingState ::
     -- | The return value is the context and state for the new chain.
     LogIO (GSContext pv, GSState pv)
 migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = do
-    _pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-    _pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-    _pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-    _pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
+    pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
+    pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+    pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+    pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
     let pbsc = PersistentBlockStateContext{..}
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
         case _nextGenesisInitialState oldState of
@@ -136,7 +136,7 @@ migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = 
                 (Just (_pendingTransactions oldState))
     isd <-
         runReaderT (LMDBAccountMap.runAccountMapStoreMonad (runPersistentBlockStateMonad initGS)) pbsc
-            `onException` liftIO (destroyBlobStore _pbscBlobStore)
+            `onException` liftIO (destroyBlobStore pbscBlobStore)
     return (pbsc, isd)
 
 -- | Initialise new global state with the given genesis. If the state already
@@ -144,10 +144,10 @@ migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = 
 --  on the generated state, as this will establish the necessary invariants.
 initialiseNewGlobalState :: (IsProtocolVersion pv, IsConsensusV0 pv) => GenesisData pv -> GlobalStateConfig -> LogIO (GSContext pv, GSState pv)
 initialiseNewGlobalState genData GlobalStateConfig{..} = do
-    _pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-    _pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-    _pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-    _pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
+    pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
+    pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+    pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+    pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
     let pbsc = PersistentBlockStateContext{..}
     let initGS = do
             logEvent GlobalState LLTrace "Creating persistent global state"
@@ -161,7 +161,7 @@ initialiseNewGlobalState genData GlobalStateConfig{..} = do
             initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory (genesisConfiguration genData) pbs ser genTT Nothing
     isd <-
         runReaderT (LMDBAccountMap.runAccountMapStoreMonad (runPersistentBlockStateMonad initGS)) pbsc
-            `onException` liftIO (destroyBlobStore _pbscBlobStore)
+            `onException` liftIO (destroyBlobStore pbscBlobStore)
     return (pbsc, isd)
 
 -- | Either initialise an existing state, or if it does not exist, initialise a new one with the given genesis.
@@ -179,5 +179,5 @@ activateGlobalState _ = activateSkovPersistentData
 -- | Shutdown the global state.
 shutdownGlobalState :: SProtocolVersion pv -> GSContext pv -> GSState pv -> IO ()
 shutdownGlobalState _ PersistentBlockStateContext{..} st = do
-    closeBlobStore _pbscBlobStore
+    closeBlobStore pbscBlobStore
     closeSkovPersistentData st

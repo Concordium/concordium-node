@@ -73,8 +73,8 @@ type PersistentBlockStateMonadHelper pv m =
 --
 --    * @MonadReader (SkovV1Context pv m)@, where the 'SkovV1Context' implements 'HasBlobStore',
 --      @'Cache.HasCache' ('AccountCache' (AccountVersionFor pv))@,
---      @'Cache.HasCache' 'Modules.ModuleCache'@, 'HasHandlerContext', 'HasBakerContext', and
---      'HasDatabaseHandlers'.
+--      @'Cache.HasCache' 'Modules.ModuleCache'@, 'HasHandlerContext', 'HasBakerContext',
+--      'HasDatabaseHandlers' and 'LMDBAccountMap.HasDatabaseHandlers.
 --
 --    * @MonadState ('SkovData' pv)@.
 --
@@ -170,8 +170,6 @@ data SkovV1Context (pv :: ProtocolVersion) m = SkovV1Context
       _vcPersistentBlockStateContext :: !(PersistentBlockStateContext pv),
       -- | low-level tree state database.
       _vcDisk :: !(DatabaseHandlers pv),
-      -- | Persistent account map
-      _vcAccountMap :: !LMDBAccountMap.DatabaseHandlers,
       -- | Handler functions.
       _vcHandlers :: !(HandlerContext pv m),
       -- | A function for unlifting @'SkovV1T' pv m@ into the 'IO' monad.
@@ -190,6 +188,9 @@ instance (AccountVersionFor pv ~ av) => Cache.HasCache (AccountCache av) (SkovV1
 instance Cache.HasCache Modules.ModuleCache (SkovV1Context pv m) where
     projectCache = Cache.projectCache . _vcPersistentBlockStateContext
 
+instance LMDBAccountMap.HasDatabaseHandlers (SkovV1Context pv m) where
+    databaseHandlers = lens _vcPersistentBlockStateContext (\s v -> s{_vcPersistentBlockStateContext = v}) . LMDBAccountMap.databaseHandlers
+
 -- Note, these template haskell splices go here because of staging restrictions.
 -- '_skovV1TUnliftIO' creates a cyclic dependency between 'SkovV1Context' and 'SkovV1T'.
 -- The above instances are required by deriving via instances attached to the 'SkovV1T' definition.
@@ -205,9 +206,6 @@ instance HasBakerContext (SkovV1Context pv m) where
 
 instance HasDatabaseHandlers (SkovV1Context pv m) pv where
     databaseHandlers = vcDisk
-
-instance LMDBAccountMap.HasDatabaseHandlers (SkovV1Context pv m) where
-    databaseHandlers = vcAccountMap
 
 instance (MonadTrans (SkovV1T pv)) where
     lift = SkovV1T . lift
@@ -236,27 +234,27 @@ instance (Monad m) => MonadState (SkovData pv) (SkovV1T pv m) where
 deriving via
     (PersistentBlockStateMonadHelper pv m)
     instance
-        (IsProtocolVersion pv) => MonadProtocolVersion (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadLogger m) => MonadProtocolVersion (SkovV1T pv m)
 
 deriving via
     (PersistentBlockStateMonadHelper pv m)
     instance
-        (IsProtocolVersion pv, MonadIO m) => AccountOperations (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => AccountOperations (SkovV1T pv m)
 
 deriving via
     (PersistentBlockStateMonadHelper pv m)
     instance
-        (IsProtocolVersion pv, MonadIO m) => BlockStateQuery (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateQuery (SkovV1T pv m)
 
 deriving via
     (PersistentBlockStateMonadHelper pv m)
     instance
-        (IsProtocolVersion pv, MonadIO m) => BlockStateOperations (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateOperations (SkovV1T pv m)
 
 deriving via
     (PersistentBlockStateMonadHelper pv m)
     instance
-        (IsProtocolVersion pv, MonadIO m) => BlockStateStorage (SkovV1T pv m)
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateStorage (SkovV1T pv m)
 
 deriving via
     (DiskLLDBM pv (InnerSkovV1T pv m))
@@ -353,7 +351,7 @@ data GlobalStateConfig = GlobalStateConfig
 data InitContext pv = InitContext
     { -- | Blob store and caches used by the block state storage.
       _icPersistentBlockStateContext :: !(PersistentBlockStateContext pv),
-      -- | In-memory low-level tree state database.
+      -- | low-level tree state database.
       _icDatabaseHandlers :: !(DatabaseHandlers pv)
     }
 
@@ -372,6 +370,9 @@ instance Cache.HasCache Modules.ModuleCache (InitContext pv) where
 
 instance HasDatabaseHandlers (InitContext pv) pv where
     databaseHandlers = icDatabaseHandlers
+
+instance LMDBAccountMap.HasDatabaseHandlers (InitContext pv) where
+    databaseHandlers = icPersistentBlockStateContext . LMDBAccountMap.databaseHandlers
 
 -- | Inner type of 'InitMonad'.
 type InnerInitMonad pv = ReaderT (InitContext pv) LogIO
@@ -411,7 +412,8 @@ newtype InitMonad pv a = InitMonad {runInitMonad' :: InnerInitMonad pv a}
           ContractStateOperations,
           ModuleQuery,
           MonadBlobStore,
-          Cache.MonadCache Modules.ModuleCache
+          Cache.MonadCache Modules.ModuleCache,
+          LMDBAccountMap.MonadAccountMapStore
         )
         via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
 
@@ -464,6 +466,22 @@ data ExistingSkov pv m = ExistingSkov
       esProtocolUpdate :: !(Maybe ProtocolUpdate)
     }
 
+-- | Internal type used for deriving 'HasDatabaseHandlers' and 'LMDBAccountMap.HasDatabaseHandlers'
+--  used for computations where both lmdb databases are required.
+data LMDBDatabases pv = LMDBDatabases
+    { -- | the skov lmdb database
+      _lmdbSkovLmdb :: !(DatabaseHandlers pv),
+      -- | the account map lmdb database
+      _lmdbDSAccMap :: !LMDBAccountMap.DatabaseHandlers
+    }
+makeLenses ''LMDBDatabases
+
+instance HasDatabaseHandlers (LMDBDatabases pv) pv where
+    databaseHandlers = lmdbSkovLmdb
+
+instance LMDBAccountMap.HasDatabaseHandlers (LMDBDatabases pv) where
+    databaseHandlers = lmdbDSAccMap
+
 -- | Load an existing SkovV1 state.
 --  Returns 'Nothing' if there is no database to load.
 --  May throw a 'TreeStateInvariantViolation' if a database invariant violation occurs when
@@ -481,24 +499,25 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
     existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile gscAccountMapDirectory
     if existingDB
         then do
-            _pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize gscRuntimeParameters)
-            _pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize gscRuntimeParameters)
-            _pbscBlobStore <- liftIO $ loadBlobStore gscBlockStateFile
-            let pbsc = PersistentBlockStateContext{..}
-            let initWithLLDB lldb = do
-                    checkDatabaseVersion lldb
+            pbsc <- liftIO $ do
+                pbscAccountCache <- newAccountCache (rpAccountsCacheSize gscRuntimeParameters)
+                pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize gscRuntimeParameters)
+                pbscBlobStore <- loadBlobStore gscBlockStateFile
+                pbscAccountMap <- LMDBAccountMap.openDatabase gscAccountMapDirectory
+                return PersistentBlockStateContext{..}
+            let initWithLLDB skovLldb = do
+                    checkDatabaseVersion skovLldb
                     let checkBlockState bs = runBlobStoreT (isValidBlobRef bs) pbsc
                     (rollCount, bestState) <-
-                        runReaderT
-                            (runDiskLLDBM $ rollBackBlocksUntil checkBlockState)
-                            lldb
+                        flip runReaderT (LMDBDatabases skovLldb $ pbscAccountMap pbsc) $
+                            (LMDBAccountMap.runAccountMapStoreMonad . runDiskLLDBM) (rollBackBlocksUntil checkBlockState) 
                     when (rollCount > 0) $ do
                         logEvent Skov LLWarning $
                             "Could not load state for "
                                 ++ show rollCount
                                 ++ " blocks. Truncating block state database."
-                        liftIO $ truncateBlobStore (bscBlobStore . PBS._pbscBlobStore $ pbsc) bestState
-                    let initContext = InitContext pbsc lldb
+                        liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) bestState
+                    let initContext = InitContext pbsc skovLldb
                     (initialSkovData, effectiveProtocolUpdate) <-
                         runInitMonad
                             (loadSkovData gscRuntimeParameters (rollCount > 0))
@@ -509,8 +528,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                                     SkovV1Context
                                         { _vcBakerContext = bakerCtx,
                                           _vcPersistentBlockStateContext = pbsc,
-                                          _vcDisk = lldb,
-                                          _vcAccountMap = undefined, -- TODO: Fill in
+                                          _vcDisk = skovLldb,
                                           _vcHandlers = handlerCtx,
                                           _skovV1TUnliftIO = unliftSkov
                                         },
@@ -529,7 +547,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
             let initWithBlockState = do
                     (lldb :: DatabaseHandlers pv) <- liftIO $ openDatabase gscTreeStateDirectory
                     initWithLLDB lldb `onException` liftIO (closeDatabase lldb)
-            initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
+            initWithBlockState `onException` liftIO (closeBlobStore $ pbscBlobStore pbsc)
         else do
             logEvent Skov LLDebug "No existing global state."
             return Nothing
@@ -680,9 +698,12 @@ migrateSkovV1 ::
 migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
-    newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
-        newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
-        hashBlockState newState
+    newInitialBlockState <-
+        flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc .
+            flip runReaderT (flip LMDBAccountMap.runAccountMapStoreMonad oldPbsc) .
+                flip runReaderT (flip LMDBAccountMap.runAccountMapStoreMonad pbsc) $ do
+                    newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
+                    hashBlockState newState
     let
         initGS :: InitMonad pv (SkovData pv)
         initGS = do
@@ -738,4 +759,5 @@ newPersistentBlockStateContext GlobalStateConfig{..} = liftIO $ do
     pbscBlobStore <- createBlobStore gscBlockStateFile
     pbscAccountCache <- newAccountCache $ rpAccountsCacheSize gscRuntimeParameters
     pbscModuleCache <- Modules.newModuleCache $ rpModulesCacheSize gscRuntimeParameters
+    pbscAccountMap <- LMDBAccountMap.openDatabase gscAccountMapDirectory
     return PersistentBlockStateContext{..}

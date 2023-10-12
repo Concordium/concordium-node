@@ -22,7 +22,6 @@ import Concordium.Types.SeedState
 import Concordium.Utils
 
 import Concordium.Genesis.Data.BaseV1
-import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Statistics

@@ -428,7 +428,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                 "The block state database is corrupt. Recovery attempt failed: " <> e
         Right (_lastFinalizationRecord, lfStoredBlock) -> do
             -- Truncate the blobstore beyond the last finalized blockstate.
-            liftIO $ truncateBlobStore (bscBlobStore . PBS._pbscBlobStore $ pbsc) (sbState lfStoredBlock)
+            liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) (sbState lfStoredBlock)
             -- Get the genesis block.
             genStoredBlock <-
                 maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return
@@ -466,8 +466,8 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
         bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState stateHashM sbState)) pbsc
         makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
     isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
-    isBlockStateCorrupted block = undefined -- todo
---        not <$> runBlobStoreT (isValidBlobRef (sbState block)) pbsc
+    isBlockStateCorrupted block = 
+        not <$> runBlobStoreT (isValidBlobRef (sbState block)) pbsc
 
 -- | Activate the state and make it usable for use by consensus. This concretely
 --  means that the block state for the last finalized block is cached, and that

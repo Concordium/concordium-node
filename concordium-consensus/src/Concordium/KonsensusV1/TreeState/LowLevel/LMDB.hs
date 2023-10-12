@@ -483,7 +483,9 @@ newtype DiskLLDBM (pv :: ProtocolVersion) m a = DiskLLDBM {runDiskLLDBM :: m a}
 
 deriving instance (MonadReader r m) => MonadReader r (DiskLLDBM pv m)
 
-deriving via (LMDBAccountMap.AccountMapStoreMonad m) instance (MonadLogger m, MonadIO m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) => LMDBAccountMap.MonadAccountMapStore (DiskLLDBM pv m)
+deriving via (LMDBAccountMap.AccountMapStoreMonad m)
+    instance (MonadLogger m, MonadIO m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r)
+        => LMDBAccountMap.MonadAccountMapStore (DiskLLDBM pv m)
 
 instance (IsProtocolVersion pv) => MonadProtocolVersion (DiskLLDBM pv m) where
     type MPV (DiskLLDBM pv m) = pv

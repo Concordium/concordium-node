@@ -171,7 +171,7 @@ import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.Parameters as Parameters
-import Concordium.Logger (LogIO, MonadLogger)
+import Concordium.Logger (MonadLogger)
 import Concordium.Types
 import Concordium.Types.Accounts
 import qualified Concordium.Types.AnonymityRevokers as ARS

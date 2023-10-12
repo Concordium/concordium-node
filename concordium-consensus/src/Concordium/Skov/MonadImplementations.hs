@@ -526,10 +526,10 @@ instance (c ~ SkovConfig pv finconfig handlerconfig) => HasCache ModuleCache (Sk
     projectCache = projectCache . srContext
     
 instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDatabaseHandlers (SkovContext c) where
-    databaseHandlers = undefined -- todo LMDBAccountMap.databaseHandlers . scGSContext
+    databaseHandlers = lens scGSContext (\s v -> s{scGSContext = v}) . LMDBAccountMap.databaseHandlers
 
 instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDatabaseHandlers (SkovTContext h (SkovContext c)) where
-   databaseHandlers = undefined -- todo LMDBAccountMap.databaseHandlers . srContext
+   databaseHandlers = lens srContext (\s v -> s{srContext = v}) . LMDBAccountMap.databaseHandlers
 
 deriving instance
     ( IsProtocolVersion pv,
