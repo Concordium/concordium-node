@@ -171,7 +171,7 @@ import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.Parameters as Parameters
-import Concordium.Logger (MonadLogger, LogIO)
+import Concordium.Logger (LogIO, MonadLogger)
 import Concordium.Types
 import Concordium.Types.Accounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
@@ -308,24 +308,30 @@ destroyBlobStore bs@BlobStore{..} = do
 --  The given FilePath is a directory where the temporary blob
 --  store will be created.
 --  The blob store file is deleted afterwards.
-runBlobStoreTemp :: FilePath -> BlobStoreM a -> LogIO a
-runBlobStoreTemp dir a = liftIO $ bracket openf closef usef
+runBlobStoreTemp :: forall m a. (MonadIO m, MonadCatch.MonadMask m) => FilePath -> BlobStoreT BlobStore m a -> m a
+runBlobStoreTemp dir a = MonadCatch.bracket openf closef usef
   where
-    openf = openBinaryTempFile dir "blb.dat"
-    closef (tempFP, h) = do
+    openf = liftIO $ openBinaryTempFile dir "blb.dat"
+    closef (tempFP, h) = liftIO $ do
         hClose h
         performGC
         removeFile tempFP `catch` (\(_ :: IOException) -> return ())
+    usef :: (FilePath, Handle) -> m a
     usef (fp, h) = do
-        mv <- newMVar (BlobHandle h True 0)
-        mmap <- newIORef BS.empty
-        let bscBlobStore = BlobStoreAccess mv fp mmap
-        (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
-        res <- runBlobStoreM a BlobStore{..}
-        _ <- takeMVar mv
-        writeIORef mmap BS.empty
-        freeCallbacks bscLoadCallback bscStoreCallback
-        return res
+        bs <- liftIO $ do
+            mv <- newMVar (BlobHandle h True 0)
+            mmap <- newIORef BS.empty
+            let bscBlobStore = BlobStoreAccess mv fp mmap
+            (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
+            return BlobStore{..}
+        res <- runBlobStoreT a bs
+        liftIO $ do
+            let BlobStore{..} = bs
+                BlobStoreAccess mv _ mmap = bscBlobStore
+            _ <- takeMVar mv
+            writeIORef mmap BS.empty
+            freeCallbacks bscLoadCallback bscStoreCallback
+            return res
 
 -- | Truncate the blob store after the blob stored at the given offset. The blob should not be
 -- corrupted (i.e., its size header should be readable, and its size should match the size header).

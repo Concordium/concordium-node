@@ -3294,6 +3294,7 @@ data PersistentBlockStateContext pv = PersistentBlockStateContext
       -- | LMDB account map
       _pbscAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
+
 makeLenses ''PersistentBlockStateContext
 
 instance LMDBAccountMap.HasDatabaseHandlers (PersistentBlockStateContext pv) where

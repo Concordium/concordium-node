@@ -481,9 +481,9 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
     existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile gscAccountMapDirectory
     if existingDB
         then do
-            pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize gscRuntimeParameters)
-            pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize gscRuntimeParameters)
-            pbscBlobStore <- liftIO $ loadBlobStore gscBlockStateFile
+            _pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize gscRuntimeParameters)
+            _pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize gscRuntimeParameters)
+            _pbscBlobStore <- liftIO $ loadBlobStore gscBlockStateFile
             let pbsc = PersistentBlockStateContext{..}
             let initWithLLDB lldb = do
                     checkDatabaseVersion lldb
@@ -497,7 +497,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                             "Could not load state for "
                                 ++ show rollCount
                                 ++ " blocks. Truncating block state database."
-                        liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) bestState
+                        liftIO $ truncateBlobStore (bscBlobStore . PBS._pbscBlobStore $ pbsc) bestState
                     let initContext = InitContext pbsc lldb
                     (initialSkovData, effectiveProtocolUpdate) <-
                         runInitMonad
