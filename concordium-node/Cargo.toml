@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "6.1.6" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "6.1.7" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -78,7 +78,7 @@ tempfile = { version = "3.1" }
 tonic = { version = "0.9", features = ["tls"] }
 tonic-reflection = "0.9"
 tower-http = { version = "0.4", features = ["trace", "metrics"] }
-tower = "0.4"
+tower = {version = "0.4", features = ["load-shed"]}
 tonic-web = "0.9"
 prost = "0.11"
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread", "signal", "io-util", "time"] }
