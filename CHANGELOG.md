@@ -2,6 +2,13 @@
 
 ## Unreleased changes
 
+## 6.1.7
+
+ - Add load-shedding to the V2 GRPC API. In particular, if at the time of the
+  request the node is already handling more than
+  `CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS` requests then the incoming
+  request will be immediately rejected.
+
 ## 6.1.6
 
 - Fix a regression in the start up time. When upgrading from an earlier version, the first start-up
