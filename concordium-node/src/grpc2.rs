@@ -2613,13 +2613,14 @@ where
                         // an Err(Overloaded). So record resource exhaustion
                         // in the metrics.
                         let (code, response) = if e.is::<tower::load_shed::error::Overloaded>() {
+                            // return a response with empty body of the correct type. `to_http`
+                            // constructs a response with a `BoxBody` but
+                            // here we need a more general one to make the service generic enough.
                             let new_response =
                                 tonic::Status::resource_exhausted("Too many concurrent requests.")
-                                    .to_http();
-                            (
-                                tonic::Code::ResourceExhausted,
-                                Ok(new_response.map(|_| Default::default())),
-                            )
+                                    .to_http()
+                                    .map(|_| Default::default());
+                            (tonic::Code::ResourceExhausted, Ok(new_response))
                         } else {
                             (tonic::Code::Internal, Err(e))
                         };
