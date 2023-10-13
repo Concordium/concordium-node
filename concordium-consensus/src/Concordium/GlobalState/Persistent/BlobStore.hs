@@ -183,6 +183,7 @@ import Concordium.Wasm
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types.HashableTo
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 -- | A @BlobRef a@ represents an offset on a file, at
 -- which a value of type @a@ is stored.
@@ -592,13 +593,22 @@ type SupportMigration m t = (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m
 --  based on the context (rather than lifting).
 newtype BlobStoreT (r :: Type) (m :: Type -> Type) (a :: Type) = BlobStoreT {runBlobStoreT :: r -> m a}
     deriving
-        (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch)
+        (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch, MonadCatch.MonadMask)
         via (ReaderT r m)
     deriving
         (MonadTrans)
         via (ReaderT r)
 
 instance (HasBlobStore r, MonadIO m) => MonadBlobStore (BlobStoreT r m)
+
+
+-- TODO either create or derive some instance for this.
+instance
+    (MonadIO m, MonadLogger m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r)
+    => LMDBAccountMap.MonadAccountMapStore (BlobStoreT r m) where
+    insert = undefined
+    lookup = undefined
+    delete = undefined
 
 -- | Apply a given function to modify the context of a 'BlobStoreT' operation.
 alterBlobStoreT :: (r1 -> r2) -> BlobStoreT r2 m a -> BlobStoreT r1 m a

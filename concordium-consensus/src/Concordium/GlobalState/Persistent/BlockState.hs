@@ -41,6 +41,7 @@ module Concordium.GlobalState.Persistent.BlockState (
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
+import qualified Control.Monad.Catch as MonadCatch
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -3315,17 +3316,18 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (BlobStoreT (PersistentB
 -- | Create a new account cache of the specified size for running the given monadic operation by
 --  extending the 'BlobStore' context to a 'PersistentBlockStateContext'.
 -- todo fix doc.
-withNewAccountCacheAndLMDBAccountMap :: (MonadIO m) => Int -> FilePath -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
-withNewAccountCacheAndLMDBAccountMap size lmdbAccountMapDir bsm = do
-    ac <- liftIO $ newAccountCache size
-    mc <- liftIO $ Modules.newModuleCache 100
-    lmdbAccMap <- liftIO $ LMDBAccountMap.openDatabase lmdbAccountMapDir
-    res <- alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc lmdbAccMap) bsm
-    liftIO $ LMDBAccountMap.closeDatabase lmdbAccMap
-    return res
+withNewAccountCacheAndLMDBAccountMap :: (MonadIO m, MonadCatch.MonadMask m) => Int -> FilePath -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
+withNewAccountCacheAndLMDBAccountMap size lmdbAccountMapDir bsm = MonadCatch.bracket openLmdbAccMap closeLmdbAccMap runAction
+  where
+    openLmdbAccMap = liftIO $ LMDBAccountMap.openDatabase lmdbAccountMapDir
+    closeLmdbAccMap handlers = liftIO $ LMDBAccountMap.closeDatabase handlers
+    runAction lmdbAccMap =  do
+        ac <- liftIO $ newAccountCache size
+        mc <- liftIO $ Modules.newModuleCache 100
+        alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc lmdbAccMap) bsm
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) (r :: Type) (m :: Type -> Type) (a :: Type) = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger, TimeMonad, MTL.MonadState s)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger, TimeMonad, MTL.MonadState s, MonadCatch.MonadCatch, MonadCatch.MonadThrow)
 
 type PersistentState av pv r m =
     ( MonadIO m,

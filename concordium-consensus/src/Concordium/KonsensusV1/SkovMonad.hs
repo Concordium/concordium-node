@@ -507,7 +507,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                 return PersistentBlockStateContext{..}
             let initWithLLDB skovLldb = do
                     checkDatabaseVersion skovLldb
-                    let checkBlockState bs = runBlobStoreT (isValidBlobRef bs) pbsc
+                    let checkBlockState bs = runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef bs)) pbsc
                     (rollCount, bestState) <-
                         flip runReaderT (LMDBDatabases skovLldb $ pbscAccountMap pbsc) $
                             (LMDBAccountMap.runAccountMapStoreMonad . runDiskLLDBM) (rollBackBlocksUntil checkBlockState) 
@@ -698,23 +698,23 @@ migrateSkovV1 ::
 migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
-    newInitialBlockState <-
-        flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc .
-            flip runReaderT (flip LMDBAccountMap.runAccountMapStoreMonad oldPbsc) .
-                flip runReaderT (flip LMDBAccountMap.runAccountMapStoreMonad pbsc) $ do
+    let newInitialBlockState :: InitMonad pv (HashedPersistentBlockState pv)
+        newInitialBlockState = do
+             flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
                     newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
                     hashBlockState newState
     let
         initGS :: InitMonad pv (SkovData pv)
         initGS = do
-            stateRef <- saveBlockState newInitialBlockState
-            chainParams <- getChainParameters newInitialBlockState
-            genEpochBakers <- genesisEpochBakers newInitialBlockState
-            let genMeta = regenesisMetadata (getHash newInitialBlockState) regenesis
+            newState <- newInitialBlockState
+            stateRef <- saveBlockState newState
+            chainParams <- getChainParameters newState
+            genEpochBakers <- genesisEpochBakers newState
+            let genMeta = regenesisMetadata (getHash newState) regenesis
             let genTimeoutDuration =
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta newInitialBlockState genTimeoutDuration genEpochBakers migrateTT migratePTT
+                    mkInitialSkovData gscRuntimeParameters genMeta newState genTimeoutDuration genEpochBakers migrateTT migratePTT
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,

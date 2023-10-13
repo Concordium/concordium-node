@@ -113,17 +113,18 @@ migrateExistingState ::
     -- | The return value is the context and state for the new chain.
     LogIO (GSContext pv, GSState pv)
 migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = do
-    pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-    pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-    pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-    pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
-    let pbsc = PersistentBlockStateContext{..}
+    pbsc <- liftIO $ do
+        pbscBlobStore <- createBlobStore dtdbBlockStateFile
+        pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+        pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+        pbscAccountMap <- LMDBAccountMap.openDatabase dtdAccountMapDirectory
+        return $ PersistentBlockStateContext{..}
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
         case _nextGenesisInitialState oldState of
             Nothing -> error "Precondition violation. Migration called in state without initial block state."
-            Just initState -> undefined -- todo
---                newState <- migratePersistentBlockState migration (hpbsPointers initState)
---                Concordium.GlobalState.Persistent.BlockState.hashBlockState newState
+            Just initState -> do
+                newState <- migratePersistentBlockState migration (hpbsPointers initState)
+                Concordium.GlobalState.Persistent.BlockState.hashBlockState newState
     let initGS = do
             ser <- saveBlockState newInitialBlockState
             initialSkovPersistentData
@@ -135,8 +136,8 @@ migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = 
                 (_transactionTable oldState)
                 (Just (_pendingTransactions oldState))
     isd <-
-        runReaderT (LMDBAccountMap.runAccountMapStoreMonad (runPersistentBlockStateMonad initGS)) pbsc
-            `onException` liftIO (destroyBlobStore pbscBlobStore)
+        runReaderT (runPersistentBlockStateMonad initGS) pbsc
+            `onException` liftIO (destroyBlobStore (pbscBlobStore pbsc))
     return (pbsc, isd)
 
 -- | Initialise new global state with the given genesis. If the state already

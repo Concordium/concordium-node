@@ -422,7 +422,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
 
     -- Unroll the treestate if the last finalized blockstate is corrupted. If the last finalized
     -- blockstate is not corrupted, the treestate is unchanged.
-    unrollTreeStateWhile _db (liftIO . isBlockStateCorrupted) >>= \case
+    unrollTreeStateWhile _db isBlockStateCorrupted >>= \case
         Left e ->
             logExceptionAndThrowTS . DatabaseInvariantViolation $
                 "The block state database is corrupt. Recovery attempt failed: " <> e
@@ -465,9 +465,9 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                 NormalBlock bb -> Just $ bbStateHash bb
         bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState stateHashM sbState)) pbsc
         makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
-    isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
-    isBlockStateCorrupted block = 
-        not <$> runBlobStoreT (isValidBlobRef (sbState block)) pbsc
+    isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> LogIO Bool
+    isBlockStateCorrupted block =
+        not <$> runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef (sbState block))) pbsc
 
 -- | Activate the state and make it usable for use by consensus. This concretely
 --  means that the block state for the last finalized block is cached, and that
