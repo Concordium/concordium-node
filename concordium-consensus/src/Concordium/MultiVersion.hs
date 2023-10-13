@@ -195,7 +195,8 @@ globalStateConfig DiskStateConfig{..} rtp gi _ =
     ( GlobalStateConfig
         { dtdbRuntimeParameters = rtp,
           dtdbTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
-          dtdbBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat"
+          dtdbBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
+          dtdAccountMapDirectory = stateBasePath </> "accountmap"
         }
     )
 
@@ -209,7 +210,8 @@ globalStateConfigV1 DiskStateConfig{..} rtp gi =
     ( SkovV1.GlobalStateConfig
         { gscRuntimeParameters = rtp,
           gscTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
-          gscBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat"
+          gscBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
+          gscAccountMapDirectory = stateBasePath </> "accountmap"
         }
     )
 

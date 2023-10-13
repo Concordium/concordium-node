@@ -602,13 +602,9 @@ newtype BlobStoreT (r :: Type) (m :: Type -> Type) (a :: Type) = BlobStoreT {run
 instance (HasBlobStore r, MonadIO m) => MonadBlobStore (BlobStoreT r m)
 
 
--- TODO either create or derive some instance for this.
-instance
-    (MonadIO m, MonadLogger m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r)
-    => LMDBAccountMap.MonadAccountMapStore (BlobStoreT r m) where
-    insert = undefined
-    lookup = undefined
-    delete = undefined
+deriving via (LMDBAccountMap.AccountMapStoreMonad (BlobStoreT r m)) instance
+    (MonadIO m, MonadLogger m, LMDBAccountMap.HasDatabaseHandlers r)
+    => LMDBAccountMap.MonadAccountMapStore (BlobStoreT r m)
 
 -- | Apply a given function to modify the context of a 'BlobStoreT' operation.
 alterBlobStoreT :: (r1 -> r2) -> BlobStoreT r2 m a -> BlobStoreT r1 m a
