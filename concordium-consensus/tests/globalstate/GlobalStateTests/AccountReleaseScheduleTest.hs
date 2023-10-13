@@ -7,6 +7,7 @@
 
 module GlobalStateTests.AccountReleaseScheduleTest (tests) where
 
+import Concordium.Logger
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
@@ -37,11 +38,17 @@ import Test.QuickCheck
 -- | Protocol version.
 type PV = 'P5
 
+newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r)
+
+instance (Monad m) => MonadLogger (NoLoggerT m) where
+    logEvent _ _ _ = return ()
+
 type ThisMonadConcrete pv =
     PBS.PersistentBlockStateMonad
         pv
         (PBS.PersistentBlockStateContext pv)
-        (BlobStoreM' (PBS.PersistentBlockStateContext pv))
+        (NoLoggerT (BlobStoreM' (PBS.PersistentBlockStateContext pv)))
 
 --------------------------------- Test values ----------------------------------
 
@@ -122,8 +129,9 @@ tests = do
     describe "GlobalState.AccountReleaseScheduleTest" $
         specify "correct releases" $
             runBlobStoreTemp "." $
-                PBS.withNewAccountCache 1_000 $
-                    PBS.runPersistentBlockStateMonad testing
+                PBS.withNewAccountCacheAndLMDBAccountMap 1_000 "accmap" $
+                    runNoLoggerT $
+                        PBS.runPersistentBlockStateMonad testing
 
 ------------------------------------ Checks ------------------------------------
 

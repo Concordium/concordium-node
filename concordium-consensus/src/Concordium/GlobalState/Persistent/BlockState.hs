@@ -38,6 +38,8 @@ module Concordium.GlobalState.Persistent.BlockState (
     SupportsPersistentState,
 ) where
 
+import System.Directory (removeDirectory)
+import Control.Exception
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
@@ -3320,7 +3322,9 @@ withNewAccountCacheAndLMDBAccountMap :: (MonadIO m, MonadCatch.MonadMask m) => I
 withNewAccountCacheAndLMDBAccountMap size lmdbAccountMapDir bsm = MonadCatch.bracket openLmdbAccMap closeLmdbAccMap runAction
   where
     openLmdbAccMap = liftIO $ LMDBAccountMap.openDatabase lmdbAccountMapDir
-    closeLmdbAccMap handlers = liftIO $ LMDBAccountMap.closeDatabase handlers
+    closeLmdbAccMap handlers = liftIO $ do
+        LMDBAccountMap.closeDatabase handlers
+        removeDirectory lmdbAccountMapDir `catch` (\(_ :: IOException) -> return ())
     runAction lmdbAccMap =  do
         ac <- liftIO $ newAccountCache size
         mc <- liftIO $ Modules.newModuleCache 100
