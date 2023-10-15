@@ -28,7 +28,6 @@ import Control.Monad hiding (fail)
 import Data.Either
 import qualified Data.FixedByteString as FBS
 import qualified Data.Map.Strict as Map
-import qualified Data.Map.Strict as OrdMap
 import Data.Serialize as S
 import qualified Data.Set as Set
 import Lens.Micro.Platform
@@ -43,6 +42,7 @@ import Control.Monad.IO.Class
 
 import qualified Basic.AccountTable as BAT
 import qualified Basic.Accounts as B
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 
 type PV = 'P5
 
@@ -58,14 +58,24 @@ checkBinaryM bop x y sbop sx sy = do
     satisfied <- bop x y
     unless satisfied $ liftIO $ assertFailure $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ show y ++ " (" ++ sy ++ ")"
 
--- | Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
---  That is, they have the same account map, account table, and set of
+-- | Helper function for getting accounts (potentially also parent maps) for a 'DiffMap.DifferenceMap'.
+differenceMapToMap :: Maybe DiffMap.DifferenceMap -> Map.Map AccountAddress AccountIndex
+differenceMapToMap Nothing = Map.empty
+differenceMapToMap (Just diffMap) = Map.fromList $ go diffMap []
+  where
+    go :: DiffMap.DifferenceMap -> [(AccountAddress, AccountIndex)] -> [(AccountAddress, AccountIndex)]
+    go (DiffMap.DifferenceMap accs Nothing) accum = accum ++ accs
+    go (DiffMap.DifferenceMap accs (Just parentMap)) accum = go parentMap $! accum ++ accs
+
+-- | Check that a 'B.Accounts' and a 'P.AccountsAndDiffMap' are equivalent.
+--  That is, they have the same account table, and set of
 --  use registration ids.
-checkEquivalent :: (MonadBlobStore m, MonadFail m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => B.Accounts PV -> P.Accounts PV -> m ()
-checkEquivalent ba pa = do
-    pam <- AccountMap.toMap (P.accountMap pa)
+checkEquivalent :: (MonadBlobStore m, MonadFail m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => B.Accounts PV -> P.AccountsAndDiffMap PV -> m ()
+checkEquivalent ba paAndDiffMap = do
+    let pam = differenceMapToMap $ P.aadDiffMap paAndDiffMap
     checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) pam "==" "Basic account map" "Persistent account map"
     let bat = BAT.toList (B.accountTable ba)
+    let pa = P.aadAccounts paAndDiffMap
     pat <- L.toAscPairList (P.accountTable pa)
     bpat <- mapM (_2 PA.toTransientAccount) pat
     checkBinary (==) bat bpat "==" "Basic account table (as list)" "Persistent account table (as list)"
@@ -88,7 +98,7 @@ data AccountAction
 
 randomizeAccount :: AccountAddress -> ID.CredentialPublicKeys -> Gen (Account (AccountVersionFor PV))
 randomizeAccount _accountAddress _accountVerificationKeys = do
-    let vfKey = snd . head $ OrdMap.toAscList (ID.credKeys _accountVerificationKeys)
+    let vfKey = snd . head $ Map.toAscList (ID.credKeys _accountVerificationKeys)
     let cred = dummyCredential dummyCryptographicParameters _accountAddress vfKey dummyMaxValidTo dummyCreatedAt
     let a0 = newAccount dummyCryptographicParameters _accountAddress cred
     nonce <- Nonce <$> arbitrary
@@ -104,7 +114,7 @@ randomActions = sized (ra Set.empty Map.empty)
     randAccount = do
         address <- ID.AccountAddress . FBS.pack <$> vector ID.accountAddressSize
         n <- choose (1, 255)
-        credKeys <- OrdMap.fromList . zip [0 ..] . map Sig.correspondingVerifyKey <$> replicateM n genSigSchemeKeyPair
+        credKeys <- Map.fromList . zip [0 ..] . map Sig.correspondingVerifyKey <$> replicateM n genSigSchemeKeyPair
         credThreshold <- fromIntegral <$> choose (1, n)
         return (ID.CredentialPublicKeys{..}, address)
     ra _ _ 0 = return []
@@ -178,7 +188,7 @@ randomActions = sized (ra Set.empty Map.empty)
             (rid, ai) <- elements (Map.toList rids)
             (RecordRegId rid ai :) <$> ra s rids (n - 1)
 
-runAccountAction :: (MonadBlobStore m, MonadIO m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
+runAccountAction :: (MonadBlobStore m, MonadIO m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => AccountAction -> (B.Accounts PV, P.AccountsAndDiffMap PV) -> m (B.Accounts PV, P.Accounts PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
     let ba' = B.putNewAccount acct ba
     pAcct <- PA.makePersistentAccount acct
