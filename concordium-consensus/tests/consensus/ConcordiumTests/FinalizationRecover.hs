@@ -37,7 +37,7 @@ dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
 makeGlobalStateConfig :: FilePath -> RuntimeParameters -> GlobalStateConfig
-makeGlobalStateConfig tempDir rt = GlobalStateConfig rt tempDir (tempDir </> "data" <.> "blob")
+makeGlobalStateConfig tempDir rt = GlobalStateConfig rt tempDir (tempDir </> "data" <.> "blob") (tempDir </> "accountmap")
 
 genesis :: Word -> (GenesisData PV, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =

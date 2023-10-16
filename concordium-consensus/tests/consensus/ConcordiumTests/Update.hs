@@ -135,7 +135,7 @@ createInitStates dir = do
                         let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                             config =
                                 SkovConfig
-                                    (GlobalStateConfig defaultRuntimeParameters (dir </> uni) (dir </> uni <.> "dat"))
+                                    (GlobalStateConfig defaultRuntimeParameters (dir </> uni) (dir </> uni <.> "dat") (dir </> uni <.> "accountmap"))
                                     (ActiveFinalization fininst)
                                     NoHandler
                         (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)

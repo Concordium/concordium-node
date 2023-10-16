@@ -4,7 +4,6 @@
 
 module GlobalStateTests.Trie where
 
-import Control.Monad.IO.Class
 import Data.Serialize
 import Data.Word
 
@@ -50,8 +49,8 @@ testUpdateBranchNull = forAll genBranchList $ \v i ->
 
 tests :: Spec
 tests = describe "GlobalStateTests.Trie" $ do
-    it "simple test" $
-        runBlobStoreTemp "." $ do
+    it "simple test" $ do
+        r <- runBlobStoreTemp "." $ do
             let e = Trie.empty :: Trie.TrieN BufferedFix Word64 (SerializeStorable String)
             e0 <- Trie.insert 27 (SerStore "Hello") e
             e1 <- Trie.insert 13 (SerStore "World") e0
@@ -64,8 +63,9 @@ tests = describe "GlobalStateTests.Trie" $ do
                     -- the bytestring it was serialized to.
                     Left _ -> error "loadRes should be Right"
             (e2' :: Trie.TrieN BufferedFix Word64 (SerializeStorable String)) <- me2'
-            r <- Trie.lookup 27 e2'
-            liftIO $ r `shouldBe` Just (SerStore "Hello")
+            res <- Trie.lookup 27 e2'
+            return res
+        r `shouldBe` Just (SerStore "Hello")
     it "branchesFromToList" $ withMaxSuccess 10000 testBranchesFromToList
     it "branchAtFromList" $ withMaxSuccess 10000 testBranchAtFromList
     it "updateBranchSome" $ withMaxSuccess 10000 testUpdateBranchSome

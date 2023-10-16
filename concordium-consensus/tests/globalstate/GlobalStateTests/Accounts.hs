@@ -5,6 +5,8 @@
 
 module GlobalStateTests.Accounts where
 
+import Concordium.Logger
+import Control.Monad.Reader
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes
 import qualified Concordium.Crypto.SHA256 as H
@@ -24,7 +26,6 @@ import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Exception (bracket)
-import Control.Monad hiding (fail)
 import Data.Either
 import qualified Data.FixedByteString as FBS
 import qualified Data.Map.Strict as Map
@@ -38,13 +39,20 @@ import Test.Hspec
 import Test.QuickCheck
 import Prelude hiding (fail)
 
-import Control.Monad.IO.Class
-
 import qualified Basic.AccountTable as BAT
 import qualified Basic.Accounts as B
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 type PV = 'P5
+
+
+newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail)
+
+instance (Monad m) => MonadLogger (NoLoggerT m) where
+    logEvent _ _ _ = return ()
+
 
 assertRight :: Either String a -> Assertion
 assertRight (Left e) = assertFailure e
@@ -188,7 +196,7 @@ randomActions = sized (ra Set.empty Map.empty)
             (rid, ai) <- elements (Map.toList rids)
             (RecordRegId rid ai :) <$> ra s rids (n - 1)
 
-runAccountAction :: (MonadBlobStore m, MonadIO m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => AccountAction -> (B.Accounts PV, P.AccountsAndDiffMap PV) -> m (B.Accounts PV, P.Accounts PV)
+runAccountAction :: (LMDBAccountMap.MonadAccountMapStore m, MonadBlobStore m, MonadIO m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => AccountAction -> (B.Accounts PV, P.AccountsAndDiffMap PV) -> m (B.Accounts PV, P.AccountsAndDiffMap PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
     let ba' = B.putNewAccount acct ba
     pAcct <- PA.makePersistentAccount acct
@@ -241,13 +249,13 @@ emptyTest :: SpecWith (PersistentBlockStateContext PV)
 emptyTest =
     it "empty" $
         runBlobStoreM
-            (checkEquivalent B.emptyAccounts P.emptyAccounts :: BlobStoreM' (PersistentBlockStateContext PV) ())
+            (checkEquivalent B.emptyAccounts (P.emptyAcocuntsAndDiffMap Nothing) :: BlobStoreM' (PersistentBlockStateContext PV) ())
 
 actionTest :: Word -> SpecWith (PersistentBlockStateContext PV)
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
     acts <- randomActions
-    return $ ioProperty $ flip runBlobStoreM bs $ do
-        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccounts) acts
+    return $ ioProperty $ runNoLoggerT $ flip runBlobStoreT bs $ do
+        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAcocuntsAndDiffMap Nothing) acts
         checkEquivalent ba pa
 
 tests :: Word -> Spec
@@ -260,6 +268,7 @@ tests lvl = describe "GlobalStateTests.Accounts"
                         pbscBlobStore <- createBlobStore (dir </> "blockstate.dat")
                         pbscAccountCache <- PA.newAccountCache 100
                         pbscModuleCache <- M.newModuleCache 100
+                        pbscAccountMap <- LMDBAccountMap.openDatabase (dir </> "accountmap")
                         return PersistentBlockStateContext{..}
                     )
                     (closeBlobStore . pbscBlobStore)

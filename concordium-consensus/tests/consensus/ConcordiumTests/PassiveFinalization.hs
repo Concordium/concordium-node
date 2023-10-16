@@ -370,7 +370,7 @@ createInitStates additionalFinMembers = do
             let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                 config =
                     SkovConfig
-                        (GlobalStateConfig defaultRuntimeParameters tempDir (tempDir </> "data" <.> "blob"))
+                        (GlobalStateConfig defaultRuntimeParameters tempDir (tempDir </> "data" <.> "blob") (tempDir </> "accountmap"))
                         (ActiveFinalization fininst)
                         NoHandler
             (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)

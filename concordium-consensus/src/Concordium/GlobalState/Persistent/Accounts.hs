@@ -180,11 +180,16 @@ exists addr accts = isJust <$> getAccountIndex addr accts
 
 -- | Retrieve an account with the given address.
 --  Returns @Nothing@ if no such account exists.
-getAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
-getAccount addr Accounts{..} =
-    LMDBAccountMap.lookup addr >>= \case
-        Nothing -> return Nothing
-        Just ai -> L.lookup ai accountTable
+getAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
+getAccount addr AccountsAndDiffMap{..} =
+    case DiffMap.lookup addr =<< aadDiffMap of
+        Just ai -> fetchFromTable ai
+        Nothing -> 
+            LMDBAccountMap.lookup addr >>= \case
+                Nothing -> return Nothing
+                Just ai -> fetchFromTable ai
+  where
+    fetchFromTable accIndex = L.lookup accIndex $ accountTable aadAccounts
 
 -- | Retrieve an account associated with the given credential registration ID.
 --  Returns @Nothing@ if no such account exists.
@@ -218,8 +223,8 @@ indexedAccount ai AccountsAndDiffMap{..} = L.lookup ai (accountTable aadAccounts
 -- | Retrieve an account with the given address.
 --  An account with the address is required to exist.
 unsafeGetAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (PersistentAccount (AccountVersionFor pv))
-unsafeGetAccount addr AccountsAndDiffMap{..} =
-    getAccount addr aadAccounts <&> \case
+unsafeGetAccount addr accountsAndDiffMap  =
+    getAccount addr accountsAndDiffMap <&> \case
         Just acct -> acct
         Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
 

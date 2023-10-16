@@ -3,7 +3,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
-
 module GlobalStateTests.Updates (tests) where
 
 {- What I want to test:
@@ -32,6 +31,7 @@ import Data.Maybe (fromJust)
 import Lens.Micro.Platform
 import Test.Hspec
 
+import Concordium.Logger
 import Concordium.Common.Time
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
@@ -52,13 +52,19 @@ import Test.HUnit (assertEqual)
 --                                                                            --
 --------------------------------------------------------------------------------
 
+newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail)
+
+instance (Monad m) => MonadLogger (NoLoggerT m) where
+    logEvent _ _ _ = return ()
+
 type PV = 'P5
 
 type ThisMonadConcrete pv =
-    PBS.PersistentBlockStateMonad
+    (PBS.PersistentBlockStateMonad
         pv
         (PBS.PersistentBlockStateContext pv)
-        (BlobStoreM' (PBS.PersistentBlockStateContext pv))
+        (NoLoggerT (BlobStoreM' (PBS.PersistentBlockStateContext pv))))
 
 --------------------------------------------------------------------------------
 --                                                                            --
@@ -333,8 +339,9 @@ tests = do
         wtdgs s t =
             specify s $
                 runBlobStoreTemp "." $
-                    PBS.withNewAccountCache 1_000 $
-                        PBS.runPersistentBlockStateMonad t
+                    PBS.withNewAccountCacheAndLMDBAccountMap 1_000 "accountmap" $
+                        runNoLoggerT $ 
+                            PBS.runPersistentBlockStateMonad t
     describe "GlobalState.Updates - BakerStakeThreshold" $ do
         wtdgs "not enough stake - must fail" testing1
         wtdgs "enough stake >decrease> not enough - must fail" testing2'1
