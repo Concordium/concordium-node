@@ -31,6 +31,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Afgjort.Monad
 import Concordium.GlobalState
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
@@ -49,7 +50,6 @@ import Concordium.Skov.Monad as Skov
 import Concordium.Skov.Update
 import Concordium.TimeMonad
 import Concordium.TimerMonad
-import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 -- | Monad that provides: IO, logging, the operation monads of global state and the SkovQueryMonad.
 newtype GlobalStateM pv a = GlobalStateM
@@ -524,12 +524,12 @@ instance (c ~ SkovConfig pv finconfig handlerconfig, AccountVersionFor pv ~ av) 
 
 instance (c ~ SkovConfig pv finconfig handlerconfig) => HasCache ModuleCache (SkovTContext h (SkovContext c)) where
     projectCache = projectCache . srContext
-    
+
 instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDatabaseHandlers (SkovContext c) where
     databaseHandlers = lens scGSContext (\s v -> s{scGSContext = v}) . LMDBAccountMap.databaseHandlers
 
 instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDatabaseHandlers (SkovTContext h (SkovContext c)) where
-   databaseHandlers = lens srContext (\s v -> s{srContext = v}) . LMDBAccountMap.databaseHandlers
+    databaseHandlers = lens srContext (\s v -> s{srContext = v}) . LMDBAccountMap.databaseHandlers
 
 deriving instance
     ( IsProtocolVersion pv,

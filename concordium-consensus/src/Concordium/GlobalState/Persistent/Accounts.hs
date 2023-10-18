@@ -100,7 +100,6 @@ type SupportsPersistentAccount pv m =
       MonadCache (AccountCache (AccountVersionFor pv)) m,
       LMDBAccountMap.MonadAccountMapStore m
     )
-    
 
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
     show a = show (accountTable a)
@@ -155,7 +154,10 @@ putNewAccount !acct a0@AccountsAndDiffMap{aadAccounts = accts0@Accounts{..}, ..}
     addr <- accountCanonicalAddress acct
     -- Check whether the account is in a non-finalized block.
     case DiffMap.lookup addr =<< aadDiffMap of
+        -- The account is already present in the difference map.
         Just _ -> return (Nothing, a0)
+        -- The account is not present in the difference map so we will have to
+        -- check in the LMDB account map.
         Nothing -> do
             -- Check whether the account is present in a finalized block.
             existingAccountId <- LMDBAccountMap.lookup addr
@@ -184,7 +186,7 @@ getAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndD
 getAccount addr AccountsAndDiffMap{..} =
     case DiffMap.lookup addr =<< aadDiffMap of
         Just ai -> fetchFromTable ai
-        Nothing -> 
+        Nothing ->
             LMDBAccountMap.lookup addr >>= \case
                 Nothing -> return Nothing
                 Just ai -> fetchFromTable ai
@@ -223,7 +225,7 @@ indexedAccount ai AccountsAndDiffMap{..} = L.lookup ai (accountTable aadAccounts
 -- | Retrieve an account with the given address.
 --  An account with the address is required to exist.
 unsafeGetAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (PersistentAccount (AccountVersionFor pv))
-unsafeGetAccount addr accountsAndDiffMap  =
+unsafeGetAccount addr accountsAndDiffMap =
     getAccount addr accountsAndDiffMap <&> \case
         Just acct -> acct
         Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."

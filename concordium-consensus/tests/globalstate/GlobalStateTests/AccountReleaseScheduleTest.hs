@@ -7,7 +7,6 @@
 
 module GlobalStateTests.AccountReleaseScheduleTest (tests) where
 
-import Concordium.Logger
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
@@ -15,6 +14,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
+import Concordium.Logger
 import Concordium.Scheduler.DummyData
 import Concordium.Types
 import Control.Monad

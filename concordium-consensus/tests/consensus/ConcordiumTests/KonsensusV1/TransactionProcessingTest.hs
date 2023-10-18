@@ -2,10 +2,10 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# LANGUAGE StandaloneDeriving #-}
 
 -- | This module tests processing of transactions for consensus V1.
 --  The tests included here does not differentiate between the individual
@@ -36,7 +36,6 @@ import System.Random
 import Test.HUnit
 import Test.Hspec
 
-import Concordium.Logger
 import Concordium.Common.Version
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -53,6 +52,7 @@ import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.TransactionTable
 import Concordium.ID.Types (randomAccountAddress)
+import Concordium.Logger
 import Concordium.Scheduler.DummyData
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
@@ -148,10 +148,12 @@ type MyTestMonad =
         ( PersistentBlockStateMonad
             'P6
             (PersistentBlockStateContext 'P6)
-            (NoLoggerT ( StateT
-                (SkovData 'P6)
-                (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6)))
-            ))
+            ( NoLoggerT
+                ( StateT
+                    (SkovData 'P6)
+                    (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6)))
+                )
+            )
         )
 
 -- | Run an action within the 'MyTestMonad'.
@@ -168,7 +170,8 @@ runMyTestMonad idps time action = do
             flip runDeterministic time $
                 flip runStateT initState $
                     runNoLoggerT $
-                        runPersistentBlockStateMonad $ runAccountNonceQueryT action 
+                        runPersistentBlockStateMonad $
+                            runAccountNonceQueryT action
   where
     initialData ::
         PersistentBlockStateMonad

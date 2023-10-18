@@ -338,7 +338,7 @@ createGlobalState :: (IsProtocolVersion pv, IsConsensusV0 pv) => FilePath -> IO 
 createGlobalState dbDir = do
     let
         n = 5
-        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
+        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat") (dbDir </> "accountmap")
     (x, y) <- runSilentLogger $ initialiseGlobalState (genesis n ^. _1) config
     return (x, y)
 

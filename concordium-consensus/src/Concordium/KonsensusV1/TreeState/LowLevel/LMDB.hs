@@ -26,24 +26,25 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Data
 import Data.List (intercalate)
+import Data.Maybe (mapMaybe)
 import qualified Data.Serialize as S
 import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
 
-import Concordium.ID.Types
 import Concordium.Common.Version
 import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.ID.Types
 import Concordium.Logger
-import Concordium.Types.Transactions
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Transactions
 
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 -- * Exceptions
 
@@ -483,9 +484,11 @@ newtype DiskLLDBM (pv :: ProtocolVersion) m a = DiskLLDBM {runDiskLLDBM :: m a}
 
 deriving instance (MonadReader r m) => MonadReader r (DiskLLDBM pv m)
 
-deriving via (LMDBAccountMap.AccountMapStoreMonad m)
-    instance (MonadLogger m, MonadIO m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r)
-        => LMDBAccountMap.MonadAccountMapStore (DiskLLDBM pv m)
+deriving via
+    (LMDBAccountMap.AccountMapStoreMonad m)
+    instance
+        (MonadLogger m, MonadIO m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) =>
+        LMDBAccountMap.MonadAccountMapStore (DiskLLDBM pv m)
 
 instance (IsProtocolVersion pv) => MonadProtocolVersion (DiskLLDBM pv m) where
     type MPV (DiskLLDBM pv m) = pv
@@ -764,15 +767,15 @@ rollBackBlocksUntil checkState = do
             Nothing -> return (0, bestState)
             Just (Left e) -> throwM . DatabaseRecoveryFailure $ e
             Just (Right (_, qc)) -> checkCertifiedWithQC lastFinRound bestState 0 qc
-    -- Delete an account in the LMDB account map store if the block item created a new account.
-    deleteAccountFromLMDB bi = case bi of
+    -- Get the account address of a creadential deployment.
+    getAccountAddressFromDeployment bi = case bi of
         WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} ->
             case credential of
                 (InitialACWP InitialCredentialDeploymentInfo{..}) ->
-                    LMDBAccountMap.delete $ initialCredentialAccountAddress icdiValues
+                    Just $ initialCredentialAccountAddress icdiValues
                 (NormalACWP CredentialDeploymentInformation{..}) ->
-                    LMDBAccountMap.delete $ credentialAccountAddress cdiValues
-        _ -> return True
+                    Just $ credentialAccountAddress cdiValues
+        _ -> Nothing
     -- Given the round and QC for a certified block, check that the block's state can be
     -- loaded, and then iterate for the previous round.
     checkCertifiedWithQC ::
@@ -804,10 +807,13 @@ rollBackBlocksUntil checkState = do
                             (qcRound qc - 1)
                     else do
                         -- delete any accounts created in this block in the LMDB account map.
-                        forM_ (blockTransactions block) $ \bi -> do
-                            deleted <- deleteAccountFromLMDB bi
-                            unless deleted $
-                                throwM . DatabaseInvariantViolation $ "Account for deletion not present in LMDB account map"
+
+                        let accountsToDelete = mapMaybe getAccountAddressFromDeployment (blockTransactions block)
+                        let (parentBlockHash, parentBlockHeight) = case blockBakedData block of
+                                Present b -> (blockParent b, blockHeight block - 1)
+                                -- The block is the genesis block and thus we do not roll back further.
+                                Absent -> (getHash block, blockHeight block)
+                        void $ LMDBAccountMap.unsafeRollback accountsToDelete parentBlockHash parentBlockHeight
                         -- Delete the block and the QC
                         asWriteTransaction $ \dbh txn -> do
                             void $
@@ -868,7 +874,7 @@ rollBackBlocksUntil checkState = do
         return count
     -- Roll back finalized blocks until the last explicitly finalized block where the state
     -- check passes.
-    -- Note, that we do not need to delete accounts in the LMDB account map as 
+    -- Note, that we do not need to delete accounts in the LMDB account map as
     rollFinalized count lastFin = do
         when (blockRound lastFin == 0) $
             throwM . DatabaseRecoveryFailure $
@@ -902,8 +908,8 @@ rollBackBlocksUntil checkState = do
                         let finHash = getHash fin
                         _ <- deleteRecord txn (dbh ^. blockStore) finHash
                         _ <- deleteRecord txn (dbh ^. finalizedBlockIndex) (blockHeight fin)
-                                
-                        forM_ (blockTransactions fin) $ 
+
+                        forM_ (blockTransactions fin) $
                             deleteRecord txn (dbh ^. transactionStatusStore) . getHash
                         mparent <- loadRecord txn (dbh ^. blockStore) (blockParent block)
                         case mparent of

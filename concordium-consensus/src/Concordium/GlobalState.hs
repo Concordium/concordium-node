@@ -15,6 +15,7 @@ import Control.Monad.Reader.Class
 import Control.Monad.Trans.Reader hiding (ask)
 import Data.Proxy
 
+import Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account (newAccountCache)
@@ -25,7 +26,6 @@ import Concordium.GlobalState.Persistent.Genesis
 import Concordium.GlobalState.Persistent.TreeState
 import Concordium.Logger
 import Concordium.Types.ProtocolVersion
-import Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 -- | Configuration that uses the disk implementation for both the tree state
 --  and the block state

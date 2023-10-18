@@ -5,8 +5,6 @@
 
 module GlobalStateTests.Accounts where
 
-import Concordium.Logger
-import Control.Monad.Reader
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes
 import qualified Concordium.Crypto.SHA256 as H
@@ -23,9 +21,11 @@ import Concordium.GlobalState.Persistent.Cache (MonadCache)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
+import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Exception (bracket)
+import Control.Monad.Reader
 import Data.Either
 import qualified Data.FixedByteString as FBS
 import qualified Data.Map.Strict as Map
@@ -46,13 +46,11 @@ import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 type PV = 'P5
 
-
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail)
 
 instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
-
 
 assertRight :: Either String a -> Assertion
 assertRight (Left e) = assertFailure e

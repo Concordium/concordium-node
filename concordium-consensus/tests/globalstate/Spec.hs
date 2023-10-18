@@ -13,6 +13,7 @@ import qualified GlobalStateTests.EnduringDataFlags (tests)
 import qualified GlobalStateTests.FinalizationSerializationSpec (tests)
 import qualified GlobalStateTests.Instances (tests)
 import qualified GlobalStateTests.LFMBTree (tests)
+import qualified GlobalStateTests.LMDBAccountMap (tests)
 import qualified GlobalStateTests.PersistentTreeState (tests)
 import qualified GlobalStateTests.Trie (tests)
 import qualified GlobalStateTests.UpdateQueues (tests)
@@ -47,3 +48,4 @@ main = atLevel $ \lvl -> hspec $ do
     GlobalStateTests.EnduringDataFlags.tests
     GlobalStateTests.BlobStore.tests
     GlobalStateTests.UpdateQueues.tests
+    GlobalStateTests.LMDBAccountMap.tests

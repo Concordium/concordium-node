@@ -4,8 +4,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies #-}
--- Here because of the MonadReader instance for AccountMapStoreMonad
--- Revise this.
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | This module exposes an account map backed by a LMDB database.
@@ -48,14 +46,13 @@ import Lens.Micro.Platform
 import System.Directory
 import Prelude hiding (lookup)
 
-import Concordium.TimeMonad
-import Concordium.GlobalState.AccountMap.DifferenceMap (DifferenceMap (..))
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.Logger
+import Concordium.TimeMonad
 import Concordium.Types
-import qualified Data.FixedByteString as FBS
 import Concordium.Utils.Serialization.Put
+import qualified Data.FixedByteString as FBS
 
 -- * Exceptions
 
@@ -76,31 +73,21 @@ instance Exception DatabaseInvariantViolation where
 --
 --  Invariants:
 --      * All accounts in the store are either finalized or "certified".
+--      * The
 class (Monad m) => MonadAccountMapStore m where
-    -- | Adds accounts present in the provided difference maps to the lmdb store.
-    --  The argument is a list as multiple blocks can be finalized at the same time.
-    --  Implementations should update the last finalized block pointer.
-    --
-    --  Postcondition: The list of 'AccountMapDifferenceMap' MUST be provided in
-    --  ascending order of the block height.
-    insert :: BlockHash -> BlockHeight -> [DifferenceMap] -> m ()
+    -- | Adds the accounts to the underlying store.
+    insert :: BlockHash -> BlockHeight -> [(AccountAddress, AccountIndex)] -> m ()
 
     -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
     lookup :: AccountAddress -> m (Maybe AccountIndex)
 
-    -- | Delete an account from the underlying lmdb store.
-    --  This should only be done when rolling back certified blocks.
-    delete :: AccountAddress -> m Bool
-
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
     insert bh height = lift . insert bh height
     lookup = lift . lookup
-    delete = lift . delete
     {-# INLINE insert #-}
     {-# INLINE lookup #-}
-    {-# INLINE delete #-}
 
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
@@ -109,7 +96,6 @@ deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m
 instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
     insert bh height = lift . insert bh height
     lookup = lift . lookup
-    delete = lift . delete
 
 -- * Database stores
 
@@ -315,24 +301,6 @@ asWriteTransaction t = do
         (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
         _ -> Nothing
 
--- | Initialize the account map with the provided account addresses.
---
---  Before calling this function, then it MUST be checked that the database is not already
---  initialized via 'isInitialized'.
---
---  Post condition: The provided list of account addresses MUST be in ascending order of their
---  respective 'AccountIndex'.
-initialize :: (MonadIO m, MonadLogger m) => BlockHash -> BlockHeight -> [AccountAddress] -> DatabaseHandlers -> m ()
-initialize lfbHash lfbHeight accounts = runReaderT (runAccountMapStoreMonad initStore)
-  where
-    initStore = asWriteTransaction $ \dbh txn -> do
-        forM_
-            (zip accounts [0 ..])
-            ( \(accAddr, accIndex) -> do
-                storeRecord txn (dbh ^. accountMapStore) (accountAddressToPrefixAccountAddress accAddr) accIndex
-            )
-        storeRecord txn (dbh ^. metadataStore) lfbKey (lfbHash, lfbHeight)
-
 -- | Check if the database is initialized.
 --  If the database is initialized then the function will return
 --  @Just (BlockHash, BlockHeight)@ for the last finalized block.
@@ -344,6 +312,16 @@ isInitialized dbh =
   where
     getLfb txn = loadRecord txn (dbh ^. metadataStore) lfbKey
 
+-- | Perform an unsafe roll back of the LMDB store.
+--  This function deletes the provided accounts from the store and sets the last finalized block
+--  to the provided hash and height.
+unsafeRollback :: (MonadIO m, MonadLogger m, MonadReader r m, HasDatabaseHandlers r) => [AccountAddress] -> BlockHash -> BlockHeight -> m ()
+unsafeRollback accounts lfbHash lfbHeight = do
+    handlers <- ask
+    flip runReaderT handlers $ runAccountMapStoreMonad $ asWriteTransaction $ \dbh txn -> do
+        forM_ accounts $ \accAddr -> deleteRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr
+        storeReplaceRecord txn (dbh ^. metadataStore) lfbKey (lfbHash, lfbHeight)
+
 instance
     ( MonadReader r m,
       HasDatabaseHandlers r,
@@ -352,21 +330,14 @@ instance
     ) =>
     MonadAccountMapStore (AccountMapStoreMonad m)
     where
-    insert lfbHash lfbHeight differenceMaps = asWriteTransaction $ \dbh txn -> do
-        forM_ differenceMaps (doInsert dbh txn)
+    insert lfbHash lfbHeight differenceMap = asWriteTransaction $ \dbh txn -> doInsert dbh txn differenceMap
       where
-        doInsert dbh txn DifferenceMap{..} = do
-            forM_ dmAccounts $ \(accAddr, expectedAccIndex) -> do
+        doInsert dbh txn accounts = do
+            forM_ accounts $ \(accAddr, accIndex) -> do
                 let addr = accountAddressToPrefixAccountAddress accAddr
-                accIndex <- AccountIndex . subtract 1 <$> databaseSize txn (dbh ^. accountMapStore)
-                when (accIndex /= expectedAccIndex) $
-                    throwM . DatabaseInvariantViolation $
-                        "The actual account index " <> show accIndex <> "did not match the expected one " <> show expectedAccIndex
                 storeRecord txn (dbh ^. accountMapStore) addr accIndex
                 storeReplaceRecord txn (dbh ^. metadataStore) lfbKey (lfbHash, lfbHeight)
                 return $ Just accIndex
 
     lookup accAddr = asReadTransaction $ \dbh txn ->
         loadRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr
-    delete accAddr = asWriteTransaction $ \dbh txn ->
-        deleteRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr

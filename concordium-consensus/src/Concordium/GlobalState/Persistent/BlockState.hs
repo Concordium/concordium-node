@@ -38,12 +38,9 @@ module Concordium.GlobalState.Persistent.BlockState (
     SupportsPersistentState,
 ) where
 
-import System.Directory (removeDirectory)
-import Control.Exception
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
-import qualified Control.Monad.Catch as MonadCatch
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -91,6 +88,8 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
+import Control.Exception
+import qualified Control.Monad.Catch as MonadCatch
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
@@ -106,6 +105,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform
+import System.Directory (removeDirectory)
 
 -- * Birk parameters
 
@@ -3325,7 +3325,7 @@ withNewAccountCacheAndLMDBAccountMap size lmdbAccountMapDir bsm = MonadCatch.bra
     closeLmdbAccMap handlers = liftIO $ do
         LMDBAccountMap.closeDatabase handlers
         removeDirectory lmdbAccountMapDir `catch` (\(_ :: IOException) -> return ())
-    runAction lmdbAccMap =  do
+    runAction lmdbAccMap = do
         ac <- liftIO $ newAccountCache size
         mc <- liftIO $ Modules.newModuleCache 100
         alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc lmdbAccMap) bsm

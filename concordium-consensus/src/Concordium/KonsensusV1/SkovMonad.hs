@@ -474,6 +474,7 @@ data LMDBDatabases pv = LMDBDatabases
       -- | the account map lmdb database
       _lmdbDSAccMap :: !LMDBAccountMap.DatabaseHandlers
     }
+
 makeLenses ''LMDBDatabases
 
 instance HasDatabaseHandlers (LMDBDatabases pv) pv where
@@ -510,7 +511,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                     let checkBlockState bs = runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef bs)) pbsc
                     (rollCount, bestState) <-
                         flip runReaderT (LMDBDatabases skovLldb $ pbscAccountMap pbsc) $
-                            (LMDBAccountMap.runAccountMapStoreMonad . runDiskLLDBM) (rollBackBlocksUntil checkBlockState) 
+                            (LMDBAccountMap.runAccountMapStoreMonad . runDiskLLDBM) (rollBackBlocksUntil checkBlockState)
                     when (rollCount > 0) $ do
                         logEvent Skov LLWarning $
                             "Could not load state for "
@@ -700,9 +701,9 @@ migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBloc
     logEvent GlobalState LLDebug "Migrating existing global state."
     let newInitialBlockState :: InitMonad pv (HashedPersistentBlockState pv)
         newInitialBlockState = do
-             flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
-                    newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
-                    hashBlockState newState
+            flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
+                newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
+                hashBlockState newState
     let
         initGS :: InitMonad pv (SkovData pv)
         initGS = do
