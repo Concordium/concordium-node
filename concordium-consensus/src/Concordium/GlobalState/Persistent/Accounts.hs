@@ -84,7 +84,7 @@ data AccountsAndDiffMap (pv :: ProtocolVersion) = AccountsAndDiffMap
       aadAccounts :: !(Accounts pv),
       -- | An in-memory difference map used keeping track of accounts
       --  added in live blocks.
-      --  This is 'Nothing' If the block is finalized.
+      --  This is 'Nothing' If the block is persisted.
       aadDiffMap :: !(Maybe DiffMap.DifferenceMap)
     }
 
@@ -145,7 +145,7 @@ emptyAccounts = Accounts L.empty Trie.empty
 --  simply pass in 'Nothing'.
 emptyAcocuntsAndDiffMap :: Maybe (AccountsAndDiffMap pv) -> AccountsAndDiffMap pv
 emptyAcocuntsAndDiffMap Nothing = AccountsAndDiffMap emptyAccounts Nothing
-emptyAcocuntsAndDiffMap (Just successor) = AccountsAndDiffMap emptyAccounts $ DiffMap.empty <$> aadDiffMap successor
+emptyAcocuntsAndDiffMap (Just successor) = AccountsAndDiffMap emptyAccounts $ Just (DiffMap.empty $ aadDiffMap successor)
 
 -- | Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 --  or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
@@ -164,7 +164,7 @@ putNewAccount !acct a0@AccountsAndDiffMap{aadAccounts = accts0@Accounts{..}, ..}
             if isNothing existingAccountId
                 then do
                     (_, newAccountTable) <- L.append acct accountTable
-                    let dm1 = DiffMap.addAccount addr acctIndex <$> aadDiffMap
+                    let dm1 = DiffMap.insert addr acctIndex <$> aadDiffMap
                     return (Just acctIndex, a0{aadAccounts = accts0{accountTable = newAccountTable}, aadDiffMap = dm1})
                 else return (Nothing, a0)
   where

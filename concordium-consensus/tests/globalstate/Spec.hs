@@ -18,6 +18,7 @@ import qualified GlobalStateTests.PersistentTreeState (tests)
 import qualified GlobalStateTests.Trie (tests)
 import qualified GlobalStateTests.UpdateQueues (tests)
 import qualified GlobalStateTests.Updates (tests)
+import qualified GlobalStateTests.DifferenceMap (tests)
 import System.Environment
 import Test.Hspec
 
@@ -49,3 +50,4 @@ main = atLevel $ \lvl -> hspec $ do
     GlobalStateTests.BlobStore.tests
     GlobalStateTests.UpdateQueues.tests
     GlobalStateTests.LMDBAccountMap.tests
+    GlobalStateTests.DifferenceMap.tests

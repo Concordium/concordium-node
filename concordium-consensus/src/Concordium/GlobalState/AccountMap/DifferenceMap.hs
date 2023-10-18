@@ -31,8 +31,8 @@ data DifferenceMap = DifferenceMap
 makeClassy ''DifferenceMap
 
 -- | Gather all accounts from the provided 'DifferenceMap' and its parent maps.
-allAccounts :: DifferenceMap -> [(AccountAddress, AccountIndex)]
-allAccounts dmap = go (Just dmap) []
+flatten :: DifferenceMap -> [(AccountAddress, AccountIndex)]
+flatten dmap = go (Just dmap) []
   where
     go :: Maybe DifferenceMap -> [(AccountAddress, AccountIndex)] -> [(AccountAddress, AccountIndex)]
     go Nothing accum = accum
@@ -40,11 +40,11 @@ allAccounts dmap = go (Just dmap) []
 
 -- | Create a new empty 'DifferenceMap' based on the difference map of
 -- the parent.
-empty :: DifferenceMap -> DifferenceMap
-empty parentDifferenceMap =
+empty :: Maybe DifferenceMap -> DifferenceMap
+empty mParentDifferenceMap =
     DifferenceMap
         { dmAccounts = [],
-          dmParentMap = Just parentDifferenceMap
+          dmParentMap = mParentDifferenceMap
         }
 
 -- | Check if an account exists in the difference map or any of the parent
@@ -62,8 +62,8 @@ lookup addr DifferenceMap{..} =
 
 -- | Insert an account into the difference and return @Just AccountIndex@ if the
 --  account was added and @Nothing@ if it was already present.
-addAccount :: AccountAddress -> AccountIndex -> DifferenceMap -> DifferenceMap
-addAccount addr accIndex diffMap =
+insert :: AccountAddress -> AccountIndex -> DifferenceMap -> DifferenceMap
+insert addr accIndex diffMap =
     diffMap
         { dmAccounts = (addr, accIndex) : dmAccounts diffMap
         }
