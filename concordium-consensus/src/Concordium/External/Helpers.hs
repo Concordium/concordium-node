@@ -1,5 +1,6 @@
 {-# LANGUAGE TypeApplications #-}
 
+-- | This module provides helper functions for marshalling types across the FFI boundary.
 module Concordium.External.Helpers where
 
 import qualified Data.ByteString as BS

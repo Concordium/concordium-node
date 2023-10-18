@@ -1238,7 +1238,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  If minting to the account is successful, the updated state is returned.
     --  The caller must ensure that the account exists. If it does not, the behaviour is
     --  unspecified. (For instance, the amount may be minted, but not credited to any account.)
-    bsoSafeMintToAccount :: UpdatableBlockState m -> AccountIndex -> Amount -> m (Either Amount (UpdatableBlockState m))
+    bsoMintToAccount :: UpdatableBlockState m -> AccountIndex -> Amount -> m (Either Amount (UpdatableBlockState m))
 
     -- | Get the identity provider data for the given identity provider, or Nothing if
     --  the identity provider with given ID does not exist.
@@ -1579,7 +1579,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoRewardFoundationAccount s = lift . bsoRewardFoundationAccount s
     bsoGetFoundationAccount = lift . bsoGetFoundationAccount
     bsoMint s = lift . bsoMint s
-    bsoSafeMintToAccount s acc amt = lift $ bsoSafeMintToAccount s acc amt
+    bsoMintToAccount s acc amt = lift $ bsoMintToAccount s acc amt
     bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
     bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
     bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
@@ -1640,7 +1640,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoGetFoundationAccount #-}
     {-# INLINE bsoRewardFoundationAccount #-}
     {-# INLINE bsoMint #-}
-    {-# INLINE bsoSafeMintToAccount #-}
+    {-# INLINE bsoMintToAccount #-}
     {-# INLINE bsoGetIdentityProvider #-}
     {-# INLINE bsoGetAnonymityRevokers #-}
     {-# INLINE bsoGetCryptoParams #-}

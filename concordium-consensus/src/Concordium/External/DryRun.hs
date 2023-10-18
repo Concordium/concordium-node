@@ -116,13 +116,13 @@ writeProtoResponse ::
     -- | Value to write.
     a ->
     IO ()
-writeProtoResponse writer quotaRem p =
+writeProtoResponse writer quotaRem response =
     BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> writer (castPtr ptr) (fromIntegral len))
   where
     encoded =
         Proto.encodeMessage . toProto $
             DryRunResponse
-                { drrResponse = p,
+                { drrResponse = response,
                   drrQuotaRemaining = quotaRem
                 }
 
@@ -636,7 +636,7 @@ dryRunMintToAccount dryRunPtr senderPtr mintAmt outVec = dryRunStateHelper dryRu
                             DryRunErrorAccountNotFound
                     return OK
                 Just account -> do
-                    bsoSafeMintToAccount drsBlockState account (Amount mintAmt)
+                    bsoMintToAccount drsBlockState account (Amount mintAmt)
                         >>= liftIO . \case
                             Left safeMintAmount -> do
                                 writeProtoResponse shiWriteOut shiQuotaRem $
