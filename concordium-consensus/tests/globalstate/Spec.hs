@@ -9,6 +9,7 @@ import qualified GlobalStateTests.Accounts (tests)
 import qualified GlobalStateTests.BlobStore (tests)
 import qualified GlobalStateTests.BlockHash (tests)
 import qualified GlobalStateTests.Cache (tests)
+import qualified GlobalStateTests.DifferenceMap (tests)
 import qualified GlobalStateTests.EnduringDataFlags (tests)
 import qualified GlobalStateTests.FinalizationSerializationSpec (tests)
 import qualified GlobalStateTests.Instances (tests)
@@ -18,7 +19,6 @@ import qualified GlobalStateTests.PersistentTreeState (tests)
 import qualified GlobalStateTests.Trie (tests)
 import qualified GlobalStateTests.UpdateQueues (tests)
 import qualified GlobalStateTests.Updates (tests)
-import qualified GlobalStateTests.DifferenceMap (tests)
 import System.Environment
 import Test.Hspec
 

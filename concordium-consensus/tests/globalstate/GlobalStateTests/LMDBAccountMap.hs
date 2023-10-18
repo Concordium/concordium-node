@@ -1,27 +1,29 @@
+{-# LANGUAGE OverloadedStrings #-}
+
+--  Tests of the LMDB account map related operations.
+
 -- | Tests for the LMDB account map
 --  This module tests the following:
 --  * Accounts can be inserted.
 --  * Accounts can be looked up.
 --  * Accounts can be rolled back.
-{-# LANGUAGE OverloadedStrings #-}
---  Tests of the LMDB account map related operations.
 module GlobalStateTests.LMDBAccountMap where
 
-import Prelude hiding (lookup)
+import Control.Exception (bracket)
 import Control.Monad.Reader
 import System.IO.Temp
-import Control.Exception (bracket)
 import System.Random
+import Prelude hiding (lookup)
 
 import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Logger
 import Concordium.Types
-import Concordium.ID.Types (randomAccountAddress)
 
 import Concordium.GlobalState.AccountMap.LMDB
 
-import Test.Hspec
 import Test.HUnit
+import Test.Hspec
 
 -- | Create a pair consisting of an account address and an account index based on the provided seed.
 dummyPair :: Int -> (AccountAddress, AccountIndex)
@@ -37,7 +39,7 @@ anotherDummyBlockHash = BlockHash $ Hash.hash "another dummy block hash"
 
 -- | Helper function for running a test in a context which has access to a temporary lmdb store.
 runTest ::
-    String -> 
+    String ->
     AccountMapStoreMonad (ReaderT DatabaseHandlers LogIO) a ->
     IO a
 runTest dirName action = withTempDirectory "" dirName $ \path ->
@@ -66,11 +68,11 @@ testCheckDbInitialized = runTest "initialized" $ do
             Just (blockHash, blockHeight) -> liftIO $ do
                 assertEqual "block hash should correspond to the one used when last inserting" dummyBlockHash blockHash
                 assertEqual "block height should correspond to the one used when last inserting" (BlockHeight 1) blockHeight
-        
+
 -- | Test that inserts a set of accounts and afterwards asserts that they are present.
 testInsertAndLookupAccounts :: Assertion
 testInsertAndLookupAccounts = runTest "insertandlookups" $ do
-    let accounts = [acc | acc <- dummyPair <$> [1..42]]
+    let accounts = [acc | acc <- dummyPair <$> [1 .. 42]]
     void $ insert dummyBlockHash (BlockHeight 1) accounts
 
     forM_ accounts $ \(accAddr, accIndex) -> do
@@ -102,14 +104,15 @@ testRollback = runTest "rollback" $ do
     -- roll back one block.
     lookup (fst $ dummyPair 2) >>= \case
         Nothing -> liftIO $ assertFailure "account should be present"
-        Just _ -> do 
+        Just _ -> do
             void $ unsafeRollback [(fst $ dummyPair 2)] dummyBlockHash (BlockHeight 1)
             lookup (fst $ dummyPair 2) >>= \case
                 Just _ -> liftIO $ assertFailure "account should have been deleted"
-                Nothing -> lookup (fst $ dummyPair 1) >>= \case
-                    Nothing -> liftIO $ assertFailure "Accounts from first block should still remain in the lmdb store"
-                    Just accIdx -> liftIO $ assertEqual "The account index of the first account should be the same" (snd $ dummyPair 1) accIdx
-            
+                Nothing ->
+                    lookup (fst $ dummyPair 1) >>= \case
+                        Nothing -> liftIO $ assertFailure "Accounts from first block should still remain in the lmdb store"
+                        Just accIdx -> liftIO $ assertEqual "The account index of the first account should be the same" (snd $ dummyPair 1) accIdx
+
 tests :: Spec
 tests = describe "AccountMap.LMDB" $ do
     it "Test checking db is not initialized" testCheckNotInitialized
