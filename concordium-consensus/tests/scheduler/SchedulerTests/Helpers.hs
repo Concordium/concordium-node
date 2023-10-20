@@ -140,8 +140,8 @@ createTestBlockStateWithAccounts ::
     (Types.IsProtocolVersion pv) =>
     [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
-createTestBlockStateWithAccounts accounts =
-    BS.initialPersistentState
+createTestBlockStateWithAccounts accounts = do
+    bs <- BS.initialPersistentState
         seedState
         DummyData.dummyCryptographicParameters
         accounts
@@ -149,6 +149,9 @@ createTestBlockStateWithAccounts accounts =
         DummyData.dummyArs
         keys
         DummyData.dummyChainParameters
+    -- save the block state so accounts are written to the lmdb account map.
+    void $ BS.saveBlockState bs
+    return bs
   where
     keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
     seedState = case Types.consensusVersionFor (Types.protocolVersion @pv) of

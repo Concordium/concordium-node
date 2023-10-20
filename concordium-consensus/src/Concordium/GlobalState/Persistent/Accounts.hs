@@ -144,10 +144,7 @@ emptyAccounts :: Accounts pv
 emptyAccounts = Accounts L.empty Trie.empty
 
 -- | Creates an empty 'AccountsAndDifferenceMap'.
---  If the 'AccountsAndDifferenceMap' is created when thawing a block state (i.e. for creating a new block)
---  then the 'AccountsAndDifferenceMap' of the successor block must be provided.
---  On the other hand when loading the accounts in order to support a query, then
---  simply pass in 'Nothing'.
+--  The difference map will inherit the difference map of the provided provided 'AccountsAndDiffMap' if supplied.
 emptyAccountsAndDiffMap :: Maybe (AccountsAndDiffMap pv) -> AccountsAndDiffMap pv
 emptyAccountsAndDiffMap Nothing = AccountsAndDiffMap emptyAccounts $ DiffMap.empty Nothing
 emptyAccountsAndDiffMap (Just successor) = AccountsAndDiffMap emptyAccounts $ DiffMap.empty (Just $ aadDiffMap successor)
@@ -157,21 +154,12 @@ emptyAccountsAndDiffMap (Just successor) = AccountsAndDiffMap emptyAccounts $ Di
 putNewAccount :: (SupportsPersistentAccount pv m) => PersistentAccount (AccountVersionFor pv) -> AccountsAndDiffMap pv -> m (Maybe AccountIndex, AccountsAndDiffMap pv)
 putNewAccount !acct a0@AccountsAndDiffMap{aadAccounts = accts0@Accounts{..}, ..} = do
     addr <- accountCanonicalAddress acct
-    -- Check whether the account is in a non-finalized block.
-    case DiffMap.lookup addr aadDiffMap of
-        -- The account is already present in the difference map.
-        Just _ -> return (Nothing, a0)
-        -- The account is not present in the difference map so we will have to
-        -- check in the LMDB account map.
-        Nothing -> do
-            -- Check whether the account is present in a finalized block.
-            existingAccountId <- LMDBAccountMap.lookup addr
-            if isNothing existingAccountId
-                then do
-                    (accIdx, newAccountTable) <- L.append acct accountTable
-                    let dm1 = DiffMap.insert addr accIdx aadDiffMap
-                    return (Just accIdx, a0{aadAccounts = accts0{accountTable = newAccountTable}, aadDiffMap = dm1})
-                else return (Nothing, a0)
+    exists addr a0 >>= \case
+        True -> return (Nothing, a0)
+        False -> do
+            (accIdx, newAccountTable) <- L.append acct accountTable
+            let newDiffMap = DiffMap.insert addr accIdx aadDiffMap
+            return (Just accIdx, a0{aadAccounts = accts0{accountTable = newAccountTable}, aadDiffMap = newDiffMap})
 
 -- | Construct an 'Accounts' from a list of accounts. Inserted in the order of the list.
 fromList :: (SupportsPersistentAccount pv m) => [PersistentAccount (AccountVersionFor pv)] -> m (AccountsAndDiffMap pv)

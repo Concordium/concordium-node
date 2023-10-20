@@ -19,7 +19,6 @@ import qualified Concordium.GlobalState.Persistent.Accounts as P
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState (PersistentBlockStateContext (..))
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as M
-import Concordium.GlobalState.Persistent.Cache (MonadCache)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
@@ -40,10 +39,8 @@ import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
 import Prelude hiding (fail)
-
 import qualified Basic.AccountTable as BAT
 import qualified Basic.Accounts as B
-import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 type PV = 'P5

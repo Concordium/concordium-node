@@ -105,7 +105,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform
-import System.Directory (removeDirectory)
+import System.Directory (removeDirectoryRecursive)
 
 -- * Birk parameters
 
@@ -871,6 +871,7 @@ bspPoolRewards bsp = case bspRewardDetails bsp of
     BlockRewardDetailsV1 pr -> pr
 
 -- | An initial 'HashedPersistentBlockState', which may be used for testing purposes.
+{-# WARNING initialPersistentState "should only be used for testing" #-}
 initialPersistentState ::
     (SupportsPersistentState pv m) =>
     SeedState (SeedStateVersionFor pv) ->
@@ -892,7 +893,6 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     updates <- refMake =<< initialUpdates keysCollection chainParams
     releaseSchedule <- emptyReleaseSchedule
     red <- emptyBlockRewardDetails
-
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -3315,16 +3315,15 @@ instance Cache.HasCache Modules.ModuleCache (PersistentBlockStateContext pv) whe
 instance (IsProtocolVersion pv) => MonadProtocolVersion (BlobStoreT (PersistentBlockStateContext pv) m) where
     type MPV (BlobStoreT (PersistentBlockStateContext pv) m) = pv
 
--- | Create a new account cache of the specified size for running the given monadic operation by
+-- | Create a new account cache of the specified size and a temporary 'LMDBAccountMap' for running the given monadic operation by
 --  extending the 'BlobStore' context to a 'PersistentBlockStateContext'.
--- todo fix doc.
 withNewAccountCacheAndLMDBAccountMap :: (MonadIO m, MonadCatch.MonadMask m) => Int -> FilePath -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
 withNewAccountCacheAndLMDBAccountMap size lmdbAccountMapDir bsm = MonadCatch.bracket openLmdbAccMap closeLmdbAccMap runAction
   where
     openLmdbAccMap = liftIO $ LMDBAccountMap.openDatabase lmdbAccountMapDir
     closeLmdbAccMap handlers = liftIO $ do
         LMDBAccountMap.closeDatabase handlers
-        removeDirectory lmdbAccountMapDir `catch` (\(_ :: IOException) -> return ())
+        removeDirectoryRecursive lmdbAccountMapDir `catch` (\(e :: IOException) -> liftIO $ void $ print e)
     runAction lmdbAccMap = do
         ac <- liftIO $ newAccountCache size
         mc <- liftIO $ Modules.newModuleCache 100
@@ -3549,7 +3548,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     thawBlockState HashedPersistentBlockState{..} =
         liftIO $ newIORef =<< readIORef hpbsPointers
 
-    freezeBlockState pbs = hashBlockState pbs
+    freezeBlockState = hashBlockState
 
     dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
 
