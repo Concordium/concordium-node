@@ -86,7 +86,7 @@ data VersionedCoreGenesisParameters (pv :: Types.ProtocolVersion) where
 --  It is then used to construct the initial block state from genesis.
 data AccumGenesisState pv = AccumGenesisState
     { -- | Tracking all the accounts.
-      agsAllAccounts :: !(Accounts.Accounts pv),
+      agsAllAccounts :: !(Accounts.AccountsAndDiffMap pv),
       -- | Collection of the IDs of the active bakers.
       agsBakerIds :: !(Bakers.BakerIdTrieMap (Types.AccountVersionFor pv)),
       -- | Collection of the aggregation keys of the active bakers.
@@ -113,7 +113,7 @@ data AccumGenesisState pv = AccumGenesisState
 initialAccumGenesisState :: AccumGenesisState pv
 initialAccumGenesisState =
     AccumGenesisState
-        { agsAllAccounts = Accounts.emptyAccounts,
+        { agsAllAccounts = Accounts.emptyAccountsAndDiffMap Nothing,
           agsBakerIds = Trie.empty,
           agsBakerKeys = Trie.empty,
           agsTotal = 0,
@@ -223,7 +223,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
     bsp <-
         Blob.refMakeFlushed $
             BS.BlockStatePointers
-                { bspAccounts = Accounts.AccountsAndDiffMap agsAllAccounts Nothing,
+                { bspAccounts = agsAllAccounts,
                   bspInstances = Instances.emptyInstances,
                   bspModules = modules,
                   bspBank = Types.makeHashed $ Rewards.makeGenesisBankStatus agsTotal,
@@ -258,7 +258,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                 genesisChainParameters
                 genesisAccount
         -- Insert the account
-        (maybeIndex, nextAccounts0) <- Accounts.putNewAccount persistentAccount $ Accounts.AccountsAndDiffMap (agsAllAccounts state) Nothing
+        (maybeIndex, nextAccounts0) <- Accounts.putNewAccount persistentAccount (agsAllAccounts state)
         nextAccounts <- case maybeIndex of
             Nothing -> MTL.throwError "Duplicate account address in genesis accounts."
             Just ai ->
@@ -267,7 +267,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                 in  Accounts.recordRegIds newRegIds nextAccounts0
 
         let !nextTotalAmount = agsTotal state + GenesisData.gaBalance genesisAccount
-        let !updatedState = state{agsAllAccounts = Accounts.aadAccounts nextAccounts, agsTotal = nextTotalAmount}
+        let !updatedState = state{agsAllAccounts = nextAccounts, agsTotal = nextTotalAmount}
 
         case GenesisData.gaBaker genesisAccount of
             Just baker@GenesisData.GenesisBaker{..} -> do

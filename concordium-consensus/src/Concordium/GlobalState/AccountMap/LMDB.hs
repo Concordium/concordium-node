@@ -7,13 +7,12 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | This module exposes an account map backed by a LMDB database.
---  The ‘AccountMap’ is a simple key/value store where the keys consists
---  of the first 29 bytes of an ‘AccountAddress’ and the values are the
---  associated ‘AccountIndex’.
+--  The ‘AccountMap’ is a simple key/value store where the keys consists of the
+--  canonical 'AccountAddress' and the values are the assoicated 'AccountIndex'.
 --
---  The LMDB account map only stores finalized accounts.
---  Non finalized accounts are being kept in a 'DifferenceMap' which
---  is being written to this LMDB account map when a block is finalized.
+--  The LMDB account map only stores  accounts that are persisted (created in a certified or finalized block).
+--  Non certified/finalized accounts are being kept in a 'DifferenceMap' which
+--  is being written to this LMDB account map when a block is being persisted.
 --
 --  As opposed to the account table of the block state this database does not
 --  include historical data i.e., the state of this database is from the perspective
@@ -38,13 +37,13 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Writer.Strict
 import qualified Data.ByteString as BS
-import Data.Data (Data, Typeable)
+import qualified Data.FixedByteString as FBS
+import Data.Data (Typeable)
 import Data.Kind (Type)
-import qualified Data.Serialize as S
 import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
-import Prelude hiding (lookup)
+import Prelude hiding (lookup, all)
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.LMDB.Helpers
@@ -52,7 +51,6 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
 import Concordium.Utils.Serialization.Put
-import qualified Data.FixedByteString as FBS
 
 -- * Exceptions
 
@@ -76,36 +74,36 @@ instance Exception DatabaseInvariantViolation where
 --      * The
 class (Monad m) => MonadAccountMapStore m where
     -- | Adds the accounts to the underlying store.
-    insert :: BlockHash -> BlockHeight -> [(AccountAddress, AccountIndex)] -> m ()
+    insert :: [(AccountAddress, AccountIndex)] -> m ()
 
-    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’.
+    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’ by using the
+    --  equivalence class 'AccountAddressEq'.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
     lookup :: AccountAddress -> m (Maybe AccountIndex)
 
+    -- | Return all the canonical addresses of accounts present
+    --  in the store.
+    all :: m [(AccountAddress, AccountIndex)]
+
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
-    insert bh height = lift . insert bh height
+    insert = lift . insert
     lookup = lift . lookup
+    all = lift all
     {-# INLINE insert #-}
     {-# INLINE lookup #-}
+    {-# INLINE all #-}
 
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
 
 instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
-    insert bh height = lift . insert bh height
+    insert = lift . insert
     lookup = lift . lookup
+    all = lift all
 
 -- * Database stores
-
--- | Store that yields the last finalized block from the perspective
---  of the lmdb database.
-newtype MetadataStore = MetadataStore MDB_dbi'
-
--- | Name of the 'MetadataStore'
-metadataStoreName :: String
-metadataStoreName = "metadata"
 
 -- | Store that retains the account address -> account index mappings.
 newtype AccountMapStore = AccountMapStore MDB_dbi'
@@ -113,48 +111,13 @@ newtype AccountMapStore = AccountMapStore MDB_dbi'
 accountMapStoreName :: String
 accountMapStoreName = "accounts"
 
--- | We only store the first 29 bytes of the account address
---  as these uniquely determine the account.
---  The remaining 3 bytes of an account address are used for the
---  account aliasing feature.
-prefixAccountAddressSize :: Int
-prefixAccountAddressSize = 29
-
-data PrefixAccountAddressSize
-    deriving (Data, Typeable)
-
-instance FBS.FixedLength PrefixAccountAddressSize where
-    fixedLength _ = prefixAccountAddressSize
-
--- | The prefix account address which is used as keys in the underlying store.
-newtype PrefixAccountAddress = PrefixAccountAddress (FBS.FixedByteString PrefixAccountAddressSize)
-
-instance S.Serialize PrefixAccountAddress where
-    put (PrefixAccountAddress addr) = S.putByteString $ FBS.toByteString addr
-    get = PrefixAccountAddress . FBS.fromByteString <$> S.getByteString prefixAccountAddressSize
-
--- | Create a 'PrefixAccountAddress' from the supplied 'AccountAddress'.
---  The 'PrefixAccountAddress' is the first 29 bytes of the original 'AccountAddress'.
-accountAddressToPrefixAccountAddress :: AccountAddress -> PrefixAccountAddress
-accountAddressToPrefixAccountAddress (AccountAddress afbs) = toPrefixAccountAddress $ FBS.toByteString afbs
-  where
-    toPrefixAccountAddress = PrefixAccountAddress . FBS.fromByteString . first29Bytes
-    first29Bytes = BS.take prefixAccountAddressSize
-
 instance MDBDatabase AccountMapStore where
-    type DBKey AccountMapStore = PrefixAccountAddress
+    type DBKey AccountMapStore = AccountAddress
     type DBValue AccountMapStore = AccountIndex
 
-lfbKey :: DBKey MetadataStore
-lfbKey = "lfb"
-
-instance MDBDatabase MetadataStore where
-    type DBKey MetadataStore = BS.ByteString
-    type DBValue MetadataStore = (BlockHash, BlockHeight)
 
 data DatabaseHandlers = DatabaseHandlers
     { _storeEnv :: !StoreEnv,
-      _metadataStore :: !MetadataStore,
       _accountMapStore :: !AccountMapStore
     }
 makeClassy ''DatabaseHandlers
@@ -244,12 +207,6 @@ makeDatabaseHandlers accountMapDir readOnly initSize = do
                     txn
                     (Just accountMapStoreName)
                     [MDB_CREATE | not readOnly]
-        _metadataStore <-
-            MetadataStore
-                <$> mdb_dbi_open'
-                    txn
-                    (Just metadataStoreName)
-                    [MDB_CREATE | not readOnly]
         return DatabaseHandlers{..}
 
 -- | Initialize database handlers in ReadWrite mode.
@@ -301,26 +258,28 @@ asWriteTransaction t = do
         (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
         _ -> Nothing
 
--- | Check if the database is initialized.
+-- | Check if the database is initialized (i.e. whether any accounts are present in the map).
 --  If the database is initialized then the function will return
---  @Just (BlockHash, BlockHeight)@ for the last finalized block.
---  If the database has not yet been initialized via 'initialize' then
---  this function will return @Nothing@.
-isInitialized :: (MonadIO m) => DatabaseHandlers -> m (Maybe (BlockHash, BlockHeight))
-isInitialized dbh =
-    liftIO $ transaction (dbh ^. storeEnv) True $ \txn -> getLfb txn
-  where
-    getLfb txn = loadRecord txn (dbh ^. metadataStore) lfbKey
+--  @True@ and otherwise @False@.
+isInitialized :: (MonadIO m) => DatabaseHandlers -> m Bool
+isInitialized dbh = liftIO $ transaction (dbh ^. storeEnv) True $ \txn -> (/= 0) <$> databaseSize txn (dbh ^. accountMapStore)
 
 -- | Perform an unsafe roll back of the LMDB store.
 --  This function deletes the provided accounts from the store and sets the last finalized block
 --  to the provided hash and height.
-unsafeRollback :: (MonadIO m, MonadLogger m, MonadReader r m, HasDatabaseHandlers r) => [AccountAddress] -> BlockHash -> BlockHeight -> m ()
-unsafeRollback accounts lfbHash lfbHeight = do
+--
+--  It is to be considered unsafe as it does not 
+unsafeRollback :: (MonadIO m, MonadLogger m, MonadReader r m, HasDatabaseHandlers r) => [AccountAddress] -> m ()
+unsafeRollback accounts = do
     handlers <- ask
     flip runReaderT handlers $ runAccountMapStoreMonad $ asWriteTransaction $ \dbh txn -> do
-        forM_ accounts $ \accAddr -> deleteRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr
-        storeReplaceRecord txn (dbh ^. metadataStore) lfbKey (lfbHash, lfbHeight)
+        forM_ accounts $ \accAddr -> deleteRecord txn (dbh ^. accountMapStore) accAddr
+
+-- | When looking up accounts we perform a prefix search as we
+--  store the canonical account addresses in the lmdb store and we
+--  need to be able to lookup account aliases.
+prefixAccountAddressSize :: Int
+prefixAccountAddressSize = 29
 
 instance
     ( MonadReader r m,
@@ -330,14 +289,28 @@ instance
     ) =>
     MonadAccountMapStore (AccountMapStoreMonad m)
     where
-    insert lfbHash lfbHeight differenceMap = asWriteTransaction $ \dbh txn -> doInsert dbh txn differenceMap
+    insert differenceMap = asWriteTransaction $ \dbh txn -> doInsert dbh txn differenceMap
       where
         doInsert dbh txn accounts = do
             forM_ accounts $ \(accAddr, accIndex) -> do
-                let addr = accountAddressToPrefixAccountAddress accAddr
-                storeRecord txn (dbh ^. accountMapStore) addr accIndex
-                storeReplaceRecord txn (dbh ^. metadataStore) lfbKey (lfbHash, lfbHeight)
+                storeRecord txn (dbh ^. accountMapStore) accAddr accIndex
                 return $ Just accIndex
 
-    lookup accAddr = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. accountMapStore) $ accountAddressToPrefixAccountAddress accAddr
+    lookup a@(AccountAddress accAddr) = asReadTransaction $ \dbh txn ->
+        withCursor txn (dbh ^. accountMapStore) $ \cursor -> do
+            withMDB_val accLookupKey $ \k -> do
+                getCursor (CursorMoveTo k) cursor >>= \case
+                    Nothing -> return Nothing
+                    Just (Left err) -> throwM $ DatabaseInvariantViolation err
+                    Just (Right (foundAccAddr, accIdx)) ->
+                        if checkEquivalence a foundAccAddr
+                            then return $ Just accIdx
+                            else return Nothing
+      where
+        -- The key to use for looking up an account.
+        -- We do a prefix lookup on the first 29 bytes of the account address as
+        -- the last 3 bytes are reserved for aliases.
+        accLookupKey = BS.take prefixAccountAddressSize $ FBS.toByteString accAddr
+        checkEquivalence x y = accountAddressEmbed x == accountAddressEmbed y
+        
+    all = asReadTransaction $ \dbh txn -> loadAll txn (dbh ^. accountMapStore)

@@ -934,7 +934,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bsp <-
         makeBufferedRef $
             BlockStatePointers
-                { bspAccounts = Accounts.emptyAcocuntsAndDiffMap Nothing,
+                { bspAccounts = Accounts.emptyAccountsAndDiffMap Nothing,
                   bspInstances = Instances.emptyInstances,
                   bspModules = modules,
                   bspBank = makeHashed Rewards.emptyBankStatus,
@@ -3546,11 +3546,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
-    thawBlockState HashedPersistentBlockState{..} = do
-        bufferedPtrs <- liftIO $ readIORef hpbsPointers
-        ptrs0 <- loadBufferedRef bufferedPtrs
-        ptrs1 <- makeBufferedRef ptrs0{bspAccounts = Accounts.emptyAcocuntsAndDiffMap $ Just $ bspAccounts ptrs0}
-        liftIO $ newIORef ptrs1 -- todo fix this. If a blobref already exists then carry this over.
+    thawBlockState HashedPersistentBlockState{..} =
+        liftIO $ newIORef =<< readIORef hpbsPointers
 
     freezeBlockState pbs = hashBlockState pbs
 
@@ -3569,14 +3566,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         (!inner', !ref) <- flushBufferedRef inner
         liftIO $ writeIORef hpbsPointers inner'
         flushStore
-        -- todo: Write the the Account DifferenceMap to the LMDBAccountMap.
-        -- Note that for consensus version 1 this approach will write
-        -- accounts to the lmdb account map as blocks becomes certified also.
-        -- To support roll backs of certified blocks then,
-        -- accounts created in the rolled back blocks must be deleted from
-        -- the lmdb account map (these will be added again as the certified blocks
-        -- are potentially being executed once again)
-        -- This should be OK as roll backs happens under rare circumstances.
         return ref
 
     loadBlockState hpbsHashM ref = do

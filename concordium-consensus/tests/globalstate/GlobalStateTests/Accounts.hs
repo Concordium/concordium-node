@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module GlobalStateTests.Accounts where
@@ -64,31 +66,21 @@ checkBinaryM bop x y sbop sx sy = do
     satisfied <- bop x y
     unless satisfied $ liftIO $ assertFailure $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ show y ++ " (" ++ sy ++ ")"
 
--- | Helper function for getting accounts (potentially also parent maps) for a 'DiffMap.DifferenceMap'.
-differenceMapToMap :: Maybe DiffMap.DifferenceMap -> Map.Map AccountAddress AccountIndex
-differenceMapToMap Nothing = Map.empty
-differenceMapToMap (Just diffMap) = Map.fromList $ go diffMap []
-  where
-    go :: DiffMap.DifferenceMap -> [(AccountAddress, AccountIndex)] -> [(AccountAddress, AccountIndex)]
-    go (DiffMap.DifferenceMap accs Nothing) accum = accum ++ accs
-    go (DiffMap.DifferenceMap accs (Just parentMap)) accum = go parentMap $! accum ++ accs
-
 -- | Check that a 'B.Accounts' and a 'P.AccountsAndDiffMap' are equivalent.
---  That is, they have the same account table, and set of
+--  That is, they have the same account map, account table, and set of
 --  use registration ids.
-checkEquivalent :: (MonadBlobStore m, MonadFail m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => B.Accounts PV -> P.AccountsAndDiffMap PV -> m ()
-checkEquivalent ba paAndDiffMap = do
-    let pam = differenceMapToMap $ P.aadDiffMap paAndDiffMap
-    checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) pam "==" "Basic account map" "Persistent account map"
+checkEquivalent :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => B.Accounts PV -> P.AccountsAndDiffMap PV -> m ()
+checkEquivalent ba pa@P.AccountsAndDiffMap{..} = do
+    addrsAndIndices <- P.allAccountAddressesAndIndices pa
+    checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) (Map.fromList addrsAndIndices) "==" "Basic account map" "Persistent account map"
     let bat = BAT.toList (B.accountTable ba)
-    let pa = P.aadAccounts paAndDiffMap
-    pat <- L.toAscPairList (P.accountTable pa)
+    pat <- L.toAscPairList (P.accountTable aadAccounts)
     bpat <- mapM (_2 PA.toTransientAccount) pat
     checkBinary (==) bat bpat "==" "Basic account table (as list)" "Persistent account table (as list)"
     let bath = getHash (B.accountTable ba) :: H.Hash
-    path <- getHashM (P.accountTable pa)
+    path <- getHashM (P.accountTable aadAccounts)
     checkBinary (==) bath path "==" "Basic account table hash" "Persistent account table hash"
-    pregids <- P.loadRegIds pa
+    pregids <- P.loadRegIds aadAccounts
     checkBinary (==) (B.accountRegIds ba) pregids "==" "Basic registration ids" "Persistent registration ids"
 
 data AccountAction
@@ -96,7 +88,6 @@ data AccountAction
     | Exists AccountAddress
     | GetAccount AccountAddress
     | UpdateAccount AccountAddress (Account (AccountVersionFor PV) -> Account (AccountVersionFor PV))
-    | UnsafeGetAccount AccountAddress
     | RegIdExists ID.CredentialRegistrationID
     | RecordRegId ID.CredentialRegistrationID AccountIndex
     | FlushPersistent
@@ -138,7 +129,7 @@ randomActions = sized (ra Set.empty Map.empty)
                 ++ if null s
                     then []
                     else
-                        [exExAcc, getExAcc, unsafeGetExAcc, updateExAcc]
+                        [exExAcc, getExAcc, updateExAcc]
                             ++ if null rids then [] else [exExReg, recExReg]
       where
         fresh x
@@ -176,9 +167,6 @@ randomActions = sized (ra Set.empty Map.empty)
             if (vk, addr) `Set.member` s
                 then ra s rids n
                 else (UpdateAccount addr upd :) <$> ra s rids (n - 1)
-        unsafeGetExAcc = do
-            (_, addr) <- elements (Set.toList s)
-            (UnsafeGetAccount addr :) <$> ra s rids (n - 1)
         exRandReg = do
             rid <- randomCredential
             (RegIdExists rid :) <$> ra s rids (n - 1)
@@ -194,7 +182,7 @@ randomActions = sized (ra Set.empty Map.empty)
             (rid, ai) <- elements (Map.toList rids)
             (RecordRegId rid ai :) <$> ra s rids (n - 1)
 
-runAccountAction :: (LMDBAccountMap.MonadAccountMapStore m, MonadBlobStore m, MonadIO m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => AccountAction -> (B.Accounts PV, P.AccountsAndDiffMap PV) -> m (B.Accounts PV, P.AccountsAndDiffMap PV)
+runAccountAction :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => AccountAction -> (B.Accounts PV, P.AccountsAndDiffMap PV) -> m (B.Accounts PV, P.AccountsAndDiffMap PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
     let ba' = B.putNewAccount acct ba
     pAcct <- PA.makePersistentAccount acct
@@ -220,12 +208,6 @@ runAccountAction (UpdateAccount addr upd) (ba, pa) = do
             PA.makePersistentAccount $ f bAcc
     (_, pa') <- P.updateAccounts (fmap ((),) . liftP upd) addr pa
     return (ba', pa')
-runAccountAction (UnsafeGetAccount addr) (ba, pa) = do
-    let bacct = B.unsafeGetAccount addr ba
-    pacct <- P.unsafeGetAccount addr pa
-    bpacct <- PA.toTransientAccount pacct
-    checkBinary (==) bacct bpacct "==" "account in basic" "account in persistent"
-    return (ba, pa)
 runAccountAction FlushPersistent (ba, pa) = do
     (_, pa') <- storeUpdate pa
     return (ba, pa')
@@ -245,15 +227,15 @@ runAccountAction (RecordRegId rid ai) (ba, pa) = do
 
 emptyTest :: SpecWith (PersistentBlockStateContext PV)
 emptyTest =
-    it "empty" $
-        runBlobStoreM
-            (checkEquivalent B.emptyAccounts (P.emptyAcocuntsAndDiffMap Nothing) :: BlobStoreM' (PersistentBlockStateContext PV) ())
+    it "empty" $ \bs ->
+        runNoLoggerT $ flip runBlobStoreT bs $
+            (checkEquivalent B.emptyAccounts (P.emptyAccountsAndDiffMap Nothing) :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
 
 actionTest :: Word -> SpecWith (PersistentBlockStateContext PV)
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
     acts <- randomActions
     return $ ioProperty $ runNoLoggerT $ flip runBlobStoreT bs $ do
-        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAcocuntsAndDiffMap Nothing) acts
+        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccountsAndDiffMap @PV Nothing) acts
         checkEquivalent ba pa
 
 tests :: Word -> Spec

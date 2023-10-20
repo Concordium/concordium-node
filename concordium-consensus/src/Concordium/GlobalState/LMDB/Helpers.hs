@@ -43,6 +43,7 @@ module Concordium.GlobalState.LMDB.Helpers (
     -- * Low level operations.
     byteStringFromMDB_val,
     unsafeByteStringFromMDB_val,
+    withMDB_val
 )
 where
 
@@ -415,11 +416,17 @@ data CursorMove
       CursorNext
     | -- | Move to the previous key
       CursorPrevious
+    | -- | Move to key greater than or equal to provided key.
+      CursorMoveTo MDB_val
 
 -- | Move a cursor and read the key and value at the new location.
 getPrimitiveCursor :: CursorMove -> PrimitiveCursor -> IO (Maybe (MDB_val, MDB_val))
 getPrimitiveCursor movement PrimitiveCursor{..} = do
-    res <- mdb_cursor_get' moveOp pcCursor pcKeyPtr pcValPtr
+    res <- case mKey of
+        Nothing -> mdb_cursor_get' moveOp pcCursor pcKeyPtr pcValPtr
+        Just k -> do
+            poke pcKeyPtr k
+            mdb_cursor_get' moveOp pcCursor pcKeyPtr pcValPtr
     if res
         then do
             key <- peek pcKeyPtr
@@ -427,12 +434,13 @@ getPrimitiveCursor movement PrimitiveCursor{..} = do
             return $ Just (key, val)
         else return Nothing
   where
-    moveOp = case movement of
-        CursorCurrent -> MDB_GET_CURRENT
-        CursorFirst -> MDB_FIRST
-        CursorLast -> MDB_LAST
-        CursorNext -> MDB_NEXT
-        CursorPrevious -> MDB_PREV
+    (moveOp, mKey) = case movement of
+        CursorCurrent -> (MDB_GET_CURRENT, Nothing)
+        CursorFirst -> (MDB_FIRST, Nothing)
+        CursorLast -> (MDB_LAST, Nothing)
+        CursorNext -> (MDB_NEXT, Nothing)
+        CursorPrevious -> (MDB_PREV, Nothing)
+        CursorMoveTo k -> (MDB_SET_RANGE, Just k)
 
 -- | Move a cursor to a specified key.
 movePrimitiveCursor :: MDB_val -> PrimitiveCursor -> IO (Maybe MDB_val)

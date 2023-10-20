@@ -809,11 +809,7 @@ rollBackBlocksUntil checkState = do
                         -- delete any accounts created in this block in the LMDB account map.
 
                         let accountsToDelete = mapMaybe getAccountAddressFromDeployment (blockTransactions block)
-                        let (parentBlockHash, parentBlockHeight) = case blockBakedData block of
-                                Present b -> (blockParent b, blockHeight block - 1)
-                                -- The block is the genesis block and thus we do not roll back further.
-                                Absent -> (getHash block, blockHeight block)
-                        void $ LMDBAccountMap.unsafeRollback accountsToDelete parentBlockHash parentBlockHeight
+                        void $ LMDBAccountMap.unsafeRollback accountsToDelete
                         -- Delete the block and the QC
                         asWriteTransaction $ \dbh txn -> do
                             void $
