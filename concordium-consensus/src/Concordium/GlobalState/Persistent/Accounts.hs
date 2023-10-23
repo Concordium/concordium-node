@@ -283,9 +283,9 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
 -- | Get a list of all account addresses and their assoicated account indices.
 allAccountAddressesAndIndices :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m [(AccountAddress, AccountIndex)]
 allAccountAddressesAndIndices accounts = do
-    allPersistedAccounts <- LMDBAccountMap.all
-    let inMemAccounts = Map.toList $ DiffMap.flatten $ aadDiffMap accounts
-    return $ allPersistedAccounts ++ inMemAccounts
+    persistedAccs <- Map.fromList <$> LMDBAccountMap.all
+    let allAccounts = persistedAccs `Map.union` DiffMap.flatten (aadDiffMap accounts)
+    return $ Map.toList allAccounts
 
 -- | Get a list of all account addresses.
 accountAddresses :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m [AccountAddress]

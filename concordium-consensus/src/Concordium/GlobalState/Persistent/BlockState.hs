@@ -3317,6 +3317,7 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (BlobStoreT (PersistentB
 
 -- | Create a new account cache of the specified size and a temporary 'LMDBAccountMap' for running the given monadic operation by
 --  extending the 'BlobStore' context to a 'PersistentBlockStateContext'.
+-- Note. this function should only be used for tests.
 withNewAccountCacheAndLMDBAccountMap :: (MonadIO m, MonadCatch.MonadMask m) => Int -> FilePath -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
 withNewAccountCacheAndLMDBAccountMap size lmdbAccountMapDir bsm = MonadCatch.bracket openLmdbAccMap closeLmdbAccMap runAction
   where
