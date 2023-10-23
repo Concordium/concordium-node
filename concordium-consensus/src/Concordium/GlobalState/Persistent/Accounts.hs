@@ -171,11 +171,6 @@ fromList = foldlM insert $ emptyAccountsAndDiffMap Nothing
 exists :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m Bool
 exists addr accts = isJust <$> getAccountIndex addr accts
 
--- | Retrieve an account with the given address.
---  Returns @Nothing@ if no such account exists.
-getAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
-getAccount addr accts = fmap snd <$> getAccountWithIndex addr accts
-
 -- | Retrieve an account associated with the given credential registration ID.
 --  Returns @Nothing@ if no such account exists.
 getAccountByCredId :: (SupportsPersistentAccount pv m) => ID.RawCredentialRegistrationID -> AccountsAndDiffMap pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
@@ -185,7 +180,7 @@ getAccountByCredId cid accs@AccountsAndDiffMap{..} =
         Just ai -> fmap (ai,) <$> indexedAccount ai accs
 
 -- | Get the account at a given index (if any).
-getAccountIndex :: (IsProtocolVersion pv, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe AccountIndex)
+getAccountIndex :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe AccountIndex)
 getAccountIndex addr AccountsAndDiffMap{..} =
     case DiffMap.lookup addr aadDiffMap of
         Just accIdx -> return $ Just accIdx
@@ -194,14 +189,20 @@ getAccountIndex addr AccountsAndDiffMap{..} =
                 Nothing -> return Nothing
                 Just accIdx -> return $ Just accIdx
 
+-- | Retrieve an account with the given address.
+--  Returns @Nothing@ if no such account exists.
+getAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
+getAccount addr accts = fmap snd <$> getAccountWithIndex addr accts
+
 -- | Retrieve an account and its index from a given address.
 --  Returns @Nothing@ if no such account exists.
-getAccountWithIndex :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
-getAccountWithIndex addr AccountsAndDiffMap{..} = getAccountIndex >>= fetchFromTable
-  where
-    fetchFromTable accIndex = do
-        mAcc <- L.lookup accIndex $ accountTable aadAccounts
-        return $ (accIndex,) <$> mAcc
+getAccountWithIndex :: forall pv m. (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
+getAccountWithIndex addr accts =
+    getAccountIndex addr accts >>= \case
+        Nothing -> return Nothing
+        Just ai -> do
+            mAcc <- L.lookup ai $ accountTable (aadAccounts accts)
+            return $ (ai,) <$> mAcc
 
 -- | Retrieve the account at a given index.
 indexedAccount :: (SupportsPersistentAccount pv m) => AccountIndex -> AccountsAndDiffMap pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
@@ -250,8 +251,8 @@ updateAccounts ::
     AccountAddress ->
     AccountsAndDiffMap pv ->
     m (Maybe (AccountIndex, a), AccountsAndDiffMap pv)
-updateAccounts fupd addr a0@AccountsAndDiffMap{aadAccounts = accs0@Accounts{..}, ..} = do
-    getAccountIndex >>= \case
+updateAccounts fupd addr a0@AccountsAndDiffMap{aadAccounts = accs0@Accounts{..}} = do
+    getAccountIndex addr a0 >>= \case
         Nothing -> return (Nothing, a0)
         Just ai -> update ai
   where
