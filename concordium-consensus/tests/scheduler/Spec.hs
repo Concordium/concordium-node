@@ -54,53 +54,52 @@ import qualified SchedulerTests.SmartContracts.V1.ValidInvalidModules (tests)
 import Test.Hspec
 
 main :: IO ()
-main = return ()
--- main = hspec $ do
-    -- SchedulerTests.InitPoliciesTest.tests
-    -- SchedulerTests.SimpleTransfersTest.tests
-    -- SchedulerTests.ChainMetatest.tests
-    -- SchedulerTests.InitContextTest.tests
-    -- SchedulerTests.ReceiveContextTest.tests
-    -- SchedulerTests.TrySendTest.tests
-    -- SchedulerTests.FibonacciSelfMessageTest.tests
-    -- SchedulerTests.AccountTransactionSpecs.tests
-    -- SchedulerTests.InitialAccountCreationSpec.tests
-    -- SchedulerTests.BakerTransactions.tests
-    -- SchedulerTests.RandomBakerTransactions.tests
-    -- SchedulerTests.TransactionExpirySpec.tests
-    -- SchedulerTests.BlockEnergyLimitSpec.tests
-    -- SchedulerTests.TransactionGroupingSpec2.tests
-    -- SchedulerTests.SimpleTransferSpec.tests
-    -- SchedulerTests.UpdateAccountKeys.tests
-    -- SchedulerTests.UpdateCredentials.tests
-    -- SchedulerTests.TransfersWithScheduleTest.tests
-    -- SchedulerTests.EncryptedTransfersTest.tests
-    -- SchedulerTests.MaxIncomingAmountsTest.tests
-    -- SchedulerTests.StakedAmountLocked.tests
-    -- SchedulerTests.RejectReasons.tests
-    -- SchedulerTests.RejectReasonsRustContract.tests
-    -- SchedulerTests.SmartContracts.V0.SmartContractTests.tests
-    -- SchedulerTests.SmartContracts.V0.RelaxedRestrictions.tests
-    -- SchedulerTests.SmartContracts.V1.Counter.tests
-    -- SchedulerTests.SmartContracts.V1.Transfer.tests
-    -- SchedulerTests.SmartContracts.V1.CrossMessaging.tests
-    -- SchedulerTests.SmartContracts.Invoke.tests
-    -- SchedulerTests.SmartContracts.V1.ErrorCodes.tests
-    -- SchedulerTests.SmartContracts.V1.ValidInvalidModules.tests
-    -- SchedulerTests.SmartContracts.V1.SelfBalance.tests
-    -- SchedulerTests.SmartContracts.V1.Recorder.tests
-    -- SchedulerTests.SmartContracts.V1.Iterator.tests
-    -- SchedulerTests.SmartContracts.V1.Fallback.tests
-    -- SchedulerTests.SmartContracts.V1.Checkpointing.tests
-    -- SchedulerTests.SmartContracts.V1.AllNewHostFunctions.tests
-    -- SchedulerTests.SmartContracts.V1.Upgrading.tests
-    -- SchedulerTests.SmartContracts.V1.Queries.tests
-    -- SchedulerTests.SmartContracts.V1.RelaxedRestrictions.tests
-    -- SchedulerTests.SmartContracts.V1.UpgradingPersistent.tests
-    -- SchedulerTests.SmartContracts.V1.TransfersPersistent.tests
-    -- SchedulerTests.SmartContracts.V1.QueriesPersistent.tests
-    -- SchedulerTests.Payday.tests
-    -- SchedulerTests.Delegation.tests
-    -- SchedulerTests.SmartContracts.V1.P6WasmFeatures.tests
-    -- SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
-    -- SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests
+main = hspec $ do
+    SchedulerTests.InitPoliciesTest.tests
+    SchedulerTests.SimpleTransfersTest.tests
+    SchedulerTests.ChainMetatest.tests
+    SchedulerTests.InitContextTest.tests
+    SchedulerTests.ReceiveContextTest.tests
+    SchedulerTests.TrySendTest.tests
+    SchedulerTests.FibonacciSelfMessageTest.tests
+    SchedulerTests.AccountTransactionSpecs.tests
+    SchedulerTests.InitialAccountCreationSpec.tests
+    SchedulerTests.BakerTransactions.tests
+    SchedulerTests.RandomBakerTransactions.tests
+    SchedulerTests.TransactionExpirySpec.tests
+    SchedulerTests.BlockEnergyLimitSpec.tests
+    SchedulerTests.TransactionGroupingSpec2.tests
+    SchedulerTests.SimpleTransferSpec.tests
+    SchedulerTests.UpdateAccountKeys.tests
+    SchedulerTests.UpdateCredentials.tests
+    SchedulerTests.TransfersWithScheduleTest.tests
+    SchedulerTests.EncryptedTransfersTest.tests
+    SchedulerTests.MaxIncomingAmountsTest.tests
+    SchedulerTests.StakedAmountLocked.tests
+    SchedulerTests.RejectReasons.tests
+    SchedulerTests.RejectReasonsRustContract.tests
+    SchedulerTests.SmartContracts.V0.SmartContractTests.tests
+    SchedulerTests.SmartContracts.V0.RelaxedRestrictions.tests
+    SchedulerTests.SmartContracts.V1.Counter.tests
+    SchedulerTests.SmartContracts.V1.Transfer.tests
+    SchedulerTests.SmartContracts.V1.CrossMessaging.tests
+    SchedulerTests.SmartContracts.Invoke.tests
+    SchedulerTests.SmartContracts.V1.ErrorCodes.tests
+    SchedulerTests.SmartContracts.V1.ValidInvalidModules.tests
+    SchedulerTests.SmartContracts.V1.SelfBalance.tests
+    SchedulerTests.SmartContracts.V1.Recorder.tests
+    SchedulerTests.SmartContracts.V1.Iterator.tests
+    SchedulerTests.SmartContracts.V1.Fallback.tests
+    SchedulerTests.SmartContracts.V1.Checkpointing.tests
+    SchedulerTests.SmartContracts.V1.AllNewHostFunctions.tests
+    SchedulerTests.SmartContracts.V1.Upgrading.tests
+    SchedulerTests.SmartContracts.V1.Queries.tests
+    SchedulerTests.SmartContracts.V1.RelaxedRestrictions.tests
+    SchedulerTests.SmartContracts.V1.UpgradingPersistent.tests
+    SchedulerTests.SmartContracts.V1.TransfersPersistent.tests
+    SchedulerTests.SmartContracts.V1.QueriesPersistent.tests
+    SchedulerTests.Payday.tests
+    SchedulerTests.Delegation.tests
+    SchedulerTests.SmartContracts.V1.P6WasmFeatures.tests
+    SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
+    SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests
