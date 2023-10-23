@@ -281,15 +281,14 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
     fupd' = fmap ((),) . fupd
 
 -- | Get a list of all account addresses and their assoicated account indices.
-allAccountAddressesAndIndices :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m [(AccountAddress, AccountIndex)]
-allAccountAddressesAndIndices accounts = do
+allAccounts :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m [(AccountAddress, AccountIndex)]
+allAccounts accounts = do
     persistedAccs <- Map.fromList <$> LMDBAccountMap.all
-    let allAccounts = persistedAccs `Map.union` DiffMap.flatten (aadDiffMap accounts)
-    return $ Map.toList allAccounts
+    return $ Map.toList $ persistedAccs `Map.union` DiffMap.flatten (aadDiffMap accounts)
 
 -- | Get a list of all account addresses.
 accountAddresses :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m [AccountAddress]
-accountAddresses accounts = map fst <$> allAccountAddressesAndIndices accounts
+accountAddresses accounts = map fst <$> allAccounts accounts
 
 -- | Serialize accounts in V0 format.
 serializeAccounts :: (SupportsPersistentAccount pv m, MonadPut m) => GlobalContext -> AccountsAndDiffMap pv -> m ()
@@ -301,9 +300,28 @@ serializeAccounts cryptoParams AccountsAndDiffMap{..} = do
 foldAccounts :: (SupportsPersistentAccount pv m) => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
 foldAccounts f a accts = L.mfold f a (accountTable accts)
 
--- | Fold over the account table in ascending order of account index.
+-- | Fold over the account table in descending order of account index.
 foldAccountsDesc :: (SupportsPersistentAccount pv m) => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
 foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
+
+-- | Get all account addresses and their assoicated 'AccountIndex' via the account table in ascending order
+--  of account index.
+--  Note. This should only be used as part of migrating accounts to the lmdb backed account map.
+--  All other queries should use 'allAccounts'.
+allAccountsViaTable :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m [(AccountAddress, AccountIndex)]
+allAccountsViaTable accts = do
+    addresses <- foldAccountsDesc (\accum pacc -> do
+                                 addr <- accountCanonicalAddress pacc
+                                 return $ addr : accum)
+                []
+                (aadAccounts accts)
+    return $! zip addresses [0..]
+
+-- | Establish the LMDB account map from the accounts table of the provided 'AccountsAndDiffMap'
+--  Returns 'True' if the lmdb backed map was established.
+--  Returns 'False' if the LMDB store was already established.
+establishLMDBStore :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m Bool
+establishLMDBStore accts = undefined
 
 -- | See documentation of @migratePersistentBlockState@.
 migrateAccounts ::
