@@ -43,7 +43,7 @@ module Concordium.GlobalState.LMDB.Helpers (
     -- * Low level operations.
     byteStringFromMDB_val,
     unsafeByteStringFromMDB_val,
-    withMDB_val
+    withMDB_val,
 )
 where
 

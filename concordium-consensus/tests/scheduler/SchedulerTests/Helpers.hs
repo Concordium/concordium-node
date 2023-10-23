@@ -141,14 +141,15 @@ createTestBlockStateWithAccounts ::
     [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
 createTestBlockStateWithAccounts accounts = do
-    bs <- BS.initialPersistentState
-        seedState
-        DummyData.dummyCryptographicParameters
-        accounts
-        DummyData.dummyIdentityProviders
-        DummyData.dummyArs
-        keys
-        DummyData.dummyChainParameters
+    bs <-
+        BS.initialPersistentState
+            seedState
+            DummyData.dummyCryptographicParameters
+            accounts
+            DummyData.dummyIdentityProviders
+            DummyData.dummyArs
+            keys
+            DummyData.dummyChainParameters
     -- save the block state so accounts are written to the lmdb account map.
     void $ BS.saveBlockState bs
     return bs

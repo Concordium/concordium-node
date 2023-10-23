@@ -78,13 +78,13 @@ createGS = do
     acc1 <- makeTestAccountFromSeed 1_000_000 1
     initState <-
         PBS.initialPersistentState
-                (initialSeedStateV0 (Hash.hash "") 1_000)
-                dummyCryptographicParameters
-                [acc0, acc1]
-                dummyIdentityProviders
-                dummyArs
-                dummyKeyCollection
-                dummyChainParameters
+            (initialSeedStateV0 (Hash.hash "") 1_000)
+            dummyCryptographicParameters
+            [acc0, acc1]
+            dummyIdentityProviders
+            dummyArs
+            dummyKeyCollection
+            dummyChainParameters
     -- save the block state so accounts are written to the lmdb database.
     void $ saveBlockState initState
     addr0 <- BS.accountCanonicalAddress acc0

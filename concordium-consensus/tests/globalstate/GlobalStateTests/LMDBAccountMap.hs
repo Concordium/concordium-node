@@ -11,9 +11,9 @@ module GlobalStateTests.LMDBAccountMap where
 
 import Control.Exception (bracket)
 import Control.Monad.Reader
+import Data.Maybe (isJust)
 import System.IO.Temp
 import System.Random
-import Data.Maybe (isJust)
 
 import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Logger
@@ -74,18 +74,19 @@ testLookupAccountViaAlias = runTest "lookupviaalias" $ do
         Just accIndex -> liftIO $ assertEqual "account indices should match" (snd acc) accIndex
   where
     acc = dummyPair 1
-    
 
 -- | Test for retrieving all accounts present in the LMDB store.
 testGetAllAccounts :: Assertion
 testGetAllAccounts = runTest "allaccounts" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insert $ dummyPair <$> [0..42]
-    void $ LMDBAccountMap.insert $ dummyPair <$> [42..84]
+    void $ LMDBAccountMap.insert $ dummyPair <$> [0 .. 42]
+    void $ LMDBAccountMap.insert $ dummyPair <$> [42 .. 84]
     allAccounts <- LMDBAccountMap.all
     when (length allAccounts /= 85) $
-        liftIO $ assertFailure $ "unexpected number of accounts: " <> (show . length) allAccounts <> " should be " <> show (85 :: Int)
-    forM_ (dummyPair <$> [0..84]) $ \(accAddr, _) -> do
+        liftIO $
+            assertFailure $
+                "unexpected number of accounts: " <> (show . length) allAccounts <> " should be " <> show (85 :: Int)
+    forM_ (dummyPair <$> [0 .. 84]) $ \(accAddr, _) -> do
         isPresent <- isJust <$> LMDBAccountMap.lookup accAddr
         liftIO $ assertBool "account should be present" isPresent
 

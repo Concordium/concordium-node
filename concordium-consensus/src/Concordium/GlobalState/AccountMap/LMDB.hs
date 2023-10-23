@@ -37,13 +37,13 @@ import Control.Monad.State.Strict
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Writer.Strict
 import qualified Data.ByteString as BS
-import qualified Data.FixedByteString as FBS
 import Data.Data (Typeable)
+import qualified Data.FixedByteString as FBS
 import Data.Kind (Type)
 import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
-import Prelude hiding (lookup, all)
+import Prelude hiding (all, lookup)
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.LMDB.Helpers
@@ -114,7 +114,6 @@ accountMapStoreName = "accounts"
 instance MDBDatabase AccountMapStore where
     type DBKey AccountMapStore = AccountAddress
     type DBValue AccountMapStore = AccountIndex
-
 
 data DatabaseHandlers = DatabaseHandlers
     { _storeEnv :: !StoreEnv,
@@ -269,7 +268,7 @@ isInitialized dbh = liftIO $ transaction (dbh ^. storeEnv) True $ \txn -> (/= 0)
 --  This function deletes the provided accounts from the store and sets the last finalized block
 --  to the provided hash and height.
 --
---  It is to be considered unsafe as it does not 
+--  It is to be considered unsafe as it does not
 unsafeRollback :: (MonadIO m, MonadLogger m, MonadReader r m, HasDatabaseHandlers r) => [AccountAddress] -> m ()
 unsafeRollback accounts = do
     handlers <- ask
@@ -313,5 +312,5 @@ instance
         -- the last 3 bytes are reserved for aliases.
         accLookupKey = BS.take prefixAccountAddressSize $ FBS.toByteString accAddr
         checkEquivalence x y = accountAddressEmbed x == accountAddressEmbed y
-        
+
     all = asReadTransaction $ \dbh txn -> loadAll txn (dbh ^. accountMapStore)

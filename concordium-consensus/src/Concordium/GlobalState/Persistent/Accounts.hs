@@ -80,8 +80,8 @@ data Accounts (pv :: ProtocolVersion) = Accounts
 -- | An 'Accounts' with an assoicated ' DiffMap.DifferenceMap'.
 --  The 'DiffMap.DifferenceMap' includes a mapping @AccountAddress -> AccountIndex@ for accounts
 --  which have been added to a block which have not been persisted yet (certified or finalized).
--- 
---  For blocks which have been persisted the 'DiffMap.DifferenceMap' is @Nothing@ as potential new 
+--
+--  For blocks which have been persisted the 'DiffMap.DifferenceMap' is @Nothing@ as potential new
 --  accounts have been written to the lmdb account map.
 data AccountsAndDiffMap (pv :: ProtocolVersion) = AccountsAndDiffMap
     { -- | The persistent accounts and what is stored on disk.
@@ -112,7 +112,7 @@ instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (AccountsAndDi
     getHashM AccountsAndDiffMap{..} = getHashM $ accountTable aadAccounts
 
 instance (SupportsPersistentAccount pv m) => BlobStorable m (AccountsAndDiffMap pv) where
-    storeUpdate AccountsAndDiffMap{aadAccounts = Accounts{..},..} = do
+    storeUpdate AccountsAndDiffMap{aadAccounts = Accounts{..}, ..} = do
         (pTable, accountTable') <- storeUpdate accountTable
         (pRegIdHistory, regIdHistory') <- storeUpdate accountRegIdHistory
         LMDBAccountMap.insert (Map.toList $ DiffMap.flatten aadDiffMap)

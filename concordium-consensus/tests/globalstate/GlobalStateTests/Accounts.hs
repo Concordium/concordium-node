@@ -1,17 +1,20 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module GlobalStateTests.Accounts where
 
+import qualified Basic.AccountTable as BAT
+import qualified Basic.Accounts as B
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.GlobalState.AccountMap as AccountMap
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Basic.BlockState.Account as BA
 import Concordium.GlobalState.DummyData
 import qualified Concordium.GlobalState.Persistent.Account as PA
@@ -39,9 +42,6 @@ import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
 import Prelude hiding (fail)
-import qualified Basic.AccountTable as BAT
-import qualified Basic.Accounts as B
-import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 
 type PV = 'P5
 
@@ -225,8 +225,9 @@ runAccountAction (RecordRegId rid ai) (ba, pa) = do
 emptyTest :: SpecWith (PersistentBlockStateContext PV)
 emptyTest =
     it "empty" $ \bs ->
-        runNoLoggerT $ flip runBlobStoreT bs $
-            (checkEquivalent B.emptyAccounts (P.emptyAccountsAndDiffMap Nothing) :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
+        runNoLoggerT $
+            flip runBlobStoreT bs $
+                (checkEquivalent B.emptyAccounts (P.emptyAccountsAndDiffMap Nothing) :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
 
 actionTest :: Word -> SpecWith (PersistentBlockStateContext PV)
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do

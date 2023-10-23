@@ -7,9 +7,8 @@ module GlobalStateTests.DifferenceMap where
 
 import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Types
-import System.Random
-import Control.Monad (when)
 import qualified Data.Map.Strict as Map
+import System.Random
 
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 
@@ -30,6 +29,7 @@ testInsertLookupAccount = do
   where
     acc = dummyPair 1
 
+-- | Testing lookups in flat and nested difference maps.
 testLookups :: Assertion
 testLookups = do
     let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty Nothing
@@ -42,17 +42,18 @@ testLookups = do
     checkExists (dummyPair 2) diffMap3
     checkExists (dummyPair 3) diffMap3
   where
-    checkExists pair diffMap = 
+    checkExists pair diffMap =
         case DiffMap.lookup (fst pair) diffMap of
             Nothing -> assertFailure "account should be present"
             Just accIdx -> assertEqual "wrong account index" (snd pair) accIdx
 
+-- | Test flattening a difference map i.e. return all accounts as one flat map.
 testFlatten :: Assertion
 testFlatten = do
     let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty Nothing
         diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty $ Just diffMap1)
         diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty $ Just diffMap2)
-    assertEqual "accounts should be the same" (Map.fromList (map dummyPair [1..3])) $ DiffMap.flatten diffMap3
+    assertEqual "accounts should be the same" (Map.fromList (map dummyPair [1 .. 3])) $ DiffMap.flatten diffMap3
 
 tests :: Spec
 tests = describe "AccountMap.DifferenceMap" $ do
