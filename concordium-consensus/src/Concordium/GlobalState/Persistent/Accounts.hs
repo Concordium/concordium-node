@@ -174,15 +174,7 @@ exists addr accts = isJust <$> getAccountIndex addr accts
 -- | Retrieve an account with the given address.
 --  Returns @Nothing@ if no such account exists.
 getAccount :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
-getAccount addr AccountsAndDiffMap{..} =
-    case DiffMap.lookup addr aadDiffMap of
-        Just ai -> fetchFromTable ai
-        Nothing ->
-            LMDBAccountMap.lookup addr >>= \case
-                Nothing -> return Nothing
-                Just ai -> fetchFromTable ai
-  where
-    fetchFromTable accIndex = L.lookup accIndex $ accountTable aadAccounts
+getAccount addr accts = fmap snd <$> getAccountWithIndex addr accts
 
 -- | Retrieve an account associated with the given credential registration ID.
 --  Returns @Nothing@ if no such account exists.
@@ -205,10 +197,11 @@ getAccountIndex addr AccountsAndDiffMap{..} =
 -- | Retrieve an account and its index from a given address.
 --  Returns @Nothing@ if no such account exists.
 getAccountWithIndex :: (SupportsPersistentAccount pv m) => AccountAddress -> AccountsAndDiffMap pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
-getAccountWithIndex addr AccountsAndDiffMap{..} =
-    LMDBAccountMap.lookup addr >>= \case
-        Nothing -> return Nothing
-        Just ai -> fmap (ai,) <$> L.lookup ai (accountTable aadAccounts)
+getAccountWithIndex addr AccountsAndDiffMap{..} = getAccountIndex >>= fetchFromTable
+  where
+    fetchFromTable accIndex = do
+        mAcc <- L.lookup accIndex $ accountTable aadAccounts
+        return $ (accIndex,) <$> mAcc
 
 -- | Retrieve the account at a given index.
 indexedAccount :: (SupportsPersistentAccount pv m) => AccountIndex -> AccountsAndDiffMap pv -> m (Maybe (PersistentAccount (AccountVersionFor pv)))
@@ -257,12 +250,9 @@ updateAccounts ::
     AccountAddress ->
     AccountsAndDiffMap pv ->
     m (Maybe (AccountIndex, a), AccountsAndDiffMap pv)
-updateAccounts fupd addr a0@AccountsAndDiffMap{aadAccounts = accs0@Accounts{..}, ..} =
-    case DiffMap.lookup addr aadDiffMap of
-        Nothing ->
-            LMDBAccountMap.lookup addr >>= \case
-                Nothing -> return (Nothing, a0)
-                Just ai -> update ai
+updateAccounts fupd addr a0@AccountsAndDiffMap{aadAccounts = accs0@Accounts{..}, ..} = do
+    getAccountIndex >>= \case
+        Nothing -> return (Nothing, a0)
         Just ai -> update ai
   where
     update ai =
