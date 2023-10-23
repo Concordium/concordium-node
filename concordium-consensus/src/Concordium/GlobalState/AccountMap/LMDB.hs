@@ -212,6 +212,7 @@ makeDatabaseHandlers accountMapDir readOnly initSize = do
 -- | Initialize database handlers in ReadWrite mode.
 --  This simply loads the references and does not initialize the databases.
 --  The initial size is set to 64MB.
+--  Note that this function creates the directory for the database if not already present.
 openDatabase :: FilePath -> IO DatabaseHandlers
 openDatabase accountMapDir = do
     createDirectoryIfMissing False accountMapDir

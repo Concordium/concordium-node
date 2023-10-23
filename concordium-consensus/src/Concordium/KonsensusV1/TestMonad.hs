@@ -150,7 +150,7 @@ genesisCore = case protocolVersion @pv of
 --  This sets up a temporary blob store for the block state that is deleted after use.
 runTestMonad :: (IsConsensusV1 pv, IsProtocolVersion pv) => BakerContext -> UTCTime -> GenesisData pv -> TestMonad pv a -> IO a
 runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
-    runLog $ runBlobStoreTemp "." $ withNewAccountCacheAndLMDBAccountMap 1000 "." $ do
+    runLog $ runBlobStoreTemp "." $ withNewAccountCacheAndLMDBAccountMap 1000 "accountmap" $ do
         (genState, genStateRef, initTT, genTimeoutBase, genEpochBakers) <- runPersistentBlockStateMonad $ do
             genesisState genData >>= \case
                 Left e -> error e
