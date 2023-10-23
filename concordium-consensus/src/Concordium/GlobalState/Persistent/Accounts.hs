@@ -317,11 +317,11 @@ allAccountsViaTable accts = do
                 (aadAccounts accts)
     return $! zip addresses [0..]
 
--- | Establish the LMDB account map from the accounts table of the provided 'AccountsAndDiffMap'
+-- | Populate the LMDB account map from the accounts table of the provided 'AccountsAndDiffMap'
 --  Returns 'True' if the lmdb backed map was established.
 --  Returns 'False' if the LMDB store was already established.
-establishLMDBStore :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m Bool
-establishLMDBStore accts = undefined
+populateLMDBStore :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m Bool
+populateLMDBStore accts = undefined
 
 -- | See documentation of @migratePersistentBlockState@.
 migrateAccounts ::
