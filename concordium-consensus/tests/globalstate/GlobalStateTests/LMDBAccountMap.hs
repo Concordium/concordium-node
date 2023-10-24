@@ -42,14 +42,16 @@ runTest dirName action = withTempDirectory "" dirName $ \path ->
 -- | Test that a database is not initialized.
 testCheckNotInitialized :: Assertion
 testCheckNotInitialized = runTest "notinitialized" $ do
-    liftIO (assertBool "database should not have been initialized" =<< not <$> LMDBAccountMap.isInitialized)
+    isInitialized <- LMDBAccountMap.isInitialized
+    liftIO $ assertBool "database should not have been initialized" $ not isInitialized
 
 -- | Test that a database is initialized.
 testCheckDbInitialized :: Assertion
 testCheckDbInitialized = runTest "initialized" $ do
     -- initialize the database
     void $ LMDBAccountMap.insert [dummyPair 1]
-    liftIO (assertBool "database should have been initialized" =<< LMDBAccountMap.isInitialized)
+    isInitialized <- LMDBAccountMap.isInitialized
+    liftIO $ assertBool "database should have been initialized" isInitialized
 
 -- | Test that inserts a set of accounts and afterwards asserts that they are present.
 testInsertAndLookupAccounts :: Assertion
