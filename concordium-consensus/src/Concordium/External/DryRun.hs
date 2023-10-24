@@ -138,7 +138,7 @@ writeProtoResponseEither ::
     -- | Value to write.
     a ->
     IO (Either e ())
-writeProtoResponseEither writer quotaRem p = case toProto resp of
+writeProtoResponseEither writer quotaRem response = case toProto resp of
     Left e -> return $ Left e
     Right msg -> do
         BS.unsafeUseAsCStringLen
@@ -148,7 +148,7 @@ writeProtoResponseEither writer quotaRem p = case toProto resp of
   where
     resp =
         DryRunResponse
-            { drrResponse = p,
+            { drrResponse = response,
               drrQuotaRemaining = quotaRem
             }
 
