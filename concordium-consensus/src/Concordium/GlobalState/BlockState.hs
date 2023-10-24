@@ -1401,6 +1401,14 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --  and update sequence numbers populated.
     cacheBlockStateAndGetTransactionTable :: BlockState m -> m TransactionTable
 
+    -- | Populate the LMDB account map if it has not already been initialized.
+    --  If the lmdb store has already been intialized, then this function does nothing.
+    --  This function must only be invoked when starting up when then account table already
+    --  contains accounts but these are not reflected in the lmdb backed account map.
+    --
+    --  In particular this is the case when starting up from an existing state.
+    tryPopulateAccountMap :: BlockState m -> m ()
+
 instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m) where
     getModuleArtifact = lift . getModuleArtifact
     {-# INLINE getModuleArtifact #-}
@@ -1666,6 +1674,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     collapseCaches = lift collapseCaches
     cacheBlockState = lift . cacheBlockState
     cacheBlockStateAndGetTransactionTable = lift . cacheBlockStateAndGetTransactionTable
+    tryPopulateAccountMap = lift . tryPopulateAccountMap
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -1678,6 +1687,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE collapseCaches #-}
     {-# INLINE cacheBlockState #-}
     {-# INLINE cacheBlockStateAndGetTransactionTable #-}
+    {-# INLINE tryPopulateAccountMap #-}
 
 deriving via (MGSTrans MaybeT m) instance (BlockStateQuery m) => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperations (MaybeT m)

@@ -14,7 +14,7 @@
 
 module Concordium.GlobalState.Persistent.Accounts where
 
-import Control.Monad.State
+import Control.Monad.Reader
 import Data.Foldable (foldlM)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -310,18 +310,22 @@ foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
 --  All other queries should use 'allAccounts'.
 allAccountsViaTable :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m [(AccountAddress, AccountIndex)]
 allAccountsViaTable accts = do
-    addresses <- foldAccountsDesc (\accum pacc -> do
-                                 addr <- accountCanonicalAddress pacc
-                                 return $ addr : accum)
-                []
-                (aadAccounts accts)
-    return $! zip addresses [0..]
+    addresses <-
+        foldAccountsDesc
+            ( \accum pacc -> do
+                addr <- accountCanonicalAddress pacc
+                return $ addr : accum
+            )
+            []
+            (aadAccounts accts)
+    return $! zip addresses [0 ..]
 
--- | Populate the LMDB account map from the accounts table of the provided 'AccountsAndDiffMap'
---  Returns 'True' if the lmdb backed map was established.
---  Returns 'False' if the LMDB store was already established.
-populateLMDBStore :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m Bool
-populateLMDBStore accts = undefined
+-- | If the LMDB account map is not already initialized, then this function populates the LMDB account map via the provided provided 'AccountsAndDiffMap'.
+--  Otherwise, this function does nothing.
+tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m ()
+tryPopulateLMDBStore accts = do
+    isInitialized <- LMDBAccountMap.isInitialized
+    unless isInitialized (void $ LMDBAccountMap.insert =<< allAccountsViaTable accts)
 
 -- | See documentation of @migratePersistentBlockState@.
 migrateAccounts ::

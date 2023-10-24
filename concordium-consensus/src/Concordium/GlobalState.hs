@@ -9,6 +9,7 @@
 --  and shutdown.
 module Concordium.GlobalState where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
@@ -16,6 +17,7 @@ import Control.Monad.Trans.Reader hiding (ask)
 import Data.Proxy
 
 import Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.BlockPointer (_bpState)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account (newAccountCache)
@@ -80,6 +82,11 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
                 skovData <-
                     runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
                         `onException` closeBlobStore pbscBlobStore
+                -- initialize the account map if it has not already been so.
+                logm Skov LLDebug "Try initialize LMDB account map"
+                let lfbState = _bpState $ _lastFinalized skovData
+                void $ flip runLoggerT logm $ flip runReaderT pbsc $ runPersistentBlockStateMonad (tryPopulateAccountMap lfbState)
+                logm Skov LLDebug "Finished initializing LMDB account map"
                 return (Just (pbsc, skovData))
         else return Nothing
 

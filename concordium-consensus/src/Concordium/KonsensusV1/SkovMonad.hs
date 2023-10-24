@@ -32,6 +32,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import qualified Concordium.GlobalState.BlockState as PBS
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
@@ -523,6 +524,11 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                         runInitMonad
                             (loadSkovData gscRuntimeParameters (rollCount > 0))
                             initContext
+                    -- initialize the account map if it has not already been so.
+                    let lfbState = initialSkovData ^. lastFinalized . to bpState
+                    logEvent Skov LLDebug "Try initialize LMDB account map"
+                    void $ flip runReaderT pbsc $ PBS.runPersistentBlockStateMonad (PBS.tryPopulateAccountMap lfbState)
+                    logEvent Skov LLDebug "Finsihed initializing LMDB account map"
                     let !es =
                             ExistingSkov
                                 { esContext =

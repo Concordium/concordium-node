@@ -70,10 +70,9 @@ instance Exception DatabaseInvariantViolation where
 --  An implementation should ensure atomicity of operations.
 --
 --  Invariants:
---      * All accounts in the store are either finalized or "certified".
---      * The
+--      * All accounts in the store are in persisted blocks (finalized or certified).
 class (Monad m) => MonadAccountMapStore m where
-    -- | Adds the accounts to the underlying store.
+    -- | Inserts the accounts to the underlying store.
     insert :: [(AccountAddress, AccountIndex)] -> m ()
 
     -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’ by using the
@@ -86,13 +85,18 @@ class (Monad m) => MonadAccountMapStore m where
     --  in the store.
     all :: m [(AccountAddress, AccountIndex)]
 
+    -- | Checks whether the lmdb store is initialized or not.
+    isInitialized :: m Bool
+
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
     insert = lift . insert
     lookup = lift . lookup
     all = lift all
+    isInitialized = lift isInitialized
     {-# INLINE insert #-}
     {-# INLINE lookup #-}
     {-# INLINE all #-}
+    {-# INLINE isInitialized #-}
 
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
@@ -102,6 +106,7 @@ instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
     insert = lift . insert
     lookup = lift . lookup
     all = lift all
+    isInitialized = lift isInitialized
 
 -- * Database stores
 
@@ -258,17 +263,10 @@ asWriteTransaction t = do
         (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
         _ -> Nothing
 
--- | Check if the database is initialized (i.e. whether any accounts are present in the map).
---  If the database is initialized then the function will return
---  @True@ and otherwise @False@.
-isInitialized :: (MonadIO m) => DatabaseHandlers -> m Bool
-isInitialized dbh = liftIO $ transaction (dbh ^. storeEnv) True $ \txn -> (/= 0) <$> databaseSize txn (dbh ^. accountMapStore)
-
--- | Perform an unsafe roll back of the LMDB store.
---  This function deletes the provided accounts from the store and sets the last finalized block
---  to the provided hash and height.
+-- | Delete the provided accounts from the LMDB store.
 --
---  It is to be considered unsafe as it does not
+--  This function should only be used when rolling back certified blocks. When rolling back finalized blocks,
+--  no accounts should be deleted as they are already confirmed to be finalized.
 unsafeRollback :: (MonadIO m, MonadLogger m, MonadReader r m, HasDatabaseHandlers r) => [AccountAddress] -> m ()
 unsafeRollback accounts = do
     handlers <- ask
@@ -314,3 +312,7 @@ instance
         checkEquivalence x y = accountAddressEmbed x == accountAddressEmbed y
 
     all = asReadTransaction $ \dbh txn -> loadAll txn (dbh ^. accountMapStore)
+
+    isInitialized = do
+        size <- asReadTransaction $ \dbh txn -> databaseSize txn (dbh ^. accountMapStore)
+        return $ size /= 0

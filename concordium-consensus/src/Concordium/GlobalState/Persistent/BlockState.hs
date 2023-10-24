@@ -50,6 +50,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
 import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
@@ -3588,6 +3589,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     cacheBlockState = cacheState
 
     cacheBlockStateAndGetTransactionTable = cacheStateAndGetTransactionTable
+    tryPopulateAccountMap = doTryPopulateAccountMap
 
 -- | Migrate the block state from the representation used by protocol version
 --  @oldpv@ to the one used by protocol version @pv@. The migration is done gradually,
@@ -3728,6 +3730,11 @@ cacheState hpbs = do
                   bspRewardDetails = red
                 }
     return ()
+
+doTryPopulateAccountMap :: (SupportsPersistentState pv m) => HashedPersistentBlockState pv -> m ()
+doTryPopulateAccountMap hpbs = do
+    BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
+    LMDBAccountMap.tryPopulateLMDBStore bspAccounts
 
 -- | Cache the block state and get the initial (empty) transaction table with the next account nonces
 --  and update sequence numbers populated.
