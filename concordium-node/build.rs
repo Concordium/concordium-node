@@ -691,6 +691,18 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
             .compile(&[&health], &[proto_root_input])
             .expect("Failed to compile gRPC health definitions!");
     }
+    {
+        let grpc_health_v1 = format!("{}/grpc/health/v1/health.proto", proto_root_input);
+        let descriptor_path = std::path::PathBuf::from(env::var("OUT_DIR").unwrap())
+            .join("grpc_health_v1_descriptor.bin");
+        // build the health service with reflection support
+        tonic_build::configure()
+            .build_server(true)
+            .build_client(false)
+            .file_descriptor_set_path(descriptor_path)
+            .compile(&[&grpc_health_v1], &[proto_root_input])
+            .expect("Failed to compile gRPC health definitions!");
+    }
     Ok(())
 }
 

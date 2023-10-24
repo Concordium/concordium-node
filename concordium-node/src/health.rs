@@ -8,12 +8,8 @@ use crate::{
 };
 use std::sync::Arc;
 
-include!(concat!(env!("OUT_DIR"), "/concordium.health.rs"));
-
-pub(crate) static HEALTH_DESCRIPTOR: &[u8] =
-    tonic::include_file_descriptor_set!("health_descriptor");
-
 /// The type that implements the service that responds to queries.
+#[derive(Clone)]
 pub(crate) struct HealthServiceImpl {
     pub(crate) consensus: ConsensusContainer,
     pub(crate) node: Arc<P2PNode>,
@@ -21,12 +17,14 @@ pub(crate) struct HealthServiceImpl {
     pub(crate) health_min_peers: Option<usize>,
 }
 
-#[tonic::async_trait]
-impl health_server::Health for HealthServiceImpl {
-    async fn check(
-        &self,
-        _request: tonic::Request<NodeHealthRequest>,
-    ) -> Result<tonic::Response<NodeHealthResponse>, tonic::Status> {
+impl HealthServiceImpl {
+    async fn check_service(&self, request: &str) -> Result<(), tonic::Status> {
+        if !request.is_empty() && request != "Queries" {
+            return Err(tonic::Status::unavailable(format!(
+                "The service {request} is not available."
+            )));
+        }
+
         let consensus_running = self.consensus.is_consensus_running();
 
         if !consensus_running {
@@ -69,6 +67,53 @@ impl health_server::Health for HealthServiceImpl {
             }
         }
 
-        Ok(tonic::Response::new(NodeHealthResponse {}))
+        Ok(())
+    }
+}
+
+pub mod grpc_health_v1 {
+    include!(concat!(env!("OUT_DIR"), "/grpc.health.v1.rs"));
+
+    pub(crate) static HEALTH_DESCRIPTOR: &[u8] =
+        tonic::include_file_descriptor_set!("grpc_health_v1_descriptor");
+
+    #[tonic::async_trait]
+    impl health_server::Health for super::HealthServiceImpl {
+        type WatchStream = futures::stream::Empty<tonic::Result<HealthCheckResponse>>;
+
+        async fn check(
+            &self,
+            request: tonic::Request<HealthCheckRequest>,
+        ) -> Result<tonic::Response<HealthCheckResponse>, tonic::Status> {
+            self.check_service(request.into_inner().service.as_str()).await?;
+            Ok(tonic::Response::new(HealthCheckResponse {
+                status: health_check_response::ServingStatus::Serving.into(),
+            }))
+        }
+
+        async fn watch(
+            &self,
+            _request: tonic::Request<HealthCheckRequest>,
+        ) -> Result<tonic::Response<Self::WatchStream>, tonic::Status> {
+            Err(tonic::Status::unimplemented("Watch is not implemented."))
+        }
+    }
+}
+
+pub mod concordium {
+    include!(concat!(env!("OUT_DIR"), "/concordium.health.rs"));
+
+    pub(crate) static HEALTH_DESCRIPTOR: &[u8] =
+        tonic::include_file_descriptor_set!("health_descriptor");
+
+    #[tonic::async_trait]
+    impl health_server::Health for super::HealthServiceImpl {
+        async fn check(
+            &self,
+            _request: tonic::Request<NodeHealthRequest>,
+        ) -> Result<tonic::Response<NodeHealthResponse>, tonic::Status> {
+            self.check_service("").await?;
+            Ok(tonic::Response::new(NodeHealthResponse {}))
+        }
     }
 }
