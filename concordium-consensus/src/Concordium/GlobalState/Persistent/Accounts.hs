@@ -12,6 +12,46 @@
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
+-- |
+--  * Adding accounts
+--  When an account is added (via ‘putNewAccount’) then it is first added to the ‘DifferenceMap’, it is kept in memory for the block until it either gets finalized or pruned.
+--  If a block is pruned then the retaining pointers are dropped and thus the block and associated ‘DifferenceMap’ is evicted from memory.
+--
+--  A thawed block is behind a  ‘BufferedRef’, this ‘BufferedRef’ is written to disk upon finalization (or certification for consensus version 1).
+--  This in return invokes ‘storeUpdate’ for all intermediate references for the block state for the particular block.
+--  When the accounts structure is being written to disk so is the ‘DifferenceMap’ i.e. the contents of the ‘DifferenceMap’ is being written to the lmdb backed account map.
+--
+--  * Startup flow
+--  When a consensus runner starts up it can either be via an existing state or from a fresh state (i.e. via a provided genesis configuration)
+--
+--  In the latter case then when starting up it is checked whether the lmdb backed account map is populated or not.
+--  If the map is not populated then it is being populated by traversing the account table and writing all @AccountAddress -> AccountIndex@ mappings into
+--  the lmdb store in one transaction and then it proceeds as normal.
+--  On the other hand, if the lmdb backed account map is already populated then the startup procedure will skip the populating step.
+--
+--  When starting up from a fresh genesis configuration then as part of creating the genesis state the difference map is being built containing all accounts present in the genesis configuration.
+--  When the genesis block is being written to disk, then so is the ‘DifferenceMap’ via the ‘storeUpdate’ implementation of the accounts structure.
+--
+--  * Rollbacks
+--  For consensus version 0 no actions are required when rolling back blocks. That is because we only ever store finalized blocks in this consensus version,
+--  then there is no need to actually roll back any of the account present in the lmdb backed account map - as the accounts are finalized.
+--
+--  For consensus version 1 we also store certified blocks in addition to the finalized blocks.
+--  Thus we have to roll back accounts that have been added to a certified block that is being rolled back.
+--  We do not need to roll back accounts that have been added as part of finalized blocks in this consensus version as explained above for consensus version 0.
+--
+--  General flow
+--  The account map resides in its own lmdb database and functions across protocol versions.
+--  There is a ‘DifferenceMap’ associated with each block.
+--  For frozen blocks this is simply empty, while for thawed blocks it may or may not contain @ AccountAddress -> AccountIndex@ mappings depending on whether an account has been added for that particular block.
+--
+--  The lmdb backed account map consists of a single lmdb store indexed by AccountAddresses and values are the associated ‘AccountIndex’ for each account.
+--
+--  (The ‘DifferenceMap’ consists of a @Map AccountAddress AccountIndes@ which retains the accounts that have been added to the chain for the associated block.
+--  Moreover the ‘DifferenceMap’ potentially retains a pointer to a so-called parent ‘DifferenceMap’.
+--  I.e. @Maybe DifferenceMap@. If this is @Nothing@ then it means that the parent block is certified or finalized.
+--  If the parent map yields a ‘DifferenceMap’ then the parent block is not persisted yet, and so the ‘DifferenceMap’ uses this parent map
+--  for keeping track of non persisted accounts for supporting e.g. queries via the ‘AccountAddress’.
 module Concordium.GlobalState.Persistent.Accounts where
 
 import Control.Monad.Reader
