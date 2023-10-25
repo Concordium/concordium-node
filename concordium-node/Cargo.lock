@@ -599,7 +599,7 @@ version = "3.0.1"
 dependencies = [
  "aes",
  "anyhow",
- "base64 0.13.1",
+ "base64 0.21.1",
  "bs58",
  "byteorder",
  "cbc",
