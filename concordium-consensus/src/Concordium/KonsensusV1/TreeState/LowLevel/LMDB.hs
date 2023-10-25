@@ -806,8 +806,7 @@ rollBackBlocksUntil checkState = do
                             count
                             (qcRound qc - 1)
                     else do
-                        -- delete any accounts created in this block in the LMDB account map.
-
+                        -- delete any accounts created in this certified block in the LMDB account map.
                         let accountsToDelete = mapMaybe getAccountAddressFromDeployment (blockTransactions block)
                         void $ LMDBAccountMap.unsafeRollback accountsToDelete
                         -- Delete the block and the QC
@@ -870,7 +869,7 @@ rollBackBlocksUntil checkState = do
         return count
     -- Roll back finalized blocks until the last explicitly finalized block where the state
     -- check passes.
-    -- Note, that we do not need to delete accounts in the LMDB account map as
+    -- Note, that we do not need to delete accounts in the LMDB account map as finalized accounts should never be rolled back.
     rollFinalized count lastFin = do
         when (blockRound lastFin == 0) $
             throwM . DatabaseRecoveryFailure $
