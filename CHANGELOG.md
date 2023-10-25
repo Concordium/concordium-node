@@ -4,6 +4,23 @@
 - The account map is now kept solely on disk in a separate lmdb database and it is no longer part of the internal block state database.
   This change results in less memory usage per account and a decrease in the growth of the database.
 
+## 6.1.7
+
+ - Add load-shedding to the V2 GRPC API. In particular, if at the time of the
+  request the node is already handling more than
+  `CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS` requests then the incoming
+  request will be immediately rejected.
+
+## 6.1.6
+
+- Fix a regression in the start up time. When upgrading from an earlier version, the first start-up
+  time may be longer than usual, as the genesis state hashes are computed. Subsequent restarts
+  will not suffer this penalty.
+
+## 6.1.5
+
+- Enable out of band catchup by default in all distributions.
+
 ## 6.1.4
 
 - Expose the health check service via grpc-web when grpc-web is enabled.

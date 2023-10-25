@@ -1,17 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- When updating the product version, the Product Id should be refreshed, otherwise it will not be
-    possible to upgrade an existing installation.
+<!-- This configuration assumes that an environment variables _NodeVersion and _NodeProductId
+     are set, the former is the version of the node, and the latter is a GUID
+     that should be fresh for each built package. If the GUID is not fresh it will not be
+     possible to upgrade an existing installation.
 -->
-<?define VersionNumber="6.1.4" ?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:Util="http://schemas.microsoft.com/wix/UtilExtension">
-    <Product Name="Concordium Node" Manufacturer="Concordium Software" Id="3e3b0234-b6d0-47e2-adb5-1cfd6f1cb5ca" UpgradeCode="297295b4-c716-4d33-8170-0f6136663bfd" Language="1033" Codepage="1252" Version="$(var.VersionNumber)">
-        <Package Id="*" Keywords="Concordium Installer" Description="Concordium Node $(var.VersionNumber) Installer" Manufacturer="Concordium Software" InstallerVersion="500" Languages="1033" Compressed="yes" InstallScope="perMachine" />
+    <Product Name="Concordium Node" Manufacturer="Concordium Software" Id="$(env._NodeProductId)" UpgradeCode="297295b4-c716-4d33-8170-0f6136663bfd" Language="1033" Codepage="1252" Version="$(env._NodeVersion)">
+        <Package Id="*" Keywords="Concordium Installer" Description="Concordium Node $(env._NodeVersion) Installer" Manufacturer="Concordium Software" InstallerVersion="500" Languages="1033" Compressed="yes" InstallScope="perMachine" />
         <MajorUpgrade Schedule="afterInstallValidate" DowngradeErrorMessage="The currently-installed version of [ProductName] is newer than the version you are trying to install. The installation cannot continue. If you wish to install this version, please remove the newer version first." />
         <Media Id="1" Cabinet="Node.cab" EmbedCab="yes" />
         <Directory Id="TARGETDIR" Name="SourceDir">
             <Directory Id="ProgramFiles64Folder" Name="PFiles">
                 <Directory Id="Concordium" Name="Concordium">
-                    <Directory Id="INSTALLDIR" Name="Node $(var.VersionNumber)">
+                    <Directory Id="INSTALLDIR" Name="Node $(env._NodeVersion)">
                         <!-- The installation directory. Here, we install:
                             * concordium-node.exe
                             * HSdll.dll

@@ -28,6 +28,7 @@ module Concordium.GlobalState.Persistent.LMDB (
     resizeOnResized,
     finalizedByHeightStore,
     StoredBlock (..),
+    StoredBlockWithStateHash (..),
     readBlock,
     readFinalizationRecord,
     readTransactionStatus,
@@ -38,6 +39,7 @@ module Concordium.GlobalState.Persistent.LMDB (
     getFinalizedBlockAtHeight,
     getLastBlock,
     getFirstBlock,
+    writeGenesisBlockStateHash,
     writeBlock,
     writeFinalizationRecord,
     writeTransactionStatus,
@@ -96,6 +98,18 @@ putStoredBlock StoredBlock{..} =
         <> S.put sbInfo
         <> putBlock (protocolVersion @pv) sbBlock
         <> S.put sbState
+
+-- | A stored block together with its state hash.
+--  If the stored block is a baked block, then the state hash must always be present, and match
+--  the state hash present in the block. For a genesis block, the state hash should be present,
+--  unless it is not available. (This can be the case when updating from earlier node versions
+--  that did not store the state hash of the genesis block in the tree state database.)
+data StoredBlockWithStateHash pv st = StoredBlockWithStateHash
+    { -- | The stored block.
+      sbshStoredBlock :: !(StoredBlock pv st),
+      -- | The block state hash.
+      sbshStateHash :: !(Maybe StateHash)
+    }
 
 -- | A block store table. A @BlockStore pv st@ stores @StoredBlock pv st@ blocks
 --  indexed by 'BlockHash'.
@@ -216,6 +230,13 @@ instance MDBDatabase MetadataStore where
 --  This key should map to a serialized 'VersionMetadata' structure.
 versionMetadata :: DBKey MetadataStore
 versionMetadata = "version"
+
+-- | Key used to store the state hash for the genesis block in the metadata.
+--  If a value is present at this key, it must be the block state hash for the genesis block.
+--  Since this entry was not present in older databases, its absence is permissible and must be
+--  handled gracefully.
+genesisStateHashMetadata :: DBKey MetadataStore
+genesisStateHashMetadata = "genesisStateHash"
 
 data VersionMetadata = VersionMetadata
     { -- | Version signifier for the database itself.
@@ -396,10 +417,12 @@ initializeDatabase ::
     PersistentBlockPointer pv bs ->
     -- | Genesis block state
     st ->
+    -- | Genesis block state hash
+    StateHash ->
     -- | Tree state directory
     FilePath ->
     IO (DatabaseHandlers pv st)
-initializeDatabase gb stRef treeStateDir = do
+initializeDatabase gb stRef gbStateHash treeStateDir = do
     createDirectoryIfMissing False treeStateDir
     let storedGenesis =
             StoredBlock
@@ -427,6 +450,7 @@ initializeDatabase gb stRef treeStateDir = do
                     { vmDatabaseVersion = 0,
                       vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
                     }
+        storeRecord txn _metadataStore genesisStateHashMetadata $ S.encode gbStateHash
     return handlers
 
 -- | Add a database version record to a database (if one is not already present).
@@ -513,16 +537,44 @@ resizeDatabaseHandlers dbh size = do
     logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
     liftIO . withWriteStoreEnv (dbh ^. storeEnv) $ flip mdb_env_set_mapsize newMapSize
 
+-- | Load a block and its state hash (if available).
+-- Normal blocks already contain their state hash. For genesis blocks, the state hash is loaded
+-- from the metadata table if it is present there.
+loadBlock ::
+    (MDBDatabase (BlockStore pv st)) =>
+    MDB_txn ->
+    DatabaseHandlers pv st ->
+    DBKey (BlockStore pv st) ->
+    IO (Maybe (StoredBlockWithStateHash pv st))
+loadBlock txn dbh bh = do
+    mblock <- loadRecord txn (dbh ^. blockStore) bh
+    forM mblock $ \sb -> case sbBlock sb of
+        GenesisBlock{} -> do
+            let tryDecode Nothing = Nothing
+                tryDecode (Just bs) = S.decode bs ^? _Right
+            mGenHashBS <- loadRecord txn (dbh ^. metadataStore) genesisStateHashMetadata
+            return $!
+                StoredBlockWithStateHash
+                    { sbshStoredBlock = sb,
+                      sbshStateHash = tryDecode mGenHashBS
+                    }
+        NormalBlock bb ->
+            return $!
+                StoredBlockWithStateHash
+                    { sbshStoredBlock = sb,
+                      sbshStateHash = Just (bbStateHash bb)
+                    }
+
 -- | Read a block from the database by hash.
 readBlock ::
     (MonadIO m, MonadState s m, IsProtocolVersion pv, HasDatabaseHandlers pv st s, FixedSizeSerialization st) =>
     BlockHash ->
-    m (Maybe (StoredBlock pv st))
+    m (Maybe (StoredBlockWithStateHash pv st))
 readBlock bh = do
     dbh <- use dbHandlers
     liftIO $
         transaction (dbh ^. storeEnv) True $
-            \txn -> loadRecord txn (dbh ^. blockStore) bh
+            \txn -> loadBlock txn dbh bh
 
 -- | Read a finalization record from the database by finalization index.
 readFinalizationRecord ::
@@ -551,17 +603,17 @@ getFinalizedBlockAtHeight ::
     (IsProtocolVersion pv, FixedSizeSerialization st) =>
     DatabaseHandlers pv st ->
     BlockHeight ->
-    IO (Maybe (StoredBlock pv st))
+    IO (Maybe (StoredBlockWithStateHash pv st))
 getFinalizedBlockAtHeight dbh bHeight = transaction (dbh ^. storeEnv) True $
     \txn -> do
         mbHash <- loadRecord txn (dbh ^. finalizedByHeightStore) bHeight
-        join <$> mapM (loadRecord txn (dbh ^. blockStore)) mbHash
+        join <$> mapM (loadBlock txn dbh) mbHash
 
 -- | Read a block from the database by its height.
 readFinalizedBlockAtHeight ::
     (MonadIO m, MonadState s m, IsProtocolVersion pv, HasDatabaseHandlers pv st s, FixedSizeSerialization st) =>
     BlockHeight ->
-    m (Maybe (StoredBlock pv st))
+    m (Maybe (StoredBlockWithStateHash pv st))
 readFinalizedBlockAtHeight bHeight = do
     dbh <- use dbHandlers
     liftIO $ getFinalizedBlockAtHeight dbh bHeight
@@ -608,22 +660,28 @@ loadBlocksFinalizationIndexes dbh = transaction (dbh ^. storeEnv) True $ \txn ->
         loop fstRes HM.empty
 
 -- | Get the last finalized block by block height.
-getLastBlock :: (IsProtocolVersion pv, FixedSizeSerialization st) => DatabaseHandlers pv st -> IO (Either String (FinalizationRecord, StoredBlock pv st))
+getLastBlock ::
+    (IsProtocolVersion pv, FixedSizeSerialization st) =>
+    DatabaseHandlers pv st ->
+    IO (Either String (FinalizationRecord, StoredBlockWithStateHash pv st))
 getLastBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
     mLastFin <- withCursor txn (dbh ^. finalizationRecordStore) $ getCursor CursorLast
     case mLastFin of
         Just (Right (_, finRec)) ->
-            loadRecord txn (dbh ^. blockStore) (finalizationBlockPointer finRec) >>= \case
+            loadBlock txn dbh (finalizationBlockPointer finRec) >>= \case
                 Just block -> return $ Right (finRec, block)
                 Nothing -> return . Left $ "Could not read last finalized block by hash " <> show (finalizationBlockPointer finRec)
         Just (Left s) -> return $ Left $ "Could not read last finalization record: " ++ s
         Nothing -> return $ Left "No last finalized block found"
 
 -- | Get the first block
-getFirstBlock :: (IsProtocolVersion pv, FixedSizeSerialization st) => DatabaseHandlers pv st -> IO (Maybe (StoredBlock pv st))
+getFirstBlock ::
+    (IsProtocolVersion pv, FixedSizeSerialization st) =>
+    DatabaseHandlers pv st ->
+    IO (Maybe (StoredBlockWithStateHash pv st))
 getFirstBlock dbh = transaction (dbh ^. storeEnv) True $ \txn -> do
     mbHash <- loadRecord txn (dbh ^. finalizedByHeightStore) 0
-    join <$> mapM (loadRecord txn (dbh ^. blockStore)) mbHash
+    join <$> mapM (loadBlock txn dbh) mbHash
 
 -- | Perform a database action that may require the database to be resized,
 --  resizing the database if necessary. The size argument is only evaluated
@@ -666,6 +724,17 @@ resizeOnFullInternal addSize dbh a = inner
     selectDBFullError = \case
         (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
         _ -> Nothing
+
+-- | Write the state hash of the genesis block into the metadata store.
+writeGenesisBlockStateHash ::
+    (MonadLogger m, MonadIO m) =>
+    DatabaseHandlers pv st ->
+    StateHash ->
+    m ()
+writeGenesisBlockStateHash dbh0 genBlockStateHash = resizeOnFullInternal 1024 dbh0 $
+    \dbh -> transaction (dbh ^. storeEnv) False $ \txn -> do
+        let encHash = S.encode genBlockStateHash
+        storeReplaceRecord txn (dbh ^. metadataStore) genesisStateHashMetadata encHash
 
 -- | Write a block to the database. Adds it both to the index by height and
 --  by block hash.
@@ -774,21 +843,24 @@ unrollTreeStateWhile ::
     -- | A predicate determining if a block should be removed from the database. It is allowed to
     --  perform IO actions, for example, to attempt to read the block state from the blob store.
     (StoredBlock pv st -> m Bool) ->
-    m (Either String (FinalizationRecord, StoredBlock pv st))
+    m (Either String (FinalizationRecord, StoredBlockWithStateHash pv st))
 unrollTreeStateWhile dbh shouldDelete =
-    let loopBlocks h txn delbhs finIndex sb | NormalBlock block <- sbBlock sb = do
-            let bh = _bpHash . sbInfo $ sb
+    let loopBlocks h txn delbhs finIndex sblock | NormalBlock block <- sbBlock (sbshStoredBlock sblock) = do
+            let blockInfo = sbInfo . sbshStoredBlock $ sblock
+            let bh = _bpHash blockInfo
             -- When deleting a block, also delete the corresponding entry in the block height index
             -- and the statuses of all transactions included in the block. If any of those are not
             -- present in the database, report the treestate corruption, so it can be treated
             -- elsewhere.
             delBlockOK <- deleteRecord txn (h ^. blockStore) bh
-            delBlockHashOK <- deleteRecord txn (h ^. finalizedByHeightStore) (_bpHeight . sbInfo $ sb)
+            delBlockHashOK <- deleteRecord txn (h ^. finalizedByHeightStore) (_bpHeight blockInfo)
             delTxsOK <- mapM (deleteRecord txn (h ^. transactionStatusStore)) ((wmdHash <$>) . blockTransactions $ block)
             if delBlockOK && delBlockHashOK && and delTxsOK
                 then do
-                    loadRecord txn (h ^. blockStore) (blockPointer block) >>= \case
-                        Just sbParent | finIndex == sbFinalizationIndex sbParent -> loopBlocks h txn (bh : delbhs) finIndex sbParent
+                    loadBlock txn h (blockPointer block) >>= \case
+                        Just sbParent
+                            | finIndex == sbFinalizationIndex (sbshStoredBlock sbParent) ->
+                                loopBlocks h txn (bh : delbhs) finIndex sbParent
                         -- In particular, we stop deleting blocks when the current block's parent is the genesis
                         -- block, which is the only block with the finalization index 0.
                         Just sbParent -> return . Right $ (sbParent, bh : delbhs)
@@ -796,13 +868,13 @@ unrollTreeStateWhile dbh shouldDelete =
                 else return . Left $ "Could not rollback block " <> show bh
         -- If the rollback reached the genesis block, do nothing. The genesis block state corruption
         -- is to be handled as part of handling global state initialisation failure.
-        loopBlocks _ _ delbhs _ sb | otherwise = return . Right $ (sb, delbhs)
+        loopBlocks _ _ delbhs _ sblock = return . Right $ (sblock, delbhs)
 
-        loopFinRecs finIndex sb = do
-            isP <- shouldDelete sb
+        loopFinRecs finIndex sblock = do
+            isP <- shouldDelete (sbshStoredBlock sblock)
             if isP
                 then do
-                    let bh = _bpHash . sbInfo $ sb
+                    let bh = _bpHash . sbInfo $ sbshStoredBlock sblock
                     eancestor <- resizeOnFullInternal 4096 dbh $ \h -> transaction (h ^. storeEnv) False $ \txn -> do
                         -- After a finalization record is deleted, we must delete not only the block explicitly
                         -- finalized by it but also all ancestors of that block having the same finalization
@@ -811,7 +883,7 @@ unrollTreeStateWhile dbh shouldDelete =
                         -- finalization record.
                         delFinRecOK <- deleteRecord txn (h ^. finalizationRecordStore) finIndex
                         if delFinRecOK
-                            then loopBlocks h txn [] finIndex sb
+                            then loopBlocks h txn [] finIndex sblock
                             else
                                 return . Left $
                                     "Could not delete the finalization record with index "
@@ -828,8 +900,8 @@ unrollTreeStateWhile dbh shouldDelete =
                                     <> intercalate ", " (show <$> delbhs)
                                     <> " and finalization record "
                                     <> show finIndex
-                            loopFinRecs (sbFinalizationIndex ancestor) ancestor
-                else return . Right $ (finIndex, sb)
+                            loopFinRecs (sbFinalizationIndex $ sbshStoredBlock ancestor) ancestor
+                else return . Right $ (finIndex, sblock)
     in  liftIO (getLastBlock dbh) >>= \case
             Left s -> return . Left $ s
             Right (finRec, sb) ->
@@ -847,4 +919,4 @@ unrollTreeStateWhile dbh shouldDelete =
                                 Nothing ->
                                     return . Left $
                                         "Could not read the finalization record for the block "
-                                            <> show (_bpHash . sbInfo $ sb')
+                                            <> show (_bpHash . sbInfo . sbshStoredBlock $ sb')

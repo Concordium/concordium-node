@@ -25,6 +25,7 @@ docker build\
        --build-arg static_binaries_image_tag=$STATIC_BINARIES_IMAGE_TAG\
        --build-arg build_env_name=Testnet\
        --build-arg build_env_name_lower=testnet\
+       --build-arg build_catchup_url=https://catchup.testnet.concordium.com/blocks.idx\
        --build-arg build_genesis_hash=4221332d34e1694168c2a0c0b3fd0f273809612cb13d000d5c2e00e85f50f796\
        --build-arg build_collector_backend_url=https://dashboard.testnet.concordium.com/nodes/post\
        --build-arg build_grpc2_listen_port=20001\

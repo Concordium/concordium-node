@@ -48,6 +48,8 @@ collector.enabled = false
 # non-baker nodes. It significantly reduces CPU use when the node's database is
 # large and seems to have little downside.
 node.env.CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS = '-I0'
+# Enable out-of-band catch-up to download blocks.
+node.env.CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_FROM = "https://catchup.mainnet.concordium.software/blocks.idx"
 
 [node.testnet]
 # Controls whether the node is enabled
@@ -91,3 +93,5 @@ collector.enabled = false
 # non-baker nodes. It significantly reduces CPU use when the node's database is
 # large and seems to have little downside.
 node.env.CONCORDIUM_NODE_RUNTIME_HASKELL_RTS_FLAGS = '-I0'
+# Enable out-of-band catch-up to download blocks.
+node.env.CONCORDIUM_NODE_CONSENSUS_DOWNLOAD_BLOCKS_FROM = "https://catchup.testnet.concordium.com/blocks.idx"
