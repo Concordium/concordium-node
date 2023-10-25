@@ -9,6 +9,9 @@
 //! The service under [`grpc_health_v1`] implements the
 //! [GRPC health checking protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md)
 //! and responds with Ok and a message that contains the status.
+//!
+//! See also [GRPC Core health checking protocol](https://grpc.github.io/grpc/core/md_doc_health-checking.html)
+//! for details about expectations of this service.
 
 use crate::{
     common::PeerType,
@@ -142,6 +145,10 @@ pub mod grpc_health_v1 {
             }
         }
 
+        // According to the service description it is OK to respond with "Not
+        // implemented" and the clients should not try to query this again.
+        // We don't implement this since it'd require more extensive changes
+        // to trigger sending subsequent messages if the service gets unhealthy.
         async fn watch(
             &self,
             _request: tonic::Request<HealthCheckRequest>,
