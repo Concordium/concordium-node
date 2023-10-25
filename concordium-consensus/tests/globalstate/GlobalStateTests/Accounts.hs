@@ -67,19 +67,19 @@ checkBinaryM bop x y sbop sx sy = do
 --  That is, they have the same account map, account table, and set of
 --  use registration ids.
 checkEquivalent :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => B.Accounts PV -> P.Accounts PV -> m ()
-checkEquivalent ba pa@P.Accounts{..} = do
+checkEquivalent ba pa = do
     addrsAndIndices <- P.allAccounts pa
     viaTable <- P.allAccountsViaTable pa
     checkBinary (==) (Map.fromList viaTable) (Map.fromList addrsAndIndices) "==" "Account table" "Persistent account map"
     checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) (Map.fromList addrsAndIndices) "==" "Basic account map" "Persistent account map"
     let bat = BAT.toList (B.accountTable ba)
-    pat <- L.toAscPairList (P.accountTable aadAccounts)
+    pat <- L.toAscPairList (P.accountTable pa)
     bpat <- mapM (_2 PA.toTransientAccount) pat
     checkBinary (==) bat bpat "==" "Basic account table (as list)" "Persistent account table (as list)"
     let bath = getHash (B.accountTable ba) :: H.Hash
-    path <- getHashM (P.accountTable aadAccounts)
+    path <- getHashM (P.accountTable pa)
     checkBinary (==) bath path "==" "Basic account table hash" "Persistent account table hash"
-    pregids <- P.loadRegIds aadAccounts
+    pregids <- P.loadRegIds pa
     checkBinary (==) (B.accountRegIds ba) pregids "==" "Basic registration ids" "Persistent registration ids"
 
 data AccountAction
