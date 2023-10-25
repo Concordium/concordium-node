@@ -2,9 +2,12 @@
 
 ## Unreleased changes
 
+- Add an additional health-check service to the V2 GRPC API.
+  This service conforms to the [standard GRPC health service API](https://github.com/grpc/grpc-proto/blob/master/grpc/health/v1/health.proto).
+
 ## 6.1.7
 
- - Add load-shedding to the V2 GRPC API. In particular, if at the time of the
+- Add load-shedding to the V2 GRPC API. In particular, if at the time of the
   request the node is already handling more than
   `CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS` requests then the incoming
   request will be immediately rejected.
