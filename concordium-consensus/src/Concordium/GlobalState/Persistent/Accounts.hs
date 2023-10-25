@@ -14,27 +14,35 @@
 
 -- |
 --  * Adding accounts
---  When an account is added (via ‘putNewAccount’) then it is first added to the ‘DifferenceMap’, it is kept in memory for the block until it either gets finalized or pruned.
+--  When an account is added (via ‘putNewAccount’) then it is first added to the ‘DifferenceMap’,
+--  it is kept in memory for the block until it either gets finalized or pruned.
 --  If a block is pruned then the retaining pointers are dropped and thus the block and associated ‘DifferenceMap’ is evicted from memory.
 --
---  A thawed block is behind a  ‘BufferedRef’, this ‘BufferedRef’ is written to disk upon finalization (or certification for consensus version 1).
+--  A thawed block is behind a  ‘BufferedRef’, this ‘BufferedRef’ is written to disk upon finalization
+--  (or certification for consensus version 1).
 --  This in return invokes ‘storeUpdate’ for all intermediate references for the block state for the particular block.
---  When the accounts structure is being written to disk so is the ‘DifferenceMap’ i.e. the contents of the ‘DifferenceMap’ is being written to the lmdb backed account map.
+--  When the accounts structure is being written to disk so is the ‘DifferenceMap’,
+--  i.e. the contents of the ‘DifferenceMap’ is being written to the lmdb backed account map.
 --
 --  * Startup flow
---  When a consensus runner starts up it can either be via an existing state or from a fresh state (i.e. via a provided genesis configuration)
+--  When a consensus runner starts up it can either be via an existing state or
+--  from a fresh state (i.e. via a provided genesis configuration)
 --
 --  In the latter case then when starting up it is checked whether the lmdb backed account map is populated or not.
---  If the map is not populated then it is being populated by traversing the account table and writing all @AccountAddress -> AccountIndex@ mappings into
+--  If the map is not populated then it is being populated by traversing the account table
+--  and writing all @AccountAddress -> AccountIndex@ mappings into
 --  the lmdb store in one transaction and then it proceeds as normal.
 --  On the other hand, if the lmdb backed account map is already populated then the startup procedure will skip the populating step.
 --
---  When starting up from a fresh genesis configuration then as part of creating the genesis state the difference map is being built containing all accounts present in the genesis configuration.
---  When the genesis block is being written to disk, then so is the ‘DifferenceMap’ via the ‘storeUpdate’ implementation of the accounts structure.
+--  When starting up from a fresh genesis configuration then as part of creating the genesis state,
+--  then the difference map is being built containing all accounts present in the genesis configuration.
+--  When the genesis block is being written to disk, then so is the ‘DifferenceMap’
+--  via the ‘storeUpdate’ implementation of the accounts structure.
 --
 --  * Rollbacks
---  For consensus version 0 no actions are required when rolling back blocks. That is because we only ever store finalized blocks in this consensus version,
---  then there is no need to actually roll back any of the account present in the lmdb backed account map - as the accounts are finalized.
+--  For consensus version 0 no actions are required when rolling back blocks.
+--  That is because we only ever store finalized blocks in this consensus version,
+--  then there is no need to actually roll back any of the account present in the lmdb backed account map (as the accounts are finalized).
 --
 --  For consensus version 1 we also store certified blocks in addition to the finalized blocks.
 --  Thus we have to roll back accounts that have been added to a certified block that is being rolled back.
@@ -43,7 +51,8 @@
 --  General flow
 --  The account map resides in its own lmdb database and functions across protocol versions.
 --  There is a ‘DifferenceMap’ associated with each block.
---  For frozen blocks this is simply empty, while for thawed blocks it may or may not contain @ AccountAddress -> AccountIndex@ mappings depending on whether an account has been added for that particular block.
+--  For frozen blocks this is simply empty, while for thawed blocks it may or may not
+--  contain @ AccountAddress -> AccountIndex@ mappings depending on whether an account has been added for that particular block.
 --
 --  The lmdb backed account map consists of a single lmdb store indexed by AccountAddresses and values are the associated ‘AccountIndex’ for each account.
 --
@@ -70,6 +79,7 @@ import Concordium.Types
 import Concordium.Utils.Serialization.Put
 
 import qualified Concordium.Crypto.SHA256 as H
+import qualified Concordium.GlobalState.AccountMap as OldMap
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Parameters
@@ -165,8 +175,18 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (AccountsAndDiffMap 
                             },
                       aadDiffMap = DiffMap.empty $ Just aadDiffMap
                     }
-        return (pTable >> pRegIdHistory, newAccounts)
+        -- put an empty 'OldMap.PersistentAccountMap'.
+        -- In earlier versions of the node the above mentioned account map was used,
+        -- but this is now superseded by the 'LMDBAccountMap.MonadAccountMapStore'.
+        -- We put this (0 :: Int) here to remain backwards compatible as this simply indicates an empty map.
+        -- This should be revised as part of a future protocol update when the database layout can be changed.
+        return (put (0 :: Int) >> pTable >> pRegIdHistory, newAccounts)
     load = do
+        -- load the persistent account map and throw it away. We always put an empty one in,
+        -- but that has not always been the case. But the 'OldMap.PersistentAccountMap' is now superseded by
+        -- the LMDBAccountMap.MonadAccountMapStore.
+        -- This should be revised as part of a future protocol update when the database layout can be changed.
+        void (load :: Get (m (OldMap.PersistentAccountMap pv)))
         maccountTable <- load
         mrRIH <- load
         return $ do
@@ -346,14 +366,14 @@ foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
 
 -- | Get all account addresses and their assoicated 'AccountIndex' via the account table in ascending order
 --  of account index.
---  Note. This should only be used as part of migrating accounts to the lmdb backed account map.
---  All other queries should use 'allAccounts'.
+-- Note. This function should only be used when querying a historical block. When querying with respect to the "best block" then
+-- use 'allAccounts'.
 allAccountsViaTable :: (SupportsPersistentAccount pv m) => AccountsAndDiffMap pv -> m [(AccountAddress, AccountIndex)]
 allAccountsViaTable accts = do
     addresses <-
         foldAccountsDesc
             ( \accum pacc -> do
-                addr <- accountCanonicalAddress pacc
+                !addr <- accountCanonicalAddress pacc
                 return $ addr : accum
             )
             []

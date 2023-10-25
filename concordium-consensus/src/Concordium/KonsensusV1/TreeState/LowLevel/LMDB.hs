@@ -40,7 +40,6 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
 
-import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.KonsensusV1.TreeState.LowLevel
 import Concordium.KonsensusV1.TreeState.Types
@@ -484,12 +483,6 @@ newtype DiskLLDBM (pv :: ProtocolVersion) m a = DiskLLDBM {runDiskLLDBM :: m a}
 
 deriving instance (MonadReader r m) => MonadReader r (DiskLLDBM pv m)
 
-deriving via
-    (LMDBAccountMap.AccountMapStoreMonad m)
-    instance
-        (MonadLogger m, MonadIO m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) =>
-        LMDBAccountMap.MonadAccountMapStore (DiskLLDBM pv m)
-
 instance (IsProtocolVersion pv) => MonadProtocolVersion (DiskLLDBM pv m) where
     type MPV (DiskLLDBM pv m) = pv
 
@@ -726,14 +719,15 @@ rollBackBlocksUntil ::
     ( IsProtocolVersion pv,
       MonadReader r m,
       HasDatabaseHandlers r pv,
-      LMDBAccountMap.HasDatabaseHandlers r,
       MonadIO m,
       MonadCatch m,
       MonadLogger m
     ) =>
     -- | Callback for checking if the state at a given reference is valid.
     (BlockStateRef pv -> DiskLLDBM pv m Bool) ->
-    DiskLLDBM pv m (Int, BlockStateRef pv)
+    -- | Returns the number of blocks rolled back, the best state after the roll back and a list of
+    --  accounts created in certified blocks that was rolled back.
+    DiskLLDBM pv m (Int, BlockStateRef pv, [AccountAddress])
 rollBackBlocksUntil checkState = do
     lookupLastFinalizedBlock >>= \case
         Nothing -> throwM . DatabaseRecoveryFailure $ "No last finalized block."
@@ -746,8 +740,9 @@ rollBackBlocksUntil checkState = do
                 else do
                     -- The last finalized block is not intact, so roll back all of the
                     -- certified blocks, then roll back finalized blocks.
-                    count <- purgeCertified
-                    rollFinalized count lastFin
+                    (count, accsCreated) <- purgeCertified
+                    (count', bstState) <- rollFinalized count lastFin
+                    return (count', bstState, accsCreated)
   where
     -- Check the non-finalized certified blocks, from the highest round backwards.
     checkCertified ::
@@ -756,7 +751,7 @@ rollBackBlocksUntil checkState = do
         -- highest surviving block state so far (from last finalized block)
         BlockStateRef pv ->
         -- returns the number of blocks rolled back and the highest surviving block state
-        DiskLLDBM pv m (Int, BlockStateRef pv)
+        DiskLLDBM pv m (Int, BlockStateRef pv, [AccountAddress])
     checkCertified lastFinRound bestState = do
         mHighestQC <- asReadTransaction $ \dbh txn ->
             withCursor
@@ -764,9 +759,9 @@ rollBackBlocksUntil checkState = do
                 (dbh ^. nonFinalizedQuorumCertificateStore)
                 (getCursor CursorLast)
         case mHighestQC of
-            Nothing -> return (0, bestState)
+            Nothing -> return (0, bestState, [])
             Just (Left e) -> throwM . DatabaseRecoveryFailure $ e
-            Just (Right (_, qc)) -> checkCertifiedWithQC lastFinRound bestState 0 qc
+            Just (Right (_, qc)) -> checkCertifiedWithQC lastFinRound bestState 0 [] qc
     -- Get the account address of a creadential deployment.
     getAccountAddressFromDeployment bi = case bi of
         WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} ->
@@ -785,11 +780,13 @@ rollBackBlocksUntil checkState = do
         BlockStateRef pv ->
         -- number of blocks rolled back so far
         Int ->
+        -- accounts created in the certified blocks
+        [AccountAddress] ->
         -- QC for certified block to check
         QuorumCertificate ->
         -- returns the number of blocks rolled back and the highest surviving block state
-        DiskLLDBM pv m (Int, BlockStateRef pv)
-    checkCertifiedWithQC lastFinRound bestState !count qc = do
+        DiskLLDBM pv m (Int, BlockStateRef pv, [AccountAddress])
+    checkCertifiedWithQC lastFinRound bestState !count accsCreated qc = do
         mBlock <- asReadTransaction $ \dbh txn ->
             loadRecord txn (dbh ^. blockStore) (qcBlock qc)
         case mBlock of
@@ -804,11 +801,11 @@ rollBackBlocksUntil checkState = do
                             lastFinRound
                             (max bestState (stbStatePointer block))
                             count
+                            accsCreated
                             (qcRound qc - 1)
                     else do
-                        -- delete any accounts created in this certified block in the LMDB account map.
+                        -- Record the accounts created in the rolled back certified block.
                         let accountsToDelete = mapMaybe getAccountAddressFromDeployment (blockTransactions block)
-                        void $ LMDBAccountMap.unsafeRollback accountsToDelete
                         -- Delete the block and the QC
                         asWriteTransaction $ \dbh txn -> do
                             void $
@@ -826,6 +823,7 @@ rollBackBlocksUntil checkState = do
                             lastFinRound
                             bestState
                             (count + 1)
+                            (accsCreated ++ accountsToDelete)
                             (qcRound qc - 1)
     -- Step the non-finalized certified block check to the previous round.
     checkCertifiedPreviousRound ::
@@ -835,41 +833,46 @@ rollBackBlocksUntil checkState = do
         BlockStateRef pv ->
         -- number of blocks rolled back so far
         Int ->
+        -- Accounts created in the certified blocks
+        [AccountAddress] ->
         -- round to check for
         Round ->
         -- returns the number of blocks rolled back and the highest surviving block state
-        DiskLLDBM pv m (Int, BlockStateRef pv)
-    checkCertifiedPreviousRound lastFinRound bestState count currentRound
-        | currentRound <= lastFinRound = return (count, bestState)
+        DiskLLDBM pv m (Int, BlockStateRef pv, [AccountAddress])
+    checkCertifiedPreviousRound lastFinRound bestState count accsCreated currentRound
+        | currentRound <= lastFinRound = return (count, bestState, accsCreated)
         | otherwise = do
             mNextQC <- asReadTransaction $ \dbh txn ->
                 loadRecord txn (dbh ^. nonFinalizedQuorumCertificateStore) currentRound
             case mNextQC of
                 Nothing ->
-                    checkCertifiedPreviousRound lastFinRound bestState count (currentRound - 1)
+                    checkCertifiedPreviousRound lastFinRound bestState count accsCreated (currentRound - 1)
                 Just qc ->
-                    checkCertifiedWithQC lastFinRound bestState count qc
+                    checkCertifiedWithQC lastFinRound bestState count accsCreated qc
     -- Purge all of the certified blocks. Returns the number of blocks rolled back.
     purgeCertified = do
-        (count, hashes) <- asWriteTransaction $ \dbh txn -> do
+        (count, hashes, accsToDelete) <- asWriteTransaction $ \dbh txn -> do
             withCursor txn (dbh ^. nonFinalizedQuorumCertificateStore) $ \cursor -> do
-                let loop !count hashes Nothing = return (count, hashes)
-                    loop _ _ (Just (Left e)) = throwM . DatabaseRecoveryFailure $ e
-                    loop !count hashes (Just (Right (_, qc))) = do
+                let loop !count accsToDelete hashes Nothing = return (count, hashes, accsToDelete)
+                    loop _ _ _ (Just (Left e)) = throwM . DatabaseRecoveryFailure $ e
+                    loop !count accsToDelete hashes (Just (Right (_, qc))) = do
+                        accsToDelete' <-
+                            loadRecord txn (dbh ^. blockStore) (qcBlock qc) >>= \case
+                                Nothing -> return []
+                                Just block -> return $ mapMaybe getAccountAddressFromDeployment (blockTransactions block)
                         _ <- deleteRecord txn (dbh ^. blockStore) (qcBlock qc)
                         -- Delete the QC entry.
                         deleteAtCursor cursor
-                        loop (count + 1) (qcBlock qc : hashes) =<< getCursor CursorNext cursor
-                loop 0 [] =<< getCursor CursorFirst cursor
+                        loop (count + 1) (accsToDelete <> accsToDelete') (qcBlock qc : hashes) =<< getCursor CursorNext cursor
+                loop 0 [] [] =<< getCursor CursorFirst cursor
         logEvent LMDB LLDebug $
             "The block state for the last finalized block was corrupted. \
             \The following certified blocks were deleted: "
                 <> intercalate ", " (show <$> hashes)
                 <> "."
-        return count
+        return (count, accsToDelete)
     -- Roll back finalized blocks until the last explicitly finalized block where the state
     -- check passes.
-    -- Note, that we do not need to delete accounts in the LMDB account map as finalized accounts should never be rolled back.
     rollFinalized count lastFin = do
         when (blockRound lastFin == 0) $
             throwM . DatabaseRecoveryFailure $

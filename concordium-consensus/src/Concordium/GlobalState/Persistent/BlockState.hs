@@ -2236,6 +2236,11 @@ doAccountList pbs = do
     bsp <- loadPBS pbs
     Accounts.accountAddresses (bspAccounts bsp)
 
+doGetAccountListHistorical :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m [AccountAddress]
+doGetAccountListHistorical pbs = do
+    bsp <- loadPBS pbs
+    map fst <$> Accounts.allAccountsViaTable (bspAccounts bsp)
+
 doRegIdExists :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
     bsp <- loadPBS pbs
@@ -3388,6 +3393,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
     getAccountList = doAccountList . hpbsPointers
+    getAccountListHistorical = doGetAccountListHistorical . hpbsPointers
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
     getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteeParameters . hpbsPointers

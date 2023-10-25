@@ -510,15 +510,17 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
             let initWithLLDB skovLldb = do
                     checkDatabaseVersion skovLldb
                     let checkBlockState bs = runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef bs)) pbsc
-                    (rollCount, bestState) <-
+                    (rollCount, bestState, accountsToDelete) <-
                         flip runReaderT (LMDBDatabases skovLldb $ pbscAccountMap pbsc) $
-                            (LMDBAccountMap.runAccountMapStoreMonad . runDiskLLDBM) (rollBackBlocksUntil checkBlockState)
+                            runDiskLLDBM (rollBackBlocksUntil checkBlockState)
                     when (rollCount > 0) $ do
                         logEvent Skov LLWarning $
                             "Could not load state for "
                                 ++ show rollCount
                                 ++ " blocks. Truncating block state database."
                         liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) bestState
+                        logEvent Skov LLWarning $ "Deleting " <> show (length accountsToDelete) <> " from account map."
+                        runReaderT (LMDBAccountMap.unsafeRollback accountsToDelete) pbsc
                     let initContext = InitContext pbsc skovLldb
                     (initialSkovData, effectiveProtocolUpdate) <-
                         runInitMonad

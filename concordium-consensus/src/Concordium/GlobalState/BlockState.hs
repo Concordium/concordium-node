@@ -509,9 +509,13 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
 
-    -- | Get the list of account addresses existing in the given block state.
+    -- | Get the list of account addresses existing in the best block state.
     --  This returns the canonical addresses.
     getAccountList :: BlockState m -> m [AccountAddress]
+
+    -- | Get the list of account addresses existing in the given historical block state.
+    --  This returns the canonical addresses.
+    getAccountListHistorical :: BlockState m -> m [AccountAddress]
 
     -- | Get the list of contract instances existing in the given block state.
     --  The list should be returned in ascending order of addresses.
@@ -1428,6 +1432,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getContractInstance s = lift . getContractInstance s
     getModuleList = lift . getModuleList
     getAccountList = lift . getAccountList
+    getAccountListHistorical = lift . getAccountListHistorical
     getContractInstanceList = lift . getContractInstanceList
     getSeedState = lift . getSeedState
     getCurrentEpochBakers = lift . getCurrentEpochBakers
