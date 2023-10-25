@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased changes
+- The account map is now kept solely on disk in a separate lmdb database and it is no longer part of the internal block state database.
+  This change results in less memory usage per account and a decrease in the growth of the database.
 
 ## 6.1.4
 
