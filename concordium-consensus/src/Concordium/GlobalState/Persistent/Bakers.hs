@@ -391,7 +391,7 @@ migratePersistentActiveBakers ::
     ) =>
     StateMigrationParameters oldpv pv ->
     -- | Already migrated accounts.
-    Accounts.AccountsAndDiffMap pv ->
+    Accounts.Accounts pv ->
     PersistentActiveBakers (AccountVersionFor oldpv) ->
     t m (PersistentActiveBakers (AccountVersionFor pv))
 migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do

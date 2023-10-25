@@ -188,7 +188,7 @@ migratePersistentBirkParameters ::
       SupportsPersistentAccount pv (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
-    Accounts.AccountsAndDiffMap pv ->
+    Accounts.Accounts pv ->
     PersistentBirkParameters oldpv ->
     t m (PersistentBirkParameters pv)
 migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} = do
@@ -739,7 +739,7 @@ emptyTransactionOutcomes Proxy = case transactionOutcomesVersion @(TransactionOu
 --  those components themselves should be parametrised by the protocol
 --  version.
 data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
-    { bspAccounts :: !(Accounts.AccountsAndDiffMap pv),
+    { bspAccounts :: !(Accounts.Accounts pv),
       bspInstances :: !(Instances.Instances pv),
       bspModules :: !(HashedBufferedRef Modules.Modules),
       bspBank :: !(Hashed Rewards.BankStatus),
@@ -935,7 +935,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bsp <-
         makeBufferedRef $
             BlockStatePointers
-                { bspAccounts = Accounts.emptyAccountsAndDiffMap Nothing,
+                { bspAccounts = Accounts.emptyAccounts Nothing,
                   bspInstances = Instances.emptyInstances,
                   bspModules = modules,
                   bspBank = makeHashed Rewards.emptyBankStatus,
@@ -1443,9 +1443,9 @@ doAddBaker pbs ai ba@BakerAdd{..} = do
 redelegatePassive ::
     forall pv m.
     (SupportsPersistentAccount pv m, PVSupportsDelegation pv) =>
-    Accounts.AccountsAndDiffMap pv ->
+    Accounts.Accounts pv ->
     DelegatorId ->
-    m (Accounts.AccountsAndDiffMap pv)
+    m (Accounts.Accounts pv)
 redelegatePassive accounts (DelegatorId accId) =
     Accounts.updateAccountsAtIndex'
         (setAccountDelegationTarget Transactions.DelegatePassive)
@@ -2794,9 +2794,9 @@ doProcessReleaseSchedule pbs ts = do
         else do
             let processAccountP1 ::
                     (RSAccountRef pv ~ AccountAddress) =>
-                    (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv) ->
+                    (Accounts.Accounts pv, ReleaseSchedule pv) ->
                     RSAccountRef pv ->
-                    m (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv)
+                    m (Accounts.Accounts pv, ReleaseSchedule pv)
                 processAccountP1 (accs, rs) addr = do
                     (reAdd, accs') <- Accounts.updateAccounts (unlockAccountReleases ts) addr accs
                     rs' <- case reAdd of
@@ -2806,9 +2806,9 @@ doProcessReleaseSchedule pbs ts = do
                     return (accs', rs')
                 processAccountP5 ::
                     (RSAccountRef pv ~ AccountIndex) =>
-                    (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv) ->
+                    (Accounts.Accounts pv, ReleaseSchedule pv) ->
                     RSAccountRef pv ->
-                    m (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv)
+                    m (Accounts.Accounts pv, ReleaseSchedule pv)
                 processAccountP5 (accs, rs) ai = do
                     (reAdd, accs') <- Accounts.updateAccountsAtIndex (unlockAccountReleases ts) ai accs
                     rs' <- case reAdd of
@@ -2816,7 +2816,7 @@ doProcessReleaseSchedule pbs ts = do
                         Just Nothing -> return rs
                         Nothing -> error "processReleaseSchedule: scheduled release for invalid account index"
                     return (accs', rs')
-                processAccount :: (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv) -> RSAccountRef pv -> m (Accounts.AccountsAndDiffMap pv, ReleaseSchedule pv)
+                processAccount :: (Accounts.Accounts pv, ReleaseSchedule pv) -> RSAccountRef pv -> m (Accounts.Accounts pv, ReleaseSchedule pv)
                 processAccount = case protocolVersion @pv of
                     SP1 -> processAccountP1
                     SP2 -> processAccountP1
@@ -3123,7 +3123,7 @@ doProcessPendingChanges persistentBS isEffective = do
     -- an entry for a particular pool.
     processDelegators ::
         PersistentActiveDelegators (AccountVersionFor pv) ->
-        MTL.StateT (Accounts.AccountsAndDiffMap pv) m (PersistentActiveDelegators (AccountVersionFor pv))
+        MTL.StateT (Accounts.Accounts pv) m (PersistentActiveDelegators (AccountVersionFor pv))
     processDelegators (PersistentActiveDelegatorsV1 dset _) = do
         (newDlgs, newAmt) <- MTL.runWriterT $ Trie.filterKeysM processDelegator dset
         return (PersistentActiveDelegatorsV1 newDlgs newAmt)
@@ -3131,7 +3131,7 @@ doProcessPendingChanges persistentBS isEffective = do
     -- Update the delegator on an account if its cooldown has expired.
     -- This only updates the account table, and not the active bakers index.
     -- This also 'MTL.tell's the (updated) staked amount of the account.
-    processDelegator :: DelegatorId -> MTL.WriterT Amount (MTL.StateT (Accounts.AccountsAndDiffMap pv) m) Bool
+    processDelegator :: DelegatorId -> MTL.WriterT Amount (MTL.StateT (Accounts.Accounts pv) m) Bool
     processDelegator (DelegatorId accId) = do
         accounts <- MTL.get
         Accounts.indexedAccount accId accounts >>= \case
@@ -3145,7 +3145,7 @@ doProcessPendingChanges persistentBS isEffective = do
     updateAccountDelegator ::
         AccountIndex ->
         PersistentAccount (AccountVersionFor pv) ->
-        MTL.WriterT Amount (MTL.StateT (Accounts.AccountsAndDiffMap pv) m) Bool
+        MTL.WriterT Amount (MTL.StateT (Accounts.Accounts pv) m) Bool
     updateAccountDelegator accId acct =
         accountDelegator acct >>= \case
             Just BaseAccounts.AccountDelegationV1{..} -> do
@@ -3166,7 +3166,7 @@ doProcessPendingChanges persistentBS isEffective = do
 
     -- Remove a delegator from an account.
     -- This only affects the account, and does not affect the active bakers index.
-    removeDelegatorStake :: AccountIndex -> MTL.StateT (Accounts.AccountsAndDiffMap pv) m ()
+    removeDelegatorStake :: AccountIndex -> MTL.StateT (Accounts.Accounts pv) m ()
     removeDelegatorStake accId = do
         accounts <- MTL.get
         newAccounts <- Accounts.updateAccountsAtIndex' removeAccountStaking accId accounts
@@ -3178,7 +3178,7 @@ doProcessPendingChanges persistentBS isEffective = do
     reduceDelegatorStake ::
         AccountIndex ->
         Amount ->
-        MTL.StateT (Accounts.AccountsAndDiffMap pv) m ()
+        MTL.StateT (Accounts.Accounts pv) m ()
     reduceDelegatorStake accId newAmt = do
         accounts <- MTL.get
         let updAcc = setAccountStake newAmt >=> setAccountStakePendingChange BaseAccounts.NoChange
@@ -3193,7 +3193,7 @@ doProcessPendingChanges persistentBS isEffective = do
     processBakers ::
         BakerIdTrieMap (AccountVersionFor pv) ->
         MTL.StateT
-            (Accounts.AccountsAndDiffMap pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv))
+            (Accounts.Accounts pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv))
             m
             (BakerIdTrieMap (AccountVersionFor pv), Amount)
     processBakers = MTL.runWriterT . Trie.alterMapM processBaker
@@ -3208,7 +3208,7 @@ doProcessPendingChanges persistentBS isEffective = do
         PersistentActiveDelegators (AccountVersionFor pv) ->
         MTL.WriterT
             Amount
-            (MTL.StateT (Accounts.AccountsAndDiffMap pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv)) m)
+            (MTL.StateT (Accounts.Accounts pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv)) m)
             (Trie.Alteration (PersistentActiveDelegators (AccountVersionFor pv)))
     processBaker bid@(BakerId accId) oldDelegators = do
         accts0 <- use _1
@@ -3255,7 +3255,7 @@ doProcessPendingChanges persistentBS isEffective = do
         BakerId ->
         AccountBaker av ->
         PersistentActiveDelegators (AccountVersionFor pv) ->
-        MTL.StateT (Accounts.AccountsAndDiffMap pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv)) m ()
+        MTL.StateT (Accounts.Accounts pv, AggregationKeySet, PersistentActiveDelegators (AccountVersionFor pv)) m ()
     removeBaker (BakerId accId) acctBkr (PersistentActiveDelegatorsV1 dset dcapital) = do
         accounts0 <- use _1
         -- Update the baker's account to have no delegation
@@ -3277,7 +3277,7 @@ doProcessPendingChanges persistentBS isEffective = do
     reduceBakerStake ::
         BakerId ->
         Amount ->
-        MTL.StateT (Accounts.AccountsAndDiffMap pv, a, b) m ()
+        MTL.StateT (Accounts.Accounts pv, a, b) m ()
     reduceBakerStake (BakerId accId) newAmt = do
         let updAcc = setAccountStake newAmt >=> setAccountStakePendingChange BaseAccounts.NoChange
         accounts <- use _1

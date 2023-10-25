@@ -86,7 +86,7 @@ data VersionedCoreGenesisParameters (pv :: Types.ProtocolVersion) where
 --  It is then used to construct the initial block state from genesis.
 data AccumGenesisState pv = AccumGenesisState
     { -- | Tracking all the accounts.
-      agsAllAccounts :: !(Accounts.AccountsAndDiffMap pv),
+      agsAllAccounts :: !(Accounts.Accounts pv),
       -- | Collection of the IDs of the active bakers.
       agsBakerIds :: !(Bakers.BakerIdTrieMap (Types.AccountVersionFor pv)),
       -- | Collection of the aggregation keys of the active bakers.
@@ -113,7 +113,7 @@ data AccumGenesisState pv = AccumGenesisState
 initialAccumGenesisState :: AccumGenesisState pv
 initialAccumGenesisState =
     AccumGenesisState
-        { agsAllAccounts = Accounts.emptyAccountsAndDiffMap Nothing,
+        { agsAllAccounts = Accounts.emptyAccounts Nothing,
           agsBakerIds = Trie.empty,
           agsBakerKeys = Trie.empty,
           agsTotal = 0,
