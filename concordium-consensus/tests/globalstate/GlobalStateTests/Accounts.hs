@@ -63,11 +63,11 @@ checkBinaryM bop x y sbop sx sy = do
     satisfied <- bop x y
     unless satisfied $ liftIO $ assertFailure $ "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ show y ++ " (" ++ sy ++ ")"
 
--- | Check that a 'B.Accounts' and a 'P.AccountsAndDiffMap' are equivalent.
+-- | Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
 --  That is, they have the same account map, account table, and set of
 --  use registration ids.
-checkEquivalent :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => B.Accounts PV -> P.AccountsAndDiffMap PV -> m ()
-checkEquivalent ba pa@P.AccountsAndDiffMap{..} = do
+checkEquivalent :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => B.Accounts PV -> P.Accounts PV -> m ()
+checkEquivalent ba pa@P.Accounts{..} = do
     addrsAndIndices <- P.allAccounts pa
     viaTable <- P.allAccountsViaTable pa
     checkBinary (==) (Map.fromList viaTable) (Map.fromList addrsAndIndices) "==" "Account table" "Persistent account map"
@@ -181,7 +181,7 @@ randomActions = sized (ra Set.empty Map.empty)
             (rid, ai) <- elements (Map.toList rids)
             (RecordRegId rid ai :) <$> ra s rids (n - 1)
 
-runAccountAction :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => AccountAction -> (B.Accounts PV, P.AccountsAndDiffMap PV) -> m (B.Accounts PV, P.AccountsAndDiffMap PV)
+runAccountAction :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
     let ba' = B.putNewAccount acct ba
     pAcct <- PA.makePersistentAccount acct
@@ -229,13 +229,13 @@ emptyTest =
     it "empty" $ \bs ->
         runNoLoggerT $
             flip runBlobStoreT bs $
-                (checkEquivalent B.emptyAccounts (P.emptyAccountsAndDiffMap Nothing) :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
+                (checkEquivalent B.emptyAccounts (P.emptyAccounts Nothing) :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
 
 actionTest :: Word -> SpecWith (PersistentBlockStateContext PV)
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
     acts <- randomActions
     return $ ioProperty $ runNoLoggerT $ flip runBlobStoreT bs $ do
-        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccountsAndDiffMap @PV Nothing) acts
+        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccounts @PV Nothing) acts
         checkEquivalent ba pa
 
 tests :: Word -> Spec

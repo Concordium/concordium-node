@@ -357,7 +357,7 @@ allAccountsViaTable accts = do
             accts
     return $! zip addresses [0 ..]
 
--- | If the LMDB account map is not already initialized, then this function populates the LMDB account map via the provided provided 'AccountsAndDiffMap'.
+-- | If the LMDB account map is not already initialized, then this function populates the LMDB account map via the provided provided 'Accounts'.
 --  Otherwise, this function does nothing.
 tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 tryPopulateLMDBStore accts = do
