@@ -79,8 +79,6 @@ data InitException
       IncorrectDatabaseVersion !String
     | -- | Cannot get read/write permissions for the account map file.
       AccountMapPermissionError
-    | -- | The account map does not match the last finalized block.
-      AccountMapMismatch {ieAccountMapLfb :: !BlockHash, ieTsLfb :: !BlockHash}
     deriving (Show, Typeable)
 
 instance Exception InitException where
@@ -95,7 +93,6 @@ instance Exception InitException where
         "Database invariant violation: " ++ err
     displayException (IncorrectDatabaseVersion err) = "Incorrect database version: " ++ err
     displayException AccountMapPermissionError = "Cannot get read and write permissions for the account map file."
-    displayException AccountMapMismatch{..} = "The lfb of the account map " <> show ieAccountMapLfb <> " does not match tree state lfb: " <> show ieTsLfb
 
 logExceptionAndThrowTS :: (MonadLogger m, MonadIO m, Exception e) => e -> m a
 logExceptionAndThrowTS = logExceptionAndThrow TreeState

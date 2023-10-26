@@ -271,7 +271,6 @@ toStartResult =
                 DatabaseInvariantViolation _ -> 10
                 IncorrectDatabaseVersion _ -> 11
                 AccountMapPermissionError -> 12
-                AccountMapMismatch{} -> 13
 
 -- | Catch exceptions which may occur at start up and return an appropriate exit code.
 handleStartExceptions :: LogMethod IO -> IO StartResult -> IO Int64
