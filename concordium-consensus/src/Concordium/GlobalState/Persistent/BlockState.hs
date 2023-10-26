@@ -41,6 +41,7 @@ module Concordium.GlobalState.Persistent.BlockState (
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -3553,8 +3554,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
-    thawBlockState HashedPersistentBlockState{..} =
-        liftIO $ newIORef =<< readIORef hpbsPointers
+    thawBlockState = doThawBlockState
 
     freezeBlockState = hashBlockState
 
@@ -3695,6 +3695,23 @@ migrateBlockPointers migration BlockStatePointers{..} = do
               bspTransactionOutcomes = newTransactionOutcomes,
               bspRewardDetails = newRewardDetails
             }
+
+-- | Thaw the block state, making it ready for modification.
+--  This function wraps the underlying 'PersistentBlockState' of the provided 'HasedPersistentBlockState' in a new 'IORef'
+--  such that changes to the thawed block state does not propagate into the parent state.
+--
+--  Further the 'DiffMap.DifferenceMap' of the accounts structure in the provided block state is
+--  "bumped" in the sense that a new one is created for the new thawed block with a pointer to the parent difference map.
+--  The parent difference map is empty if the parent is persisted otherwise it may contain new accounts created in that block.
+doThawBlockState ::
+    (SupportsPersistentState pv m) =>
+    HashedPersistentBlockState pv ->
+    m (PersistentBlockState pv)
+doThawBlockState HashedPersistentBlockState{..} = do
+    -- This load is cheap as the underlying block state is retained in memory as we're building from it, so it must be the "best" block.
+    bsp@BlockStatePointers{bspAccounts = a0@Accounts.Accounts{..}} <- loadPBS hpbsPointers
+    let bsp' = bsp{bspAccounts = a0{Accounts.accountDiffMap = DiffMap.empty $ Just accountDiffMap}}
+    liftIO $ newIORef =<< makeBufferedRef bsp'
 
 -- | Cache the block state.
 cacheState ::

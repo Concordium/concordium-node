@@ -20,9 +20,10 @@
 --
 --  A thawed block is behind a  ‘BufferedRef’, this ‘BufferedRef’ is written to disk upon finalization
 --  (or certification for consensus version 1).
---  This in return invokes ‘storeUpdate’ for all intermediate references for the block state for the particular block.
---  When the accounts structure is being written to disk so is the ‘DifferenceMap’,
---  i.e. the contents of the ‘DifferenceMap’ is being written to the lmdb backed account map.
+--  This in return invokes ‘storeUpdate’ for all ynderlying references for the block state, for the particular block.
+--  When the accounts structure is being written to disk so is the ‘DifferenceMap’ and it is then being emptied.
+--  When thawing from a non-persisted block then the difference map is being inherited by the new thawed updatable block,
+--  thus the differnce map potentially forms a chain of difference map "down" until the highest persisted block.
 --
 --  * Startup flow
 --  When a consensus runner starts up it can either be via an existing state or
@@ -147,6 +148,12 @@ type SupportsPersistentAccount pv m =
 instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (Accounts pv) where
     getHashM Accounts{..} = getHashM accountTable
 
+-- Note. We're writing to the LMDB accountmap as part of the 'storeUpdate' implementation below.
+-- This in turn means that no associated metadata is being written to the LMDB database (i.e. the block hash) of the
+-- persisted block. If we need this, then the write to the LMDB database could be done in 'saveBlockState' and the 'DifferenceMap' should be retained up
+-- to that point.
+-- It shouldn't be necessary with this additional metadata as when (potentially) certified blocks are being rolled back, so are the
+-- accounts created in those, in turn this means that the LMDB account map will have entries for all accounts present in the last finalized block.
 instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
         (pTable, accountTable') <- storeUpdate accountTable
@@ -156,7 +163,9 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
                 Accounts
                     { accountTable = accountTable',
                       accountRegIdHistory = regIdHistory',
-                      accountDiffMap = DiffMap.empty $ Just accountDiffMap
+                      -- The difference map is empty as any potential new accounts have been written to the
+                      -- lmdb account map.
+                      accountDiffMap = DiffMap.empty Nothing
                     }
 
         -- put an empty 'OldMap.PersistentAccountMap'.
