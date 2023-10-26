@@ -351,6 +351,7 @@ dryRunLoadBlockState dryRunPtr bhiTag hashPtr outVec =
 
 -- | A dummy 'StateHash' value that can be used to create a 'HashedPersistentBlockState' where the
 -- actual hash does not matter.
+-- This is used to invoke query operations that require a 'HashedPersistentBlockState'.
 dummyStateHash :: StateHash
 {-# NOINLINE dummyStateHash #-}
 dummyStateHash = read "0000000000000000000000000000000000000000000000000000000000000000"
@@ -708,7 +709,7 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                           _ssBlockState = drsBlockState
                         }
             let exec = flip runContT return $ do
-                    let exit = ContT . const . return
+                    let exit = ContT . const . return . Right . toProto
                     srcAccount <- lift $ Scheduler.getStateAccount sender
                     case srcAccount of
                         Nothing ->
@@ -734,7 +735,7 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                             -- Check that the energy amount covers the base cost of checking
                             -- the transaction header.
                             when (thEnergyAmount header < cost) $
-                                exit . Right . toProto $
+                                exit $
                                     DryRunResponse
                                         (DryRunErrorEnergyInsufficient cost)
                                         shiQuotaRem
@@ -743,7 +744,7 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                             accBalance <- lift $ TVer.getAccountAvailableAmount acc
                             depositAmount <- lift $ TVer.energyToCcd (thEnergyAmount header)
                             when (accBalance < depositAmount) $
-                                exit . Right . toProto $
+                                exit $
                                     DryRunResponse
                                         DryRunErrorBalanceInsufficient
                                             { dreRequiredAmount = depositAmount,

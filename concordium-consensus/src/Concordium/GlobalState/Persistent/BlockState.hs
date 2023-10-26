@@ -2197,13 +2197,14 @@ doSafeMintToAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv
 doSafeMintToAccount pbs acctIdx mintAmt = do
     bsp <- loadPBS pbs
     let currentSupply = bspBank bsp ^. unhashed . Rewards.totalGTU
-    if maxBound - currentSupply >= mintAmt
+    let maxMintAmount = maxBound - currentSupply
+    if maxMintAmount >= mintAmt
         then do
             let newBank = bspBank bsp & unhashed . Rewards.totalGTU +~ mintAmt
             let updAcc = addAccountAmount mintAmt
             newAccounts <- Accounts.updateAccountsAtIndex' updAcc acctIdx (bspAccounts bsp)
             Right <$> storePBS pbs (bsp{bspBank = newBank, bspAccounts = newAccounts})
-        else return $ Left (maxBound - currentSupply)
+        else return $ Left maxMintAmount
 
 doGetAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountAddress -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 doGetAccount pbs addr = do

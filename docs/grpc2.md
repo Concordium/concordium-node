@@ -161,8 +161,9 @@ connected clients are alive and responding in desired time.
   responses, this does not mean that the stream must be consumed in 30s. It only
   means that the time until the initial response must be less than 30s.
 
-- `--grpc2-dry-run-max-energy` (`CONCORDIUM_NODE_GRPC2_DRY_RUN_MAX_ENERGY`)
-  Maximum amount of energy allowed for a dry-run session. Defaults to 1000000. Each
+- `--grpc2-invoke-max-energy` (`CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY`)
+  Maximum amount of energy allowed for a call to InvokeInstance/InvokeContract
+  or a dry-run session. Defaults to 1000000. For a dry-run session, each
   request in the session uses a certain amount of energy, and once the limit is
   reached, the session will be terminated with a `RESOURCE_EXHAUSTED` status.
 
@@ -174,4 +175,4 @@ connected clients are alive and responding in desired time.
 - `--grpc2-dry-run-concurrency` (`CONCORDIUM_NODE_GRPC2_DRY_RUN_CONCURRENCY`)
   Maximum number of concurrent invocations of the `DryRun` endpoint. There is no
   limit by default. If this limit is reached, the node will respond to further
-  `DryRun` requests with `UNAVAILABLE` until existing invocations complete.
+  `DryRun` requests with `RESOURCE_EXHAUSTED` until existing invocations complete.

@@ -313,18 +313,18 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
             -- those constraints are asserted.  'decodePayload' ensures that those assertions
             -- will not fail.
             case payload of
-                -- Update is the only operation that can produce a return value, so
-                -- 'handleUpdateContract' is polymorphic in the result type.
+                -- Update and InitContract are the only operations that can produce a return value,
+                -- so the handlers are polymorphic in the return type.
                 Update{..} ->
                     handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
+                InitContract{..} ->
+                    handleInitContract (mkWTC TTInitContract) icAmount icModRef icInitName icParam
                 -- For the remaining operations, we map 'fromValidResult' on the result, to
                 -- avoid the handlers being needlessly polymorphic.
                 _ ->
-                    fmap (fmap fromValidResult) <$> case payload of
+                    fmap (summaryResult %~ fromValidResult) <$> case payload of
                         DeployModule mod ->
                             handleDeployModule (mkWTC TTDeployModule) mod
-                        InitContract{..} ->
-                            handleInitContract (mkWTC TTInitContract) icAmount icModRef icInitName icParam
                         Transfer toaddr amount ->
                             handleSimpleTransfer (mkWTC TTTransfer) toaddr amount Nothing
                         AddBaker{..} ->
@@ -772,8 +772,8 @@ getCurrentContractInstanceTicking' cref = do
 
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
-    forall m.
-    (SchedulerMonad m) =>
+    forall m res.
+    (SchedulerMonad m, TransactionResult res) =>
     WithDepositContext m ->
     -- | The amount to initialize the contract instance with.
     Amount ->
@@ -783,7 +783,7 @@ handleInitContract ::
     Wasm.InitName ->
     -- | Parameter expression to initialize with.
     Wasm.Parameter ->
-    m (Maybe TransactionSummary)
+    m (Maybe (TransactionSummary' res))
 handleInitContract wtc initAmount modref initName param =
     withDeposit wtc c k
   where
@@ -860,8 +860,14 @@ handleInitContract wtc initAmount modref initName param =
                             }
                 stateContext <- getV1StateContext
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
+                interpreterResult <- runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param limitLogsAndRvs initAmount)
+                -- If the result includes a return value, set it.
+                case interpreterResult of
+                    Left WasmV1.LogicReject{..} -> transactionReturnValue ?= cerReturnValue
+                    Left WasmV1.Trap -> return ()
+                    Right WasmV1.InitSuccess{..} -> transactionReturnValue ?= irdReturnValue
                 result <-
-                    runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param limitLogsAndRvs initAmount)
+                    return interpreterResult
                         `rejectingWith'` WasmV1.cerToRejectReasonInit
 
                 -- Charge for storing the contract state.
@@ -895,7 +901,7 @@ handleInitContract wtc initAmount modref initName param =
         commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
 
         return
-            ( TxSuccess
+            ( transactionSuccess
                 [ ContractInitialized
                     { ecRef = modref,
                       ecAddress = newInstanceAddr,
@@ -932,7 +938,7 @@ handleInitContract wtc initAmount modref initName param =
         commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
 
         return
-            ( TxSuccess
+            ( transactionSuccess
                 [ ContractInitialized
                     { ecRef = modref,
                       ecAddress = newInstanceAddr,

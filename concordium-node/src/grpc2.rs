@@ -877,15 +877,11 @@ pub mod server {
     };
     use anyhow::Context;
     use byteorder::WriteBytesExt;
-    use futures::{FutureExt, StreamExt};
+    use futures::{Future, FutureExt, StreamExt};
     use std::{
         io::Write,
         net::SocketAddr,
         sync::{Arc, Mutex},
-    };
-    use tokio::{
-        time,
-        time::{Duration, Instant},
     };
     use tokio_util::sync::PollSemaphore;
     use tonic::{
@@ -991,8 +987,8 @@ pub mod server {
                     consensus: consensus.clone(),
                     blocks_channels: Arc::new(Mutex::new(Vec::new())),
                     finalized_blocks_channels: Arc::new(Mutex::new(Vec::new())),
-                    dry_run_max_energy: config.dry_run_max_energy,
-                    dry_run_timeout_millis: config.dry_run_timeout,
+                    dry_run_max_energy: config.invoke_max_energy,
+                    dry_run_timeout_millis: config.dry_run_timeout * 1000,
                     dry_run_semaphore: config
                         .dry_run_concurrency
                         .map(|n| Arc::new(tokio::sync::Semaphore::new(n))),
@@ -1208,9 +1204,7 @@ pub mod server {
     #[async_trait]
     impl service::queries_server::Queries for RpcServerImpl {
         /// Return type for the 'DryRun' method.
-        type DryRunStream = std::pin::Pin<
-            Box<dyn futures::Stream<Item = Result<Vec<u8>, tonic::Status>> + Send + 'static>,
-        >;
+        type DryRunStream = std::pin::Pin<Box<DryRunStream>>;
         /// Return type for the 'GetAccountList' method.
         type GetAccountListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
@@ -2506,72 +2500,105 @@ pub mod server {
                 None => None,
                 Some(semaphore) => {
                     let permit = semaphore.clone().try_acquire_owned().map_err(|_| {
-                        tonic::Status::unavailable("Too many concurrent `DryRun` requests")
+                        tonic::Status::resource_exhausted("Too many concurrent `DryRun` requests")
                     })?;
                     Some(permit)
                 }
             };
 
-            let mut input = request.into_inner();
             let energy_quota = self.dry_run_max_energy;
-            let deadline = Instant::now() + Duration::from_millis(self.dry_run_timeout_millis);
-            let mut dry_run = self.consensus.dry_run(energy_quota);
-            let output = async_stream::try_stream! {
-                let sleep = time::sleep_until(deadline);
-                tokio::pin!(sleep);
-                loop {
-                    let next = tokio::select! {
-                        request = input.next() => { Ok(request) }
-                        _ = &mut sleep => {
-                            Err(tonic::Status::deadline_exceeded("dry run deadline elapsed"))
-                        }
-                    }?;
-
-                    let Some(dry_run_request) = next else {
-                        // The stream of requests has been closed by the sender.
-                        break
-                    };
-                    let request = dry_run_request
-                        .map_err(|_| tonic::Status::invalid_argument("invalid dry run request"))?;
-                    use crate::grpc2::types::dry_run_request::Request::*;
-                    match request.request.require()? {
-                        LoadBlockState(block_hash_input) => {
-                            yield dry_run.load_block_state(&block_hash_input)?
-                        }
-                        StateQuery(query) => {
-                            use crate::grpc2::types::dry_run_state_query::Query::*;
-                            match query.query.require()? {
-                                GetAccountInfo(account) => yield dry_run.get_account_info(&account)?,
-                                GetInstanceInfo(instance) => {
-                                    yield dry_run.get_instance_info(&instance)?
-                                }
-                                InvokeInstance(invoke_instance_input) => {
-                                    yield dry_run.invoke_instance(&invoke_instance_input)?
-                                }
-                            }
-                        }
-                        StateOperation(operation) => {
-                            use crate::grpc2::types::dry_run_state_operation::Operation::*;
-                            match operation.operation.require()? {
-                                SetTimestamp(timestamp) => yield dry_run.set_timestamp(timestamp)?,
-                                MintToAccount(mint) => yield dry_run.mint_to_account(mint)?,
-                                RunTransaction(run_transaction_input) => {
-                                    yield dry_run.transaction(run_transaction_input)?
-                                }
-                            }
-                        }
-                    }
-                }
-                // The permit is dropped here to ensure that it is held for the duration of the
-                // session.
-                if let Some(p) = permit {
-                    drop(p)
-                }
-            };
+            let dry_run = self.consensus.dry_run(energy_quota);
+            let input = request.into_inner();
+            let timeout = tokio::time::Duration::from_millis(self.dry_run_timeout_millis);
+            let output = DryRunStream::new(dry_run, input, timeout, permit);
             let mut response = tonic::Response::new(Box::pin(output) as Self::DryRunStream);
             response.metadata_mut().insert("quota", energy_quota.into());
             response.metadata_mut().insert("timeout", self.dry_run_timeout_millis.into());
             Ok(response)
+        }
+    }
+
+    struct DryRunStream {
+        dry_run: crate::consensus_ffi::ffi::DryRun,
+        input:   tonic::Streaming<types::DryRunRequest>,
+        timeout: std::pin::Pin<Box<tokio::time::Sleep>>,
+        _permit: Option<OwnedSemaphorePermit>,
+        done:    bool,
+    }
+
+    impl DryRunStream {
+        pub fn new(
+            dry_run: crate::consensus_ffi::ffi::DryRun,
+            input: tonic::Streaming<types::DryRunRequest>,
+            timeout: tokio::time::Duration,
+            permit: Option<OwnedSemaphorePermit>,
+        ) -> Self {
+            DryRunStream {
+                dry_run,
+                input,
+                timeout: Box::pin(tokio::time::sleep(timeout)),
+                _permit: permit,
+                done: false,
+            }
+        }
+    }
+
+    impl futures::Stream for DryRunStream {
+        type Item = tonic::Result<Vec<u8>>;
+
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            use std::task::Poll::Ready;
+            if self.done {
+                return Ready(None);
+            }
+            let timeout = std::pin::pin!(&mut self.timeout);
+            if timeout.poll(cx).is_ready() {
+                self.done = true;
+                return Ready(Some(Err(tonic::Status::deadline_exceeded(
+                    "dry run deadline elapsed",
+                ))));
+            }
+            let input = std::pin::pin!(&mut self.input);
+            let Some(dry_run_request) = futures::ready!(input.poll_next(cx)) else {
+                self.done = true;
+                return Ready(None);
+            };
+            let Ok(request) = dry_run_request else {
+                self.done = true;
+                return Ready(Some(Err(tonic::Status::invalid_argument("invalid dry run request"))));
+            };
+
+            use crate::grpc2::types::dry_run_request::Request::*;
+            let result = match request.request.require()? {
+                LoadBlockState(block_hash_input) => {
+                    self.dry_run.load_block_state(&block_hash_input)
+                }
+                StateQuery(query) => {
+                    use crate::grpc2::types::dry_run_state_query::Query::*;
+                    match query.query.require()? {
+                        GetAccountInfo(account) => self.dry_run.get_account_info(&account),
+                        GetInstanceInfo(instance) => self.dry_run.get_instance_info(&instance),
+                        InvokeInstance(invoke_instance_input) => {
+                            self.dry_run.invoke_instance(&invoke_instance_input)
+                        }
+                    }
+                }
+                StateOperation(operation) => {
+                    use crate::grpc2::types::dry_run_state_operation::Operation::*;
+                    match operation.operation.require()? {
+                        SetTimestamp(timestamp) => self.dry_run.set_timestamp(timestamp),
+                        MintToAccount(mint) => self.dry_run.mint_to_account(mint),
+                        RunTransaction(run_transaction_input) => {
+                            self.dry_run.transaction(run_transaction_input)
+                        }
+                    }
+                }
+            };
+            self.done = result.is_err();
+            Ready(Some(result))
         }
     }
 }

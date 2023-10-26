@@ -406,32 +406,25 @@ pub struct GRPC2Config {
     pub endpoint_config: Option<PathBuf>,
     #[structopt(
         long = "grpc2-invoke-max-energy",
-        help = "Maximum amount of energy allowed for the InvokeInstance and InvokeContract (V1 \
-                API) endpoints.",
+        help = "Maximum amount of energy allowed for the InvokeInstance, InvokeContract and \
+                DryRun endpoints.",
         env = "CONCORDIUM_NODE_GRPC2_INVOKE_MAX_ENERGY",
         default_value = "1000000"
     )]
     pub invoke_max_energy: u64,
     #[structopt(
-        long = "grpc2-dry-run-max-energy",
-        help = "Maximum amount of energy allowed for a single invocation of the DryRun endpoint.",
-        env = "CONCORDIUM_NODE_GRPC2_DRY_RUN_MAX_ENERGY",
-        default_value = "1000000"
-    )]
-    pub dry_run_max_energy: u64,
-    #[structopt(
         long = "grpc2-dry-run-timeout",
-        help = "Maximum duration in milliseconds for a DryRun invocation. If it is not completed \
-                in this time, the server cancels the request with DEADLINE_EXCEEDED.",
+        help = "Maximum duration in seconds for a DryRun session. If it is not completed in this \
+                time, the server cancels the request with DEADLINE_EXCEEDED.",
         env = "CONCORDIUM_NODE_GRPC2_DRY_RUN_TIMEOUT",
-        default_value = "30000"
+        default_value = "30"
     )]
     pub dry_run_timeout: u64,
     #[structopt(
         long = "grpc2-dry-run-concurrency",
         help = "Maximum number of concurrent invocations of the DryRun endpoint. If this is \
-                exceeded, the server responds to DryRun invocations with UNAVAILABLE. If it is \
-                not set, there is no explicit limit.",
+                exceeded, the server responds to DryRun invocations with RESOURCE_EXHAUSTED. If \
+                it is not set, there is no explicit limit.",
         env = "CONCORDIUM_NODE_GRPC2_DRY_RUN_CONCURRENCY"
     )]
     pub dry_run_concurrency: Option<usize>,

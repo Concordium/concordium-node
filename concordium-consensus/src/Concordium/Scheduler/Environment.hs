@@ -749,8 +749,8 @@ data LocalState m = LocalState
       --  unaffected by updates to the balance of the contract.
       _nextContractModificationIndex :: !ModificationIndex,
       _blockEnergyLeft :: !Energy,
-      -- | When executing a smart contract update transaction, this records the return value,
-      --  if any. This is used to support transaction dry run functionality, where the return
+      -- | When executing a smart contract update or init transaction, this records the return
+      --  value, if any. This is used to support transaction dry run functionality, where the return
       --  value is exposed in the API. Under normal block execution, the return value is
       --  discarded.
       _transactionReturnValue :: !(Maybe V1.ReturnValue)

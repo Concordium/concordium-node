@@ -259,7 +259,7 @@ pub struct execute_block {
 
 /// An opaque reference to a dry-run handle, which is managed in Haskell.
 #[repr(C)]
-pub struct DryRunHandle {
+pub struct dry_run_handle {
     private: [u8; 0],
 }
 
@@ -1491,23 +1491,27 @@ extern "C" {
         consensus: *mut consensus_runner,
         copier: CopyToVecCallback,
         energy_quota: u64,
-    ) -> *mut DryRunHandle;
+    ) -> *mut dry_run_handle;
 
     /// Terminate a dry-run sequence, freeing up the resources associated with
     /// the handle.
-    pub fn dryRunEnd(dry_run_handle: *mut DryRunHandle);
+    pub fn dryRunEnd(dry_run_handle: *mut dry_run_handle);
 
     /// Load state from a specified block as part of a dry-run sequence.
+    /// The return value is 0 on success, 1 on an internal error, and 2
+    /// on out-of-energy.
     pub fn dryRunLoadBlockState(
-        dry_run_handle: *mut DryRunHandle,
+        dry_run_handle: *mut dry_run_handle,
         block_id_type: u8,
         block_id: *const u8,
         out: *mut Vec<u8>,
     ) -> i64;
 
     /// Get info about a specified account as part of a dry-run sequence.
+    /// The return value is 0 on success, 1 on an internal error, and 2
+    /// on out-of-energy.
     pub fn dryRunGetAccountInfo(
-        dry_run_handle: *mut DryRunHandle,
+        dry_run_handle: *mut dry_run_handle,
         account_identifier_tag: u8,
         account_identifier_data: *const u8,
         out: *mut Vec<u8>,
@@ -1515,8 +1519,10 @@ extern "C" {
 
     /// Get info about a specified smart contract instance as part of a dry-run
     /// sequence.
+    /// The return value is 0 on success, 1 on an internal error, and 2
+    /// on out-of-energy.
     pub fn dryRunGetInstanceInfo(
-        dry_run_handle: *mut DryRunHandle,
+        dry_run_handle: *mut dry_run_handle,
         contract_index: u64,
         contract_subindex: u64,
         out: *mut Vec<u8>,
@@ -1547,8 +1553,11 @@ extern "C" {
     /// * `parameter_len` - Length of the bytes for the parameter.
     /// * `energy` - The energy to use for the invocation.
     /// * `out` - Location to write the output of the query.
+    ///
+    /// The return value is 0 on success, 1 on an internal error, and 2
+    /// on out-of-energy.
     pub fn dryRunInvokeInstance(
-        dry_run_handle: *mut DryRunHandle,
+        dry_run_handle: *mut dry_run_handle,
         contract_index: u64,
         contract_subindex: u64,
         invoker_address_type: u8,
@@ -1566,14 +1575,14 @@ extern "C" {
 
     /// Set the current timestamp to use as part of a dry-run sequence.
     pub fn dryRunSetTimestamp(
-        dry_run_handle: *mut DryRunHandle,
+        dry_run_handle: *mut dry_run_handle,
         new_timestamp: u64,
         out: *mut Vec<u8>,
     ) -> i64;
 
     /// Mint an amount to an account as part of a dry-run sequence.
     pub fn dryRunMintToAccount(
-        dry_run_handle: *mut DryRunHandle,
+        dry_run_handle: *mut dry_run_handle,
         account_address: *const u8,
         amount: u64,
         out: *mut Vec<u8>,
@@ -1594,7 +1603,7 @@ extern "C" {
     ///   signature_count`.
     /// * `out` - Vector to write the output of the query.
     pub fn dryRunTransaction(
-        dry_run_handle: *mut DryRunHandle,
+        dry_run_handle: *mut dry_run_handle,
         sender_address_ptr: *const u8,
         energy: u64,
         payload: *const u8,
@@ -1799,9 +1808,11 @@ pub fn get_consensus_ptr(
 /// A dry-run session. This wraps the FFI operations on a dry-run handle, and
 /// ensures that `dryRunEnd` is called when the `DryRun` object is dropped.
 pub struct DryRun {
-    handle: *mut DryRunHandle,
+    handle: *mut dry_run_handle,
 }
 
+/// A dry-run handle is not bound to a particular thread, and therefore it is
+/// safe for it to be `Send`.
 unsafe impl Send for DryRun {}
 
 impl Drop for DryRun {
@@ -1810,7 +1821,7 @@ impl Drop for DryRun {
 
 impl DryRun {
     /// Load the state of a particular block in the dry-run session, and use its
-    /// timestamp as the  current timestamp for the session.
+    /// timestamp as the current timestamp for the session.
     pub fn load_block_state(
         &mut self,
         request: &crate::grpc2::types::BlockHashInput,
@@ -2005,8 +2016,8 @@ impl DryRun {
         Ok(out_data)
     }
 
-    /// Convert a result code returned by a dry-run FFI into an approriate
-    /// [tonic::Status].
+    /// Convert a result code returned by a dry-run FFI into an appropriate
+    /// [`tonic::Status`].
     fn check_result(result: i64, origin: &str) -> Result<(), tonic::Status> {
         match result {
             0 => Ok(()),
@@ -2016,8 +2027,7 @@ impl DryRun {
             ))),
             2 => Err(tonic::Status::resource_exhausted("Energy quota exceeded")),
             _ => Err(tonic::Status::internal(format!(
-                "Internal error: unexpected error code in {}",
-                origin
+                "Internal error: unexpected error code in {origin}"
             ))),
         }
     }
