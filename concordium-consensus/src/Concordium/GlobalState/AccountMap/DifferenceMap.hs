@@ -26,12 +26,16 @@ data DifferenceMap = DifferenceMap
 
 -- | Gather all accounts from the provided 'DifferenceMap' and its parent maps.
 --  Accounts are returned in ascending order of their 'AccountIndex'.
-flatten :: DifferenceMap -> Map.Map AccountAddress AccountIndex
-flatten dmap = go (Just dmap) Map.empty
+flatten :: DifferenceMap -> [(AccountAddress, AccountIndex)]
+flatten dmap = go dmap []
   where
-    go :: Maybe DifferenceMap -> Map.Map AccountAddress AccountIndex -> Map.Map AccountAddress AccountIndex
-    go Nothing accum = accum
-    go (Just DifferenceMap{..}) !accum = go dmParentMap $ dmAccounts `Map.union` accum
+    go :: DifferenceMap -> [(AccountAddress, AccountIndex)] -> [(AccountAddress, AccountIndex)]
+    go DifferenceMap{dmParentMap = Nothing, ..} !accum =
+        let !listOfAccounts = Map.toList dmAccounts
+        in  listOfAccounts <> accum
+    go DifferenceMap{dmParentMap = Just parentMap, ..} !accum =
+        let !listOfAccounts = Map.toList dmAccounts
+        in  go parentMap $! listOfAccounts <> accum
 
 -- | Create a new empty 'DifferenceMap' based on the difference map of
 -- the parent.

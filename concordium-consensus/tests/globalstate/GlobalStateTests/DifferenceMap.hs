@@ -7,7 +7,6 @@ module GlobalStateTests.DifferenceMap where
 
 import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Types
-import qualified Data.Map.Strict as Map
 import System.Random
 
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
@@ -53,7 +52,7 @@ testFlatten = do
     let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty Nothing
         diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty $ Just diffMap1)
         diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty $ Just diffMap2)
-    assertEqual "accounts should be the same" (Map.fromList (map dummyPair [1 .. 3])) $ DiffMap.flatten diffMap3
+    assertEqual "accounts should be the same" (map dummyPair [1 .. 3]) $ DiffMap.flatten diffMap3
 
 tests :: Spec
 tests = describe "AccountMap.DifferenceMap" $ do

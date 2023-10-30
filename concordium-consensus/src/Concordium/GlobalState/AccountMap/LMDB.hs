@@ -292,7 +292,6 @@ instance
         doInsert dbh txn accounts = do
             forM_ accounts $ \(accAddr, accIndex) -> do
                 storeRecord txn (dbh ^. accountMapStore) accAddr accIndex
-                return $ Just accIndex
 
     lookup a@(AccountAddress accAddr) = asReadTransaction $ \dbh txn ->
         withCursor txn (dbh ^. accountMapStore) $ \cursor -> do

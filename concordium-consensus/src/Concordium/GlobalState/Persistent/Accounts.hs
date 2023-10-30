@@ -164,7 +164,7 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         (pRegIdHistory, regIdHistory') <- storeUpdate accountRegIdHistory
         case accountDiffMap of
             Nothing -> return ()
-            Just accDiffMap -> LMDBAccountMap.insert (Map.toList $ DiffMap.flatten accDiffMap)
+            Just accDiffMap -> LMDBAccountMap.insert $! DiffMap.flatten accDiffMap
         let newAccounts =
                 Accounts
                     { accountTable = accountTable',
@@ -342,10 +342,10 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
 -- | Get a list of all account addresses and their assoicated account indices.
 allAccounts :: (SupportsPersistentAccount pv m) => Accounts pv -> m [(AccountAddress, AccountIndex)]
 allAccounts accounts = do
-    persistedAccs <- Map.fromList <$> LMDBAccountMap.all
+    persistedAccs <- LMDBAccountMap.all
     case accountDiffMap accounts of
-        Nothing -> return $ Map.toList persistedAccs
-        Just accDiffMap -> return $ Map.toList $ persistedAccs `Map.union` DiffMap.flatten accDiffMap
+        Nothing -> return persistedAccs
+        Just accDiffMap -> return $! persistedAccs <> DiffMap.flatten accDiffMap
 
 -- | Get a list of all account addresses.
 accountAddresses :: (SupportsPersistentAccount pv m) => Accounts pv -> m [AccountAddress]
