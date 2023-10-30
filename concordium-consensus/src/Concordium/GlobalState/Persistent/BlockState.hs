@@ -3710,7 +3710,10 @@ doThawBlockState ::
 doThawBlockState HashedPersistentBlockState{..} = do
     -- This load is cheap as the underlying block state is retained in memory as we're building from it, so it must be the "best" block.
     bsp@BlockStatePointers{bspAccounts = a0@Accounts.Accounts{..}} <- loadPBS hpbsPointers
-    let bsp' = bsp{bspAccounts = a0{Accounts.accountDiffMap = DiffMap.empty $ Just accountDiffMap}}
+    let newDiffMap = case accountDiffMap of
+            Nothing -> Nothing
+            Just diffMap -> Just $ DiffMap.empty (Just diffMap)
+    let bsp' = bsp{bspAccounts = a0{Accounts.accountDiffMap = newDiffMap}}
     liftIO $ newIORef =<< makeBufferedRef bsp'
 
 -- | Cache the block state.

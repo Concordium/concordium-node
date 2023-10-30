@@ -51,9 +51,9 @@
 --
 --  General flow
 --  The account map resides in its own lmdb database and functions across protocol versions.
---  There is a ‘DifferenceMap’ associated with each block.
---  For frozen blocks this is simply empty, while for thawed blocks it may or may not
---  contain @ AccountAddress -> AccountIndex@ mappings depending on whether an account has been added for that particular block.
+--  For a thawed block, then the ‘DifferenceMap’ is either @Nothing@ or @Just DifferenceMap@ depending whether the parent block is written to disk.
+--  If the parent block is written to disk, then a new 'DifferenceMap' is created for the block as part of 'putNewAccount'.
+--  Frozen blocks always have a @Nothing@ 'DifferenceMap'.
 --
 --  The lmdb backed account map consists of a single lmdb store indexed by AccountAddresses and values are the associated ‘AccountIndex’ for each account.
 --
@@ -128,8 +128,12 @@ data Accounts (pv :: ProtocolVersion) = Accounts
       accountRegIdHistory :: !(Trie.TrieN UnbufferedFix ID.RawCredentialRegistrationID AccountIndex),
       -- | An in-memory difference map used keeping track of accounts
       --  added in live blocks.
-      --  This is empty for a frozen block state.
-      accountDiffMap :: !DiffMap.DifferenceMap
+      --  This is @Nothing@ if either the block is persisted or no accounts have been
+      --  added in the block (and it is thawed).
+      --  Otherwise if the block is not persisted and accounts have been added, then
+      --  the 'DiffMap.DifferenceMap' yields the @AccountAddress -> AccountIndex@ mapping for
+      --  accounts created in the block.
+      accountDiffMap :: !(Maybe DiffMap.DifferenceMap)
     }
 
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
@@ -158,14 +162,16 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
         (pTable, accountTable') <- storeUpdate accountTable
         (pRegIdHistory, regIdHistory') <- storeUpdate accountRegIdHistory
-        LMDBAccountMap.insert (Map.toList $ DiffMap.flatten accountDiffMap)
+        case accountDiffMap of
+            Nothing -> return ()
+            Just accDiffMap -> LMDBAccountMap.insert (Map.toList $ DiffMap.flatten accDiffMap)
         let newAccounts =
                 Accounts
                     { accountTable = accountTable',
                       accountRegIdHistory = regIdHistory',
-                      -- The difference map is empty as any potential new accounts have been written to the
+                      -- The difference map is set to @Nothing@ as any potential new accounts have been written to the
                       -- lmdb account map.
-                      accountDiffMap = DiffMap.empty Nothing
+                      accountDiffMap = Nothing
                     }
 
         -- put an empty 'OldMap.PersistentAccountMap'.
@@ -185,7 +191,7 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         return $ do
             accountTable <- maccountTable
             accountRegIdHistory <- mrRIH
-            let accountDiffMap = DiffMap.empty Nothing
+            let accountDiffMap = Nothing
             return $ Accounts{..}
 
 instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
@@ -195,8 +201,8 @@ instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheabl
             accts{accountTable = acctTable}
 
 emptyAccounts :: Maybe DiffMap.DifferenceMap -> Accounts pv
-emptyAccounts Nothing = Accounts L.empty Trie.empty $ DiffMap.empty Nothing
-emptyAccounts successorDiffMap = Accounts L.empty Trie.empty $ DiffMap.empty successorDiffMap
+emptyAccounts Nothing = Accounts L.empty Trie.empty Nothing
+emptyAccounts successorDiffMap = Accounts L.empty Trie.empty $ Just $ DiffMap.empty successorDiffMap
 
 -- | Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 --  or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
@@ -207,8 +213,10 @@ putNewAccount !acct a0@Accounts{..} = do
         True -> return (Nothing, a0)
         False -> do
             (accIdx, newAccountTable) <- L.append acct accountTable
-            let newDiffMap = DiffMap.insert addr accIdx accountDiffMap
-            return (Just accIdx, a0{accountTable = newAccountTable, accountDiffMap = newDiffMap})
+            let newDiffMap = case accountDiffMap of
+                    Nothing -> DiffMap.insert addr accIdx $ DiffMap.empty Nothing
+                    Just accDiffMap -> DiffMap.insert addr accIdx accDiffMap
+            return (Just accIdx, a0{accountTable = newAccountTable, accountDiffMap = Just newDiffMap})
 
 -- | Construct an 'Accounts' from a list of accounts. Inserted in the order of the list.
 fromList :: (SupportsPersistentAccount pv m) => [PersistentAccount (AccountVersionFor pv)] -> m (Accounts pv)
@@ -224,19 +232,24 @@ exists addr accts = isJust <$> getAccountIndex addr accts
 --  Returns @Nothing@ if no such account exists.
 getAccountByCredId :: (SupportsPersistentAccount pv m) => ID.RawCredentialRegistrationID -> Accounts pv -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 getAccountByCredId cid accs@Accounts{..} =
-    Trie.lookup cid (accountRegIdHistory) >>= \case
+    Trie.lookup cid accountRegIdHistory >>= \case
         Nothing -> return Nothing
         Just ai -> fmap (ai,) <$> indexedAccount ai accs
 
 -- | Get the account at a given index (if any).
 getAccountIndex :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
 getAccountIndex addr Accounts{..} =
-    case DiffMap.lookup addr accountDiffMap of
-        Just accIdx -> return $ Just accIdx
-        Nothing ->
-            LMDBAccountMap.lookup addr >>= \case
-                Nothing -> return Nothing
-                Just accIdx -> return $ Just accIdx
+    case accountDiffMap of
+        Nothing -> lookupDisk
+        Just accDiffMap -> case DiffMap.lookup addr accDiffMap of
+            Just accIdx -> return $ Just accIdx
+            Nothing -> lookupDisk
+  where
+    -- Lookup the 'AccountIndex' in the lmdb backed account map.
+    lookupDisk =
+        LMDBAccountMap.lookup addr >>= \case
+            Nothing -> return Nothing
+            Just accIdx -> return $ Just accIdx
 
 -- | Retrieve an account with the given address.
 --  Returns @Nothing@ if no such account exists.
@@ -330,7 +343,9 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
 allAccounts :: (SupportsPersistentAccount pv m) => Accounts pv -> m [(AccountAddress, AccountIndex)]
 allAccounts accounts = do
     persistedAccs <- Map.fromList <$> LMDBAccountMap.all
-    return $ Map.toList $ persistedAccs `Map.union` DiffMap.flatten (accountDiffMap accounts)
+    case accountDiffMap accounts of
+        Nothing -> return $ Map.toList persistedAccs
+        Just accDiffMap -> return $ Map.toList $ persistedAccs `Map.union` DiffMap.flatten accDiffMap
 
 -- | Get a list of all account addresses.
 accountAddresses :: (SupportsPersistentAccount pv m) => Accounts pv -> m [AccountAddress]
@@ -394,5 +409,5 @@ migrateAccounts migration Accounts{..} = do
         Accounts
             { accountTable = newAccountTable,
               accountRegIdHistory = newAccountRegIds,
-              accountDiffMap = DiffMap.empty Nothing
+              accountDiffMap = Nothing
             }
