@@ -128,16 +128,16 @@ makeClassy ''DatabaseHandlers
 
 -- | The number of stores in the LMDB environment for 'DatabaseHandlers'.
 databaseCount :: Int
-databaseCount = 2
+databaseCount = 1
 
 -- | Database growth size increment.
 --  This is currently set at 64MB, and must be a multiple of the page size.
 dbStepSize :: Int
-dbStepSize = 2 ^ (25 :: Int) -- 32MB
+dbStepSize = 2 ^ (26 :: Int) -- 64MB
 
 -- | Maximum step to increment the database size.
 dbMaxStepSize :: Int
-dbMaxStepSize = 2 ^ (28 :: Int) -- 256mb
+dbMaxStepSize = 2 ^ (30 :: Int) -- 1GB
 
 -- | Initial database size.
 --  This is currently set to be the same as 'dbStepSize'.
@@ -145,31 +145,6 @@ dbInitSize :: Int
 dbInitSize = dbStepSize
 
 -- ** Helpers
-
--- TODO: These helper functions below should probably be refactored and moved into LDMBHelpers so
--- they can be used across all lmdb database implementations.
-
--- | Resize the LMDB map if the file size has changed.
---  This is used to allow a secondary process that is reading the database
---  to handle resizes to the database that are made by the writer.
---  The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
---  error, then the map will be resized and the action retried.
-resizeOnResized :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r, MonadCatch m) => m a -> m a
-resizeOnResized a = do
-    dbh <- view databaseHandlers
-    resizeOnResizedInternal (dbh ^. storeEnv) a
-
--- | Perform a database action and resize the LMDB map if the file size has changed. The difference
---  with `resizeOnResized` is that this function takes database handlers as an argument, instead of
---  reading their value from `HasDatabaseHandlers`.
-resizeOnResizedInternal :: (MonadIO m, MonadCatch m) => StoreEnv -> m a -> m a
-resizeOnResizedInternal se a = inner
-  where
-    inner = handleJust checkResized onResized a
-    checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
-    onResized _ = do
-        liftIO (withWriteStoreEnv se $ flip mdb_env_set_mapsize 0)
-        inner
 
 -- | Increase the database size by at least the supplied size.
 --  The size SHOULD be a multiple of 'dbStepSize', and MUST be a multiple of the page size.
@@ -291,7 +266,7 @@ instance
       where
         doInsert dbh txn accounts = do
             forM_ accounts $ \(accAddr, accIndex) -> do
-                storeRecord txn (dbh ^. accountMapStore) accAddr accIndex
+                storeReplaceRecord txn (dbh ^. accountMapStore) accAddr accIndex
 
     lookup a@(AccountAddress accAddr) = asReadTransaction $ \dbh txn ->
         withCursor txn (dbh ^. accountMapStore) $ \cursor -> do
