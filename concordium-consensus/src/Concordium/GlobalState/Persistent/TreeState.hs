@@ -633,17 +633,36 @@ constructBlock StoredBlockWithStateHash{sbshStoredBlock = StoredBlock{..}, ..} =
 
 instance
     ( MonadState state m,
-      HasSkovPersistentData pv state
+      HasSkovPersistentData pv state,
+      BlockStateQuery m,
+      BlockState m ~ PBS.HashedPersistentBlockState pv,
+      MonadProtocolVersion m,
+      MPV m ~ pv,
+      MonadLogger (PersistentTreeStateMonad state m),
+      MonadIO (PersistentTreeStateMonad state m),
+      BlockStateStorage (PersistentTreeStateMonad state m)
     ) =>
     AccountNonceQuery (PersistentTreeStateMonad state m)
     where
-    getNextAccountNonce addr = nextAccountNonce addr <$> use (skovPersistentData . transactionTable)
+    getNextAccountNonce addr =
+        fetchFromTransactionTable >>= \case
+            Just ttResult -> return ttResult
+            Nothing -> fetchFromLastFinalizedBlock
+      where
+        fetchFromTransactionTable = nextAccountNonce addr <$> use (skovPersistentData . transactionTable)
+        fetchFromLastFinalizedBlock = do
+            lfb <- use (skovPersistentData . lastFinalized)
+            st <- blockState lfb
+            macct <- getAccount st (aaeAddress addr)
+            nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+            return (nextNonce, True)
 
 instance
     ( MonadLogger (PersistentTreeStateMonad state m),
       MonadIO (PersistentTreeStateMonad state m),
       BlockStateStorage (PersistentTreeStateMonad state m),
       MonadState state m,
+      BlockStateQuery m,
       HasSkovPersistentData pv state,
       MonadProtocolVersion m,
       MPV m ~ pv,

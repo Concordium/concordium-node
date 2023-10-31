@@ -133,11 +133,11 @@ databaseCount = 2
 -- | Database growth size increment.
 --  This is currently set at 64MB, and must be a multiple of the page size.
 dbStepSize :: Int
-dbStepSize = 2 ^ (25 :: Int) -- 32MB
+dbStepSize = 2 ^ (26 :: Int) -- 64MB
 
 -- | Maximum step to increment the database size.
 dbMaxStepSize :: Int
-dbMaxStepSize = 2 ^ (28 :: Int) -- 256mb
+dbMaxStepSize = 2 ^ (30 :: Int) -- 1GB
 
 -- | Initial database size.
 --  This is currently set to be the same as 'dbStepSize'.

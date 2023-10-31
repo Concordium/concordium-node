@@ -57,14 +57,31 @@ deriving via (MGSTrans AccountNonceQueryT m) instance (AccountOperations m) => A
 deriving via (MGSTrans AccountNonceQueryT m) instance (ModuleQuery m) => ModuleQuery (AccountNonceQueryT m)
 
 -- | The instance used for acquiring the next available account nonce with respect to  consensus protocol v1.
-instance (MonadState (SkovData (MPV m)) m) => AccountNonceQuery (AccountNonceQueryT m) where
-    getNextAccountNonce addr = TT.nextAccountNonce addr . view transactionTable <$> get
+instance
+    ( BlockStateQuery m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
+      MonadState (SkovData (MPV m)) m
+    ) =>
+    AccountNonceQuery (AccountNonceQueryT m)
+    where
+    getNextAccountNonce addr =
+        fetchFromTransactionTable >>= \case
+            Just ttResult -> return ttResult
+            Nothing -> fetchFromLastFinalizedBlock
+      where
+        fetchFromTransactionTable = TT.nextAccountNonce addr <$> use transactionTable
+        fetchFromLastFinalizedBlock = do
+            lfb <- use lastFinalized
+            macct <- getAccount (bpState lfb) (aaeAddress addr)
+            nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+            return (nextNonce, True)
     {-# INLINE getNextAccountNonce #-}
 
 -- | Verify a block item. This wraps 'TVer.verify'.
 verifyBlockItem ::
     ( BlockStateQuery m,
       MonadProtocolVersion m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadState (SkovData (MPV m)) m
     ) =>
     -- | Block time (if transaction is in a block) or current time.

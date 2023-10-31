@@ -207,14 +207,14 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 --  may also have a non-zero highest commit point if it is received in a block, but that block
 --  is not yet considered arrived (e.g. it is pending its parent).
 --
---  Generally, '_ttNonFinalizedTransactions' should have an entry for every account,
+--  The '_ttNonFinalizedTransactions' should have an entry for every account which has a non-finalized transaction,
 --  with the exception of where the entry would be 'emptyANFT'. Similarly with
 --  '_ttNonFinalizedChainUpdates' and 'emptyNFCU'.  In particular, there should be
 --  an entry if the next nonce/sequence number is not the minimum value.
 data TransactionTable = TransactionTable
     { -- | Map from transaction hashes to transactions, together with their current status.
       _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)),
-      -- | For each account, the non-finalized transactions for that account,
+      -- | For accounts that has non-finalized transactions, the non-finalized transactions for that account,
       --  grouped by nonce. See $equivalence for reasons why AccountAddressEq is used.
       _ttNonFinalizedTransactions :: !(HM.HashMap AccountAddressEq AccountNonFinalizedTransactions),
       -- | For each update types, the non-finalized update instructions, grouped by
@@ -446,23 +446,25 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
             assert (low == sn + 1) $
                 Just (low - 1, high)
 
--- | Returns the next available account nonce for the
+-- | If the account has a non-finalized transaction then this
+--  function returns the next available account nonce for the
 --  provided account address in the first component and the
 --  'Bool' in the second component is 'True' only if all transactions from the
 --  provided account are finalized.
+--  If the account does not have any non-finalized transaction then return @Nothing@.
 nextAccountNonce ::
     -- | The account to look up the next account nonce for.
     AccountAddressEq ->
     -- | The transaction table to look up in.
     TransactionTable ->
     -- | ("the next available account nonce", "whether all transactions from the account are finalized").
-    (Nonce, Bool)
+    Maybe (Nonce, Bool)
 nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
-    Nothing -> (minNonce, True)
+    Nothing -> Nothing
     Just anfts ->
         case Map.lookupMax (anfts ^. anftMap) of
-            Nothing -> (anfts ^. anftNextNonce, True)
-            Just (nonce, _) -> (nonce + 1, False)
+            Nothing -> Just (anfts ^. anftNextNonce, True)
+            Just (nonce, _) -> Just (nonce + 1, False)
 
 -- * Transaction grouping
 
