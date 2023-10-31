@@ -210,6 +210,8 @@ newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMo
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (AccountMapStoreMonad m)
 
+-- todo: move these into Helpers.hs so they can be reused across the different lmdb database connections.
+
 -- | Run a read-only transaction.
 asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r) => (DatabaseHandlers -> MDB_txn -> IO a) -> AccountMapStoreMonad m a
 asReadTransaction t = do
@@ -266,7 +268,7 @@ instance
       where
         doInsert dbh txn accounts = do
             forM_ accounts $ \(accAddr, accIndex) -> do
-                storeReplaceRecord txn (dbh ^. accountMapStore) accAddr accIndex
+                storeRecord txn (dbh ^. accountMapStore) accAddr accIndex
 
     lookup a@(AccountAddress accAddr) = asReadTransaction $ \dbh txn ->
         withCursor txn (dbh ^. accountMapStore) $ \cursor -> do
