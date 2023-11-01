@@ -5,6 +5,8 @@
 --  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insert'.
 module Concordium.GlobalState.AccountMap.DifferenceMap where
 
+import Control.Monad.IO.Class
+import Data.IORef
 import qualified Data.Map.Strict as Map
 import Prelude hiding (lookup)
 
@@ -20,26 +22,26 @@ data DifferenceMap = DifferenceMap
       --  In other words, if the parent block is finalized,
       --  then the parent map is @Notnhing@ as the LMDB account map
       --  should be consulted instead.
-      dmParentMap :: !(Maybe DifferenceMap)
+      dmParentMap :: !(IORef (Maybe DifferenceMap))
     }
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | Gather all accounts from the provided 'DifferenceMap' and its parent maps.
 --  Accounts are returned in ascending order of their 'AccountIndex'.
-flatten :: DifferenceMap -> [(AccountAddress, AccountIndex)]
+flatten :: (MonadIO m) => DifferenceMap -> m [(AccountAddress, AccountIndex)]
 flatten dmap = go dmap []
   where
-    go :: DifferenceMap -> [(AccountAddress, AccountIndex)] -> [(AccountAddress, AccountIndex)]
-    go DifferenceMap{dmParentMap = Nothing, ..} !accum =
-        let !listOfAccounts = Map.toList dmAccounts
-        in  listOfAccounts <> accum
-    go DifferenceMap{dmParentMap = Just parentMap, ..} !accum =
-        let !listOfAccounts = Map.toList dmAccounts
-        in  go parentMap $! listOfAccounts <> accum
+    go diffMap !accum = do
+        mParentMap <- liftIO $ readIORef (dmParentMap diffMap)
+        case mParentMap of
+            Nothing -> return collectedAccounts
+            Just parentMap -> go parentMap collectedAccounts
+      where
+        collectedAccounts = Map.toList (dmAccounts diffMap) <> accum
 
--- | Create a new empty 'DifferenceMap' based on the difference map of
+-- | Create a new empty 'DifferenceMap' potentially based on the difference map of
 -- the parent.
-empty :: Maybe DifferenceMap -> DifferenceMap
+empty :: IORef (Maybe DifferenceMap) -> DifferenceMap
 empty mParentDifferenceMap =
     DifferenceMap
         { dmAccounts = Map.empty,
@@ -50,15 +52,19 @@ empty mParentDifferenceMap =
 --  difference maps.
 --  Returns @Just AccountIndex@ if the account is present and
 --  otherwise @Nothing@.
-lookup :: AccountAddress -> DifferenceMap -> Maybe AccountIndex
+lookup :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
 lookup addr = check
   where
-    check DifferenceMap{..} = case Map.lookupGE k dmAccounts of
-        Nothing -> check =<< dmParentMap
+    check diffMap = case Map.lookupGE k (dmAccounts diffMap) of
+        Nothing -> do
+            mParentMap <- liftIO $ readIORef (dmParentMap diffMap)
+            case mParentMap of
+                Nothing -> return Nothing
+                Just parentMap -> check parentMap
         Just (foundAccAddr, accIdx) ->
             if checkEquivalence foundAccAddr
-                then Just accIdx
-                else Nothing
+                then return $ Just accIdx
+                else return Nothing
     k = createAlias addr 0
     checkEquivalence found = accountAddressEmbed k == accountAddressEmbed found
 

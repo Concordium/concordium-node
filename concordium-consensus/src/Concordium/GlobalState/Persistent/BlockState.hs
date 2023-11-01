@@ -933,10 +933,11 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bspUpdates <- refMake =<< initialUpdates keysCollection chainParams
     bspReleaseSchedule <- emptyReleaseSchedule
     bspRewardDetails <- emptyBlockRewardDetails
+    bspAccounts <- Accounts.emptyAccounts
     bsp <-
         makeBufferedRef $
             BlockStatePointers
-                { bspAccounts = Accounts.emptyAccounts Nothing,
+                { bspAccounts = bspAccounts,
                   bspInstances = Instances.emptyInstances,
                   bspModules = modules,
                   bspBank = makeHashed Rewards.emptyBankStatus,
@@ -3710,9 +3711,14 @@ doThawBlockState ::
 doThawBlockState HashedPersistentBlockState{..} = do
     -- This load is cheap as the underlying block state is retained in memory as we're building from it, so it must be the "best" block.
     bsp@BlockStatePointers{bspAccounts = a0@Accounts.Accounts{..}} <- loadPBS hpbsPointers
-    let newDiffMap = case accountDiffMap of
-            Nothing -> Nothing
-            Just diffMap -> Just $ DiffMap.empty (Just diffMap)
+    mDiffMap <- liftIO $ readIORef accountDiffMap
+    newDiffMap <- case mDiffMap of
+        -- reuse the reference pointing to @Nothing@.
+        Nothing -> return accountDiffMap
+        Just _ -> do
+            -- create a new reference pointing to
+            -- a new difference map which inherits the parent difference map.
+            liftIO $ newIORef $ Just (DiffMap.empty accountDiffMap)
     let bsp' = bsp{bspAccounts = a0{Accounts.accountDiffMap = newDiffMap}}
     liftIO $ newIORef =<< makeBufferedRef bsp'
 
