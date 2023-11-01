@@ -566,7 +566,7 @@ instance (Show v, FixShowable fix) => Show (TrieN fix k v) where
     show (TrieN _ t) = showFix showTrieFString t
 
 instance (BlobStorable m (fix (TrieF k v)), BlobStorable m v, Base (fix (TrieF k v)) ~ TrieF k v) => BlobStorable m (TrieN fix k v) where
-    storeUpdate v@EmptyTrieN = return (put (0 :: Int), v)
+    storeUpdate v@EmptyTrieN = return (put (0 :: Word64), v)
     storeUpdate (TrieN size t) = do
         (pt, t') <- storeUpdate t
         let bs = put size >> pt

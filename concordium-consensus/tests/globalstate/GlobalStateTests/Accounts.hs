@@ -228,14 +228,16 @@ emptyTest :: SpecWith (PersistentBlockStateContext PV)
 emptyTest =
     it "empty" $ \bs ->
         runNoLoggerT $
-            flip runBlobStoreT bs $
-                (checkEquivalent B.emptyAccounts (P.emptyAccounts Nothing) :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
+            flip runBlobStoreT bs $ do
+                emptyPersistentAccs <- P.emptyAccounts
+                (checkEquivalent B.emptyAccounts emptyPersistentAccs :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
 
 actionTest :: Word -> SpecWith (PersistentBlockStateContext PV)
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
     acts <- randomActions
     return $ ioProperty $ runNoLoggerT $ flip runBlobStoreT bs $ do
-        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccounts @PV Nothing) acts
+        emptyPersistentAccs <- P.emptyAccounts
+        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, emptyPersistentAccs) acts
         checkEquivalent ba pa
 
 tests :: Word -> Spec

@@ -2238,6 +2238,11 @@ doAccountList pbs = do
     bsp <- loadPBS pbs
     Accounts.accountAddresses (bspAccounts bsp)
 
+-- | This function should be used when querying all accounts for a
+--  block that is only on disk, hence the 'historical' part.
+--  For blocks only retained in memory, then this function will not return accounts created
+--  in this block or any parent blocks that have not yet been written to disk.
+--  Use 'doGetAccountList' when querying the "best" block.
 doGetAccountListHistorical :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m [AccountAddress]
 doGetAccountListHistorical pbs = do
     bsp <- loadPBS pbs
@@ -3571,6 +3576,13 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     saveBlockState HashedPersistentBlockState{..} = do
         inner <- liftIO $ readIORef hpbsPointers
+        -- this load should be cheap as the blockstate is in memory.
+        accs <- bspAccounts <$> loadPBS hpbsPointers
+        -- write the accounts that was created in the block and
+        -- potentially non-persisted parent blocks.
+        -- Note that this also empties the difference map for the
+        -- block.
+        void $ Accounts.writeAccountsCreated accs
         (!inner', !ref) <- flushBufferedRef inner
         liftIO $ writeIORef hpbsPointers inner'
         flushStore
@@ -3698,7 +3710,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
             }
 
 -- | Thaw the block state, making it ready for modification.
---  This function wraps the underlying 'PersistentBlockState' of the provided 'HasedPersistentBlockState' in a new 'IORef'
+--  This function wraps the underlying 'PersistentBlockState' of the provided 'HashedPersistentBlockState' in a new 'IORef'
 --  such that changes to the thawed block state does not propagate into the parent state.
 --
 --  Further the 'DiffMap.DifferenceMap' of the accounts structure in the provided block state is

@@ -188,13 +188,14 @@ makeDatabaseHandlers accountMapDir readOnly initSize = do
                     [MDB_CREATE | not readOnly]
         return DatabaseHandlers{..}
 
--- | Initialize database handlers in ReadWrite mode.
+-- | Create the lmdb stores and return back database handlers for interacting with it.
 --  This simply loads the references and does not initialize the databases.
---  The initial size is set to 64MB.
---  Note that this function creates the directory for the database if not already present.
+--  The initial environment size is set to 128MB.
+--  Note that this function creates the directory for the database if not already present at the provided
+--  path and any missing parent directories.
 openDatabase :: FilePath -> IO DatabaseHandlers
 openDatabase accountMapDir = do
-    createDirectoryIfMissing False accountMapDir
+    createDirectoryIfMissing True accountMapDir
     makeDatabaseHandlers accountMapDir False dbInitSize
 
 -- | Close the database. The database should not be used after it is closed.
@@ -277,6 +278,10 @@ instance
                     Nothing -> return Nothing
                     Just (Left err) -> throwM $ DatabaseInvariantViolation err
                     Just (Right (foundAccAddr, accIdx)) ->
+                        -- we need to check equivalence here as we are performing
+                        -- prefix lookup in the lmdb database, so if the account does not exist
+                        -- then the lmdb query would return the "next" account address
+                        -- by lexicographic order of account address.
                         if checkEquivalence a foundAccAddr
                             then return $ Just accIdx
                             else return Nothing

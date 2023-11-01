@@ -699,6 +699,18 @@ initialiseLowLevelDB genesisBlock roundStatus = asWriteTransaction $ \dbh txn ->
                 }
     storeReplaceRecord txn (dbh ^. metadataStore) versionMetadata $ S.encode metadata
 
+-- | A result of a roll back.
+data RollbackResult = forall (pv :: ProtocolVersion).
+      RollbackResult
+    { -- | Number of blocks rolled back.
+      rbrCount :: !Int,
+      -- | Reference to the best block after the rollback.
+      rbrBestState :: !(BlockStateRef pv),
+      -- | Accounts that were created in (certified) blocks that are rolled back.
+      --  These must be deleted.
+      rbrAccountsForDeletion :: ![AccountAddress]
+    }
+
 -- | Remove certified and finalized blocks from the database whose states cannot be loaded.
 --  This can throw an exception if the database recovery was not possible.
 --
@@ -727,7 +739,7 @@ rollBackBlocksUntil ::
     (BlockStateRef pv -> DiskLLDBM pv m Bool) ->
     -- | Returns the number of blocks rolled back, the best state after the roll back and a list of
     --  accounts created in certified blocks that was rolled back.
-    DiskLLDBM pv m (Int, BlockStateRef pv, [AccountAddress])
+    DiskLLDBM pv m RollbackResult
 rollBackBlocksUntil checkState = do
     lookupLastFinalizedBlock >>= \case
         Nothing -> throwM . DatabaseRecoveryFailure $ "No last finalized block."
@@ -742,7 +754,7 @@ rollBackBlocksUntil checkState = do
                     -- certified blocks, then roll back finalized blocks.
                     (count, accsCreated) <- purgeCertified
                     (count', bstState) <- rollFinalized count lastFin
-                    return (count', bstState, accsCreated)
+                    return $ RollbackResult count' bstState accsCreated
   where
     -- Check the non-finalized certified blocks, from the highest round backwards.
     checkCertified ::
@@ -750,8 +762,8 @@ rollBackBlocksUntil checkState = do
         Round ->
         -- highest surviving block state so far (from last finalized block)
         BlockStateRef pv ->
-        -- returns the number of blocks rolled back and the highest surviving block state
-        DiskLLDBM pv m (Int, BlockStateRef pv, [AccountAddress])
+        -- returns the @RollbackResult@.
+        DiskLLDBM pv m RollbackResult
     checkCertified lastFinRound bestState = do
         mHighestQC <- asReadTransaction $ \dbh txn ->
             withCursor
@@ -759,10 +771,10 @@ rollBackBlocksUntil checkState = do
                 (dbh ^. nonFinalizedQuorumCertificateStore)
                 (getCursor CursorLast)
         case mHighestQC of
-            Nothing -> return (0, bestState, [])
+            Nothing -> return $ RollbackResult 0 bestState []
             Just (Left e) -> throwM . DatabaseRecoveryFailure $ e
             Just (Right (_, qc)) -> checkCertifiedWithQC lastFinRound bestState 0 [] qc
-    -- Get the account address of a creadential deployment.
+    -- Get the account address of a credential deployment.
     getAccountAddressFromDeployment bi = case bi of
         WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} ->
             case credential of
@@ -784,8 +796,8 @@ rollBackBlocksUntil checkState = do
         [AccountAddress] ->
         -- QC for certified block to check
         QuorumCertificate ->
-        -- returns the number of blocks rolled back and the highest surviving block state
-        DiskLLDBM pv m (Int, BlockStateRef pv, [AccountAddress])
+        -- returns the @RollbackResult@.
+        DiskLLDBM pv m RollbackResult
     checkCertifiedWithQC lastFinRound bestState !count accsCreated qc = do
         mBlock <- asReadTransaction $ \dbh txn ->
             loadRecord txn (dbh ^. blockStore) (qcBlock qc)
@@ -837,10 +849,10 @@ rollBackBlocksUntil checkState = do
         [AccountAddress] ->
         -- round to check for
         Round ->
-        -- returns the number of blocks rolled back and the highest surviving block state
-        DiskLLDBM pv m (Int, BlockStateRef pv, [AccountAddress])
+        -- returns the @RollbackResult@.
+        DiskLLDBM pv m RollbackResult
     checkCertifiedPreviousRound lastFinRound bestState count accsCreated currentRound
-        | currentRound <= lastFinRound = return (count, bestState, accsCreated)
+        | currentRound <= lastFinRound = return $ RollbackResult count bestState accsCreated
         | otherwise = do
             mNextQC <- asReadTransaction $ \dbh txn ->
                 loadRecord txn (dbh ^. nonFinalizedQuorumCertificateStore) currentRound

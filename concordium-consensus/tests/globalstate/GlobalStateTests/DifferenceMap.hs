@@ -7,6 +7,7 @@ module GlobalStateTests.DifferenceMap where
 
 import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Types
+import Data.IORef
 import System.Random
 
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
@@ -21,19 +22,27 @@ dummyPair seed = (fst $ randomAccountAddress (mkStdGen seed), AccountIndex $ fro
 -- | Test that an account can be inserted and looked up in the 'DiffMap.DifferenceMap'.
 testInsertLookupAccount :: Assertion
 testInsertLookupAccount = do
-    let diffMap = uncurry DiffMap.insert acc $ DiffMap.empty Nothing
-    case DiffMap.lookup (fst acc) diffMap of
+    emptyParentMap <- mkParentPointer Nothing
+    let diffMap = uncurry DiffMap.insert acc $ DiffMap.empty emptyParentMap
+    DiffMap.lookup (fst acc) diffMap >>= \case
         Nothing -> assertFailure "account should be present in diff map"
         Just accIdx -> assertEqual "account should be there" (snd acc) accIdx
   where
     acc = dummyPair 1
 
+-- | Create a parent pointer for the provided difference map.
+mkParentPointer :: Maybe DiffMap.DifferenceMap -> IO (IORef (Maybe DiffMap.DifferenceMap))
+mkParentPointer diffMap = newIORef diffMap >>= return
+
 -- | Testing lookups in flat and nested difference maps.
 testLookups :: Assertion
 testLookups = do
-    let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty Nothing
-        diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty $ Just diffMap1)
-        diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty $ Just diffMap2)
+    emptyParentMap <- mkParentPointer Nothing
+    let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyParentMap
+    diffMap1Pointer <- mkParentPointer $ Just diffMap1
+    let diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty diffMap1Pointer)
+    diffMap2Pointer <- mkParentPointer $ Just diffMap2
+    let diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty diffMap2Pointer)
     checkExists (dummyPair 1) diffMap1
     checkExists (dummyPair 1) diffMap2
     checkExists (dummyPair 2) diffMap2
@@ -42,17 +51,20 @@ testLookups = do
     checkExists (dummyPair 3) diffMap3
   where
     checkExists pair diffMap =
-        case DiffMap.lookup (fst pair) diffMap of
+        DiffMap.lookup (fst pair) diffMap >>= \case
             Nothing -> assertFailure "account should be present"
             Just accIdx -> assertEqual "wrong account index" (snd pair) accIdx
 
 -- | Test flattening a difference map i.e. return all accounts as one flat map.
 testFlatten :: Assertion
 testFlatten = do
-    let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty Nothing
-        diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty $ Just diffMap1)
-        diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty $ Just diffMap2)
-    assertEqual "accounts should be the same" (map dummyPair [1 .. 3]) $ DiffMap.flatten diffMap3
+    emptyParentMap <- mkParentPointer Nothing
+    let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyParentMap
+    diffMap1Pointer <- mkParentPointer $ Just diffMap1
+    let diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty diffMap1Pointer)
+    diffMap2Pointer <- mkParentPointer $ Just diffMap2
+    let diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty diffMap2Pointer)
+    assertEqual "accounts should be the same" (map dummyPair [1 .. 3]) =<< DiffMap.flatten diffMap3
 
 tests :: Spec
 tests = describe "AccountMap.DifferenceMap" $ do

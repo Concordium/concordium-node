@@ -509,7 +509,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
 
-    -- | Get the list of account addresses existing in the best block state.
+    -- | Get the list of account addresses existing in the given block state,
+    --  Note that this function also includes any created - but not persisted accounts
+    --  for the provided block and any non-persisted blocks.
     --  This returns the canonical addresses.
     getAccountList :: BlockState m -> m [AccountAddress]
 
