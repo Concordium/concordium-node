@@ -225,7 +225,7 @@ instance
       where
         doInsert handlers txn accounts = do
             forM_ accounts $ \(accAddr, accIndex) -> do
-                storeRecord txn (handlers ^. dbhAccountMapStore) accAddr accIndex
+                storeReplaceRecord txn (handlers ^. dbhAccountMapStore) accAddr accIndex
 
     lookupAccountIndex a@(AccountAddress accAddr) = do
         dbh <- ask

@@ -208,9 +208,11 @@ runAccountAction (UpdateAccount addr upd) (ba, pa) = do
     return (ba', pa')
 runAccountAction FlushPersistent (ba, pa) = do
     (_, pa') <- storeUpdate pa
+    void $ P.writeAccountsCreated pa'
     return (ba, pa')
 runAccountAction ArchivePersistent (ba, pa) = do
     ppa <- fst <$> storeUpdate pa
+    void $ P.writeAccountsCreated pa
     pa' <- fromRight (error "couldn't deserialize archived persistent") $ S.runGet load (S.runPut ppa)
     return (ba, pa')
 runAccountAction (RegIdExists rid) (ba, pa) = do

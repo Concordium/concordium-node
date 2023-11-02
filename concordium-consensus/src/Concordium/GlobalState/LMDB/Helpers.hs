@@ -18,6 +18,7 @@ module Concordium.GlobalState.LMDB.Helpers (
     defaultStepSize,
     defaultEnvSize,
     resizeDatabaseHandlers,
+    resizeOnResized,
 
     -- * Database queries and updates.
     MDBDatabase (..),
@@ -48,7 +49,7 @@ module Concordium.GlobalState.LMDB.Helpers (
     unsafeByteStringFromMDB_val,
     withMDB_val,
 
-    -- * Helpers
+    -- * Helpers for reading and writing to a lmdb store.
     asReadTransaction,
     asWriteTransaction,
 )
@@ -57,8 +58,9 @@ where
 import Concordium.Logger
 import Control.Concurrent (runInBoundThread, yield)
 import Control.Concurrent.MVar
-import Control.Exception
+import Control.Exception (assert)
 import Control.Monad
+import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Data.ByteString
@@ -699,6 +701,16 @@ resizeDatabaseHandlers env delta = do
         _storeEnv = env
     logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
     liftIO . withWriteStoreEnv env $ flip mdb_env_set_mapsize newMapSize
+
+-- | Perform a database action and resize the LMDB map if the file size has changed.
+resizeOnResized :: (MonadIO m, MonadCatch m) => StoreEnv -> m a -> m a
+resizeOnResized se a = inner
+  where
+    inner = handleJust checkResized onResized a
+    checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
+    onResized _ = do
+        liftIO (withWriteStoreEnv se $ flip mdb_env_set_mapsize 0)
+        inner
 
 -- | Run a read-only transaction.
 asReadTransaction :: (MonadIO m) => StoreEnv -> (MDB_txn -> IO a) -> m a

@@ -249,46 +249,10 @@ metadataStoreName = "metadata"
 databaseCount :: Int
 databaseCount = 6
 
--- ** Helpers
-
--- | Resize the LMDB map if the file size has changed.
---  This is used to allow a secondary process that is reading the database
---  to handle resizes to the database that are made by the writer.
---  The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
---  error, then the map will be resized and the action retried.
-resizeOnResized :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadCatch m) => m a -> m a
-resizeOnResized a = do
-    dbh <- view databaseHandlers
-    resizeOnResizedInternal (dbh ^. storeEnv) a
-
--- | Perform a database action and resize the LMDB map if the file size has changed. The difference
---  with `resizeOnResized` is that this function takes database handlers as an argument, instead of
---  reading their value from `HasDatabaseHandlers`.
-resizeOnResizedInternal :: (MonadIO m, MonadCatch m) => StoreEnv -> m a -> m a
-resizeOnResizedInternal se a = inner
-  where
-    inner = handleJust checkResized onResized a
-    checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
-    onResized _ = do
-        liftIO (withWriteStoreEnv se $ flip mdb_env_set_mapsize 0)
-        inner
-
--- | Increase the database size by at least the supplied size.
---  The size SHOULD be a multiple of 'dbStepSize', and MUST be a multiple of the page size.
-resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers pv -> Int -> m ()
-resizeDatabaseHandlers dbh delta = do
-    envInfo <- liftIO $ mdb_env_info (dbh ^. storeEnv . seEnv)
-    let oldMapSize = fromIntegral $ me_mapsize envInfo
-        newMapSize = oldMapSize + delta
-        _storeEnv = dbh ^. storeEnv
-    logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
-    liftIO . withWriteStoreEnv (dbh ^. storeEnv) $ flip mdb_env_set_mapsize newMapSize
-
 -- ** Initialization
 
 -- | Initialize database handlers.
---  The size will be rounded up to a multiple of 'dbStepSize'.
---  (This ensures in particular that the size is a multiple of the page size, which is required by
+--  (The provided @initSize@ must be a multiple of the page size, which is required by
 --  LMDB.)
 makeDatabaseHandlers ::
     -- | Path of database
@@ -409,7 +373,7 @@ openReadOnlyDatabase treeStateDir = do
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     mdb_env_open env treeStateDir [MDB_RDONLY]
-    (_metadataStore, mversion) <- resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
+    (_metadataStore, mversion) <- resizeOnResized _storeEnv $ transaction _storeEnv True $ \txn -> do
         _metadataStore <- MetadataStore <$> mdb_dbi_open' txn (Just metadataStoreName) []
         mversion <- loadRecord txn _metadataStore versionMetadata
         return (_metadataStore, mversion)
@@ -423,7 +387,7 @@ openReadOnlyDatabase treeStateDir = do
                 -- version.
                 case promoteProtocolVersion vmProtocolVersion of
                     SomeProtocolVersion (_ :: SProtocolVersion pv) ->
-                        resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
+                        resizeOnResized _storeEnv $ transaction _storeEnv True $ \txn -> do
                             _blockStore <-
                                 BlockStore
                                     <$> mdb_dbi_open'

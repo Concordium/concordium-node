@@ -66,7 +66,7 @@ import Concordium.Types.Transactions
 import Control.Arrow ((&&&))
 import Control.Concurrent (runInBoundThread)
 import Control.Monad
-import Control.Monad.Catch (MonadCatch, handleJust, tryJust)
+import Control.Monad.Catch (tryJust)
 import Control.Monad.IO.Class
 import Control.Monad.State
 import qualified Data.ByteString as BS
@@ -377,7 +377,7 @@ openReadOnlyDatabase treeStateDir = do
     mdb_env_set_maxreaders env 126
     -- TODO: Consider MDB_NOLOCK
     mdb_env_open env treeStateDir [MDB_RDONLY]
-    (_metadataStore, mversion) <- resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
+    (_metadataStore, mversion) <- resizeOnResized _storeEnv $ transaction _storeEnv True $ \txn -> do
         _metadataStore <- MetadataStore <$> mdb_dbi_open' txn (Just metadataStoreName) []
         mversion <- loadRecord txn _metadataStore versionMetadata
         return (_metadataStore, mversion)
@@ -391,7 +391,7 @@ openReadOnlyDatabase treeStateDir = do
                 -- version.
                 case promoteProtocolVersion vmProtocolVersion of
                     SomeProtocolVersion (_ :: SProtocolVersion pv) ->
-                        resizeOnResizedInternal _storeEnv $ transaction _storeEnv True $ \txn -> do
+                        resizeOnResized _storeEnv $ transaction _storeEnv True $ \txn -> do
                             _blockStore <- BlockStore <$> mdb_dbi_open' txn (Just blockStoreName) []
                             _finalizationRecordStore <- FinalizationRecordStore <$> mdb_dbi_open' txn (Just finalizationRecordStoreName) []
                             _finalizedByHeightStore <- FinalizedByHeightStore <$> mdb_dbi_open' txn (Just finalizedByHeightStoreName) []
@@ -490,32 +490,9 @@ checkDatabaseVersion db =
         _ -> Left $ "expected " ++ show expectedVersion ++ " but the version could not be deserialized"
 
 -- | Close down the database, freeing the file handles.
+-- The use of withWriteStoreEnv ensures that there are no outstanding transactions and cursors are closed.
 closeDatabase :: DatabaseHandlers pv st -> IO ()
 closeDatabase db = runInBoundThread $ withWriteStoreEnv (db ^. storeEnv) mdb_env_close
-
--- The use of withWriteStoreEnv ensures that there are no outstanding transactions and cursors are closed.
-
--- | Resize the LMDB map if the file size has changed.
---  This is used to allow a secondary process that is reading the database
---  to handle resizes to the database that are made by the writer.
---  The supplied action will be executed. If it fails with an 'MDB_MAP_RESIZED'
---  error, then the map will be resized and the action retried.
-resizeOnResized :: (MonadIO m, MonadState s m, HasDatabaseHandlers pv st s, MonadCatch m) => m a -> m a
-resizeOnResized a = do
-    dbh <- use dbHandlers
-    resizeOnResizedInternal (dbh ^. storeEnv) a
-
--- | Perform a database action and resize the LMDB map if the file size has changed. The difference
---  with `resizeOnResized` is that this function takes database handlers as an argument, instead of
---  reading their value from `HasDatabaseHandlers`.
-resizeOnResizedInternal :: (MonadIO m, MonadCatch m) => StoreEnv -> m a -> m a
-resizeOnResizedInternal se a = inner
-  where
-    inner = handleJust checkResized onResized a
-    checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
-    onResized _ = do
-        liftIO (withWriteStoreEnv se $ flip mdb_env_set_mapsize 0)
-        inner
 
 -- | Load a block and its state hash (if available).
 -- Normal blocks already contain their state hash. For genesis blocks, the state hash is loaded

@@ -155,8 +155,10 @@ type SupportsPersistentAccount pv m =
 instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (Accounts pv) where
     getHashM Accounts{..} = getHashM accountTable
 
--- | Get the accounts created for this block or any non-persisted parent block.
+-- | Write accounts created for this block or any non-persisted parent block.
 --  Note that this also empties the difference map for this block.
+--
+--  This MUST be called when finalizing the block state.
 writeAccountsCreated :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 writeAccountsCreated Accounts{..} = do
     mAccountsCreated <- liftIO $ readIORef accountDiffMapRef
@@ -167,12 +169,6 @@ writeAccountsCreated Accounts{..} = do
             liftIO $ atomicWriteIORef accountDiffMapRef Absent
             LMDBAccountMap.insertAccount listOfAccountsCreated
 
--- Note. We're writing to the LMDB accountmap as part of the 'storeUpdate' implementation below.
--- This in turn means that no associated metadata is being written to the LMDB database (i.e. the block hash) of the
--- persisted block. If we need this, then the write to the LMDB database could be done in 'saveBlockState' and the 'DifferenceMap' should be retained up
--- to that point.
--- It shouldn't be necessary with this additional metadata as when (potentially) certified blocks are being rolled back, so are the
--- accounts created in those, in turn this means that the LMDB account map will have entries for all accounts present in the last finalized block.
 instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
         (pTable, accountTable') <- storeUpdate accountTable
@@ -227,19 +223,17 @@ putNewAccount !acct a0@Accounts{..} = do
         False -> do
             (accIdx, newAccountTable) <- L.append acct accountTable
             mAccountDiffMap <- liftIO $ readIORef accountDiffMapRef
-            newDiffMap <- case mAccountDiffMap of
+            accountDiffMapRef' <- case mAccountDiffMap of
                 Absent -> do
                     -- create a difference map for this block state with a @Nothing@ as the parent.
                     freshDifferenceMap <- liftIO $ newIORef (Absent :: Option DiffMap.DifferenceMap)
-                    return $ addToDiffMap accIdx $ DiffMap.empty freshDifferenceMap
+                    return $ DiffMap.insert addr accIdx $ DiffMap.empty freshDifferenceMap
                 Present accDiffMap -> do
                     -- reuse the already existing difference map for this block state.
-                    return $ addToDiffMap accIdx accDiffMap
+                    return $ DiffMap.insert addr accIdx accDiffMap
             -- we write to the difference map atomically here as there might be concurrent readers.
-            liftIO $ atomicWriteIORef accountDiffMapRef (Present newDiffMap)
+            liftIO $ atomicWriteIORef accountDiffMapRef (Present accountDiffMapRef')
             return (Just accIdx, a0{accountTable = newAccountTable})
-          where
-            addToDiffMap = DiffMap.insert addr
 
 -- | Construct an 'Accounts' from a list of accounts. Inserted in the order of the list.
 fromList :: (SupportsPersistentAccount pv m) => [PersistentAccount (AccountVersionFor pv)] -> m (Accounts pv)

@@ -194,7 +194,7 @@ runLLMDBTest ::
     IO a
 runLLMDBTest name action = withTempDirectory "" name $ \path ->
     bracket
-        (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
+        (openDatabase path :: IO (DatabaseHandlers 'P6))
         closeDatabase
         (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
 
