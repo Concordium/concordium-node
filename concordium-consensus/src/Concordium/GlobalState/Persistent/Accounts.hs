@@ -239,7 +239,7 @@ putNewAccount !acct a0@Accounts{..} = do
             liftIO $ atomicWriteIORef accountDiffMapRef (Present newDiffMap)
             return (Just accIdx, a0{accountTable = newAccountTable})
           where
-            addToDiffMap = DiffMap.insert (accountAddressEmbed addr)
+            addToDiffMap = DiffMap.insert addr
 
 -- | Construct an 'Accounts' from a list of accounts. Inserted in the order of the list.
 fromList :: (SupportsPersistentAccount pv m) => [PersistentAccount (AccountVersionFor pv)] -> m (Accounts pv)

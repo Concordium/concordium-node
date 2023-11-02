@@ -11,6 +11,7 @@ import Data.IORef
 import System.Random
 
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
+import Concordium.KonsensusV1.Types
 
 import Test.HUnit
 import Test.Hspec
@@ -22,7 +23,7 @@ dummyPair seed = (fst $ randomAccountAddress (mkStdGen seed), AccountIndex $ fro
 -- | Test that an account can be inserted and looked up in the 'DiffMap.DifferenceMap'.
 testInsertLookupAccount :: Assertion
 testInsertLookupAccount = do
-    emptyParentMap <- mkParentPointer Nothing
+    emptyParentMap <- mkParentPointer Absent
     let diffMap = uncurry DiffMap.insert acc $ DiffMap.empty emptyParentMap
     DiffMap.lookup (fst acc) diffMap >>= \case
         Nothing -> assertFailure "account should be present in diff map"
@@ -31,17 +32,17 @@ testInsertLookupAccount = do
     acc = dummyPair 1
 
 -- | Create a parent pointer for the provided difference map.
-mkParentPointer :: Maybe DiffMap.DifferenceMap -> IO (IORef (Maybe DiffMap.DifferenceMap))
+mkParentPointer :: Option DiffMap.DifferenceMap -> IO (IORef (Option DiffMap.DifferenceMap))
 mkParentPointer diffMap = newIORef diffMap >>= return
 
 -- | Testing lookups in flat and nested difference maps.
 testLookups :: Assertion
 testLookups = do
-    emptyParentMap <- mkParentPointer Nothing
+    emptyParentMap <- mkParentPointer Absent
     let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyParentMap
-    diffMap1Pointer <- mkParentPointer $ Just diffMap1
+    diffMap1Pointer <- mkParentPointer $ Present diffMap1
     let diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty diffMap1Pointer)
-    diffMap2Pointer <- mkParentPointer $ Just diffMap2
+    diffMap2Pointer <- mkParentPointer $ Present diffMap2
     let diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty diffMap2Pointer)
     checkExists (dummyPair 1) diffMap1
     checkExists (dummyPair 1) diffMap2
@@ -58,11 +59,11 @@ testLookups = do
 -- | Test flattening a difference map i.e. return all accounts as one flat map.
 testFlatten :: Assertion
 testFlatten = do
-    emptyParentMap <- mkParentPointer Nothing
+    emptyParentMap <- mkParentPointer Absent
     let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyParentMap
-    diffMap1Pointer <- mkParentPointer $ Just diffMap1
+    diffMap1Pointer <- mkParentPointer $ Present diffMap1
     let diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty diffMap1Pointer)
-    diffMap2Pointer <- mkParentPointer $ Just diffMap2
+    diffMap2Pointer <- mkParentPointer $ Present diffMap2
     let diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty diffMap2Pointer)
     assertEqual "accounts should be the same" (map dummyPair [1 .. 3]) =<< DiffMap.flatten diffMap3
 

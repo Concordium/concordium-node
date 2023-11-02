@@ -35,7 +35,7 @@ runTest ::
     IO a
 runTest dirName action = withTempDirectory "" dirName $ \path ->
     bracket
-        (LMDBAccountMap.makeDatabaseHandlers path False 1000 :: IO LMDBAccountMap.DatabaseHandlers)
+        (LMDBAccountMap.makeDatabaseHandlers path False :: IO LMDBAccountMap.DatabaseHandlers)
         LMDBAccountMap.closeDatabase
         (\dbh -> runSilentLogger $ runReaderT (LMDBAccountMap.runAccountMapStoreMonad action) dbh)
 
@@ -49,7 +49,7 @@ testCheckNotInitialized = runTest "notinitialized" $ do
 testCheckDbInitialized :: Assertion
 testCheckDbInitialized = runTest "initialized" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insert [dummyPair 1]
+    void $ LMDBAccountMap.insertAccount [dummyPair 1]
     isInitialized <- LMDBAccountMap.isInitialized
     liftIO $ assertBool "database should have been initialized" isInitialized
 
@@ -57,10 +57,10 @@ testCheckDbInitialized = runTest "initialized" $ do
 testInsertAndLookupAccounts :: Assertion
 testInsertAndLookupAccounts = runTest "insertandlookups" $ do
     let accounts = dummyPair <$> [1 .. 42]
-    void $ LMDBAccountMap.insert accounts
+    void $ LMDBAccountMap.insertAccount accounts
 
     forM_ accounts $ \(accAddr, accIndex) -> do
-        LMDBAccountMap.lookup accAddr >>= \case
+        LMDBAccountMap.lookupAccountIndex accAddr >>= \case
             Nothing -> liftIO $ assertFailure $ "account was not present " <> show accAddr <> " account index " <> show accIndex
             Just foundAccountIndex -> liftIO $ assertEqual "account indices should be the same" accIndex foundAccountIndex
 
@@ -68,8 +68,8 @@ testInsertAndLookupAccounts = runTest "insertandlookups" $ do
 testLookupAccountViaAlias :: Assertion
 testLookupAccountViaAlias = runTest "lookupviaalias" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insert [acc]
-    LMDBAccountMap.lookup (createAlias (fst acc) 42) >>= \case
+    void $ LMDBAccountMap.insertAccount [acc]
+    LMDBAccountMap.lookupAccountIndex (createAlias (fst acc) 42) >>= \case
         Nothing -> liftIO $ assertFailure "account could not be looked up via alias"
         Just accIndex -> liftIO $ assertEqual "account indices should match" (snd acc) accIndex
   where
@@ -79,15 +79,15 @@ testLookupAccountViaAlias = runTest "lookupviaalias" $ do
 testGetAllAccounts :: Assertion
 testGetAllAccounts = runTest "allaccounts" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insert $ dummyPair <$> [0 .. 42]
-    void $ LMDBAccountMap.insert $ dummyPair <$> [42 .. 84]
-    allAccounts <- LMDBAccountMap.all
+    void $ LMDBAccountMap.insertAccount $ dummyPair <$> [0 .. 42]
+    void $ LMDBAccountMap.insertAccount $ dummyPair <$> [42 .. 84]
+    allAccounts <- LMDBAccountMap.getAllAccounts
     when (length allAccounts /= 85) $
         liftIO $
             assertFailure $
                 "unexpected number of accounts: " <> (show . length) allAccounts <> " should be " <> show (85 :: Int)
     forM_ (dummyPair <$> [0 .. 84]) $ \(accAddr, _) -> do
-        isPresent <- isJust <$> LMDBAccountMap.lookup accAddr
+        isPresent <- isJust <$> LMDBAccountMap.lookupAccountIndex accAddr
         liftIO $ assertBool "account should be present" isPresent
 
 -- | Test that accounts can be rolled back i.e. deleted from the LMDB store and that
@@ -95,17 +95,17 @@ testGetAllAccounts = runTest "allaccounts" $ do
 testRollback :: Assertion
 testRollback = runTest "rollback" $ do
     -- initialize the database.
-    void $ LMDBAccountMap.insert [dummyPair 1]
-    void $ LMDBAccountMap.insert [dummyPair 2]
+    void $ LMDBAccountMap.insertAccount [dummyPair 1]
+    void $ LMDBAccountMap.insertAccount [dummyPair 2]
     -- roll back one block.
-    LMDBAccountMap.lookup (fst $ dummyPair 2) >>= \case
+    LMDBAccountMap.lookupAccountIndex (fst $ dummyPair 2) >>= \case
         Nothing -> liftIO $ assertFailure "account should be present"
         Just _ -> do
             void $ LMDBAccountMap.unsafeRollback [fst $ dummyPair 2]
-            LMDBAccountMap.lookup (fst $ dummyPair 2) >>= \case
+            LMDBAccountMap.lookupAccountIndex (fst $ dummyPair 2) >>= \case
                 Just _ -> liftIO $ assertFailure "account should have been deleted"
                 Nothing ->
-                    LMDBAccountMap.lookup (fst $ dummyPair 1) >>= \case
+                    LMDBAccountMap.lookupAccountIndex (fst $ dummyPair 1) >>= \case
                         Nothing -> liftIO $ assertFailure "Accounts from first block should still remain in the lmdb store"
                         Just accIdx -> liftIO $ assertEqual "The account index of the first account should be the same" (snd $ dummyPair 1) accIdx
 

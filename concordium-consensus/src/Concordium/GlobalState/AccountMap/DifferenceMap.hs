@@ -73,5 +73,5 @@ lookup addr = check
 
 -- | Insert an account into the difference map.
 --  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is being inserted.
-insert :: AccountAddressEq -> AccountIndex -> DifferenceMap -> DifferenceMap
-insert addr accIndex m = m{dmAccounts = HM.insert addr accIndex $ dmAccounts m}
+insert :: AccountAddress -> AccountIndex -> DifferenceMap -> DifferenceMap
+insert addr accIndex m = m{dmAccounts = HM.insert (accountAddressEmbed addr) accIndex $ dmAccounts m}
