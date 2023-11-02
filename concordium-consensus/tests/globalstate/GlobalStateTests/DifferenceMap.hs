@@ -5,8 +5,12 @@
 --  * Flattening the 'DiffMap.DifferenceMap'.
 module GlobalStateTests.DifferenceMap where
 
-import Concordium.ID.Types (randomAccountAddress)
+import Concordium.ID.Types (accountAddressSize, randomAccountAddress)
 import Concordium.Types
+import Control.Monad
+import Control.Monad.IO.Class
+import qualified Data.FixedByteString as FBS
+import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import System.Random
 import Test.HUnit
@@ -67,8 +71,51 @@ testFlatten = do
     let diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty diffMap2Pointer)
     assertEqual "accounts should be the same" (map dummyPair [1 .. 3]) =<< DiffMap.flatten diffMap3
 
+-- | Make the reference map for comparing lookups.
+makeReference :: [(AccountAddress, AccountIndex)] -> HM.HashMap AccountAddress AccountIndex
+makeReference = HM.fromList
+
+-- | Generate an 'AccountAddress'
+genAccountAddress :: Gen AccountAddress
+genAccountAddress = AccountAddress . FBS.pack <$> vector accountAddressSize
+
+-- | Generate account addresses, account indices and depth of the difference map.
+genInputs :: Gen ([(AccountAddress, AccountIndex)], Int)
+genInputs = sized $ \n -> do
+    let maxAccs = min n 10000
+    len <- choose (0, maxAccs)
+    accs <- replicateM len ((,) <$> genAccountAddress <*> (AccountIndex <$> arbitrary))
+    noDifferenceMaps <- choose (0, len)
+    return (accs, noDifferenceMaps)
+
+-- | Test insertions and lookups on the difference map.
+insertionsAndLookups :: Spec
+insertionsAndLookups = it "insertions and lookups" $
+    withMaxSuccess 10000 $
+        forAll genInputs $ \(inputs, noDifferenceMaps) -> do
+            let reference = HM.fromList inputs
+            emptyRef <- mkParentPointer Absent
+            diffMap <- populateDiffMap inputs noDifferenceMaps $ DiffMap.empty emptyRef
+            checkAll reference diffMap
+  where
+    checkAll ref diffMap = forM_ (HM.toList ref) (check diffMap)
+    check diffMap (accAddr, accIdx) = do
+        DiffMap.lookup accAddr diffMap >>= \case
+            Nothing -> liftIO $ assertFailure "account address should be present"
+            Just actualAccIdx -> liftIO $ assertEqual "account index should be equal" accIdx actualAccIdx
+    -- return the generated difference map(s)
+    populateDiffMap [] _ !accum = return accum
+    -- dump any remaining accounts at the top most difference map.
+    populateDiffMap ((accAddr, accIdx) : rest) 0 !accum = populateDiffMap rest 0 $ DiffMap.insert accAddr accIdx accum
+    -- create a new layer and insert an account.
+    populateDiffMap ((accAddr, accIdx) : rest) remaining !accum = do
+        pRef <- mkParentPointer (Present accum)
+        let accumDiffMap'' = DiffMap.insert accAddr accIdx $ DiffMap.empty pRef
+        populateDiffMap rest (remaining - 1) accumDiffMap''
+
 tests :: Spec
 tests = describe "AccountMap.DifferenceMap" $ do
     it "Test insert and lookup account" testInsertLookupAccount
     it "test lookups" testLookups
     it "Test flatten" testFlatten
+    insertionsAndLookups
