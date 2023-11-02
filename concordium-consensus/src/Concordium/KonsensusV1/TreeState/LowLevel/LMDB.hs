@@ -760,12 +760,7 @@ rollBackBlocksUntil checkState = do
             Just (Right (_, qc)) -> checkCertifiedWithQC lastFinRound bestState 0 [] qc
     -- Get the account address of a credential deployment.
     getAccountAddressFromDeployment bi = case bi of
-        WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} ->
-            case credential of
-                (InitialACWP InitialCredentialDeploymentInfo{..}) ->
-                    Just $ initialCredentialAccountAddress icdiValues
-                (NormalACWP CredentialDeploymentInformation{..}) ->
-                    Just $ credentialAccountAddress cdiValues
+        WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} -> (Just . addressFromRegId . credId) credential
         _ -> Nothing
     -- Given the round and QC for a certified block, check that the block's state can be
     -- loaded, and then iterate for the previous round.
