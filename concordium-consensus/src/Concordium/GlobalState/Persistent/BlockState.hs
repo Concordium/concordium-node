@@ -69,6 +69,7 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.ID.Parameters as ID
 import qualified Concordium.ID.Types as ID
+import Concordium.KonsensusV1.Types (Option (..))
 import Concordium.Kontrol.Bakers
 import Concordium.Logger (MonadLogger)
 import Concordium.TimeMonad (TimeMonad)
@@ -3723,15 +3724,15 @@ doThawBlockState ::
 doThawBlockState HashedPersistentBlockState{..} = do
     -- This load is cheap as the underlying block state is retained in memory as we're building from it, so it must be the "best" block.
     bsp@BlockStatePointers{bspAccounts = a0@Accounts.Accounts{..}} <- loadPBS hpbsPointers
-    mDiffMap <- liftIO $ readIORef accountDiffMap
-    newDiffMap <- case mDiffMap of
+    mDiffMap <- liftIO $ readIORef accountDiffMapRef
+    newDiffMapRef <- case mDiffMap of
         -- reuse the reference pointing to @Nothing@.
-        Nothing -> return accountDiffMap
-        Just _ -> do
+        Absent -> return accountDiffMapRef
+        Present _ -> do
             -- create a new reference pointing to
             -- a new difference map which inherits the parent difference map.
-            liftIO $ newIORef $ Just (DiffMap.empty accountDiffMap)
-    let bsp' = bsp{bspAccounts = a0{Accounts.accountDiffMap = newDiffMap}}
+            liftIO $ newIORef $ Present (DiffMap.empty accountDiffMapRef)
+    let bsp' = bsp{bspAccounts = a0{Accounts.accountDiffMapRef = newDiffMapRef}}
     liftIO $ newIORef =<< makeBufferedRef bsp'
 
 -- | Cache the block state.

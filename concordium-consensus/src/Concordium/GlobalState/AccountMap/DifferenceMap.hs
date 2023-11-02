@@ -12,11 +12,12 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Prelude hiding (lookup)
 
+import Concordium.KonsensusV1.Types (Option (..))
 import Concordium.Types
 
 -- | A difference map that indicates newly added accounts for
 --  a block identified by a 'BlockHash' and its associated 'BlockHeight'.
---  The difference map only contains accounts that were added since the '_dmParentMap'.
+--  The difference map only contains accounts that were added since the '_dmParentMapRef'.
 data DifferenceMap = DifferenceMap
     { -- | Accounts added in a block.
       dmAccounts :: !(HM.HashMap AccountAddressEq AccountIndex),
@@ -24,7 +25,11 @@ data DifferenceMap = DifferenceMap
       --  In other words, if the parent block is finalized,
       --  then the parent map is @Nothing@ as the LMDB account map
       --  should be consulted instead.
-      dmParentMap :: !(IORef (Maybe DifferenceMap))
+      --  This is an 'IORef' since the parent map may belong
+      --  to multiple blocks if they have not yet been persisted.
+      --  So the 'IORef' enables us to when persisting a block,
+      --  then we also clear the 'DifferenceMap' for the child block.
+      dmParentMapRef :: !(IORef (Option DifferenceMap))
     }
     deriving (Eq)
 
@@ -34,20 +39,20 @@ flatten :: (MonadIO m) => DifferenceMap -> m [(AccountAddress, AccountIndex)]
 flatten dmap = map (first aaeAddress) <$> go dmap []
   where
     go diffMap !accum = do
-        mParentMap <- liftIO $ readIORef (dmParentMap diffMap)
+        mParentMap <- liftIO $ readIORef (dmParentMapRef diffMap)
         case mParentMap of
-            Nothing -> return collectedAccounts
-            Just parentMap -> go parentMap collectedAccounts
+            Absent -> return collectedAccounts
+            Present parentMap -> go parentMap collectedAccounts
       where
         collectedAccounts = HM.toList (dmAccounts diffMap) <> accum
 
 -- | Create a new empty 'DifferenceMap' potentially based on the difference map of
 -- the parent.
-empty :: IORef (Maybe DifferenceMap) -> DifferenceMap
+empty :: IORef (Option DifferenceMap) -> DifferenceMap
 empty mParentDifferenceMap =
     DifferenceMap
         { dmAccounts = HM.empty,
-          dmParentMap = mParentDifferenceMap
+          dmParentMapRef = mParentDifferenceMap
         }
 
 -- | Lookup an account in the difference map or any of the parent
@@ -60,10 +65,10 @@ lookup addr = check
     k = accountAddressEmbed addr
     check diffMap = case HM.lookup k (dmAccounts diffMap) of
         Nothing -> do
-            mParentMap <- liftIO $ readIORef (dmParentMap diffMap)
+            mParentMap <- liftIO $ readIORef (dmParentMapRef diffMap)
             case mParentMap of
-                Nothing -> return Nothing
-                Just parentMap -> check parentMap
+                Absent -> return Nothing
+                Present parentMap -> check parentMap
         Just accIdx -> return $ Just accIdx
 
 -- | Insert an account into the difference map.

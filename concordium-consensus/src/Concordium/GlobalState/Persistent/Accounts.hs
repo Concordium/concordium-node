@@ -49,9 +49,10 @@
 --
 --  General flow
 --  The account map resides in its own lmdb database and functions across protocol versions.
---  For a thawed block, then the ‘DifferenceMap’ is either @Nothing@ or @Just DifferenceMap@ depending whether the parent block is written to disk.
---  If the parent block is written to disk, then a new 'DifferenceMap' is created for the block as part of 'putNewAccount'.
---  Frozen blocks always have a @Nothing@ 'DifferenceMap'.
+--  For non-persisted blocks, then the ‘DifferenceMap’ is either @IORef Nothing@ or @IORef (Just DifferenceMap)@ depending on whether the block is written to disk.
+--  The 'putNewAccount' function creates a new 'DifferenceMap' on demand, hence a new 'Accounts' is initialized with a @accountDiffMap@ set to @IORef Nothing@.
+--  Subsequent accounts created are then being added to the difference map created by the first invocation of 'putNewAccount'.
+--  Blocks that are persisted always have a @IORef Nothing@ 'accountDiffMapRef'.
 --
 --  The lmdb backed account map consists of a single lmdb store indexed by AccountAddresses and values are the associated ‘AccountIndex’ for each account.
 --
@@ -62,6 +63,24 @@
 --  for keeping track of non persisted accounts for supporting e.g. queries via the ‘AccountAddress’.
 module Concordium.GlobalState.Persistent.Accounts where
 
+import qualified Concordium.Crypto.SHA256 as H
+import qualified Concordium.GlobalState.AccountMap as OldMap
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Persistent.Account
+import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.GlobalState.Persistent.Cache
+import Concordium.GlobalState.Persistent.CachedRef
+import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
+import qualified Concordium.GlobalState.Persistent.LFMBTree as L
+import qualified Concordium.GlobalState.Persistent.Trie as Trie
+import Concordium.ID.Parameters
+import qualified Concordium.ID.Types as ID
+import Concordium.KonsensusV1.Types (Option (..))
+import Concordium.Types
+import Concordium.Types.HashableTo
+import Concordium.Utils.Serialization.Put
 import Control.Monad.Reader
 import Data.Foldable (foldlM)
 import Data.IORef
@@ -69,25 +88,6 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Serialize
 import Data.Word
-
-import Concordium.GlobalState.Persistent.Account
-import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.Cache
-import Concordium.GlobalState.Persistent.CachedRef
-import qualified Concordium.GlobalState.Persistent.Trie as Trie
-import qualified Concordium.ID.Types as ID
-import Concordium.Types
-import Concordium.Utils.Serialization.Put
-
-import qualified Concordium.Crypto.SHA256 as H
-import qualified Concordium.GlobalState.AccountMap as OldMap
-import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
-import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
-import Concordium.GlobalState.Parameters
-import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
-import qualified Concordium.GlobalState.Persistent.LFMBTree as L
-import Concordium.ID.Parameters
-import Concordium.Types.HashableTo
 
 -- | Representation of the set of accounts on the chain.
 --  Each account has an 'AccountIndex' which is the order
@@ -133,7 +133,10 @@ data Accounts (pv :: ProtocolVersion) = Accounts
       --  Otherwise if the block is not persisted and accounts have been added, then
       --  the 'DiffMap.DifferenceMap' yields the @AccountAddress -> AccountIndex@ mapping for
       --  accounts created in the block, where the account addresses are in canonical form.
-      accountDiffMap :: !(IORef (Maybe DiffMap.DifferenceMap))
+      --  The 'DiffMap.DifferenceMap' is wrapped in an 'IORef' because it is inherited
+      --  by child blocks, and so when this block state is persisted then we need to clear it
+      --  for any children block states.
+      accountDiffMapRef :: !(IORef (Option DiffMap.DifferenceMap))
     }
 
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
@@ -156,12 +159,12 @@ instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (Accounts pv) 
 --  Note that this also empties the difference map for this block.
 writeAccountsCreated :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 writeAccountsCreated Accounts{..} = do
-    mAccountsCreated <- liftIO $ readIORef accountDiffMap
+    mAccountsCreated <- liftIO $ readIORef accountDiffMapRef
     case mAccountsCreated of
-        Nothing -> return ()
-        Just accountsCreated -> do
+        Absent -> return ()
+        Present accountsCreated -> do
             listOfAccountsCreated <- liftIO $ DiffMap.flatten accountsCreated
-            liftIO $ atomicWriteIORef accountDiffMap Nothing
+            liftIO $ atomicWriteIORef accountDiffMapRef Absent
             LMDBAccountMap.insert listOfAccountsCreated
 
 -- Note. We're writing to the LMDB accountmap as part of the 'storeUpdate' implementation below.
@@ -198,7 +201,7 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         return $ do
             accountTable <- maccountTable
             accountRegIdHistory <- mrRIH
-            accountDiffMap <- liftIO $ newIORef Nothing
+            accountDiffMapRef <- liftIO $ newIORef Absent
             return $ Accounts{..}
 
 instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
@@ -211,8 +214,8 @@ instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheabl
 --  to an empty 'DiffMap.DifferenceMap'.
 emptyAccounts :: (MonadIO m) => m (Accounts pv)
 emptyAccounts = do
-    accountDiffMap <- liftIO $ newIORef Nothing
-    return $ Accounts L.empty Trie.empty accountDiffMap
+    accountDiffMapRef <- liftIO $ newIORef Absent
+    return $ Accounts L.empty Trie.empty accountDiffMapRef
 
 -- | Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
 --  or @Nothing@ in case the account already exists. In the latter case there is no change to the accounts structure.
@@ -223,14 +226,17 @@ putNewAccount !acct a0@Accounts{..} = do
         True -> return (Nothing, a0)
         False -> do
             (accIdx, newAccountTable) <- L.append acct accountTable
-            mAccountDiffMap <- liftIO $ readIORef accountDiffMap
+            mAccountDiffMap <- liftIO $ readIORef accountDiffMapRef
             newDiffMap <- case mAccountDiffMap of
-                Nothing -> do
-                    freshDifferenceMap <- liftIO $ newIORef (Nothing :: Maybe DiffMap.DifferenceMap)
+                Absent -> do
+                    -- create a difference map for this block state with a @Nothing@ as the parent.
+                    freshDifferenceMap <- liftIO $ newIORef (Absent :: Option DiffMap.DifferenceMap)
                     return $ addToDiffMap accIdx $ DiffMap.empty freshDifferenceMap
-                Just accDiffMap -> do
+                Present accDiffMap -> do
+                    -- reuse the already existing difference map for this block state.
                     return $ addToDiffMap accIdx accDiffMap
-            liftIO $ atomicWriteIORef accountDiffMap (Just newDiffMap)
+            -- we write to the difference map atomically here as there might be concurrent readers.
+            liftIO $ atomicWriteIORef accountDiffMapRef (Present newDiffMap)
             return (Just accIdx, a0{accountTable = newAccountTable})
           where
             addToDiffMap = DiffMap.insert (accountAddressEmbed addr)
@@ -262,10 +268,10 @@ getAccountByCredId cid accs@Accounts{..} =
 --  This is fine as there are no clashes and this approach simplifies the implementation.
 getAccountIndex :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
 getAccountIndex addr Accounts{..} = do
-    mAccountDiffMap <- liftIO $ readIORef accountDiffMap
+    mAccountDiffMap <- liftIO $ readIORef accountDiffMapRef
     case mAccountDiffMap of
-        Nothing -> lookupDisk
-        Just accDiffMap ->
+        Absent -> lookupDisk
+        Present accDiffMap ->
             DiffMap.lookup addr accDiffMap >>= \case
                 Just accIdx -> return $ Just accIdx
                 Nothing -> lookupDisk
@@ -364,10 +370,10 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
 allAccounts :: (SupportsPersistentAccount pv m) => Accounts pv -> m [(AccountAddress, AccountIndex)]
 allAccounts accounts = do
     persistedAccs <- LMDBAccountMap.all
-    mDiffMap <- liftIO $ readIORef (accountDiffMap accounts)
+    mDiffMap <- liftIO $ readIORef (accountDiffMapRef accounts)
     case mDiffMap of
-        Nothing -> return persistedAccs
-        Just accDiffMap -> do
+        Absent -> return persistedAccs
+        Present accDiffMap -> do
             flattenedDiffMapAccounts <- DiffMap.flatten accDiffMap
             return $! persistedAccs <> flattenedDiffMapAccounts
 
@@ -435,5 +441,5 @@ migrateAccounts migration Accounts{..} = do
         Accounts
             { accountTable = newAccountTable,
               accountRegIdHistory = newAccountRegIds,
-              accountDiffMap = accountDiffMap
+              accountDiffMapRef = accountDiffMapRef
             }
