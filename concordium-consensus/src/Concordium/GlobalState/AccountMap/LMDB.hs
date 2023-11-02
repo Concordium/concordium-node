@@ -1,8 +1,11 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -43,7 +46,6 @@ import Data.Kind (Type)
 import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
-import Prelude hiding (all, lookup)
 
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.LMDB.Helpers
@@ -73,29 +75,29 @@ instance Exception DatabaseInvariantViolation where
 --      * All accounts in the store are in persisted blocks (finalized or certified).
 class (Monad m) => MonadAccountMapStore m where
     -- | Inserts the accounts to the underlying store.
-    insert :: [(AccountAddress, AccountIndex)] -> m ()
+    insertAccount :: [(AccountAddress, AccountIndex)] -> m ()
 
     -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’ by using the
     --  equivalence class 'AccountAddressEq'.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
-    lookup :: AccountAddress -> m (Maybe AccountIndex)
+    lookupAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
 
-    -- | Return all the canonical addresses of accounts present
+    -- | Return all the canonical addresses and their associated account indices of accounts present
     --  in the store.
-    all :: m [(AccountAddress, AccountIndex)]
+    getAllAccounts :: m [(AccountAddress, AccountIndex)]
 
     -- | Checks whether the lmdb store is initialized or not.
     isInitialized :: m Bool
 
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
-    insert = lift . insert
-    lookup = lift . lookup
-    all = lift all
+    insertAccount = lift . insertAccount
+    lookupAccountIndex = lift . lookupAccountIndex
+    getAllAccounts = lift getAllAccounts
     isInitialized = lift isInitialized
-    {-# INLINE insert #-}
-    {-# INLINE lookup #-}
-    {-# INLINE all #-}
+    {-# INLINE insertAccount #-}
+    {-# INLINE lookupAccountIndex #-}
+    {-# INLINE getAllAccounts #-}
     {-# INLINE isInitialized #-}
 
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
@@ -103,10 +105,14 @@ deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => Monad
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
 
 instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
-    insert = lift . insert
-    lookup = lift . lookup
-    all = lift all
+    insertAccount = lift . insertAccount
+    lookupAccountIndex = lift . lookupAccountIndex
+    getAllAccounts = lift getAllAccounts
     isInitialized = lift isInitialized
+    {-# INLINE insertAccount #-}
+    {-# INLINE lookupAccountIndex #-}
+    {-# INLINE getAllAccounts #-}
+    {-# INLINE isInitialized #-}
 
 -- * Database stores
 
@@ -120,42 +126,21 @@ instance MDBDatabase AccountMapStore where
     type DBKey AccountMapStore = AccountAddress
     type DBValue AccountMapStore = AccountIndex
 
+-- | Datbase handlers to interact with the account map lmdb
+--  database. Create via 'makeDatabasehandlers'.
 data DatabaseHandlers = DatabaseHandlers
-    { _storeEnv :: !StoreEnv,
-      _accountMapStore :: !AccountMapStore
+    { -- | The underlying lmdb store environment.
+      _dbhStoreEnv :: !StoreEnv,
+      -- | The only store for this lmdb database.
+      --  The account map functions as a persistent @AccountAddress -> Maybe AccountIndex@ mapping.
+      _dbhAccountMapStore :: !AccountMapStore
     }
+
 makeClassy ''DatabaseHandlers
 
 -- | The number of stores in the LMDB environment for 'DatabaseHandlers'.
 databaseCount :: Int
 databaseCount = 1
-
--- | Database growth size increment.
---  This is currently set at 64MB, and must be a multiple of the page size.
-dbStepSize :: Int
-dbStepSize = 2 ^ (26 :: Int) -- 64MB
-
--- | Maximum step to increment the database size.
-dbMaxStepSize :: Int
-dbMaxStepSize = 2 ^ (30 :: Int) -- 1GB
-
--- | Initial database size.
---  This is currently set to be the same as 'dbStepSize'.
-dbInitSize :: Int
-dbInitSize = dbStepSize
-
--- ** Helpers
-
--- | Increase the database size by at least the supplied size.
---  The size SHOULD be a multiple of 'dbStepSize', and MUST be a multiple of the page size.
-resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers -> Int -> m ()
-resizeDatabaseHandlers dbh delta = do
-    envInfo <- liftIO $ mdb_env_info (dbh ^. storeEnv . seEnv)
-    let oldMapSize = fromIntegral $ me_mapsize envInfo
-        newMapSize = oldMapSize + delta
-        _storeEnv = dbh ^. storeEnv
-    logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
-    liftIO . withWriteStoreEnv (dbh ^. storeEnv) $ flip mdb_env_set_mapsize newMapSize
 
 -- ** Initialization
 
@@ -168,19 +153,17 @@ makeDatabaseHandlers ::
     FilePath ->
     -- | Open read only
     Bool ->
-    -- | Initial database size
-    Int ->
     IO DatabaseHandlers
-makeDatabaseHandlers accountMapDir readOnly initSize = do
-    _storeEnv <- makeStoreEnv
+makeDatabaseHandlers accountMapDir readOnly = do
+    _dbhStoreEnv <- makeStoreEnv
     -- here nobody else has access to the environment, so we need not lock
-    let env = _storeEnv ^. seEnv
-    mdb_env_set_mapsize env (initSize + dbStepSize - initSize `mod` dbStepSize)
+    let env = _dbhStoreEnv ^. seEnv
+    mdb_env_set_mapsize env defaultEnvSize
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     mdb_env_open env accountMapDir [MDB_RDONLY | readOnly]
-    transaction _storeEnv readOnly $ \txn -> do
-        _accountMapStore <-
+    transaction _dbhStoreEnv readOnly $ \txn -> do
+        _dbhAccountMapStore <-
             AccountMapStore
                 <$> mdb_dbi_open'
                     txn
@@ -196,11 +179,11 @@ makeDatabaseHandlers accountMapDir readOnly initSize = do
 openDatabase :: FilePath -> IO DatabaseHandlers
 openDatabase accountMapDir = do
     createDirectoryIfMissing True accountMapDir
-    makeDatabaseHandlers accountMapDir False dbInitSize
+    makeDatabaseHandlers accountMapDir False
 
 -- | Close the database. The database should not be used after it is closed.
 closeDatabase :: DatabaseHandlers -> IO ()
-closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. storeEnv . seEnv
+closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. dbhStoreEnv . seEnv
 
 -- ** Monad implementation
 
@@ -211,36 +194,6 @@ newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMo
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (AccountMapStoreMonad m)
 
--- todo: move these into Helpers.hs so they can be reused across the different lmdb database connections.
-
--- | Run a read-only transaction.
-asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r) => (DatabaseHandlers -> MDB_txn -> IO a) -> AccountMapStoreMonad m a
-asReadTransaction t = do
-    dbh <- view databaseHandlers
-    liftIO $ transaction (dbh ^. storeEnv) True $ t dbh
-
--- | Run a write transaction. If the transaction fails due to the database being full, this resizes
---  the database and retries the transaction.
-asWriteTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r, MonadLogger m) => (DatabaseHandlers -> MDB_txn -> IO a) -> AccountMapStoreMonad m a
-asWriteTransaction t = do
-    dbh <- view databaseHandlers
-    let doTransaction = transaction (dbh ^. storeEnv) False $ t dbh
-        inner step = do
-            r <- liftIO $ tryJust selectDBFullError doTransaction
-            case r of
-                Left _ -> do
-                    -- We resize by the step size initially, and by double for each successive
-                    -- failure.
-                    resizeDatabaseHandlers dbh step
-                    inner (min (step * 2) dbMaxStepSize)
-                Right res -> return res
-    inner dbStepSize
-  where
-    -- only handle the db full error and propagate other exceptions.
-    selectDBFullError = \case
-        (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
-        _ -> Nothing
-
 -- | Delete the provided accounts from the LMDB store.
 --
 --  This function should only be used when rolling back certified blocks. When rolling back finalized blocks,
@@ -248,8 +201,9 @@ asWriteTransaction t = do
 unsafeRollback :: (MonadIO m, MonadLogger m, MonadReader r m, HasDatabaseHandlers r) => [AccountAddress] -> m ()
 unsafeRollback accounts = do
     handlers <- ask
-    flip runReaderT handlers $ runAccountMapStoreMonad $ asWriteTransaction $ \dbh txn -> do
-        forM_ accounts $ \accAddr -> deleteRecord txn (dbh ^. accountMapStore) accAddr
+    let env = handlers ^. dbhStoreEnv
+    runAccountMapStoreMonad $ asWriteTransaction env $ \txn -> do
+        forM_ accounts $ \accAddr -> deleteRecord txn (handlers ^. dbhAccountMapStore) accAddr
 
 -- | When looking up accounts we perform a prefix search as we
 --  store the canonical account addresses in the lmdb store and we
@@ -265,35 +219,51 @@ instance
     ) =>
     MonadAccountMapStore (AccountMapStoreMonad m)
     where
-    insert differenceMap = asWriteTransaction $ \dbh txn -> doInsert dbh txn differenceMap
+    insertAccount differenceMap = do
+        dbh <- ask
+        asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> doInsert dbh txn differenceMap
       where
-        doInsert dbh txn accounts = do
+        doInsert handlers txn accounts = do
             forM_ accounts $ \(accAddr, accIndex) -> do
-                storeRecord txn (dbh ^. accountMapStore) accAddr accIndex
+                storeRecord txn (handlers ^. dbhAccountMapStore) accAddr accIndex
 
-    lookup a@(AccountAddress accAddr) = asReadTransaction $ \dbh txn ->
-        withCursor txn (dbh ^. accountMapStore) $ \cursor -> do
-            withMDB_val accLookupKey $ \k -> do
-                getCursor (CursorMoveTo k) cursor >>= \case
-                    Nothing -> return Nothing
-                    Just (Left err) -> throwM $ DatabaseInvariantViolation err
-                    Just (Right (foundAccAddr, accIdx)) ->
-                        -- we need to check equivalence here as we are performing
-                        -- prefix lookup in the lmdb database, so if the account does not exist
-                        -- then the lmdb query would return the "next" account address
-                        -- by lexicographic order of account address.
-                        if checkEquivalence a foundAccAddr
-                            then return $ Just accIdx
-                            else return Nothing
+    lookupAccountIndex a@(AccountAddress accAddr) = do
+        dbh <- ask
+        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn ->
+            withCursor txn (dbh ^. dbhAccountMapStore) $ \cursor -> do
+                withMDB_val accLookupKey $ \k -> do
+                    getCursor (CursorMoveTo k) cursor >>= \case
+                        Nothing -> return Nothing
+                        Just (Left err) -> throwM $ DatabaseInvariantViolation err
+                        Just (Right (foundAccAddr, accIdx)) ->
+                            -- we need to check equivalence here as we are performing
+                            -- prefix lookup in the lmdb database, so if the account does not exist
+                            -- then the lmdb query would return the "next" account address
+                            -- by lexicographic order of account address.
+                            if eqCheck a foundAccAddr
+                                then return $ Just accIdx
+                                else return Nothing
       where
-        -- The key to use for looking up an account.
-        -- We do a prefix lookup on the first 29 bytes of the account address as
-        -- the last 3 bytes are reserved for aliases.
+        -- If account aliases are supported then we check if
+        -- the found addresses matches the one we looked for via
+        -- the equivalence class 'AddressAccountEq'.
+        -- If account aliases are not supported then we check if the
+        -- found account address matches via exactness.
+        eqCheck actual found =
+            -- if supportsAccountAliases (protocolVersion @(MPV m))
+            checkEquivalence actual found -- then checkEquivalence actual found
+            -- else actual == found
+            -- The key to use for looking up an account.
+            -- We do a prefix lookup on the first 29 bytes of the account address as
+            -- the last 3 bytes are reserved for aliases.
         accLookupKey = BS.take prefixAccountAddressSize $ FBS.toByteString accAddr
         checkEquivalence x y = accountAddressEmbed x == accountAddressEmbed y
 
-    all = asReadTransaction $ \dbh txn -> loadAll txn (dbh ^. accountMapStore)
+    getAllAccounts = do
+        dbh <- ask
+        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn -> loadAll txn (dbh ^. dbhAccountMapStore)
 
     isInitialized = do
-        size <- asReadTransaction $ \dbh txn -> databaseSize txn (dbh ^. accountMapStore)
+        dbh <- ask
+        size <- asReadTransaction (dbh ^. dbhStoreEnv) $ \txn -> databaseSize txn (dbh ^. dbhAccountMapStore)
         return $ size /= 0

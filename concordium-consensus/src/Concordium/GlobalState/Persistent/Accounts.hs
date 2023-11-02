@@ -165,7 +165,7 @@ writeAccountsCreated Accounts{..} = do
         Present accountsCreated -> do
             listOfAccountsCreated <- liftIO $ DiffMap.flatten accountsCreated
             liftIO $ atomicWriteIORef accountDiffMapRef Absent
-            LMDBAccountMap.insert listOfAccountsCreated
+            LMDBAccountMap.insertAccount listOfAccountsCreated
 
 -- Note. We're writing to the LMDB accountmap as part of the 'storeUpdate' implementation below.
 -- This in turn means that no associated metadata is being written to the LMDB database (i.e. the block hash) of the
@@ -278,7 +278,7 @@ getAccountIndex addr Accounts{..} = do
   where
     -- Lookup the 'AccountIndex' in the lmdb backed account map.
     lookupDisk =
-        LMDBAccountMap.lookup addr >>= \case
+        LMDBAccountMap.lookupAccountIndex addr >>= \case
             Nothing -> return Nothing
             Just accIdx -> return $ Just accIdx
 
@@ -369,7 +369,7 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
 --  a concatenation of two lists of account addresses.
 allAccounts :: (SupportsPersistentAccount pv m) => Accounts pv -> m [(AccountAddress, AccountIndex)]
 allAccounts accounts = do
-    persistedAccs <- LMDBAccountMap.all
+    persistedAccs <- LMDBAccountMap.getAllAccounts
     mDiffMap <- liftIO $ readIORef (accountDiffMapRef accounts)
     case mDiffMap of
         Absent -> return persistedAccs
@@ -418,7 +418,7 @@ allAccountsViaTable accts = do
 tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 tryPopulateLMDBStore accts = do
     isInitialized <- LMDBAccountMap.isInitialized
-    unless isInitialized (void $ LMDBAccountMap.insert =<< allAccountsViaTable accts)
+    unless isInitialized (void $ LMDBAccountMap.insertAccount =<< allAccountsViaTable accts)
 
 -- | See documentation of @migratePersistentBlockState@.
 migrateAccounts ::

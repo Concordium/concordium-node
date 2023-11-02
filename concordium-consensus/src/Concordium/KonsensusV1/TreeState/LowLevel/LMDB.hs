@@ -249,20 +249,6 @@ metadataStoreName = "metadata"
 databaseCount :: Int
 databaseCount = 6
 
--- | Database growth size increment.
---  This is currently set at 64MB, and must be a multiple of the page size.
-dbStepSize :: Int
-dbStepSize = 2 ^ (26 :: Int) -- 64MB
-
--- | Maximum step to increment the database size.
-dbMaxStepSize :: Int
-dbMaxStepSize = 2 ^ (30 :: Int) -- 1GB
-
--- | Initial database size.
---  This is currently set to be the same as 'dbStepSize'.
-dbInitSize :: Int
-dbInitSize = dbStepSize
-
 -- ** Helpers
 
 -- | Resize the LMDB map if the file size has changed.
@@ -316,7 +302,7 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
     _storeEnv <- makeStoreEnv
     -- here nobody else has access to the environment, so we need not lock
     let env = _storeEnv ^. seEnv
-    mdb_env_set_mapsize env (initSize + dbStepSize - initSize `mod` dbStepSize)
+    mdb_env_set_mapsize env initSize
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     mdb_env_open env treeStateDir [MDB_RDONLY | readOnly]
@@ -366,7 +352,7 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
 openDatabase :: FilePath -> IO (DatabaseHandlers pv)
 openDatabase treeStateDir = do
     createDirectoryIfMissing False treeStateDir
-    makeDatabaseHandlers treeStateDir False dbInitSize
+    makeDatabaseHandlers treeStateDir False defaultEnvSize
 
 -- | Close the database. The database should not be used after it is closed.
 closeDatabase :: DatabaseHandlers pv -> IO ()
@@ -419,7 +405,7 @@ openReadOnlyDatabase ::
 openReadOnlyDatabase treeStateDir = do
     _storeEnv <- makeStoreEnv
     let env = _storeEnv ^. seEnv
-    mdb_env_set_mapsize env dbInitSize
+    mdb_env_set_mapsize env defaultEnvSize
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     mdb_env_open env treeStateDir [MDB_RDONLY]
@@ -485,34 +471,6 @@ deriving instance (MonadReader r m) => MonadReader r (DiskLLDBM pv m)
 
 instance (IsProtocolVersion pv) => MonadProtocolVersion (DiskLLDBM pv m) where
     type MPV (DiskLLDBM pv m) = pv
-
--- | Run a read-only transaction.
-asReadTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv) => (DatabaseHandlers pv -> MDB_txn -> IO a) -> DiskLLDBM pv m a
-asReadTransaction t = do
-    dbh <- view databaseHandlers
-    liftIO $ transaction (dbh ^. storeEnv) True $ t dbh
-
--- | Run a write transaction. If the transaction fails due to the database being full, this resizes
---  the database and retries the transaction.
-asWriteTransaction :: (MonadIO m, MonadReader r m, HasDatabaseHandlers r pv, MonadLogger m) => (DatabaseHandlers pv -> MDB_txn -> IO a) -> DiskLLDBM pv m a
-asWriteTransaction t = do
-    dbh <- view databaseHandlers
-    let doTransaction = transaction (dbh ^. storeEnv) False $ t dbh
-        inner step = do
-            r <- liftIO $ tryJust selectDBFullError doTransaction
-            case r of
-                Left _ -> do
-                    -- We resize by the step size initially, and by double for each successive
-                    -- failure.
-                    resizeDatabaseHandlers dbh step
-                    inner (min (step * 2) dbMaxStepSize)
-                Right res -> return res
-    inner dbStepSize
-  where
-    -- only handle the db full error and propagate other exceptions.
-    selectDBFullError = \case
-        (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
-        _ -> Nothing
 
 -- | Helper function for implementing 'writeFinalizedBlocks'.
 writeFinalizedBlocksHelper ::
@@ -597,27 +555,40 @@ instance
     ) =>
     MonadTreeStateStore (DiskLLDBM pv m)
     where
-    lookupBlock bh = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. blockStore) bh
-    memberBlock bh = asReadTransaction $ \dbh txn ->
-        isRecordPresent txn (dbh ^. blockStore) bh
+    lookupBlock bh = do
+        dbh <- ask
+        asReadTransaction (dbh ^. storeEnv) $ \txn ->
+            loadRecord txn (dbh ^. blockStore) bh
+    memberBlock bh = do
+        dbh <- ask
+        asReadTransaction (dbh ^. storeEnv) $ \txn ->
+            isRecordPresent txn (dbh ^. blockStore) bh
     lookupFirstBlock = lookupBlockByHeight 0
-    lookupLastFinalizedBlock = asReadTransaction $ \dbh txn ->
-        withCursor txn (dbh ^. finalizedBlockIndex) (getCursor CursorLast) >>= \case
-            Just (Right (_, bh)) ->
-                loadRecord txn (dbh ^. blockStore) bh
-            _ -> return Nothing
-    lookupBlockByHeight height = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. finalizedBlockIndex) height >>= \case
-            Just bh -> loadRecord txn (dbh ^. blockStore) bh
-            _ -> return Nothing
-    lookupTransaction txHash = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. transactionStatusStore) txHash
-    memberTransaction txHash = asReadTransaction $ \dbh txn ->
-        isRecordPresent txn (dbh ^. transactionStatusStore) txHash
+    lookupLastFinalizedBlock = do
+        dbh <- ask
+        asReadTransaction (dbh ^. storeEnv) $ \txn ->
+            withCursor txn (dbh ^. finalizedBlockIndex) (getCursor CursorLast) >>= \case
+                Just (Right (_, bh)) ->
+                    loadRecord txn (dbh ^. blockStore) bh
+                _ -> return Nothing
+    lookupBlockByHeight height = do
+        dbh <- ask
+        asReadTransaction (dbh ^. storeEnv) $ \txn ->
+            loadRecord txn (dbh ^. finalizedBlockIndex) height >>= \case
+                Just bh -> loadRecord txn (dbh ^. blockStore) bh
+                _ -> return Nothing
+    lookupTransaction txHash = do
+        dbh <- ask
+        asReadTransaction (dbh ^. storeEnv) $ \txn ->
+            loadRecord txn (dbh ^. transactionStatusStore) txHash
+    memberTransaction txHash = do
+        dbh <- ask
+        asReadTransaction (dbh ^. storeEnv) $ \txn ->
+            isRecordPresent txn (dbh ^. transactionStatusStore) txHash
 
     writeFinalizedBlocks finBlocks finEntry = do
-        delBlocks <- asWriteTransaction $ writeFinalizedBlocksHelper finBlocks finEntry
+        dbh <- ask
+        delBlocks <- asWriteTransaction (dbh ^. storeEnv) $ writeFinalizedBlocksHelper finBlocks finEntry dbh
         logEvent LMDB LLTrace $
             "Finalized blocks: "
                 ++ show (getHash @BlockHash <$> finBlocks)
@@ -626,7 +597,8 @@ instance
         return ()
 
     writeCertifiedBlock certBlock qc = do
-        asWriteTransaction $ writeCertifiedBlockHelper certBlock qc
+        dbh <- ask
+        asWriteTransaction (dbh ^. storeEnv) $ writeCertifiedBlockHelper certBlock qc dbh
         logEvent LMDB LLTrace $
             "Certified block: "
                 ++ show (qcBlock qc)
@@ -635,7 +607,8 @@ instance
                 ++ ")"
 
     writeCertifiedBlockWithFinalization finBlocks certBlock finEntry = do
-        delBlocks <- asWriteTransaction $ \dbh txn -> do
+        dbh <- ask
+        delBlocks <- asWriteTransaction (dbh ^. storeEnv) $ \txn -> do
             delBlocks <- writeFinalizedBlocksHelper finBlocks finEntry dbh txn
             writeCertifiedBlockHelper certBlock (feSuccessorQuorumCertificate finEntry) dbh txn
             return delBlocks
@@ -651,32 +624,40 @@ instance
                 ++ show (blockHeight certBlock)
                 ++ ")"
 
-    lookupLatestFinalizationEntry = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. latestFinalizationEntryStore) CSKLatestFinalizationEntry
+    lookupLatestFinalizationEntry = do
+        dbh <- ask
+        asReadTransaction (dbh ^. storeEnv) $ \txn ->
+            loadRecord txn (dbh ^. latestFinalizationEntryStore) CSKLatestFinalizationEntry
 
-    lookupCertifiedBlocks = asReadTransaction $ \dbh txn -> do
-        withCursor txn (dbh ^. nonFinalizedQuorumCertificateStore) $ \cursor -> do
-            let loop l Nothing = return l
-                loop _ (Just (Left e)) = throwM . DatabaseInvariantViolation $ e
-                loop l (Just (Right (_, qc))) = do
-                    loadRecord txn (dbh ^. blockStore) (qcBlock qc) >>= \case
-                        Nothing ->
-                            throwM . DatabaseInvariantViolation $
-                                "Missing block for QC "
-                                    <> show (qcBlock qc)
-                                    <> " in round "
-                                    <> show (qcRound qc)
-                        Just block ->
-                            loop ((block, qc) : l) =<< getCursor CursorPrevious cursor
-            loop [] =<< getCursor CursorLast cursor
+    lookupCertifiedBlocks = do
+        dbh <- ask
+        asReadTransaction (dbh ^. storeEnv) $ \txn -> do
+            withCursor txn (dbh ^. nonFinalizedQuorumCertificateStore) $ \cursor -> do
+                let loop l Nothing = return l
+                    loop _ (Just (Left e)) = throwM . DatabaseInvariantViolation $ e
+                    loop l (Just (Right (_, qc))) = do
+                        loadRecord txn (dbh ^. blockStore) (qcBlock qc) >>= \case
+                            Nothing ->
+                                throwM . DatabaseInvariantViolation $
+                                    "Missing block for QC "
+                                        <> show (qcBlock qc)
+                                        <> " in round "
+                                        <> show (qcRound qc)
+                            Just block ->
+                                loop ((block, qc) : l) =<< getCursor CursorPrevious cursor
+                loop [] =<< getCursor CursorLast cursor
 
-    lookupCurrentRoundStatus = asReadTransaction $ \dbh txn ->
-        loadRecord txn (dbh ^. roundStatusStore) CSKRoundStatus >>= \case
-            Just rs -> return rs
-            _ -> throwM (DatabaseInvariantViolation "Missing current round status")
+    lookupCurrentRoundStatus = do
+        dbh <- ask
+        asReadTransaction (dbh ^. storeEnv) $ \txn ->
+            loadRecord txn (dbh ^. roundStatusStore) CSKRoundStatus >>= \case
+                Just rs -> return rs
+                _ -> throwM (DatabaseInvariantViolation "Missing current round status")
 
-    writeCurrentRoundStatus rs = asWriteTransaction $ \dbh txn ->
-        storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus rs
+    writeCurrentRoundStatus rs = do
+        dbh <- ask
+        asWriteTransaction (dbh ^. storeEnv) $ \txn ->
+            storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus rs
 
 -- | Initialise the low-level database by writing out the genesis block, initial round status and
 --  version metadata.
@@ -688,16 +669,18 @@ initialiseLowLevelDB ::
     -- | Initial persistent round status.
     PersistentRoundStatus ->
     DiskLLDBM pv m ()
-initialiseLowLevelDB genesisBlock roundStatus = asWriteTransaction $ \dbh txn -> do
-    storeReplaceRecord txn (dbh ^. blockStore) (getHash genesisBlock) genesisBlock
-    storeReplaceRecord txn (dbh ^. finalizedBlockIndex) 0 (getHash genesisBlock)
-    storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus roundStatus
-    let metadata =
-            VersionMetadata
-                { vmDatabaseVersion = 1,
-                  vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
-                }
-    storeReplaceRecord txn (dbh ^. metadataStore) versionMetadata $ S.encode metadata
+initialiseLowLevelDB genesisBlock roundStatus = do
+    dbh <- ask
+    asWriteTransaction (dbh ^. storeEnv) $ \txn -> do
+        storeReplaceRecord txn (dbh ^. blockStore) (getHash genesisBlock) genesisBlock
+        storeReplaceRecord txn (dbh ^. finalizedBlockIndex) 0 (getHash genesisBlock)
+        storeReplaceRecord txn (dbh ^. roundStatusStore) CSKRoundStatus roundStatus
+        let metadata =
+                VersionMetadata
+                    { vmDatabaseVersion = 1,
+                      vmProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
+                    }
+        storeReplaceRecord txn (dbh ^. metadataStore) versionMetadata $ S.encode metadata
 
 -- | A result of a roll back.
 data RollbackResult = forall (pv :: ProtocolVersion).
@@ -765,7 +748,8 @@ rollBackBlocksUntil checkState = do
         -- returns the @RollbackResult@.
         DiskLLDBM pv m RollbackResult
     checkCertified lastFinRound bestState = do
-        mHighestQC <- asReadTransaction $ \dbh txn ->
+        dbh <- ask
+        mHighestQC <- asReadTransaction (dbh ^. storeEnv) $ \txn ->
             withCursor
                 txn
                 (dbh ^. nonFinalizedQuorumCertificateStore)
@@ -799,7 +783,8 @@ rollBackBlocksUntil checkState = do
         -- returns the @RollbackResult@.
         DiskLLDBM pv m RollbackResult
     checkCertifiedWithQC lastFinRound bestState !count accsCreated qc = do
-        mBlock <- asReadTransaction $ \dbh txn ->
+        dbh <- ask
+        mBlock <- asReadTransaction (dbh ^. storeEnv) $ \txn ->
             loadRecord txn (dbh ^. blockStore) (qcBlock qc)
         case mBlock of
             Nothing ->
@@ -819,7 +804,7 @@ rollBackBlocksUntil checkState = do
                         -- Record the accounts created in the rolled back certified block.
                         let accountsToDelete = mapMaybe getAccountAddressFromDeployment (blockTransactions block)
                         -- Delete the block and the QC
-                        asWriteTransaction $ \dbh txn -> do
+                        asWriteTransaction (dbh ^. storeEnv) $ \txn -> do
                             void $
                                 deleteRecord
                                     txn
@@ -854,7 +839,8 @@ rollBackBlocksUntil checkState = do
     checkCertifiedPreviousRound lastFinRound bestState count accsCreated currentRound
         | currentRound <= lastFinRound = return $ RollbackResult count bestState accsCreated
         | otherwise = do
-            mNextQC <- asReadTransaction $ \dbh txn ->
+            dbh <- ask
+            mNextQC <- asReadTransaction (dbh ^. storeEnv) $ \txn ->
                 loadRecord txn (dbh ^. nonFinalizedQuorumCertificateStore) currentRound
             case mNextQC of
                 Nothing ->
@@ -863,7 +849,8 @@ rollBackBlocksUntil checkState = do
                     checkCertifiedWithQC lastFinRound bestState count accsCreated qc
     -- Purge all of the certified blocks. Returns the number of blocks rolled back.
     purgeCertified = do
-        (count, hashes, accsToDelete) <- asWriteTransaction $ \dbh txn -> do
+        dbh <- ask
+        (count, hashes, accsToDelete) <- asWriteTransaction (dbh ^. storeEnv) $ \txn -> do
             withCursor txn (dbh ^. nonFinalizedQuorumCertificateStore) $ \cursor -> do
                 let loop !count accsToDelete hashes Nothing = return (count, hashes, accsToDelete)
                     loop _ _ _ (Just (Left e)) = throwM . DatabaseRecoveryFailure $ e
@@ -889,7 +876,8 @@ rollBackBlocksUntil checkState = do
         when (blockRound lastFin == 0) $
             throwM . DatabaseRecoveryFailure $
                 "Genesis block state could not be recovered."
-        (count', hashes, newLastFin) <- asWriteTransaction $ \dbh txn -> do
+        dbh <- ask
+        (count', hashes, newLastFin) <- asWriteTransaction (dbh ^. storeEnv) $ \txn -> do
             let loop ::
                     -- Current count of blocks rolled back
                     Int ->

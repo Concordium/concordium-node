@@ -317,21 +317,11 @@ metadataStoreName = "metadata"
 databaseCount :: Int
 databaseCount = 5
 
--- | Database growth size increment.
---  This is currently set at 64MB, and must be a multiple of the page size.
-dbStepSize :: Int
-dbStepSize = 2 ^ (26 :: Int) -- 64MB
-
--- | Initial database size.
---  This is currently set to be the same as 'dbStepSize'.
-dbInitSize :: Int
-dbInitSize = dbStepSize
-
 -- | Initialize database handlers in ReadWrite mode.
 --  This simply loads the references and does not initialize the databases.
---  The initial size is set to 64MB.
+--  The initial size is set to 128MB.
 databaseHandlers :: FilePath -> IO (DatabaseHandlers pv st)
-databaseHandlers treeStateDir = makeDatabaseHandlers treeStateDir False dbInitSize
+databaseHandlers treeStateDir = makeDatabaseHandlers treeStateDir False defaultEnvSize
 
 -- | Initialize database handlers.
 --  The size will be rounded up to a multiple of 'dbStepSize'.
@@ -342,14 +332,14 @@ makeDatabaseHandlers ::
     FilePath ->
     -- | Open read only
     Bool ->
-    -- | Initial database size
+    -- | Initital database size
     Int ->
     IO (DatabaseHandlers pv st)
 makeDatabaseHandlers treeStateDir readOnly initSize = do
     _storeEnv <- makeStoreEnv
     -- here nobody else has access to the environment, so we need not lock
     let env = _storeEnv ^. seEnv
-    mdb_env_set_mapsize env (initSize + dbStepSize - initSize `mod` dbStepSize)
+    mdb_env_set_mapsize env initSize
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     -- TODO: Consider MDB_NOLOCK
@@ -382,7 +372,7 @@ openReadOnlyDatabase ::
 openReadOnlyDatabase treeStateDir = do
     _storeEnv <- makeStoreEnv
     let env = _storeEnv ^. seEnv
-    mdb_env_set_mapsize env dbInitSize
+    mdb_env_set_mapsize env defaultStepSize
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     -- TODO: Consider MDB_NOLOCK
@@ -458,7 +448,7 @@ initializeDatabase gb stRef gbStateHash treeStateDir = do
 --  migrating a database from an earlier version.
 addDatabaseVersion :: (MonadLogger m, MonadIO m) => FilePath -> m ()
 addDatabaseVersion treeStateDir = do
-    handlers :: DatabaseHandlers 'P1 () <- liftIO $ makeDatabaseHandlers treeStateDir False dbInitSize
+    handlers :: DatabaseHandlers 'P1 () <- liftIO $ makeDatabaseHandlers treeStateDir False defaultEnvSize
     handlers' <-
         execStateT
             ( resizeOnFull 4096 $ -- This size is mostly arbitrary, but should be enough to store the serialized metadata
@@ -526,16 +516,6 @@ resizeOnResizedInternal se a = inner
     onResized _ = do
         liftIO (withWriteStoreEnv se $ flip mdb_env_set_mapsize 0)
         inner
-
-resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => DatabaseHandlers pv st -> Int -> m ()
-resizeDatabaseHandlers dbh size = do
-    envInfo <- liftIO $ mdb_env_info (dbh ^. storeEnv . seEnv)
-    let delta = size + (dbStepSize - size `mod` dbStepSize)
-        oldMapSize = fromIntegral $ me_mapsize envInfo
-        newMapSize = oldMapSize + delta
-        _storeEnv = dbh ^. storeEnv
-    logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
-    liftIO . withWriteStoreEnv (dbh ^. storeEnv) $ flip mdb_env_set_mapsize newMapSize
 
 -- | Load a block and its state hash (if available).
 -- Normal blocks already contain their state hash. For genesis blocks, the state hash is loaded
@@ -717,7 +697,7 @@ resizeOnFullInternal addSize dbh a = inner
             Left _ -> do
                 -- Resize the database handlers, and try to add again in case the size estimate
                 -- given by lmdbStoreTypeSize is off.
-                resizeDatabaseHandlers dbh addSize
+                resizeDatabaseHandlers (dbh ^. storeEnv) addSize
                 inner
             Right res -> return res
     -- only handle the db full error and propagate other exceptions.
