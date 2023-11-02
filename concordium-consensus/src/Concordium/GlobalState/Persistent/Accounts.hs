@@ -77,7 +77,7 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.ID.Parameters
 import qualified Concordium.ID.Types as ID
-import Concordium.KonsensusV1.Types (Option (..))
+import Concordium.Option (Option (..))
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
@@ -87,7 +87,6 @@ import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Serialize
-import Data.Word
 
 -- | Representation of the set of accounts on the chain.
 --  Each account has an 'AccountIndex' which is the order
@@ -167,10 +166,16 @@ writeAccountsCreated Accounts{..} = do
         Present accountsCreated -> do
             listOfAccountsCreated <- liftIO $ DiffMap.flatten accountsCreated
             liftIO $ atomicWriteIORef accountDiffMapRef Absent
-            LMDBAccountMap.insertAccount listOfAccountsCreated
+            LMDBAccountMap.insertAccounts listOfAccountsCreated
 
 instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
+        -- put an empty 'OldMap.PersistentAccountMap'.
+        -- In earlier versions of the node the above mentioned account map was used,
+        -- but this is now superseded by the 'LMDBAccountMap.MonadAccountMapStore'.
+        -- We put this empty map here to remain backwards compatible.
+        -- This should be revised as part of a future protocol update when the database layout can be changed.
+        (emptyOldMap, _) <- storeUpdate $ OldMap.empty @pv @BufferedFix
         (pTable, accountTable') <- storeUpdate accountTable
         (pRegIdHistory, regIdHistory') <- storeUpdate accountRegIdHistory
         let newAccounts =
@@ -179,13 +184,7 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
                       accountRegIdHistory = regIdHistory',
                       ..
                     }
-
-        -- put an empty 'OldMap.PersistentAccountMap'.
-        -- In earlier versions of the node the above mentioned account map was used,
-        -- but this is now superseded by the 'LMDBAccountMap.MonadAccountMapStore'.
-        -- We put this (0 :: Int) here to remain backwards compatible as this simply indicates an empty map.
-        -- This should be revised as part of a future protocol update when the database layout can be changed.
-        return (put (0 :: Word64) >> pTable >> pRegIdHistory, newAccounts)
+        return (emptyOldMap >> pTable >> pRegIdHistory, newAccounts)
     load = do
         -- load the persistent account map and throw it away. We always put an empty one in,
         -- but that has not always been the case. But the 'OldMap.PersistentAccountMap' is now superseded by
@@ -257,9 +256,9 @@ getAccountByCredId cid accs@Accounts{..} =
         Nothing -> return Nothing
         Just ai -> fmap (ai,) <$> indexedAccount ai accs
 
--- | Get the account at a given index (if any).
---  Note that this is looking up via the account alias mechanism introduced in protocol version 3 for all protocol versions.
---  This is fine as there are no clashes and this approach simplifies the implementation.
+-- | Get the 'AccountIndex' for the provided 'AccountAddress' (if any).
+--  First try lookup in the in-memory difference map associated with the the provided 'Accounts pv',
+--  if no account could be looked up, then we fall back to the lmdb backed account map.
 getAccountIndex :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
 getAccountIndex addr Accounts{..} = do
     mAccountDiffMap <- liftIO $ readIORef accountDiffMapRef
@@ -412,7 +411,7 @@ allAccountsViaTable accts = do
 tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 tryPopulateLMDBStore accts = do
     isInitialized <- LMDBAccountMap.isInitialized
-    unless isInitialized (void $ LMDBAccountMap.insertAccount =<< allAccountsViaTable accts)
+    unless isInitialized (void $ LMDBAccountMap.insertAccounts =<< allAccountsViaTable accts)
 
 -- | See documentation of @migratePersistentBlockState@.
 migrateAccounts ::

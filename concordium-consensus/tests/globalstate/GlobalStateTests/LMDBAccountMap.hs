@@ -49,7 +49,7 @@ testCheckNotInitialized = runTest "notinitialized" $ do
 testCheckDbInitialized :: Assertion
 testCheckDbInitialized = runTest "initialized" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insertAccount [dummyPair 1]
+    void $ LMDBAccountMap.insertAccounts [dummyPair 1]
     isInitialized <- LMDBAccountMap.isInitialized
     liftIO $ assertBool "database should have been initialized" isInitialized
 
@@ -57,7 +57,7 @@ testCheckDbInitialized = runTest "initialized" $ do
 testInsertAndLookupAccounts :: Assertion
 testInsertAndLookupAccounts = runTest "insertandlookups" $ do
     let accounts = dummyPair <$> [1 .. 42]
-    void $ LMDBAccountMap.insertAccount accounts
+    void $ LMDBAccountMap.insertAccounts accounts
 
     forM_ accounts $ \(accAddr, accIndex) -> do
         LMDBAccountMap.lookupAccountIndex accAddr >>= \case
@@ -68,7 +68,7 @@ testInsertAndLookupAccounts = runTest "insertandlookups" $ do
 testLookupAccountViaAlias :: Assertion
 testLookupAccountViaAlias = runTest "lookupviaalias" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insertAccount [acc]
+    void $ LMDBAccountMap.insertAccounts [acc]
     LMDBAccountMap.lookupAccountIndex (createAlias (fst acc) 42) >>= \case
         Nothing -> liftIO $ assertFailure "account could not be looked up via alias"
         Just accIndex -> liftIO $ assertEqual "account indices should match" (snd acc) accIndex
@@ -79,8 +79,8 @@ testLookupAccountViaAlias = runTest "lookupviaalias" $ do
 testGetAllAccounts :: Assertion
 testGetAllAccounts = runTest "allaccounts" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insertAccount $ dummyPair <$> [0 .. 42]
-    void $ LMDBAccountMap.insertAccount $ dummyPair <$> [42 .. 84]
+    void $ LMDBAccountMap.insertAccounts $ dummyPair <$> [0 .. 42]
+    void $ LMDBAccountMap.insertAccounts $ dummyPair <$> [42 .. 84]
     allAccounts <- LMDBAccountMap.getAllAccounts
     when (length allAccounts /= 85) $
         liftIO $
@@ -95,8 +95,8 @@ testGetAllAccounts = runTest "allaccounts" $ do
 testRollback :: Assertion
 testRollback = runTest "rollback" $ do
     -- initialize the database.
-    void $ LMDBAccountMap.insertAccount [dummyPair 1]
-    void $ LMDBAccountMap.insertAccount [dummyPair 2]
+    void $ LMDBAccountMap.insertAccounts [dummyPair 1]
+    void $ LMDBAccountMap.insertAccounts [dummyPair 2]
     -- roll back one block.
     LMDBAccountMap.lookupAccountIndex (fst $ dummyPair 2) >>= \case
         Nothing -> liftIO $ assertFailure "account should be present"

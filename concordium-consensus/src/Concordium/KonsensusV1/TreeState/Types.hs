@@ -26,6 +26,7 @@ import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.TransactionTable
 import Concordium.KonsensusV1.Types
+import Concordium.Option (Option (..), ofOption)
 
 -- | Status information for a finalized transaction.
 data FinalizedTransactionStatus = FinalizedTransactionStatus

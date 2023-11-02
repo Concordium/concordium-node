@@ -1,9 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
 
 -- | The 'DifferenceMap' stores accounts that have been created in a non-finalized block.
---  When a block is being finalized (or certified for consensus version 1)
---  then the associated 'DifferenceMap' must be written
---  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insert'.
+--  When a block is finalized then the associated 'DifferenceMap' must be written
+--  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insertAccounts'.
 module Concordium.GlobalState.AccountMap.DifferenceMap where
 
 import Control.Monad.IO.Class
@@ -12,7 +11,7 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Prelude hiding (lookup)
 
-import Concordium.KonsensusV1.Types (Option (..))
+import Concordium.Option (Option (..))
 import Concordium.Types
 
 -- | A difference map that indicates newly added accounts for
@@ -23,7 +22,7 @@ data DifferenceMap = DifferenceMap
       dmAccounts :: !(HM.HashMap AccountAddressEq AccountIndex),
       -- | Parent map of non-finalized blocks.
       --  In other words, if the parent block is finalized,
-      --  then the parent map is @Nothing@ as the LMDB account map
+      --  then the parent map is @Absent@ as the LMDB account map
       --  should be consulted instead.
       --  This is an 'IORef' since the parent map may belong
       --  to multiple blocks if they have not yet been persisted.
@@ -59,6 +58,8 @@ empty mParentDifferenceMap =
 --  difference maps using the account address equivalence class.
 --  Returns @Just AccountIndex@ if the account is present and
 --  otherwise @Nothing@.
+--  Note that this implementation uses the 'AccountAddressEq' equivalence
+--  class for looking up an 'AccountIndex'.
 lookup :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
 lookup addr = check
   where

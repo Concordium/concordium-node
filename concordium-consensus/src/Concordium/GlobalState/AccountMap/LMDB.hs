@@ -10,12 +10,12 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | This module exposes an account map backed by a LMDB database.
---  The ‘AccountMap’ is a simple key/value store where the keys consists of the
+--  The account map is a simple key/value store where the keys consists of the
 --  canonical 'AccountAddress' and the values are the assoicated 'AccountIndex'.
 --
---  The LMDB account map only stores  accounts that are persisted (created in a certified or finalized block).
---  Non certified/finalized accounts are being kept in a 'DifferenceMap' which
---  is being written to this LMDB account map when a block is being persisted.
+--  The LMDB account map only stores accounts that are finalized.
+--  Non finalized accounts are being kept in a 'DifferenceMap' which
+--  is written to this LMDB account map when a block is persisted.
 --
 --  As opposed to the account table of the block state this database does not
 --  include historical data i.e., the state of this database is from the perspective
@@ -24,7 +24,7 @@
 --  should use the account table.
 --
 --  The account map is integrated with the block state “on-the-fly” meaning that
---  whenver the node starts up and the ‘AccountMap’ is not populated, then it will be
+--  whenever the node starts up and the account map is not populated, then it will be
 --  initialized on startup via the existing ‘PersistentAccountMap’.
 --
 --  Invariants:
@@ -72,15 +72,24 @@ instance Exception DatabaseInvariantViolation where
 --  An implementation should ensure atomicity of operations.
 --
 --  Invariants:
---      * All accounts in the store are in persisted blocks (finalized or certified).
+--      * All accounts in the store are finalized.
+--      * The store should only retain canoncial account addresses.
 class (Monad m) => MonadAccountMapStore m where
     -- | Inserts the accounts to the underlying store.
-    insertAccount :: [(AccountAddress, AccountIndex)] -> m ()
+    --  Only canonical addresses should be added.
+    insertAccounts :: [(AccountAddress, AccountIndex)] -> m ()
 
-    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’ by using the
-    --  equivalence class 'AccountAddressEq'.
+    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
+    --
+    --  Note that an implementor must adhere to the following:
+    --  * For protocol versions that does not support account aliases,
+    --    then the provided @AccountAddress@ must match exactly the one
+    --    present in the store.
+    --  * For protocol versions that does support account aliases,
+    --    then it's sufficient if the first 29 bytes of the accont address
+    --    matches the 'AccountAddress' recorded.
     lookupAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
 
     -- | Return all the canonical addresses and their associated account indices of accounts present
@@ -91,11 +100,11 @@ class (Monad m) => MonadAccountMapStore m where
     isInitialized :: m Bool
 
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
-    insertAccount = lift . insertAccount
+    insertAccounts = lift . insertAccounts
     lookupAccountIndex = lift . lookupAccountIndex
     getAllAccounts = lift getAllAccounts
     isInitialized = lift isInitialized
-    {-# INLINE insertAccount #-}
+    {-# INLINE insertAccounts #-}
     {-# INLINE lookupAccountIndex #-}
     {-# INLINE getAllAccounts #-}
     {-# INLINE isInitialized #-}
@@ -105,11 +114,11 @@ deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => Monad
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
 
 instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
-    insertAccount = lift . insertAccount
+    insertAccounts = lift . insertAccounts
     lookupAccountIndex = lift . lookupAccountIndex
     getAllAccounts = lift getAllAccounts
     isInitialized = lift isInitialized
-    {-# INLINE insertAccount #-}
+    {-# INLINE insertAccounts #-}
     {-# INLINE lookupAccountIndex #-}
     {-# INLINE getAllAccounts #-}
     {-# INLINE isInitialized #-}
@@ -219,13 +228,11 @@ instance
     ) =>
     MonadAccountMapStore (AccountMapStoreMonad m)
     where
-    insertAccount differenceMap = do
+    insertAccounts accounts = do
         dbh <- ask
-        asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> doInsert dbh txn differenceMap
-      where
-        doInsert handlers txn accounts = do
+        asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> do
             forM_ accounts $ \(accAddr, accIndex) -> do
-                storeReplaceRecord txn (handlers ^. dbhAccountMapStore) accAddr accIndex
+                storeReplaceRecord txn (dbh ^. dbhAccountMapStore) accAddr accIndex
 
     lookupAccountIndex a@(AccountAddress accAddr) = do
         dbh <- ask

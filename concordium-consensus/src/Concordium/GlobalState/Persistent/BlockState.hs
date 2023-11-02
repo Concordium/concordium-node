@@ -69,9 +69,9 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.ID.Parameters as ID
 import qualified Concordium.ID.Types as ID
-import Concordium.KonsensusV1.Types (Option (..))
 import Concordium.Kontrol.Bakers
 import Concordium.Logger (MonadLogger)
+import Concordium.Option (Option (..))
 import Concordium.TimeMonad (TimeMonad)
 import Concordium.Types
 import Concordium.Types.Accounts (AccountBaker (..))

@@ -44,6 +44,7 @@ import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Option
 import Concordium.Startup
 import Concordium.TimerMonad
 

@@ -27,6 +27,7 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types (bpState)
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
+import Concordium.Option
 import Concordium.Skov.Monad (UpdateResult (..), transactionVerificationResultToUpdateResult)
 import Concordium.TimeMonad
 import Concordium.TimerMonad

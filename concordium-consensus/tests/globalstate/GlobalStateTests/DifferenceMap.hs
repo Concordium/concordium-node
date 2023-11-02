@@ -18,7 +18,7 @@ import Test.Hspec
 import Test.QuickCheck
 
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
-import Concordium.KonsensusV1.Types
+import Concordium.Option
 
 -- | Create a pair consisting of an account address and an account index based on the provided seed.
 dummyPair :: Int -> (AccountAddress, AccountIndex)

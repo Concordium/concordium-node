@@ -49,6 +49,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Option
 import Concordium.Scheduler (FilteredTransactions (..))
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity

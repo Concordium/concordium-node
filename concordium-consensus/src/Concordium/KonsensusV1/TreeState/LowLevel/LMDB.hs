@@ -36,6 +36,7 @@ import Concordium.Common.Version
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types
 import Concordium.Logger
+import Concordium.Option
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions

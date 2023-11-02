@@ -53,6 +53,7 @@ import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.TransactionTable
 import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Logger
+import Concordium.Option
 import Concordium.Scheduler.DummyData
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer

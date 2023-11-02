@@ -5,6 +5,7 @@ import qualified Data.Map.Strict as Map
 import Data.Serialize hiding (getListOf, putListOf)
 
 import Concordium.KonsensusV1.Types
+import Concordium.Option
 import Concordium.Types
 import Concordium.Utils.Serialization
 import Control.Monad
