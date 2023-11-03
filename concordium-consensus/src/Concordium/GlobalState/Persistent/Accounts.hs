@@ -77,9 +77,9 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.ID.Parameters
 import qualified Concordium.ID.Types as ID
-import Concordium.Option (Option (..))
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Option (Option (..))
 import Concordium.Utils.Serialization.Put
 import Control.Monad.Reader
 import Data.Foldable (foldlM)

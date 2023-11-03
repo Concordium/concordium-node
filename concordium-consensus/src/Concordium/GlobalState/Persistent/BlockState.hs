@@ -71,7 +71,6 @@ import qualified Concordium.ID.Parameters as ID
 import qualified Concordium.ID.Types as ID
 import Concordium.Kontrol.Bakers
 import Concordium.Logger (MonadLogger)
-import Concordium.Option (Option (..))
 import Concordium.TimeMonad (TimeMonad)
 import Concordium.Types
 import Concordium.Types.Accounts (AccountBaker (..))
@@ -81,6 +80,7 @@ import Concordium.Types.Execution (DelegationTarget (..), TransactionIndex, Tran
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.IdentityProviders as IPS
+import Concordium.Types.Option (Option (..))
 import Concordium.Types.Queries (CurrentPaydayBakerPoolStatus (..), PoolStatus (..), RewardStatus' (..), makePoolPendingChange)
 import Concordium.Types.SeedState
 import qualified Concordium.Types.Transactions as Transactions

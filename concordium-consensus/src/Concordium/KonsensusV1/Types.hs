@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -28,9 +27,9 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data (Regenesis, firstGenesisBlockHash, regenesisBlockHash, regenesisCoreParametersV1)
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
-import Concordium.Option
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Types.Parameters (IsConsensusV1)
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch

@@ -11,8 +11,8 @@ import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Prelude hiding (lookup)
 
-import Concordium.Option (Option (..))
 import Concordium.Types
+import Concordium.Types.Option (Option (..))
 
 -- | A difference map that indicates newly added accounts for
 --  a block identified by a 'BlockHash' and its associated 'BlockHeight'.

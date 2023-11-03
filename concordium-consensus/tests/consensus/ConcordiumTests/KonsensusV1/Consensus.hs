@@ -23,10 +23,10 @@ import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Option
 import Concordium.Startup
 import Concordium.Types
 import qualified Concordium.Types.DummyData as Dummy
+import Concordium.Types.Option
 import ConcordiumTests.KonsensusV1.TreeStateTest (dummyBlock)
 
 genesisData :: GenesisData 'P6

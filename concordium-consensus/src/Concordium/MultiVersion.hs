@@ -66,7 +66,6 @@ import qualified Concordium.KonsensusV1.Transactions as SkovV1
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as LowLevelDB
 import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
 import qualified Concordium.KonsensusV1.Types as KonsensusV1
-import Concordium.Option
 import qualified Concordium.ProtocolUpdate.V0 as ProtocolUpdateV0
 import qualified Concordium.ProtocolUpdate.V1 as ProtocolUpdateV1
 import qualified Concordium.Skov as Skov
@@ -74,6 +73,7 @@ import Concordium.TimeMonad
 import Concordium.TimerMonad
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.CatchUp
+import Concordium.Types.Option
 
 -- | Handler configuration for supporting protocol updates.
 --  This handler defines an instance of 'HandlerConfigHandlers' that responds to finalization events

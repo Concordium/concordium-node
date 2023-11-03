@@ -62,9 +62,9 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Option
 import Concordium.TimeMonad
 import Concordium.TimerMonad
+import Concordium.Types.Option
 import Concordium.Types.Parameters
 
 -- | 'CatchUpPartialResponse' represents a stream of blocks to send as a response to a catch-up

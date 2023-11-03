@@ -29,9 +29,9 @@ import Concordium.KonsensusV1.TreeState.LowLevel.LMDB
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import Concordium.Option
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Types.Transactions
 
 -- | A dummy UTCTime used for tests where the actual value is not significant.

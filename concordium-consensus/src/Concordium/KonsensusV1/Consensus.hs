@@ -34,7 +34,7 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import Concordium.Option
+import Concordium.Types.Option
 import Concordium.Types.SeedState (currentLeadershipElectionNonce, triggerBlockTime)
 import Concordium.Types.UpdateQueues
 import Concordium.Types.Updates

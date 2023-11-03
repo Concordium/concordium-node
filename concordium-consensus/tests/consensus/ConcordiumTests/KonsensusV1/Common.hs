@@ -12,8 +12,8 @@ import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Option
 import Concordium.Types
+import Concordium.Types.Option
 import Concordium.Types.Transactions
 import ConcordiumTests.KonsensusV1.TreeStateTest hiding (tests)
 

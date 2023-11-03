@@ -40,10 +40,10 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 
 import qualified Concordium.Genesis.Data.BaseV1 as Base
-import Concordium.Option
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Utils

@@ -49,10 +49,10 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import Concordium.Option
 import Concordium.Scheduler (FilteredTransactions (..))
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
+import Concordium.Types.Option
 
 -- | A block that has passed initial verification, but must still be executed, added to the state,
 --  and (potentially) signed as a finalizer.

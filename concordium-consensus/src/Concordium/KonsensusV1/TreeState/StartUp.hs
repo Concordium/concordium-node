@@ -35,9 +35,9 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
-import Concordium.Option
 import Concordium.TimeMonad
 import Concordium.TransactionVerification as TVer
+import Concordium.Types.Option
 
 -- | Generate the 'EpochBakers' for a genesis block.
 genesisEpochBakers ::
