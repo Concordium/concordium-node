@@ -1,16 +1,18 @@
 {-# LANGUAGE DeriveTraversable #-}
+
 -- | This module provides a strict version of 'Maybe'.
 module Concordium.Types.Option (
-  -- * Strict version of 'Maybe'.
-  Option(..),
-  -- * Auxiliary functions
-  putOptionOf,
-  getOptionOf,
-  isPresent,
-  isAbsent,
-  fromOption,
-  ofOption
-  ) where
+    -- * Strict version of 'Maybe'.
+    Option (..),
+
+    -- * Auxiliary functions
+    putOptionOf,
+    getOptionOf,
+    isPresent,
+    isAbsent,
+    fromOption,
+    ofOption,
+) where
 
 import Data.Serialize
 

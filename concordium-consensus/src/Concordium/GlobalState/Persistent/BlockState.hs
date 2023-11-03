@@ -2239,16 +2239,6 @@ doAccountList pbs = do
     bsp <- loadPBS pbs
     Accounts.accountAddresses (bspAccounts bsp)
 
--- | This function should be used when querying all accounts for a
---  block that is only on disk, hence the 'historical' part.
---  For blocks only retained in memory, then this function will not return accounts created
---  in this block or any parent blocks that have not yet been written to disk.
---  Use 'doGetAccountList' when querying the "best" block.
-doGetAccountListHistorical :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m [AccountAddress]
-doGetAccountListHistorical pbs = do
-    bsp <- loadPBS pbs
-    map fst <$> Accounts.allAccountsViaTable (bspAccounts bsp)
-
 doRegIdExists :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
     bsp <- loadPBS pbs
@@ -3401,7 +3391,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
     getAccountList = doAccountList . hpbsPointers
-    getAccountListHistorical = doGetAccountListHistorical . hpbsPointers
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
     getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteeParameters . hpbsPointers
@@ -3577,17 +3566,19 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     saveBlockState HashedPersistentBlockState{..} = do
         inner <- liftIO $ readIORef hpbsPointers
-        -- this load should be cheap as the blockstate is in memory.
-        accs <- bspAccounts <$> loadPBS hpbsPointers
-        -- write the accounts that was created in the block and
-        -- potentially non-persisted parent blocks.
-        -- Note that this also empties the difference map for the
-        -- block.
-        void $ Accounts.writeAccountsCreated accs
         (!inner', !ref) <- flushBufferedRef inner
         liftIO $ writeIORef hpbsPointers inner'
         flushStore
         return ref
+
+    saveAccounts HashedPersistentBlockState{..} = do
+        -- this load should be cheap as the blockstate is in memory.
+        accs <- bspAccounts <$> loadPBS hpbsPointers
+        -- write the accounts that was created in the block and
+        -- potentially non-finalized parent blocks.
+        -- Note that this also empties the difference map for the
+        -- block.
+        void $ Accounts.writeAccountsCreated hpbsHash accs
 
     loadBlockState hpbsHashM ref = do
         hpbsPointers <- liftIO $ newIORef $ blobRefToBufferedRef ref
@@ -3777,9 +3768,9 @@ cacheState hpbs = do
     return ()
 
 doTryPopulateAccountMap :: (SupportsPersistentState pv m) => HashedPersistentBlockState pv -> m ()
-doTryPopulateAccountMap hpbs = do
-    BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
-    LMDBAccountMap.tryPopulateLMDBStore bspAccounts
+doTryPopulateAccountMap HashedPersistentBlockState{..} = do
+    BlockStatePointers{..} <- loadPBS hpbsPointers
+    LMDBAccountMap.tryPopulateLMDBStore hpbsHash bspAccounts
 
 -- | Cache the block state and get the initial (empty) transaction table with the next account nonces
 --  and update sequence numbers populated.

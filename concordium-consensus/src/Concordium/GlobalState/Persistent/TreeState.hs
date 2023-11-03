@@ -718,7 +718,11 @@ instance
     markFinalized bh fr =
         use (skovPersistentData . blockTable . liveMap . at' bh) >>= \case
             Just (BlockAlive bp) -> do
-                st <- saveBlockState (_bpState bp)
+                st <- do
+                    -- Save the block state and write the accounts out to disk.
+                    ref <- saveBlockState (_bpState bp)
+                    void $ saveAccounts (_bpState bp)
+                    return ref
                 -- NB: Removing the block from the in-memory cache only makes
                 -- sense if no block lookups are done between the call to this
                 -- function and 'wrapUpFinalization'. This is currently the case,

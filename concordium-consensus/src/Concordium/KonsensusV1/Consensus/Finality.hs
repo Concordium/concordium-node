@@ -71,7 +71,7 @@ processCertifiedBlock cb@CertifiedBlock{..}
             then do
                 -- We do not need to update the last finalized block, but we do need to store this
                 -- as a certified block.
-                storedBlock <- makeStoredBlock cbQuorumBlock
+                storedBlock <- makeStoredBlock False cbQuorumBlock
                 LowLevel.writeCertifiedBlock storedBlock cbQuorumCertificate
             else do
                 let !newFinalizedPtr = parentOfLive sd cbQuorumBlock
@@ -84,7 +84,7 @@ processCertifiedBlock cb@CertifiedBlock{..}
                 processFinalizationHelper newFinalizedPtr newFinalizationEntry (Just cb)
                 shrinkTimeout cbQuorumBlock
     | otherwise = unlessStored $ do
-        storedBlock <- makeStoredBlock cbQuorumBlock
+        storedBlock <- makeStoredBlock False cbQuorumBlock
         LowLevel.writeCertifiedBlock storedBlock cbQuorumCertificate
   where
     unlessStored a = do
@@ -190,14 +190,25 @@ processFinalizationEntry newFinalizedPtr newFinalizationEntry =
 
 -- | Write a block's state out to the block state database and construct a 'LowLevel.StoredBlock'
 --  that can be written to the tree state database.
+--
+--  If the provided block is finalized then also any accounts created for the block
+--  will be persisted.
 makeStoredBlock ::
     ( GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       BlockStateStorage m
     ) =>
+    -- | @True@ if the block is finalized, @False@ if it is certified.
+    Bool ->
     BlockPointer (MPV m) ->
     m (LowLevel.StoredBlock (MPV m))
-makeStoredBlock blockPtr = do
-    statePointer <- saveBlockState (bpState blockPtr)
+makeStoredBlock finalized blockPtr = do
+    statePointer <-
+        if finalized
+            then do
+                ref <- saveBlockState (bpState blockPtr)
+                saveAccounts (bpState blockPtr)
+                return ref
+            else saveBlockState (bpState blockPtr)
     return
         LowLevel.StoredBlock
             { stbInfo = blockMetadata blockPtr,
@@ -302,11 +313,11 @@ processFinalizationHelper newFinalizedBlock newFinalizationEntry mCertifiedBlock
     -- Store the blocks and finalization entry in the low-level tree state database, including
     -- indexing the finalized transactions.
     -- Store the finalized blocks in the low-level tree state database.
-    finalizedBlocks <- mapM makeStoredBlock prFinalized
+    finalizedBlocks <- mapM (makeStoredBlock True) prFinalized
     case mCertifiedBlock of
         Nothing -> LowLevel.writeFinalizedBlocks finalizedBlocks newFinalizationEntry
         Just certifiedBlock -> do
-            storedCertifiedBlock <- makeStoredBlock (cbQuorumBlock certifiedBlock)
+            storedCertifiedBlock <- makeStoredBlock False (cbQuorumBlock certifiedBlock)
             LowLevel.writeCertifiedBlockWithFinalization
                 finalizedBlocks
                 storedCertifiedBlock

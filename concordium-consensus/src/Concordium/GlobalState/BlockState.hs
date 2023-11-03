@@ -509,15 +509,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
 
-    -- | Get the list of account addresses existing in the given block state,
-    --  Note that this function also includes any created - but not persisted accounts
-    --  for the provided block and any non-persisted blocks.
+    -- | Get the list of account addresses existing in the given block state.
     --  This returns the canonical addresses.
     getAccountList :: BlockState m -> m [AccountAddress]
-
-    -- | Get the list of account addresses existing in the given historical block state.
-    --  This returns the canonical addresses.
-    getAccountListHistorical :: BlockState m -> m [AccountAddress]
 
     -- | Get the list of contract instances existing in the given block state.
     --  The list should be returned in ascending order of addresses.
@@ -1389,6 +1383,12 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
+    -- | Ensure that any accounts created in a block is persisted.
+    --  This should be called when a block is being finalized.
+    --
+    --  Precondition: The block state must be in memory and it must not have been archived.
+    saveAccounts :: BlockState m -> m ()
+
     -- | Load a block state from a reference, given its state hash if provided,
     --  otherwise calculate the state hash upon loading.
     --  In particular the 'StateHash' should be supplied if loading a non-genesis block state.
@@ -1441,7 +1441,6 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getContractInstance s = lift . getContractInstance s
     getModuleList = lift . getModuleList
     getAccountList = lift . getAccountList
-    getAccountListHistorical = lift . getAccountListHistorical
     getContractInstanceList = lift . getContractInstanceList
     getSeedState = lift . getSeedState
     getCurrentEpochBakers = lift . getCurrentEpochBakers
@@ -1682,6 +1681,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
+    saveAccounts = lift . saveAccounts
     loadBlockState hsh = lift . loadBlockState hsh
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback

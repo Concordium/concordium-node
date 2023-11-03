@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE DerivingVia #-}
@@ -77,7 +78,9 @@ instance Exception DatabaseInvariantViolation where
 class (Monad m) => MonadAccountMapStore m where
     -- | Inserts the accounts to the underlying store.
     --  Only canonical addresses should be added.
-    insertAccounts :: [(AccountAddress, AccountIndex)] -> m ()
+    --  The provided @BlockHash@ must correspond the to hash of the
+    --  last finalized block where the inputted accounts comes from.
+    insertAccounts :: StateHash -> [(AccountAddress, AccountIndex)] -> m ()
 
     -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
@@ -93,16 +96,17 @@ class (Monad m) => MonadAccountMapStore m where
     lookupAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
 
     -- | Return all the canonical addresses and their associated account indices of accounts present
-    --  in the store.
-    getAllAccounts :: m [(AccountAddress, AccountIndex)]
+    --  in the store where their @AccountIndex@ is less or equal to the provided @AccountIndex@.
+    -- In particular the provided @AccountIndex@ should match the size of the account table minus one.
+    getAllAccounts :: AccountIndex -> m [(AccountAddress, AccountIndex)]
 
     -- | Checks whether the lmdb store is initialized or not.
     isInitialized :: m Bool
 
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
-    insertAccounts = lift . insertAccounts
+    insertAccounts lfb accs = lift $ insertAccounts lfb accs
     lookupAccountIndex = lift . lookupAccountIndex
-    getAllAccounts = lift getAllAccounts
+    getAllAccounts = lift . getAllAccounts
     isInitialized = lift isInitialized
     {-# INLINE insertAccounts #-}
     {-# INLINE lookupAccountIndex #-}
@@ -114,9 +118,9 @@ deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => Monad
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
 
 instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
-    insertAccounts = lift . insertAccounts
+    insertAccounts lfb accs = lift $ insertAccounts lfb accs
     lookupAccountIndex = lift . lookupAccountIndex
-    getAllAccounts = lift getAllAccounts
+    getAllAccounts = lift . getAllAccounts
     isInitialized = lift isInitialized
     {-# INLINE insertAccounts #-}
     {-# INLINE lookupAccountIndex #-}
@@ -128,12 +132,25 @@ instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
 -- | Store that retains the account address -> account index mappings.
 newtype AccountMapStore = AccountMapStore MDB_dbi'
 
+-- | Store that retains the hash and height of the block that was inserted last.
+newtype LfbHashStore = LfbHashStore MDB_dbi'
+
 accountMapStoreName :: String
 accountMapStoreName = "accounts"
+
+lfbHashStoreName :: String
+lfbHashStoreName = "lfb"
 
 instance MDBDatabase AccountMapStore where
     type DBKey AccountMapStore = AccountAddress
     type DBValue AccountMapStore = AccountIndex
+
+lfbKey :: DBKey LfbHashStore
+lfbKey = "lfb"
+
+instance MDBDatabase LfbHashStore where
+    type DBKey LfbHashStore = BS.ByteString
+    type DBValue LfbHashStore = StateHash
 
 -- | Datbase handlers to interact with the account map lmdb
 --  database. Create via 'makeDatabasehandlers'.
@@ -142,14 +159,16 @@ data DatabaseHandlers = DatabaseHandlers
       _dbhStoreEnv :: !StoreEnv,
       -- | The only store for this lmdb database.
       --  The account map functions as a persistent @AccountAddress -> Maybe AccountIndex@ mapping.
-      _dbhAccountMapStore :: !AccountMapStore
+      _dbhAccountMapStore :: !AccountMapStore,
+      -- | Hash of the state of the last finalized block which was used for inserting accounts.
+      _dbhLfbHash :: !LfbHashStore
     }
 
 makeClassy ''DatabaseHandlers
 
 -- | The number of stores in the LMDB environment for 'DatabaseHandlers'.
 databaseCount :: Int
-databaseCount = 1
+databaseCount = 2
 
 -- ** Initialization
 
@@ -174,6 +193,12 @@ makeDatabaseHandlers accountMapDir readOnly = do
     transaction _dbhStoreEnv readOnly $ \txn -> do
         _dbhAccountMapStore <-
             AccountMapStore
+                <$> mdb_dbi_open'
+                    txn
+                    (Just accountMapStoreName)
+                    [MDB_CREATE | not readOnly]
+        _dbhLfbHash <-
+            LfbHashStore
                 <$> mdb_dbi_open'
                     txn
                     (Just accountMapStoreName)
@@ -228,11 +253,12 @@ instance
     ) =>
     MonadAccountMapStore (AccountMapStoreMonad m)
     where
-    insertAccounts accounts = do
+    insertAccounts lfb accounts = do
         dbh <- ask
         asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> do
             forM_ accounts $ \(accAddr, accIndex) -> do
                 storeReplaceRecord txn (dbh ^. dbhAccountMapStore) accAddr accIndex
+            storeReplaceRecord txn (dbh ^. dbhLfbHash) lfbKey lfb
 
     lookupAccountIndex a@(AccountAddress accAddr) = do
         dbh <- ask
@@ -266,9 +292,19 @@ instance
         accLookupKey = BS.take prefixAccountAddressSize $ FBS.toByteString accAddr
         checkEquivalence x y = accountAddressEmbed x == accountAddressEmbed y
 
-    getAllAccounts = do
+    getAllAccounts maxAccountIndex = do
         dbh <- ask
-        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn -> loadAll txn (dbh ^. dbhAccountMapStore)
+        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn ->
+            withCursor txn (dbh ^. dbhAccountMapStore) $ \cursor ->
+                let go !accum Nothing = return accum
+                    go !accum (Just (Right acc@(_, accIdx))) = do
+                        -- We only accumulate accounts which have an @AccountIndex@ at most
+                        -- the provided one.
+                        if accIdx <= maxAccountIndex
+                            then go (acc : accum) =<< getCursor CursorNext cursor
+                            else go accum =<< getCursor CursorNext cursor
+                    go _ (Just (Left err)) = throwM $ DatabaseInvariantViolation err
+                in  go [] =<< getCursor CursorFirst cursor
 
     isInitialized = do
         dbh <- ask

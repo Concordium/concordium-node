@@ -157,16 +157,17 @@ instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (Accounts pv) 
 -- | Write accounts created for this block or any non-persisted parent block.
 --  Note that this also empties the difference map for this block.
 --
---  This MUST be called when finalizing the block state.
-writeAccountsCreated :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
-writeAccountsCreated Accounts{..} = do
+--  Precondition: This MUST be called when finalizing the block state, and the
+--  provided @BlockHash@ must correespond to the hash of the finalized block.
+writeAccountsCreated :: (SupportsPersistentAccount pv m) => StateHash -> Accounts pv -> m ()
+writeAccountsCreated bh Accounts{..} = do
     mAccountsCreated <- liftIO $ readIORef accountDiffMapRef
     case mAccountsCreated of
         Absent -> return ()
         Present accountsCreated -> do
             listOfAccountsCreated <- liftIO $ DiffMap.flatten accountsCreated
             liftIO $ atomicWriteIORef accountDiffMapRef Absent
-            LMDBAccountMap.insertAccounts listOfAccountsCreated
+            LMDBAccountMap.insertAccounts bh listOfAccountsCreated
 
 instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
@@ -362,7 +363,8 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
 --  a concatenation of two lists of account addresses.
 allAccounts :: (SupportsPersistentAccount pv m) => Accounts pv -> m [(AccountAddress, AccountIndex)]
 allAccounts accounts = do
-    persistedAccs <- LMDBAccountMap.getAllAccounts
+    -- Get all persisted accounts from the account map up to and including the last account of the account table.
+    persistedAccs <- LMDBAccountMap.getAllAccounts $ (AccountIndex . L.size) (accountTable accounts) - 1
     mDiffMap <- liftIO $ readIORef (accountDiffMapRef accounts)
     case mDiffMap of
         Absent -> return persistedAccs
@@ -390,28 +392,28 @@ foldAccounts f a accts = L.mfold f a (accountTable accts)
 foldAccountsDesc :: (SupportsPersistentAccount pv m) => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
 foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
 
--- | Get all account addresses and their associated 'AccountIndex' via the account table in ascending order
---  of account index.
--- Note. This function should only be used when querying a historical block. When querying with respect to the "best block" then
--- use 'allAccounts'.
-allAccountsViaTable :: (SupportsPersistentAccount pv m) => Accounts pv -> m [(AccountAddress, AccountIndex)]
-allAccountsViaTable accts = do
-    addresses <-
-        foldAccountsDesc
-            ( \accum pacc -> do
-                !addr <- accountCanonicalAddress pacc
-                return $ addr : accum
-            )
-            []
-            accts
-    return $ zip addresses [0 ..]
-
 -- | If the LMDB account map is not already initialized, then this function populates the LMDB account map via the provided provided 'Accounts'.
 --  Otherwise, this function does nothing.
-tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
-tryPopulateLMDBStore accts = do
+--
+--  Precondition: The provided @BlockHash@ must correspond to the last finalized block when calling this function.
+tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => StateHash -> Accounts pv -> m ()
+tryPopulateLMDBStore h accts = do
     isInitialized <- LMDBAccountMap.isInitialized
-    unless isInitialized (void $ LMDBAccountMap.insertAccounts =<< allAccountsViaTable accts)
+    unless isInitialized (void $ LMDBAccountMap.insertAccounts h =<< allAccountsViaTable)
+  where
+    -- Get all accounts from the account table.
+    allAccountsViaTable = do
+        addresses <-
+            -- We fold in ascending order of the @AccountIndex@
+            -- so we @zip@ it correctly when returning @[(AccountAddress, AccountIndex)]@
+            foldAccounts
+                ( \(!accum) pacc -> do
+                    !addr <- accountCanonicalAddress pacc
+                    return $ addr : accum
+                )
+                []
+                accts
+        return $ zip addresses [0 ..]
 
 -- | See documentation of @migratePersistentBlockState@.
 migrateAccounts ::

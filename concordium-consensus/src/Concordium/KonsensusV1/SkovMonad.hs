@@ -583,7 +583,10 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
                 Left err -> throwM (InvalidGenesisData err)
                 Right genState -> return genState
             logEvent GlobalState LLTrace "Writing persistent global state"
-            stateRef <- saveBlockState pbs
+            stateRef <- do
+                ref <- saveBlockState pbs
+                saveAccounts pbs
+                return ref
             logEvent GlobalState LLTrace "Creating persistent global state context"
             let genHash = genesisBlockHash genData
             let genMeta =
@@ -716,7 +719,10 @@ migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBloc
         initGS :: InitMonad pv (SkovData pv)
         initGS = do
             newState <- newInitialBlockState
-            stateRef <- saveBlockState newState
+            stateRef <- do
+                ref <- saveBlockState newState
+                saveAccounts newState
+                return ref
             chainParams <- getChainParameters newState
             genEpochBakers <- genesisEpochBakers newState
             let genMeta = regenesisMetadata (getHash newState) regenesis
