@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- New `DryRun` endpoint that allows simulating the execution of transactions.
+
 ## 6.1.6
 
 - Fix a regression in the start up time. When upgrading from an earlier version, the first start-up

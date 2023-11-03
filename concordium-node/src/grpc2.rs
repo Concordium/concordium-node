@@ -914,8 +914,8 @@ pub mod server {
         finalized_blocks_channels: Clients,
         /// The maximum energy allowed to be used in a dry run invocation.
         dry_run_max_energy: u64,
-        /// The timeout in milliseconds for a dry run invocation to complete.
-        dry_run_timeout_millis: u64,
+        /// The timeout for a dry run invocation to complete.
+        dry_run_timeout: tokio::time::Duration,
         /// Semaphore limiting the concurrent dry run sessions allowed.
         dry_run_semaphore: Option<Arc<tokio::sync::Semaphore>>,
     }
@@ -988,7 +988,7 @@ pub mod server {
                     blocks_channels: Arc::new(Mutex::new(Vec::new())),
                     finalized_blocks_channels: Arc::new(Mutex::new(Vec::new())),
                     dry_run_max_energy: config.invoke_max_energy,
-                    dry_run_timeout_millis: config.dry_run_timeout * 1000,
+                    dry_run_timeout: tokio::time::Duration::from_secs(config.dry_run_timeout),
                     dry_run_semaphore: config
                         .dry_run_concurrency
                         .map(|n| Arc::new(tokio::sync::Semaphore::new(n))),
@@ -2509,11 +2509,15 @@ pub mod server {
             let energy_quota = self.dry_run_max_energy;
             let dry_run = self.consensus.dry_run(energy_quota);
             let input = request.into_inner();
-            let timeout = tokio::time::Duration::from_millis(self.dry_run_timeout_millis);
+            let timeout = self.dry_run_timeout;
             let output = DryRunStream::new(dry_run, input, timeout, permit);
-            let mut response = tonic::Response::new(Box::pin(output) as Self::DryRunStream);
+            let mut response = tonic::Response::new(Box::pin(output));
             response.metadata_mut().insert("quota", energy_quota.into());
-            response.metadata_mut().insert("timeout", self.dry_run_timeout_millis.into());
+            // u64::MAX milliseconds is already hundreds of millions of years, so even if this
+            // is an underestimate of the actual timeout, it doesn't matter.
+            response
+                .metadata_mut()
+                .insert("timeout", u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX).into());
             Ok(response)
         }
     }

@@ -2022,8 +2022,7 @@ impl DryRun {
         match result {
             0 => Ok(()),
             1 => Err(tonic::Status::internal(format!(
-                "Internal error: {} could not be completed",
-                origin
+                "Internal error: {origin} could not be completed"
             ))),
             2 => Err(tonic::Status::resource_exhausted("Energy quota exceeded")),
             _ => Err(tonic::Status::internal(format!(
