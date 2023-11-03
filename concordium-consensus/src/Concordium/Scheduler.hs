@@ -36,6 +36,7 @@ module Concordium.Scheduler (
     filterTransactions,
     runTransactions,
     execTransactions,
+    dispatchTransactionBody,
     handleContractUpdateV1,
     handleContractUpdateV0,
     checkAndGetBalanceInstanceV1,
@@ -222,73 +223,110 @@ checkTransactionVerificationResult (TVer.NotOk TVer.InvalidPayloadSize) = Left I
 --  ('TxValid', with either 'TxSuccess' or 'TxReject').
 dispatch :: forall msg m. (TransactionData msg, SchedulerMonad m) => (msg, Maybe TVer.VerificationResult) -> m (Maybe TxResult)
 dispatch (msg, mVerRes) = do
-    let meta = transactionHeader msg
     validMeta <- runExceptT (checkHeader msg mVerRes)
     case validMeta of
         Left (Just fk) -> return $ Just (TxInvalid fk)
         Left Nothing -> return Nothing
         Right (senderAccount, checkHeaderCost) -> do
-            -- At this point the transaction is going to be committed to the block.
-            -- It could be that the execution exceeds maximum block energy allowed, but in that case
-            -- the whole block state will be removed, and thus this operation will have no effect anyhow.
-            -- Hence we can increase the account nonce of the sender account.
-            increaseAccountNonce senderAccount
+            res <- dispatchTransactionBody msg senderAccount checkHeaderCost
+            case res of
+                -- The remaining block energy is not sufficient for the handler to execute the transaction.
+                Nothing -> return Nothing
+                Just summary -> return $ Just $ TxValid summary
 
-            let psize = payloadSize (transactionPayload msg)
+-- | Execute a transaction on the current block state, charging the sender account for the
+-- resulting energy cost. It is assumed that the transaction header has been checked for validity
+-- and the provided 'IndexedAccount' is the sender account.
+--
+-- This is parametric in the type of the transaction result @res@. This is instantiated as
+-- @ValidResult@ for block execution (in 'dispatch'), which ignores the return value of contract
+-- calls. It is instantiated as @ValidResultWithReturn@ for transaction dry-run, where we want
+-- the return value to be available.
+--
+-- Returns
+--
+-- * @Nothing@ if the transaction would exceed the remaining block energy.
+-- * @Just result@ if the transaction failed ('TxInvalid') or was successfully committed
+--  ('TxValid', with either 'TxSuccess' or 'TxReject').
+dispatchTransactionBody ::
+    forall msg m res.
+    (TransactionData msg, SchedulerMonad m, TransactionResult res) =>
+    -- | Transaction to execute.
+    msg ->
+    -- | Sender account.
+    IndexedAccount m ->
+    -- | Energy cost to be charged for checking the transaction header.
+    Energy ->
+    m (Maybe (TransactionSummary' res))
+dispatchTransactionBody msg senderAccount checkHeaderCost = do
+    let meta = transactionHeader msg
+    -- At this point the transaction is going to be committed to the block.
+    -- It could be that the execution exceeds maximum block energy allowed, but in that case
+    -- the whole block state will be removed, and thus this operation will have no effect anyhow.
+    -- Hence we can increase the account nonce of the sender account.
+    increaseAccountNonce senderAccount
 
-            tsIndex <- bumpTransactionIndex
-            -- Payload is not parametrised by the protocol version, but decodePayload only returns
-            -- payloads appropriate to the protocol version.
-            case decodePayload (protocolVersion @(MPV m)) psize (transactionPayload msg) of
-                Left _ -> do
-                    -- In case of serialization failure we charge the sender for checking
-                    -- the header and reject the transaction; we have checked that the amount
-                    -- exists on the account with 'checkHeader'.
-                    payment <- energyToGtu checkHeaderCost
-                    chargeExecutionCost senderAccount payment
-                    return $
-                        Just $
-                            TxValid $
-                                TransactionSummary
-                                    { tsEnergyCost = checkHeaderCost,
-                                      tsCost = payment,
-                                      tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
-                                      tsResult = TxReject SerializationFailure,
-                                      tsHash = transactionHash msg,
-                                      tsType = TSTAccountTransaction Nothing,
-                                      ..
-                                    }
-                Right payload -> do
-                    usedBlockEnergy <- getUsedEnergy
-                    let mkWTC _wtcTransactionType =
-                            WithDepositContext
-                                { _wtcSenderAccount = senderAccount,
-                                  _wtcTransactionHash = transactionHash msg,
-                                  _wtcTransactionHeader = meta,
-                                  _wtcTransactionCheckHeaderCost = checkHeaderCost,
-                                  -- NB: We already account for the cost we used here.
-                                  _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + checkHeaderCost,
-                                  _wtcTransactionIndex = tsIndex,
-                                  ..
-                                }
-                    -- Now pass the decoded payload to the respective transaction handler which contains
-                    -- the main transaction logic.
-                    -- During processing of transactions the amount on the sender account is decreased by the
-                    -- amount corresponding to the deposited energy, i.e., the maximum amount that can be charged
-                    -- for execution. The amount corresponding to the unused energy is refunded at the end of
-                    -- processing; see `withDeposit`.
-                    -- Note, for transactions that require specific constraints on the protocol version,
-                    -- those constraints are asserted.  'decodePayload' ensures that those assertions
-                    -- will not fail.
-                    res <- case payload of
+    let psize = payloadSize (transactionPayload msg)
+
+    tsIndex <- bumpTransactionIndex
+    -- Payload is not parametrised by the protocol version, but decodePayload only returns
+    -- payloads appropriate to the protocol version.
+    case decodePayload (protocolVersion @(MPV m)) psize (transactionPayload msg) of
+        Left _ -> do
+            -- In case of serialization failure we charge the sender for checking
+            -- the header and reject the transaction; we have checked that the amount
+            -- exists on the account with 'checkHeader'.
+            payment <- energyToGtu checkHeaderCost
+            chargeExecutionCost senderAccount payment
+            return $
+                Just $
+                    TransactionSummary
+                        { tsEnergyCost = checkHeaderCost,
+                          tsCost = payment,
+                          tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
+                          tsResult = transactionReject SerializationFailure,
+                          tsHash = transactionHash msg,
+                          tsType = TSTAccountTransaction Nothing,
+                          ..
+                        }
+        Right payload -> do
+            usedBlockEnergy <- getUsedEnergy
+            let mkWTC _wtcTransactionType =
+                    WithDepositContext
+                        { _wtcSenderAccount = senderAccount,
+                          _wtcTransactionHash = transactionHash msg,
+                          _wtcSenderAddress = thSender meta,
+                          _wtcEnergyAmount = thEnergyAmount meta,
+                          _wtcTransactionCheckHeaderCost = checkHeaderCost,
+                          -- NB: We already account for the cost we used here.
+                          _wtcCurrentlyUsedBlockEnergy = usedBlockEnergy + checkHeaderCost,
+                          _wtcTransactionIndex = tsIndex,
+                          ..
+                        }
+            -- Now pass the decoded payload to the respective transaction handler which contains
+            -- the main transaction logic.
+            -- During processing of transactions the amount on the sender account is decreased by the
+            -- amount corresponding to the deposited energy, i.e., the maximum amount that can be charged
+            -- for execution. The amount corresponding to the unused energy is refunded at the end of
+            -- processing; see `withDeposit`.
+            -- Note, for transactions that require specific constraints on the protocol version,
+            -- those constraints are asserted.  'decodePayload' ensures that those assertions
+            -- will not fail.
+            case payload of
+                -- Update and InitContract are the only operations that can produce a return value,
+                -- so the handlers are polymorphic in the return type.
+                Update{..} ->
+                    handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
+                InitContract{..} ->
+                    handleInitContract (mkWTC TTInitContract) icAmount icModRef icInitName icParam
+                -- For the remaining operations, we map 'fromValidResult' on the result, to
+                -- avoid the handlers being needlessly polymorphic.
+                _ ->
+                    fmap (summaryResult %~ fromValidResult) <$> case payload of
                         DeployModule mod ->
                             handleDeployModule (mkWTC TTDeployModule) mod
-                        InitContract{..} ->
-                            handleInitContract (mkWTC TTInitContract) icAmount icModRef icInitName icParam
                         Transfer toaddr amount ->
                             handleSimpleTransfer (mkWTC TTTransfer) toaddr amount Nothing
-                        Update{..} ->
-                            handleUpdateContract (mkWTC TTUpdate) uAmount uAddress uReceiveName uMessage
                         AddBaker{..} ->
                             onlyWithoutDelegation $
                                 handleAddBaker (mkWTC TTAddBaker) abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey abProofSig abProofElection abProofAggregation abBakingStake abRestakeEarnings
@@ -330,11 +368,6 @@ dispatch (msg, mVerRes) = do
                         ConfigureDelegation{..} ->
                             onlyWithDelegation $
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
-
-                    case res of
-                        -- The remaining block energy is not sufficient for the handler to execute the transaction.
-                        Nothing -> return Nothing
-                        Just summary -> return $ Just $ TxValid summary
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -371,8 +404,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
     txHash = wtc ^. wtcTransactionHash
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     c = do
         -- After we've checked all of that, we charge.
         tickEnergy (Cost.scheduledTransferCost $ length twsSchedule)
@@ -434,7 +466,7 @@ handleTransferWithSchedule wtc twsTo twsSchedule maybeMemo = withDeposit wtc c k
                 withScheduledAmount senderAccount targetAccount transferAmount twsSchedule txHash $ return ()
 
     k ls () = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         commitChanges (ls ^. changeSet)
         let eventList =
@@ -456,8 +488,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
     withDeposit wtc (c cryptoParams) k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     c cryptoParams = do
         -- the expensive operations start now, so we charge.
         tickEnergy Cost.transferToPublicCost
@@ -483,7 +514,7 @@ handleTransferToPublic wtc transferData@SecToPubAmountTransferData{..} = do
         return senderAmount
 
     k ls senderAmount = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         notifyEncryptedBalanceChange $ amountDiff 0 stpatdTransferAmount
         commitChanges (ls ^. changeSet)
@@ -514,8 +545,7 @@ handleTransferToEncrypted wtc toEncrypted = do
     withDeposit wtc (c cryptoParams) k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
 
     c cryptoParams = do
         tickEnergy Cost.transferToEncryptedCost
@@ -536,7 +566,7 @@ handleTransferToEncrypted wtc toEncrypted = do
         return encryptedAmount
 
     k ls encryptedAmount = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         notifyEncryptedBalanceChange $ amountToDelta toEncrypted
         commitChanges (ls ^. changeSet)
@@ -568,8 +598,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
     withDeposit wtc (c cryptoParams) k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
 
     c cryptoParams = do
         -- We charge as soon as we can even if we could in principle do some
@@ -627,7 +656,7 @@ handleEncryptedAmountTransfer wtc toAddress transferData@EncryptedAmountTransfer
         return (targetAccountEncryptedAmountIndex, senderAmount)
 
     k ls (targetAccountEncryptedAmountIndex, senderAmount) = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         commitChanges (ls ^. changeSet)
         let eventList =
@@ -663,7 +692,6 @@ handleDeployModule wtc mod =
     withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
     currentProtocolVersion = demoteProtocolVersion (protocolVersion @(MPV m))
 
     c = do
@@ -689,7 +717,7 @@ handleDeployModule wtc mod =
             _ -> rejectTransaction ModuleNotWF
 
     k ls (toCommit, mhash) = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         -- Add the module to the global state (module interface, value interface and module itself).
         -- We know the module does not exist at this point, so we can ignore the return value.
@@ -744,8 +772,8 @@ getCurrentContractInstanceTicking' cref = do
 
 -- | Handle the initialization of a contract instance.
 handleInitContract ::
-    forall m.
-    (SchedulerMonad m) =>
+    forall m res.
+    (SchedulerMonad m, TransactionResult res) =>
     WithDepositContext m ->
     -- | The amount to initialize the contract instance with.
     Amount ->
@@ -755,15 +783,14 @@ handleInitContract ::
     Wasm.InitName ->
     -- | Parameter expression to initialize with.
     Wasm.Parameter ->
-    m (Maybe TransactionSummary)
+    m (Maybe (TransactionSummary' res))
 handleInitContract wtc initAmount modref initName param =
     withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
     -- The contract gets the address that was used when signing the
     -- transactions, as opposed to the canonical one.
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     c = do
         -- charge for base administrative cost
         tickEnergy Cost.initializeContractInstanceBaseCost
@@ -775,7 +802,7 @@ handleInitContract wtc initAmount modref initName param =
         -- Check whether the number of logs and the size of return values are limited in the current protocol version.
         let limitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m)
 
-        unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (thSender meta)) initAmount)
+        unless (senderAmount >= initAmount) $! rejectTransaction (AmountTooLarge (AddressAccount (wtc ^. wtcSenderAddress)) initAmount)
 
         -- First try to get the module interface of the parent module of the contract.
         (viface :: (GSWasm.ModuleInterface (InstrumentedModuleRef m))) <- liftLocal (getModuleInterfaces modref) `rejectingWith` InvalidModuleReference modref
@@ -833,8 +860,14 @@ handleInitContract wtc initAmount modref initName param =
                             }
                 stateContext <- getV1StateContext
                 artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
+                interpreterResult <- runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param limitLogsAndRvs initAmount)
+                -- If the result includes a return value, set it.
+                case interpreterResult of
+                    Left WasmV1.LogicReject{..} -> transactionReturnValue ?= cerReturnValue
+                    Left WasmV1.Trap -> return ()
+                    Right WasmV1.InitSuccess{..} -> transactionReturnValue ?= irdReturnValue
                 result <-
-                    runInterpreter (return . WasmV1.applyInitFun stateContext artifact cm initCtx initName param limitLogsAndRvs initAmount)
+                    return interpreterResult
                         `rejectingWith'` WasmV1.cerToRejectReasonInit
 
                 -- Charge for storing the contract state.
@@ -846,7 +879,7 @@ handleInitContract wtc initAmount modref initName param =
 
     k ls (Left (iface, result)) = do
         let model = Wasm.newState result
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
 
         -- Withdraw the amount the contract is initialized with from the sender account.
@@ -868,7 +901,7 @@ handleInitContract wtc initAmount modref initName param =
         commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
 
         return
-            ( TxSuccess
+            ( transactionSuccess
                 [ ContractInitialized
                     { ecRef = modref,
                       ecAddress = newInstanceAddr,
@@ -883,7 +916,7 @@ handleInitContract wtc initAmount modref initName param =
             )
     k ls (Right (iface, result)) = do
         let model = WasmV1.irdNewState result
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
 
         -- Withdraw the amount the contract is initialized with from the sender account.
@@ -905,7 +938,7 @@ handleInitContract wtc initAmount modref initName param =
         commitChanges $ addContractInitToCS (Proxy @m) newInstanceAddr cs'
 
         return
-            ( TxSuccess
+            ( transactionSuccess
                 [ ContractInitialized
                     { ecRef = modref,
                       ecAddress = newInstanceAddr,
@@ -933,8 +966,7 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
     withDeposit wtc c (defaultSuccess wtc)
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     c = do
         -- charge at the beginning, successful and failed transfers will have the same cost.
         tickEnergy Cost.simpleTransferCost
@@ -952,7 +984,7 @@ handleSimpleTransfer wtc toAddr transferamount maybeMemo =
 
 -- | Handle a top-level update transaction to a contract.
 handleUpdateContract ::
-    (SchedulerMonad m) =>
+    (SchedulerMonad m, TransactionResult res) =>
     WithDepositContext m ->
     -- | Amount to invoke the contract's receive method with.
     Amount ->
@@ -962,13 +994,12 @@ handleUpdateContract ::
     Wasm.ReceiveName ->
     -- | Message to send to the receive method.
     Wasm.Parameter ->
-    m (Maybe TransactionSummary)
+    m (Maybe (TransactionSummary' res))
 handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
     withDeposit wtc computeAndCharge (defaultSuccess wtc)
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     checkAndGetBalanceV1 = checkAndGetBalanceAccountV1 senderAddress senderAccount
     checkAndGetBalanceV0 = checkAndGetBalanceAccountV0 senderAddress senderAccount
     c = do
@@ -984,8 +1015,12 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
                     uMessage
             InstanceInfoV1 ins -> do
                 handleContractUpdateV1 senderAddress ins checkAndGetBalanceV1 uAmount uReceiveName uMessage >>= \case
-                    Left cer -> rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
-                    Right (_, events) -> return (reverse events)
+                    Left cer -> do
+                        transactionReturnValue .= WasmV1.ccfToReturnValue cer
+                        rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
+                    Right (ret, events) -> do
+                        transactionReturnValue ?= ret
+                        return $ reverse events
     computeAndCharge = do
         r <- c
         chargeV1Storage -- charge for storing the new state of all V1 contracts. V0 state is already charged.
@@ -1831,15 +1866,14 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
     withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     c = do
         tickEnergy Cost.addBakerCost
         -- Get the total amount on the account, including locked amounts,
         -- less the deposit.
         getCurrentAccountTotalAmount senderAccount
     k ls accountBalance = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
 
         let challenge = addBakerChallenge senderAddress abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyKey
@@ -1947,8 +1981,7 @@ handleConfigureBaker
         withDeposit wtc tickGetArgAndBalance chargeAndExecute
       where
         senderAccount = wtc ^. wtcSenderAccount
-        meta = wtc ^. wtcTransactionHeader
-        senderAddress = thSender meta
+        senderAddress = wtc ^. wtcSenderAddress
         configureAddBakerArg =
             case ( cbCapital,
                    cbRestakeEarnings,
@@ -1992,7 +2025,7 @@ handleConfigureBaker
                     configureUpdateBakerArg
             (arg,) <$> getCurrentAccountTotalAmount senderAccount
         chargeAndExecute ls argAndBalance = do
-            (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+            (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
             chargeExecutionCost senderAccount energyCost
             executeConfigure energyCost usedEnergy argAndBalance
         executeConfigure energyCost usedEnergy (ConfigureAddBakerCont{..}, accountBalance) = do
@@ -2128,8 +2161,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
     withDeposit wtc tickAndGetAccountBalance kWithAccountBalance
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
 
     configureAddDelegationArg =
         case (cdCapital, cdRestakeEarnings, cdDelegationTarget) of
@@ -2156,7 +2188,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                 configureUpdateDelegationArg
         (arg,) <$> getCurrentAccountTotalAmount senderAccount
     kWithAccountBalance ls (ConfigureAddDelegationCont{..}, accountBalance) = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         if accountBalance < cdcCapital
             then -- The balance is insufficient.
@@ -2173,7 +2205,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                 res <- configureDelegation (fst senderAccount) dca
                 kResult energyCost usedEnergy dca res
     kWithAccountBalance ls (ConfigureUpdateDelegationCont, accountBalance) = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         if maybe False (accountBalance <) cdCapital
             then return (TxReject InsufficientBalanceForDelegationStake, energyCost, usedEnergy)
@@ -2237,11 +2269,10 @@ handleRemoveBaker wtc =
     withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     c = tickEnergy Cost.removeBakerCost
     k ls () = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
 
         res <- removeBaker (fst senderAccount)
@@ -2266,15 +2297,14 @@ handleUpdateBakerStake wtc newStake =
     withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     c = do
         tickEnergy Cost.updateBakerStakeCost
         -- Get the total amount on the account, including locked amounts,
         -- less the deposit.
         getCurrentAccountTotalAmount senderAccount
     k ls accountBalance = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         if accountBalance < newStake
             then -- The balance is insufficient.
@@ -2304,11 +2334,10 @@ handleUpdateBakerRestakeEarnings ::
 handleUpdateBakerRestakeEarnings wtc newRestakeEarnings = withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     c = tickEnergy Cost.updateBakerRestakeCost
     k ls () = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
 
         res <- updateBakerRestakeEarnings (fst senderAccount) newRestakeEarnings
@@ -2346,11 +2375,10 @@ handleUpdateBakerKeys wtc bkuElectionKey bkuSignKey bkuAggregationKey bkuProofSi
     withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
     c = tickEnergy Cost.updateBakerKeysCost
     k ls _ = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
 
         let challenge = updateBakerKeyChallenge senderAddress bkuElectionKey bkuSignKey bkuAggregationKey
@@ -2478,7 +2506,6 @@ handleUpdateCredentialKeys wtc cid keys sigs =
     withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
 
     c = do
         existingCredentials <- getAccountCredentials (snd senderAccount)
@@ -2498,7 +2525,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
                 unless ownerCheck $ rejectTransaction CredentialHolderDidNotSign
                 return index
     k ls index = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         updateCredentialKeys (fst senderAccount) index keys
         return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
@@ -2646,8 +2673,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
     withDeposit wtc c k
   where
     senderAccount = wtc ^. wtcSenderAccount
-    meta = wtc ^. wtcTransactionHeader
-    senderAddress = thSender meta
+    senderAddress = wtc ^. wtcSenderAddress
 
     c = do
         tickEnergy Cost.updateCredentialsBaseCost
@@ -2664,7 +2690,7 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
         return creds
 
     k ls existingCredentials = do
-        (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         cryptoParams <- TVer.getCryptographicParameters
 

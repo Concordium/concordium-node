@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- New `DryRun` endpoint that allows simulating the execution of transactions.
+
 ## 6.1.7
 
  - Add load-shedding to the V2 GRPC API. In particular, if at the time of the

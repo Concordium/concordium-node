@@ -673,6 +673,17 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .server_streaming()
                 .build(),
         )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("dry_run")
+                .route_name("DryRun")
+                .input_type("crate::grpc2::types::DryRunRequest")
+                .client_streaming()
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
         .build();
     // Due to the slightly hacky nature of the RawCodec (i.e., it does not support
     // deserialization) we cannot build the client. But we also don't need it in the

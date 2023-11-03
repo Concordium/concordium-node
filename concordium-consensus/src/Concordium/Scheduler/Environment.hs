@@ -44,6 +44,7 @@ import Control.Exception (assert)
 
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.ID.Types as ID
+import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
@@ -747,7 +748,12 @@ data LocalState m = LocalState
       --  modification of smart contract instance state by the scheduler. It is
       --  unaffected by updates to the balance of the contract.
       _nextContractModificationIndex :: !ModificationIndex,
-      _blockEnergyLeft :: !Energy
+      _blockEnergyLeft :: !Energy,
+      -- | When executing a smart contract update or init transaction, this records the return
+      --  value, if any. This is used to support transaction dry run functionality, where the return
+      --  value is exposed in the API. Under normal block execution, the return value is
+      --  discarded.
+      _transactionReturnValue :: !(Maybe V1.ReturnValue)
     }
 
 makeLenses ''LocalState
@@ -788,7 +794,13 @@ runLocalT ::
 runLocalT (LocalT st) _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
     -- The initial contract modification index must start at 1 since 0 is the
     -- "initial state" of all contracts (as recorded in the changeset).
-    let s = LocalState{_changeSet = emptyCS (Proxy @m), _nextContractModificationIndex = 1, ..}
+    let s =
+            LocalState
+                { _changeSet = emptyCS (Proxy @m),
+                  _nextContractModificationIndex = 1,
+                  _transactionReturnValue = Nothing,
+                  ..
+                }
     (a, s') <- runRST (runContT st (return . Right)) ctx s
     return (a, s')
   where
@@ -805,20 +817,19 @@ instance BlockStateTypes (LocalT r m) where
     type BakerInfoRef (LocalT r m) = BakerInfoRef m
     type InstrumentedModuleRef (LocalT r m) = InstrumentedModuleRef m
 
-{-# INLINE energyUsed #-}
-
--- | Compute how much energy was used from the upper bound in the header of a
---  transaction and the amount left.
-energyUsed :: TransactionHeader -> Energy -> Energy
-energyUsed meta energy = thEnergyAmount meta - energy
-
 -- | Given the deposited amount and the remaining amount of gas compute how much
 --  the sender of the transaction should be charged, as well as how much energy was used
 --  for execution.
 --  This function assumes that the deposited energy is not less than the used energy.
-computeExecutionCharge :: (SchedulerMonad m) => TransactionHeader -> Energy -> m (Energy, Amount)
-computeExecutionCharge meta energy =
-    let used = energyUsed meta energy
+computeExecutionCharge ::
+    (SchedulerMonad m) =>
+    -- | Energy allocated.
+    Energy ->
+    -- | Energy remaining unused.
+    Energy ->
+    m (Energy, Amount)
+computeExecutionCharge allocated unused =
+    let used = allocated - unused
     in  (used,) <$> energyToGtu used
 
 -- | Reduce the public balance on the account to charge for execution cost. The
@@ -839,14 +850,17 @@ chargeExecutionCost (ai, acc) amnt = do
     notifyExecutionCost amnt
 
 data WithDepositContext m = WithDepositContext
-    { -- | Address of the account initiating the transaction.
+    { -- | The account initiating the transaction.
       _wtcSenderAccount :: !(IndexedAccount m),
       -- | Type of the top-level transaction.
       _wtcTransactionType :: !TransactionType,
       -- | Hash of the top-level transaction.
       _wtcTransactionHash :: !TransactionHash,
-      -- | Header of the transaction we are running.
-      _wtcTransactionHeader :: !TransactionHeader,
+      -- | Address of the sender of the transaction.
+      -- This should correspond to '_wtcSenderAccount', but need not be the canonical address.
+      _wtcSenderAddress :: !AccountAddress,
+      -- | The amount of energy dedicated for the execution of this transaction.
+      _wtcEnergyAmount :: !Energy,
       -- | Cost to be charged for checking the transaction header.
       _wtcTransactionCheckHeaderCost :: !Energy,
       -- | Energy currently used by the block.
@@ -868,7 +882,7 @@ makeLenses ''WithDepositContext
 --    * The deposited amount exists in the public account value.
 --    * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
-    (SchedulerMonad m) =>
+    (SchedulerMonad m, TransactionResult res) =>
     WithDepositContext m ->
     -- | The computation to run in the modified environment with reduced amount on the initial account.
     LocalT a m a ->
@@ -876,12 +890,11 @@ withDeposit ::
     --  It gets the result of the previous computation as input, in particular the
     --  remaining energy and the ChangeSet. It should return the result, and the amount that was charged
     --  for the execution.
-    (LocalState m -> a -> m (ValidResult, Amount, Energy)) ->
-    m (Maybe TransactionSummary)
+    (LocalState m -> a -> m (res, Amount, Energy)) ->
+    m (Maybe (TransactionSummary' res))
 withDeposit wtc comp k = do
-    let txHeader = wtc ^. wtcTransactionHeader
     let tsHash = wtc ^. wtcTransactionHash
-    let totalEnergyToUse = thEnergyAmount txHeader
+    let totalEnergyToUse = wtc ^. wtcEnergyAmount
     maxEnergy <- getMaxBlockEnergy
     -- - here is safe due to precondition that currently used energy is less than the maximum block energy
     let beLeft = maxEnergy - wtc ^. wtcCurrentlyUsedBlockEnergy
@@ -890,6 +903,11 @@ withDeposit wtc comp k = do
     -- record how much we have deposited. This cannot be touched during execution.
     depositedAmount <- energyToGtu totalEnergyToUse
     (res, ls) <- runLocalT comp depositedAmount (wtc ^. wtcSenderAccount . _1) energy beLeft
+    let addReturn result =
+            foldr
+                (setTransactionReturnValue . V1.returnValueToByteString)
+                result
+                (ls ^. transactionReturnValue)
     case res of
         -- Failure: maximum block energy exceeded
         Left Nothing -> return Nothing
@@ -897,15 +915,15 @@ withDeposit wtc comp k = do
         Left (Just reason) -> do
             -- The only effect of this transaction is that the sender is charged for the execution cost
             -- (energy ticked so far).
-            (usedEnergy, payment) <- computeExecutionCharge txHeader (ls ^. energyLeft)
+            (usedEnergy, payment) <- computeExecutionCharge totalEnergyToUse (ls ^. energyLeft)
             chargeExecutionCost (wtc ^. wtcSenderAccount) payment
             return $!
                 Just $!
                     TransactionSummary
-                        { tsSender = Just (thSender txHeader),
+                        { tsSender = Just (wtc ^. wtcSenderAddress),
                           tsCost = payment,
                           tsEnergyCost = usedEnergy,
-                          tsResult = TxReject reason,
+                          tsResult = addReturn $ transactionReject reason,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
                           tsIndex = wtc ^. wtcTransactionIndex,
                           ..
@@ -913,13 +931,14 @@ withDeposit wtc comp k = do
         -- Computation successful
         Right a -> do
             -- In this case we invoke the continuation, which should charge for the used energy.
-            (tsResult, tsCost, tsEnergyCost) <- k ls a
+            (tsResult0, tsCost, tsEnergyCost) <- k ls a
             return $!
                 Just $!
                     TransactionSummary
-                        { tsSender = Just (thSender txHeader),
+                        { tsSender = Just (wtc ^. wtcSenderAddress),
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
                           tsIndex = wtc ^. wtcTransactionIndex,
+                          tsResult = addReturn tsResult0,
                           ..
                         }
 
@@ -929,14 +948,18 @@ withDeposit wtc comp k = do
 --  from the current changeset and returns the recorded events, the amount corresponding to the
 --  used energy and the used energy.
 defaultSuccess ::
-    (SchedulerMonad m) => WithDepositContext m -> LocalState m -> [Event] -> m (ValidResult, Amount, Energy)
-defaultSuccess wtc = \ls events -> do
-    let meta = wtc ^. wtcTransactionHeader
+    (SchedulerMonad m, TransactionResult res) =>
+    WithDepositContext m ->
+    LocalState m ->
+    [Event] ->
+    m (res, Amount, Energy)
+defaultSuccess wtc = \ls res -> do
+    let energyAllocated = wtc ^. wtcEnergyAmount
         senderAccount = wtc ^. wtcSenderAccount
-    (usedEnergy, energyCost) <- computeExecutionCharge meta (ls ^. energyLeft)
+    (usedEnergy, energyCost) <- computeExecutionCharge energyAllocated (ls ^. energyLeft)
     chargeExecutionCost senderAccount energyCost
     commitChanges (ls ^. changeSet)
-    return (TxSuccess events, energyCost, usedEnergy)
+    return (transactionSuccess res, energyCost, usedEnergy)
 
 {-# INLINE liftLocal #-}
 liftLocal :: (Monad m) => m a -> LocalT r m a
