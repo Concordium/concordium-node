@@ -2519,8 +2519,9 @@ pub mod server {
             let output = DryRunStream::new(dry_run, input, timeout, permit);
             let mut response = tonic::Response::new(Box::pin(output));
             response.metadata_mut().insert("quota", energy_quota.into());
-            // u64::MAX milliseconds is already hundreds of millions of years, so even if this
-            // is an underestimate of the actual timeout, it doesn't matter.
+            // u64::MAX milliseconds is already hundreds of millions of years, so even if
+            // this is an underestimate of the actual timeout, it doesn't
+            // matter.
             response
                 .metadata_mut()
                 .insert("timeout", u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX).into());
