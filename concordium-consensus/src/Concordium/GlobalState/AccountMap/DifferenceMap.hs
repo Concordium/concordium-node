@@ -4,37 +4,38 @@
 --  When a block is finalized then the associated 'DifferenceMap' must be written
 --  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insertAccounts'.
 module Concordium.GlobalState.AccountMap.DifferenceMap (
-    -- * The difference map definition.
-    DifferenceMap (..),
+    -- * Definitions
 
-    -- * A mutable reference to a 'DifferenceMap'.
+    -- The difference map definition.
+    DifferenceMap (..),
+    -- A mutable reference to a 'DifferenceMap'.
     DifferenceMapReference,
 
-    -- * The empty reference
+    -- * Auxiliary functions
+
+    -- The empty reference
     emptyReference,
-
-    -- * Get a list of all @(AccountAddress, AccountIndex)@ pairs for the
-
+    -- Get a list of all @(AccountAddress, AccountIndex)@ pairs for the
     --  provided 'DifferenceMap' and all parent maps.
     flatten,
-
-    -- * Create an empty 'DifferenceMap'
+    -- Create an empty 'DifferenceMap'
     empty,
-
-    -- * Insert an account into the 'DifferenceMap'.
+    -- Set the accounts int he 'DifferenceMap'.
     fromList,
-
-    -- * Lookup in a difference map (and potential parent maps) whether
-
-    --  it yields the 'AccountIndex' for the provided 'AccountAddress'.
+    -- Insert an account into the 'DifferenceMap'.
     insert,
-
-    -- * Set the accounts int he 'DifferenceMap'.
-    lookup,
+    -- Lookup in a difference map (and potential parent maps) whether
+    -- it yields the 'AccountIndex' for the provided 'AccountAddress' or any
+    -- alias of it.
+    lookupViaEquivalenceClass,
+    -- Lookup in a difference map (and potential parent maps) whether
+    -- it yields the 'AccountIndex' for the provided 'AccountAddress'.
+    lookupExact,
 ) where
 
 import Control.Monad.IO.Class
 import Data.Bifunctor
+import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Prelude hiding (lookup)
@@ -93,19 +94,39 @@ empty mParentDifferenceMap =
 --  difference maps using the account address equivalence class.
 --  Returns @Just AccountIndex@ if the account is present and
 --  otherwise @Nothing@.
---  Note that this implementation uses the 'AccountAddressEq' equivalence
---  class for looking up an 'AccountIndex'.
-lookup :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
-lookup addr = check
+--  Precondition: As this implementation uses the 'AccountAddressEq' equivalence
+--  class for looking up an 'AccountIndex', then it MUST only be used
+--  when account aliases are supported.
+lookupViaEquivalenceClass :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Maybe AccountIndex)
+lookupViaEquivalenceClass addr = check
   where
-    k = accountAddressEmbed addr
-    check diffMap = case HM.lookup k (dmAccounts diffMap) of
+    check diffMap = case HM.lookup addr (dmAccounts diffMap) of
         Nothing -> do
             mParentMap <- liftIO $ readIORef (dmParentMapRef diffMap)
             case mParentMap of
                 Absent -> return Nothing
                 Present parentMap -> check parentMap
         Just accIdx -> return $ Just accIdx
+
+-- | Lookup an account in the difference map or any of the parent
+--  difference maps via an exactness check.
+--  Returns @Just AccountIndex@ if the account is present and
+--  otherwise @Nothing@.
+--  Precondition: As this implementation checks for exactness of the provided
+--  @AccountAddress@ then it MUST only be used when account aliases are NOT supported.
+--
+--  Implementation note: It is not as sufficient as 'lookupViaEquivalenceClass' as it folds over the accounts,
+--  but this should be fine as the maps are generally very small.
+lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
+lookupExact addr diffMap =
+    foldl'
+        ( \_ (accAddr, accIdx) ->
+            if addr == accAddr
+                then return $ Just accIdx
+                else return Nothing
+        )
+        (pure Nothing)
+        =<< flatten diffMap
 
 -- | Insert an account into the difference map.
 --  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is being inserted.

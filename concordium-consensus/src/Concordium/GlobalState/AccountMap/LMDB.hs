@@ -83,18 +83,15 @@ class (Monad m) => MonadAccountMapStore m where
     --  last finalized block where the inputted accounts comes from.
     insertAccounts :: StateHash -> [(AccountAddress, AccountIndex)] -> m ()
 
-    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress’.
+    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddressEq’.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
-    --
-    --  Note that an implementor must adhere to the following:
-    --  * For protocol versions that does not support account aliases,
-    --    then the provided @AccountAddress@ must match exactly the one
-    --    present in the store.
-    --  * For protocol versions that does support account aliases,
-    --    then it's sufficient if the first 29 bytes of the accont address
-    --    matches the 'AccountAddress' recorded.
-    lookupAccountIndex :: AccountAddress -> m (Maybe AccountIndex)
+    lookupAccountIndexViaEquivalence :: AccountAddressEq -> m (Maybe AccountIndex)
+
+    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddressEq’.
+    --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
+    --  and returns @Nothing@ if the account was not present.
+    lookupAccountIndexViaExactness :: AccountAddress -> m (Maybe AccountIndex)
 
     -- | Return all the canonical addresses and their associated account indices of accounts present
     --  in the store where their @AccountIndex@ is less or equal to the provided @AccountIndex@.
@@ -105,11 +102,13 @@ class (Monad m) => MonadAccountMapStore m where
 
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
     insertAccounts lfb accs = lift $ insertAccounts lfb accs
-    lookupAccountIndex = lift . lookupAccountIndex
+    lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
+    lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
     getAllAccounts = lift . getAllAccounts
     isInitialized = lift isInitialized
     {-# INLINE insertAccounts #-}
-    {-# INLINE lookupAccountIndex #-}
+    {-# INLINE lookupAccountIndexViaEquivalence #-}
+    {-# INLINE lookupAccountIndexViaExactness #-}
     {-# INLINE getAllAccounts #-}
     {-# INLINE isInitialized #-}
 
@@ -119,11 +118,13 @@ deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m
 
 instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
     insertAccounts lfb accs = lift $ insertAccounts lfb accs
-    lookupAccountIndex = lift . lookupAccountIndex
+    lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
+    lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
     getAllAccounts = lift . getAllAccounts
     isInitialized = lift isInitialized
     {-# INLINE insertAccounts #-}
-    {-# INLINE lookupAccountIndex #-}
+    {-# INLINE lookupAccountIndexViaEquivalence #-}
+    {-# INLINE lookupAccountIndexViaExactness #-}
     {-# INLINE getAllAccounts #-}
     {-# INLINE isInitialized #-}
 
@@ -249,7 +250,7 @@ instance
                 storeRecord txn (dbh ^. dbhAccountMapStore) accAddr accIndex
             storeReplaceRecord txn (dbh ^. dbhLfbHash) lfbKey lfb
 
-    lookupAccountIndex a@(AccountAddress accAddr) = do
+    lookupAccountIndexViaEquivalence a@(AccountAddressEq (AccountAddress accAddr)) = do
         dbh <- ask
         asReadTransaction (dbh ^. dbhStoreEnv) $ \txn ->
             withCursor txn (dbh ^. dbhAccountMapStore) $ \cursor -> do
@@ -262,24 +263,18 @@ instance
                             -- prefix lookup in the lmdb database, so if the account does not exist
                             -- then the lmdb query would return the "next" account address
                             -- by lexicographic order of account address.
-                            if eqCheck a foundAccAddr
+                            if a == accountAddressEmbed foundAccAddr
                                 then return $ Just accIdx
                                 else return Nothing
       where
-        -- If account aliases are supported then we check if
-        -- the found addresses matches the one we looked for via
-        -- the equivalence class 'AddressAccountEq'.
-        -- If account aliases are not supported then we check if the
-        -- found account address matches via exactness.
-        eqCheck actual found =
-            -- if supportsAccountAliases (protocolVersion @(MPV m))
-            checkEquivalence actual found -- then checkEquivalence actual found
-            -- else actual == found
-            -- The key to use for looking up an account.
-            -- We do a prefix lookup on the first 29 bytes of the account address as
-            -- the last 3 bytes are reserved for aliases.
+        -- The key to use for looking up an account.
+        -- We do a prefix lookup on the first 29 bytes of the account address as
+        -- the last 3 bytes are reserved for aliases.
         accLookupKey = BS.take prefixAccountAddressSize $ FBS.toByteString accAddr
-        checkEquivalence x y = accountAddressEmbed x == accountAddressEmbed y
+
+    lookupAccountIndexViaExactness addr = do
+        dbh <- ask
+        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn -> loadRecord txn (dbh ^. dbhAccountMapStore) addr
 
     getAllAccounts maxAccountIndex = do
         dbh <- ask

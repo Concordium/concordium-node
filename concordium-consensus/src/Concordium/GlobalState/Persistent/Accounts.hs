@@ -252,8 +252,6 @@ fromList accs = do
     insert accounts account = snd <$> putNewAccount account accounts
 
 -- | Determine if an account with the given address exists.
---  Note that this is looking up via the account alias mechanism introduced in protocol version 3 for all protocol versions.
---  This is fine as there are no clashes and this approach simplifies the implementation.
 exists :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m Bool
 exists addr accts = isJust <$> getAccountIndex addr accts
 
@@ -268,15 +266,22 @@ getAccountByCredId cid accs@Accounts{..} =
 -- | Get the 'AccountIndex' for the provided 'AccountAddress' (if any).
 --  First try lookup in the in-memory difference map associated with the the provided 'Accounts pv',
 --  if no account could be looked up, then we fall back to the lmdb backed account map.
-getAccountIndex :: (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
+--
+-- If account alises are supported then the equivalence class 'AccountAddressEq' is used for determining
+-- whether the provided @AccountAddress@ is in the map, otherwise we check for exactness.
+getAccountIndex :: forall pv m. (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
 getAccountIndex addr Accounts{..} = do
     mAccountDiffMap <- liftIO $ readIORef accountDiffMapRef
     case mAccountDiffMap of
         Absent -> lookupDisk
         Present accDiffMap ->
-            DiffMap.lookup addr accDiffMap >>= \case
-                Just accIdx -> return $ Just accIdx
-                Nothing -> lookupDisk
+            if supportsAccountAliases (protocolVersion @pv) 
+                  then DiffMap.lookupViaEquivalenceClass (accountAddressEmbed addr) accDiffMap >>= \case
+                      Just accIdx -> return $ Just accIdx
+                      Nothing -> lookupDisk
+                  else DiffMap.lookupExact addr accDiffMap >>= \case
+                      Just accIdx -> return $ Just accIdx
+                      Nothing -> lookupDisk
   where
     -- Lookup the 'AccountIndex' in the lmdb backed account map,
     -- and make sure it's within the bounds of the account table.
@@ -284,14 +289,12 @@ getAccountIndex addr Accounts{..} = do
     -- yields accounts which are not yet present in the @accountTable@.
     -- In particular this can be the case if finalized blocks has been rolled
     -- back as part of database recovery.
-    checkBounds (AccountIndex k) = k <= L.size accountTable - 1
+    withSafeBounds Nothing = Nothing
+    withSafeBounds (Just accIdx@(AccountIndex k)) = if k <= L.size accountTable - 1 then Just accIdx else Nothing
     lookupDisk =
-        LMDBAccountMap.lookupAccountIndex addr >>= \case
-            Nothing -> return Nothing
-            Just accIdx ->
-                if checkBounds accIdx
-                    then return $ Just accIdx
-                    else return Nothing
+        if supportsAccountAliases (protocolVersion @pv)
+            then withSafeBounds <$> LMDBAccountMap.lookupAccountIndexViaEquivalence (accountAddressEmbed addr)
+            else withSafeBounds <$> LMDBAccountMap.lookupAccountIndexViaExactness addr
 
 -- | Retrieve an account with the given address.
 --  Returns @Nothing@ if no such account exists.
