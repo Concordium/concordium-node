@@ -519,8 +519,6 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                                 ++ show rbrCount
                                 ++ " blocks. Truncating block state database."
                         liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) rbrBestState
-                        logEvent Skov LLWarning $ "Deleting " <> show (length rbrAccountsForDeletion) <> " from account map."
-                        runReaderT (LMDBAccountMap.unsafeRollback rbrAccountsForDeletion) pbsc
                     let initContext = InitContext pbsc skovLldb
                     (initialSkovData, effectiveProtocolUpdate) <-
                         runInitMonad

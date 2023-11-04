@@ -16,20 +16,21 @@
 --
 --  The LMDB account map only stores accounts that are finalized.
 --  Non finalized accounts are being kept in a 'DifferenceMap' which
---  is written to this LMDB account map when a block is persisted.
+--  is written to this LMDB account map when a block is finalized.
+--
+--  This also means that accounts once put in the account map, then
+--  they can never be deleted again (hence they're finalized).
 --
 --  As opposed to the account table of the block state this database does not
 --  include historical data i.e., the state of this database is from the perspective
 --  of the last finalized block always.
---  For querying historical data (e.g. which accounts existed in a given block) then one
---  should use the account table.
 --
 --  The account map is integrated with the block state “on-the-fly” meaning that
 --  whenever the node starts up and the account map is not populated, then it will be
 --  initialized on startup via the existing ‘PersistentAccountMap’.
 --
 --  Invariants:
---      * Only accounts that are in either certified or finalized blocks are present in the ‘AccountMap’
+--      * Only accounts that are in finalized blocks are present in the ‘AccountMap’
 module Concordium.GlobalState.AccountMap.LMDB where
 
 import Control.Concurrent
@@ -97,7 +98,6 @@ class (Monad m) => MonadAccountMapStore m where
 
     -- | Return all the canonical addresses and their associated account indices of accounts present
     --  in the store where their @AccountIndex@ is less or equal to the provided @AccountIndex@.
-    -- In particular the provided @AccountIndex@ should match the size of the account table minus one.
     getAllAccounts :: AccountIndex -> m [(AccountAddress, AccountIndex)]
 
     -- | Checks whether the lmdb store is initialized or not.
@@ -227,17 +227,6 @@ newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMo
     deriving (MonadTrans) via IdentityT
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (AccountMapStoreMonad m)
-
--- | Delete the provided accounts from the LMDB store.
---
---  This function should only be used when rolling back certified blocks. When rolling back finalized blocks,
---  no accounts should be deleted as they are already confirmed to be finalized.
-unsafeRollback :: (MonadIO m, MonadLogger m, MonadReader r m, HasDatabaseHandlers r) => [AccountAddress] -> m ()
-unsafeRollback accounts = do
-    handlers <- ask
-    let env = handlers ^. dbhStoreEnv
-    runAccountMapStoreMonad $ asWriteTransaction env $ \txn -> do
-        forM_ accounts $ \accAddr -> deleteRecord txn (handlers ^. dbhAccountMapStore) accAddr
 
 -- | When looking up accounts we perform a prefix search as we
 --  store the canonical account addresses in the lmdb store and we

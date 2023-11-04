@@ -62,6 +62,7 @@ import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Account
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -1389,6 +1390,19 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --  Precondition: The block state must be in memory and it must not have been archived.
     saveAccounts :: BlockState m -> m ()
 
+    -- | Reconstructs the account difference map and return it.
+    --  Preconditions:
+    --  * This function MUST only be called on a certified block.
+    --  * This function MUST only be called on a block state that does not already
+    --  * have a difference map.
+    --  * The provided list of accounts MUST correspond to the accounts created in the block,
+    --    and the account addresses in the list MUST be by order of creation.
+    --  * The provided difference map (if any) MUST be the one of the parent block.
+    --
+    --  This function should only be used when starting from an already initialized state, and hence
+    --  we need to reconstruct the difference map since the accounts are not yet finalized.
+    reconstructAccountDifferenceMap :: BlockState m -> DiffMap.DifferenceMapReference -> [AccountAddress] -> m DiffMap.DifferenceMapReference
+
     -- | Load a block state from a reference, given its state hash if provided,
     --  otherwise calculate the state hash upon loading.
     --  In particular the 'StateHash' should be supplied if loading a non-genesis block state.
@@ -1682,6 +1696,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
     saveAccounts = lift . saveAccounts
+    reconstructAccountDifferenceMap bs parentMap accs = lift $ reconstructAccountDifferenceMap bs parentMap accs
     loadBlockState hsh = lift . loadBlockState hsh
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback
@@ -1695,6 +1710,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE purgeBlockState #-}
     {-# INLINE archiveBlockState #-}
     {-# INLINE saveBlockState #-}
+    {-# INLINE reconstructAccountDifferenceMap #-}
     {-# INLINE loadBlockState #-}
     {-# INLINE serializeBlockState #-}
     {-# INLINE blockStateLoadCallback #-}

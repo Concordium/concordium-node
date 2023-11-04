@@ -49,7 +49,7 @@
 --
 --  General flow
 --  The account map resides in its own lmdb database and functions across protocol versions.
---  For non-persisted blocks, then the ‘DifferenceMap’ is either @IORef Nothing@ or @IORef (Just DifferenceMap)@ depending on whether the block is written to disk.
+--  For non-persisted blocks, then the ‘DifferenceMap’ is 'DiffMap.DifferenceMapReference' i.e., either @IORef Nothing@ or @IORef (Just DifferenceMap)@ depending on whether the block is written to disk.
 --  The 'putNewAccount' function creates a new 'DifferenceMap' on demand, hence a new 'Accounts' is initialized with a @accountDiffMap@ set to @IORef Nothing@.
 --  Subsequent accounts created are then being added to the difference map created by the first invocation of 'putNewAccount'.
 --  Blocks that are persisted always have a @IORef Nothing@ 'accountDiffMapRef'.
@@ -135,7 +135,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts
       --  The 'DiffMap.DifferenceMap' is wrapped in an 'IORef' because it is inherited
       --  by child blocks, and so when this block state is persisted then we need to clear it
       --  for any children block states.
-      accountDiffMapRef :: !(IORef (Option DiffMap.DifferenceMap))
+      accountDiffMapRef :: !DiffMap.DifferenceMapReference
     }
 
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
@@ -169,6 +169,14 @@ writeAccountsCreated bh Accounts{..} = do
             liftIO $ atomicWriteIORef accountDiffMapRef Absent
             LMDBAccountMap.insertAccounts bh listOfAccountsCreated
 
+-- | Create and set the 'DiffMap.DifferenceMap' for the provided @Accounts pv@.
+--  Precondition: The provided @IORef (Option (DiffMap.DifferenceMap))@ MUST correspond to the parent map.
+reconstructDifferenceMap :: (SupportsPersistentAccount pv m) => DiffMap.DifferenceMapReference -> [AccountAddress] -> Accounts pv -> m DiffMap.DifferenceMapReference
+reconstructDifferenceMap parentRef listOfAccounts Accounts{..} = do
+    let diffMap' = DiffMap.fromList parentRef $ zip listOfAccounts $ map AccountIndex [L.size accountTable + 1 ..]
+    liftIO $ atomicWriteIORef accountDiffMapRef $ Present diffMap'
+    return accountDiffMapRef
+
 instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
         -- put an empty 'OldMap.PersistentAccountMap'.
@@ -197,7 +205,7 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         return $ do
             accountTable <- maccountTable
             accountRegIdHistory <- mrRIH
-            accountDiffMapRef <- liftIO $ newIORef Absent
+            accountDiffMapRef <- liftIO DiffMap.emptyReference
             return $ Accounts{..}
 
 instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
@@ -210,7 +218,7 @@ instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheabl
 --  to an empty 'DiffMap.DifferenceMap'.
 emptyAccounts :: (MonadIO m) => m (Accounts pv)
 emptyAccounts = do
-    accountDiffMapRef <- liftIO $ newIORef Absent
+    accountDiffMapRef <- liftIO DiffMap.emptyReference
     return $ Accounts L.empty Trie.empty accountDiffMapRef
 
 -- | Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
@@ -226,7 +234,7 @@ putNewAccount !acct a0@Accounts{..} = do
             accountDiffMapRef' <- case mAccountDiffMap of
                 Absent -> do
                     -- create a difference map for this block state with a @Nothing@ as the parent.
-                    freshDifferenceMap <- liftIO $ newIORef (Absent :: Option DiffMap.DifferenceMap)
+                    freshDifferenceMap <- liftIO DiffMap.emptyReference
                     return $ DiffMap.insert addr accIdx $ DiffMap.empty freshDifferenceMap
                 Present accDiffMap -> do
                     -- reuse the already existing difference map for this block state.
@@ -270,11 +278,20 @@ getAccountIndex addr Accounts{..} = do
                 Just accIdx -> return $ Just accIdx
                 Nothing -> lookupDisk
   where
-    -- Lookup the 'AccountIndex' in the lmdb backed account map.
+    -- Lookup the 'AccountIndex' in the lmdb backed account map,
+    -- and make sure it's within the bounds of the account table.
+    -- We do the bounds check as it could be that the lmdb backed account map
+    -- yields accounts which are not yet present in the @accountTable@.
+    -- In particular this can be the case if finalized blocks has been rolled
+    -- back as part of database recovery.
+    checkBounds (AccountIndex k) = k <= L.size accountTable - 1
     lookupDisk =
         LMDBAccountMap.lookupAccountIndex addr >>= \case
             Nothing -> return Nothing
-            Just accIdx -> return $ Just accIdx
+            Just accIdx ->
+                if checkBounds accIdx
+                    then return $ Just accIdx
+                    else return Nothing
 
 -- | Retrieve an account with the given address.
 --  Returns @Nothing@ if no such account exists.

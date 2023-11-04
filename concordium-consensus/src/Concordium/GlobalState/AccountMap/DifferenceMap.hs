@@ -3,7 +3,35 @@
 -- | The 'DifferenceMap' stores accounts that have been created in a non-finalized block.
 --  When a block is finalized then the associated 'DifferenceMap' must be written
 --  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insertAccounts'.
-module Concordium.GlobalState.AccountMap.DifferenceMap where
+module Concordium.GlobalState.AccountMap.DifferenceMap (
+    -- * The difference map definition.
+    DifferenceMap (..),
+
+    -- * A mutable reference to a 'DifferenceMap'.
+    DifferenceMapReference,
+
+    -- * The empty reference
+    emptyReference,
+
+    -- * Get a list of all @(AccountAddress, AccountIndex)@ pairs for the
+
+    --  provided 'DifferenceMap' and all parent maps.
+    flatten,
+
+    -- * Create an empty 'DifferenceMap'
+    empty,
+
+    -- * Insert an account into the 'DifferenceMap'.
+    fromList,
+
+    -- * Lookup in a difference map (and potential parent maps) whether
+
+    --  it yields the 'AccountIndex' for the provided 'AccountAddress'.
+    insert,
+
+    -- * Set the accounts int he 'DifferenceMap'.
+    lookup,
+) where
 
 import Control.Monad.IO.Class
 import Data.Bifunctor
@@ -13,6 +41,13 @@ import Prelude hiding (lookup)
 
 import Concordium.Types
 import Concordium.Types.Option (Option (..))
+
+-- | A mutable reference to a 'DiffMap.DifferenceMap'.
+type DifferenceMapReference = IORef (Option DifferenceMap)
+
+-- | The empty reference
+emptyReference :: (MonadIO m) => m (IORef (Option DifferenceMap))
+emptyReference = liftIO $ newIORef Absent
 
 -- | A difference map that indicates newly added accounts for
 --  a block identified by a 'BlockHash' and its associated 'BlockHeight'.
@@ -28,7 +63,7 @@ data DifferenceMap = DifferenceMap
       --  to multiple blocks if they have not yet been persisted.
       --  So the 'IORef' enables us to when persisting a block,
       --  then we also clear the 'DifferenceMap' for the child block.
-      dmParentMapRef :: !(IORef (Option DifferenceMap))
+      dmParentMapRef :: !DifferenceMapReference
     }
     deriving (Eq)
 
@@ -76,3 +111,11 @@ lookup addr = check
 --  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is being inserted.
 insert :: AccountAddress -> AccountIndex -> DifferenceMap -> DifferenceMap
 insert addr accIndex m = m{dmAccounts = HM.insert (accountAddressEmbed addr) accIndex $ dmAccounts m}
+
+-- | Create a 'DifferenceMap' with the provided parent and list of account addresses and account indices.
+fromList :: IORef (Option DifferenceMap) -> [(AccountAddress, AccountIndex)] -> DifferenceMap
+fromList parentRef listOfAccountsAndIndices =
+    DifferenceMap
+        { dmAccounts = HM.fromList $ map (first accountAddressEmbed) listOfAccountsAndIndices,
+          dmParentMapRef = parentRef
+        }
