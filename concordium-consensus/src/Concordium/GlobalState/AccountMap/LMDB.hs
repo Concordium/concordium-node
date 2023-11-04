@@ -246,7 +246,7 @@ instance
         dbh <- ask
         asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> do
             forM_ accounts $ \(accAddr, accIndex) -> do
-                storeReplaceRecord txn (dbh ^. dbhAccountMapStore) accAddr accIndex
+                storeRecord txn (dbh ^. dbhAccountMapStore) accAddr accIndex
             storeReplaceRecord txn (dbh ^. dbhLfbHash) lfbKey lfb
 
     lookupAccountIndex a@(AccountAddress accAddr) = do
