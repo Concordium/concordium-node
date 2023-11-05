@@ -4,6 +4,7 @@
 
 - Add an additional health-check service to the V2 GRPC API.
   This service conforms to the [standard GRPC health service API](https://github.com/grpc/grpc-proto/blob/master/grpc/health/v1/health.proto).
+- New `DryRun` endpoint that allows simulating the execution of transactions.
 
 ## 6.1.7
 

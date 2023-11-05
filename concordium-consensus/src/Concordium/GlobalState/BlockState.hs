@@ -1231,6 +1231,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  This increases the total GTU in circulation.
     bsoMint :: UpdatableBlockState m -> MintAmounts -> m (UpdatableBlockState m)
 
+    -- | Mint an amount directly to an account, increasing the total supply by the minted amount.
+    --  If minting to the account would overflow the total supply, then the minting does not
+    --  occur and the maximum amount that could be minted without overflowing is returned.
+    --  (The operation is "safe" in so far as it does not cause an overflow in the supply.)
+    --  If minting to the account is successful, the updated state is returned.
+    --  The caller must ensure that the account exists. If it does not, the behaviour is
+    --  unspecified. (For instance, the amount may be minted, but not credited to any account.)
+    bsoMintToAccount :: UpdatableBlockState m -> AccountIndex -> Amount -> m (Either Amount (UpdatableBlockState m))
+
     -- | Get the identity provider data for the given identity provider, or Nothing if
     --  the identity provider with given ID does not exist.
     bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
@@ -1354,7 +1363,7 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --  change, and thus a variant of copy-on-write should be used.
     thawBlockState :: BlockState m -> m (UpdatableBlockState m)
 
-    -- | Freeze a mutable block state instance. The mutable state instance will
+    -- | Freeze a mutable block state instance. The mutable state instance should
     --  not be used afterwards and the implementation can thus avoid copying
     --  data.
     freezeBlockState :: UpdatableBlockState m -> m (BlockState m)
@@ -1570,6 +1579,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoRewardFoundationAccount s = lift . bsoRewardFoundationAccount s
     bsoGetFoundationAccount = lift . bsoGetFoundationAccount
     bsoMint s = lift . bsoMint s
+    bsoMintToAccount s acc amt = lift $ bsoMintToAccount s acc amt
     bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
     bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
     bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
@@ -1630,6 +1640,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoGetFoundationAccount #-}
     {-# INLINE bsoRewardFoundationAccount #-}
     {-# INLINE bsoMint #-}
+    {-# INLINE bsoMintToAccount #-}
     {-# INLINE bsoGetIdentityProvider #-}
     {-# INLINE bsoGetAnonymityRevokers #-}
     {-# INLINE bsoGetCryptoParams #-}
