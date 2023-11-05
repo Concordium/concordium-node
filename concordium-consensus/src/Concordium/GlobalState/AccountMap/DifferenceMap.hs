@@ -114,19 +114,16 @@ lookupViaEquivalenceClass addr = check
 --  otherwise @Nothing@.
 --  Precondition: As this implementation checks for exactness of the provided
 --  @AccountAddress@ then it MUST only be used when account aliases are NOT supported.
---
---  Implementation note: It is not as sufficient as 'lookupViaEquivalenceClass' as it folds over the accounts,
---  but this should be fine as the maps are generally very small.
+--  Note that this implementation is very inefficient for large difference maps and thus should be revised
+--  if the credential deployments limit gets revised significantly.
 lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
-lookupExact addr diffMap =
-    foldl'
-        ( \_ (accAddr, accIdx) ->
-            if addr == accAddr
-                then return $ Just accIdx
-                else return Nothing
-        )
-        (pure Nothing)
-        =<< flatten diffMap
+lookupExact addr diffMap = do
+    listOfAccs <- flatten diffMap
+    case find isEq listOfAccs of
+        Nothing -> return Nothing
+        Just (_, accIdx) -> return $ Just accIdx
+  where
+    isEq (accAddr, _) = addr == accAddr
 
 -- | Insert an account into the difference map.
 --  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is being inserted.

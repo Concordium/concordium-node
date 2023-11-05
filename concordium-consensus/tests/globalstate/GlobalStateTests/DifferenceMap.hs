@@ -24,12 +24,23 @@ import Concordium.Types.Option
 dummyPair :: Int -> (AccountAddress, AccountIndex)
 dummyPair seed = (fst $ randomAccountAddress (mkStdGen seed), AccountIndex $ fromIntegral seed)
 
+-- | Test for looking up both via equivalence class and by exactness.
+--  Precondition: The provided @AccountAddress@ MUST be the canonical address,
+--  and it should be present in the underlying store.
+--  The equivalence lookup always looks up by an alias.
+testDoLookup :: (MonadIO m) => AccountAddress -> DiffMap.DifferenceMap -> m (Maybe AccountIndex)
+testDoLookup accAddr diffMap = do
+    res1 <- DiffMap.lookupViaEquivalenceClass (accountAddressEmbed $ createAlias accAddr 42) diffMap
+    res2 <- DiffMap.lookupExact accAddr diffMap
+    liftIO $ assertEqual "results should be the same" res1 res2
+    return res1
+
 -- | Test that an account can be inserted and looked up in the 'DiffMap.DifferenceMap'.
 testInsertLookupAccount :: Assertion
 testInsertLookupAccount = do
     emptyParentMap <- mkParentPointer Absent
     let diffMap = uncurry DiffMap.insert acc $ DiffMap.empty emptyParentMap
-    DiffMap.lookup (fst acc) diffMap >>= \case
+    testDoLookup (fst acc) diffMap >>= \case
         Nothing -> assertFailure "account should be present in diff map"
         Just accIdx -> assertEqual "account should be there" (snd acc) accIdx
   where
@@ -56,7 +67,7 @@ testLookups = do
     checkExists (dummyPair 3) diffMap3
   where
     checkExists pair diffMap =
-        DiffMap.lookup (fst pair) diffMap >>= \case
+        testDoLookup (fst pair) diffMap >>= \case
             Nothing -> assertFailure "account should be present"
             Just accIdx -> assertEqual "wrong account index" (snd pair) accIdx
 
@@ -100,7 +111,7 @@ insertionsAndLookups = it "insertions and lookups" $
   where
     checkAll ref diffMap = forM_ (HM.toList ref) (check diffMap)
     check diffMap (accAddr, accIdx) = do
-        DiffMap.lookup accAddr diffMap >>= \case
+        testDoLookup accAddr diffMap >>= \case
             Nothing -> liftIO $ assertFailure "account address should be present"
             Just actualAccIdx -> liftIO $ assertEqual "account index should be equal" accIdx actualAccIdx
     -- return the generated difference map(s)

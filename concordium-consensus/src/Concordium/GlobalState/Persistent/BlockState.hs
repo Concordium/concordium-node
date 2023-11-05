@@ -3578,7 +3578,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         -- potentially non-finalized parent blocks.
         -- Note that this also empties the difference map for the
         -- block.
-        void $ Accounts.writeAccountsCreated hpbsHash accs
+        void $ Accounts.writeAccountsCreated accs
 
     reconstructAccountDifferenceMap HashedPersistentBlockState{..} parentDifferenceMap listOfAccounts = do
         accs <- bspAccounts <$> loadPBS hpbsPointers
@@ -3774,7 +3774,7 @@ cacheState hpbs = do
 doTryPopulateAccountMap :: (SupportsPersistentState pv m) => HashedPersistentBlockState pv -> m ()
 doTryPopulateAccountMap HashedPersistentBlockState{..} = do
     BlockStatePointers{..} <- loadPBS hpbsPointers
-    LMDBAccountMap.tryPopulateLMDBStore hpbsHash bspAccounts
+    LMDBAccountMap.tryPopulateLMDBStore bspAccounts
 
 -- | Cache the block state and get the initial (empty) transaction table with the next account nonces
 --  and update sequence numbers populated.

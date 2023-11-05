@@ -16,10 +16,9 @@
 --  it is kept in memory for the block until it either gets finalized or pruned.
 --  If a block is pruned then the retaining pointers are dropped and thus the block and associated ‘DifferenceMap’ is evicted from memory.
 --
---  A thawed block is behind a  ‘BufferedRef’, this ‘BufferedRef’ is written to disk upon finalization
---  (or certification for consensus version 1).
 --  This in return invokes ‘storeUpdate’ for all underlying references for the block state, for the particular block.
---  When the accounts structure is being written to disk so is the ‘DifferenceMap’ and it is then being emptied.
+--  When the accounts structure is finalized, then 'writeAccountsCreated' must be invoked in order to store the newly created accounts
+--  in the LMDB backed account map.
 --  When thawing from a non-persisted block then the difference map is being inherited by the new thawed updatable block,
 --  thus the difference map potentially forms a chain of difference map "down" until the highest persisted block.
 --
@@ -31,25 +30,19 @@
 --  If the map is not populated then it is being populated by traversing the account table
 --  and writing all @AccountAddress -> AccountIndex@ mappings into
 --  the lmdb store in one transaction and then it proceeds as normal.
---  On the other hand, if the lmdb backed account map is already populated then the startup procedure will skip the populating step.
+--  On the other hand, if the lmdb backed account map is already populated then the startup procedure will skip the populating step ('tryPopulateLMDBStore').
+--
+--  For consensus version 1, then the assoicated 'DiffMap.DifferenceMap' is reconstructed via 'reconstructDifferenceMap' for certified blocks.
 --
 --  When starting up from a fresh genesis configuration then as part of creating the genesis state,
 --  then the difference map is being built containing all accounts present in the genesis configuration.
 --  When the genesis block is being written to disk, then so is the ‘DifferenceMap’
 --  via the ‘storeUpdate’ implementation of the accounts structure.
 --
---  * Rollbacks
---  For consensus version 0 no actions are required when rolling back blocks.
---  That is because we only ever store finalized blocks in this consensus version,
---  then there is no need to actually roll back any of the account present in the lmdb backed account map (as the accounts are finalized).
---
---  For consensus version 1 we also store certified blocks in addition to the finalized blocks.
---  Thus we have to roll back accounts that have been added to a certified block that is being rolled back.
---  We do not need to roll back accounts that have been added as part of finalized blocks in this consensus version as explained above for consensus version 0.
---
 --  General flow
 --  The account map resides in its own lmdb database and functions across protocol versions.
---  For non-persisted blocks, then the ‘DifferenceMap’ is 'DiffMap.DifferenceMapReference' i.e., either @IORef Nothing@ or @IORef (Just DifferenceMap)@ depending on whether the block is written to disk.
+--  For non-persisted blocks, then the ‘DifferenceMap’ is 'DiffMap.DifferenceMapReference',
+--  i.e. either @IORef Nothing@ or @IORef (Just DifferenceMap)@ depending on whether the block is written to disk.
 --  The 'putNewAccount' function creates a new 'DifferenceMap' on demand, hence a new 'Accounts' is initialized with a @accountDiffMap@ set to @IORef Nothing@.
 --  Subsequent accounts created are then being added to the difference map created by the first invocation of 'putNewAccount'.
 --  Blocks that are persisted always have a @IORef Nothing@ 'accountDiffMapRef'.
@@ -58,7 +51,7 @@
 --
 --  (The ‘DifferenceMap’ consists of a @Map AccountAddress AccountIndes@ which retains the accounts that have been added to the chain for the associated block.
 --  Moreover the ‘DifferenceMap’ potentially retains a pointer to a so-called parent ‘DifferenceMap’.
---  I.e. @Maybe DifferenceMap@. If this is @Nothing@ then it means that the parent block is certified or finalized.
+--  I.e. @Maybe DifferenceMap@. If this is @Nothing@ then it means that the parent block is finalized or no accounts have been added.
 --  If the parent map yields a ‘DifferenceMap’ then the parent block is not persisted yet, and so the ‘DifferenceMap’ uses this parent map
 --  for keeping track of non persisted accounts for supporting e.g. queries via the ‘AccountAddress’.
 module Concordium.GlobalState.Persistent.Accounts where
@@ -159,15 +152,15 @@ instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (Accounts pv) 
 --
 --  Precondition: This MUST be called when finalizing the block state, and the
 --  provided @BlockHash@ must correespond to the hash of the finalized block.
-writeAccountsCreated :: (SupportsPersistentAccount pv m) => StateHash -> Accounts pv -> m ()
-writeAccountsCreated bh Accounts{..} = do
+writeAccountsCreated :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
+writeAccountsCreated Accounts{..} = do
     mAccountsCreated <- liftIO $ readIORef accountDiffMapRef
     case mAccountsCreated of
         Absent -> return ()
         Present accountsCreated -> do
             listOfAccountsCreated <- liftIO $ DiffMap.flatten accountsCreated
             liftIO $ atomicWriteIORef accountDiffMapRef Absent
-            LMDBAccountMap.insertAccounts bh listOfAccountsCreated
+            LMDBAccountMap.insertAccounts listOfAccountsCreated
 
 -- | Create and set the 'DiffMap.DifferenceMap' for the provided @Accounts pv@.
 --  Precondition: The provided @IORef (Option (DiffMap.DifferenceMap))@ MUST correspond to the parent map.
@@ -275,13 +268,15 @@ getAccountIndex addr Accounts{..} = do
     case mAccountDiffMap of
         Absent -> lookupDisk
         Present accDiffMap ->
-            if supportsAccountAliases (protocolVersion @pv) 
-                  then DiffMap.lookupViaEquivalenceClass (accountAddressEmbed addr) accDiffMap >>= \case
-                      Just accIdx -> return $ Just accIdx
-                      Nothing -> lookupDisk
-                  else DiffMap.lookupExact addr accDiffMap >>= \case
-                      Just accIdx -> return $ Just accIdx
-                      Nothing -> lookupDisk
+            if supportsAccountAliases (protocolVersion @pv)
+                then
+                    DiffMap.lookupViaEquivalenceClass (accountAddressEmbed addr) accDiffMap >>= \case
+                        Just accIdx -> return $ Just accIdx
+                        Nothing -> lookupDisk
+                else
+                    DiffMap.lookupExact addr accDiffMap >>= \case
+                        Just accIdx -> return $ Just accIdx
+                        Nothing -> lookupDisk
   where
     -- Lookup the 'AccountIndex' in the lmdb backed account map,
     -- and make sure it's within the bounds of the account table.
@@ -416,10 +411,10 @@ foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
 --  Otherwise, this function does nothing.
 --
 --  Precondition: The provided @BlockHash@ must correspond to the last finalized block when calling this function.
-tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => StateHash -> Accounts pv -> m ()
-tryPopulateLMDBStore h accts = do
+tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
+tryPopulateLMDBStore accts = do
     isInitialized <- LMDBAccountMap.isInitialized
-    unless isInitialized (void $ LMDBAccountMap.insertAccounts h =<< allAccountsViaTable)
+    unless isInitialized (void $ LMDBAccountMap.insertAccounts =<< allAccountsViaTable)
   where
     -- Get all accounts from the account table.
     allAccountsViaTable = do

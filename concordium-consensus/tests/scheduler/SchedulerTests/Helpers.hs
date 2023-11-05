@@ -150,8 +150,9 @@ createTestBlockStateWithAccounts accounts = do
             DummyData.dummyArs
             keys
             DummyData.dummyChainParameters
-    -- save the block state so accounts are written to the lmdb account map.
+    -- save block state and accounts.
     void $ BS.saveBlockState bs
+    void $ BS.saveAccounts bs
     return bs
   where
     keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
@@ -384,6 +385,7 @@ reloadBlockState ::
 reloadBlockState persistentState = do
     frozen <- BS.freezeBlockState persistentState
     br <- BS.saveBlockState frozen
+    void $ BS.saveAccounts frozen
     BS.thawBlockState =<< BS.loadBlockState ((Just . BS.hpbsHash) frozen) br
 
 -- | Takes a function for checking the block state, which is then run on the block state, the block

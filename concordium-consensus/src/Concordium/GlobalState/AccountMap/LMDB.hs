@@ -79,9 +79,7 @@ instance Exception DatabaseInvariantViolation where
 class (Monad m) => MonadAccountMapStore m where
     -- | Inserts the accounts to the underlying store.
     --  Only canonical addresses should be added.
-    --  The provided @BlockHash@ must correspond the to hash of the
-    --  last finalized block where the inputted accounts comes from.
-    insertAccounts :: StateHash -> [(AccountAddress, AccountIndex)] -> m ()
+    insertAccounts :: [(AccountAddress, AccountIndex)] -> m ()
 
     -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddressEq’.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
@@ -101,7 +99,7 @@ class (Monad m) => MonadAccountMapStore m where
     isInitialized :: m Bool
 
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
-    insertAccounts lfb accs = lift $ insertAccounts lfb accs
+    insertAccounts accs = lift $ insertAccounts accs
     lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
     lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
     getAllAccounts = lift . getAllAccounts
@@ -117,7 +115,7 @@ deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => Monad
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
 
 instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
-    insertAccounts lfb accs = lift $ insertAccounts lfb accs
+    insertAccounts accs = lift $ insertAccounts accs
     lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
     lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
     getAllAccounts = lift . getAllAccounts
@@ -133,9 +131,6 @@ instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
 -- | Store that retains the account address -> account index mappings.
 newtype AccountMapStore = AccountMapStore MDB_dbi'
 
--- | Store that retains the hash and height of the block that was inserted last.
-newtype LfbHashStore = LfbHashStore MDB_dbi'
-
 accountMapStoreName :: String
 accountMapStoreName = "accounts"
 
@@ -146,13 +141,6 @@ instance MDBDatabase AccountMapStore where
     type DBKey AccountMapStore = AccountAddress
     type DBValue AccountMapStore = AccountIndex
 
-lfbKey :: DBKey LfbHashStore
-lfbKey = "lfb"
-
-instance MDBDatabase LfbHashStore where
-    type DBKey LfbHashStore = BS.ByteString
-    type DBValue LfbHashStore = StateHash
-
 -- | Datbase handlers to interact with the account map lmdb
 --  database. Create via 'makeDatabasehandlers'.
 data DatabaseHandlers = DatabaseHandlers
@@ -160,16 +148,14 @@ data DatabaseHandlers = DatabaseHandlers
       _dbhStoreEnv :: !StoreEnv,
       -- | The only store for this lmdb database.
       --  The account map functions as a persistent @AccountAddress -> Maybe AccountIndex@ mapping.
-      _dbhAccountMapStore :: !AccountMapStore,
-      -- | Hash of the state of the last finalized block which was used for inserting accounts.
-      _dbhLfbHash :: !LfbHashStore
+      _dbhAccountMapStore :: !AccountMapStore
     }
 
 makeClassy ''DatabaseHandlers
 
 -- | The number of stores in the LMDB environment for 'DatabaseHandlers'.
 databaseCount :: Int
-databaseCount = 2
+databaseCount = 1
 
 -- ** Initialization
 
@@ -194,12 +180,6 @@ makeDatabaseHandlers accountMapDir readOnly = do
     transaction _dbhStoreEnv readOnly $ \txn -> do
         _dbhAccountMapStore <-
             AccountMapStore
-                <$> mdb_dbi_open'
-                    txn
-                    (Just accountMapStoreName)
-                    [MDB_CREATE | not readOnly]
-        _dbhLfbHash <-
-            LfbHashStore
                 <$> mdb_dbi_open'
                     txn
                     (Just accountMapStoreName)
@@ -243,12 +223,11 @@ instance
     ) =>
     MonadAccountMapStore (AccountMapStoreMonad m)
     where
-    insertAccounts lfb accounts = do
+    insertAccounts accounts = do
         dbh <- ask
         asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> do
             forM_ accounts $ \(accAddr, accIndex) -> do
                 storeRecord txn (dbh ^. dbhAccountMapStore) accAddr accIndex
-            storeReplaceRecord txn (dbh ^. dbhLfbHash) lfbKey lfb
 
     lookupAccountIndexViaEquivalence a@(AccountAddressEq (AccountAddress accAddr)) = do
         dbh <- ask
