@@ -175,16 +175,6 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             let log_level = toml_get_as!(as_str, &node, "log", "level")
                 .or_else(|| toml_get_as!(as_str, &common, "log", "level"))
                 .and_then(|level| Level::from_str(level).ok());
-            let rpc_address = if let Some(ip_str) = toml_get_as!(as_str, &node, "rpc", "ip") {
-                Some(ip_str.parse()?)
-            } else {
-                None
-            };
-            let rpc_port = if let Some(port) = toml_get_as!(as_integer, &node, "rpc", "port") {
-                Some(u16::try_from(port)?)
-            } else {
-                None
-            };
             let grpc2_address = if let Some(ip_str) = toml_get_as!(as_str, &node, "grpc2", "ip") {
                 Some(ip_str.parse()?)
             } else {
@@ -195,9 +185,6 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             } else {
                 None
             };
-            let rpc_token = toml_get_as!(as_str, &node, "rpc", "token")
-                .or_else(|| toml_get_as!(as_str, &common, "rpc", "token"))
-                .map(String::from);
             let listen_address = if let Some(ip_str) = toml_get_as!(as_str, &node, "listen", "ip") {
                 Some(ip_str.parse()?)
             } else {

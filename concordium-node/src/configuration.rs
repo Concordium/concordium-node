@@ -318,40 +318,6 @@ pub struct BakerConfig {
 }
 
 #[derive(StructOpt, Debug)]
-// Parameters related to the RPC (only used in cli).
-pub struct RpcCliConfig {
-    #[structopt(
-        long = "no-rpc-server-node-endpoints",
-        help = "Disable the node related endpoints of the RPC server. Only consensus related \
-                queries are allowed.",
-        env = "CONCORDIUM_NODE_DISABLE_RPC_SERVER_NODE_ENDPOINTS"
-    )]
-    pub no_rpc_server_node_endpoints: bool,
-    #[structopt(
-        long = "rpc-server-port",
-        name = "rpc-server-port",
-        help = "RPC server port",
-        env = "CONCORDIUM_NODE_RPC_SERVER_PORT"
-    )]
-    pub rpc_server_port:              Option<u16>,
-    #[structopt(
-        long = "rpc-server-addr",
-        name = "rpc-server-addr",
-        help = "RPC server listen address",
-        env = "CONCORDIUM_NODE_RPC_SERVER_ADDR"
-    )]
-    pub rpc_server_addr:              Option<String>,
-    #[structopt(
-        long = "rpc-server-token",
-        help = "RPC server access token",
-        default_value = "rpcadmin",
-        env = "CONCORDIUM_NODE_RPC_SERVER_TOKEN",
-        hide_env_values = true
-    )]
-    pub rpc_server_token:             String,
-}
-
-#[derive(StructOpt, Debug)]
 /// Parameters related to the V2 GRPC interface.
 pub struct GRPC2Config {
     #[structopt(
@@ -817,8 +783,6 @@ pub struct CliConfig {
     pub poll_interval: u64,
     #[structopt(flatten)]
     pub baker: BakerConfig,
-    #[structopt(flatten)]
-    pub rpc: RpcCliConfig,
     #[structopt(flatten)]
     pub grpc2: GRPC2Config,
     #[structopt(
