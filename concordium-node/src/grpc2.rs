@@ -1117,7 +1117,10 @@ pub mod server {
                     // The naming of the reflection service here (queries_descriptor) must match
                     // the naming chosen in the build.rs file.
                     let reflection_service = tonic_reflection::server::Builder::configure()
-                        .register_encoded_file_descriptor_set(health::HEALTH_DESCRIPTOR)
+                        .register_encoded_file_descriptor_set(health::concordium::HEALTH_DESCRIPTOR)
+                        .register_encoded_file_descriptor_set(
+                            health::grpc_health_v1::HEALTH_DESCRIPTOR,
+                        )
                         .build()
                         .context("Unable to start the GRPC2 reflection service.")?;
 
@@ -1127,15 +1130,28 @@ pub mod server {
                         health_max_finalization_delay: config.health_max_finalized_delay,
                         health_min_peers: config.health_min_peers,
                     };
+
                     if config.enable_grpc_web {
                         router
                             .add_service(tonic_web::enable(
-                                health::health_server::HealthServer::new(health_service),
+                                health::concordium::health_server::HealthServer::new(
+                                    health_service.clone(),
+                                ),
+                            ))
+                            .add_service(tonic_web::enable(
+                                health::grpc_health_v1::health_server::HealthServer::new(
+                                    health_service,
+                                ),
                             ))
                             .add_service(tonic_web::enable(reflection_service))
                     } else {
                         router
-                            .add_service(health::health_server::HealthServer::new(health_service))
+                            .add_service(health::concordium::health_server::HealthServer::new(
+                                health_service.clone(),
+                            ))
+                            .add_service(health::grpc_health_v1::health_server::HealthServer::new(
+                                health_service,
+                            ))
                             .add_service(reflection_service)
                     }
                 };
