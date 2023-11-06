@@ -31,6 +31,7 @@ import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Types.Transactions
 
 -- | A dummy UTCTime used for tests where the actual value is not significant.
@@ -194,7 +195,7 @@ runLLMDBTest ::
     IO a
 runLLMDBTest name action = withTempDirectory "" name $ \path ->
     bracket
-        (makeDatabaseHandlers path False 1000 :: IO (DatabaseHandlers 'P6))
+        (openDatabase path :: IO (DatabaseHandlers 'P6))
         closeDatabase
         (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
 

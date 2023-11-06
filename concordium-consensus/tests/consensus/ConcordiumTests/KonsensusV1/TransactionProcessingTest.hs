@@ -61,6 +61,7 @@ import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 

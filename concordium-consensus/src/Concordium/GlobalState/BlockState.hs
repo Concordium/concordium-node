@@ -62,6 +62,7 @@ import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Account
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -509,13 +510,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
 
-    -- | Get the list of account addresses existing in the best block state.
+    -- | Get the list of account addresses existing in the given block state.
     --  This returns the canonical addresses.
     getAccountList :: BlockState m -> m [AccountAddress]
-
-    -- | Get the list of account addresses existing in the given historical block state.
-    --  This returns the canonical addresses.
-    getAccountListHistorical :: BlockState m -> m [AccountAddress]
 
     -- | Get the list of contract instances existing in the given block state.
     --  The list should be returned in ascending order of addresses.
@@ -1356,6 +1353,13 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --  changes to it must not affect 'BlockState', but an efficient
     --  implementation should expect that only a small subset of the state will
     --  change, and thus a variant of copy-on-write should be used.
+    --
+    --  The caller of this function should adhere to the following precondition:
+    --  * This function must only be called on the best block or a block that is already
+    --    retained in memory.
+    --    This function loads the provided blockstate into memory (which is fine for the
+    --    best block, as it is already in memory) but it should be avoided for blocks
+    --    that are not already in memory.
     thawBlockState :: BlockState m -> m (UpdatableBlockState m)
 
     -- | Freeze a mutable block state instance. The mutable state instance will
@@ -1379,6 +1383,25 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
 
     -- | Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
+
+    -- | Ensure that any accounts created in a block is persisted.
+    --  This should be called when a block is being finalized.
+    --
+    --  Precondition: The block state must be in memory and it must not have been archived.
+    saveAccounts :: BlockState m -> m ()
+
+    -- | Reconstructs the account difference map and return it.
+    --  Preconditions:
+    --  * This function MUST only be called on a certified block.
+    --  * This function MUST only be called on a block state that does not already
+    --  * have a difference map.
+    --  * The provided list of accounts MUST correspond to the accounts created in the block,
+    --    and the account addresses in the list MUST be by order of creation.
+    --  * The provided difference map (if any) MUST be the one of the parent block.
+    --
+    --  This function should only be used when starting from an already initialized state, and hence
+    --  we need to reconstruct the difference map since the accounts are not yet finalized.
+    reconstructAccountDifferenceMap :: BlockState m -> DiffMap.DifferenceMapReference -> [AccountAddress] -> m DiffMap.DifferenceMapReference
 
     -- | Load a block state from a reference, given its state hash if provided,
     --  otherwise calculate the state hash upon loading.
@@ -1432,7 +1455,6 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getContractInstance s = lift . getContractInstance s
     getModuleList = lift . getModuleList
     getAccountList = lift . getAccountList
-    getAccountListHistorical = lift . getAccountListHistorical
     getContractInstanceList = lift . getContractInstanceList
     getSeedState = lift . getSeedState
     getCurrentEpochBakers = lift . getCurrentEpochBakers
@@ -1673,6 +1695,8 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
+    saveAccounts = lift . saveAccounts
+    reconstructAccountDifferenceMap bs parentMap accs = lift $ reconstructAccountDifferenceMap bs parentMap accs
     loadBlockState hsh = lift . loadBlockState hsh
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback
@@ -1686,6 +1710,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE purgeBlockState #-}
     {-# INLINE archiveBlockState #-}
     {-# INLINE saveBlockState #-}
+    {-# INLINE reconstructAccountDifferenceMap #-}
     {-# INLINE loadBlockState #-}
     {-# INLINE serializeBlockState #-}
     {-# INLINE blockStateLoadCallback #-}

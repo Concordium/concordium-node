@@ -2,7 +2,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-deprecations #-}
 
 module GlobalStateTests.Accounts where
@@ -69,8 +68,6 @@ checkBinaryM bop x y sbop sx sy = do
 checkEquivalent :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => B.Accounts PV -> P.Accounts PV -> m ()
 checkEquivalent ba pa = do
     addrsAndIndices <- P.allAccounts pa
-    viaTable <- P.allAccountsViaTable pa
-    checkBinary (==) (Map.fromList viaTable) (Map.fromList addrsAndIndices) "==" "Account table" "Persistent account map"
     checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) (Map.fromList addrsAndIndices) "==" "Basic account map" "Persistent account map"
     let bat = BAT.toList (B.accountTable ba)
     pat <- L.toAscPairList (P.accountTable pa)
@@ -209,9 +206,11 @@ runAccountAction (UpdateAccount addr upd) (ba, pa) = do
     return (ba', pa')
 runAccountAction FlushPersistent (ba, pa) = do
     (_, pa') <- storeUpdate pa
+    void $ P.writeAccountsCreated pa'
     return (ba, pa')
 runAccountAction ArchivePersistent (ba, pa) = do
     ppa <- fst <$> storeUpdate pa
+    void $ P.writeAccountsCreated pa
     pa' <- fromRight (error "couldn't deserialize archived persistent") $ S.runGet load (S.runPut ppa)
     return (ba, pa')
 runAccountAction (RegIdExists rid) (ba, pa) = do
@@ -228,14 +227,16 @@ emptyTest :: SpecWith (PersistentBlockStateContext PV)
 emptyTest =
     it "empty" $ \bs ->
         runNoLoggerT $
-            flip runBlobStoreT bs $
-                (checkEquivalent B.emptyAccounts (P.emptyAccounts Nothing) :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
+            flip runBlobStoreT bs $ do
+                emptyPersistentAccs <- P.emptyAccounts
+                (checkEquivalent B.emptyAccounts emptyPersistentAccs :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
 
 actionTest :: Word -> SpecWith (PersistentBlockStateContext PV)
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
     acts <- randomActions
     return $ ioProperty $ runNoLoggerT $ flip runBlobStoreT bs $ do
-        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccounts @PV Nothing) acts
+        emptyPersistentAccs <- P.emptyAccounts
+        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, emptyPersistentAccs) acts
         checkEquivalent ba pa
 
 tests :: Word -> Spec

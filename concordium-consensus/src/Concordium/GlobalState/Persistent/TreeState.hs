@@ -363,13 +363,19 @@ checkExistingDatabase treeStateDir blockStateFile accountMapDir = do
             checkRWFile blockStateFile BlockStatePermissionError
             checkRWFile treeStateFile TreeStatePermissionError
             checkRWFile accountMapFile AccountMapPermissionError
-            mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile ++ "AccountMap filepath: " ++ accountMapFile]
+            logEvent TreeState LLTrace "Existing database found."
+            logEvent TreeState LLTrace $ "TreeState filepath: " ++ show treeStateFile
+            logEvent TreeState LLTrace $ "BlockState filepath: " ++ show blockStateFile
+            logEvent TreeState LLTrace $ "AccountMap filepath: " ++ accountMapFile
             return True
         | bsPathEx && tsPathEx -> do
             -- check whether it is a normal file and whether we have the right permissions
             checkRWFile blockStateFile BlockStatePermissionError
             checkRWFile treeStateFile TreeStatePermissionError
-            mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile ++ "AccountMap not found"]
+            logEvent TreeState LLTrace "Existing database found."
+            logEvent TreeState LLTrace $ "TreeState filepath: " ++ show treeStateFile
+            logEvent TreeState LLTrace $ "BlockState filepath: " ++ show blockStateFile
+            logEvent TreeState LLTrace $ "AccountMap not found"
             return True
         | bsPathEx -> do
             logEvent GlobalState LLWarning "Block state file exists, but tree state database does not. Deleting the block state file."
@@ -731,7 +737,11 @@ instance
     markFinalized bh fr =
         use (skovPersistentData . blockTable . liveMap . at' bh) >>= \case
             Just (BlockAlive bp) -> do
-                st <- saveBlockState (_bpState bp)
+                st <- do
+                    -- Save the block state and write the accounts out to disk.
+                    ref <- saveBlockState (_bpState bp)
+                    void $ saveAccounts (_bpState bp)
+                    return ref
                 -- NB: Removing the block from the in-memory cache only makes
                 -- sense if no block lookups are done between the call to this
                 -- function and 'wrapUpFinalization'. This is currently the case,

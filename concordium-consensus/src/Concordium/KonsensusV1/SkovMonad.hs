@@ -510,21 +510,19 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
             let initWithLLDB skovLldb = do
                     checkDatabaseVersion skovLldb
                     let checkBlockState bs = runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef bs)) pbsc
-                    (rollCount, bestState, accountsToDelete) <-
+                    RollbackResult{..} <-
                         flip runReaderT (LMDBDatabases skovLldb $ pbscAccountMap pbsc) $
                             runDiskLLDBM (rollBackBlocksUntil checkBlockState)
-                    when (rollCount > 0) $ do
+                    when (rbrCount > 0) $ do
                         logEvent Skov LLWarning $
                             "Could not load state for "
-                                ++ show rollCount
+                                ++ show rbrCount
                                 ++ " blocks. Truncating block state database."
-                        liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) bestState
-                        logEvent Skov LLWarning $ "Deleting " <> show (length accountsToDelete) <> " from account map."
-                        runReaderT (LMDBAccountMap.unsafeRollback accountsToDelete) pbsc
+                        liftIO $ truncateBlobStore (bscBlobStore . PBS.pbscBlobStore $ pbsc) rbrBestState
                     let initContext = InitContext pbsc skovLldb
                     (initialSkovData, effectiveProtocolUpdate) <-
                         runInitMonad
-                            (loadSkovData gscRuntimeParameters (rollCount > 0))
+                            (loadSkovData gscRuntimeParameters (rbrCount > 0))
                             initContext
                     -- initialize the account map if it has not already been so.
                     let lfbState = initialSkovData ^. lastFinalized . to bpState
@@ -583,7 +581,10 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
                 Left err -> throwM (InvalidGenesisData err)
                 Right genState -> return genState
             logEvent GlobalState LLTrace "Writing persistent global state"
-            stateRef <- saveBlockState pbs
+            stateRef <- do
+                ref <- saveBlockState pbs
+                saveAccounts pbs
+                return ref
             logEvent GlobalState LLTrace "Creating persistent global state context"
             let genHash = genesisBlockHash genData
             let genMeta =
@@ -716,7 +717,10 @@ migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBloc
         initGS :: InitMonad pv (SkovData pv)
         initGS = do
             newState <- newInitialBlockState
-            stateRef <- saveBlockState newState
+            stateRef <- do
+                ref <- saveBlockState newState
+                saveAccounts newState
+                return ref
             chainParams <- getChainParameters newState
             genEpochBakers <- genesisEpochBakers newState
             let genMeta = regenesisMetadata (getHash newState) regenesis

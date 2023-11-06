@@ -11,18 +11,17 @@ module GlobalStateTests.LMDBAccountMap where
 
 import Control.Exception (bracket)
 import Control.Monad.Reader
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
 import System.IO.Temp
 import System.Random
+import Test.HUnit
+import Test.Hspec
 
 import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Logger
 import Concordium.Types
 
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
-
-import Test.HUnit
-import Test.Hspec
 
 -- | Create a pair consisting of an account address and an account index based on the provided seed.
 dummyPair :: Int -> (AccountAddress, AccountIndex)
@@ -35,9 +34,20 @@ runTest ::
     IO a
 runTest dirName action = withTempDirectory "" dirName $ \path ->
     bracket
-        (LMDBAccountMap.makeDatabaseHandlers path False 1000 :: IO LMDBAccountMap.DatabaseHandlers)
+        (LMDBAccountMap.makeDatabaseHandlers path False :: IO LMDBAccountMap.DatabaseHandlers)
         LMDBAccountMap.closeDatabase
         (\dbh -> runSilentLogger $ runReaderT (LMDBAccountMap.runAccountMapStoreMonad action) dbh)
+
+-- | Test for looking up both via equivalence class and by exactness.
+--  Precondition: The provided @AccountAddress@ MUST be the canonical address,
+--  and it should be present in the underlying store.
+--  The equivalence lookup always goes through an alias.
+testDoLookup :: (MonadIO m, LMDBAccountMap.MonadAccountMapStore m) => AccountAddress -> m (Maybe AccountIndex)
+testDoLookup accAddr = do
+    res1 <- LMDBAccountMap.lookupAccountIndexViaExactness accAddr
+    res2 <- LMDBAccountMap.lookupAccountIndexViaEquivalence (accountAddressEmbed $ createAlias accAddr 42)
+    liftIO $ assertEqual "Results should be the same" res1 res2
+    return res1
 
 -- | Test that a database is not initialized.
 testCheckNotInitialized :: Assertion
@@ -49,7 +59,7 @@ testCheckNotInitialized = runTest "notinitialized" $ do
 testCheckDbInitialized :: Assertion
 testCheckDbInitialized = runTest "initialized" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insert [dummyPair 1]
+    void $ LMDBAccountMap.insertAccounts [dummyPair 1]
     isInitialized <- LMDBAccountMap.isInitialized
     liftIO $ assertBool "database should have been initialized" isInitialized
 
@@ -57,10 +67,10 @@ testCheckDbInitialized = runTest "initialized" $ do
 testInsertAndLookupAccounts :: Assertion
 testInsertAndLookupAccounts = runTest "insertandlookups" $ do
     let accounts = dummyPair <$> [1 .. 42]
-    void $ LMDBAccountMap.insert accounts
+    void $ LMDBAccountMap.insertAccounts accounts
 
     forM_ accounts $ \(accAddr, accIndex) -> do
-        LMDBAccountMap.lookup accAddr >>= \case
+        testDoLookup accAddr >>= \case
             Nothing -> liftIO $ assertFailure $ "account was not present " <> show accAddr <> " account index " <> show accIndex
             Just foundAccountIndex -> liftIO $ assertEqual "account indices should be the same" accIndex foundAccountIndex
 
@@ -68,8 +78,11 @@ testInsertAndLookupAccounts = runTest "insertandlookups" $ do
 testLookupAccountViaAlias :: Assertion
 testLookupAccountViaAlias = runTest "lookupviaalias" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insert [acc]
-    LMDBAccountMap.lookup (createAlias (fst acc) 42) >>= \case
+    void $ LMDBAccountMap.insertAccounts [acc]
+    let alias = createAlias (fst acc) 42
+    exactLookup <- isNothing <$> LMDBAccountMap.lookupAccountIndexViaExactness alias
+    liftIO $ assertBool "Alias lookup should've failed" exactLookup
+    LMDBAccountMap.lookupAccountIndexViaEquivalence (accountAddressEmbed alias) >>= \case
         Nothing -> liftIO $ assertFailure "account could not be looked up via alias"
         Just accIndex -> liftIO $ assertEqual "account indices should match" (snd acc) accIndex
   where
@@ -79,35 +92,16 @@ testLookupAccountViaAlias = runTest "lookupviaalias" $ do
 testGetAllAccounts :: Assertion
 testGetAllAccounts = runTest "allaccounts" $ do
     -- initialize the database
-    void $ LMDBAccountMap.insert $ dummyPair <$> [0 .. 42]
-    void $ LMDBAccountMap.insert $ dummyPair <$> [42 .. 84]
-    allAccounts <- LMDBAccountMap.all
+    void $ LMDBAccountMap.insertAccounts $ dummyPair <$> [0 .. 42]
+    void $ LMDBAccountMap.insertAccounts $ dummyPair <$> [42 .. 84]
+    allAccounts <- LMDBAccountMap.getAllAccounts (AccountIndex 85)
     when (length allAccounts /= 85) $
         liftIO $
             assertFailure $
                 "unexpected number of accounts: " <> (show . length) allAccounts <> " should be " <> show (85 :: Int)
     forM_ (dummyPair <$> [0 .. 84]) $ \(accAddr, _) -> do
-        isPresent <- isJust <$> LMDBAccountMap.lookup accAddr
+        isPresent <- isJust <$> testDoLookup accAddr
         liftIO $ assertBool "account should be present" isPresent
-
--- | Test that accounts can be rolled back i.e. deleted from the LMDB store and that
---  the metadata is updated also.
-testRollback :: Assertion
-testRollback = runTest "rollback" $ do
-    -- initialize the database.
-    void $ LMDBAccountMap.insert [dummyPair 1]
-    void $ LMDBAccountMap.insert [dummyPair 2]
-    -- roll back one block.
-    LMDBAccountMap.lookup (fst $ dummyPair 2) >>= \case
-        Nothing -> liftIO $ assertFailure "account should be present"
-        Just _ -> do
-            void $ LMDBAccountMap.unsafeRollback [fst $ dummyPair 2]
-            LMDBAccountMap.lookup (fst $ dummyPair 2) >>= \case
-                Just _ -> liftIO $ assertFailure "account should have been deleted"
-                Nothing ->
-                    LMDBAccountMap.lookup (fst $ dummyPair 1) >>= \case
-                        Nothing -> liftIO $ assertFailure "Accounts from first block should still remain in the lmdb store"
-                        Just accIdx -> liftIO $ assertEqual "The account index of the first account should be the same" (snd $ dummyPair 1) accIdx
 
 tests :: Spec
 tests = describe "AccountMap.LMDB" $ do
@@ -116,4 +110,3 @@ tests = describe "AccountMap.LMDB" $ do
     it "Test inserts and lookups" testInsertAndLookupAccounts
     it "Test getting all accounts" testGetAllAccounts
     it "Test looking up account via alias" testLookupAccountViaAlias
-    it "Test rollback accounts" testRollback

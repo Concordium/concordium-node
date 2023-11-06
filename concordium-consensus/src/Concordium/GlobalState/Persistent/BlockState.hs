@@ -80,6 +80,7 @@ import Concordium.Types.Execution (DelegationTarget (..), TransactionIndex, Tran
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.IdentityProviders as IPS
+import Concordium.Types.Option (Option (..))
 import Concordium.Types.Queries (CurrentPaydayBakerPoolStatus (..), PoolStatus (..), RewardStatus' (..), makePoolPendingChange)
 import Concordium.Types.SeedState
 import qualified Concordium.Types.Transactions as Transactions
@@ -933,10 +934,11 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bspUpdates <- refMake =<< initialUpdates keysCollection chainParams
     bspReleaseSchedule <- emptyReleaseSchedule
     bspRewardDetails <- emptyBlockRewardDetails
+    bspAccounts <- Accounts.emptyAccounts
     bsp <-
         makeBufferedRef $
             BlockStatePointers
-                { bspAccounts = Accounts.emptyAccounts Nothing,
+                { bspAccounts = bspAccounts,
                   bspInstances = Instances.emptyInstances,
                   bspModules = modules,
                   bspBank = makeHashed Rewards.emptyBankStatus,
@@ -2237,11 +2239,6 @@ doAccountList pbs = do
     bsp <- loadPBS pbs
     Accounts.accountAddresses (bspAccounts bsp)
 
-doGetAccountListHistorical :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m [AccountAddress]
-doGetAccountListHistorical pbs = do
-    bsp <- loadPBS pbs
-    map fst <$> Accounts.allAccountsViaTable (bspAccounts bsp)
-
 doRegIdExists :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
     bsp <- loadPBS pbs
@@ -3394,7 +3391,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
     getAccountList = doAccountList . hpbsPointers
-    getAccountListHistorical = doGetAccountListHistorical . hpbsPointers
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
     getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteeParameters . hpbsPointers
@@ -3575,6 +3571,19 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         flushStore
         return ref
 
+    saveAccounts HashedPersistentBlockState{..} = do
+        -- this load should be cheap as the blockstate is in memory.
+        accs <- bspAccounts <$> loadPBS hpbsPointers
+        -- write the accounts that was created in the block and
+        -- potentially non-finalized parent blocks.
+        -- Note that this also empties the difference map for the
+        -- block.
+        void $ Accounts.writeAccountsCreated accs
+
+    reconstructAccountDifferenceMap HashedPersistentBlockState{..} parentDifferenceMap listOfAccounts = do
+        accs <- bspAccounts <$> loadPBS hpbsPointers
+        Accounts.reconstructDifferenceMap parentDifferenceMap listOfAccounts accs
+
     loadBlockState hpbsHashM ref = do
         hpbsPointers <- liftIO $ newIORef $ blobRefToBufferedRef ref
         case hpbsHashM of
@@ -3697,7 +3706,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
             }
 
 -- | Thaw the block state, making it ready for modification.
---  This function wraps the underlying 'PersistentBlockState' of the provided 'HasedPersistentBlockState' in a new 'IORef'
+--  This function wraps the underlying 'PersistentBlockState' of the provided 'HashedPersistentBlockState' in a new 'IORef'
 --  such that changes to the thawed block state does not propagate into the parent state.
 --
 --  Further the 'DiffMap.DifferenceMap' of the accounts structure in the provided block state is
@@ -3710,10 +3719,15 @@ doThawBlockState ::
 doThawBlockState HashedPersistentBlockState{..} = do
     -- This load is cheap as the underlying block state is retained in memory as we're building from it, so it must be the "best" block.
     bsp@BlockStatePointers{bspAccounts = a0@Accounts.Accounts{..}} <- loadPBS hpbsPointers
-    let newDiffMap = case accountDiffMap of
-            Nothing -> Nothing
-            Just diffMap -> Just $ DiffMap.empty (Just diffMap)
-    let bsp' = bsp{bspAccounts = a0{Accounts.accountDiffMap = newDiffMap}}
+    mDiffMap <- liftIO $ readIORef accountDiffMapRef
+    newDiffMapRef <- case mDiffMap of
+        -- reuse the reference pointing to @Nothing@.
+        Absent -> return accountDiffMapRef
+        Present _ -> do
+            -- create a new reference pointing to
+            -- a new difference map which inherits the parent difference map.
+            liftIO $ newIORef $ Present (DiffMap.empty accountDiffMapRef)
+    let bsp' = bsp{bspAccounts = a0{Accounts.accountDiffMapRef = newDiffMapRef}}
     liftIO $ newIORef =<< makeBufferedRef bsp'
 
 -- | Cache the block state.
@@ -3758,8 +3772,8 @@ cacheState hpbs = do
     return ()
 
 doTryPopulateAccountMap :: (SupportsPersistentState pv m) => HashedPersistentBlockState pv -> m ()
-doTryPopulateAccountMap hpbs = do
-    BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
+doTryPopulateAccountMap HashedPersistentBlockState{..} = do
+    BlockStatePointers{..} <- loadPBS hpbsPointers
     LMDBAccountMap.tryPopulateLMDBStore bspAccounts
 
 -- | Cache the block state and get the initial (empty) transaction table with the next account nonces

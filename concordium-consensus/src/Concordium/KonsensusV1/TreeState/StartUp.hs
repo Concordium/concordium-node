@@ -9,6 +9,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict
 import qualified Data.Map.Strict as Map
+import Data.Maybe
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 
@@ -21,12 +22,14 @@ import Concordium.Types.UpdateQueues
 import Concordium.Types.Updates
 import Concordium.Utils
 
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Statistics as Stats
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Types as GSTypes
+import Concordium.ID.Types
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Timeout
 import Concordium.KonsensusV1.Transactions
@@ -37,6 +40,8 @@ import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.TransactionVerification as TVer
+import Concordium.Types.Option
+import Concordium.Types.Transactions
 
 -- | Generate the 'EpochBakers' for a genesis block.
 genesisEpochBakers ::
@@ -293,8 +298,9 @@ loadSkovData _runtimeParameters didRollback = do
 -- | Load the certified blocks from the low-level database into the tree state.
 --  This caches their block states, adds them to the block table and branches,
 --  adds their transactions to the transaction table and pending transaction table,
---  updates the highest certified block, and records block signature witnesses and
---  checked quorum certificates for the blocks.
+--  updates the highest certified block, records block signature witnesses and
+--  checked quorum certificates for the blocks, and inserts any created accounts into
+--  the account difference maps for the certified blocks.
 --
 --  This also sets the previous round timeout if the low level state records that it timed out.
 --  It also puts the latest timeout message in the set of timeout messages for the current round
@@ -316,7 +322,12 @@ loadCertifiedBlocks ::
     m ()
 loadCertifiedBlocks = do
     certBlocks <- LowLevel.lookupCertifiedBlocks
-    mapM_ loadCertBlock certBlocks
+    -- The first certified block will have the empty parent difference map reference.
+    emptyParent <- liftIO DiffMap.emptyReference
+    -- Load all certified blocks
+    -- This sets the skov state, puts transactions in the transaction table,
+    -- and reconstructs the account map difference maps for the certified blocks.
+    foldM_ (flip loadCertBlock) emptyParent certBlocks
     oLastTimeout <- use $ persistentRoundStatus . prsLatestTimeout
     forM_ oLastTimeout $ \lastTimeout -> do
         curRound <- use $ roundStatus . rsCurrentRound
@@ -417,8 +428,16 @@ loadCertifiedBlocks = do
         when (tmRound (tmBody tm) == rs ^. rsCurrentRound) $ do
             forM_ (updateTimeoutMessages Absent tm) $ \tms -> currentTimeoutMessages .= Present tms
   where
-    loadCertBlock (storedBlock, qc) = do
+    -- Get the account address from a credential deployment.
+    getAccountAddressFromDeployment bi = case bi of
+        WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} -> (Just . addressFromRegId . credId) credential
+        _ -> Nothing
+    loadCertBlock (storedBlock, qc) parentDifferenceMapReference = do
         blockPointer <- mkBlockPointer storedBlock
+        -- As only finalized accounts are stored in the account map, then
+        -- we need to reconstruct the 'DiffMap.DifferenceMap' here for the certified block we're loading.
+        let accountsToInsert = mapMaybe getAccountAddressFromDeployment (blockTransactions storedBlock)
+        newDifferenceMap <- reconstructAccountDifferenceMap (bpState blockPointer) parentDifferenceMapReference accountsToInsert
         cacheBlockState (bpState blockPointer)
         blockTable . liveMap . at' (getHash blockPointer) ?=! blockPointer
         addToBranches blockPointer
@@ -449,6 +468,7 @@ loadCertifiedBlocks = do
             roundBakerExistingBlock (blockRound signedBlock) (blockBaker signedBlock)
                 ?= toBlockSignatureWitness signedBlock
         recordCheckedQuorumCertificate qc
+        return newDifferenceMap
 
     -- Set the previous round timeout.
     setLastTimeout lastTimeout certBlock = do

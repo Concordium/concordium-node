@@ -65,7 +65,6 @@ import qualified Concordium.KonsensusV1.SkovMonad as SkovV1
 import qualified Concordium.KonsensusV1.Transactions as SkovV1
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as LowLevelDB
 import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
-import Concordium.KonsensusV1.Types (Option (..))
 import qualified Concordium.KonsensusV1.Types as KonsensusV1
 import qualified Concordium.ProtocolUpdate.V0 as ProtocolUpdateV0
 import qualified Concordium.ProtocolUpdate.V1 as ProtocolUpdateV1
@@ -74,6 +73,7 @@ import Concordium.TimeMonad
 import Concordium.TimerMonad
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.CatchUp
+import Concordium.Types.Option
 
 -- | Handler configuration for supporting protocol updates.
 --  This handler defines an instance of 'HandlerConfigHandlers' that responds to finalization events
@@ -291,7 +291,7 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
                 let isHomeBaked = case nodeBakerIdMaybe of
                         Nothing -> False
                         Just nodeBakerId ->
-                            KonsensusV1.Present nodeBakerId
+                            Present nodeBakerId
                                 == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData block)
                 liftIO (notifyCallback (getHash block) height isHomeBaked)
 
@@ -306,7 +306,7 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
                         let isHomeBaked = case nodeBakerIdMaybe of
                                 Nothing -> False
                                 Just nodeBakerId ->
-                                    KonsensusV1.Present nodeBakerId
+                                    Present nodeBakerId
                                         == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
                         liftIO (notifyCallback (getHash bp) height isHomeBaked)
         checkForProtocolUpdateV1

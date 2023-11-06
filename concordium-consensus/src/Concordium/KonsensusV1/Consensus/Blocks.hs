@@ -52,6 +52,7 @@ import Concordium.KonsensusV1.Types
 import Concordium.Scheduler (FilteredTransactions (..))
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
+import Concordium.Types.Option
 
 -- | A block that has passed initial verification, but must still be executed, added to the state,
 --  and (potentially) signed as a finalizer.

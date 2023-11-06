@@ -15,6 +15,10 @@ module Concordium.GlobalState.LMDB.Helpers (
     makeStoreEnv,
     withWriteStoreEnv,
     seEnv,
+    defaultStepSize,
+    defaultEnvSize,
+    resizeDatabaseHandlers,
+    resizeOnResized,
 
     -- * Database queries and updates.
     MDBDatabase (..),
@@ -44,13 +48,20 @@ module Concordium.GlobalState.LMDB.Helpers (
     byteStringFromMDB_val,
     unsafeByteStringFromMDB_val,
     withMDB_val,
+
+    -- * Helpers for reading and writing to a lmdb store.
+    asReadTransaction,
+    asWriteTransaction,
 )
 where
 
+import Concordium.Logger
 import Control.Concurrent (runInBoundThread, yield)
 import Control.Concurrent.MVar
-import Control.Exception
+import Control.Exception (assert)
 import Control.Monad
+import Control.Monad.Catch
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Data.ByteString
 import qualified Data.ByteString.Lazy as LBS
@@ -272,17 +283,38 @@ data StoreEnv = StoreEnv
       _seEnv :: !MDB_env,
       -- | Lock to quard access to the environment. When resizing the environment
       --  we must ensure that there are no outstanding transactions.
-      _seEnvLock :: !RWLock
+      _seEnvLock :: !RWLock,
+      -- | Database growth size increment.
+      --  This is currently set at 64MB, and must be a multiple of the page size.
+      _seStepSize :: !Int,
+      -- | Maximum step to increment the database size.
+      _seMaxStepSize :: !Int
     }
+
+-- | Database growth size increment.
+--  This is currently set at 64MB, and must be a multiple of the page size.
+defaultStepSize :: Int
+defaultStepSize = 2 ^ (26 :: Int) -- 64MB
+
+-- | Maximum step to increment the database size.
+defaultMaxStepSize :: Int
+defaultMaxStepSize = 2 ^ (30 :: Int) -- 1GB
+
+-- | Default start environment size.
+defaultEnvSize :: Int
+defaultEnvSize = 2 ^ (27 :: Int) -- 128MB
 
 makeLenses ''StoreEnv
 
 -- | Construct a new LMDB environment with associated locks that protect its use.
-makeStoreEnv :: IO StoreEnv
-makeStoreEnv = do
+makeStoreEnv' :: Int -> Int -> IO StoreEnv
+makeStoreEnv' _seStepSize _seMaxStepSize = do
     _seEnv <- mdb_env_create
     _seEnvLock <- initializeLock
     return StoreEnv{..}
+
+makeStoreEnv :: IO StoreEnv
+makeStoreEnv = makeStoreEnv' defaultStepSize defaultMaxStepSize
 
 -- | Acquire exclusive access to the LMDB environment and perform the given action.
 --  The IO action should not leak the 'MDB_env'.
@@ -658,3 +690,50 @@ databaseSize ::
     db ->
     IO Word64
 databaseSize txn dbi = fromIntegral . ms_entries <$> mdb_stat' txn (mdbDatabase dbi)
+
+-- | Increase the database size by at least the supplied size.
+--  The size SHOULD be a multiple of 'dbStepSize', and MUST be a multiple of the page size.
+resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => StoreEnv -> Int -> m ()
+resizeDatabaseHandlers env delta = do
+    envInfo <- liftIO $ mdb_env_info (env ^. seEnv)
+    let oldMapSize = fromIntegral $ me_mapsize envInfo
+        newMapSize = oldMapSize + delta
+        _storeEnv = env
+    logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
+    liftIO . withWriteStoreEnv env $ flip mdb_env_set_mapsize newMapSize
+
+-- | Perform a database action and resize the LMDB map if the file size has changed.
+resizeOnResized :: (MonadIO m, MonadCatch m) => StoreEnv -> m a -> m a
+resizeOnResized se a = inner
+  where
+    inner = handleJust checkResized onResized a
+    checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
+    onResized _ = do
+        liftIO (withWriteStoreEnv se $ flip mdb_env_set_mapsize 0)
+        inner
+
+-- | Run a read-only transaction.
+asReadTransaction :: (MonadIO m) => StoreEnv -> (MDB_txn -> IO a) -> m a
+asReadTransaction env t = do
+    liftIO $ transaction env True t
+
+-- | Run a write transaction. If the transaction fails due to the database being full, this resizes
+--  the database and retries the transaction.
+asWriteTransaction :: (MonadIO m, MonadLogger m) => StoreEnv -> (MDB_txn -> IO a) -> m a
+asWriteTransaction env t = do
+    let doTransaction = transaction env False t
+        inner step = do
+            r <- liftIO $ tryJust selectDBFullError doTransaction
+            case r of
+                Left _ -> do
+                    -- We resize by the step size initially, and by double for each successive
+                    -- failure.
+                    resizeDatabaseHandlers env step
+                    inner (min (step * 2) (env ^. seMaxStepSize))
+                Right res -> return res
+    inner $ env ^. seStepSize
+  where
+    -- only handle the db full error and propagate other exceptions.
+    selectDBFullError = \case
+        (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
+        _ -> Nothing

@@ -110,18 +110,20 @@ data AccumGenesisState pv = AccumGenesisState
 --------- Helper functions ----------
 
 -- | The initial value for accumulating data from genesis data accounts.
-initialAccumGenesisState :: AccumGenesisState pv
-initialAccumGenesisState =
-    AccumGenesisState
-        { agsAllAccounts = Accounts.emptyAccounts Nothing,
-          agsBakerIds = Trie.empty,
-          agsBakerKeys = Trie.empty,
-          agsTotal = 0,
-          agsStakedTotal = 0,
-          agsBakerInfoRefs = Vec.empty,
-          agsBakerStakes = Vec.empty,
-          agsBakerCapitals = Vec.empty
-        }
+initialAccumGenesisState :: (MTL.MonadIO m) => m (AccumGenesisState pv)
+initialAccumGenesisState = do
+    emptyAccs <- Accounts.emptyAccounts
+    return $
+        AccumGenesisState
+            { agsAllAccounts = emptyAccs,
+              agsBakerIds = Trie.empty,
+              agsBakerKeys = Trie.empty,
+              agsTotal = 0,
+              agsStakedTotal = 0,
+              agsBakerInfoRefs = Vec.empty,
+              agsBakerStakes = Vec.empty,
+              agsBakerCapitals = Vec.empty
+            }
 
 -- | Construct a hashed persistent block state from the data in genesis.
 -- The result is immediately flushed to disc and cached.
@@ -132,8 +134,9 @@ buildGenesisBlockState ::
     GenesisData.GenesisState pv ->
     MTL.ExceptT String m (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable)
 buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
+    initState <- initialAccumGenesisState
     -- Iterate the accounts in genesis once and accumulate all relevant information.
-    AccumGenesisState{..} <- Vec.ifoldM' accumStateFromGenesisAccounts initialAccumGenesisState genesisAccounts
+    AccumGenesisState{..} <- Vec.ifoldM' accumStateFromGenesisAccounts initState genesisAccounts
 
     -- Birk parameters
     persistentBirkParameters :: BS.PersistentBirkParameters pv <- do

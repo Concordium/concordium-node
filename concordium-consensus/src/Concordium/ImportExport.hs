@@ -44,7 +44,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Reader
-import Control.Monad.State (MonadState, evalStateT)
+import Control.Monad.State (MonadState, evalStateT, gets)
 import Control.Monad.Trans.Except
 import qualified Data.Attoparsec.Text as AP
 import Data.Bits
@@ -69,6 +69,7 @@ import Concordium.Common.Version
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.Finalization
+import qualified Concordium.GlobalState.LMDB.Helpers as LMDBHelpers
 import Concordium.GlobalState.Persistent.LMDB
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as KonsensusV1
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as KonsensusV1
@@ -445,7 +446,8 @@ exportConsensusV0Blocks ::
     --  and the resulting 'BlockIndex' (the entries that have been added).
     m (Bool, BlockIndex)
 exportConsensusV0Blocks firstBlock outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
-    mgenFinRec <- resizeOnResized $ readFinalizationRecord 0
+    env <- _storeEnv <$> gets _dbsHandlers
+    mgenFinRec <- resizeOnResized env $ readFinalizationRecord 0
     case mgenFinRec of
         Nothing -> do
             logEvent External LLError "No finalization record found in database for finalization index 0."
@@ -471,7 +473,7 @@ exportConsensusV0Blocks firstBlock outDir chunkSize genIndex startHeight blockIn
                     return (True, Empty)
                 else do
                     let getBlockAt height =
-                            resizeOnResized (readFinalizedBlockAtHeight height) >>= \case
+                            resizeOnResized env (readFinalizedBlockAtHeight height) >>= \case
                                 Nothing -> return Nothing
                                 Just StoredBlockWithStateHash{..} | NormalBlock normalBlock <- sbBlock sbshStoredBlock -> do
                                     let serializedBlock = runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
@@ -485,7 +487,7 @@ exportConsensusV0Blocks firstBlock outDir chunkSize genIndex startHeight blockIn
                         getFinalizationAt mFinIndex = case mFinIndex of
                             Nothing -> return Nothing
                             Just finIndex ->
-                                resizeOnResized (readFinalizationRecord finIndex) >>= \case
+                                resizeOnResized env (readFinalizationRecord finIndex) >>= \case
                                     Nothing -> return Nothing
                                     Just fr -> return . Just $ runPut $ putVersionedFinalizationRecordV0 fr
                     chunks <-
@@ -545,7 +547,8 @@ exportConsensusV1Blocks ::
     --  and the resulting 'BlockIndex' (the entries that have been added).
     m (Bool, BlockIndex)
 exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
-    KonsensusV1.resizeOnResized KonsensusV1.lookupFirstBlock >>= \case
+    env <- view KonsensusV1.storeEnv
+    LMDBHelpers.resizeOnResized env KonsensusV1.lookupFirstBlock >>= \case
         Nothing -> do
             logEvent External LLError "Could not read from database."
             return (True, Empty)
@@ -557,14 +560,15 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
                     logEvent External LLError "Genesis hash does not match the recently exported block index."
                     return (True, Empty)
                 else do
-                    KonsensusV1.resizeOnResized KonsensusV1.lookupLastFinalizedBlock >>= \case
+                    LMDBHelpers.resizeOnResized env KonsensusV1.lookupLastFinalizedBlock >>= \case
                         Nothing -> do
                             logEvent External LLError "Cannot read last block of the database."
                             return (True, Empty)
                         Just sb -> do
                             let getBlockAt :: BlockHeight -> m (Maybe (BS.ByteString, BlockHash))
                                 getBlockAt height =
-                                    KonsensusV1.resizeOnResized
+                                    LMDBHelpers.resizeOnResized
+                                        env
                                         (KonsensusV1.lookupBlockByHeight height)
                                         >>= \case
                                             Nothing -> return Nothing
@@ -577,7 +581,8 @@ exportConsensusV1Blocks outDir chunkSize genIndex startHeight blockIndex lastWri
                                             -- the finalization entry.
                                 getFinalizationAt :: BlockHash -> m (Maybe BS.ByteString)
                                 getFinalizationAt bh =
-                                    KonsensusV1.resizeOnResized
+                                    LMDBHelpers.resizeOnResized
+                                        env
                                         KonsensusV1.lookupLatestFinalizationEntry
                                         >>= \case
                                             Nothing -> return Nothing

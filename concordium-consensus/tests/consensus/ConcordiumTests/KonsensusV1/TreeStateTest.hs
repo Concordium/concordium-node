@@ -103,6 +103,7 @@ import Concordium.KonsensusV1.TreeState.LowLevel.Memory
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import qualified Concordium.TransactionVerification as TVer
+import Concordium.Types.Option
 import Concordium.Types.Updates
 
 -- We derive these instances here so we don't accidentally end up using them in production.

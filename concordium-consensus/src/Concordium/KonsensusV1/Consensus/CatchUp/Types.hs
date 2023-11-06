@@ -6,6 +6,7 @@ import Data.Serialize hiding (getListOf, putListOf)
 
 import Concordium.KonsensusV1.Types
 import Concordium.Types
+import Concordium.Types.Option
 import Concordium.Utils.Serialization
 import Control.Monad
 

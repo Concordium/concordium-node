@@ -1,68 +1,139 @@
 {-# LANGUAGE BangPatterns #-}
 
--- | The 'DifferenceMap' stores accounts have been created in a non-finalized block.
---  When a block is being finalized then the assoicated 'DifferenceMap' must be written
---  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insert'.
-module Concordium.GlobalState.AccountMap.DifferenceMap where
+-- | The 'DifferenceMap' stores accounts that have been created in a non-finalized block.
+--  When a block is finalized then the associated 'DifferenceMap' must be written
+--  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insertAccounts'.
+module Concordium.GlobalState.AccountMap.DifferenceMap (
+    -- * Definitions
 
-import qualified Data.Map.Strict as Map
+    -- The difference map definition.
+    DifferenceMap (..),
+    -- A mutable reference to a 'DifferenceMap'.
+    DifferenceMapReference,
+
+    -- * Auxiliary functions
+
+    -- The empty reference
+    emptyReference,
+    -- Get a list of all @(AccountAddress, AccountIndex)@ pairs for the
+    --  provided 'DifferenceMap' and all parent maps.
+    flatten,
+    -- Create an empty 'DifferenceMap'
+    empty,
+    -- Set the accounts int he 'DifferenceMap'.
+    fromList,
+    -- Insert an account into the 'DifferenceMap'.
+    insert,
+    -- Lookup in a difference map (and potential parent maps) whether
+    -- it yields the 'AccountIndex' for the provided 'AccountAddress' or any
+    -- alias of it.
+    lookupViaEquivalenceClass,
+    -- Lookup in a difference map (and potential parent maps) whether
+    -- it yields the 'AccountIndex' for the provided 'AccountAddress'.
+    lookupExact,
+) where
+
+import Control.Monad.IO.Class
+import Data.Bifunctor
+import Data.Foldable
+import qualified Data.HashMap.Strict as HM
+import Data.IORef
 import Prelude hiding (lookup)
 
 import Concordium.Types
+import Concordium.Types.Option (Option (..))
+
+-- | A mutable reference to a 'DiffMap.DifferenceMap'.
+type DifferenceMapReference = IORef (Option DifferenceMap)
+
+-- | The empty reference
+emptyReference :: (MonadIO m) => m (IORef (Option DifferenceMap))
+emptyReference = liftIO $ newIORef Absent
 
 -- | A difference map that indicates newly added accounts for
 --  a block identified by a 'BlockHash' and its associated 'BlockHeight'.
---  The difference map only contains accounds that was added since the '_dmParentMap'.
+--  The difference map only contains accounts that were added since the '_dmParentMapRef'.
 data DifferenceMap = DifferenceMap
     { -- | Accounts added in a block.
-      dmAccounts :: !(Map.Map AccountAddress AccountIndex),
+      dmAccounts :: !(HM.HashMap AccountAddressEq AccountIndex),
       -- | Parent map of non-finalized blocks.
       --  In other words, if the parent block is finalized,
-      --  then the parent map is @Notnhing@ as the LMDB account map
+      --  then the parent map is @Absent@ as the LMDB account map
       --  should be consulted instead.
-      dmParentMap :: !(Maybe DifferenceMap)
+      --  This is an 'IORef' since the parent map may belong
+      --  to multiple blocks if they have not yet been persisted.
+      --  So the 'IORef' enables us to when persisting a block,
+      --  then we also clear the 'DifferenceMap' for the child block.
+      dmParentMapRef :: !DifferenceMapReference
     }
-    deriving (Eq, Show)
+    deriving (Eq)
 
 -- | Gather all accounts from the provided 'DifferenceMap' and its parent maps.
---  Accounts are returned in ascending order of their 'AccountIndex'.
-flatten :: DifferenceMap -> [(AccountAddress, AccountIndex)]
-flatten dmap = go dmap []
+--  Accounts are returned in ascending order of their 'AccountAddress'.
+flatten :: (MonadIO m) => DifferenceMap -> m [(AccountAddress, AccountIndex)]
+flatten dmap = map (first aaeAddress) <$> go dmap []
   where
-    go :: DifferenceMap -> [(AccountAddress, AccountIndex)] -> [(AccountAddress, AccountIndex)]
-    go DifferenceMap{dmParentMap = Nothing, ..} !accum =
-        let !listOfAccounts = Map.toList dmAccounts
-        in  listOfAccounts <> accum
-    go DifferenceMap{dmParentMap = Just parentMap, ..} !accum =
-        let !listOfAccounts = Map.toList dmAccounts
-        in  go parentMap $! listOfAccounts <> accum
+    go diffMap !accum = do
+        mParentMap <- liftIO $ readIORef (dmParentMapRef diffMap)
+        case mParentMap of
+            Absent -> return collectedAccounts
+            Present parentMap -> go parentMap collectedAccounts
+      where
+        collectedAccounts = HM.toList (dmAccounts diffMap) <> accum
 
--- | Create a new empty 'DifferenceMap' based on the difference map of
+-- | Create a new empty 'DifferenceMap' potentially based on the difference map of
 -- the parent.
-empty :: Maybe DifferenceMap -> DifferenceMap
+empty :: IORef (Option DifferenceMap) -> DifferenceMap
 empty mParentDifferenceMap =
     DifferenceMap
-        { dmAccounts = Map.empty,
-          dmParentMap = mParentDifferenceMap
+        { dmAccounts = HM.empty,
+          dmParentMapRef = mParentDifferenceMap
         }
 
 -- | Lookup an account in the difference map or any of the parent
---  difference maps.
+--  difference maps using the account address equivalence class.
 --  Returns @Just AccountIndex@ if the account is present and
 --  otherwise @Nothing@.
-lookup :: AccountAddress -> DifferenceMap -> Maybe AccountIndex
-lookup addr = check
+--  Precondition: As this implementation uses the 'AccountAddressEq' equivalence
+--  class for looking up an 'AccountIndex', then it MUST only be used
+--  when account aliases are supported.
+lookupViaEquivalenceClass :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Maybe AccountIndex)
+lookupViaEquivalenceClass addr = check
   where
-    check DifferenceMap{..} = case Map.lookupGE k dmAccounts of
-        Nothing -> check =<< dmParentMap
-        Just (foundAccAddr, accIdx) ->
-            if checkEquivalence foundAccAddr
-                then Just accIdx
-                else Nothing
-    k = createAlias addr 0
-    checkEquivalence found = accountAddressEmbed k == accountAddressEmbed found
+    check diffMap = case HM.lookup addr (dmAccounts diffMap) of
+        Nothing -> do
+            mParentMap <- liftIO $ readIORef (dmParentMapRef diffMap)
+            case mParentMap of
+                Absent -> return Nothing
+                Present parentMap -> check parentMap
+        Just accIdx -> return $ Just accIdx
+
+-- | Lookup an account in the difference map or any of the parent
+--  difference maps via an exactness check.
+--  Returns @Just AccountIndex@ if the account is present and
+--  otherwise @Nothing@.
+--  Precondition: As this implementation checks for exactness of the provided
+--  @AccountAddress@ then it MUST only be used when account aliases are NOT supported.
+--  Note that this implementation is very inefficient for large difference maps and thus should be revised
+--  if the credential deployments limit gets revised significantly.
+lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
+lookupExact addr diffMap = do
+    listOfAccs <- flatten diffMap
+    case find isEq listOfAccs of
+        Nothing -> return Nothing
+        Just (_, accIdx) -> return $ Just accIdx
+  where
+    isEq (accAddr, _) = addr == accAddr
 
 -- | Insert an account into the difference map.
---  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is added.
+--  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is being inserted.
 insert :: AccountAddress -> AccountIndex -> DifferenceMap -> DifferenceMap
-insert addr accIndex m = m{dmAccounts = Map.insert addr accIndex $ dmAccounts m}
+insert addr accIndex m = m{dmAccounts = HM.insert (accountAddressEmbed addr) accIndex $ dmAccounts m}
+
+-- | Create a 'DifferenceMap' with the provided parent and list of account addresses and account indices.
+fromList :: IORef (Option DifferenceMap) -> [(AccountAddress, AccountIndex)] -> DifferenceMap
+fromList parentRef listOfAccountsAndIndices =
+    DifferenceMap
+        { dmAccounts = HM.fromList $ map (first accountAddressEmbed) listOfAccountsAndIndices,
+          dmParentMapRef = parentRef
+        }

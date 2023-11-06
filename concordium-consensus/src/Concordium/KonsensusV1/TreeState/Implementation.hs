@@ -43,6 +43,7 @@ import qualified Concordium.Genesis.Data.BaseV1 as Base
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Utils
