@@ -905,7 +905,7 @@ testPurgeTransactionTable = describe "purgeTransactionTable" $ do
             (sd'' ^. transactionTablePurgeCounter)
         assertEqual
             "Account non-finalized transactions"
-            (Just $ TT.AccountNonFinalizedTransactions{_anftMap = Map.empty, _anftNextNonce = 1})
+            Nothing
             (sd'' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "Chain update non-finalized transactions"

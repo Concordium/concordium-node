@@ -3,6 +3,8 @@
 ## Unreleased changes
 - The account map is now kept solely on disk in a separate lmdb database and it is no longer part of the internal block state database.
   This change results in less memory usage per account and a decrease in the growth of the database.
+- If an account does not have any pending transactions, then the transaction table is no longer used for tracking next available account nonce but
+  instead the lfb block state is used.
 
 ## 6.1.7
 

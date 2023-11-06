@@ -1424,7 +1424,7 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Cache the block state.
     cacheBlockState :: BlockState m -> m ()
 
-    -- | Cache the block state and get the initial (empty) transaction table with the next account nonces
+    -- | Cache the block state and get the initial (empty) transaction table,
     --  and update sequence numbers populated.
     cacheBlockStateAndGetTransactionTable :: BlockState m -> m TransactionTable
 

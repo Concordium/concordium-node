@@ -3785,8 +3785,7 @@ cacheStateAndGetTransactionTable ::
     m TransactionTable.TransactionTable
 cacheStateAndGetTransactionTable hpbs = do
     BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
-    -- Note. we do not need to cache the accounts as the merkle tree is
-    -- constructed in memory when loading the persistent block state.
+    -- Accounts are loaded and possibly cached now.
     -- cache the modules
     mods <- cache bspModules
     -- then cache the instances, but don't cache the modules again. Instead

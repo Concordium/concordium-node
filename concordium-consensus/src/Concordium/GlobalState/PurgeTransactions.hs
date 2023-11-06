@@ -175,8 +175,11 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
             !ptt1 = ptt0 & pttUpdates . at' uty %~ updptt mmax
         in  (nfcu{_nfcuMap = newNFCUMap}, (ptt1, uis1))
     purge = do
-        -- Purge each account
-        nnft <- HM.traverseWithKey purgeAccount _ttNonFinalizedTransactions
+        -- Purge each account, and possibly remove the @AccountNonFinalizedTransactions@
+        -- if an account does not have any pending transactions left.
+        nnft <-
+            HM.filter (\AccountNonFinalizedTransactions{..} -> (not . null) _anftMap)
+                <$> HM.traverseWithKey purgeAccount _ttNonFinalizedTransactions
         -- Purge credential deployments
         purgeDeployCredentials
         -- Purge chain updates
