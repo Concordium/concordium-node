@@ -634,7 +634,7 @@ getNextAccountNonce accountAddress =
         )
         -- consensus v1
         ( do
-            (nanNonce, nanAllFinal) <- gets (SkovV1.getNextAccountNonce acctEq)
+            (nanNonce, nanAllFinal) <- SkovV1.getNextAccountNonce acctEq
             return NextAccountNonce{..}
         )
   where
