@@ -3,7 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Concordium.External (ConsensusRunner(..)) where
+module Concordium.External (ConsensusRunner (..)) where
 
 import Control.Exception
 import Control.Monad
