@@ -34,9 +34,9 @@ module Concordium.GlobalState.AccountMap.DifferenceMap (
 ) where
 
 import Control.Monad.IO.Class
-import Data.Tuple (swap)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
+import Data.Tuple (swap)
 import Prelude hiding (lookup)
 
 import Concordium.Types
@@ -113,9 +113,10 @@ lookupViaEquivalenceClass' addr = check
 --  class for looking up an 'AccountIndex', then it MUST only be used
 --  when account aliases are supported.
 lookupViaEquivalenceClass :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Maybe AccountIndex)
-lookupViaEquivalenceClass addr dm = lookupViaEquivalenceClass' addr dm >>= \case
-    Nothing -> return Nothing
-    Just (accIdx, _) -> return $ Just accIdx
+lookupViaEquivalenceClass addr dm =
+    lookupViaEquivalenceClass' addr dm >>= \case
+        Nothing -> return Nothing
+        Just (accIdx, _) -> return $ Just accIdx
 
 -- | Lookup an account in the difference map or any of the parent
 --  difference maps via an exactness check.
@@ -126,9 +127,10 @@ lookupViaEquivalenceClass addr dm = lookupViaEquivalenceClass' addr dm >>= \case
 --  Note that this implementation is very inefficient for large difference maps and thus should be revised
 --  if the credential deployments limit gets revised significantly.
 lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
-lookupExact addr diffMap = lookupViaEquivalenceClass' (accountAddressEmbed addr) diffMap >>= \case
-    Nothing -> return Nothing
-    Just (accIdx, actualAddr) -> if actualAddr == addr then return $ Just accIdx else return Nothing
+lookupExact addr diffMap =
+    lookupViaEquivalenceClass' (accountAddressEmbed addr) diffMap >>= \case
+        Nothing -> return Nothing
+        Just (accIdx, actualAddr) -> if actualAddr == addr then return $ Just accIdx else return Nothing
 
 -- | Insert an account into the difference map.
 --  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is being inserted.

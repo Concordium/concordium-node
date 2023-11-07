@@ -524,11 +524,6 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                         runInitMonad
                             (loadSkovData gscRuntimeParameters (rbrCount > 0))
                             initContext
-                    -- initialize the account map if it has not already been so.
-                    let lfbState = initialSkovData ^. lastFinalized . to bpState
-                    logEvent Skov LLDebug "Initializing LMDB account map"
-                    void $ flip runReaderT pbsc $ PBS.runPersistentBlockStateMonad (PBS.tryPopulateAccountMap lfbState)
-                    logEvent Skov LLDebug "Finished initializing LMDB account map"
                     let !es =
                             ExistingSkov
                                 { esContext =
@@ -652,6 +647,9 @@ activateSkovV1State = do
     bps <- use $ lastFinalized . to bpState
     !tt <- cacheBlockStateAndGetTransactionTable bps
     transactionTable .= tt
+    logEvent GlobalState LLDebug "Initializing LMDB account map"
+    void $ PBS.tryPopulateAccountMap bps
+    logEvent GlobalState LLDebug "Finished initializing LMDB account map"
     logEvent GlobalState LLTrace "Loading certified blocks"
     loadCertifiedBlocks
     logEvent GlobalState LLTrace "Done activating global state"

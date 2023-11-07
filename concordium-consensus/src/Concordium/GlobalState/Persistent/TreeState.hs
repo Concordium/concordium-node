@@ -508,6 +508,10 @@ activateSkovPersistentData pbsc uninitState =
         let bps = _bpState $ _lastFinalized uninitState
         tt <- cacheBlockStateAndGetTransactionTable bps
         logEvent GlobalState LLTrace "Done caching last finalized block"
+        -- initialize the account map if it has not already been so.
+        logEvent GlobalState LLDebug "Initializing LMDB account map"
+        void $ tryPopulateAccountMap bps
+        logEvent GlobalState LLDebug "Finished initializing LMDB account map"
         return $! uninitState{_transactionTable = tt}
   where
     runBlockState a = runReaderT (PBS.runPersistentBlockStateMonad @pv a) pbsc
