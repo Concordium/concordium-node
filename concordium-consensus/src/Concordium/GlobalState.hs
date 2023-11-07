@@ -83,6 +83,16 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
                 return (Just (pbsc, skovData))
         else return Nothing
 
+-- | Initialize a 'PersistentBlockStateContext' via the provided
+--  'GlobalStateConfig'.
+initializePersistentBlockStateContext :: GlobalStateConfig -> IO (PersistentBlockStateContext pv)
+initializePersistentBlockStateContext GlobalStateConfig{..} = liftIO $ do
+    pbscBlobStore <- createBlobStore dtdbBlockStateFile
+    pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
+    pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
+    pbscAccountMap <- LMDBAccountMap.openDatabase dtdAccountMapDirectory
+    return PersistentBlockStateContext{..}
+
 -- | Migrate an existing global state. This is only intended to be used on a
 --  protocol update and requires that the initial state for the new protocol
 --  version is prepared (see @TreeState.storeFinalState@). This function will
@@ -112,13 +122,8 @@ migrateExistingState ::
     Regenesis pv ->
     -- | The return value is the context and state for the new chain.
     LogIO (GSContext pv, GSState pv)
-migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = do
-    pbsc <- liftIO $ do
-        pbscBlobStore <- createBlobStore dtdbBlockStateFile
-        pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-        pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-        pbscAccountMap <- LMDBAccountMap.openDatabase dtdAccountMapDirectory
-        return $ PersistentBlockStateContext{..}
+migrateExistingState gsc@GlobalStateConfig{..} oldPbsc oldState migration genData = do
+    pbsc <- liftIO $ initializePersistentBlockStateContext gsc
     newInitialBlockState <- flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
         case _nextGenesisInitialState oldState of
             Nothing -> error "Precondition violation. Migration called in state without initial block state."
@@ -144,12 +149,8 @@ migrateExistingState GlobalStateConfig{..} oldPbsc oldState migration genData = 
 --  exists this will raise an exception. It is not necessary to call 'activateGlobalState'
 --  on the generated state, as this will establish the necessary invariants.
 initialiseNewGlobalState :: (IsProtocolVersion pv, IsConsensusV0 pv) => GenesisData pv -> GlobalStateConfig -> LogIO (GSContext pv, GSState pv)
-initialiseNewGlobalState genData GlobalStateConfig{..} = do
-    pbscBlobStore <- liftIO $ createBlobStore dtdbBlockStateFile
-    pbscAccountCache <- liftIO $ newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
-    pbscModuleCache <- liftIO $ Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-    pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
-    let pbsc = PersistentBlockStateContext{..}
+initialiseNewGlobalState genData gsc@GlobalStateConfig{..} = do
+    pbsc@PersistentBlockStateContext{..} <- liftIO $ initializePersistentBlockStateContext gsc
     let initGS = do
             logEvent GlobalState LLTrace "Creating persistent global state"
             result <- genesisState genData

@@ -496,17 +496,12 @@ initialiseExistingSkovV1 ::
     (forall a. SkovV1T pv m a -> IO a) ->
     GlobalStateConfig ->
     LogIO (Maybe (ExistingSkov pv m))
-initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = do
+initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov gsc@GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Attempting to use existing global state."
     existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile gscAccountMapDirectory
     if existingDB
         then do
-            pbsc <- liftIO $ do
-                pbscAccountCache <- newAccountCache (rpAccountsCacheSize gscRuntimeParameters)
-                pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize gscRuntimeParameters)
-                pbscBlobStore <- loadBlobStore gscBlockStateFile
-                pbscAccountMap <- LMDBAccountMap.openDatabase gscAccountMapDirectory
-                return PersistentBlockStateContext{..}
+            pbsc <- liftIO $ newPersistentBlockStateContext gsc
             let initWithLLDB skovLldb = do
                     checkDatabaseVersion skovLldb
                     let checkBlockState bs = runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef bs)) pbsc
@@ -576,10 +571,8 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
                 Left err -> throwM (InvalidGenesisData err)
                 Right genState -> return genState
             logEvent GlobalState LLTrace "Writing persistent global state"
-            stateRef <- do
-                ref <- saveBlockState pbs
-                saveAccounts pbs
-                return ref
+            stateRef <- saveBlockState pbs
+            saveAccounts pbs
             logEvent GlobalState LLTrace "Creating persistent global state context"
             let genHash = genesisBlockHash genData
             let genMeta =
@@ -707,10 +700,9 @@ migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBloc
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     let newInitialBlockState :: InitMonad pv (HashedPersistentBlockState pv)
-        newInitialBlockState = do
-            flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
-                newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
-                hashBlockState newState
+        newInitialBlockState = flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
+            newState <- migratePersistentBlockState migration $ hpbsPointers oldBlockState
+            hashBlockState newState
     let
         initGS :: InitMonad pv (SkovData pv)
         initGS = do
