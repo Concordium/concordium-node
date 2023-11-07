@@ -13,11 +13,13 @@ module Concordium.GlobalState.LMDB.Helpers (
     -- * Database environment.
     StoreEnv (..),
     makeStoreEnv,
+    makeStoreEnv',
     withWriteStoreEnv,
     seEnv,
     seStepSize,
     seMaxStepSize,
     defaultStepSize,
+    defaultMaxStepSize,
     defaultEnvSize,
     resizeDatabaseHandlers,
     resizeOnResized,
@@ -301,6 +303,9 @@ defaultStepSize :: Int
 defaultStepSize = 2 ^ (26 :: Int) -- 64MB
 
 -- | Maximum step to increment the database size.
+--  A ceiling that supposedly never gets hit.
+--  We need some bound as we're growing the environment exponentially when
+--  transactions fail and we resize recursively.
 defaultMaxStepSize :: Int
 defaultMaxStepSize = 2 ^ (30 :: Int) -- 1GB
 
@@ -322,6 +327,8 @@ makeStoreEnv' _seStepSize _seMaxStepSize = do
     _seEnvLock <- initializeLock
     return StoreEnv{..}
 
+-- | Construct a new LMDB environment with assoicated locks that protects it,
+--  with default environment paremeters.
 makeStoreEnv :: IO StoreEnv
 makeStoreEnv = makeStoreEnv' defaultStepSize defaultMaxStepSize
 

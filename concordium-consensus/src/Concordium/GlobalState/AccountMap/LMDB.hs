@@ -157,6 +157,12 @@ makeClassy ''DatabaseHandlers
 databaseCount :: Int
 databaseCount = 1
 
+-- | Database growth size increment.
+--  This is currently set at 4MB, and must be a multiple of the page size.
+--  For reference: ~ 90k accounts takes up around 7MB, so this should ensure not much resizing required.
+dbStepSize :: Int
+dbStepSize = 2 ^ (22 :: Int) -- 4MB
+
 -- ** Initialization
 
 -- | Initialize database handlers.
@@ -170,10 +176,10 @@ makeDatabaseHandlers ::
     Bool ->
     IO DatabaseHandlers
 makeDatabaseHandlers accountMapDir readOnly = do
-    _dbhStoreEnv <- makeStoreEnv
+    _dbhStoreEnv <- makeStoreEnv' dbStepSize defaultMaxStepSize
     -- here nobody else has access to the environment, so we need not lock
     let env = _dbhStoreEnv ^. seEnv
-    mdb_env_set_mapsize env defaultEnvSize
+    mdb_env_set_mapsize env dbStepSize
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     mdb_env_open env accountMapDir [MDB_RDONLY | readOnly]
