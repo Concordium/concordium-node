@@ -447,7 +447,7 @@ exportConsensusV0Blocks ::
     m (Bool, BlockIndex)
 exportConsensusV0Blocks firstBlock outDir chunkSize genIndex startHeight blockIndex lastWrittenChunkM = do
     env <- _storeEnv <$> gets _dbsHandlers
-    mgenFinRec <- resizeOnResized env $ readFinalizationRecord 0
+    mgenFinRec <- LMDBHelpers.resizeOnResized env $ readFinalizationRecord 0
     case mgenFinRec of
         Nothing -> do
             logEvent External LLError "No finalization record found in database for finalization index 0."
@@ -473,7 +473,7 @@ exportConsensusV0Blocks firstBlock outDir chunkSize genIndex startHeight blockIn
                     return (True, Empty)
                 else do
                     let getBlockAt height =
-                            resizeOnResized env (readFinalizedBlockAtHeight height) >>= \case
+                            LMDBHelpers.resizeOnResized env (readFinalizedBlockAtHeight height) >>= \case
                                 Nothing -> return Nothing
                                 Just StoredBlockWithStateHash{..} | NormalBlock normalBlock <- sbBlock sbshStoredBlock -> do
                                     let serializedBlock = runPut $ putVersionedBlock (protocolVersion @pv) normalBlock
@@ -487,7 +487,7 @@ exportConsensusV0Blocks firstBlock outDir chunkSize genIndex startHeight blockIn
                         getFinalizationAt mFinIndex = case mFinIndex of
                             Nothing -> return Nothing
                             Just finIndex ->
-                                resizeOnResized env (readFinalizationRecord finIndex) >>= \case
+                                LMDBHelpers.resizeOnResized env (readFinalizationRecord finIndex) >>= \case
                                     Nothing -> return Nothing
                                     Just fr -> return . Just $ runPut $ putVersionedFinalizationRecordV0 fr
                     chunks <-

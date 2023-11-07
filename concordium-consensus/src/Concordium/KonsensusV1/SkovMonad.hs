@@ -526,9 +526,9 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov GlobalStateConfig{..} = 
                             initContext
                     -- initialize the account map if it has not already been so.
                     let lfbState = initialSkovData ^. lastFinalized . to bpState
-                    logEvent Skov LLDebug "Try initialize LMDB account map"
+                    logEvent Skov LLDebug "Initializing LMDB account map"
                     void $ flip runReaderT pbsc $ PBS.runPersistentBlockStateMonad (PBS.tryPopulateAccountMap lfbState)
-                    logEvent Skov LLDebug "Finsihed initializing LMDB account map"
+                    logEvent Skov LLDebug "Finished initializing LMDB account map"
                     let !es =
                             ExistingSkov
                                 { esContext =

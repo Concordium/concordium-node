@@ -13,8 +13,8 @@ module Concordium.GlobalState.AccountMap.DifferenceMap (
 
     -- * Auxiliary functions
 
-    -- The empty reference
-    emptyReference,
+    -- Create a new empty mutable reference.
+    newEmptyReference,
     -- Get a list of all @(AccountAddress, AccountIndex)@ pairs for the
     --  provided 'DifferenceMap' and all parent maps.
     flatten,
@@ -46,9 +46,9 @@ import Concordium.Types.Option (Option (..))
 -- | A mutable reference to a 'DiffMap.DifferenceMap'.
 type DifferenceMapReference = IORef (Option DifferenceMap)
 
--- | The empty reference
-emptyReference :: (MonadIO m) => m (IORef (Option DifferenceMap))
-emptyReference = liftIO $ newIORef Absent
+-- | Create a new empty reference.
+newEmptyReference :: (MonadIO m) => m DifferenceMapReference
+newEmptyReference = liftIO $ newIORef Absent
 
 -- | A difference map that indicates newly added accounts for
 --  a block identified by a 'BlockHash' and its associated 'BlockHeight'.
@@ -83,7 +83,7 @@ flatten dmap = map (first aaeAddress) <$> go dmap []
 
 -- | Create a new empty 'DifferenceMap' potentially based on the difference map of
 -- the parent.
-empty :: IORef (Option DifferenceMap) -> DifferenceMap
+empty :: DifferenceMapReference -> DifferenceMap
 empty mParentDifferenceMap =
     DifferenceMap
         { dmAccounts = HM.empty,

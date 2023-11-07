@@ -323,7 +323,7 @@ loadCertifiedBlocks ::
 loadCertifiedBlocks = do
     certBlocks <- LowLevel.lookupCertifiedBlocks
     -- The first certified block will have the empty parent difference map reference.
-    emptyParent <- liftIO DiffMap.emptyReference
+    emptyParent <- liftIO DiffMap.newEmptyReference
     -- Load all certified blocks
     -- This sets the skov state, puts transactions in the transaction table,
     -- and reconstructs the account map difference maps for the certified blocks.

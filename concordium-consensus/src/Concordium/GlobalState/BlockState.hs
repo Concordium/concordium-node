@@ -1353,13 +1353,6 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --  changes to it must not affect 'BlockState', but an efficient
     --  implementation should expect that only a small subset of the state will
     --  change, and thus a variant of copy-on-write should be used.
-    --
-    --  The caller of this function should adhere to the following precondition:
-    --  * This function must only be called on the best block or a block that is already
-    --    retained in memory.
-    --    This function loads the provided blockstate into memory (which is fine for the
-    --    best block, as it is already in memory) but it should be avoided for blocks
-    --    that are not already in memory.
     thawBlockState :: BlockState m -> m (UpdatableBlockState m)
 
     -- | Freeze a mutable block state instance. The mutable state instance will
@@ -1429,7 +1422,7 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     cacheBlockStateAndGetTransactionTable :: BlockState m -> m TransactionTable
 
     -- | Populate the LMDB account map if it has not already been initialized.
-    --  If the lmdb store has already been intialized, then this function does nothing.
+    --  If the lmdb store has already been initialized, then this function does nothing.
     --  This function must only be invoked when starting up when then account table already
     --  contains accounts but these are not reflected in the lmdb backed account map.
     --

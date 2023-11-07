@@ -120,8 +120,8 @@ data Accounts (pv :: ProtocolVersion) = Accounts
       accountRegIdHistory :: !(Trie.TrieN UnbufferedFix ID.RawCredentialRegistrationID AccountIndex),
       -- | An in-memory difference map used keeping track of accounts
       --  added in live blocks.
-      --  This is @Nothing@ if either the block is persisted or no accounts have been
-      --  added in the block.
+      --  This is @Absent@ if either the block is persisted, or no accounts have been
+      --  added for this block any parent non-persisted blocks.
       --  Otherwise if the block is not persisted and accounts have been added, then
       --  the 'DiffMap.DifferenceMap' yields the @AccountAddress -> AccountIndex@ mapping for
       --  accounts created in the block, where the account addresses are in canonical form.
@@ -162,6 +162,14 @@ writeAccountsCreated Accounts{..} = do
             liftIO $ atomicWriteIORef accountDiffMapRef Absent
             LMDBAccountMap.insertAccounts listOfAccountsCreated
 
+-- | Create a new @Accounts pv@ structure from the provided one.
+--  This function creates a new 'DiffMap.DifferenceMap' for the resulting @Accounts pv@ which
+--  has a reference to the provided @Accounts pv@.
+mkNewChildDifferenceMap :: (SupportsPersistentAccount pv m) => Accounts pv -> m (Accounts pv)
+mkNewChildDifferenceMap accts@Accounts{..} = do
+    newDiffMapRef <- liftIO $ newIORef $ Present $ DiffMap.empty accountDiffMapRef
+    return accts{accountDiffMapRef = newDiffMapRef}
+
 -- | Create and set the 'DiffMap.DifferenceMap' for the provided @Accounts pv@.
 --  Precondition: The provided @IORef (Option (DiffMap.DifferenceMap))@ MUST correspond to the parent map.
 reconstructDifferenceMap :: (SupportsPersistentAccount pv m) => DiffMap.DifferenceMapReference -> [AccountAddress] -> Accounts pv -> m DiffMap.DifferenceMapReference
@@ -198,7 +206,7 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         return $ do
             accountTable <- maccountTable
             accountRegIdHistory <- mrRIH
-            accountDiffMapRef <- liftIO DiffMap.emptyReference
+            accountDiffMapRef <- liftIO DiffMap.newEmptyReference
             return $ Accounts{..}
 
 instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
@@ -211,7 +219,7 @@ instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheabl
 --  to an empty 'DiffMap.DifferenceMap'.
 emptyAccounts :: (MonadIO m) => m (Accounts pv)
 emptyAccounts = do
-    accountDiffMapRef <- liftIO DiffMap.emptyReference
+    accountDiffMapRef <- liftIO DiffMap.newEmptyReference
     return $ Accounts L.empty Trie.empty accountDiffMapRef
 
 -- | Add a new account. Returns @Just idx@ if the new account is fresh, i.e., the address does not exist,
@@ -227,7 +235,7 @@ putNewAccount !acct a0@Accounts{..} = do
             accountDiffMapRef' <- case mAccountDiffMap of
                 Absent -> do
                     -- create a difference map for this block state with a @Nothing@ as the parent.
-                    freshDifferenceMap <- liftIO DiffMap.emptyReference
+                    freshDifferenceMap <- liftIO DiffMap.newEmptyReference
                     return $ DiffMap.insert addr accIdx $ DiffMap.empty freshDifferenceMap
                 Present accDiffMap -> do
                     -- reuse the already existing difference map for this block state.
@@ -416,19 +424,15 @@ tryPopulateLMDBStore accts = do
     isInitialized <- LMDBAccountMap.isInitialized
     unless isInitialized (void $ LMDBAccountMap.insertAccounts =<< allAccountsViaTable)
   where
-    -- Get all accounts from the account table.
-    allAccountsViaTable = do
-        addresses <-
-            -- We fold in ascending order of the @AccountIndex@
-            -- so we @zip@ it correctly when returning @[(AccountAddress, AccountIndex)]@
-            foldAccounts
-                ( \(!accum) pacc -> do
+    allAccountsViaTable =
+        fst
+            <$> foldAccounts
+                ( \(!accum, !nextix) pacc -> do
                     !addr <- accountCanonicalAddress pacc
-                    return $ addr : accum
+                    return ((addr, nextix) : accum, nextix + 1)
                 )
-                []
+                ([], 0)
                 accts
-        return $ zip addresses [0 ..]
 
 -- | See documentation of @migratePersistentBlockState@.
 migrateAccounts ::

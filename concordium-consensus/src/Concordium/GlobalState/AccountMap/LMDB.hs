@@ -86,7 +86,7 @@ class (Monad m) => MonadAccountMapStore m where
     --  and returns @Nothing@ if the account was not present.
     lookupAccountIndexViaEquivalence :: AccountAddressEq -> m (Maybe AccountIndex)
 
-    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddressEq’.
+    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress'.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
     lookupAccountIndexViaExactness :: AccountAddress -> m (Maybe AccountIndex)
@@ -209,12 +209,6 @@ newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMo
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (AccountMapStoreMonad m)
 
--- | When looking up accounts we perform a prefix search as we
---  store the canonical account addresses in the lmdb store and we
---  need to be able to lookup account aliases.
-prefixAccountAddressSize :: Int
-prefixAccountAddressSize = 29
-
 instance
     ( MonadReader r m,
       HasDatabaseHandlers r,
@@ -249,7 +243,7 @@ instance
         -- The key to use for looking up an account.
         -- We do a prefix lookup on the first 29 bytes of the account address as
         -- the last 3 bytes are reserved for aliases.
-        accLookupKey = BS.take prefixAccountAddressSize $ FBS.toByteString accAddr
+        accLookupKey = BS.take accountAddressPrefixSize $ FBS.toByteString accAddr
 
     lookupAccountIndexViaExactness addr = do
         dbh <- ask
