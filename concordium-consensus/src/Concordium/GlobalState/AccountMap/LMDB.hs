@@ -75,7 +75,7 @@ instance Exception DatabaseInvariantViolation where
 --
 --  Invariants:
 --      * All accounts in the store are finalized.
---      * The store should only retain canoncial account addresses.
+--      * The store should only retain canonical account addresses.
 class (Monad m) => MonadAccountMapStore m where
     -- | Inserts the accounts to the underlying store.
     --  Only canonical addresses should be added.
@@ -204,7 +204,7 @@ closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. dbhS
 
 -- | The 'AccountMapStoreMonad' for interacting with the LMDB database.
 newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMonad {runAccountMapStoreMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadReader r, MonadState s, TimeMonad) via m
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadReader r, MonadState s, TimeMonad)
     deriving (MonadTrans) via IdentityT
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (AccountMapStoreMonad m)

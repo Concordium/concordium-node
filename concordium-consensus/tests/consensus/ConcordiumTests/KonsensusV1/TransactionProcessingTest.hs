@@ -132,13 +132,13 @@ instance (MonadReader r m) => MonadReader r (FixedTimeT m) where
     local f (FixedTime k) = FixedTime $ local f . k
 
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail, TimeMonad, MonadState s)
 
 instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
 
-deriving instance (TimeMonad m) => TimeMonad (NoLoggerT m)
-deriving instance (MonadState s m) => MonadState s (NoLoggerT m)
+-- deriving instance (TimeMonad m) => TimeMonad (NoLoggerT m)
+-- deriving instance (MonadState s m) => MonadState s (NoLoggerT m)
 
 -- | A test monad that is suitable for testing transaction processing
 --  as it derives the required capabilities.

@@ -1386,7 +1386,7 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- | Ensure that any accounts created in a block is persisted.
+    -- | Ensure that any accounts created in a block are persisted.
     --  This should be called when a block is being finalized.
     --
     --  Precondition: The block state must be in memory and it must not have been archived.
@@ -1700,7 +1700,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
     saveAccounts = lift . saveAccounts
-    reconstructAccountDifferenceMap bs parentMap accs = lift $ reconstructAccountDifferenceMap bs parentMap accs
+    reconstructAccountDifferenceMap bs parentMap = lift . reconstructAccountDifferenceMap bs parentMap
     loadBlockState hsh = lift . loadBlockState hsh
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback

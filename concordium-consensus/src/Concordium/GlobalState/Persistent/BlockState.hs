@@ -3587,7 +3587,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     saveAccounts HashedPersistentBlockState{..} = do
         -- this load should be cheap as the blockstate is in memory.
         accs <- bspAccounts <$> loadPBS hpbsPointers
-        -- write the accounts that was created in the block and
+        -- write the accounts that were created in the block and
         -- potentially non-finalized parent blocks.
         -- Note that this also empties the difference map for the
         -- block.

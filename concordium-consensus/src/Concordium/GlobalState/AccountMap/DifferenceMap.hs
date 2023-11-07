@@ -44,6 +44,11 @@ import Concordium.Types
 import Concordium.Types.Option (Option (..))
 
 -- | A mutable reference to a 'DiffMap.DifferenceMap'.
+--  This is an 'IORef' since the parent map may belong
+--  to multiple blocks if they have not yet been persisted.
+--
+--  The 'IORef' enables us to clear any child difference maps
+--  when a block is finalized.
 type DifferenceMapReference = IORef (Option DifferenceMap)
 
 -- | Create a new empty reference.
@@ -60,16 +65,14 @@ data DifferenceMap = DifferenceMap
       --  In other words, if the parent block is finalized,
       --  then the parent map is @Absent@ as the LMDB account map
       --  should be consulted instead.
-      --  This is an 'IORef' since the parent map may belong
-      --  to multiple blocks if they have not yet been persisted.
-      --  So the 'IORef' enables us to when persisting a block,
-      --  then we also clear the 'DifferenceMap' for the child block.
       dmParentMapRef :: !DifferenceMapReference
     }
     deriving (Eq)
 
 -- | Gather all accounts from the provided 'DifferenceMap' and its parent maps.
 --  Accounts are returned in ascending order of their 'AccountAddress'.
+--
+--  Note. This function does not guarantee the order of the returned pairs.
 flatten :: (MonadIO m) => DifferenceMap -> m [(AccountAddress, AccountIndex)]
 flatten dmap = map (first aaeAddress) <$> go dmap []
   where

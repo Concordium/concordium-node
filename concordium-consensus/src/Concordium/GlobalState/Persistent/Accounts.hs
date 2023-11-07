@@ -206,7 +206,7 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         return $ do
             accountTable <- maccountTable
             accountRegIdHistory <- mrRIH
-            accountDiffMapRef <- liftIO DiffMap.newEmptyReference
+            accountDiffMapRef <- DiffMap.newEmptyReference
             return $ Accounts{..}
 
 instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheable1 m (Accounts pv) (PersistentAccount av) where
@@ -215,8 +215,7 @@ instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheabl
         return
             accts{accountTable = acctTable}
 
--- | Create a new empty 'Accounts' structure with a pointer
---  to an empty 'DiffMap.DifferenceMap'.
+-- | Create a new empty 'Accounts' structure.
 emptyAccounts :: (MonadIO m) => m (Accounts pv)
 emptyAccounts = do
     accountDiffMapRef <- liftIO DiffMap.newEmptyReference
@@ -290,7 +289,7 @@ getAccountIndex addr Accounts{..} = do
     -- and make sure it's within the bounds of the account table.
     -- We do the bounds check as it could be that the lmdb backed account map
     -- yields accounts which are not yet present in the @accountTable@.
-    -- In particular this can be the case if finalized blocks has been rolled
+    -- In particular this can be the case if finalized blocks have been rolled
     -- back as part of database recovery.
     withSafeBounds Nothing = Nothing
     withSafeBounds (Just accIdx@(AccountIndex k)) = if k <= L.size accountTable - 1 then Just accIdx else Nothing

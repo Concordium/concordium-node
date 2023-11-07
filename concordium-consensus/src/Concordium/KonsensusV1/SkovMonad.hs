@@ -717,10 +717,7 @@ migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBloc
         initGS :: InitMonad pv (SkovData pv)
         initGS = do
             newState <- newInitialBlockState
-            stateRef <- do
-                ref <- saveBlockState newState
-                saveAccounts newState
-                return ref
+            stateRef <- saveBlockState newState
             chainParams <- getChainParameters newState
             genEpochBakers <- genesisEpochBakers newState
             let genMeta = regenesisMetadata (getHash newState) regenesis
