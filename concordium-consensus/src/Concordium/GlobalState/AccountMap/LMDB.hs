@@ -194,7 +194,7 @@ makeDatabaseHandlers accountMapDir readOnly = do
 
 -- | Create the lmdb stores and return back database handlers for interacting with it.
 --  This simply loads the references and does not initialize the databases.
---  The initial environment size is set to 128MB.
+--  The initial environment size is set to 'dbStepSize' (4MB).
 --  Note that this function creates the directory for the database if not already present at the provided
 --  path and any missing parent directories.
 openDatabase :: FilePath -> IO DatabaseHandlers

@@ -20,7 +20,6 @@ module Concordium.GlobalState.LMDB.Helpers (
     seMaxStepSize,
     defaultStepSize,
     defaultMaxStepSize,
-    defaultEnvSize,
     resizeDatabaseHandlers,
     resizeOnResized,
 
@@ -308,10 +307,6 @@ defaultStepSize = 2 ^ (26 :: Int) -- 64MB
 --  transactions fail and we resize recursively.
 defaultMaxStepSize :: Int
 defaultMaxStepSize = 2 ^ (30 :: Int) -- 1GB
-
--- | Default start environment size.
-defaultEnvSize :: Int
-defaultEnvSize = 2 ^ (27 :: Int) -- 128MB
 
 -- | Construct a new LMDB environment with associated locks that protect its use.
 makeStoreEnv' ::

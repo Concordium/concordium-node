@@ -308,6 +308,12 @@ makeDatabaseHandlers treeStateDir readOnly initSize = do
                     [MDB_CREATE | not readOnly]
         return DatabaseHandlers{..}
 
+-- | Default start environment size.
+--  Tree state database sizes for historical protocol versions have been between 7-60 times
+--  the 'defaultEnvSize'.
+defaultEnvSize :: Int
+defaultEnvSize = 2 ^ (27 :: Int) -- 128MB
+
 -- | Initialize database handlers in ReadWrite mode.
 --  This simply loads the references and does not initialize the databases.
 --  The initial size is set to 64MB.
