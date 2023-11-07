@@ -12,11 +12,11 @@
 
 -- |
 --  * Adding accounts
---  When an account is added (via ‘putNewAccount’) then it is first added to the ‘DifferenceMap’,
+--  When an account is added (via 'putNewAccount') then it is first added to the ‘DifferenceMap',
 --  it is kept in memory for the block until it either gets finalized or pruned.
---  If a block is pruned then the retaining pointers are dropped and thus the block and associated ‘DifferenceMap’ is evicted from memory.
+--  If a block is pruned then the retaining pointers are dropped and thus the block and associated ‘DifferenceMap' is evicted from memory.
 --
---  This in return invokes ‘storeUpdate’ for all underlying references for the block state, for the particular block.
+--  This in return invokes ‘storeUpdate' for all underlying references for the block state, for the particular block.
 --  When the accounts structure is finalized, then 'writeAccountsCreated' must be invoked in order to store the newly created accounts
 --  in the LMDB backed account map.
 --  When thawing from a non-persisted block then the difference map is being inherited by the new thawed updatable block,
@@ -36,24 +36,24 @@
 --
 --  When starting up from a fresh genesis configuration then as part of creating the genesis state,
 --  then the difference map is being built containing all accounts present in the genesis configuration.
---  When the genesis block is being written to disk, then so is the ‘DifferenceMap’
---  via the ‘storeUpdate’ implementation of the accounts structure.
+--  When the genesis block is being written to disk, then so is the ‘DifferenceMap'
+--  via the ‘storeUpdate' implementation of the accounts structure.
 --
 --  General flow
 --  The account map resides in its own lmdb database and functions across protocol versions.
---  For non-persisted blocks, then the ‘DifferenceMap’ is 'DiffMap.DifferenceMapReference',
+--  For non-persisted blocks, then the ‘DifferenceMap' is 'DiffMap.DifferenceMapReference',
 --  i.e. either @IORef Nothing@ or @IORef (Just DifferenceMap)@ depending on whether the block is written to disk.
 --  The 'putNewAccount' function creates a new 'DifferenceMap' on demand, hence a new 'Accounts' is initialized with a @accountDiffMap@ set to @IORef Nothing@.
 --  Subsequent accounts created are then being added to the difference map created by the first invocation of 'putNewAccount'.
 --  Blocks that are persisted always have a @IORef Nothing@ 'accountDiffMapRef'.
 --
---  The lmdb backed account map consists of a single lmdb store indexed by AccountAddresses and values are the associated ‘AccountIndex’ for each account.
+--  The lmdb backed account map consists of a single lmdb store indexed by AccountAddresses and values are the associated ‘AccountIndex' for each account.
 --
---  (The ‘DifferenceMap’ consists of a @Map AccountAddress AccountIndes@ which retains the accounts that have been added to the chain for the associated block.
---  Moreover the ‘DifferenceMap’ potentially retains a pointer to a so-called parent ‘DifferenceMap’.
+--  (The ‘DifferenceMap' consists of a @Map AccountAddress AccountIndes@ which retains the accounts that have been added to the chain for the associated block.
+--  Moreover the ‘DifferenceMap' potentially retains a pointer to a so-called parent ‘DifferenceMap'.
 --  I.e. @Maybe DifferenceMap@. If this is @Nothing@ then it means that the parent block is finalized or no accounts have been added.
---  If the parent map yields a ‘DifferenceMap’ then the parent block is not persisted yet, and so the ‘DifferenceMap’ uses this parent map
---  for keeping track of non persisted accounts for supporting e.g. queries via the ‘AccountAddress’.
+--  If the parent map yields a ‘DifferenceMap' then the parent block is not persisted yet, and so the ‘DifferenceMap' uses this parent map
+--  for keeping track of non persisted accounts for supporting e.g. queries via the ‘AccountAddress'.
 module Concordium.GlobalState.Persistent.Accounts where
 
 import qualified Concordium.Crypto.SHA256 as H
