@@ -13,10 +13,9 @@
 -- |
 --  * Adding accounts
 --  When an account is added (via 'putNewAccount') then it is first added to the ‘DifferenceMap',
---  it is kept in memory for the block until it either gets finalized or pruned.
+--  it is kept in memory for the block until the block either gets finalized or pruned.
 --  If a block is pruned then the retaining pointers are dropped and thus the block and associated ‘DifferenceMap' is evicted from memory.
 --
---  This in return invokes ‘storeUpdate' for all underlying references for the block state, for the particular block.
 --  When the accounts structure is finalized, then 'writeAccountsCreated' must be invoked in order to store the newly created accounts
 --  in the LMDB backed account map.
 --  When thawing from a non-persisted block then the difference map is being inherited by the new thawed updatable block,
@@ -118,16 +117,10 @@ data Accounts (pv :: ProtocolVersion) = Accounts
       accountTable :: !(LFMBTree' AccountIndex HashedBufferedRef (AccountRef (AccountVersionFor pv))),
       -- | Persisted representation of the map from registration ids to account indices.
       accountRegIdHistory :: !(Trie.TrieN UnbufferedFix ID.RawCredentialRegistrationID AccountIndex),
-      -- | An in-memory difference map used keeping track of accounts
-      --  added in live blocks.
-      --  This is @Absent@ if either the block is persisted, or no accounts have been
-      --  added for this block any parent non-persisted blocks.
-      --  Otherwise if the block is not persisted and accounts have been added, then
-      --  the 'DiffMap.DifferenceMap' yields the @AccountAddress -> AccountIndex@ mapping for
-      --  accounts created in the block, where the account addresses are in canonical form.
-      --  The 'DiffMap.DifferenceMap' is wrapped in an 'IORef' because it is inherited
-      --  by child blocks, and so when this block state is persisted then we need to clear it
-      --  for any children block states.
+      -- | An in-memory difference map used for keeping track of accounts that are
+      --  added in blocks which are not yet finalized.
+      --  In particular the difference map retains accounts created, but not
+      --  yet stored in the LMDB backed account map.
       accountDiffMapRef :: !DiffMap.DifferenceMapReference
     }
 
@@ -171,10 +164,29 @@ mkNewChildDifferenceMap accts@Accounts{..} = do
     return accts{accountDiffMapRef = newDiffMapRef}
 
 -- | Create and set the 'DiffMap.DifferenceMap' for the provided @Accounts pv@.
---  Precondition: The provided @IORef (Option (DiffMap.DifferenceMap))@ MUST correspond to the parent map.
-reconstructDifferenceMap :: (SupportsPersistentAccount pv m) => DiffMap.DifferenceMapReference -> [AccountAddress] -> Accounts pv -> m DiffMap.DifferenceMapReference
-reconstructDifferenceMap parentRef listOfAccounts Accounts{..} = do
-    let diffMap' = DiffMap.fromList parentRef $ zip listOfAccounts $ map AccountIndex [L.size accountTable + 1 ..]
+--  The function is highly unsafe and can cause state invariant failures if not all of the
+--  below preconditions are respected.
+--  Precondition:
+--  * The function assumes that the account table already yields every account added for the block state.
+--  * The provided @IORef (Option (DiffMap.DifferenceMap))@ MUST correspond to the parent map.
+--  * The provided list of accounts MUST be in ascending order of account index, hence the list of accounts
+--   MUST be provided in the order of which the corresponding credential deployment transactions were executed.
+unsafeReconstructDifferenceMap ::
+    (SupportsPersistentAccount pv m) =>
+    -- | Reference to the parent difference map.
+    DiffMap.DifferenceMapReference ->
+    -- | Account addresses to add to the difference map.
+    [AccountAddress] ->
+    -- | The accounts to write difference map to.
+    Accounts pv ->
+    -- | Reference to the newly created difference map.
+    m DiffMap.DifferenceMapReference
+unsafeReconstructDifferenceMap parentRef listOfAccounts Accounts{..} = do
+    -- As it is presumed that the account table already yields any accounts added, then
+    -- in order to the obtain the account indices we subtract the number of accounts missing
+    -- missing in the lmdb account map from the total number of accounts, hence obtaining the first @AccountIndex@
+    -- to use for adding new accounts to the lmdb backed account map.
+    let diffMap' = DiffMap.fromList parentRef $ zip listOfAccounts $ map AccountIndex [(L.size accountTable - fromIntegral (length listOfAccounts)) ..]
     liftIO $ atomicWriteIORef accountDiffMapRef $ Present diffMap'
     return accountDiffMapRef
 

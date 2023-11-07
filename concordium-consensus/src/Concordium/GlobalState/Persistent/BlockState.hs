@@ -3595,7 +3595,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
 
     reconstructAccountDifferenceMap HashedPersistentBlockState{..} parentDifferenceMap listOfAccounts = do
         accs <- bspAccounts <$> loadPBS hpbsPointers
-        Accounts.reconstructDifferenceMap parentDifferenceMap listOfAccounts accs
+        Accounts.unsafeReconstructDifferenceMap parentDifferenceMap listOfAccounts accs
 
     loadBlockState hpbsHashM ref = do
         hpbsPointers <- liftIO $ newIORef $ blobRefToBufferedRef ref

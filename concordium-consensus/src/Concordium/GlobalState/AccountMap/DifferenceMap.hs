@@ -34,8 +34,7 @@ module Concordium.GlobalState.AccountMap.DifferenceMap (
 ) where
 
 import Control.Monad.IO.Class
-import Data.Bifunctor
-import Data.Foldable
+import Data.Tuple (swap)
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Prelude hiding (lookup)
@@ -59,8 +58,9 @@ newEmptyReference = liftIO $ newIORef Absent
 --  a block identified by a 'BlockHash' and its associated 'BlockHeight'.
 --  The difference map only contains accounts that were added since the '_dmParentMapRef'.
 data DifferenceMap = DifferenceMap
-    { -- | Accounts added in a block.
-      dmAccounts :: !(HM.HashMap AccountAddressEq AccountIndex),
+    { -- | Accounts added in a block keyed by their equivalence class and
+      --  the @AccountIndex@ and canonical account adddress as values.
+      dmAccounts :: !(HM.HashMap AccountAddressEq (AccountIndex, AccountAddress)),
       -- | Parent map of non-finalized blocks.
       --  In other words, if the parent block is finalized,
       --  then the parent map is @Absent@ as the LMDB account map
@@ -74,7 +74,7 @@ data DifferenceMap = DifferenceMap
 --
 --  Note. This function does not guarantee the order of the returned pairs.
 flatten :: (MonadIO m) => DifferenceMap -> m [(AccountAddress, AccountIndex)]
-flatten dmap = map (first aaeAddress) <$> go dmap []
+flatten dmap = go dmap []
   where
     go diffMap !accum = do
         mParentMap <- liftIO $ readIORef (dmParentMapRef diffMap)
@@ -82,7 +82,7 @@ flatten dmap = map (first aaeAddress) <$> go dmap []
             Absent -> return collectedAccounts
             Present parentMap -> go parentMap collectedAccounts
       where
-        collectedAccounts = HM.toList (dmAccounts diffMap) <> accum
+        collectedAccounts = map swap (HM.elems $ dmAccounts diffMap) <> accum
 
 -- | Create a new empty 'DifferenceMap' potentially based on the difference map of
 -- the parent.
@@ -93,15 +93,9 @@ empty mParentDifferenceMap =
           dmParentMapRef = mParentDifferenceMap
         }
 
--- | Lookup an account in the difference map or any of the parent
---  difference maps using the account address equivalence class.
---  Returns @Just AccountIndex@ if the account is present and
---  otherwise @Nothing@.
---  Precondition: As this implementation uses the 'AccountAddressEq' equivalence
---  class for looking up an 'AccountIndex', then it MUST only be used
---  when account aliases are supported.
-lookupViaEquivalenceClass :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Maybe AccountIndex)
-lookupViaEquivalenceClass addr = check
+-- | Internal helper function for looking up an entry in @dmAccounts@.
+lookupViaEquivalenceClass' :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Maybe (AccountIndex, AccountAddress))
+lookupViaEquivalenceClass' addr = check
   where
     check diffMap = case HM.lookup addr (dmAccounts diffMap) of
         Nothing -> do
@@ -112,6 +106,18 @@ lookupViaEquivalenceClass addr = check
         Just accIdx -> return $ Just accIdx
 
 -- | Lookup an account in the difference map or any of the parent
+--  difference maps using the account address equivalence class.
+--  Returns @Just AccountIndex@ if the account is present and
+--  otherwise @Nothing@.
+--  Precondition: As this implementation uses the 'AccountAddressEq' equivalence
+--  class for looking up an 'AccountIndex', then it MUST only be used
+--  when account aliases are supported.
+lookupViaEquivalenceClass :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Maybe AccountIndex)
+lookupViaEquivalenceClass addr dm = lookupViaEquivalenceClass' addr dm >>= \case
+    Nothing -> return Nothing
+    Just (accIdx, _) -> return $ Just accIdx
+
+-- | Lookup an account in the difference map or any of the parent
 --  difference maps via an exactness check.
 --  Returns @Just AccountIndex@ if the account is present and
 --  otherwise @Nothing@.
@@ -120,23 +126,22 @@ lookupViaEquivalenceClass addr = check
 --  Note that this implementation is very inefficient for large difference maps and thus should be revised
 --  if the credential deployments limit gets revised significantly.
 lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
-lookupExact addr diffMap = do
-    listOfAccs <- flatten diffMap
-    case find isEq listOfAccs of
-        Nothing -> return Nothing
-        Just (_, accIdx) -> return $ Just accIdx
-  where
-    isEq (accAddr, _) = addr == accAddr
+lookupExact addr diffMap = lookupViaEquivalenceClass' (accountAddressEmbed addr) diffMap >>= \case
+    Nothing -> return Nothing
+    Just (accIdx, actualAddr) -> if actualAddr == addr then return $ Just accIdx else return Nothing
 
 -- | Insert an account into the difference map.
 --  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is being inserted.
 insert :: AccountAddress -> AccountIndex -> DifferenceMap -> DifferenceMap
-insert addr accIndex m = m{dmAccounts = HM.insert (accountAddressEmbed addr) accIndex $ dmAccounts m}
+insert addr accIndex m = m{dmAccounts = HM.insert (accountAddressEmbed addr) (accIndex, addr) $ dmAccounts m}
 
 -- | Create a 'DifferenceMap' with the provided parent and list of account addresses and account indices.
 fromList :: IORef (Option DifferenceMap) -> [(AccountAddress, AccountIndex)] -> DifferenceMap
 fromList parentRef listOfAccountsAndIndices =
     DifferenceMap
-        { dmAccounts = HM.fromList $ map (first accountAddressEmbed) listOfAccountsAndIndices,
+        { dmAccounts = HM.fromList $ map mkKeyVal listOfAccountsAndIndices,
           dmParentMapRef = parentRef
         }
+  where
+    -- Make a key value pair to put in the @dmAccounts@.
+    mkKeyVal (accAddr, accIdx) = (accountAddressEmbed accAddr, (accIdx, accAddr))
