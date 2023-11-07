@@ -1686,7 +1686,8 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                             liftBSO $
                                 refMake $
                                     activeBkrs
-                                        & totalActiveCapital %~ addActiveCapital (capital - _stakedAmount oldBkr)
+                                        & totalActiveCapital
+                                            %~ addActiveCapital (capital - _stakedAmount oldBkr)
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
                         return $ setAccountStake capital
@@ -2197,6 +2198,19 @@ doMint pbs mint = do
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)
     storePBS pbs (bsp{bspBank = newBank, bspAccounts = newAccounts})
+
+doSafeMintToAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (Either Amount (PersistentBlockState pv))
+doSafeMintToAccount pbs acctIdx mintAmt = do
+    bsp <- loadPBS pbs
+    let currentSupply = bspBank bsp ^. unhashed . Rewards.totalGTU
+    let maxMintAmount = maxBound - currentSupply
+    if maxMintAmount >= mintAmt
+        then do
+            let newBank = bspBank bsp & unhashed . Rewards.totalGTU +~ mintAmt
+            let updAcc = addAccountAmount mintAmt
+            newAccounts <- Accounts.updateAccountsAtIndex' updAcc acctIdx (bspAccounts bsp)
+            Right <$> storePBS pbs (bsp{bspBank = newBank, bspAccounts = newAccounts})
+        else return $ Left maxMintAmount
 
 doGetAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountAddress -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 doGetAccount pbs addr = do
@@ -3511,6 +3525,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoRewardFoundationAccount = doRewardFoundationAccount
     bsoGetFoundationAccount = doGetFoundationAccount
     bsoMint = doMint
+    bsoMintToAccount = doSafeMintToAccount
     bsoGetIdentityProvider = doGetIdentityProvider
     bsoGetAnonymityRevokers = doGetAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams

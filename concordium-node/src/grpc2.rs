@@ -713,6 +713,8 @@ struct ServiceConfig {
     get_first_block_epoch: bool,
     #[serde(default)]
     get_winning_bakers_epoch: bool,
+    #[serde(default)]
+    dry_run: bool,
 }
 
 impl ServiceConfig {
@@ -773,6 +775,7 @@ impl ServiceConfig {
             get_baker_earliest_win_time: true,
             get_first_block_epoch: true,
             get_winning_bakers_epoch: true,
+            dry_run: true,
         }
     }
 
@@ -874,7 +877,7 @@ pub mod server {
     };
     use anyhow::Context;
     use byteorder::WriteBytesExt;
-    use futures::{FutureExt, StreamExt};
+    use futures::{Future, FutureExt, StreamExt};
     use std::{
         io::Write,
         net::SocketAddr,
@@ -909,6 +912,12 @@ pub mod server {
         blocks_channels: Clients,
         /// The list of active clients listening for new finalized blocks.
         finalized_blocks_channels: Clients,
+        /// The maximum energy allowed to be used in a dry run invocation.
+        dry_run_max_energy: u64,
+        /// The timeout for a dry run invocation to complete.
+        dry_run_timeout: tokio::time::Duration,
+        /// Semaphore limiting the concurrent dry run sessions allowed.
+        dry_run_semaphore: Option<Arc<tokio::sync::Semaphore>>,
     }
 
     /// An administrative structure that collects objects needed to manage the
@@ -978,6 +987,11 @@ pub mod server {
                     consensus: consensus.clone(),
                     blocks_channels: Arc::new(Mutex::new(Vec::new())),
                     finalized_blocks_channels: Arc::new(Mutex::new(Vec::new())),
+                    dry_run_max_energy: config.invoke_max_energy,
+                    dry_run_timeout: tokio::time::Duration::from_secs(config.dry_run_timeout),
+                    dry_run_semaphore: config
+                        .dry_run_concurrency
+                        .map(|n| Arc::new(tokio::sync::Semaphore::new(n))),
                 };
 
                 let NotificationHandlers {
@@ -1103,7 +1117,10 @@ pub mod server {
                     // The naming of the reflection service here (queries_descriptor) must match
                     // the naming chosen in the build.rs file.
                     let reflection_service = tonic_reflection::server::Builder::configure()
-                        .register_encoded_file_descriptor_set(health::HEALTH_DESCRIPTOR)
+                        .register_encoded_file_descriptor_set(health::concordium::HEALTH_DESCRIPTOR)
+                        .register_encoded_file_descriptor_set(
+                            health::grpc_health_v1::HEALTH_DESCRIPTOR,
+                        )
                         .build()
                         .context("Unable to start the GRPC2 reflection service.")?;
 
@@ -1113,15 +1130,28 @@ pub mod server {
                         health_max_finalization_delay: config.health_max_finalized_delay,
                         health_min_peers: config.health_min_peers,
                     };
+
                     if config.enable_grpc_web {
                         router
                             .add_service(tonic_web::enable(
-                                health::health_server::HealthServer::new(health_service),
+                                health::concordium::health_server::HealthServer::new(
+                                    health_service.clone(),
+                                ),
+                            ))
+                            .add_service(tonic_web::enable(
+                                health::grpc_health_v1::health_server::HealthServer::new(
+                                    health_service,
+                                ),
                             ))
                             .add_service(tonic_web::enable(reflection_service))
                     } else {
                         router
-                            .add_service(health::health_server::HealthServer::new(health_service))
+                            .add_service(health::concordium::health_server::HealthServer::new(
+                                health_service.clone(),
+                            ))
+                            .add_service(health::grpc_health_v1::health_server::HealthServer::new(
+                                health_service,
+                            ))
                             .add_service(reflection_service)
                     }
                 };
@@ -1195,6 +1225,8 @@ pub mod server {
 
     #[async_trait]
     impl service::queries_server::Queries for RpcServerImpl {
+        /// Return type for the 'DryRun' method.
+        type DryRunStream = std::pin::Pin<Box<DryRunStream>>;
         /// Return type for the 'GetAccountList' method.
         type GetAccountListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
@@ -1252,7 +1284,7 @@ pub mod server {
         /// Return type for the 'GetPoolDelegators' method.
         type GetPoolDelegatorsStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        /// Return type for the 'GetWinningBakersEpoch' mehtod.
+        /// Return type for the 'GetWinningBakersEpoch' method.
         type GetWinningBakersEpochStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
@@ -2475,6 +2507,125 @@ pub mod server {
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             self.consensus.get_winning_bakers_epoch_v2(request.get_ref(), sender)?;
             Ok(tonic::Response::new(receiver))
+        }
+
+        async fn dry_run(
+            &self,
+            request: tonic::Request<tonic::Streaming<crate::grpc2::types::DryRunRequest>>,
+        ) -> Result<tonic::Response<Self::DryRunStream>, tonic::Status> {
+            if !self.service_config.dry_run {
+                return Err(tonic::Status::unimplemented("`DryRun` is not enabled."));
+            }
+            // If the number of concurrent dry run sessions is limited, we try to get a
+            // permit from the semaphore.
+            let permit = match self.dry_run_semaphore.as_ref() {
+                None => None,
+                Some(semaphore) => {
+                    let permit = semaphore.clone().try_acquire_owned().map_err(|_| {
+                        tonic::Status::resource_exhausted("Too many concurrent `DryRun` requests")
+                    })?;
+                    Some(permit)
+                }
+            };
+
+            let energy_quota = self.dry_run_max_energy;
+            let dry_run = self.consensus.dry_run(energy_quota);
+            let input = request.into_inner();
+            let timeout = self.dry_run_timeout;
+            let output = DryRunStream::new(dry_run, input, timeout, permit);
+            let mut response = tonic::Response::new(Box::pin(output));
+            response.metadata_mut().insert("quota", energy_quota.into());
+            // u64::MAX milliseconds is already hundreds of millions of years, so even if
+            // this is an underestimate of the actual timeout, it doesn't
+            // matter.
+            response
+                .metadata_mut()
+                .insert("timeout", u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX).into());
+            Ok(response)
+        }
+    }
+
+    struct DryRunStream {
+        dry_run: crate::consensus_ffi::ffi::DryRun,
+        input:   tonic::Streaming<types::DryRunRequest>,
+        timeout: std::pin::Pin<Box<tokio::time::Sleep>>,
+        _permit: Option<OwnedSemaphorePermit>,
+        done:    bool,
+    }
+
+    impl DryRunStream {
+        pub fn new(
+            dry_run: crate::consensus_ffi::ffi::DryRun,
+            input: tonic::Streaming<types::DryRunRequest>,
+            timeout: tokio::time::Duration,
+            permit: Option<OwnedSemaphorePermit>,
+        ) -> Self {
+            DryRunStream {
+                dry_run,
+                input,
+                timeout: Box::pin(tokio::time::sleep(timeout)),
+                _permit: permit,
+                done: false,
+            }
+        }
+    }
+
+    impl futures::Stream for DryRunStream {
+        type Item = tonic::Result<Vec<u8>>;
+
+        fn poll_next(
+            mut self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Self::Item>> {
+            use std::task::Poll::Ready;
+            if self.done {
+                return Ready(None);
+            }
+            let timeout = std::pin::pin!(&mut self.timeout);
+            if timeout.poll(cx).is_ready() {
+                self.done = true;
+                return Ready(Some(Err(tonic::Status::deadline_exceeded(
+                    "dry run deadline elapsed",
+                ))));
+            }
+            let input = std::pin::pin!(&mut self.input);
+            let Some(dry_run_request) = futures::ready!(input.poll_next(cx)) else {
+                self.done = true;
+                return Ready(None);
+            };
+            let Ok(request) = dry_run_request else {
+                self.done = true;
+                return Ready(Some(Err(tonic::Status::invalid_argument("invalid dry run request"))));
+            };
+
+            use crate::grpc2::types::dry_run_request::Request::*;
+            let result = match request.request.require()? {
+                LoadBlockState(block_hash_input) => {
+                    self.dry_run.load_block_state(&block_hash_input)
+                }
+                StateQuery(query) => {
+                    use crate::grpc2::types::dry_run_state_query::Query::*;
+                    match query.query.require()? {
+                        GetAccountInfo(account) => self.dry_run.get_account_info(&account),
+                        GetInstanceInfo(instance) => self.dry_run.get_instance_info(&instance),
+                        InvokeInstance(invoke_instance_input) => {
+                            self.dry_run.invoke_instance(&invoke_instance_input)
+                        }
+                    }
+                }
+                StateOperation(operation) => {
+                    use crate::grpc2::types::dry_run_state_operation::Operation::*;
+                    match operation.operation.require()? {
+                        SetTimestamp(timestamp) => self.dry_run.set_timestamp(timestamp),
+                        MintToAccount(mint) => self.dry_run.mint_to_account(mint),
+                        RunTransaction(run_transaction_input) => {
+                            self.dry_run.transaction(run_transaction_input)
+                        }
+                    }
+                }
+            };
+            self.done = result.is_err();
+            Ready(Some(result))
         }
     }
 }
