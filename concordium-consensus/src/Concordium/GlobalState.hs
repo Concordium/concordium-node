@@ -85,6 +85,7 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
 
 -- | Initialize a 'PersistentBlockStateContext' via the provided
 --  'GlobalStateConfig'.
+--  This function attempts to create a new blob store.
 initializePersistentBlockStateContext :: GlobalStateConfig -> IO (PersistentBlockStateContext pv)
 initializePersistentBlockStateContext GlobalStateConfig{..} = liftIO $ do
     pbscBlobStore <- createBlobStore dtdbBlockStateFile

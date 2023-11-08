@@ -501,7 +501,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov gsc@GlobalStateConfig{..
     existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile gscAccountMapDirectory
     if existingDB
         then do
-            pbsc <- liftIO $ newPersistentBlockStateContext gsc
+            pbsc <- newPersistentBlockStateContext False gsc
             let initWithLLDB skovLldb = do
                     checkDatabaseVersion skovLldb
                     let checkBlockState bs = runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef bs)) pbsc
@@ -561,7 +561,7 @@ initialiseNewSkovV1 ::
     LogIO (SkovV1Context pv m, SkovV1State pv)
 initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Creating new global state."
-    pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
+    pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext True gsConfig
     let
         initGS :: InitMonad pv (SkovData pv)
         initGS = do
@@ -697,7 +697,7 @@ migrateSkovV1 ::
     -- | Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
 migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
-    pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext gsConfig
+    pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext True gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     let newInitialBlockState :: InitMonad pv (HashedPersistentBlockState pv)
         newInitialBlockState = flip runBlobStoreT oldPbsc . flip runBlobStoreT pbsc $ do
@@ -746,17 +746,20 @@ migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBloc
 
 -- | Make a new 'PersistentBlockStateContext' based on the
 --  'GlobalStateConfig' passed into this function.
---  This function creates the block state file i.e. the blob store,
---  the account cache and the module cache.
+--  This function creates the block state file (the blob store) if @True@ is passed in,
+--  otherwise it tries to reuse an existing blob store.
+--  New account cache and the module cache are created.
 newPersistentBlockStateContext ::
     (IsProtocolVersion pv, MonadIO m) =>
+    -- | Whether a new blobstore should be created or a current one should be reused.
+    Bool ->
     -- | The global state config to use
     --  for constructing the persistent block state context.
     GlobalStateConfig ->
     -- | The the persistent block state context.
     m (PersistentBlockStateContext pv)
-newPersistentBlockStateContext GlobalStateConfig{..} = liftIO $ do
-    pbscBlobStore <- createBlobStore gscBlockStateFile
+newPersistentBlockStateContext initialize GlobalStateConfig{..} = liftIO $ do
+    pbscBlobStore <- if initialize then createBlobStore gscBlockStateFile else loadBlobStore gscBlockStateFile
     pbscAccountCache <- newAccountCache $ rpAccountsCacheSize gscRuntimeParameters
     pbscModuleCache <- Modules.newModuleCache $ rpModulesCacheSize gscRuntimeParameters
     pbscAccountMap <- LMDBAccountMap.openDatabase gscAccountMapDirectory
