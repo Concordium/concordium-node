@@ -123,9 +123,8 @@ lookupViaEquivalenceClass addr dm =
 --  Returns @Just AccountIndex@ if the account is present and
 --  otherwise @Nothing@.
 --  Precondition: As this implementation checks for exactness of the provided
---  @AccountAddress@ then it MUST only be used when account aliases are NOT supported.
---  Note that this implementation is very inefficient for large difference maps and thus should be revised
---  if the credential deployments limit gets revised significantly.
+--  @AccountAddress@ then it MUST only be used when account aliases are NOT supported by the
+--  protocol.
 lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
 lookupExact addr diffMap =
     lookupViaEquivalenceClass' (accountAddressEmbed addr) diffMap >>= \case
