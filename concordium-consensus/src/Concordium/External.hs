@@ -1008,6 +1008,7 @@ getLastFinalizedBlockHeight ::
 getLastFinalizedBlockHeight cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     theBlockHeight <$> runMVR Q.getLastFinalizedBlockHeight mvr
+
 getNumberOfNonFinalizedTransactions :: StablePtr ConsensusRunner -> IO Word64
 getNumberOfNonFinalizedTransactions cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
@@ -1188,6 +1189,7 @@ foreign export ccall
         IO ReceiveResult
 
 foreign export ccall getLastFinalizedBlockHeight :: StablePtr ConsensusRunner -> IO Word64
+
 -- baker status checking
 foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> Ptr Double -> IO Word8
 foreign export ccall checkIfWeAreFinalizer :: StablePtr ConsensusRunner -> IO Word8
