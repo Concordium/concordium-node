@@ -295,17 +295,21 @@ getAccountIndex :: forall pv m. (SupportsPersistentAccount pv m) => AccountAddre
 getAccountIndex addr Accounts{..} = do
     mAccountDiffMap <- liftIO $ readIORef accountDiffMapRef
     case mAccountDiffMap of
-        Absent -> lookupDisk
+        Absent -> lookupDisk 0
         Present accDiffMap ->
             if supportsAccountAliases (protocolVersion @pv)
                 then
                     DiffMap.lookupViaEquivalenceClass (accountAddressEmbed addr) accDiffMap >>= \case
                         Just accIdx -> return $ Just accIdx
-                        Nothing -> lookupDisk
+                        Nothing -> do
+                            diffMapSize <- length <$> DiffMap.flatten accDiffMap
+                            lookupDisk $ fromIntegral diffMapSize
                 else
                     DiffMap.lookupExact addr accDiffMap >>= \case
                         Just accIdx -> return $ Just accIdx
-                        Nothing -> lookupDisk
+                        Nothing -> do
+                            diffMapSize <- length <$> DiffMap.flatten accDiffMap
+                            lookupDisk $ fromIntegral diffMapSize
   where
     -- Lookup the 'AccountIndex' in the lmdb backed account map,
     -- and make sure it's within the bounds of the account table.
@@ -313,12 +317,19 @@ getAccountIndex addr Accounts{..} = do
     -- yields accounts which are not yet present in the @accountTable@.
     -- In particular this can be the case if finalized blocks have been rolled
     -- back as part of database recovery.
-    withSafeBounds Nothing = Nothing
-    withSafeBounds (Just accIdx@(AccountIndex k)) = if k <= L.size accountTable - 1 then Just accIdx else Nothing
-    lookupDisk =
+    --
+    -- The extra @diffMapSize@ constraint is necessary in the case where a parent block to the last finalized block
+    -- is used for extending. This is normally not the case as blocks are typically built from the "best" block always.
+    --
+    -- However for scenarios like dry runs, then we need this extra constraint, as otherwise an account created in the
+    -- in the dry run would point to an account created in a successor of the block that the dry run is extending.
+    lookupDisk diffMapSize =
         if supportsAccountAliases (protocolVersion @pv)
             then withSafeBounds <$> LMDBAccountMap.lookupAccountIndexViaEquivalence (accountAddressEmbed addr)
             else withSafeBounds <$> LMDBAccountMap.lookupAccountIndexViaExactness addr
+      where
+        withSafeBounds Nothing = Nothing
+        withSafeBounds (Just accIdx@(AccountIndex k)) = if k <= fromIntegral (L.size accountTable) - (1 + diffMapSize) then Just accIdx else Nothing
 
 -- | Retrieve an account with the given address.
 --  Returns @Nothing@ if no such account exists.
