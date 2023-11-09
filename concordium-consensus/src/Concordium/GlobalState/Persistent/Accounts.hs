@@ -42,6 +42,9 @@
 --  The account map resides in its own lmdb database and functions across protocol versions.
 --  For non-persisted blocks, then the ‘DifferenceMap' is 'DiffMap.DifferenceMapReference',
 --  i.e. either @IORef Nothing@ or @IORef (Just DifferenceMap)@ depending on whether the block is written to disk.
+--  When a block state is thawed (made ready for modification), then a new 'DiffMap.DifferenceMap' is created for the @Accounts pv@ structure
+--  of the 'UpdatableBlockState' which has a parent pointer on the 'DiffMap.DifferenceMap' of the block state that was thawed.
+--
 --  The 'putNewAccount' function creates a new 'DifferenceMap' on demand, hence a new 'Accounts' is initialized with a @accountDiffMap@ set to @IORef Nothing@.
 --  Subsequent accounts created are then being added to the difference map created by the first invocation of 'putNewAccount'.
 --  Blocks that are persisted always have a @IORef Nothing@ 'accountDiffMapRef'.
@@ -142,22 +145,22 @@ instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (Accounts pv) 
 
 -- | Write accounts created for this block or any non-persisted parent block.
 --  Note that this also empties the difference map for this block.
---
---  Precondition: This MUST be called when finalizing the block state, and the
---  provided @BlockHash@ must correespond to the hash of the finalized block.
+--  This function MUST be called whenver a block is finalized.
 writeAccountsCreated :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 writeAccountsCreated Accounts{..} = do
     mAccountsCreated <- liftIO $ readIORef accountDiffMapRef
-    case mAccountsCreated of
-        Absent -> return ()
-        Present accountsCreated -> do
-            listOfAccountsCreated <- liftIO $ DiffMap.flatten accountsCreated
-            liftIO $ atomicWriteIORef accountDiffMapRef Absent
-            LMDBAccountMap.insertAccounts listOfAccountsCreated
+    forM_ mAccountsCreated $ \accountsCreated -> do
+        listOfAccountsCreated <- liftIO $ DiffMap.flatten accountsCreated
+        -- Write all accounts from the difference map to the lmdb backed account map.
+        LMDBAccountMap.insertAccounts listOfAccountsCreated
+        -- Finally, clear the difference map for this block state and all parent block states.
+        liftIO $ do
+            DiffMap.clearReferences accountsCreated
+            atomicWriteIORef accountDiffMapRef Absent
 
 -- | Create a new @Accounts pv@ structure from the provided one.
 --  This function creates a new 'DiffMap.DifferenceMap' for the resulting @Accounts pv@ which
---  has a reference to the provided @Accounts pv@.
+--  has a reference to the difference map of the provided @Accounts pv@.
 mkNewChildDifferenceMap :: (SupportsPersistentAccount pv m) => Accounts pv -> m (Accounts pv)
 mkNewChildDifferenceMap accts@Accounts{..} = do
     newDiffMapRef <- liftIO $ newIORef $ Present $ DiffMap.empty accountDiffMapRef
@@ -168,10 +171,10 @@ mkNewChildDifferenceMap accts@Accounts{..} = do
 --  below preconditions are respected.
 --  Precondition:
 --  * The function assumes that the account table already yields every account added for the block state.
---  * The provided @IORef (Option (DiffMap.DifferenceMap))@ MUST correspond to the parent map.
+--  * The provided 'DiffMap.DifferenceMapReference@ MUST correspond to the parent map.
 --  * The provided list of accounts MUST be in ascending order of account index, hence the list of accounts
 --   MUST be provided in the order of which the corresponding credential deployment transactions were executed.
-unsafeReconstructDifferenceMap ::
+reconstructDifferenceMap ::
     (SupportsPersistentAccount pv m) =>
     -- | Reference to the parent difference map.
     DiffMap.DifferenceMapReference ->
@@ -181,22 +184,29 @@ unsafeReconstructDifferenceMap ::
     Accounts pv ->
     -- | Reference to the newly created difference map.
     m DiffMap.DifferenceMapReference
-unsafeReconstructDifferenceMap parentRef listOfAccounts Accounts{..} = do
+reconstructDifferenceMap parentRef listOfAccounts Accounts{..} = do
     -- As it is presumed that the account table already yields any accounts added, then
     -- in order to the obtain the account indices we subtract the number of accounts missing
     -- missing in the lmdb account map from the total number of accounts, hence obtaining the first @AccountIndex@
     -- to use for adding new accounts to the lmdb backed account map.
-    let diffMap' = DiffMap.fromList parentRef $ zip listOfAccounts $ map AccountIndex [(L.size accountTable - fromIntegral (length listOfAccounts)) ..]
+    let diffMap' = DiffMap.fromList parentRef $ zip listOfAccounts [AccountIndex (L.size accountTable - fromIntegral (length listOfAccounts)) ..]
     liftIO $ atomicWriteIORef accountDiffMapRef $ Present diffMap'
     return accountDiffMapRef
+
+-- | Determine whether the given protocol version requires an account map entry
+--   in the storage of 'Accounts'. We require this for all protocol versions that exist
+--   prior to the account map storage revision (i.e. 'P6' and earlier) for compatibility
+--   with databases created by versions of the node that store the account map in
+--   the block state.
+storeRequiresAccountMap :: SProtocolVersion pv -> Bool
+storeRequiresAccountMap spv = demoteProtocolVersion spv <= P6
 
 instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
     storeUpdate Accounts{..} = do
         -- put an empty 'OldMap.PersistentAccountMap'.
         -- In earlier versions of the node the above mentioned account map was used,
         -- but this is now superseded by the 'LMDBAccountMap.MonadAccountMapStore'.
-        -- We put this empty map here to remain backwards compatible.
-        -- This should be revised as part of a future protocol update when the database layout can be changed.
+        -- We put this empty map here if the protocol version requires it in order to remain backwards compatible.
         (emptyOldMap, _) <- storeUpdate $ OldMap.empty @pv @BufferedFix
         (pTable, accountTable') <- storeUpdate accountTable
         (pRegIdHistory, regIdHistory') <- storeUpdate accountRegIdHistory
@@ -206,13 +216,14 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
                       accountRegIdHistory = regIdHistory',
                       ..
                     }
-        return (emptyOldMap >> pTable >> pRegIdHistory, newAccounts)
+        let putf = do
+                when (storeRequiresAccountMap (protocolVersion @pv)) emptyOldMap
+                pTable
+                pRegIdHistory
+        return (putf, newAccounts)
     load = do
-        -- load the persistent account map and throw it away. We always put an empty one in,
-        -- but that has not always been the case. But the 'OldMap.PersistentAccountMap' is now superseded by
-        -- the LMDBAccountMap.MonadAccountMapStore.
-        -- This should be revised as part of a future protocol update when the database layout can be changed.
-        void (load :: Get (m (OldMap.PersistentAccountMap pv)))
+        when (storeRequiresAccountMap (protocolVersion @pv)) $ do
+            void (load :: Get (m (OldMap.PersistentAccountMap pv)))
         maccountTable <- load
         mrRIH <- load
         return $ do
@@ -243,7 +254,7 @@ putNewAccount !acct a0@Accounts{..} = do
         False -> do
             (accIdx, newAccountTable) <- L.append acct accountTable
             mAccountDiffMap <- liftIO $ readIORef accountDiffMapRef
-            accountDiffMapRef' <- case mAccountDiffMap of
+            accountDiffMap' <- case mAccountDiffMap of
                 Absent -> do
                     -- create a difference map for this block state with a @Nothing@ as the parent.
                     freshDifferenceMap <- liftIO DiffMap.newEmptyReference
@@ -251,8 +262,7 @@ putNewAccount !acct a0@Accounts{..} = do
                 Present accDiffMap -> do
                     -- reuse the already existing difference map for this block state.
                     return $ DiffMap.insert addr accIdx accDiffMap
-            -- we write to the difference map atomically here as there might be concurrent readers.
-            liftIO $ atomicWriteIORef accountDiffMapRef (Present accountDiffMapRef')
+            liftIO $ atomicWriteIORef accountDiffMapRef (Present accountDiffMap')
             return (Just accIdx, a0{accountTable = newAccountTable})
 
 -- | Construct an 'Accounts' from a list of accounts. Inserted in the order of the list.
@@ -397,13 +407,13 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
 --  a concatenation of two lists of account addresses.
 allAccounts :: (SupportsPersistentAccount pv m) => Accounts pv -> m [(AccountAddress, AccountIndex)]
 allAccounts accounts = do
-    -- Get all persisted accounts from the account map up to and including the last account of the account table.
-    persistedAccs <- LMDBAccountMap.getAllAccounts $ (AccountIndex . L.size) (accountTable accounts) - 1
     mDiffMap <- liftIO $ readIORef (accountDiffMapRef accounts)
     case mDiffMap of
-        Absent -> return persistedAccs
+        Absent -> LMDBAccountMap.getAllAccounts $ (AccountIndex . L.size) (accountTable accounts) - 1
         Present accDiffMap -> do
+            -- Get all persisted accounts from the account map up to and including the last account of the account table minus what we found the in the difference map.
             flattenedDiffMapAccounts <- DiffMap.flatten accDiffMap
+            persistedAccs <- LMDBAccountMap.getAllAccounts $ (AccountIndex . L.size) (accountTable accounts) - (1 + fromIntegral (length flattenedDiffMapAccounts))
             return $! persistedAccs <> flattenedDiffMapAccounts
 
 -- | Get a list of all account addresses.
@@ -426,14 +436,22 @@ foldAccounts f a accts = L.mfold f a (accountTable accts)
 foldAccountsDesc :: (SupportsPersistentAccount pv m) => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
 foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
 
--- | If the LMDB account map is not already initialized, then this function populates the LMDB account map via the provided provided 'Accounts'.
---  Otherwise, this function does nothing.
---
---  Precondition: The provided @BlockHash@ must correspond to the last finalized block when calling this function.
+-- | Initialize the LMDB account map if it is not already.
+--  This puts in all accounts from the account table of the provided block state into the account map.
+--  If there already are accounts present in the account map, then we check that the size of the account map
+--  corresponds with number of accounts in the account table.
+--  If the number of accounts in the account table and account map matches, then this function does nothing.
+--  If they do not match, wipe the account map and recreate it from the account table.
 tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 tryPopulateLMDBStore accts = do
-    isInitialized <- LMDBAccountMap.isInitialized
-    unless isInitialized (void $ LMDBAccountMap.insertAccounts =<< allAccountsViaTable)
+    noLMDBAccounts <- LMDBAccountMap.getNumberOfAccounts
+    let expectedSize = L.size $ accountTable accts
+    when (noLMDBAccounts /= expectedSize) $ do
+        -- The number of accounts in the lmdb backed account map does not match
+        -- the number of accounts in the account table.
+        -- Clear the map and reconstruct it from the accounts table.
+        -- This ensures consistency across restarts between the last finalized block and the account map.
+        LMDBAccountMap.reconstruct =<< allAccountsViaTable
   where
     allAccountsViaTable =
         fst

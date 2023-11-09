@@ -87,7 +87,7 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
 --  'GlobalStateConfig'.
 --  This function attempts to create a new blob store.
 initializePersistentBlockStateContext :: GlobalStateConfig -> IO (PersistentBlockStateContext pv)
-initializePersistentBlockStateContext GlobalStateConfig{..} = liftIO $ do
+initializePersistentBlockStateContext GlobalStateConfig{..} = do
     pbscBlobStore <- createBlobStore dtdbBlockStateFile
     pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
     pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
@@ -163,7 +163,7 @@ initialiseNewGlobalState genData gsc@GlobalStateConfig{..} = do
             logEvent GlobalState LLTrace "Creating persistent global state context"
             initialSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory (genesisConfiguration genData) pbs ser genTT Nothing
     isd <-
-        runReaderT (LMDBAccountMap.runAccountMapStoreMonad (runPersistentBlockStateMonad initGS)) pbsc
+        runReaderT (runPersistentBlockStateMonad initGS) pbsc
             `onException` liftIO (destroyBlobStore pbscBlobStore)
     return (pbsc, isd)
 

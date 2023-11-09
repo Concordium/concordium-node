@@ -1,4 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -13,6 +12,7 @@ import Concordium.Crypto.FFIDataTypes
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.GlobalState.AccountMap as AccountMap
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Basic.BlockState.Account as BA
 import Concordium.GlobalState.DummyData
@@ -27,10 +27,14 @@ import qualified Concordium.ID.Types as ID
 import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Option (Option (..))
 import Control.Exception (bracket)
 import Control.Monad.Reader
 import Data.Either
 import qualified Data.FixedByteString as FBS
+import qualified Data.HashMap.Strict as HM
+import Data.IORef
+import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
 import Data.Serialize as S
 import qualified Data.Set as Set
@@ -88,6 +92,7 @@ data AccountAction
     | RecordRegId ID.CredentialRegistrationID AccountIndex
     | FlushPersistent
     | ArchivePersistent
+    | Reconstruct
 
 randomizeAccount :: AccountAddress -> ID.CredentialPublicKeys -> Gen (Account (AccountVersionFor PV))
 randomizeAccount _accountAddress _accountVerificationKeys = do
@@ -120,7 +125,8 @@ randomActions = sized (ra Set.empty Map.empty)
               (ArchivePersistent :) <$> ra s rids (n - 1),
               exRandReg,
               recRandReg,
-              updateRandAcc
+              updateRandAcc,
+              (Reconstruct :) <$> ra s rids (n - 1)
             ]
                 ++ if null s
                     then []
@@ -182,8 +188,9 @@ runAccountAction :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV
 runAccountAction (PutAccount acct) (ba, pa) = do
     let ba' = B.putNewAccount acct ba
     pAcct <- PA.makePersistentAccount acct
-    pa' <- P.putNewAccount pAcct pa
-    return (snd ba', snd pa')
+    pa' <- P.mkNewChildDifferenceMap pa
+    pa'' <- P.putNewAccount pAcct pa'
+    return (snd ba', snd pa'')
 runAccountAction (Exists addr) (ba, pa) = do
     let be = B.exists addr ba
     pe <- P.exists addr pa
@@ -222,6 +229,25 @@ runAccountAction (RecordRegId rid ai) (ba, pa) = do
     let ba' = B.recordRegId (ID.toRawCredRegId rid) ai ba
     pa' <- P.recordRegId rid ai pa
     return (ba', pa')
+runAccountAction Reconstruct (ba, pa) = do
+    oPaDiffMap <- liftIO $ readIORef $ P.accountDiffMapRef pa
+    -- Get the parent difference map reference and a list of accounts of the current difference map.
+    (parentDiffMapRef, diffMapAccs) <- case oPaDiffMap of
+        Absent -> do
+            ref <- liftIO DiffMap.newEmptyReference
+            return (ref, [])
+        Present paDiffMap -> do
+            let ref = DiffMap.dmParentMapRef paDiffMap
+                -- Note that we sort them by ascending account index such that the order
+                -- matches the insertion order.
+                accs = map snd $ sortOn fst $ HM.elems $ DiffMap.dmAccounts paDiffMap
+            return (ref, accs)
+    -- create pa' which is the same as pa, but with an empty difference map.
+    emptyRef <- liftIO DiffMap.newEmptyReference
+    let pa' = pa{P.accountDiffMapRef = emptyRef}
+    -- reconstruct pa into pa'.
+    void $ P.reconstructDifferenceMap parentDiffMapRef diffMapAccs pa'
+    return (ba, pa')
 
 emptyTest :: SpecWith (PersistentBlockStateContext PV)
 emptyTest =

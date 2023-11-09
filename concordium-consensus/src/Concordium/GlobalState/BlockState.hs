@@ -1393,17 +1393,28 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     saveAccounts :: BlockState m -> m ()
 
     -- | Reconstructs the account difference map and return it.
+    --  This function is used for blocks that are stored but are not finalized (in particular, certified blocks)
+    --  since only the accounts for finalized blocks are stored in the LMDB store.
+    --
     --  Preconditions:
     --  * This function MUST only be called on a certified block.
     --  * This function MUST only be called on a block state that does not already
-    --  * have a difference map.
+    --    have a difference map.
     --  * The provided list of accounts MUST correspond to the accounts created in the block,
     --    and the account addresses in the list MUST be by order of creation.
-    --  * The provided difference map (if any) MUST be the one of the parent block.
+    --  * The provided difference map reference MUST be the one of the parent block.
     --
     --  This function should only be used when starting from an already initialized state, and hence
     --  we need to reconstruct the difference map since the accounts are not yet finalized.
-    reconstructAccountDifferenceMap :: BlockState m -> DiffMap.DifferenceMapReference -> [AccountAddress] -> m DiffMap.DifferenceMapReference
+    reconstructAccountDifferenceMap ::
+        -- | The block state to reconstruct the difference map for.
+        BlockState m ->
+        -- | The difference map reference from the parent block's state.
+        DiffMap.DifferenceMapReference ->
+        -- | The account addresses created in the block, in order of creation.
+        [AccountAddress] ->
+        -- | Reference to the new difference map for the block.
+        m DiffMap.DifferenceMapReference
 
     -- | Load a block state from a reference, given its state hash if provided,
     --  otherwise calculate the state hash upon loading.

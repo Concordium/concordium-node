@@ -45,6 +45,7 @@ import qualified Data.ByteString as BS
 import Data.Data (Typeable)
 import qualified Data.FixedByteString as FBS
 import Data.Kind (Type)
+import Data.Word
 import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
@@ -89,26 +90,32 @@ class (Monad m) => MonadAccountMapStore m where
     -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress'.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
+    --  Note that this only returns a result for the canonical account address.
     lookupAccountIndexViaExactness :: AccountAddress -> m (Maybe AccountIndex)
 
     -- | Return all the canonical addresses and their associated account indices of accounts present
     --  in the store where their @AccountIndex@ is less or equal to the provided @AccountIndex@.
     getAllAccounts :: AccountIndex -> m [(AccountAddress, AccountIndex)]
 
-    -- | Checks whether the lmdb store is initialized or not.
-    isInitialized :: m Bool
+    -- | Get number of entries in the account map.
+    getNumberOfAccounts :: m Word64
+
+    -- | Clear and set the accounts to the ones provided.
+    reconstruct :: [(AccountAddress, AccountIndex)] -> m ()
 
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
     insertAccounts accs = lift $ insertAccounts accs
     lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
     lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
     getAllAccounts = lift . getAllAccounts
-    isInitialized = lift isInitialized
+    getNumberOfAccounts = lift getNumberOfAccounts
+    reconstruct = lift . reconstruct
     {-# INLINE insertAccounts #-}
     {-# INLINE lookupAccountIndexViaEquivalence #-}
     {-# INLINE lookupAccountIndexViaExactness #-}
     {-# INLINE getAllAccounts #-}
-    {-# INLINE isInitialized #-}
+    {-# INLINE getNumberOfAccounts #-}
+    {-# INLINE reconstruct #-}
 
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
@@ -119,23 +126,23 @@ instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
     lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
     lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
     getAllAccounts = lift . getAllAccounts
-    isInitialized = lift isInitialized
+    getNumberOfAccounts = lift getNumberOfAccounts
+    reconstruct = lift . reconstruct
     {-# INLINE insertAccounts #-}
     {-# INLINE lookupAccountIndexViaEquivalence #-}
     {-# INLINE lookupAccountIndexViaExactness #-}
     {-# INLINE getAllAccounts #-}
-    {-# INLINE isInitialized #-}
+    {-# INLINE getNumberOfAccounts #-}
+    {-# INLINE reconstruct #-}
 
 -- * Database stores
 
 -- | Store that retains the account address -> account index mappings.
 newtype AccountMapStore = AccountMapStore MDB_dbi'
 
+-- | Name of the table used for storing the map from account addresses to account indices.
 accountMapStoreName :: String
 accountMapStoreName = "accounts"
-
-lfbHashStoreName :: String
-lfbHashStoreName = "lfb"
 
 instance MDBDatabase AccountMapStore where
     type DBKey AccountMapStore = AccountAddress
@@ -269,7 +276,13 @@ instance
                     go _ (Just (Left err)) = throwM $ DatabaseInvariantViolation err
                 in  go [] =<< getCursor CursorFirst cursor
 
-    isInitialized = do
+    getNumberOfAccounts = do
         dbh <- ask
-        size <- asReadTransaction (dbh ^. dbhStoreEnv) $ \txn -> databaseSize txn (dbh ^. dbhAccountMapStore)
-        return $ size /= 0
+        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn -> databaseSize txn (dbh ^. dbhAccountMapStore)
+
+    reconstruct accounts = do
+        dbh <- ask
+        asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> do
+            deleteAll txn (dbh ^. dbhAccountMapStore)
+            forM_ accounts $ \(accAddr, accIndex) -> do
+                storeRecord txn (dbh ^. dbhAccountMapStore) accAddr accIndex

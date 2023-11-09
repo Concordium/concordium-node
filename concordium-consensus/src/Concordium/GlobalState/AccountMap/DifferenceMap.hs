@@ -31,6 +31,8 @@ module Concordium.GlobalState.AccountMap.DifferenceMap (
     -- Lookup in a difference map (and potential parent maps) whether
     -- it yields the 'AccountIndex' for the provided 'AccountAddress'.
     lookupExact,
+    -- Clear up the references of difference map(s).
+    clearReferences,
 ) where
 
 import Control.Monad.IO.Class
@@ -122,9 +124,8 @@ lookupViaEquivalenceClass addr dm =
 --  difference maps via an exactness check.
 --  Returns @Just AccountIndex@ if the account is present and
 --  otherwise @Nothing@.
---  Precondition: As this implementation checks for exactness of the provided
---  @AccountAddress@ then it MUST only be used when account aliases are NOT supported by the
---  protocol.
+--  Note that this function also returns @Nothing@ if the provided 'AccountAddress.'
+--  is an alias but not the canonical address.
 lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
 lookupExact addr diffMap =
     lookupViaEquivalenceClass' (accountAddressEmbed addr) diffMap >>= \case
@@ -132,7 +133,7 @@ lookupExact addr diffMap =
         Just (accIdx, actualAddr) -> if actualAddr == addr then return $ Just accIdx else return Nothing
 
 -- | Insert an account into the difference map.
---  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is being inserted.
+--  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is inserted.
 insert :: AccountAddress -> AccountIndex -> DifferenceMap -> DifferenceMap
 insert addr accIndex m = m{dmAccounts = HM.insert (accountAddressEmbed addr) (accIndex, addr) $ dmAccounts m}
 
@@ -146,3 +147,13 @@ fromList parentRef listOfAccountsAndIndices =
   where
     -- Make a key value pair to put in the @dmAccounts@.
     mkKeyVal (accAddr, accIdx) = (accountAddressEmbed accAddr, (accIdx, accAddr))
+
+-- | Clear the reference to the parent difference map (if any).
+--  Note that if there is a parent map then this function clears the remaining parent references
+--  recursively.
+clearReferences :: (MonadIO m) => DifferenceMap -> m ()
+clearReferences DifferenceMap{..} = do
+    oParentDiffMap <- liftIO $ readIORef dmParentMapRef
+    case oParentDiffMap of
+        Absent -> liftIO $ atomicWriteIORef dmParentMapRef Absent
+        Present diffMap -> clearReferences diffMap

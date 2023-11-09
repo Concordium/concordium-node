@@ -202,13 +202,8 @@ makeStoredBlock ::
     BlockPointer (MPV m) ->
     m (LowLevel.StoredBlock (MPV m))
 makeStoredBlock finalized blockPtr = do
-    statePointer <-
-        if finalized
-            then do
-                ref <- saveBlockState (bpState blockPtr)
-                saveAccounts (bpState blockPtr)
-                return ref
-            else saveBlockState (bpState blockPtr)
+    statePointer <- saveBlockState (bpState blockPtr)
+    when finalized $ saveAccounts (bpState blockPtr)
     return
         LowLevel.StoredBlock
             { stbInfo = blockMetadata blockPtr,

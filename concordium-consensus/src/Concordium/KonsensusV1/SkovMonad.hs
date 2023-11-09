@@ -471,18 +471,18 @@ data ExistingSkov pv m = ExistingSkov
 --  used for computations where both lmdb databases are required.
 data LMDBDatabases pv = LMDBDatabases
     { -- | the skov lmdb database
-      _lmdbSkovLmdb :: !(DatabaseHandlers pv),
+      _lmdbSkov :: !(DatabaseHandlers pv),
       -- | the account map lmdb database
-      _lmdbDSAccMap :: !LMDBAccountMap.DatabaseHandlers
+      _lmdbAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
 
 makeLenses ''LMDBDatabases
 
 instance HasDatabaseHandlers (LMDBDatabases pv) pv where
-    databaseHandlers = lmdbSkovLmdb
+    databaseHandlers = lmdbSkov
 
 instance LMDBAccountMap.HasDatabaseHandlers (LMDBDatabases pv) where
-    databaseHandlers = lmdbDSAccMap
+    databaseHandlers = lmdbAccountMap
 
 -- | Load an existing SkovV1 state.
 --  Returns 'Nothing' if there is no database to load.

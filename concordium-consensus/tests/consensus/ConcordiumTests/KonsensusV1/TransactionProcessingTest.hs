@@ -137,9 +137,6 @@ newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
 instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
 
--- deriving instance (TimeMonad m) => TimeMonad (NoLoggerT m)
--- deriving instance (MonadState s m) => MonadState s (NoLoggerT m)
-
 -- | A test monad that is suitable for testing transaction processing
 --  as it derives the required capabilities.
 --  I.e. 'BlockStateQuery' is supported via the 'PersistentBlockStateMonad and a 'MonadState' over the 'SkovData pv'.
