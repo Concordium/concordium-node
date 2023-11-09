@@ -1,41 +1,41 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DataKinds #-}
 
 -- | Helpers for end-to-end tests.
-module EndToEndTests.E2ETestData  where
+module EndToEndTests.E2ETestData where
 
-import Data.Time
-import Control.Monad.Writer.Class
-import Control.Monad.State
 import Control.Monad.IO.Class
+import Control.Monad.State
+import Control.Monad.Writer.Class
 import Data.Foldable
+import Data.Time
 import qualified Data.Vector as Vec
 import Test.HUnit
 import Test.Hspec
 
-import Concordium.KonsensusV1.Consensus
-import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBT)
-import qualified Concordium.Types.Transactions as Transactions
-import Concordium.GlobalState.BlockState (TransactionSummaryV1)
+import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as H
-import Concordium.Types.Option
-import Concordium.KonsensusV1.TreeState.Implementation
+import Concordium.Genesis.Data
+import qualified Concordium.Genesis.Data.P6 as P6
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBT)
+import Concordium.GlobalState.BlockState (TransactionSummaryV1)
+import qualified Concordium.GlobalState.DummyData as Dummy
+import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Blocks
 import Concordium.KonsensusV1.TestMonad
+import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
-import Concordium.Types.Transactions
-import Concordium.Startup
-import qualified Concordium.Genesis.Data.P6 as P6
-import Concordium.Genesis.Data
-import qualified Concordium.GlobalState.DummyData as Dummy
-import qualified Concordium.Types.DummyData as Dummy
-import Concordium.Types.BakerIdentity
-import qualified Concordium.Crypto.DummyData as Dummy
-import Concordium.GlobalState.BakerInfo
-import Concordium.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Startup
+import Concordium.Types
+import Concordium.Types.BakerIdentity
+import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
+import Concordium.Types.Transactions
+import qualified Concordium.Types.Transactions as Transactions
 
 -- * Helper definitions
 
@@ -72,7 +72,6 @@ bakers :: [(BakerIdentity, FullBakerInfo)]
             1_000_000_000_000
             (Dummy.deterministicKP 0)
             (Dummy.accountAddressFrom 0)
-
 
 -- | Hash of the genesis block.
 genesisHash :: BlockHash
@@ -190,4 +189,3 @@ succeedReceiveBlock pb = do
                     | b == pbBlock pb -> return ()
                 _ -> liftIO . assertFailure $ "Expected OnBlock event on executeBlock, but saw: " ++ show events
         _ -> liftIO . assertFailure $ "Expected BlockResultSuccess after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
-
