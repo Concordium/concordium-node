@@ -9,14 +9,12 @@ import Control.Monad.IO.Class
 import qualified Data.Aeson as AE
 import qualified Data.ByteString.Lazy as BSL
 import Data.FileEmbed
-import qualified Data.Map.Strict as Map
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 import System.Random
 import Test.HUnit
 import Test.Hspec
 
-import Concordium.Common.Time
 import Concordium.Common.Version
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes
@@ -33,22 +31,12 @@ import Concordium.Types.Option
 import Concordium.Types.Transactions
 import EndToEndTests.E2ETestData
 
--- | Make public keys for a credential deployment
-mkCredentialPublicKeys :: CredentialPublicKeys
-mkCredentialPublicKeys = makeCredentialPublicKeys [key] 1
-  where
-    key = SigScheme.correspondingVerifyKey $ dummyKeyPair 1
-    dummyKeyPair :: Int -> SigScheme.KeyPair
-    dummyKeyPair = uncurry SigScheme.KeyPairEd25519 . fst . randomEd25519KeyPair . mkStdGen
-
 -- | A credential deployment transaction.
 credBi :: BlockItem
 credBi =
     credentialDeployment $ addMetadata (\x -> CredentialDeployment{biCred = x}) (tt + 1) accCreation
   where
     tt = utcTimeToTransactionTime testTime
-    regId seed = RegIdCred $ generateGroupElementFromSeed dummyGlobalContext seed
-    accCreation :: AccountCreation
     accCreation = icdi1
 
 -- | Helper for reading an 'AccountCreation' from a 'ByteString'.
