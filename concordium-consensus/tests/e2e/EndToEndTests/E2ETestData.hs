@@ -9,6 +9,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State
 import Control.Monad.Writer.Class
 import Data.Foldable
+import qualified Data.Map.Strict as Map
 import Data.Time
 import Test.HUnit
 
@@ -122,6 +123,32 @@ validQCFor bb =
               qsmEpoch = bbEpoch bb
             }
     sig = fold [signQuorumSignatureMessage qsm (bakerAggKey i) | i <- theFinalizers]
+
+validTimeoutForFinalizers :: [Int] -> QuorumCertificate -> Round -> TimeoutCertificate
+validTimeoutForFinalizers finalizers qc rnd =
+    TimeoutCertificate
+        { tcRound = rnd,
+          tcMinEpoch = qcEpoch qc,
+          tcFinalizerQCRoundsFirstEpoch = FinalizerRounds (Map.singleton (qcRound qc) finSet),
+          tcFinalizerQCRoundsSecondEpoch = FinalizerRounds Map.empty,
+          tcAggregateSignature =
+            fold
+                [signTimeoutSignatureMessage tsm (bakerAggKey i) | i <- finalizers]
+        }
+  where
+    finSet = finalizerSet $ FinalizerIndex . fromIntegral <$> finalizers
+    tsm =
+        TimeoutSignatureMessage
+            { tsmGenesis = genesisHash,
+              tsmRound = rnd,
+              tsmQCRound = qcRound qc,
+              tsmQCEpoch = qcEpoch qc
+            }
+
+-- | Create a valid timeout message given a QC and a round.
+--  All finalizers sign the certificate and they all have the QC as their highest QC.
+validTimeoutFor :: QuorumCertificate -> Round -> TimeoutCertificate
+validTimeoutFor = validTimeoutForFinalizers theFinalizers
 
 -- | Make a valid signed block from the provided @BakedBlock@.
 validSignBlock :: BakedBlock -> SignedBlock
