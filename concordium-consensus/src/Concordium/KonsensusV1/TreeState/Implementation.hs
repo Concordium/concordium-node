@@ -742,16 +742,21 @@ getNonFinalizedCredential txhash sd = do
 --  that there are no pending or committed (but only finalized) transactions
 --  tied to this account.
 getNextAccountNonce ::
-    (MonadState (SkovData pv) m, BlockStateStorage m, GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv) =>
+    ( IsProtocolVersion pv,
+      BlockStateStorage m,
+      Monad m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv
+    ) =>
     -- | The 'AccountAddressEq' to get the next available nonce for.
     --  This will work for account aliases as this is an 'AccountAddressEq'
     --  and not just a 'AccountAddress'.
     AccountAddressEq ->
+    -- | The 'SkovData pv' to query the next account nonce from.
+    SkovData pv ->
     -- | The resulting account nonce and whether it is finalized or not.
     m (Nonce, Bool)
-getNextAccountNonce addr = do
-    nfts <- use (transactionTable . TT.ttNonFinalizedTransactions)
-    case nfts ^? ix addr of
+getNextAccountNonce addr sd = do
+    case sd ^. transactionTable . TT.ttNonFinalizedTransactions ^? ix addr of
         Nothing -> lookupViaLfb
         Just anfts ->
             case Map.lookupMax (anfts ^. TT.anftMap) of
@@ -759,7 +764,7 @@ getNextAccountNonce addr = do
                 Just (nonce, _) -> return (nonce + 1, False)
   where
     lookupViaLfb = do
-        macct <- flip getAccount (aaeAddress addr) =<< use (lastFinalized . to bpState)
+        macct <- flip getAccount (aaeAddress addr) (sd ^. lastFinalized . to bpState)
         nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
         return (nextNonce, True)
 
@@ -771,16 +776,21 @@ getNextAccountNonce addr = do
 --  nonce. This does not write the transactions to the low-level tree state database, but just
 --  updates the in-memory transaction table accordingly.
 finalizeTransactions ::
-    (MonadState (SkovData pv) m, BlockStateStorage m, GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv, MonadThrow m) =>
+    ( MonadState (SkovData pv) m,
+      BlockStateStorage m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState pv,
+      MonadThrow m
+    ) =>
     -- | The transactions to remove from the state.
     [BlockItem] ->
     m ()
-finalizeTransactions = mapM_ removeTrans
+finalizeTransactions = do
+    mapM_ removeTrans
   where
     removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
         let nonce = transactionNonce tr
             sender = accountAddressEmbed (transactionSender tr)
-        (nextNonce, _) <- getNextAccountNonce sender
+        (nextNonce, _) <- getNextAccountNonce sender =<< get
         unless ((nextNonce - 1) == nonce) $
             throwM . TreeStateInvariantViolation $
                 "The recorded next nonce for the account "
