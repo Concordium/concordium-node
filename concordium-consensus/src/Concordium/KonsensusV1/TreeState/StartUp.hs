@@ -9,6 +9,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict
 import qualified Data.Map.Strict as Map
+
 import Data.Maybe
 import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
@@ -42,6 +43,7 @@ import Concordium.TimeMonad
 import Concordium.TransactionVerification as TVer
 import Concordium.Types.Option
 import Concordium.Types.Transactions
+import qualified Data.HashMap.Strict as HM
 
 -- | Generate the 'EpochBakers' for a genesis block.
 genesisEpochBakers ::
@@ -322,12 +324,10 @@ loadCertifiedBlocks ::
     m ()
 loadCertifiedBlocks = do
     certBlocks <- LowLevel.lookupCertifiedBlocks
-    -- The first certified block will have the empty parent difference map reference.
-    emptyParent <- liftIO DiffMap.emptyReference
     -- Load all certified blocks
     -- This sets the skov state, puts transactions in the transaction table,
     -- and reconstructs the account map difference maps for the certified blocks.
-    foldM_ (flip loadCertBlock) emptyParent certBlocks
+    foldM_ (flip loadCertBlock) (HM.empty :: HM.HashMap BlockHash DiffMap.DifferenceMapReference) certBlocks
     oLastTimeout <- use $ persistentRoundStatus . prsLatestTimeout
     forM_ oLastTimeout $ \lastTimeout -> do
         curRound <- use $ roundStatus . rsCurrentRound
@@ -432,12 +432,28 @@ loadCertifiedBlocks = do
     getAccountAddressFromDeployment bi = case bi of
         WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} -> (Just . addressFromRegId . credId) credential
         _ -> Nothing
-    loadCertBlock (storedBlock, qc) parentDifferenceMapReference = do
+    loadCertBlock (storedBlock, qc) loadedBlocks = do
         blockPointer <- mkBlockPointer storedBlock
         -- As only finalized accounts are stored in the account map, then
         -- we need to reconstruct the 'DiffMap.DifferenceMap' here for the certified block we're loading.
         let accountsToInsert = mapMaybe getAccountAddressFromDeployment (blockTransactions storedBlock)
-        newDifferenceMap <- reconstructAccountDifferenceMap (bpState blockPointer) parentDifferenceMapReference accountsToInsert
+        --  If a parent cannot be looked up in the @loadedBlocks@ it must mean that parent block is finalized,
+        --  and as a result we simply set the parent reference for the difference map to be empty.
+        -- This is alright as the certified blocks we're folding over are in order of ascending round number.
+        parentDiffMapReference <- case blockBakedData storedBlock of
+            -- If the parent is a genesis block then there is no difference map for it.
+            Absent -> liftIO DiffMap.newEmptyReference
+            Present b -> do
+                let parentHash = qcBlock $ bbQuorumCertificate $ sbBlock b
+                -- If the parent cannot be looked up, then it must be finalized and hence no
+                -- difference map exists.
+                case HM.lookup parentHash loadedBlocks of
+                    Nothing -> liftIO DiffMap.newEmptyReference
+                    Just diffMapReference -> return diffMapReference
+        newDifferenceMap <- reconstructAccountDifferenceMap (bpState blockPointer) parentDiffMapReference accountsToInsert
+        -- append to the accummulator with this new difference map reference
+        let loadedBlocks' = HM.insert (getHash storedBlock) newDifferenceMap loadedBlocks
+
         cacheBlockState (bpState blockPointer)
         blockTable . liveMap . at' (getHash blockPointer) ?=! blockPointer
         addToBranches blockPointer
@@ -468,7 +484,7 @@ loadCertifiedBlocks = do
             roundBakerExistingBlock (blockRound signedBlock) (blockBaker signedBlock)
                 ?= toBlockSignatureWitness signedBlock
         recordCheckedQuorumCertificate qc
-        return newDifferenceMap
+        return loadedBlocks'
 
     -- Set the previous round timeout.
     setLastTimeout lastTimeout certBlock = do

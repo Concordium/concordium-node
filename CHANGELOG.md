@@ -6,9 +6,15 @@
 - If an account does not have any pending transactions, then the transaction table is no longer used for tracking next available account nonce but
   instead the lfb block state is used.
 
+## 6.2.0
+
+- Add an additional health-check service to the V2 GRPC API.
+  This service conforms to the [standard GRPC health service API](https://github.com/grpc/grpc-proto/blob/master/grpc/health/v1/health.proto).
+- New `DryRun` endpoint that allows simulating the execution of transactions.
+
 ## 6.1.7
 
- - Add load-shedding to the V2 GRPC API. In particular, if at the time of the
+- Add load-shedding to the V2 GRPC API. In particular, if at the time of the
   request the node is already handling more than
   `CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_REQUESTS` requests then the incoming
   request will be immediately rejected.

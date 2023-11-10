@@ -1232,6 +1232,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  This increases the total GTU in circulation.
     bsoMint :: UpdatableBlockState m -> MintAmounts -> m (UpdatableBlockState m)
 
+    -- | Mint an amount directly to an account, increasing the total supply by the minted amount.
+    --  If minting to the account would overflow the total supply, then the minting does not
+    --  occur and the maximum amount that could be minted without overflowing is returned.
+    --  (The operation is "safe" in so far as it does not cause an overflow in the supply.)
+    --  If minting to the account is successful, the updated state is returned.
+    --  The caller must ensure that the account exists. If it does not, the behaviour is
+    --  unspecified. (For instance, the amount may be minted, but not credited to any account.)
+    bsoMintToAccount :: UpdatableBlockState m -> AccountIndex -> Amount -> m (Either Amount (UpdatableBlockState m))
+
     -- | Get the identity provider data for the given identity provider, or Nothing if
     --  the identity provider with given ID does not exist.
     bsoGetIdentityProvider :: UpdatableBlockState m -> ID.IdentityProviderIdentity -> m (Maybe IpInfo)
@@ -1353,16 +1362,9 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --  changes to it must not affect 'BlockState', but an efficient
     --  implementation should expect that only a small subset of the state will
     --  change, and thus a variant of copy-on-write should be used.
-    --
-    --  The caller of this function should adhere to the following precondition:
-    --  * This function must only be called on the best block or a block that is already
-    --    retained in memory.
-    --    This function loads the provided blockstate into memory (which is fine for the
-    --    best block, as it is already in memory) but it should be avoided for blocks
-    --    that are not already in memory.
     thawBlockState :: BlockState m -> m (UpdatableBlockState m)
 
-    -- | Freeze a mutable block state instance. The mutable state instance will
+    -- | Freeze a mutable block state instance. The mutable state instance should
     --  not be used afterwards and the implementation can thus avoid copying
     --  data.
     freezeBlockState :: UpdatableBlockState m -> m (BlockState m)
@@ -1384,24 +1386,35 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- | Ensure that any accounts created in a block is persisted.
+    -- | Ensure that any accounts created in a block are persisted.
     --  This should be called when a block is being finalized.
     --
     --  Precondition: The block state must be in memory and it must not have been archived.
     saveAccounts :: BlockState m -> m ()
 
     -- | Reconstructs the account difference map and return it.
+    --  This function is used for blocks that are stored but are not finalized (in particular, certified blocks)
+    --  since only the accounts for finalized blocks are stored in the LMDB store.
+    --
     --  Preconditions:
     --  * This function MUST only be called on a certified block.
     --  * This function MUST only be called on a block state that does not already
-    --  * have a difference map.
+    --    have a difference map.
     --  * The provided list of accounts MUST correspond to the accounts created in the block,
     --    and the account addresses in the list MUST be by order of creation.
-    --  * The provided difference map (if any) MUST be the one of the parent block.
+    --  * The provided difference map reference MUST be the one of the parent block.
     --
     --  This function should only be used when starting from an already initialized state, and hence
     --  we need to reconstruct the difference map since the accounts are not yet finalized.
-    reconstructAccountDifferenceMap :: BlockState m -> DiffMap.DifferenceMapReference -> [AccountAddress] -> m DiffMap.DifferenceMapReference
+    reconstructAccountDifferenceMap ::
+        -- | The block state to reconstruct the difference map for.
+        BlockState m ->
+        -- | The difference map reference from the parent block's state.
+        DiffMap.DifferenceMapReference ->
+        -- | The account addresses created in the block, in order of creation.
+        [AccountAddress] ->
+        -- | Reference to the new difference map for the block.
+        m DiffMap.DifferenceMapReference
 
     -- | Load a block state from a reference, given its state hash if provided,
     --  otherwise calculate the state hash upon loading.
@@ -1429,7 +1442,7 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     cacheBlockStateAndGetTransactionTable :: BlockState m -> m TransactionTable
 
     -- | Populate the LMDB account map if it has not already been initialized.
-    --  If the lmdb store has already been intialized, then this function does nothing.
+    --  If the lmdb store has already been initialized, then this function does nothing.
     --  This function must only be invoked when starting up when then account table already
     --  contains accounts but these are not reflected in the lmdb backed account map.
     --
@@ -1605,6 +1618,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoRewardFoundationAccount s = lift . bsoRewardFoundationAccount s
     bsoGetFoundationAccount = lift . bsoGetFoundationAccount
     bsoMint s = lift . bsoMint s
+    bsoMintToAccount s acc amt = lift $ bsoMintToAccount s acc amt
     bsoGetIdentityProvider s ipId = lift $ bsoGetIdentityProvider s ipId
     bsoGetAnonymityRevokers s arId = lift $ bsoGetAnonymityRevokers s arId
     bsoGetCryptoParams s = lift $ bsoGetCryptoParams s
@@ -1665,6 +1679,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoGetFoundationAccount #-}
     {-# INLINE bsoRewardFoundationAccount #-}
     {-# INLINE bsoMint #-}
+    {-# INLINE bsoMintToAccount #-}
     {-# INLINE bsoGetIdentityProvider #-}
     {-# INLINE bsoGetAnonymityRevokers #-}
     {-# INLINE bsoGetCryptoParams #-}
@@ -1696,7 +1711,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
     saveAccounts = lift . saveAccounts
-    reconstructAccountDifferenceMap bs parentMap accs = lift $ reconstructAccountDifferenceMap bs parentMap accs
+    reconstructAccountDifferenceMap bs parentMap = lift . reconstructAccountDifferenceMap bs parentMap
     loadBlockState hsh = lift . loadBlockState hsh
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback

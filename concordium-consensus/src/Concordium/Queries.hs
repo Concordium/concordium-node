@@ -102,12 +102,34 @@ liftSkovQuery ::
     -- | Query to run at version 1 consensus.
     QueryV1M finconf a ->
     IO a
-liftSkovQuery mvr (EVersionedConfigurationV0 vc) av0 _ = do
+liftSkovQuery mvr evc av0 av1 = liftSkovQueryWithVersion mvr evc (const av0) (const av1)
+
+-- | Run a query against a specific skov version, passing in the versioned configuration as a
+--  parameter.
+liftSkovQueryWithVersion ::
+    MultiVersionRunner finconf ->
+    EVersionedConfiguration finconf ->
+    -- | Query to run at version 0 consensus.
+    ( forall (pv :: ProtocolVersion).
+      ( SkovMonad (VersionedSkovV0M finconf pv),
+        FinalizationMonad (VersionedSkovV0M finconf pv)
+      ) =>
+      VersionedConfigurationV0 finconf pv ->
+      VersionedSkovV0M finconf pv a
+    ) ->
+    -- | Query to run at version 1 consensus.
+    ( forall (pv :: ProtocolVersion).
+      (IsConsensusV1 pv, IsProtocolVersion pv) =>
+      VersionedConfigurationV1 finconf pv ->
+      VersionedSkovV1M finconf pv a
+    ) ->
+    IO a
+liftSkovQueryWithVersion mvr (EVersionedConfigurationV0 vc) av0 _ = do
     st <- readIORef (vc0State vc)
-    runMVR (evalSkovT av0 (mvrSkovHandlers vc mvr) (vc0Context vc) st) mvr
-liftSkovQuery mvr (EVersionedConfigurationV1 vc) _ av1 = do
+    runMVR (evalSkovT (av0 vc) (mvrSkovHandlers vc mvr) (vc0Context vc) st) mvr
+liftSkovQueryWithVersion mvr (EVersionedConfigurationV1 vc) _ av1 = do
     st <- readIORef (vc1State vc)
-    runMVR (SkovV1.evalSkovT av1 (vc1Context vc) st) mvr
+    runMVR (SkovV1.evalSkovT (av1 vc) (vc1Context vc) st) mvr
 
 -- | Run a query against the latest skov version.
 liftSkovQueryLatest ::
@@ -280,7 +302,7 @@ liftSkovQueryBHIAndVersion ::
         FinalizationMonad (VersionedSkovV0M finconf pv),
         IsProtocolVersion pv
       ) =>
-      EVersionedConfiguration finconf ->
+      VersionedConfigurationV0 finconf pv ->
       BlockPointerType (VersionedSkovV0M finconf pv) ->
       VersionedSkovV0M finconf pv a
     ) ->
@@ -289,7 +311,7 @@ liftSkovQueryBHIAndVersion ::
     --  if the block is finalized.
     ( forall (pv :: ProtocolVersion).
       (IsConsensusV1 pv, IsProtocolVersion pv) =>
-      EVersionedConfiguration finconf ->
+      VersionedConfigurationV1 finconf pv ->
       SkovV1.BlockPointer pv ->
       Bool ->
       VersionedSkovV1M finconf pv a
@@ -303,17 +325,17 @@ liftSkovQueryBHIAndVersion av0 av1 bhi = do
                 maybeValue <-
                     atLatestSuccessfulVersion
                         ( \vc ->
-                            liftSkovQuery
+                            liftSkovQueryWithVersion
                                 mvr
                                 vc
                                 -- consensus version 0
-                                (mapM (av0 vc) =<< resolveBlock bh)
+                                (\theVC -> mapM (av0 theVC) =<< resolveBlock bh)
                                 -- consensus version 1
-                                ( do
+                                ( \theVC -> do
                                     status <- SkovV1.getBlockStatus bh =<< get
                                     case status of
-                                        SkovV1.BlockAlive bp -> Just <$> av1 vc bp False
-                                        SkovV1.BlockFinalized bp -> Just <$> av1 vc bp True
+                                        SkovV1.BlockAlive bp -> Just <$> av1 theVC bp False
+                                        SkovV1.BlockFinalized bp -> Just <$> av1 theVC bp True
                                         _ -> return Nothing
                                 )
                         )
@@ -329,17 +351,17 @@ liftSkovQueryBHIAndVersion av0 av1 bhi = do
                 (Just ([bh], evc)) ->
                     MVR $ \mvr -> do
                         maybeValue <-
-                            liftSkovQuery
+                            liftSkovQueryWithVersion
                                 mvr
                                 evc
                                 -- consensus version 0
-                                (mapM (av0 evc) =<< resolveBlock bh)
+                                (\theVC -> mapM (av0 theVC) =<< resolveBlock bh)
                                 -- consensus version 1
-                                ( do
+                                ( \theVC -> do
                                     status <- SkovV1.getBlockStatus bh =<< get
                                     case status of
-                                        SkovV1.BlockAlive bp -> Just <$> av1 evc bp False
-                                        SkovV1.BlockFinalized bp -> Just <$> av1 evc bp True
+                                        SkovV1.BlockAlive bp -> Just <$> av1 theVC bp False
+                                        SkovV1.BlockFinalized bp -> Just <$> av1 theVC bp True
                                         _ -> return Nothing
                                 )
                         return $ case maybeValue of
@@ -350,21 +372,24 @@ liftSkovQueryBHIAndVersion av0 av1 bhi = do
             versions <- liftIO . readIORef =<< asks mvVersions
             let evc = Vec.last versions
             (bh, maybeValue) <-
-                liftSkovQueryLatest
-                    ( do
-                        -- consensus version 0
-                        bp <- case other of
-                            Best -> bestBlock
-                            LastFinal -> lastFinalizedBlock
-                        (bpHash bp,) . Just <$> av0 evc bp
-                    )
-                    ( do
-                        -- consensus version 1
-                        (bp, finalized) <- case other of
-                            Best -> (,False) <$> bestBlockConsensusV1
-                            LastFinal -> (,True) <$> use SkovV1.lastFinalized
-                        (getHash bp,) . Just <$> av1 evc bp finalized
-                    )
+                MVR $ \mvr ->
+                    liftSkovQueryWithVersion
+                        mvr
+                        evc
+                        ( \theVC -> do
+                            -- consensus version 0
+                            bp <- case other of
+                                Best -> bestBlock
+                                LastFinal -> lastFinalizedBlock
+                            (bpHash bp,) . Just <$> av0 theVC bp
+                        )
+                        ( \theVC -> do
+                            -- consensus version 1
+                            (bp, finalized) <- case other of
+                                Best -> (,False) <$> bestBlockConsensusV1
+                                LastFinal -> (,True) <$> use SkovV1.lastFinalized
+                            (getHash bp,) . Just <$> av1 theVC bp finalized
+                        )
             return $ case maybeValue of
                 Just v -> BQRBlock bh v
                 Nothing -> BQRNoBlock
@@ -648,9 +673,9 @@ getNextAccountNonce accountAddress =
 getBlockInfo :: BlockHashInput -> MVR finconf (BHIQueryResponse BlockInfo)
 getBlockInfo =
     liftSkovQueryBHIAndVersion
-        ( \evc bp -> do
+        ( \(vc :: VersionedConfigurationV0 finconf pv) bp -> do
             let biBlockHash = getHash bp
-            let biGenesisIndex = evcIndex evc
+            let biGenesisIndex = vc0Index vc
             biBlockParent <-
                 if blockSlot bp == 0 && biGenesisIndex /= 0
                     then do
@@ -666,7 +691,7 @@ getBlockInfo =
                                 (use (SkovV1.lastFinalized . to getHash))
                     else getHash <$> bpParent bp
             biBlockLastFinalized <- getHash <$> bpLastFinalized bp
-            let biBlockHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) (bpHeight bp)
+            let biBlockHeight = localToAbsoluteBlockHeight (vc0GenesisHeight vc) (bpHeight bp)
             let biEraBlockHeight = bpHeight bp
             let biBlockReceiveTime = bpReceiveTime bp
             let biBlockArriveTime = bpArriveTime bp
@@ -678,14 +703,14 @@ getBlockInfo =
             let biTransactionEnergyCost = bpTransactionsEnergyCost bp
             let biTransactionsSize = bpTransactionsSize bp
             let biBlockStateHash = bpBlockStateHash bp
-            let biProtocolVersion = evcProtocolVersion evc
+            let biProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
             let biRound = Nothing
             let biEpoch = Nothing
             return BlockInfo{..}
         )
-        ( \evc bp biFinalized -> do
+        ( \(vc :: VersionedConfigurationV1 finconf pv) bp biFinalized -> do
             let biBlockHash = getHash bp
-            let biGenesisIndex = evcIndex evc
+            let biGenesisIndex = vc1Index vc
             biBlockParent <-
                 if SkovV1.blockRound bp == 0 && biGenesisIndex /= 0
                     then do
@@ -701,7 +726,7 @@ getBlockInfo =
                                 (use (SkovV1.lastFinalized . to getHash))
                     else getHash <$> bpParent bp
             biBlockLastFinalized <- getHash <$> bpLastFinalized bp
-            let biBlockHeight = localToAbsoluteBlockHeight (evcGenesisHeight evc) (SkovV1.blockHeight bp)
+            let biBlockHeight = localToAbsoluteBlockHeight (vc1GenesisHeight vc) (SkovV1.blockHeight bp)
             let biEraBlockHeight = SkovV1.blockHeight bp
             let biBlockReceiveTime = SkovV1.blockReceiveTime bp
             let biBlockArriveTime = SkovV1.blockArriveTime bp
@@ -712,7 +737,7 @@ getBlockInfo =
             let biTransactionEnergyCost = SkovV1.blockEnergyCost bp
             let biTransactionsSize = fromIntegral $ SkovV1.blockTransactionsSize bp
             let biBlockStateHash = SkovV1.blockStateHash bp
-            let biProtocolVersion = evcProtocolVersion evc
+            let biProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
             let biRound = Just $ SkovV1.blockRound bp
             let biEpoch = Just $ SkovV1.blockEpoch bp
             return BlockInfo{..}
@@ -1034,32 +1059,14 @@ getAccountInfo ::
     MVR finconf (BHIQueryResponse (Maybe AccountInfo))
 getAccountInfo blockHashInput acct = do
     liftSkovQueryBHI
-        (getAI getASIv0 <=< blockState)
-        (getAI getASIv1 <=< blockState)
+        (getAccountInfoV0 acct <=< blockState)
+        (getAccountInfoV1 acct <=< blockState)
         blockHashInput
+
+-- | Get the details of an account, for the V0 consensus.
+getAccountInfoV0 :: (SkovQueryMonad m) => AccountIdentifier -> BlockState m -> m (Maybe AccountInfo)
+getAccountInfoV0 = getAccountInfoHelper getASIv0
   where
-    getAI ::
-        forall m.
-        (BS.BlockStateQuery m) =>
-        (Account m -> m AccountStakingInfo) ->
-        BlockState m ->
-        m (Maybe AccountInfo)
-    getAI getASI bs = do
-        macc <- case acct of
-            AccAddress addr -> BS.getAccount bs addr
-            AccIndex idx -> BS.getAccountByIndex bs idx
-            CredRegID crid -> BS.getAccountByCredId bs crid
-        forM macc $ \(aiAccountIndex, acc) -> do
-            aiAccountNonce <- BS.getAccountNonce acc
-            aiAccountAmount <- BS.getAccountAmount acc
-            aiAccountReleaseSchedule <- BS.getAccountReleaseSummary acc
-            aiAccountCredentials <- fmap (Versioned 0) <$> BS.getAccountCredentials acc
-            aiAccountThreshold <- aiThreshold <$> BS.getAccountVerificationKeys acc
-            aiAccountEncryptedAmount <- BS.getAccountEncryptedAmount acc
-            aiAccountEncryptionKey <- BS.getAccountEncryptionKey acc
-            aiStakingInfo <- getASI acc
-            aiAccountAddress <- BS.getAccountCanonicalAddress acc
-            return AccountInfo{..}
     getASIv0 acc = do
         gd <- getGenesisData
         let convEpoch e =
@@ -1068,21 +1075,65 @@ getAccountInfo blockHashInput acct = do
                         (gdGenesisTime gd)
                         (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
         toAccountStakingInfo convEpoch <$> BS.getAccountStake acc
+
+-- | Get the details of an account, for the V1 consensus.
+getAccountInfoV1 ::
+    ( BS.BlockStateQuery m,
+      MonadProtocolVersion m,
+      IsConsensusV1 (MPV m)
+    ) =>
+    AccountIdentifier ->
+    BlockState m ->
+    m (Maybe AccountInfo)
+getAccountInfoV1 = getAccountInfoHelper getASIv1
+  where
     getASIv1 acc = toAccountStakingInfoP4 <$> BS.getAccountStake acc
+
+-- | Helper for getting the details of an account, given a function for getting the staking
+--  information.
+getAccountInfoHelper ::
+    (BS.BlockStateQuery m) =>
+    (Account m -> m AccountStakingInfo) ->
+    AccountIdentifier ->
+    BlockState m ->
+    m (Maybe AccountInfo)
+getAccountInfoHelper getASI acct bs = do
+    macc <- case acct of
+        AccAddress addr -> BS.getAccount bs addr
+        AccIndex idx -> BS.getAccountByIndex bs idx
+        CredRegID crid -> BS.getAccountByCredId bs crid
+    forM macc $ \(aiAccountIndex, acc) -> do
+        aiAccountNonce <- BS.getAccountNonce acc
+        aiAccountAmount <- BS.getAccountAmount acc
+        aiAccountReleaseSchedule <- BS.getAccountReleaseSummary acc
+        aiAccountCredentials <- fmap (Versioned 0) <$> BS.getAccountCredentials acc
+        aiAccountThreshold <- aiThreshold <$> BS.getAccountVerificationKeys acc
+        aiAccountEncryptedAmount <- BS.getAccountEncryptedAmount acc
+        aiAccountEncryptionKey <- BS.getAccountEncryptionKey acc
+        aiStakingInfo <- getASI acc
+        aiAccountAddress <- BS.getAccountCanonicalAddress acc
+        return AccountInfo{..}
 
 -- | Get the details of a smart contract instance in the block state.
 getInstanceInfo :: BlockHashInput -> ContractAddress -> MVR finconf (BHIQueryResponse (Maybe Wasm.InstanceInfo))
 getInstanceInfo bhi caddr = do
     liftSkovQueryStateBHI
-        (\bs -> mkII =<< BS.getContractInstance bs caddr)
+        (getInstanceInfoHelper caddr)
         bhi
-  where
-    mkII Nothing = return Nothing
-    mkII (Just (BS.InstanceInfoV0 BS.InstanceInfoV{..})) = do
-        iiModel <- BS.externalContractState iiState
-        return
-            ( Just
-                ( Wasm.InstanceInfoV0
+
+-- | Helper function for getting the 'Wasm.InstanceInfo' for a contract instance.
+getInstanceInfoHelper ::
+    (BS.BlockStateQuery m) =>
+    ContractAddress ->
+    BlockState m ->
+    m (Maybe Wasm.InstanceInfo)
+getInstanceInfoHelper caddr bs = do
+    mInstance <- BS.getContractInstance bs caddr
+    forM mInstance $ \case
+        BS.InstanceInfoV0 BS.InstanceInfoV{..} -> do
+            iiModel <- BS.externalContractState iiState
+            return $
+                Wasm.InstanceInfoV0
                     { Wasm.iiOwner = instanceOwner iiParameters,
                       Wasm.iiAmount = iiBalance,
                       Wasm.iiMethods = instanceReceiveFuns iiParameters,
@@ -1090,20 +1141,15 @@ getInstanceInfo bhi caddr = do
                       Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters),
                       ..
                     }
-                )
-            )
-    mkII (Just (BS.InstanceInfoV1 BS.InstanceInfoV{..})) = do
-        return
-            ( Just
-                ( Wasm.InstanceInfoV1
+        BS.InstanceInfoV1 BS.InstanceInfoV{..} -> do
+            return $
+                Wasm.InstanceInfoV1
                     { Wasm.iiOwner = instanceOwner iiParameters,
                       Wasm.iiAmount = iiBalance,
                       Wasm.iiMethods = instanceReceiveFuns iiParameters,
                       Wasm.iiName = instanceInitName iiParameters,
                       Wasm.iiSourceModule = GSWasm.miModuleRef (instanceModuleInterface iiParameters)
                     }
-                )
-            )
 
 -- | Get the exact state of a smart contract instance in the block state. The
 --  return value is 'Nothing' if the instance cannot be found (either the
@@ -1267,17 +1313,17 @@ getFirstBlockEpoch (EpochOfBlock blockInput) = do
   where
     unBHIResponse BQRNoBlock = Left EQEBlockNotFound
     unBHIResponse (BQRBlock _ res) = res
-    epochOfBlockV0 curVersionIndex evc b =
+    epochOfBlockV0 curVersionIndex vc b =
         getFirstFinalizedOfEpoch (Right b) <&> \case
             Left FutureEpoch
-                | evcIndex evc == curVersionIndex -> Left EQEFutureEpoch
+                | vc0Index vc == curVersionIndex -> Left EQEFutureEpoch
                 | otherwise -> Left EQEInvalidEpoch
             Left EmptyEpoch -> Left EQEBlockNotFound
             Right epochBlock -> Right (getHash epochBlock)
-    epochOfBlockV1 curVersionIndex evc b _ =
+    epochOfBlockV1 curVersionIndex vc b _ =
         (SkovV1.getFirstFinalizedBlockOfEpoch (Right b) =<< get) <&> \case
             Nothing
-                | evcIndex evc == curVersionIndex -> Left EQEFutureEpoch
+                | vc1Index vc == curVersionIndex -> Left EQEFutureEpoch
                 | otherwise -> Left EQEInvalidEpoch
             Just epochBlock -> Right (getHash epochBlock)
 
@@ -1325,11 +1371,11 @@ getWinningBakersEpoch (EpochOfBlock blockInput) = do
     res <-
         liftSkovQueryBHIAndVersion
             (\_ _ -> return (Left EQEInvalidGenesisIndex))
-            ( \evc b _ -> do
+            ( \vc b _ -> do
                 mwbs <- ConsensusV1.getWinningBakersForEpoch (SkovV1.blockEpoch b) =<< get
                 return $! case mwbs of
                     Nothing
-                        | evcIndex evc == curVersionIndex -> Left EQEFutureEpoch
+                        | vc1Index vc == curVersionIndex -> Left EQEFutureEpoch
                         | otherwise -> Left EQEInvalidEpoch
                     Just wbs -> Right wbs
             )

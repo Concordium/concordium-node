@@ -11,6 +11,7 @@ module GlobalStateTests.LMDBAccountMap where
 
 import Control.Exception (bracket)
 import Control.Monad.Reader
+import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust, isNothing)
 import System.IO.Temp
 import System.Random
@@ -49,19 +50,13 @@ testDoLookup accAddr = do
     liftIO $ assertEqual "Results should be the same" res1 res2
     return res1
 
--- | Test that a database is not initialized.
-testCheckNotInitialized :: Assertion
-testCheckNotInitialized = runTest "notinitialized" $ do
-    isInitialized <- LMDBAccountMap.isInitialized
-    liftIO $ assertBool "database should not have been initialized" $ not isInitialized
-
 -- | Test that a database is initialized.
-testCheckDbInitialized :: Assertion
-testCheckDbInitialized = runTest "initialized" $ do
+testCheckDBNoOfAccounts :: Assertion
+testCheckDBNoOfAccounts = runTest "initialized" $ do
     -- initialize the database
     void $ LMDBAccountMap.insertAccounts [dummyPair 1]
-    isInitialized <- LMDBAccountMap.isInitialized
-    liftIO $ assertBool "database should have been initialized" isInitialized
+    noOfAccounts <- LMDBAccountMap.getNumberOfAccounts
+    liftIO $ assertEqual "database should have been initialized" 1 noOfAccounts
 
 -- | Test that inserts a set of accounts and afterwards asserts that they are present.
 testInsertAndLookupAccounts :: Assertion
@@ -103,10 +98,20 @@ testGetAllAccounts = runTest "allaccounts" $ do
         isPresent <- isJust <$> testDoLookup accAddr
         liftIO $ assertBool "account should be present" isPresent
 
+-- | Test reconstructing a lmdb evicts all former values and puts in the new ones.
+testReconstruction :: Assertion
+testReconstruction = runTest "reconstruction" $ do
+    void $ LMDBAccountMap.insertAccounts $ dummyPair <$> [0 .. 42]
+    accs0 <- LMDBAccountMap.getAllAccounts (AccountIndex 43)
+    liftIO $ assertEqual "accounts before reconstruction should be equal" (HM.fromList (dummyPair <$> [0 .. 42])) (HM.fromList accs0)
+    void $ LMDBAccountMap.reconstruct $ dummyPair <$> [100 .. 142]
+    accs1 <- LMDBAccountMap.getAllAccounts (AccountIndex 143)
+    liftIO $ assertEqual "accounts after reconstruction should match" (HM.fromList (dummyPair <$> [100 .. 142])) (HM.fromList accs1)
+
 tests :: Spec
 tests = describe "AccountMap.LMDB" $ do
-    it "Test checking db is not initialized" testCheckNotInitialized
-    it "Test checking db is initialized" testCheckDbInitialized
+    it "Test checking db is initialized" testCheckDBNoOfAccounts
     it "Test inserts and lookups" testInsertAndLookupAccounts
     it "Test getting all accounts" testGetAllAccounts
     it "Test looking up account via alias" testLookupAccountViaAlias
+    it "Test reconstruction" testReconstruction

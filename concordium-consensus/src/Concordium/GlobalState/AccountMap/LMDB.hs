@@ -45,6 +45,7 @@ import qualified Data.ByteString as BS
 import Data.Data (Typeable)
 import qualified Data.FixedByteString as FBS
 import Data.Kind (Type)
+import Data.Word
 import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
@@ -75,7 +76,7 @@ instance Exception DatabaseInvariantViolation where
 --
 --  Invariants:
 --      * All accounts in the store are finalized.
---      * The store should only retain canoncial account addresses.
+--      * The store should only retain canonical account addresses.
 class (Monad m) => MonadAccountMapStore m where
     -- | Inserts the accounts to the underlying store.
     --  Only canonical addresses should be added.
@@ -86,29 +87,35 @@ class (Monad m) => MonadAccountMapStore m where
     --  and returns @Nothing@ if the account was not present.
     lookupAccountIndexViaEquivalence :: AccountAddressEq -> m (Maybe AccountIndex)
 
-    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddressEq’.
+    -- | Looks up the ‘AccountIndex’ for the provided ‘AccountAddress'.
     --  Returns @Just AccountIndex@ if the account is present in the ‘AccountMap’
     --  and returns @Nothing@ if the account was not present.
+    --  Note that this only returns a result for the canonical account address.
     lookupAccountIndexViaExactness :: AccountAddress -> m (Maybe AccountIndex)
 
     -- | Return all the canonical addresses and their associated account indices of accounts present
     --  in the store where their @AccountIndex@ is less or equal to the provided @AccountIndex@.
     getAllAccounts :: AccountIndex -> m [(AccountAddress, AccountIndex)]
 
-    -- | Checks whether the lmdb store is initialized or not.
-    isInitialized :: m Bool
+    -- | Get number of entries in the account map.
+    getNumberOfAccounts :: m Word64
+
+    -- | Clear and set the accounts to the ones provided.
+    reconstruct :: [(AccountAddress, AccountIndex)] -> m ()
 
 instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapStore (MGSTrans t m) where
     insertAccounts accs = lift $ insertAccounts accs
     lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
     lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
     getAllAccounts = lift . getAllAccounts
-    isInitialized = lift isInitialized
+    getNumberOfAccounts = lift getNumberOfAccounts
+    reconstruct = lift . reconstruct
     {-# INLINE insertAccounts #-}
     {-# INLINE lookupAccountIndexViaEquivalence #-}
     {-# INLINE lookupAccountIndexViaExactness #-}
     {-# INLINE getAllAccounts #-}
-    {-# INLINE isInitialized #-}
+    {-# INLINE getNumberOfAccounts #-}
+    {-# INLINE reconstruct #-}
 
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
@@ -119,23 +126,23 @@ instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
     lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
     lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
     getAllAccounts = lift . getAllAccounts
-    isInitialized = lift isInitialized
+    getNumberOfAccounts = lift getNumberOfAccounts
+    reconstruct = lift . reconstruct
     {-# INLINE insertAccounts #-}
     {-# INLINE lookupAccountIndexViaEquivalence #-}
     {-# INLINE lookupAccountIndexViaExactness #-}
     {-# INLINE getAllAccounts #-}
-    {-# INLINE isInitialized #-}
+    {-# INLINE getNumberOfAccounts #-}
+    {-# INLINE reconstruct #-}
 
 -- * Database stores
 
 -- | Store that retains the account address -> account index mappings.
 newtype AccountMapStore = AccountMapStore MDB_dbi'
 
+-- | Name of the table used for storing the map from account addresses to account indices.
 accountMapStoreName :: String
 accountMapStoreName = "accounts"
-
-lfbHashStoreName :: String
-lfbHashStoreName = "lfb"
 
 instance MDBDatabase AccountMapStore where
     type DBKey AccountMapStore = AccountAddress
@@ -157,6 +164,12 @@ makeClassy ''DatabaseHandlers
 databaseCount :: Int
 databaseCount = 1
 
+-- | Database growth size increment.
+--  This is currently set at 4MB, and must be a multiple of the page size.
+--  For reference: ~ 90k accounts takes up around 7MB, so this should ensure not much resizing required.
+dbStepSize :: Int
+dbStepSize = 2 ^ (22 :: Int) -- 4MB
+
 -- ** Initialization
 
 -- | Initialize database handlers.
@@ -170,10 +183,10 @@ makeDatabaseHandlers ::
     Bool ->
     IO DatabaseHandlers
 makeDatabaseHandlers accountMapDir readOnly = do
-    _dbhStoreEnv <- makeStoreEnv
+    _dbhStoreEnv <- makeStoreEnv' dbStepSize defaultMaxStepSize
     -- here nobody else has access to the environment, so we need not lock
     let env = _dbhStoreEnv ^. seEnv
-    mdb_env_set_mapsize env defaultEnvSize
+    mdb_env_set_mapsize env dbStepSize
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     mdb_env_open env accountMapDir [MDB_RDONLY | readOnly]
@@ -188,7 +201,7 @@ makeDatabaseHandlers accountMapDir readOnly = do
 
 -- | Create the lmdb stores and return back database handlers for interacting with it.
 --  This simply loads the references and does not initialize the databases.
---  The initial environment size is set to 128MB.
+--  The initial environment size is set to 'dbStepSize' (4MB).
 --  Note that this function creates the directory for the database if not already present at the provided
 --  path and any missing parent directories.
 openDatabase :: FilePath -> IO DatabaseHandlers
@@ -204,16 +217,10 @@ closeDatabase dbHandlers = runInBoundThread $ mdb_env_close $ dbHandlers ^. dbhS
 
 -- | The 'AccountMapStoreMonad' for interacting with the LMDB database.
 newtype AccountMapStoreMonad (m :: Type -> Type) (a :: Type) = AccountMapStoreMonad {runAccountMapStoreMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadReader r, MonadState s, TimeMonad) via m
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch, MonadLogger, MonadReader r, MonadState s, TimeMonad)
     deriving (MonadTrans) via IdentityT
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (AccountMapStoreMonad m)
-
--- | When looking up accounts we perform a prefix search as we
---  store the canonical account addresses in the lmdb store and we
---  need to be able to lookup account aliases.
-prefixAccountAddressSize :: Int
-prefixAccountAddressSize = 29
 
 instance
     ( MonadReader r m,
@@ -249,7 +256,7 @@ instance
         -- The key to use for looking up an account.
         -- We do a prefix lookup on the first 29 bytes of the account address as
         -- the last 3 bytes are reserved for aliases.
-        accLookupKey = BS.take prefixAccountAddressSize $ FBS.toByteString accAddr
+        accLookupKey = BS.take accountAddressPrefixSize $ FBS.toByteString accAddr
 
     lookupAccountIndexViaExactness addr = do
         dbh <- ask
@@ -269,7 +276,13 @@ instance
                     go _ (Just (Left err)) = throwM $ DatabaseInvariantViolation err
                 in  go [] =<< getCursor CursorFirst cursor
 
-    isInitialized = do
+    getNumberOfAccounts = do
         dbh <- ask
-        size <- asReadTransaction (dbh ^. dbhStoreEnv) $ \txn -> databaseSize txn (dbh ^. dbhAccountMapStore)
-        return $ size /= 0
+        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn -> databaseSize txn (dbh ^. dbhAccountMapStore)
+
+    reconstruct accounts = do
+        dbh <- ask
+        asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> do
+            deleteAll txn (dbh ^. dbhAccountMapStore)
+            forM_ accounts $ \(accAddr, accIndex) -> do
+                storeRecord txn (dbh ^. dbhAccountMapStore) accAddr accIndex

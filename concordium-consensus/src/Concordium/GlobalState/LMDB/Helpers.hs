@@ -11,12 +11,15 @@
 --     provide a type-safe abstraction over cursors.
 module Concordium.GlobalState.LMDB.Helpers (
     -- * Database environment.
-    StoreEnv,
+    StoreEnv (..),
     makeStoreEnv,
+    makeStoreEnv',
     withWriteStoreEnv,
     seEnv,
+    seStepSize,
+    seMaxStepSize,
     defaultStepSize,
-    defaultEnvSize,
+    defaultMaxStepSize,
     resizeDatabaseHandlers,
     resizeOnResized,
 
@@ -285,11 +288,13 @@ data StoreEnv = StoreEnv
       --  we must ensure that there are no outstanding transactions.
       _seEnvLock :: !RWLock,
       -- | Database growth size increment.
-      --  This is currently set at 64MB, and must be a multiple of the page size.
+      --  Must be a multiple of the page size.
       _seStepSize :: !Int,
       -- | Maximum step to increment the database size.
       _seMaxStepSize :: !Int
     }
+
+makeLenses ''StoreEnv
 
 -- | Database growth size increment.
 --  This is currently set at 64MB, and must be a multiple of the page size.
@@ -297,22 +302,28 @@ defaultStepSize :: Int
 defaultStepSize = 2 ^ (26 :: Int) -- 64MB
 
 -- | Maximum step to increment the database size.
+--  A ceiling that supposedly never gets hit.
+--  We need some bound as we're growing the environment exponentially when
+--  transactions fail and we resize recursively.
 defaultMaxStepSize :: Int
 defaultMaxStepSize = 2 ^ (30 :: Int) -- 1GB
 
--- | Default start environment size.
-defaultEnvSize :: Int
-defaultEnvSize = 2 ^ (27 :: Int) -- 128MB
-
-makeLenses ''StoreEnv
-
 -- | Construct a new LMDB environment with associated locks that protect its use.
-makeStoreEnv' :: Int -> Int -> IO StoreEnv
+makeStoreEnv' ::
+    -- | Initial database growth when resizing the environment.
+    --  Precondition: Must be a multiple of the OS page size.
+    Int ->
+    -- | Maximum database growth size.
+    Int ->
+    -- | The resulting environment 'StoreEnv'.
+    IO StoreEnv
 makeStoreEnv' _seStepSize _seMaxStepSize = do
     _seEnv <- mdb_env_create
     _seEnvLock <- initializeLock
     return StoreEnv{..}
 
+-- | Construct a new LMDB environment with assoicated locks that protects it,
+--  with default environment paremeters.
 makeStoreEnv :: IO StoreEnv
 makeStoreEnv = makeStoreEnv' defaultStepSize defaultMaxStepSize
 
@@ -454,11 +465,8 @@ data CursorMove
 -- | Move a cursor and read the key and value at the new location.
 getPrimitiveCursor :: CursorMove -> PrimitiveCursor -> IO (Maybe (MDB_val, MDB_val))
 getPrimitiveCursor movement PrimitiveCursor{..} = do
-    res <- case mKey of
-        Nothing -> mdb_cursor_get' moveOp pcCursor pcKeyPtr pcValPtr
-        Just k -> do
-            poke pcKeyPtr k
-            mdb_cursor_get' moveOp pcCursor pcKeyPtr pcValPtr
+    mapM_ (poke pcKeyPtr) mKey
+    res <- mdb_cursor_get' moveOp pcCursor pcKeyPtr pcValPtr
     if res
         then do
             key <- peek pcKeyPtr
@@ -692,12 +700,14 @@ databaseSize ::
 databaseSize txn dbi = fromIntegral . ms_entries <$> mdb_stat' txn (mdbDatabase dbi)
 
 -- | Increase the database size by at least the supplied size.
---  The size SHOULD be a multiple of 'dbStepSize', and MUST be a multiple of the page size.
+--  The provided size will be rounded up to a multiple of 'seStepSize'.
+--  This ensures that the new size is a multiple of the page size, which is required by lmdb.
 resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => StoreEnv -> Int -> m ()
 resizeDatabaseHandlers env delta = do
     envInfo <- liftIO $ mdb_env_info (env ^. seEnv)
     let oldMapSize = fromIntegral $ me_mapsize envInfo
-        newMapSize = oldMapSize + delta
+        stepSize = env ^. seStepSize
+        newMapSize = oldMapSize + (delta + stepSize - delta `mod` stepSize)
         _storeEnv = env
     logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
     liftIO . withWriteStoreEnv env $ flip mdb_env_set_mapsize newMapSize

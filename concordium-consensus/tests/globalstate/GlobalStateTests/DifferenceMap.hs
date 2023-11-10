@@ -38,7 +38,7 @@ testDoLookup accAddr diffMap = do
 -- | Test that an account can be inserted and looked up in the 'DiffMap.DifferenceMap'.
 testInsertLookupAccount :: Assertion
 testInsertLookupAccount = do
-    emptyParentMap <- mkParentPointer Absent
+    emptyParentMap <- liftIO DiffMap.newEmptyReference
     let diffMap = uncurry DiffMap.insert acc $ DiffMap.empty emptyParentMap
     testDoLookup (fst acc) diffMap >>= \case
         Nothing -> assertFailure "account should be present in diff map"
@@ -53,7 +53,7 @@ mkParentPointer diffMap = newIORef diffMap >>= return
 -- | Testing lookups in flat and nested difference maps.
 testLookups :: Assertion
 testLookups = do
-    emptyParentMap <- mkParentPointer Absent
+    emptyParentMap <- liftIO DiffMap.newEmptyReference
     let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyParentMap
     diffMap1Pointer <- mkParentPointer $ Present diffMap1
     let diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty diffMap1Pointer)
@@ -74,7 +74,7 @@ testLookups = do
 -- | Test flattening a difference map i.e. return all accounts as one flat map.
 testFlatten :: Assertion
 testFlatten = do
-    emptyParentMap <- mkParentPointer Absent
+    emptyParentMap <- liftIO DiffMap.newEmptyReference
     let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyParentMap
     diffMap1Pointer <- mkParentPointer $ Present diffMap1
     let diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty diffMap1Pointer)
@@ -99,13 +99,19 @@ genInputs = sized $ \n -> do
     noDifferenceMaps <- choose (0, len)
     return (accs, noDifferenceMaps)
 
+genInputs2 :: Gen [(AccountAddress, AccountIndex)]
+genInputs2 = sized $ \n -> do
+    let maxAccs = min n 10000
+    len <- choose (0, maxAccs)
+    replicateM len ((,) <$> genAccountAddress <*> (AccountIndex <$> arbitrary))
+
 -- | Test insertions and lookups on the difference map.
 insertionsAndLookups :: Spec
 insertionsAndLookups = it "insertions and lookups" $
     withMaxSuccess 10000 $
         forAll genInputs $ \(inputs, noDifferenceMaps) -> do
             let reference = HM.fromList inputs
-            emptyRef <- mkParentPointer Absent
+            emptyRef <- liftIO DiffMap.newEmptyReference
             diffMap <- populateDiffMap inputs noDifferenceMaps $ DiffMap.empty emptyRef
             checkAll reference diffMap
   where
@@ -124,9 +130,52 @@ insertionsAndLookups = it "insertions and lookups" $
         let accumDiffMap'' = DiffMap.insert accAddr accIdx $ DiffMap.empty pRef
         populateDiffMap rest (remaining - 1) accumDiffMap''
 
+-- | A test that makes sure if multiple difference maps are
+--  derivied via a common parent, then additions in one branch
+--  is not propagating to other branches.
+testMultipleChildrenDifferenceMaps :: Assertion
+testMultipleChildrenDifferenceMaps = do
+    emptyRoot <- liftIO DiffMap.newEmptyReference
+    -- The common parent
+    let parent = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyRoot
+    parentReference <- mkParentPointer $ Present parent
+    -- First branch
+    let branch0 = uncurry DiffMap.insert (dummyPair 2) $ DiffMap.empty parentReference
+    -- Second branch
+    let branch1 = uncurry DiffMap.insert (dummyPair 3) $ DiffMap.empty parentReference
+
+    -- Account from common parent should exist in both branches.
+    checkExists (fst $ dummyPair 1) (snd $ dummyPair 1) branch0
+    checkExists (fst $ dummyPair 1) (snd $ dummyPair 1) branch1
+    -- Check that we cannot lookup elements from a different branch.
+    checkNotExists (fst $ dummyPair 2) branch1
+    checkNotExists (fst $ dummyPair 3) branch0
+  where
+    checkExists addr expectedAccIdx diffMap =
+        testDoLookup addr diffMap >>= \case
+            Just accIdx -> liftIO $ assertEqual "Account index should match" expectedAccIdx accIdx
+            Nothing -> liftIO $ assertFailure "Expected an entry"
+    checkNotExists addr diffMap =
+        testDoLookup addr diffMap >>= \case
+            Just _ -> liftIO $ assertFailure "Did not expect an entry"
+            Nothing -> return ()
+
+-- | Test the 'fromList' function.
+testFromList :: Assertion
+testFromList = do
+    emptyRoot <- liftIO DiffMap.newEmptyReference
+    -- check creating from empty list
+    let emptyDiffMap = DiffMap.empty emptyRoot
+    liftIO $ assertBool "fromList on empty list should yield the empty difference map" (emptyDiffMap == DiffMap.fromList emptyRoot [])
+    -- check for a difference map with 1 element.
+    let nonEmptyDiffMap = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyRoot
+    liftIO $ assertBool "fromList on empty list should yield the empty difference map" (nonEmptyDiffMap == DiffMap.fromList emptyRoot [dummyPair 1])
+
 tests :: Spec
 tests = describe "AccountMap.DifferenceMap" $ do
     it "Test insert and lookup account" testInsertLookupAccount
     it "test lookups" testLookups
     it "Test flatten" testFlatten
+    it "test lookups on branches" testMultipleChildrenDifferenceMaps
+    it "test fromList" testFromList
     insertionsAndLookups

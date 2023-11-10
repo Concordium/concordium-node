@@ -41,7 +41,6 @@ module Concordium.GlobalState.Persistent.BlockState (
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
-import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
@@ -80,7 +79,6 @@ import Concordium.Types.Execution (DelegationTarget (..), TransactionIndex, Tran
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.IdentityProviders as IPS
-import Concordium.Types.Option (Option (..))
 import Concordium.Types.Queries (CurrentPaydayBakerPoolStatus (..), PoolStatus (..), RewardStatus' (..), makePoolPendingChange)
 import Concordium.Types.SeedState
 import qualified Concordium.Types.Transactions as Transactions
@@ -1688,7 +1686,8 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                             liftBSO $
                                 refMake $
                                     activeBkrs
-                                        & totalActiveCapital %~ addActiveCapital (capital - _stakedAmount oldBkr)
+                                        & totalActiveCapital
+                                            %~ addActiveCapital (capital - _stakedAmount oldBkr)
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
                         return $ setAccountStake capital
@@ -2199,6 +2198,19 @@ doMint pbs mint = do
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)
     storePBS pbs (bsp{bspBank = newBank, bspAccounts = newAccounts})
+
+doSafeMintToAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountIndex -> Amount -> m (Either Amount (PersistentBlockState pv))
+doSafeMintToAccount pbs acctIdx mintAmt = do
+    bsp <- loadPBS pbs
+    let currentSupply = bspBank bsp ^. unhashed . Rewards.totalGTU
+    let maxMintAmount = maxBound - currentSupply
+    if maxMintAmount >= mintAmt
+        then do
+            let newBank = bspBank bsp & unhashed . Rewards.totalGTU +~ mintAmt
+            let updAcc = addAccountAmount mintAmt
+            newAccounts <- Accounts.updateAccountsAtIndex' updAcc acctIdx (bspAccounts bsp)
+            Right <$> storePBS pbs (bsp{bspBank = newBank, bspAccounts = newAccounts})
+        else return $ Left maxMintAmount
 
 doGetAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountAddress -> m (Maybe (AccountIndex, PersistentAccount (AccountVersionFor pv)))
 doGetAccount pbs addr = do
@@ -3513,6 +3525,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoRewardFoundationAccount = doRewardFoundationAccount
     bsoGetFoundationAccount = doGetFoundationAccount
     bsoMint = doMint
+    bsoMintToAccount = doSafeMintToAccount
     bsoGetIdentityProvider = doGetIdentityProvider
     bsoGetAnonymityRevokers = doGetAnonymityRevokers
     bsoGetCryptoParams = doGetCryptoParams
@@ -3574,7 +3587,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     saveAccounts HashedPersistentBlockState{..} = do
         -- this load should be cheap as the blockstate is in memory.
         accs <- bspAccounts <$> loadPBS hpbsPointers
-        -- write the accounts that was created in the block and
+        -- write the accounts that were created in the block and
         -- potentially non-finalized parent blocks.
         -- Note that this also empties the difference map for the
         -- block.
@@ -3604,7 +3617,11 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     cacheBlockState = cacheState
 
     cacheBlockStateAndGetTransactionTable = cacheStateAndGetTransactionTable
-    tryPopulateAccountMap = doTryPopulateAccountMap
+    tryPopulateAccountMap HashedPersistentBlockState{..} = do
+        -- load the top level references and write the accounts to the LMDB backed
+        -- account map (if this has not already been done).
+        BlockStatePointers{..} <- loadPBS hpbsPointers
+        LMDBAccountMap.tryPopulateLMDBStore bspAccounts
 
 -- | Migrate the block state from the representation used by protocol version
 --  @oldpv@ to the one used by protocol version @pv@. The migration is done gradually,
@@ -3717,17 +3734,9 @@ doThawBlockState ::
     HashedPersistentBlockState pv ->
     m (PersistentBlockState pv)
 doThawBlockState HashedPersistentBlockState{..} = do
-    -- This load is cheap as the underlying block state is retained in memory as we're building from it, so it must be the "best" block.
-    bsp@BlockStatePointers{bspAccounts = a0@Accounts.Accounts{..}} <- loadPBS hpbsPointers
-    mDiffMap <- liftIO $ readIORef accountDiffMapRef
-    newDiffMapRef <- case mDiffMap of
-        -- reuse the reference pointing to @Nothing@.
-        Absent -> return accountDiffMapRef
-        Present _ -> do
-            -- create a new reference pointing to
-            -- a new difference map which inherits the parent difference map.
-            liftIO $ newIORef $ Present (DiffMap.empty accountDiffMapRef)
-    let bsp' = bsp{bspAccounts = a0{Accounts.accountDiffMapRef = newDiffMapRef}}
+    bsp@BlockStatePointers{..} <- loadPBS hpbsPointers
+    bspAccounts' <- Accounts.mkNewChildDifferenceMap bspAccounts
+    let bsp' = bsp{bspAccounts = bspAccounts'}
     liftIO $ newIORef =<< makeBufferedRef bsp'
 
 -- | Cache the block state.
@@ -3770,11 +3779,6 @@ cacheState hpbs = do
                   bspRewardDetails = red
                 }
     return ()
-
-doTryPopulateAccountMap :: (SupportsPersistentState pv m) => HashedPersistentBlockState pv -> m ()
-doTryPopulateAccountMap HashedPersistentBlockState{..} = do
-    BlockStatePointers{..} <- loadPBS hpbsPointers
-    LMDBAccountMap.tryPopulateLMDBStore bspAccounts
 
 -- | Cache the block state and get the initial (empty) transaction table with the next account nonces
 --  and update sequence numbers populated.

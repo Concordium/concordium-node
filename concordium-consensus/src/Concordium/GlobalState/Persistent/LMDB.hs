@@ -25,7 +25,6 @@ module Concordium.GlobalState.Persistent.LMDB (
     closeDatabase,
     addDatabaseVersion,
     checkDatabaseVersion,
-    resizeOnResized,
     finalizedByHeightStore,
     StoredBlock (..),
     StoredBlockWithStateHash (..),
@@ -317,14 +316,19 @@ metadataStoreName = "metadata"
 databaseCount :: Int
 databaseCount = 5
 
+-- | Default start environment size.
+--  Tree state database sizes for historical protocol versions have been between 7-60 times
+--  the 'defaultEnvSize'.
+defaultEnvSize :: Int
+defaultEnvSize = 2 ^ (26 :: Int) -- 64MB
+
 -- | Initialize database handlers in ReadWrite mode.
 --  This simply loads the references and does not initialize the databases.
---  The initial size is set to 128MB.
 databaseHandlers :: FilePath -> IO (DatabaseHandlers pv st)
 databaseHandlers treeStateDir = makeDatabaseHandlers treeStateDir False defaultEnvSize
 
 -- | Initialize database handlers.
---  The size will be rounded up to a multiple of 'dbStepSize'.
+--  The size will be rounded up to a multiple of 'seStepSize'.
 --  (This ensures in particular that the size is a multiple of the page size, which is required by
 --  LMDB.)
 makeDatabaseHandlers ::
@@ -332,14 +336,15 @@ makeDatabaseHandlers ::
     FilePath ->
     -- | Open read only
     Bool ->
-    -- | Initital database size
+    -- | Initial database size
     Int ->
     IO (DatabaseHandlers pv st)
 makeDatabaseHandlers treeStateDir readOnly initSize = do
     _storeEnv <- makeStoreEnv
     -- here nobody else has access to the environment, so we need not lock
     let env = _storeEnv ^. seEnv
-    mdb_env_set_mapsize env initSize
+        stepSize = _storeEnv ^. seStepSize
+    mdb_env_set_mapsize env (initSize + stepSize - initSize `mod` stepSize)
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     -- TODO: Consider MDB_NOLOCK
@@ -372,7 +377,7 @@ openReadOnlyDatabase ::
 openReadOnlyDatabase treeStateDir = do
     _storeEnv <- makeStoreEnv
     let env = _storeEnv ^. seEnv
-    mdb_env_set_mapsize env defaultStepSize
+    mdb_env_set_mapsize env defaultEnvSize
     mdb_env_set_maxdbs env databaseCount
     mdb_env_set_maxreaders env 126
     -- TODO: Consider MDB_NOLOCK
