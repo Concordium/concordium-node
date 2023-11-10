@@ -10,9 +10,7 @@ import Control.Monad.State
 import Control.Monad.Writer.Class
 import Data.Foldable
 import Data.Time
-import qualified Data.Vector as Vec
 import Test.HUnit
-import Test.Hspec
 
 import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as H
@@ -33,7 +31,6 @@ import Concordium.Types
 import Concordium.Types.BakerIdentity
 import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.HashableTo
-import Concordium.Types.Option
 import Concordium.Types.Transactions
 import qualified Concordium.Types.Transactions as Transactions
 

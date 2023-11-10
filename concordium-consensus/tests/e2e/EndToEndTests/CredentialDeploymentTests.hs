@@ -1,10 +1,14 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 -- | End to end tests for credential deployments.
 module EndToEndTests.CredentialDeploymentTests (tests) where
 
 import Control.Monad.IO.Class
+import qualified Data.Aeson as AE
+import qualified Data.ByteString.Lazy as BSL
+import Data.FileEmbed
 import qualified Data.Map.Strict as Map
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
@@ -13,6 +17,7 @@ import Test.HUnit
 import Test.Hspec
 
 import Concordium.Common.Time
+import Concordium.Common.Version
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -44,40 +49,19 @@ credBi =
     tt = utcTimeToTransactionTime testTime
     regId seed = RegIdCred $ generateGroupElementFromSeed dummyGlobalContext seed
     accCreation :: AccountCreation
-    accCreation =
-        AccountCreation
-            { messageExpiry = tt + 1,
-              credential =
-                InitialACWP
-                    InitialCredentialDeploymentInfo
-                        { icdiValues =
-                            InitialCredentialDeploymentValues
-                                { icdvAccount = mkCredentialPublicKeys,
-                                  icdvRegId = regId 42,
-                                  icdvIpId = IP_ID 0,
-                                  icdvPolicy = pol
-                                },
-                          icdiSig =
-                            IpCdiSignature
-                                { theSignature = "invalid signature"
-                                }
-                        }
-            }
+    accCreation = icdi1
 
-    pol =
-        Policy
-            { pValidTo =
-                YearMonth
-                    { ymYear = 2070,
-                      ymMonth = 1
-                    },
-              pCreatedAt =
-                YearMonth
-                    { ymYear = 2021,
-                      ymMonth = 1
-                    },
-              pItems = Map.empty
-            }
+-- | Helper for reading an 'AccountCreation' from a 'ByteString'.
+readAccountCreation :: BSL.ByteString -> AccountCreation
+readAccountCreation bs =
+    case AE.eitherDecode bs of
+        Left err -> error $ "Cannot read account creation " ++ err
+        Right d -> if vVersion d == 0 then vValue d else error "Incorrect account creation version."
+
+-- | A valid initial credential deployment.
+{-# WARNING icdi1 "Do not use in production." #-}
+icdi1 :: AccountCreation
+icdi1 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/initial-credential-1.json" >>= embedFile)
 
 -- | Valid block for round 1 with 1 credential deployment.
 testBB1 :: BakedBlock
@@ -92,8 +76,8 @@ testBB1 =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.fromList [credBi],
-          bbTransactionOutcomesHash = read "d270b085491bc5b52d7791e7364897b120002032ac8de60af8984890d02c0a03",
-          bbStateHash = read "ff2aae922111fb0b95d1736e02e641753bdf4e5b10d09ec2e9d9bf5096a09e96"
+          bbTransactionOutcomesHash = read "b9444648bf759471276fdba1930af0c543847d22de89c27939791898d757516d",
+          bbStateHash = read "b8bc96ec5f162db36784ea96ec29e3e8ad92abff341a6847e3bf524fdada28ff"
         }
   where
     bakerId = 2
@@ -112,7 +96,7 @@ testBB2 =
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
-          bbStateHash = read "22e786ad9aff80596e1b315b5d26b812693a804928c2709bd59ab6cee340b572"
+          bbStateHash = read "798d5089818bcc7b8873e2585fb4fbf3d4dceffca32531259f466e7c435c8817"
         }
   where
     bakerId = 4
@@ -131,7 +115,7 @@ testBB3 =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbTransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
-          bbStateHash = read "0c6e7c833e91c8d04b15dc345faa3a6d80ee9b1ed1a16437d245931f2a97744f"
+          bbStateHash = read "4da0deab5b564cd77c617a2ac7dc8a6064f87e99b09e58c87b5f9e687db2197a"
         }
   where
     bakerId = 4
