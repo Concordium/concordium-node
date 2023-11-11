@@ -753,15 +753,13 @@ getNextAccountNonce ::
     SkovData (MPV m) ->
     -- | The resulting account nonce and whether it is finalized or not.
     m (Nonce, Bool)
-getNextAccountNonce addr sd = do
-    case sd ^. transactionTable . TT.ttNonFinalizedTransactions ^? ix addr of
-        Nothing -> lookupViaLfb
-        Just anfts ->
-            case Map.lookupMax (anfts ^. TT.anftMap) of
-                Nothing -> return (anfts ^. TT.anftNextNonce, True)
-                Just (nonce, _) -> return (nonce + 1, False)
+getNextAccountNonce addr sd =
+    fetchFromTransactionTable >>= \case
+        Just ttResult -> return ttResult
+        Nothing -> fetchFromLastFinalizedBlock
   where
-    lookupViaLfb = do
+    fetchFromTransactionTable = return $! nextAccountNonce addr (sd ^. transactionTable)
+    fetchFromLastFinalizedBlock = do
         macct <- getAccount (sd ^. lastFinalized . to bpState) (aaeAddress addr)
         nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
         return (nextNonce, True)
@@ -789,7 +787,7 @@ finalizeTransactions = do
         let nonce = transactionNonce tr
             sender = accountAddressEmbed (transactionSender tr)
         (nextNonce, _) <- getNextAccountNonce sender =<< get
-        unless ((nextNonce - 1) == nonce) $
+        unless (nextNonce == nonce) $
             throwM . TreeStateInvariantViolation $
                 "The recorded next nonce for the account "
                     ++ show sender
@@ -810,7 +808,7 @@ finalizeTransactions = do
         -- from the transaction table.
         -- They can never be part of any other block after this point.
         forM_ (Map.keys nfn) $
-            \deadTransaction -> transactionTable . TT.ttHashMap . at' (getHash deadTransaction) .= Nothing
+          \deadTransaction -> transactionTable . TT.ttHashMap . at' (getHash deadTransaction) .= Nothing
         -- Update the non-finalized transactions for the sender
         transactionTable
             . TT.ttNonFinalizedTransactions
@@ -818,7 +816,7 @@ finalizeTransactions = do
             ?=! ( anft
                     & (TT.anftMap . at' nonce .~ Nothing)
                     & (TT.anftNextNonce .~ nonce + 1)
-                )
+                ) 
     removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
         transactionTable . TT.ttHashMap . at' wmdHash .= Nothing
     removeTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do

@@ -937,7 +937,7 @@ instance
             let nonce = transactionNonce tr
                 sender = accountAddressEmbed (transactionSender tr)
             (nextNonce, _) <- doGetNextAccountNonce sender
-            if nextNonce - 1 == nonce
+            if nextNonce == nonce
                 then do
                     anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                     let nfn = anft ^. anftMap . at' nonce . non Map.empty
