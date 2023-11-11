@@ -714,15 +714,15 @@ testGetNonFinalizedCredential = describe "getNonFinalizedCredential" $ do
 --  the correct next account nonce.
 testGetNextAccountNonce :: Spec
 testGetNextAccountNonce = describe "getNextAccountNonce" $ do
-    it "with non-finalized" $
-        getNextAccountNonce (accountAddressEmbed dummyAccountAddress) sd
-            `shouldBe` (4, False)
-    it "with no transactions" $
-        getNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 1)) sd
-            `shouldBe` (minNonce, True)
-    it "with finalized transactions" $
-        getNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 2)) sd
-            `shouldBe` (7, True)
+    it "with non-finalized" $ do
+        n0 <- getNextAccountNonce (accountAddressEmbed dummyAccountAddress) sd
+        n0 `shouldBe` (4, False)
+    it "with no transactions" $ do
+        n1 <- getNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 1)) sd
+        n1 `shouldBe` (minNonce, True)
+    it "with finalized transactions" $ do
+        n2 <- getNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 2)) sd
+        n2 `shouldBe` (7, True)
   where
     addTrans n = snd . TT.addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
     sd =
