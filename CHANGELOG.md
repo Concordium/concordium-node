@@ -4,7 +4,8 @@
 
 - Remove V1 GRPC API from the node. This removes configuration options
   `CONCORDIUM_NODE_RPC_SERVER_PORT`, `CONCORDIUM_NODE_RPC_SERVER_ADDRESS`, 
-  `CONCORDIUM_NODE_RPC_SERVER_TOKEN`.
+  `CONCORDIUM_NODE_RPC_SERVER_TOKEN`, `CONCORDIUM_NODE_DISABLE_RPC_SERVER_NODE_ENDPOINTS`
+  and their command line equivalents.
 
 ## 6.2.0
 
