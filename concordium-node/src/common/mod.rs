@@ -1,6 +1,5 @@
 //! Common objects used by the client.
 
-pub mod grpc_api;
 pub mod p2p_node_id;
 pub mod p2p_peer;
 #[macro_use]

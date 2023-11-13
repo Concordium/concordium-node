@@ -12,34 +12,9 @@ EXPORTS
  receiveFinalizationMessage
  receiveFinalizationRecord
  receiveTransaction
- getConsensusStatus
- getBlockInfo
- getAncestors
- getBranches
  getNumberOfNonFinalizedTransactions
  getCatchUpStatus
  receiveCatchUpStatus
- getAccountList
- getInstances
- getAccountInfo
- getInstanceInfo
- invokeContract
- getRewardStatus
- getBirkParameters
- getModuleList
- getModuleSource
- getBakerList
- getPoolStatus
- getTransactionStatus
- getTransactionStatusInBlock
- getAccountNonFinalizedTransactions
- getBlockSummary
- getNextAccountNonce
- getBlocksAtHeight
- getLastFinalizedBlockHeight
- getAllIdentityProviders
- getAllAnonymityRevokers
- getCryptographicParameters
  bakerStatusBestBlock
  checkIfWeAreFinalizer
  checkIfRunning

@@ -45,11 +45,3 @@ This variable is set as a percentage wrt. `CONCORDIUM_NODE_CONNECTION_DESIRED_NO
 This should be set a bit higher than the maximum number of nodes, so that new peers are accepted and discovered over time. The default value is 20. 
 
 - `CONCORDIUM_NODE_CONNECTION_THREAD_POOL_SIZE` Specifies the thread pool size of the node for handling connection events in parallel. The default value is 4. 
-
-## gRPC
-Configuration parameters related to the built-in gRPC server.
-
-- `CONCORDIUM_NODE_RPC_SERVER_ADDR` Is the listen address of the node's gRPC V1 server.
-
-- `CONCORDIUM_NODE_RPC_SERVER_PORT` Is the listen port of the node's gRPC server.
-(Note if `CONCORDIUM_NODE_RPC_SERVER_ADDR` or `CONCORDIUM_NODE_RPC_SERVER_PORT` are changed, then the variable `CONCORDIUM_NODE_COLLECTOR_GRPC_HOST` must be changed accordingly for the node-collector-service)

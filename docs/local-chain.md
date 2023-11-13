@@ -41,7 +41,8 @@ cargo run --release -- \
    --genesis-data-file /path/to/genesis.dat \
    --no-bootstrap= \
    --listen-port 8000 \
-   --rpc-server-port 7000 \
+   --grpc2-listen-port 7000 \
+   --grpc2-listen-addr 127.0.0.1 \
    --data-dir node-0 \
    --config-dir node-0 \
    --debug=
@@ -58,7 +59,8 @@ cargo run --release -- \
    --genesis-data-file /path/to/genesis.dat \
    --no-bootstrap= \
    --listen-port 8000 \
-   --rpc-server-port 7000 \
+   --grpc2-listen-port 7000 \
+   --grpc2-listen-addr 127.0.0.1 \
    --data-dir node-0 \
    --config-dir node-0 \
    --baker-credentials-file /path/bakers/baker-0-credentials.json \
@@ -80,7 +82,8 @@ cargo run --release -- \
    --genesis-data-file /path/to/genesis.dat \
    --no-bootstrap= \
    --listen-port 8000 \
-   --rpc-server-port 7000 \
+   --grpc2-listen-port 7000 \
+   --grpc2-listen-addr 127.0.0.1 \
    --data-dir node-0 \
    --config-dir node-0 \
    --baker-credentials-file /path/bakers/baker-0-credentials.json \
@@ -97,7 +100,8 @@ cargo run --release -- \
    --genesis-data-file /path/to/genesis.dat \
    --no-bootstrap= \
    --listen-port 8001 \
-   --rpc-server-port 7001 \
+   --grpc2-listen-port 7001 \
+   --grpc2-listen-addr 127.0.0.1 \
    --data-dir node-1 \
    --config-dir node-1 \
    --baker-credentials-file /path/bakers/baker-1-credentials.json \
