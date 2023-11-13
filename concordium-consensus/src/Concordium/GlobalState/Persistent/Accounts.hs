@@ -166,8 +166,7 @@ writeAccountsCreated Accounts{..} = do
 --  has a reference to the difference map of the provided @Accounts pv@.
 mkNewChildDifferenceMap :: (SupportsPersistentAccount pv m) => Accounts pv -> m (Accounts pv)
 mkNewChildDifferenceMap accts@Accounts{..} = do
-    emptyDiffMap <- DiffMap.empty accountDiffMapRef
-    newDiffMapRef <- liftIO $ newIORef $ Present emptyDiffMap
+    newDiffMapRef <- liftIO $ newIORef $ Present $ DiffMap.empty accountDiffMapRef
     return accts{accountDiffMapRef = newDiffMapRef}
 
 -- | Create and set the 'DiffMap.DifferenceMap' for the provided @Accounts pv@.
@@ -197,7 +196,7 @@ reconstructDifferenceMap parentRef listOfAccounts Accounts{..} = do
     -- in order to the obtain the account indices we subtract the number of accounts missing
     -- missing in the lmdb account map from the total number of accounts, hence obtaining the first @AccountIndex@
     -- to use for adding new accounts to the lmdb backed account map.
-    diffMap' <- DiffMap.fromList parentRef $ zip listOfAccounts [AccountIndex (L.size accountTable - fromIntegral (length listOfAccounts)) ..]
+    let diffMap' = DiffMap.fromList parentRef $ zip listOfAccounts [AccountIndex (L.size accountTable - fromIntegral (length listOfAccounts)) ..]
     liftIO $ atomicWriteIORef accountDiffMapRef $ Present diffMap'
     return accountDiffMapRef
 
@@ -268,8 +267,7 @@ putNewAccount !acct a0@Accounts{..} = do
                 Absent -> do
                     -- create a difference map for this block state with an @Absent@ as the parent.
                     freshDifferenceMap <- liftIO DiffMap.newEmptyReference
-                    emptyDiffMap <- DiffMap.empty freshDifferenceMap
-                    return $ DiffMap.insert addr accIdx emptyDiffMap
+                    return $ DiffMap.insert addr accIdx $ DiffMap.empty freshDifferenceMap
                 Present accDiffMap -> do
                     -- reuse the already existing difference map for this block state.
                     return $ DiffMap.insert addr accIdx accDiffMap
@@ -313,12 +311,14 @@ getAccountIndex addr Accounts{..} = do
                     DiffMap.lookupViaEquivalenceClass (accountAddressEmbed addr) accDiffMap >>= \case
                         Just accIdx -> return $ Just accIdx
                         Nothing -> do
-                            lookupDisk $! DiffMap.getNumberOfAccounts accDiffMap
+                            diffMapSize <- length <$> DiffMap.flatten accDiffMap
+                            lookupDisk $ fromIntegral diffMapSize
                 else
                     DiffMap.lookupExact addr accDiffMap >>= \case
                         Just accIdx -> return $ Just accIdx
                         Nothing -> do
-                            lookupDisk $! DiffMap.getNumberOfAccounts accDiffMap
+                            diffMapSize <- length <$> DiffMap.flatten accDiffMap
+                            lookupDisk $ fromIntegral diffMapSize
   where
     -- Lookup the 'AccountIndex' in the lmdb backed account map,
     -- and make sure it's within the bounds of the account table.

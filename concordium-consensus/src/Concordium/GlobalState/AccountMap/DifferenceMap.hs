@@ -18,10 +18,7 @@ module Concordium.GlobalState.AccountMap.DifferenceMap (
     -- Get a list of all @(AccountAddress, AccountIndex)@ pairs for the
     --  provided 'DifferenceMap' and all parent maps.
     flatten,
-    -- Get the number of accounts present in the provided
-    -- difference map or any of its parents.
-    getNumberOfAccounts,
-    -- Create an empty 'DifferenceMap'.
+    -- Create an empty 'DifferenceMap'
     empty,
     -- Set the accounts int he 'DifferenceMap'.
     fromList,
@@ -42,11 +39,10 @@ import Control.Monad.IO.Class
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import Data.Tuple (swap)
-import Data.Word
 import Prelude hiding (lookup)
 
 import Concordium.Types
-import Concordium.Types.Option (Option (..), ofOption)
+import Concordium.Types.Option (Option (..))
 
 -- | A mutable reference to a 'DiffMap.DifferenceMap'.
 --  This is an 'IORef' since the parent map may belong
@@ -64,9 +60,7 @@ newEmptyReference = liftIO $ newIORef Absent
 --  a block identified by a 'BlockHash' and its associated 'BlockHeight'.
 --  The difference map only contains accounts that were added since the '_dmParentMapRef'.
 data DifferenceMap = DifferenceMap
-    { -- | Number of accounts in the parent map(s).
-      dmAccountsInParent :: !Word64,
-      -- | Accounts added in a block keyed by their equivalence class and
+    { -- | Accounts added in a block keyed by their equivalence class and
       --  the @AccountIndex@ and canonical account adddress as values.
       dmAccounts :: !(HM.HashMap AccountAddressEq (AccountIndex, AccountAddress)),
       -- | Parent map of non-finalized blocks.
@@ -76,11 +70,6 @@ data DifferenceMap = DifferenceMap
       dmParentMapRef :: !DifferenceMapReference
     }
     deriving (Eq)
-
--- | Get the number of accounts present in the provided 'DifferenceMap'
---  and its parent(s).
-getNumberOfAccounts :: DifferenceMap -> Word64
-getNumberOfAccounts DifferenceMap{..} = dmAccountsInParent + (fromIntegral $! HM.size dmAccounts)
 
 -- | Gather all accounts from the provided 'DifferenceMap' and its parent maps.
 --  Accounts are returned in ascending order of their 'AccountAddress'.
@@ -99,16 +88,12 @@ flatten dmap = go dmap []
 
 -- | Create a new empty 'DifferenceMap' potentially based on the difference map of
 -- the parent.
-empty :: (MonadIO m) => DifferenceMapReference -> m DifferenceMap
-empty parentRef = do
-    parentDiffMap <- liftIO $ readIORef parentRef
-    let accsInParent = ofOption 0 getNumberOfAccounts parentDiffMap
-    return
-        DifferenceMap
-            { dmAccountsInParent = accsInParent,
-              dmAccounts = HM.empty,
-              dmParentMapRef = parentRef
-            }
+empty :: DifferenceMapReference -> DifferenceMap
+empty mParentDifferenceMap =
+    DifferenceMap
+        { dmAccounts = HM.empty,
+          dmParentMapRef = mParentDifferenceMap
+        }
 
 -- | Internal helper function for looking up an entry in @dmAccounts@.
 lookupViaEquivalenceClass' :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Maybe (AccountIndex, AccountAddress))
@@ -153,16 +138,12 @@ insert :: AccountAddress -> AccountIndex -> DifferenceMap -> DifferenceMap
 insert addr accIndex m = m{dmAccounts = HM.insert (accountAddressEmbed addr) (accIndex, addr) $ dmAccounts m}
 
 -- | Create a 'DifferenceMap' with the provided parent and list of account addresses and account indices.
-fromList :: (MonadIO m) => IORef (Option DifferenceMap) -> [(AccountAddress, AccountIndex)] -> m DifferenceMap
-fromList parentRef listOfAccountsAndIndices = do
-    parentDiffMap <- liftIO $ readIORef parentRef
-    let accsInParent = ofOption 0 dmAccountsInParent parentDiffMap
-    return
-        DifferenceMap
-            { dmAccountsInParent = accsInParent,
-              dmAccounts = HM.fromList $ map mkKeyVal listOfAccountsAndIndices,
-              dmParentMapRef = parentRef
-            }
+fromList :: IORef (Option DifferenceMap) -> [(AccountAddress, AccountIndex)] -> DifferenceMap
+fromList parentRef listOfAccountsAndIndices =
+    DifferenceMap
+        { dmAccounts = HM.fromList $ map mkKeyVal listOfAccountsAndIndices,
+          dmParentMapRef = parentRef
+        }
   where
     -- Make a key value pair to put in the @dmAccounts@.
     mkKeyVal (accAddr, accIdx) = (accountAddressEmbed accAddr, (accIdx, accAddr))
