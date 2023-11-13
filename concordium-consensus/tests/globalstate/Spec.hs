@@ -34,20 +34,20 @@ atLevel a = do
 
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
-    -- GlobalStateTests.BlockHash.tests
-    -- GlobalStateTests.Cache.tests
-    -- GlobalStateTests.LFMBTree.tests
+    GlobalStateTests.BlockHash.tests
+    GlobalStateTests.Cache.tests
+    GlobalStateTests.LFMBTree.tests
     GlobalStateTests.Accounts.tests lvl
-    -- GlobalStateTests.Trie.tests
-    -- GlobalStateTests.PersistentTreeState.tests
-    -- GlobalStateTests.FinalizationSerializationSpec.tests
-    -- GlobalStateTests.Instances.tests lvl
-    -- GlobalStateTests.AccountReleaseScheduleTest.tests
-    -- GlobalStateTests.AccountReleaseScheduleMigration.tests
-    -- GlobalStateTests.Updates.tests
-    -- GlobalStateTests.AccountMap.tests lvl
-    -- GlobalStateTests.EnduringDataFlags.tests
-    -- GlobalStateTests.BlobStore.tests
-    -- GlobalStateTests.UpdateQueues.tests
+    GlobalStateTests.Trie.tests
+    GlobalStateTests.PersistentTreeState.tests
+    GlobalStateTests.FinalizationSerializationSpec.tests
+    GlobalStateTests.Instances.tests lvl
+    GlobalStateTests.AccountReleaseScheduleTest.tests
+    GlobalStateTests.AccountReleaseScheduleMigration.tests
+    GlobalStateTests.Updates.tests
+    GlobalStateTests.AccountMap.tests lvl
+    GlobalStateTests.EnduringDataFlags.tests
+    GlobalStateTests.BlobStore.tests
+    GlobalStateTests.UpdateQueues.tests
     GlobalStateTests.LMDBAccountMap.tests
     GlobalStateTests.DifferenceMap.tests
