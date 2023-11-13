@@ -1181,6 +1181,7 @@ putBakerCommissionsInRange ranges bs (BakerId ai) = case protocolVersion @(MPV m
     SP4 -> bsoConstrainBakerCommission bs ai ranges
     SP5 -> bsoConstrainBakerCommission bs ai ranges
     SP6 -> bsoConstrainBakerCommission bs ai ranges
+    SP7 -> bsoConstrainBakerCommission bs ai ranges
 
 -- | The result of executing the block prologue.
 data PrologueResult m = PrologueResult
