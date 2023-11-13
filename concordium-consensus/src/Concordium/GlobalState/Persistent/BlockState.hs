@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -30,7 +31,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     PersistentState,
     BlockRewardDetails (..),
     PersistentBlockStateMonad (..),
-    withNewAccountCache,
+    withNewAccountCacheAndLMDBAccountMap,
     cacheState,
     cacheStateAndGetTransactionTable,
     migratePersistentBlockState,
@@ -40,6 +41,7 @@ module Concordium.GlobalState.Persistent.BlockState (
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
@@ -48,6 +50,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
 import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
@@ -86,7 +89,8 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
-
+import Control.Exception
+import qualified Control.Monad.Catch as MonadCatch
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
@@ -102,6 +106,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform
+import System.Directory (removeDirectoryRecursive)
 
 -- * Birk parameters
 
@@ -867,6 +872,7 @@ bspPoolRewards bsp = case bspRewardDetails bsp of
     BlockRewardDetailsV1 pr -> pr
 
 -- | An initial 'HashedPersistentBlockState', which may be used for testing purposes.
+{-# WARNING initialPersistentState "should only be used for testing" #-}
 initialPersistentState ::
     (SupportsPersistentState pv m) =>
     SeedState (SeedStateVersionFor pv) ->
@@ -888,7 +894,6 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     updates <- refMake =<< initialUpdates keysCollection chainParams
     releaseSchedule <- emptyReleaseSchedule
     red <- emptyBlockRewardDetails
-
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -927,10 +932,11 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bspUpdates <- refMake =<< initialUpdates keysCollection chainParams
     bspReleaseSchedule <- emptyReleaseSchedule
     bspRewardDetails <- emptyBlockRewardDetails
+    bspAccounts <- Accounts.emptyAccounts
     bsp <-
         makeBufferedRef $
             BlockStatePointers
-                { bspAccounts = Accounts.emptyAccounts,
+                { bspAccounts = bspAccounts,
                   bspInstances = Instances.emptyInstances,
                   bspModules = modules,
                   bspBank = makeHashed Rewards.emptyBankStatus,
@@ -2245,11 +2251,6 @@ doAccountList pbs = do
     bsp <- loadPBS pbs
     Accounts.accountAddresses (bspAccounts bsp)
 
-doAddressWouldClash :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountAddress -> m Bool
-doAddressWouldClash pbs addr = do
-    bsp <- loadPBS pbs
-    Accounts.addressWouldClash addr (bspAccounts bsp)
-
 doRegIdExists :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
     bsp <- loadPBS pbs
@@ -3308,8 +3309,13 @@ data PersistentBlockStateContext pv = PersistentBlockStateContext
       -- | Cache used for caching accounts.
       pbscAccountCache :: !(AccountCache (AccountVersionFor pv)),
       -- | Cache used for caching modules.
-      pbscModuleCache :: !Modules.ModuleCache
+      pbscModuleCache :: !Modules.ModuleCache,
+      -- | LMDB account map
+      pbscAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
+
+instance LMDBAccountMap.HasDatabaseHandlers (PersistentBlockStateContext pv) where
+    databaseHandlers = lens pbscAccountMap (\s v -> s{pbscAccountMap = v})
 
 instance HasBlobStore (PersistentBlockStateContext av) where
     blobStore = bscBlobStore . pbscBlobStore
@@ -3325,16 +3331,23 @@ instance Cache.HasCache Modules.ModuleCache (PersistentBlockStateContext pv) whe
 instance (IsProtocolVersion pv) => MonadProtocolVersion (BlobStoreT (PersistentBlockStateContext pv) m) where
     type MPV (BlobStoreT (PersistentBlockStateContext pv) m) = pv
 
--- | Create a new account cache of the specified size for running the given monadic operation by
+-- | Create a new account cache of the specified size and a temporary 'LMDBAccountMap' for running the given monadic operation by
 --  extending the 'BlobStore' context to a 'PersistentBlockStateContext'.
-withNewAccountCache :: (MonadIO m) => Int -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
-withNewAccountCache size bsm = do
-    ac <- liftIO $ newAccountCache size
-    mc <- liftIO $ Modules.newModuleCache 100
-    alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc) bsm
+-- Note. this function should only be used for tests.
+withNewAccountCacheAndLMDBAccountMap :: (MonadIO m, MonadCatch.MonadMask m) => Int -> FilePath -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
+withNewAccountCacheAndLMDBAccountMap size lmdbAccountMapDir bsm = MonadCatch.bracket openLmdbAccMap closeLmdbAccMap runAction
+  where
+    openLmdbAccMap = liftIO $ LMDBAccountMap.openDatabase lmdbAccountMapDir
+    closeLmdbAccMap handlers = liftIO $ do
+        LMDBAccountMap.closeDatabase handlers
+        removeDirectoryRecursive lmdbAccountMapDir `catch` (\(e :: IOException) -> liftIO $ void $ print e)
+    runAction lmdbAccMap = do
+        ac <- liftIO $ newAccountCache size
+        mc <- liftIO $ Modules.newModuleCache 100
+        alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc lmdbAccMap) bsm
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) (r :: Type) (m :: Type -> Type) (a :: Type) = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger, TimeMonad, MTL.MonadState s)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger, TimeMonad, MTL.MonadState s, MonadCatch.MonadCatch, MonadCatch.MonadThrow)
 
 type PersistentState av pv r m =
     ( MonadIO m,
@@ -3342,7 +3355,9 @@ type PersistentState av pv r m =
       HasBlobStore r,
       AccountVersionFor pv ~ av,
       Cache.HasCache (AccountCache av) r,
-      Cache.HasCache Modules.ModuleCache r
+      Cache.HasCache Modules.ModuleCache r,
+      LMDBAccountMap.HasDatabaseHandlers r,
+      MonadLogger m
     )
 
 instance MonadTrans (PersistentBlockStateMonad pv r) where
@@ -3354,6 +3369,8 @@ instance (PersistentState av pv r m) => MonadBlobStore (PutH (PersistentBlockSta
 
 instance (PersistentState av pv r m) => Cache.MonadCache (AccountCache av) (PersistentBlockStateMonad pv r m)
 instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
+
+deriving via (LMDBAccountMap.AccountMapStoreMonad m) instance (MonadIO m, MonadLogger m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m)
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
@@ -3475,7 +3492,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetAccountIndex = doGetAccountIndex
     bsoGetAccountByIndex = doGetAccountByIndex
     bsoGetInstance = doGetInstance
-    bsoAddressWouldClash = doAddressWouldClash
+    bsoAddressWouldClash = doGetAccountExists
     bsoRegIdExists = doRegIdExists
     bsoCreateAccount = doCreateAccount
     bsoPutNewInstance = doPutNewInstance
@@ -3546,10 +3563,9 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
-    thawBlockState HashedPersistentBlockState{..} =
-        liftIO $ newIORef =<< readIORef hpbsPointers
+    thawBlockState = doThawBlockState
 
-    freezeBlockState pbs = hashBlockState pbs
+    freezeBlockState = hashBlockState
 
     dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
 
@@ -3567,6 +3583,19 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         liftIO $ writeIORef hpbsPointers inner'
         flushStore
         return ref
+
+    saveAccounts HashedPersistentBlockState{..} = do
+        -- this load should be cheap as the blockstate is in memory.
+        accs <- bspAccounts <$> loadPBS hpbsPointers
+        -- write the accounts that were created in the block and
+        -- potentially non-finalized parent blocks.
+        -- Note that this also empties the difference map for the
+        -- block.
+        void $ Accounts.writeAccountsCreated accs
+
+    reconstructAccountDifferenceMap HashedPersistentBlockState{..} parentDifferenceMap listOfAccounts = do
+        accs <- bspAccounts <$> loadPBS hpbsPointers
+        Accounts.reconstructDifferenceMap parentDifferenceMap listOfAccounts accs
 
     loadBlockState hpbsHashM ref = do
         hpbsPointers <- liftIO $ newIORef $ blobRefToBufferedRef ref
@@ -3588,6 +3617,11 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     cacheBlockState = cacheState
 
     cacheBlockStateAndGetTransactionTable = cacheStateAndGetTransactionTable
+    tryPopulateAccountMap HashedPersistentBlockState{..} = do
+        -- load the top level references and write the accounts to the LMDB backed
+        -- account map (if this has not already been done).
+        BlockStatePointers{..} <- loadPBS hpbsPointers
+        LMDBAccountMap.tryPopulateLMDBStore bspAccounts
 
 -- | Migrate the block state from the representation used by protocol version
 --  @oldpv@ to the one used by protocol version @pv@. The migration is done gradually,
@@ -3687,6 +3721,23 @@ migrateBlockPointers migration BlockStatePointers{..} = do
               bspTransactionOutcomes = newTransactionOutcomes,
               bspRewardDetails = newRewardDetails
             }
+
+-- | Thaw the block state, making it ready for modification.
+--  This function wraps the underlying 'PersistentBlockState' of the provided 'HashedPersistentBlockState' in a new 'IORef'
+--  such that changes to the thawed block state does not propagate into the parent state.
+--
+--  Further the 'DiffMap.DifferenceMap' of the accounts structure in the provided block state is
+--  "bumped" in the sense that a new one is created for the new thawed block with a pointer to the parent difference map.
+--  The parent difference map is empty if the parent is persisted otherwise it may contain new accounts created in that block.
+doThawBlockState ::
+    (SupportsPersistentState pv m) =>
+    HashedPersistentBlockState pv ->
+    m (PersistentBlockState pv)
+doThawBlockState HashedPersistentBlockState{..} = do
+    bsp@BlockStatePointers{..} <- loadPBS hpbsPointers
+    bspAccounts' <- Accounts.mkNewChildDifferenceMap bspAccounts
+    let bsp' = bsp{bspAccounts = bspAccounts'}
+    liftIO $ newIORef =<< makeBufferedRef bsp'
 
 -- | Cache the block state.
 cacheState ::

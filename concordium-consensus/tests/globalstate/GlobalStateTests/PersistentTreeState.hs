@@ -76,7 +76,7 @@ createGlobalState dbDir = do
     let
         n = 3
         genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
-        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
+        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat") (dbDir </> "accountmap")
     (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
     return (x, y)
 

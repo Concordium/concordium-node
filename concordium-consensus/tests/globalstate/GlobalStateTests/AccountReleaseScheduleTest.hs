@@ -14,6 +14,7 @@ import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
+import Concordium.Logger
 import Concordium.Scheduler.DummyData
 import Concordium.Types
 import Control.Monad
@@ -37,11 +38,17 @@ import Test.QuickCheck
 -- | Protocol version.
 type PV = 'P5
 
+newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r)
+
+instance (Monad m) => MonadLogger (NoLoggerT m) where
+    logEvent _ _ _ = return ()
+
 type ThisMonadConcrete pv =
     PBS.PersistentBlockStateMonad
         pv
         (PBS.PersistentBlockStateContext pv)
-        (BlobStoreM' (PBS.PersistentBlockStateContext pv))
+        (NoLoggerT (BlobStoreM' (PBS.PersistentBlockStateContext pv)))
 
 --------------------------------- Test values ----------------------------------
 
@@ -70,18 +77,19 @@ createGS = do
     acc0 <- makeTestAccountFromSeed 1_000_000 0
     acc1 <- makeTestAccountFromSeed 1_000_000 1
     initState <-
-        PBS.hpbsPointers
-            <$> PBS.initialPersistentState
-                (initialSeedStateV0 (Hash.hash "") 1_000)
-                dummyCryptographicParameters
-                [acc0, acc1]
-                dummyIdentityProviders
-                dummyArs
-                dummyKeyCollection
-                dummyChainParameters
+        PBS.initialPersistentState
+            (initialSeedStateV0 (Hash.hash "") 1_000)
+            dummyCryptographicParameters
+            [acc0, acc1]
+            dummyIdentityProviders
+            dummyArs
+            dummyKeyCollection
+            dummyChainParameters
+    -- save the block state so accounts are written to the lmdb database.
+    void $ saveBlockState initState
     addr0 <- BS.accountCanonicalAddress acc0
     addr1 <- BS.accountCanonicalAddress acc1
-    return (addr0, 0, addr1, 1, initState)
+    return (addr0, 0, addr1, 1, PBS.hpbsPointers initState)
 
 ------------------------------------- Test -------------------------------------
 
@@ -122,8 +130,9 @@ tests = do
     describe "GlobalState.AccountReleaseScheduleTest" $
         specify "correct releases" $
             runBlobStoreTemp "." $
-                PBS.withNewAccountCache 1_000 $
-                    PBS.runPersistentBlockStateMonad testing
+                PBS.withNewAccountCacheAndLMDBAccountMap 1_000 "accountmap" $
+                    runNoLoggerT $
+                        PBS.runPersistentBlockStateMonad testing
 
 ------------------------------------ Checks ------------------------------------
 

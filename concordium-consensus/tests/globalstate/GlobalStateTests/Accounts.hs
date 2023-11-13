@@ -5,11 +5,15 @@
 
 module GlobalStateTests.Accounts where
 
+import qualified Basic.AccountTable as BAT
+import qualified Basic.Accounts as B
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.GlobalState.AccountMap as AccountMap
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Basic.BlockState.Account as BA
 import Concordium.GlobalState.DummyData
 import qualified Concordium.GlobalState.Persistent.Account as PA
@@ -17,18 +21,21 @@ import qualified Concordium.GlobalState.Persistent.Accounts as P
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState (PersistentBlockStateContext (..))
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as M
-import Concordium.GlobalState.Persistent.Cache (MonadCache)
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import Concordium.ID.DummyData
 import qualified Concordium.ID.Types as ID
+import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Option (Option (..))
 import Control.Exception (bracket)
-import Control.Monad hiding (fail)
+import Control.Monad.Reader
 import Data.Either
 import qualified Data.FixedByteString as FBS
+import qualified Data.HashMap.Strict as HM
+import Data.IORef
+import Data.List (sortOn)
 import qualified Data.Map.Strict as Map
-import qualified Data.Map.Strict as OrdMap
 import Data.Serialize as S
 import qualified Data.Set as Set
 import Lens.Micro.Platform
@@ -39,12 +46,13 @@ import Test.Hspec
 import Test.QuickCheck
 import Prelude hiding (fail)
 
-import Control.Monad.IO.Class
-
-import qualified Basic.AccountTable as BAT
-import qualified Basic.Accounts as B
-
 type PV = 'P5
+
+newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail)
+
+instance (Monad m) => MonadLogger (NoLoggerT m) where
+    logEvent _ _ _ = return ()
 
 assertRight :: Either String a -> Assertion
 assertRight (Left e) = assertFailure e
@@ -61,10 +69,10 @@ checkBinaryM bop x y sbop sx sy = do
 -- | Check that a 'B.Accounts' and a 'P.Accounts' are equivalent.
 --  That is, they have the same account map, account table, and set of
 --  use registration ids.
-checkEquivalent :: (MonadBlobStore m, MonadFail m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => B.Accounts PV -> P.Accounts PV -> m ()
+checkEquivalent :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => B.Accounts PV -> P.Accounts PV -> m ()
 checkEquivalent ba pa = do
-    pam <- AccountMap.toMap (P.accountMap pa)
-    checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) pam "==" "Basic account map" "Persistent account map"
+    addrsAndIndices <- P.allAccounts pa
+    checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) (Map.fromList addrsAndIndices) "==" "Basic account map" "Persistent account map"
     let bat = BAT.toList (B.accountTable ba)
     pat <- L.toAscPairList (P.accountTable pa)
     bpat <- mapM (_2 PA.toTransientAccount) pat
@@ -80,15 +88,15 @@ data AccountAction
     | Exists AccountAddress
     | GetAccount AccountAddress
     | UpdateAccount AccountAddress (Account (AccountVersionFor PV) -> Account (AccountVersionFor PV))
-    | UnsafeGetAccount AccountAddress
     | RegIdExists ID.CredentialRegistrationID
     | RecordRegId ID.CredentialRegistrationID AccountIndex
     | FlushPersistent
     | ArchivePersistent
+    | Reconstruct
 
 randomizeAccount :: AccountAddress -> ID.CredentialPublicKeys -> Gen (Account (AccountVersionFor PV))
 randomizeAccount _accountAddress _accountVerificationKeys = do
-    let vfKey = snd . head $ OrdMap.toAscList (ID.credKeys _accountVerificationKeys)
+    let vfKey = snd . head $ Map.toAscList (ID.credKeys _accountVerificationKeys)
     let cred = dummyCredential dummyCryptographicParameters _accountAddress vfKey dummyMaxValidTo dummyCreatedAt
     let a0 = newAccount dummyCryptographicParameters _accountAddress cred
     nonce <- Nonce <$> arbitrary
@@ -104,7 +112,7 @@ randomActions = sized (ra Set.empty Map.empty)
     randAccount = do
         address <- ID.AccountAddress . FBS.pack <$> vector ID.accountAddressSize
         n <- choose (1, 255)
-        credKeys <- OrdMap.fromList . zip [0 ..] . map Sig.correspondingVerifyKey <$> replicateM n genSigSchemeKeyPair
+        credKeys <- Map.fromList . zip [0 ..] . map Sig.correspondingVerifyKey <$> replicateM n genSigSchemeKeyPair
         credThreshold <- fromIntegral <$> choose (1, n)
         return (ID.CredentialPublicKeys{..}, address)
     ra _ _ 0 = return []
@@ -117,12 +125,13 @@ randomActions = sized (ra Set.empty Map.empty)
               (ArchivePersistent :) <$> ra s rids (n - 1),
               exRandReg,
               recRandReg,
-              updateRandAcc
+              updateRandAcc,
+              (Reconstruct :) <$> ra s rids (n - 1)
             ]
                 ++ if null s
                     then []
                     else
-                        [exExAcc, getExAcc, unsafeGetExAcc, updateExAcc]
+                        [exExAcc, getExAcc, updateExAcc]
                             ++ if null rids then [] else [exExReg, recExReg]
       where
         fresh x
@@ -160,9 +169,6 @@ randomActions = sized (ra Set.empty Map.empty)
             if (vk, addr) `Set.member` s
                 then ra s rids n
                 else (UpdateAccount addr upd :) <$> ra s rids (n - 1)
-        unsafeGetExAcc = do
-            (_, addr) <- elements (Set.toList s)
-            (UnsafeGetAccount addr :) <$> ra s rids (n - 1)
         exRandReg = do
             rid <- randomCredential
             (RegIdExists rid :) <$> ra s rids (n - 1)
@@ -178,12 +184,13 @@ randomActions = sized (ra Set.empty Map.empty)
             (rid, ai) <- elements (Map.toList rids)
             (RecordRegId rid ai :) <$> ra s rids (n - 1)
 
-runAccountAction :: (MonadBlobStore m, MonadIO m, MonadCache (PA.AccountCache (AccountVersionFor PV)) m) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
+runAccountAction :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV) => AccountAction -> (B.Accounts PV, P.Accounts PV) -> m (B.Accounts PV, P.Accounts PV)
 runAccountAction (PutAccount acct) (ba, pa) = do
     let ba' = B.putNewAccount acct ba
     pAcct <- PA.makePersistentAccount acct
-    pa' <- P.putNewAccount pAcct pa
-    return (snd ba', snd pa')
+    pa' <- P.mkNewChildDifferenceMap pa
+    pa'' <- P.putNewAccount pAcct pa'
+    return (snd ba', snd pa'')
 runAccountAction (Exists addr) (ba, pa) = do
     let be = B.exists addr ba
     pe <- P.exists addr pa
@@ -204,17 +211,13 @@ runAccountAction (UpdateAccount addr upd) (ba, pa) = do
             PA.makePersistentAccount $ f bAcc
     (_, pa') <- P.updateAccounts (fmap ((),) . liftP upd) addr pa
     return (ba', pa')
-runAccountAction (UnsafeGetAccount addr) (ba, pa) = do
-    let bacct = B.unsafeGetAccount addr ba
-    pacct <- P.unsafeGetAccount addr pa
-    bpacct <- PA.toTransientAccount pacct
-    checkBinary (==) bacct bpacct "==" "account in basic" "account in persistent"
-    return (ba, pa)
 runAccountAction FlushPersistent (ba, pa) = do
     (_, pa') <- storeUpdate pa
+    void $ P.writeAccountsCreated pa'
     return (ba, pa')
 runAccountAction ArchivePersistent (ba, pa) = do
     ppa <- fst <$> storeUpdate pa
+    void $ P.writeAccountsCreated pa
     pa' <- fromRight (error "couldn't deserialize archived persistent") $ S.runGet load (S.runPut ppa)
     return (ba, pa')
 runAccountAction (RegIdExists rid) (ba, pa) = do
@@ -226,18 +229,40 @@ runAccountAction (RecordRegId rid ai) (ba, pa) = do
     let ba' = B.recordRegId (ID.toRawCredRegId rid) ai ba
     pa' <- P.recordRegId rid ai pa
     return (ba', pa')
+runAccountAction Reconstruct (ba, pa) = do
+    oPaDiffMap <- liftIO $ readIORef $ P.accountDiffMapRef pa
+    -- Get the parent difference map reference and a list of accounts of the current difference map.
+    (parentDiffMapRef, diffMapAccs) <- case oPaDiffMap of
+        Absent -> do
+            ref <- liftIO DiffMap.newEmptyReference
+            return (ref, [])
+        Present paDiffMap -> do
+            let ref = DiffMap.dmParentMapRef paDiffMap
+                -- Note that we sort them by ascending account index such that the order
+                -- matches the insertion order.
+                accs = map snd $ sortOn fst $ HM.elems $ DiffMap.dmAccounts paDiffMap
+            return (ref, accs)
+    -- create pa' which is the same as pa, but with an empty difference map.
+    emptyRef <- liftIO DiffMap.newEmptyReference
+    let pa' = pa{P.accountDiffMapRef = emptyRef}
+    -- reconstruct pa into pa'.
+    void $ P.reconstructDifferenceMap parentDiffMapRef diffMapAccs pa'
+    return (ba, pa')
 
 emptyTest :: SpecWith (PersistentBlockStateContext PV)
 emptyTest =
-    it "empty" $
-        runBlobStoreM
-            (checkEquivalent B.emptyAccounts P.emptyAccounts :: BlobStoreM' (PersistentBlockStateContext PV) ())
+    it "empty" $ \bs ->
+        runNoLoggerT $
+            flip runBlobStoreT bs $ do
+                emptyPersistentAccs <- P.emptyAccounts
+                (checkEquivalent B.emptyAccounts emptyPersistentAccs :: BlobStoreT (PersistentBlockStateContext PV) (NoLoggerT IO) ())
 
 actionTest :: Word -> SpecWith (PersistentBlockStateContext PV)
 actionTest lvl = it "account actions" $ \bs -> withMaxSuccess (100 * fromIntegral lvl) $ property $ do
     acts <- randomActions
-    return $ ioProperty $ flip runBlobStoreM bs $ do
-        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, P.emptyAccounts) acts
+    return $ ioProperty $ runNoLoggerT $ flip runBlobStoreT bs $ do
+        emptyPersistentAccs <- P.emptyAccounts
+        (ba, pa) <- foldM (flip runAccountAction) (B.emptyAccounts, emptyPersistentAccs) acts
         checkEquivalent ba pa
 
 tests :: Word -> Spec
@@ -250,6 +275,7 @@ tests lvl = describe "GlobalStateTests.Accounts"
                         pbscBlobStore <- createBlobStore (dir </> "blockstate.dat")
                         pbscAccountCache <- PA.newAccountCache 100
                         pbscModuleCache <- M.newModuleCache 100
+                        pbscAccountMap <- LMDBAccountMap.openDatabase (dir </> "accountmap")
                         return PersistentBlockStateContext{..}
                     )
                     (closeBlobStore . pbscBlobStore)

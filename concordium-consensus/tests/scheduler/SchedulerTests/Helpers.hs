@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -38,6 +39,7 @@ import qualified Concordium.Wasm as Wasm
 
 import qualified Concordium.Common.Time as Time
 import qualified Concordium.Cost as Cost
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
@@ -84,19 +86,15 @@ newtype PersistentBSM pv a = PersistentBSM
         BS.PersistentBlockStateMonad
             pv
             (BS.PersistentBlockStateContext pv)
-            (Blob.BlobStoreM' (BS.PersistentBlockStateContext pv))
+            (Blob.BlobStoreT (BS.PersistentBlockStateContext pv) LogIO)
             a
     }
     deriving
         ( Applicative,
           Functor,
           Monad,
-          BS.ContractStateOperations,
-          BS.ModuleQuery,
           BlockStateTypes,
-          Blob.MonadBlobStore,
-          MonadIO,
-          MonadCache BS.ModuleCache
+          MonadIO
         )
 
 deriving instance (Types.IsProtocolVersion pv) => BS.AccountOperations (PersistentBSM pv)
@@ -104,6 +102,11 @@ deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateOperations (Persi
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateQuery (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => Types.MonadProtocolVersion (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateStorage (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.ModuleQuery (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.ContractStateOperations (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => Blob.MonadBlobStore (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => MonadCache BS.ModuleCache (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => LMDBAccountMap.MonadAccountMapStore (PersistentBSM pv)
 
 deriving instance
     (Types.AccountVersionFor pv ~ av) =>
@@ -137,15 +140,20 @@ createTestBlockStateWithAccounts ::
     (Types.IsProtocolVersion pv) =>
     [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
-createTestBlockStateWithAccounts accounts =
-    BS.initialPersistentState
-        seedState
-        DummyData.dummyCryptographicParameters
-        accounts
-        DummyData.dummyIdentityProviders
-        DummyData.dummyArs
-        keys
-        DummyData.dummyChainParameters
+createTestBlockStateWithAccounts accounts = do
+    bs <-
+        BS.initialPersistentState
+            seedState
+            DummyData.dummyCryptographicParameters
+            accounts
+            DummyData.dummyIdentityProviders
+            DummyData.dummyArs
+            keys
+            DummyData.dummyChainParameters
+    -- save block state and accounts.
+    void $ BS.saveBlockState bs
+    void $ BS.saveAccounts bs
+    return bs
   where
     keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
     seedState = case Types.consensusVersionFor (Types.protocolVersion @pv) of
@@ -163,19 +171,20 @@ createTestBlockStateWithAccountsM accounts =
 -- | Run test block state computation provided an account cache size.
 --  The module cache size is 100.
 --
---  This function creates a temporary file for the blobstore, which is removed right after the
+--  This function creates temporary files for the blobstore and account map. These are removed right after the
 --  running the computation, meaning the result of the computation should not retain any references
 --  and should be fully evaluated.
 runTestBlockStateWithCacheSize :: Int -> PersistentBSM pv a -> IO a
 runTestBlockStateWithCacheSize cacheSize computation =
-    Blob.runBlobStoreTemp "." $
-        BS.withNewAccountCache cacheSize $
-            BS.runPersistentBlockStateMonad $
-                _runPersistentBSM computation
+    runSilentLogger $
+        Blob.runBlobStoreTemp "." $
+            BS.withNewAccountCacheAndLMDBAccountMap cacheSize "accountmap" $
+                BS.runPersistentBlockStateMonad $
+                    _runPersistentBSM computation
 
 -- | Run test block state computation with a account cache size and module cache size of 100.
 --
---  This function creates a temporary file for the blobstore, which is removed right after the
+--  This function creates a temporary files for the blobstore and account map. These are removed right after the
 --  running the computation, meaning the result of the computation should not retain any references
 --  and should be fully evaluated.
 runTestBlockState :: PersistentBSM pv a -> IO a
@@ -376,6 +385,7 @@ reloadBlockState ::
 reloadBlockState persistentState = do
     frozen <- BS.freezeBlockState persistentState
     br <- BS.saveBlockState frozen
+    void $ BS.saveAccounts frozen
     BS.thawBlockState =<< BS.loadBlockState ((Just . BS.hpbsHash) frozen) br
 
 -- | Takes a function for checking the block state, which is then run on the block state, the block

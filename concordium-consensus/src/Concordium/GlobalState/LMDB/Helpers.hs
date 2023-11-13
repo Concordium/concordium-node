@@ -11,10 +11,18 @@
 --     provide a type-safe abstraction over cursors.
 module Concordium.GlobalState.LMDB.Helpers (
     -- * Database environment.
-    StoreEnv,
+    StoreEnv (..),
     makeStoreEnv,
+    makeStoreEnv',
     withWriteStoreEnv,
     seEnv,
+    seStepSize,
+    seMaxStepSize,
+    defaultEnvSize,
+    defaultStepSize,
+    defaultMaxStepSize,
+    resizeDatabaseHandlers,
+    resizeOnResized,
 
     -- * Database queries and updates.
     MDBDatabase (..),
@@ -43,13 +51,21 @@ module Concordium.GlobalState.LMDB.Helpers (
     -- * Low level operations.
     byteStringFromMDB_val,
     unsafeByteStringFromMDB_val,
+    withMDB_val,
+
+    -- * Helpers for reading and writing to a lmdb store.
+    asReadTransaction,
+    asWriteTransaction,
 )
 where
 
+import Concordium.Logger
 import Control.Concurrent (runInBoundThread, yield)
 import Control.Concurrent.MVar
-import Control.Exception
+import Control.Exception (assert)
 import Control.Monad
+import Control.Monad.Catch
+import Control.Monad.IO.Class
 import Control.Monad.Trans.Except
 import Data.ByteString
 import qualified Data.ByteString.Lazy as LBS
@@ -271,17 +287,52 @@ data StoreEnv = StoreEnv
       _seEnv :: !MDB_env,
       -- | Lock to quard access to the environment. When resizing the environment
       --  we must ensure that there are no outstanding transactions.
-      _seEnvLock :: !RWLock
+      _seEnvLock :: !RWLock,
+      -- | Database growth size increment.
+      --  Must be a multiple of the page size.
+      _seStepSize :: !Int,
+      -- | Maximum step to increment the database size.
+      _seMaxStepSize :: !Int
     }
 
 makeLenses ''StoreEnv
 
+-- | Default start environment size.
+--  Tree state database sizes for historical protocol versions have been between 7-60 times
+--  the 'defaultEnvSize'.
+defaultEnvSize :: Int
+defaultEnvSize = 2 ^ (27 :: Int) -- 128MB
+
+-- | Database growth size increment.
+--  This is currently set at 64MB, and must be a multiple of the page size.
+defaultStepSize :: Int
+defaultStepSize = 2 ^ (26 :: Int) -- 64MB
+
+-- | Maximum step to increment the database size.
+--  A ceiling that supposedly never gets hit.
+--  We need some bound as we're growing the environment exponentially when
+--  transactions fail and we resize recursively.
+defaultMaxStepSize :: Int
+defaultMaxStepSize = 2 ^ (30 :: Int) -- 1GB
+
 -- | Construct a new LMDB environment with associated locks that protect its use.
-makeStoreEnv :: IO StoreEnv
-makeStoreEnv = do
+makeStoreEnv' ::
+    -- | Initial database growth when resizing the environment.
+    --  Precondition: Must be a multiple of the OS page size.
+    Int ->
+    -- | Maximum database growth size.
+    Int ->
+    -- | The resulting environment 'StoreEnv'.
+    IO StoreEnv
+makeStoreEnv' _seStepSize _seMaxStepSize = do
     _seEnv <- mdb_env_create
     _seEnvLock <- initializeLock
     return StoreEnv{..}
+
+-- | Construct a new LMDB environment with assoicated locks that protects it,
+--  with default environment paremeters.
+makeStoreEnv :: IO StoreEnv
+makeStoreEnv = makeStoreEnv' defaultStepSize defaultMaxStepSize
 
 -- | Acquire exclusive access to the LMDB environment and perform the given action.
 --  The IO action should not leak the 'MDB_env'.
@@ -415,10 +466,13 @@ data CursorMove
       CursorNext
     | -- | Move to the previous key
       CursorPrevious
+    | -- | Move to key greater than or equal to provided key.
+      CursorMoveTo MDB_val
 
 -- | Move a cursor and read the key and value at the new location.
 getPrimitiveCursor :: CursorMove -> PrimitiveCursor -> IO (Maybe (MDB_val, MDB_val))
 getPrimitiveCursor movement PrimitiveCursor{..} = do
+    mapM_ (poke pcKeyPtr) mKey
     res <- mdb_cursor_get' moveOp pcCursor pcKeyPtr pcValPtr
     if res
         then do
@@ -427,12 +481,13 @@ getPrimitiveCursor movement PrimitiveCursor{..} = do
             return $ Just (key, val)
         else return Nothing
   where
-    moveOp = case movement of
-        CursorCurrent -> MDB_GET_CURRENT
-        CursorFirst -> MDB_FIRST
-        CursorLast -> MDB_LAST
-        CursorNext -> MDB_NEXT
-        CursorPrevious -> MDB_PREV
+    (moveOp, mKey) = case movement of
+        CursorCurrent -> (MDB_GET_CURRENT, Nothing)
+        CursorFirst -> (MDB_FIRST, Nothing)
+        CursorLast -> (MDB_LAST, Nothing)
+        CursorNext -> (MDB_NEXT, Nothing)
+        CursorPrevious -> (MDB_PREV, Nothing)
+        CursorMoveTo k -> (MDB_SET_RANGE, Just k)
 
 -- | Move a cursor to a specified key.
 movePrimitiveCursor :: MDB_val -> PrimitiveCursor -> IO (Maybe MDB_val)
@@ -650,3 +705,52 @@ databaseSize ::
     db ->
     IO Word64
 databaseSize txn dbi = fromIntegral . ms_entries <$> mdb_stat' txn (mdbDatabase dbi)
+
+-- | Increase the database size by at least the supplied size.
+--  The provided size will be rounded up to a multiple of 'seStepSize'.
+--  This ensures that the new size is a multiple of the page size, which is required by lmdb.
+resizeDatabaseHandlers :: (MonadIO m, MonadLogger m) => StoreEnv -> Int -> m ()
+resizeDatabaseHandlers env delta = do
+    envInfo <- liftIO $ mdb_env_info (env ^. seEnv)
+    let oldMapSize = fromIntegral $ me_mapsize envInfo
+        stepSize = env ^. seStepSize
+        newMapSize = oldMapSize + (delta + stepSize - delta `mod` stepSize)
+        _storeEnv = env
+    logEvent LMDB LLDebug $ "Resizing database from " ++ show oldMapSize ++ " to " ++ show newMapSize
+    liftIO . withWriteStoreEnv env $ flip mdb_env_set_mapsize newMapSize
+
+-- | Perform a database action and resize the LMDB map if the file size has changed.
+resizeOnResized :: (MonadIO m, MonadCatch m) => StoreEnv -> m a -> m a
+resizeOnResized se a = inner
+  where
+    inner = handleJust checkResized onResized a
+    checkResized LMDB_Error{..} = guard (e_code == Right MDB_MAP_RESIZED)
+    onResized _ = do
+        liftIO (withWriteStoreEnv se $ flip mdb_env_set_mapsize 0)
+        inner
+
+-- | Run a read-only transaction.
+asReadTransaction :: (MonadIO m) => StoreEnv -> (MDB_txn -> IO a) -> m a
+asReadTransaction env t = do
+    liftIO $ transaction env True t
+
+-- | Run a write transaction. If the transaction fails due to the database being full, this resizes
+--  the database and retries the transaction.
+asWriteTransaction :: (MonadIO m, MonadLogger m) => StoreEnv -> (MDB_txn -> IO a) -> m a
+asWriteTransaction env t = do
+    let doTransaction = transaction env False t
+        inner step = do
+            r <- liftIO $ tryJust selectDBFullError doTransaction
+            case r of
+                Left _ -> do
+                    -- We resize by the step size initially, and by double for each successive
+                    -- failure.
+                    resizeDatabaseHandlers env step
+                    inner (min (step * 2) (env ^. seMaxStepSize))
+                Right res -> return res
+    inner $ env ^. seStepSize
+  where
+    -- only handle the db full error and propagate other exceptions.
+    selectDBFullError = \case
+        (LMDB_Error _ _ (Right MDB_MAP_FULL)) -> Just ()
+        _ -> Nothing

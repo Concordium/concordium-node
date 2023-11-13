@@ -77,6 +77,8 @@ data InitException
     | DatabaseInvariantViolation !String
     | -- | The database version is not correct.
       IncorrectDatabaseVersion !String
+    | -- | Cannot get read/write permissions for the account map file.
+      AccountMapPermissionError
     deriving (Show, Typeable)
 
 instance Exception InitException where
@@ -90,6 +92,7 @@ instance Exception InitException where
     displayException (DatabaseInvariantViolation err) =
         "Database invariant violation: " ++ err
     displayException (IncorrectDatabaseVersion err) = "Incorrect database version: " ++ err
+    displayException AccountMapPermissionError = "Cannot get read and write permissions for the account map file."
 
 logExceptionAndThrowTS :: (MonadLogger m, MonadIO m, Exception e) => e -> m a
 logExceptionAndThrowTS = logExceptionAndThrow TreeState
@@ -248,6 +251,7 @@ instance
 -- | Initial skov data with default runtime parameters (block size = 10MB).
 initialSkovPersistentDataDefault ::
     (IsProtocolVersion pv, MonadIO m) =>
+    -- | Tree state directory
     FilePath ->
     GenesisConfiguration ->
     PBS.HashedPersistentBlockState pv ->
@@ -324,11 +328,15 @@ checkExistingDatabase ::
     FilePath ->
     -- | Block state file
     FilePath ->
+    -- | Account map path
+    FilePath ->
     m Bool
-checkExistingDatabase treeStateDir blockStateFile = do
+checkExistingDatabase treeStateDir blockStateFile accountMapDir = do
     let treeStateFile = treeStateDir </> "data.mdb"
+    let accountMapFile = accountMapDir </> "data.mdb"
     bsPathEx <- liftIO $ doesPathExist blockStateFile
     tsPathEx <- liftIO $ doesPathExist treeStateFile
+    amPathEx <- liftIO $ doesPathExist accountMapFile
 
     -- Check whether a path is a normal file that is readable and writable
     let checkRWFile :: FilePath -> InitException -> m ()
@@ -347,14 +355,18 @@ checkExistingDatabase treeStateDir blockStateFile = do
                     unless (readable perms && writable perms) $ do
                         logExceptionAndThrowTS exc
 
-    -- if both files exist we check whether they are both readable and writable.
+    -- if all files exist we check whether they are both readable and writable.
     -- In case only one of them exists we raise an appropriate exception. We don't want to delete any data.
     if
         | bsPathEx && tsPathEx -> do
             -- check whether it is a normal file and whether we have the right permissions
             checkRWFile blockStateFile BlockStatePermissionError
             checkRWFile treeStateFile TreeStatePermissionError
-            mapM_ (logEvent TreeState LLTrace) ["Existing database found.", "TreeState filepath: " ++ show blockStateFile, "BlockState filepath: " ++ show treeStateFile]
+            when amPathEx $ checkRWFile accountMapFile AccountMapPermissionError
+            logEvent TreeState LLTrace "Existing database found."
+            logEvent TreeState LLTrace $ "TreeState filepath: " ++ show treeStateFile
+            logEvent TreeState LLTrace $ "BlockState filepath: " ++ show blockStateFile
+            logEvent TreeState LLTrace $ if amPathEx then "AccountMap filepath: " ++ show accountMapFile else "AccountMap not found"
             return True
         | bsPathEx -> do
             logEvent GlobalState LLWarning "Block state file exists, but tree state database does not. Deleting the block state file."
@@ -410,7 +422,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
 
     -- Unroll the treestate if the last finalized blockstate is corrupted. If the last finalized
     -- blockstate is not corrupted, the treestate is unchanged.
-    unrollTreeStateWhile _db (liftIO . isBlockStateCorrupted) >>= \case
+    unrollTreeStateWhile _db isBlockStateCorrupted >>= \case
         Left e ->
             logExceptionAndThrowTS . DatabaseInvariantViolation $
                 "The block state database is corrupt. Recovery attempt failed: " <> e
@@ -424,7 +436,8 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
             genStoredBlock <-
                 maybe (logExceptionAndThrowTS GenesisBlockNotInDataBaseError) return
                     =<< liftIO (getFirstBlock _db)
-            _genesisBlockPointer <- liftIO $ makeBlockPointer genStoredBlock
+
+            _genesisBlockPointer <- makeBlockPointer genStoredBlock
             when (isNothing (sbshStateHash genStoredBlock)) $ do
                 -- This should only occur when updating from a node version prior to 6.1.6
                 -- the first time the database is loaded.
@@ -436,7 +449,7 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
                 GenesisBlock gd' -> return gd'
                 _ -> logExceptionAndThrowTS (DatabaseInvariantViolation "Block at height 0 is not a genesis block.")
             -- Get the last finalized block.
-            _lastFinalized <- liftIO (makeBlockPointer lfStoredBlock)
+            _lastFinalized <- makeBlockPointer lfStoredBlock
             return
                 SkovPersistentData
                     { _possiblyPendingTable = HM.empty,
@@ -458,13 +471,13 @@ loadSkovPersistentData rp _treeStateDirectory pbsc = do
   where
     makeBlockPointer ::
         StoredBlockWithStateHash pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) ->
-        IO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
+        LogIO (PersistentBlockPointer pv (PBS.HashedPersistentBlockState pv))
     makeBlockPointer StoredBlockWithStateHash{sbshStoredBlock = StoredBlock{..}, ..} = do
         bstate <- runReaderT (PBS.runPersistentBlockStateMonad (loadBlockState sbshStateHash sbState)) pbsc
         makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
-    isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> IO Bool
+    isBlockStateCorrupted :: StoredBlock pv (TS.BlockStatePointer (PBS.PersistentBlockState pv)) -> LogIO Bool
     isBlockStateCorrupted block =
-        not <$> runBlobStoreT (isValidBlobRef (sbState block)) pbsc
+        not <$> runReaderT (PBS.runPersistentBlockStateMonad (isValidBlobRef (sbState block))) pbsc
 
 -- | Activate the state and make it usable for use by consensus. This concretely
 --  means that the block state for the last finalized block is cached, and that
@@ -486,6 +499,10 @@ activateSkovPersistentData pbsc uninitState =
         let bps = _bpState $ _lastFinalized uninitState
         tt <- cacheBlockStateAndGetTransactionTable bps
         logEvent GlobalState LLTrace "Done caching last finalized block"
+        -- initialize the account map if it has not already been so.
+        logEvent GlobalState LLDebug "Initializing LMDB account map"
+        void $ tryPopulateAccountMap bps
+        logEvent GlobalState LLDebug "Finished initializing LMDB account map"
         return $! uninitState{_transactionTable = tt}
   where
     runBlockState a = runReaderT (PBS.runPersistentBlockStateMonad @pv a) pbsc
@@ -696,7 +713,9 @@ instance
     markFinalized bh fr =
         use (skovPersistentData . blockTable . liveMap . at' bh) >>= \case
             Just (BlockAlive bp) -> do
+                -- Save the block state and write the accounts out to disk.
                 st <- saveBlockState (_bpState bp)
+                void $ saveAccounts (_bpState bp)
                 -- NB: Removing the block from the in-memory cache only makes
                 -- sense if no block lookups are done between the call to this
                 -- function and 'wrapUpFinalization'. This is currently the case,

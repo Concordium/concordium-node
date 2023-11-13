@@ -25,6 +25,7 @@ import Concordium.Types
 
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import qualified Concordium.Genesis.Data.P6 as P6
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters (
     GenesisData (GDP6),
@@ -58,9 +59,7 @@ data TestContext (pv :: ProtocolVersion) = TestContext
       -- | In-memory low-level tree state database.
       _tcMemoryLLDB :: !(IORef (LowLevelDB pv)),
       -- | The current time (reported by 'currentTime').
-      _tcCurrentTime :: !UTCTime,
-      -- | Callback to use for logging.
-      _tcLogger :: !(LogMethod (TestMonad pv))
+      _tcCurrentTime :: !UTCTime
     }
 
 instance HasBlobStore (TestContext pv) where
@@ -76,6 +75,11 @@ instance Cache.HasCache Module.ModuleCache (TestContext pv) where
 
 instance HasMemoryLLDB pv (TestContext pv) where
     theMemoryLLDB = _tcMemoryLLDB
+
+instance LMDBAccountMap.HasDatabaseHandlers (TestContext pv) where
+    databaseHandlers =
+        lens _tcPersistentBlockStateContext (\s v -> s{_tcPersistentBlockStateContext = v})
+            . LMDBAccountMap.databaseHandlers
 
 -- | State used for running the 'TestMonad'.
 data TestState pv = TestState
@@ -110,7 +114,7 @@ type TestWrite pv = [TestEvent pv]
 --  Hence the 'PersistentBlockStateMonadHelper' transformer is using this monad
 --  as is the 'TestMonad'
 --  This makes it possible to easily derive the required instances via the 'PersistentBlockStateMonad'.
-type InnerTestMonad (pv :: ProtocolVersion) = RWST (TestContext pv) (TestWrite pv) (TestState pv) IO
+type InnerTestMonad (pv :: ProtocolVersion) = RWST (TestContext pv) (TestWrite pv) (TestState pv) LogIO
 
 -- | This type is used to derive instances of various block state classes for 'TestMonad'.
 type PersistentBlockStateMonadHelper pv =
@@ -126,7 +130,7 @@ type PersistentBlockStateMonadHelper pv =
 --  'MonadConsensusEvent'.
 --  The state is 'TestState', which includes the 'SkovData' and a map of the pending timer events.
 newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad' :: (InnerTestMonad pv) a}
-    deriving newtype (Functor, Applicative, Monad, MonadReader (TestContext pv), MonadIO, MonadThrow, MonadWriter (TestWrite pv))
+    deriving newtype (Functor, Applicative, Monad, MonadReader (TestContext pv), MonadIO, MonadThrow, MonadWriter (TestWrite pv), MonadLogger)
     deriving
         (BlockStateTypes, ContractStateOperations, ModuleQuery)
         via (PersistentBlockStateMonadHelper pv)
@@ -146,7 +150,7 @@ genesisCore = case protocolVersion @pv of
 --  This sets up a temporary blob store for the block state that is deleted after use.
 runTestMonad :: (IsConsensusV1 pv, IsProtocolVersion pv) => BakerContext -> UTCTime -> GenesisData pv -> TestMonad pv a -> IO a
 runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
-    runBlobStoreTemp "." $ withNewAccountCache 1000 $ do
+    runLog $ runBlobStoreTemp "." $ withNewAccountCacheAndLMDBAccountMap 1000 "accountmap" $ do
         (genState, genStateRef, initTT, genTimeoutBase, genEpochBakers) <- runPersistentBlockStateMonad $ do
             genesisState genData >>= \case
                 Left e -> error e
@@ -168,6 +172,7 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                                   _nextPayday = payday
                                 }
                     genStateRef <- saveBlockState genState
+                    void $ saveAccounts genState
                     return (genState, genStateRef, initTT, genTimeoutBase, genEpochBakers)
         let genMetadata =
                 GenesisMetadata
@@ -196,11 +201,13 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
             liftIO . newIORef $!
                 initialLowLevelDB genStoredBlock (_tsSkovData ^. persistentRoundStatus)
         _tcPersistentBlockStateContext <- ask
-        let _tcLogger src lvl msg = liftIO $ putStrLn $ "[" ++ show lvl ++ "] " ++ show src ++ ": " ++ msg
         let ctx = TestContext{..}
         let _tsPendingTimers = Map.empty
         let st = TestState{..}
-        fst <$> liftIO (evalRWST a ctx st)
+        fst <$> lift (evalRWST a ctx st)
+  where
+    logger src lvl msg = putStrLn $ "[" ++ show lvl ++ "] " ++ show src ++ ": " ++ msg
+    runLog = flip runLoggerT logger
 
 -- Instances that are required for the 'TestMonad'.
 deriving via
@@ -263,11 +270,6 @@ instance TimerMonad (TestMonad pv) where
 instance MonadConsensusEvent (TestMonad pv) where
     onBlock = tell . (: []) . OnBlock . bpBlock
     onFinalize fe _ = tell [OnFinalize fe]
-
-instance MonadLogger (TestMonad pv) where
-    logEvent src lvl msg = do
-        logger <- view tcLogger
-        logger src lvl msg
 
 -- | Get the currently-pending timers.
 getPendingTimers :: TestMonad pv (Map.Map Integer (Timeout, TestMonad pv ()))

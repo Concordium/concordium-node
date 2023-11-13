@@ -25,6 +25,7 @@ import qualified Data.FixedByteString as FBS
 
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Types.Option
 
 -- | Generate a 'FinalizerSet'. The size parameter determines the size of the committee that
 --  the finalizers are (nominally) sampled from.

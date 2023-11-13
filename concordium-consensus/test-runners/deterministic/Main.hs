@@ -68,8 +68,8 @@ type PV = 'P5
 
 -- | Construct the global state configuration.
 --  Can be customised if changing the configuration.
-makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> IO GlobalStateConfig
-makeGlobalStateConfig rt treeStateDir blockStateFile = return $ GlobalStateConfig rt treeStateDir blockStateFile
+makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> FilePath -> IO GlobalStateConfig
+makeGlobalStateConfig rt treeStateDir blockStateFile accMapDirectory = return $ GlobalStateConfig rt treeStateDir blockStateFile accMapDirectory
 
 {-
 type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig
@@ -316,6 +316,7 @@ initialState numAccts = do
                 defaultRuntimeParameters{rpAccountsCacheSize = 5000}
                 ("data/treestate-" ++ show now ++ "-" ++ show bakerId)
                 ("data/blockstate-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
+                ("data/accountmap-" ++ show now ++ "-" ++ show bakerId ++ ".dat")
         let
             finconfig = ActiveFinalization (FinalizationInstance (bakerSignKey _bsIdentity) (bakerElectionKey _bsIdentity) (bakerAggregationKey _bsIdentity))
             hconfig = NoHandler

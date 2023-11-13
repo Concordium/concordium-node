@@ -51,6 +51,7 @@ import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.TransactionTable
 import Concordium.ID.Types (randomAccountAddress)
+import Concordium.Logger
 import Concordium.Scheduler.DummyData
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
@@ -59,6 +60,7 @@ import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Types.Transactions
 
@@ -128,6 +130,12 @@ instance (MonadReader r m) => MonadReader r (FixedTimeT m) where
     ask = lift ask
     local f (FixedTime k) = FixedTime $ local f . k
 
+newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail, TimeMonad, MonadState s)
+
+instance (Monad m) => MonadLogger (NoLoggerT m) where
+    logEvent _ _ _ = return ()
+
 -- | A test monad that is suitable for testing transaction processing
 --  as it derives the required capabilities.
 --  I.e. 'BlockStateQuery' is supported via the 'PersistentBlockStateMonad and a 'MonadState' over the 'SkovData pv'.
@@ -137,9 +145,11 @@ type MyTestMonad =
         ( PersistentBlockStateMonad
             'P6
             (PersistentBlockStateContext 'P6)
-            ( StateT
-                (SkovData 'P6)
-                (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6)))
+            ( NoLoggerT
+                ( StateT
+                    (SkovData 'P6)
+                    (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6)))
+                )
             )
         )
 
@@ -152,15 +162,19 @@ type MyTestMonad =
 runMyTestMonad :: IdentityProviders -> UTCTime -> MyTestMonad a -> IO (a, SkovData 'P6)
 runMyTestMonad idps time action = do
     runBlobStoreTemp "." $
-        withNewAccountCache 1_000 $ do
-            initState <- runPersistentBlockStateMonad initialData
-            runDeterministic (runStateT (runPersistentBlockStateMonad (runAccountNonceQueryT action)) initState) time
+        withNewAccountCacheAndLMDBAccountMap 1_000 "accountmap" $ do
+            initState <- runNoLoggerT $ runPersistentBlockStateMonad initialData
+            flip runDeterministic time $
+                flip runStateT initState $
+                    runNoLoggerT $
+                        runPersistentBlockStateMonad $
+                            runAccountNonceQueryT action
   where
     initialData ::
         PersistentBlockStateMonad
             'P6
             (PersistentBlockStateContext 'P6)
-            (BlobStoreM' (PersistentBlockStateContext 'P6))
+            (NoLoggerT (BlobStoreM' (PersistentBlockStateContext 'P6)))
             (SkovData 'P6)
     initialData = do
         (bs, _) <-

@@ -28,6 +28,7 @@ import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
+import Concordium.Types.Option
 import ConcordiumTests.KonsensusV1.Consensus.Blocks
 
 import qualified ConcordiumTests.KonsensusV1.Consensus.Blocks as TestBlocks

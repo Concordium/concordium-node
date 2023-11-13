@@ -31,6 +31,7 @@ import Concordium.Skov.Monad (UpdateResult (..), transactionVerificationResultTo
 import Concordium.TimeMonad
 import Concordium.TimerMonad
 import Concordium.Types
+import Concordium.Types.Option
 import Concordium.Types.Parameters
 
 -- | Handle receiving a finalization message (either a 'QuorumMessage' or a 'TimeoutMessage').

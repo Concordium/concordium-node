@@ -75,6 +75,7 @@ import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
+import Concordium.Types.Option
 import Control.Monad.State.Class
 import Data.Time
 
@@ -731,7 +732,7 @@ getBlockInfo =
             let biBlockArriveTime = SkovV1.blockArriveTime bp
             let biBlockSlot = Nothing -- no slots in consensus version 1
             let biBlockSlotTime = timestampToUTCTime $ SkovV1.blockTimestamp bp
-            let biBlockBaker = SkovV1.ofOption Nothing (Just . SkovV1.blockBaker) $ SkovV1.blockBakedData bp
+            let biBlockBaker = ofOption Nothing (Just . SkovV1.blockBaker) $ SkovV1.blockBakedData bp
             let biTransactionCount = SkovV1.blockTransactionCount bp
             let biTransactionEnergyCost = SkovV1.blockEnergyCost bp
             let biTransactionsSize = fromIntegral $ SkovV1.blockTransactionsSize bp
@@ -1610,9 +1611,9 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
               qcAggregateSignature = QueriesKonsensusV1.QuorumCertificateSignature . (SkovV1.theQuorumSignature . SkovV1.qcAggregateSignature) $ qc,
               qcSignatories = finalizerSetToBakerIds committee (SkovV1.qcSignatories qc)
             }
-    mkTimeoutCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.TimeoutCertificate -> Maybe QueriesKonsensusV1.TimeoutCertificate
-    mkTimeoutCertificateOut _ SkovV1.Absent = Nothing
-    mkTimeoutCertificateOut committee (SkovV1.Present tc) =
+    mkTimeoutCertificateOut :: SkovV1.FinalizationCommittee -> Option SkovV1.TimeoutCertificate -> Maybe QueriesKonsensusV1.TimeoutCertificate
+    mkTimeoutCertificateOut _ Absent = Nothing
+    mkTimeoutCertificateOut committee (Present tc) =
         Just $
             QueriesKonsensusV1.TimeoutCertificate
                 { tcRound = SkovV1.tcRound tc,
@@ -1621,9 +1622,9 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
                   tcFinalizerQCRoundsSecondEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsSecondEpoch tc,
                   tcAggregateSignature = QueriesKonsensusV1.TimeoutCertificateSignature . (SkovV1.theTimeoutSignature . SkovV1.tcAggregateSignature) $ tc
                 }
-    mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.FinalizationEntry -> Maybe QueriesKonsensusV1.EpochFinalizationEntry
-    mkEpochFinalizationEntryOut _ SkovV1.Absent = Nothing
-    mkEpochFinalizationEntryOut committee (SkovV1.Present SkovV1.FinalizationEntry{..}) =
+    mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> Option SkovV1.FinalizationEntry -> Maybe QueriesKonsensusV1.EpochFinalizationEntry
+    mkEpochFinalizationEntryOut _ Absent = Nothing
+    mkEpochFinalizationEntryOut committee (Present SkovV1.FinalizationEntry{..}) =
         Just $
             QueriesKonsensusV1.EpochFinalizationEntry
                 { efeFinalizedQC = mkQuorumCertificateOut committee feFinalizedQuorumCertificate,
