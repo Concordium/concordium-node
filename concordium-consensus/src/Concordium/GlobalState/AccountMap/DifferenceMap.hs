@@ -12,26 +12,13 @@ module Concordium.GlobalState.AccountMap.DifferenceMap (
     DifferenceMapReference,
 
     -- * Auxiliary functions
-
-    -- Create a new empty mutable reference.
     newEmptyReference,
-    -- Get a list of all @(AccountAddress, AccountIndex)@ pairs for the
-    --  provided 'DifferenceMap' and all parent maps.
     flatten,
-    -- Create an empty 'DifferenceMap'
     empty,
-    -- Set the accounts int he 'DifferenceMap'.
     fromList,
-    -- Insert an account into the 'DifferenceMap'.
     insert,
-    -- Lookup in a difference map (and potential parent maps) whether
-    -- it yields the 'AccountIndex' for the provided 'AccountAddress' or any
-    -- alias of it.
     lookupViaEquivalenceClass,
-    -- Lookup in a difference map (and potential parent maps) whether
-    -- it yields the 'AccountIndex' for the provided 'AccountAddress'.
     lookupExact,
-    -- Clear up the references of difference map(s).
     clearReferences,
 ) where
 
@@ -102,12 +89,13 @@ empty mParentDifferenceMap =
 lookupViaEquivalenceClass' :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Either Int (AccountIndex, AccountAddress))
 lookupViaEquivalenceClass' addr = check 0
   where
-    check accum diffMap = case HM.lookup addr (dmAccounts diffMap) of
+    check !accum diffMap = case HM.lookup addr (dmAccounts diffMap) of
         Nothing -> do
             mParentMap <- liftIO $ readIORef (dmParentMapRef diffMap)
+            let !accum' = accum + HM.size (dmAccounts diffMap)
             case mParentMap of
-                Absent -> return $ Left $ accum + HM.size (dmAccounts diffMap)
-                Present parentMap -> check (HM.size (dmAccounts diffMap) + accum) parentMap
+                Absent -> return $ Left accum'
+                Present parentMap -> check accum' parentMap
         Just res -> return $ Right res
 
 -- | Lookup an account in the difference map or any of the parent
@@ -126,7 +114,7 @@ lookupViaEquivalenceClass addr dm = fmap fst <$> lookupViaEquivalenceClass' addr
 --  Returns @Just AccountIndex@ if the account is present and
 --  otherwise @Left Word64@ indicating how many accounts there are present in the
 --  difference map(s).
---  Note that this function also returns @Nothing@ if the provided 'AccountAddress.'
+--  Note that this function also returns @Nothing@ if the provided 'AccountAddress'
 --  is an alias but not the canonical address.
 lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Either Int AccountIndex)
 lookupExact addr diffMap =
