@@ -96,41 +96,51 @@ empty mParentDifferenceMap =
         }
 
 -- | Internal helper function for looking up an entry in @dmAccounts@.
-lookupViaEquivalenceClass' :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Maybe (AccountIndex, AccountAddress))
-lookupViaEquivalenceClass' addr = check
+--  Returns @Right AccountIndex AccountAddress Word64@ if the account could be looked up,
+--  and otherwise @Left Word64@, where the number indicates how many accounts are present in the difference map
+--  and potentially any parent difference maps.
+lookupViaEquivalenceClass' :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Either Int (AccountIndex, AccountAddress))
+lookupViaEquivalenceClass' addr = check 0
   where
-    check diffMap = case HM.lookup addr (dmAccounts diffMap) of
+    check accum diffMap = case HM.lookup addr (dmAccounts diffMap) of
         Nothing -> do
             mParentMap <- liftIO $ readIORef (dmParentMapRef diffMap)
             case mParentMap of
-                Absent -> return Nothing
-                Present parentMap -> check parentMap
-        Just accIdx -> return $ Just accIdx
+                Absent -> return $ Left $ accum + HM.size (dmAccounts diffMap)
+                Present parentMap -> check (HM.size (dmAccounts diffMap) + accum) parentMap
+        Just res -> return $ Right res
 
 -- | Lookup an account in the difference map or any of the parent
 --  difference maps using the account address equivalence class.
 --  Returns @Just AccountIndex@ if the account is present and
---  otherwise @Nothing@.
+--  otherwise @Left Word64@ indicating how many accounts there are present in the
+--  difference map(s).
 --  Precondition: As this implementation uses the 'AccountAddressEq' equivalence
 --  class for looking up an 'AccountIndex', then it MUST only be used
 --  when account aliases are supported.
-lookupViaEquivalenceClass :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Maybe AccountIndex)
-lookupViaEquivalenceClass addr dm =
-    lookupViaEquivalenceClass' addr dm >>= \case
-        Nothing -> return Nothing
-        Just (accIdx, _) -> return $ Just accIdx
+lookupViaEquivalenceClass :: (MonadIO m) => AccountAddressEq -> DifferenceMap -> m (Either Int AccountIndex)
+lookupViaEquivalenceClass addr dm = fmap fst <$> lookupViaEquivalenceClass' addr dm
 
 -- | Lookup an account in the difference map or any of the parent
 --  difference maps via an exactness check.
 --  Returns @Just AccountIndex@ if the account is present and
---  otherwise @Nothing@.
+--  otherwise @Left Word64@ indicating how many accounts there are present in the
+--  difference map(s).
 --  Note that this function also returns @Nothing@ if the provided 'AccountAddress.'
 --  is an alias but not the canonical address.
-lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Maybe AccountIndex)
+lookupExact :: (MonadIO m) => AccountAddress -> DifferenceMap -> m (Either Int AccountIndex)
 lookupExact addr diffMap =
     lookupViaEquivalenceClass' (accountAddressEmbed addr) diffMap >>= \case
-        Nothing -> return Nothing
-        Just (accIdx, actualAddr) -> if actualAddr == addr then return $ Just accIdx else return Nothing
+        Left noAccounts -> return $ Left noAccounts
+        Right (accIdx, actualAddr) ->
+            if actualAddr == addr
+                then return $ Right accIdx
+                else do
+                    -- This extra flatten is really not ideal, but it should also really never happen,
+                    -- hence the extra flatten here justifies the simpler implementation and optimization
+                    -- towards the normal use case.
+                    size <- length <$> flatten diffMap
+                    return $ Left size
 
 -- | Insert an account into the difference map.
 --  Note that it is up to the caller to ensure only the canonical 'AccountAddress' is inserted.

@@ -309,16 +309,12 @@ getAccountIndex addr Accounts{..} = do
             if supportsAccountAliases (protocolVersion @pv)
                 then
                     DiffMap.lookupViaEquivalenceClass (accountAddressEmbed addr) accDiffMap >>= \case
-                        Just accIdx -> return $ Just accIdx
-                        Nothing -> do
-                            diffMapSize <- length <$> DiffMap.flatten accDiffMap
-                            lookupDisk $ fromIntegral diffMapSize
+                        Right accIdx -> return $ Just accIdx
+                        Left diffMapSize -> lookupDisk $ fromIntegral diffMapSize
                 else
                     DiffMap.lookupExact addr accDiffMap >>= \case
-                        Just accIdx -> return $ Just accIdx
-                        Nothing -> do
-                            diffMapSize <- length <$> DiffMap.flatten accDiffMap
-                            lookupDisk $ fromIntegral diffMapSize
+                        Right accIdx -> return $ Just accIdx
+                        Left diffMapSize -> lookupDisk $ fromIntegral diffMapSize
   where
     -- Lookup the 'AccountIndex' in the lmdb backed account map,
     -- and make sure it's within the bounds of the account table.
@@ -462,7 +458,11 @@ tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 tryPopulateLMDBStore accts = do
     noLMDBAccounts <- LMDBAccountMap.getNumberOfAccounts
     let expectedSize = L.size $ accountTable accts
-    when (noLMDBAccounts /= expectedSize) $ do
+    -- If the number of accounts in the lmdb backed account map is
+    -- less than the size of the account table then we rebuild it here.
+    -- This should really never happen as we're writing to the lmdb backed account map
+    -- BEFORE the block (and assoicated block state) is written to disk.
+    when (noLMDBAccounts < expectedSize) $ do
         -- The number of accounts in the lmdb backed account map does not match
         -- the number of accounts in the account table.
         -- Clear the map and reconstruct it from the accounts table.
