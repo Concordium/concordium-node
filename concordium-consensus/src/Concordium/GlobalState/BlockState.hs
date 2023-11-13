@@ -1443,10 +1443,8 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
 
     -- | Populate the LMDB account map if it has not already been initialized.
     --  If the lmdb store has already been initialized, then this function does nothing.
-    --  This function must only be invoked when starting up when then account table already
-    --  contains accounts but these are not reflected in the lmdb backed account map.
-    --
-    --  In particular this is the case when starting up from an existing state.
+    --  Otherwise this function populates the lmdb backed account map with the accounts
+    --  present in the account table of the block state.
     tryPopulateAccountMap :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m) where

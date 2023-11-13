@@ -30,9 +30,13 @@ import Concordium.Types.ProtocolVersion
 -- | Configuration that uses the disk implementation for both the tree state
 --  and the block state
 data GlobalStateConfig = GlobalStateConfig
-    { dtdbRuntimeParameters :: !RuntimeParameters,
+    { -- | Runtime parameters.
+      dtdbRuntimeParameters :: !RuntimeParameters,
+      -- | Path to the tree state database.
       dtdbTreeStateDirectory :: !FilePath,
+      -- | Path to the block state database.
       dtdbBlockStateFile :: !FilePath,
+      -- | Path to the account map database.
       dtdAccountMapDirectory :: !FilePath
     }
 

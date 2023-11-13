@@ -3,7 +3,7 @@
 extern crate log;
 
 // Force the system allocator on every platform
-use futures::{stream::StreamExt, FutureExt};
+use futures::stream::StreamExt;
 use std::{alloc::System, io::Write, sync::atomic};
 use tempfile::TempPath;
 #[global_allocator]
@@ -28,9 +28,7 @@ use concordium_node::{
         *,
     },
     plugins::{self, consensus::*},
-    read_or_die,
-    rpc::RpcServerImpl,
-    spawn_or_die,
+    read_or_die, spawn_or_die,
     stats_export_service::{
         instantiate_stats_export_engine, StatsConsensusCollector, StatsExportService,
     },
@@ -44,7 +42,7 @@ use std::{path::Path, sync::Arc, thread::JoinHandle};
 use tokio::signal::unix as unix_signal;
 #[cfg(windows)]
 use tokio::signal::windows as windows_signal;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::broadcast;
 
 use concordium_node::stats_export_service::start_push_gateway;
 use std::net::SocketAddr;
@@ -181,28 +179,6 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    // Start the RPC server with a channel for shutting it down.
-    let (shutdown_rpc_sender, shutdown_rpc_signal) = oneshot::channel();
-    let rpc_server_task = {
-        let shutdown_sender = shutdown_sender.clone();
-        let serv = RpcServerImpl::new(
-            node.clone(),
-            Some(consensus.clone()),
-            &conf.cli.rpc,
-            conf.cli.grpc2.invoke_max_energy,
-        )
-        .context("Cannot create RPC server.")?;
-
-        if let Some(mut serv) = serv {
-            let task = tokio::spawn(async move {
-                serv.start_server(shutdown_rpc_signal.map(|_| ()), shutdown_sender).await
-            });
-            Some(task)
-        } else {
-            None
-        }
-    };
-
     // Start the grpc2 server, if so configured.
     let rpc2 = if let Some(handlers) = notification_handlers {
         let shutdown_sender = shutdown_sender.clone();
@@ -250,35 +226,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     info!("Initiating shutdown.");
-
-    // Message rpc to shutdown first
-    if let Some(task) = rpc_server_task {
-        // Only attempt shut down the RPC server in case it is not running.
-        // Note that if the RPC server was configured, it stops running iff.
-        // an error occurred.
-        if !task.is_finished() {
-            if shutdown_rpc_sender.send(()).is_err() {
-                error!("Could not stop the RPC server correctly. Forcing shutdown.");
-                task.abort();
-            }
-            // Force the rpc server to shut down in at most 10 seconds.
-            let timeout_duration = std::time::Duration::from_secs(10);
-            match tokio::time::timeout(timeout_duration, task).await {
-                Ok(res) => {
-                    if let Err(err) = res {
-                        if err.is_cancelled() {
-                            info!("RPC server was successfully shutdown by force.");
-                        } else if err.is_panic() {
-                            error!("RPC server panicked: {}", err);
-                        }
-                    }
-                }
-                Err(timed_out) => {
-                    warn!("RPC server was forcefully shut down due to: {}", timed_out);
-                }
-            }
-        }
-    }
 
     // Message grpc2 to shutdown if it exists.
     if let Some(rpc2) = rpc2 {

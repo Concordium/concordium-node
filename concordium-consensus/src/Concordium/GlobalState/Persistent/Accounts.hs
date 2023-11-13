@@ -31,7 +31,7 @@
 --  the lmdb store in one transaction and then it proceeds as normal.
 --  On the other hand, if the lmdb backed account map is already populated then the startup procedure will skip the populating step ('tryPopulateLMDBStore').
 --
---  For consensus version 1, then the assoicated 'DiffMap.DifferenceMap' is reconstructed via 'reconstructDifferenceMap' for certified blocks.
+--  For consensus version 1, then the associated 'DiffMap.DifferenceMap' is reconstructed via 'reconstructDifferenceMap' for certified blocks.
 --
 --  When starting up from a fresh genesis configuration then as part of creating the genesis state,
 --  then the difference map is being built containing all accounts present in the genesis configuration.
@@ -51,10 +51,13 @@
 --
 --  The lmdb backed account map consists of a single lmdb store indexed by AccountAddresses and values are the associated ‘AccountIndex' for each account.
 --
---  (The ‘DifferenceMap' consists of a @Map AccountAddress AccountIndes@ which retains the accounts that have been added to the chain for the associated block.
---  Moreover the ‘DifferenceMap' potentially retains a pointer to a so-called parent ‘DifferenceMap'.
---  I.e. @Maybe DifferenceMap@. If this is @Nothing@ then it means that the parent block is finalized or no accounts have been added.
---  If the parent map yields a ‘DifferenceMap' then the parent block is not persisted yet, and so the ‘DifferenceMap' uses this parent map
+--  (The ‘DifferenceMap' consists of a @Map AccountAddressEq (AccountIndex, AccountAddress)@ which retains the accounts that have been added to the chain for the associated block.)
+--  The equivalence class 'AccountAddressEq' is used for looking up accounts in the 'DifferenceMap'. The values are pairs @(AccountIndex, AccountAddress)@ where the
+--  'AccountIndex' determines the location of the associated account in the account table. The second component (the 'AccountAddress) is the canonical account address of
+--  the account i.e. the account address that is derived from the reg id.
+--  Note that the ‘DifferenceMap' can potentially retain a pointer to a parent ‘DifferenceMap', i.e. @Maybe DifferenceMap@.
+--  If this is @Nothing@ then it means that the parent block is finalized or no accounts have been added.
+--  If the parent map yields a ‘DifferenceMap' then the parent block is not finalized yet, and so the ‘DifferenceMap' uses this parent map
 --  for keeping track of non persisted accounts for supporting e.g. queries via the ‘AccountAddress'.
 module Concordium.GlobalState.Persistent.Accounts where
 
@@ -145,7 +148,7 @@ instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (Accounts pv) 
 
 -- | Write accounts created for this block or any non-persisted parent block.
 --  Note that this also empties the difference map for this block.
---  This function MUST be called whenver a block is finalized.
+--  This function MUST be called whenever a block is finalized.
 writeAccountsCreated :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 writeAccountsCreated Accounts{..} = do
     mAccountsCreated <- liftIO $ readIORef accountDiffMapRef
@@ -167,11 +170,14 @@ mkNewChildDifferenceMap accts@Accounts{..} = do
     return accts{accountDiffMapRef = newDiffMapRef}
 
 -- | Create and set the 'DiffMap.DifferenceMap' for the provided @Accounts pv@.
+--  This function constructs the difference map for the block such that the assoicated difference map
+--  and lmdb backed account map are consistent with the account table.
+--
 --  The function is highly unsafe and can cause state invariant failures if not all of the
 --  below preconditions are respected.
 --  Precondition:
---  * The function assumes that the account table already yields every account added for the block state.
---  * The provided 'DiffMap.DifferenceMapReference@ MUST correspond to the parent map.
+--  * The function assumes that the account table already contains every account added for the block state.
+--  * The provided @DiffMap.DifferenceMapReference@ MUST correspond to the parent map.
 --  * The provided list of accounts MUST be in ascending order of account index, hence the list of accounts
 --   MUST be provided in the order of which the corresponding credential deployment transactions were executed.
 reconstructDifferenceMap ::
@@ -179,6 +185,7 @@ reconstructDifferenceMap ::
     -- | Reference to the parent difference map.
     DiffMap.DifferenceMapReference ->
     -- | Account addresses to add to the difference map.
+    --  The list MUST be in ascending order of 'AccountIndex'.
     [AccountAddress] ->
     -- | The accounts to write difference map to.
     Accounts pv ->
@@ -207,7 +214,10 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
         -- In earlier versions of the node the above mentioned account map was used,
         -- but this is now superseded by the 'LMDBAccountMap.MonadAccountMapStore'.
         -- We put this empty map here if the protocol version requires it in order to remain backwards compatible.
-        (emptyOldMap, _) <- storeUpdate $ OldMap.empty @pv @BufferedFix
+        pAccountMap <-
+            if storeRequiresAccountMap (protocolVersion @pv)
+                then fst <$> storeUpdate (OldMap.empty @pv @BufferedFix)
+                else return (return ())
         (pTable, accountTable') <- storeUpdate accountTable
         (pRegIdHistory, regIdHistory') <- storeUpdate accountRegIdHistory
         let newAccounts =
@@ -216,12 +226,10 @@ instance (SupportsPersistentAccount pv m) => BlobStorable m (Accounts pv) where
                       accountRegIdHistory = regIdHistory',
                       ..
                     }
-        let putf = do
-                when (storeRequiresAccountMap (protocolVersion @pv)) emptyOldMap
-                pTable
-                pRegIdHistory
-        return (putf, newAccounts)
+        return (pAccountMap >> pTable >> pRegIdHistory, newAccounts)
     load = do
+        -- If we're on protocol version 6 or older, then load the persistent account map and throw it away as
+        -- the 'OldMap.PersistentAccountMap' is now superseded by the LMDBAccountMap.MonadAccountMapStore.
         when (storeRequiresAccountMap (protocolVersion @pv)) $ do
             void (load :: Get (m (OldMap.PersistentAccountMap pv)))
         maccountTable <- load
@@ -256,7 +264,7 @@ putNewAccount !acct a0@Accounts{..} = do
             mAccountDiffMap <- liftIO $ readIORef accountDiffMapRef
             accountDiffMap' <- case mAccountDiffMap of
                 Absent -> do
-                    -- create a difference map for this block state with a @Nothing@ as the parent.
+                    -- create a difference map for this block state with an @Absent@ as the parent.
                     freshDifferenceMap <- liftIO DiffMap.newEmptyReference
                     return $ DiffMap.insert addr accIdx $ DiffMap.empty freshDifferenceMap
                 Present accDiffMap -> do
@@ -300,16 +308,12 @@ getAccountIndex addr Accounts{..} = do
             if supportsAccountAliases (protocolVersion @pv)
                 then
                     DiffMap.lookupViaEquivalenceClass (accountAddressEmbed addr) accDiffMap >>= \case
-                        Just accIdx -> return $ Just accIdx
-                        Nothing -> do
-                            diffMapSize <- length <$> DiffMap.flatten accDiffMap
-                            lookupDisk $ fromIntegral diffMapSize
+                        Right accIdx -> return $ Just accIdx
+                        Left diffMapSize -> lookupDisk $ fromIntegral diffMapSize
                 else
                     DiffMap.lookupExact addr accDiffMap >>= \case
-                        Just accIdx -> return $ Just accIdx
-                        Nothing -> do
-                            diffMapSize <- length <$> DiffMap.flatten accDiffMap
-                            lookupDisk $ fromIntegral diffMapSize
+                        Right accIdx -> return $ Just accIdx
+                        Left diffMapSize -> lookupDisk $ fromIntegral diffMapSize
   where
     -- Lookup the 'AccountIndex' in the lmdb backed account map,
     -- and make sure it's within the bounds of the account table.
@@ -318,11 +322,8 @@ getAccountIndex addr Accounts{..} = do
     -- In particular this can be the case if finalized blocks have been rolled
     -- back as part of database recovery.
     --
-    -- The extra @diffMapSize@ constraint is necessary in the case where a parent block to the last finalized block
-    -- is used for extending. This is normally not the case as blocks are typically built from the "best" block always.
-    --
-    -- However for scenarios like dry runs, then we need this extra constraint, as otherwise an account created in the
-    -- in the dry run would point to an account created in a successor of the block that the dry run is extending.
+    -- If an account is not present in the difference map, then it must have an account index where
+    -- @account index < number of accounts in account table - number of accounts in the difference map(s).@
     lookupDisk diffMapSize =
         if supportsAccountAliases (protocolVersion @pv)
             then withSafeBounds <$> LMDBAccountMap.lookupAccountIndexViaEquivalence (accountAddressEmbed addr)
@@ -414,8 +415,7 @@ updateAccountsAtIndex' fupd ai = fmap snd . updateAccountsAtIndex fupd' ai
     fupd' = fmap ((),) . fupd
 
 -- | Get a list of all account addresses and their associated account indices.
---  There are no guarantees of the order of the list. This is because the resulting list is potentially
---  a concatenation of two lists of account addresses.
+--  There are no guarantees of the order of the list.
 allAccounts :: (SupportsPersistentAccount pv m) => Accounts pv -> m [(AccountAddress, AccountIndex)]
 allAccounts accounts = do
     mDiffMap <- liftIO $ readIORef (accountDiffMapRef accounts)
@@ -424,7 +424,7 @@ allAccounts accounts = do
         Present accDiffMap -> do
             -- Get all persisted accounts from the account map up to and including the last account of the account table minus what we found the in the difference map.
             flattenedDiffMapAccounts <- DiffMap.flatten accDiffMap
-            persistedAccs <- LMDBAccountMap.getAllAccounts $ (AccountIndex . L.size) (accountTable accounts) - (1 + fromIntegral (length flattenedDiffMapAccounts))
+            persistedAccs <- LMDBAccountMap.getAllAccounts . AccountIndex $ L.size (accountTable accounts) - (1 + fromIntegral (length flattenedDiffMapAccounts))
             return $! persistedAccs <> flattenedDiffMapAccounts
 
 -- | Get a list of all account addresses.
@@ -448,16 +448,17 @@ foldAccountsDesc :: (SupportsPersistentAccount pv m) => (a -> PersistentAccount 
 foldAccountsDesc f a accts = L.mfoldDesc f a (accountTable accts)
 
 -- | Initialize the LMDB account map if it is not already.
---  This puts in all accounts from the account table of the provided block state into the account map.
---  If there already are accounts present in the account map, then we check that the size of the account map
---  corresponds with number of accounts in the account table.
---  If the number of accounts in the account table and account map matches, then this function does nothing.
---  If they do not match, wipe the account map and recreate it from the account table.
+--  If the account map has fewer accounts than the provided account table, the account map is
+--  wiped and repopulated from the account table. Otherwise, the account map is unchanged.
 tryPopulateLMDBStore :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 tryPopulateLMDBStore accts = do
     noLMDBAccounts <- LMDBAccountMap.getNumberOfAccounts
     let expectedSize = L.size $ accountTable accts
-    when (noLMDBAccounts /= expectedSize) $ do
+    -- If the number of accounts in the lmdb backed account map is
+    -- less than the size of the account table then we rebuild it here.
+    -- This should really never happen as we're writing to the lmdb backed account map
+    -- BEFORE the block (and assoicated block state) is written to disk.
+    when (noLMDBAccounts < expectedSize) $ do
         -- The number of accounts in the lmdb backed account map does not match
         -- the number of accounts in the account table.
         -- Clear the map and reconstruct it from the accounts table.

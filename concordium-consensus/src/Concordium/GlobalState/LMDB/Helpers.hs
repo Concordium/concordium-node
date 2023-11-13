@@ -18,6 +18,7 @@ module Concordium.GlobalState.LMDB.Helpers (
     seEnv,
     seStepSize,
     seMaxStepSize,
+    defaultEnvSize,
     defaultStepSize,
     defaultMaxStepSize,
     resizeDatabaseHandlers,
@@ -295,6 +296,12 @@ data StoreEnv = StoreEnv
     }
 
 makeLenses ''StoreEnv
+
+-- | Default start environment size.
+--  Tree state database sizes for historical protocol versions have been between 7-60 times
+--  the 'defaultEnvSize'.
+defaultEnvSize :: Int
+defaultEnvSize = 2 ^ (27 :: Int) -- 128MB
 
 -- | Database growth size increment.
 --  This is currently set at 64MB, and must be a multiple of the page size.

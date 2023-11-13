@@ -316,12 +316,6 @@ metadataStoreName = "metadata"
 databaseCount :: Int
 databaseCount = 5
 
--- | Default start environment size.
---  Tree state database sizes for historical protocol versions have been between 7-60 times
---  the 'defaultEnvSize'.
-defaultEnvSize :: Int
-defaultEnvSize = 2 ^ (26 :: Int) -- 64MB
-
 -- | Initialize database handlers in ReadWrite mode.
 --  This simply loads the references and does not initialize the databases.
 databaseHandlers :: FilePath -> IO (DatabaseHandlers pv st)

@@ -28,9 +28,6 @@ fn main() -> std::io::Result<()> {
     // Build GRPC
 
     let proto_root_input = format!("{}/../concordium-base/concordium-grpc-api", cargo_dir);
-    let proto = format!("{}/concordium_p2p_rpc.proto", proto_root_input);
-
-    println!("cargo:rerun-if-changed={}", proto);
 
     #[cfg(not(feature = "static"))]
     {
@@ -118,13 +115,6 @@ fn main() -> std::io::Result<()> {
 
     #[cfg(feature = "static")]
     link_static_libs()?;
-
-    // build GRPC V1 interface.
-    tonic_build::configure()
-        .build_server(true)
-        .build_client(true) // the client is needed for the collector
-        .compile(&[&proto], &[&proto_root_input])
-        .expect("Failed to compile gRPC definitions!");
 
     build_grpc2(&proto_root_input)?;
     Ok(())

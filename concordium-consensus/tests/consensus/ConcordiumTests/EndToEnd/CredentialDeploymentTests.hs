@@ -3,7 +3,11 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | End to end tests for credential deployments.
-module EndToEndTests.CredentialDeploymentTests (tests) where
+-- For future maintainers: Note that the blocks below have hardcoded transaction outcome and state hashes.
+-- These can be obtained by running the test and observe the program output.
+-- (The monad we're running the tests within has a logger)
+-- It is not expected that the hardcoded hashes change unless the protocol version changes (AND the underlying hashing scheme).
+module ConcordiumTests.EndToEnd.CredentialDeploymentTests (tests) where
 
 import Concordium.Utils
 import Control.Monad.IO.Class
@@ -27,7 +31,8 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.Transactions
-import EndToEndTests.E2ETestData
+
+import ConcordiumTests.KonsensusV1.Consensus.Blocks hiding (testBB1, testBB2, testBB2', testBB3, testBB3', tests)
 
 -- | Helper for reading an 'AccountCreation' from a 'ByteString'.
 readAccountCreation :: BSL.ByteString -> AccountCreation
@@ -230,7 +235,7 @@ getAccAddress accCreation = case credential accCreation of
     NormalACWP x -> credentialAccountAddress $ cdiValues x
 
 -- | Test that two credential deployments (each on their own branch and with same block height) does not:
---  * Alter the state of the parent block (a new child difference map and assoicated reference is created).
+--  * Alter the state of the parent block (a new child difference map and associated reference is created).
 testDeployCredentialBranching :: Assertion
 testDeployCredentialBranching = runTestMonad noBaker testTime genesisData $ do
     genesisState <- use (lastFinalized . to bpState)
@@ -280,7 +285,7 @@ testDeployCredentialBranching = runTestMonad noBaker testTime genesisData $ do
 
             getAccount (bpState bp2) (getAccAddress cred3) >>= \case
                 Nothing -> return ()
-                Just _ -> liftIO $ assertFailure $ "cred3 should not be present: " <> show (getAccAddress cred3) <> " " <> show (getAccAddress cred2)
+                Just _ -> liftIO $ assertFailure $ "cred3 should not be present: " <> show (getAccAddress cred3)
 
     -- Check that cred1 and cred3 is present in b3 (but not cred2)
     case sd ^. blockTable . liveMap . at' (getHash b3) of
@@ -298,7 +303,7 @@ testDeployCredentialBranching = runTestMonad noBaker testTime genesisData $ do
 
             getAccount (bpState bp3) (getAccAddress cred2) >>= \case
                 Nothing -> return ()
-                Just _ -> liftIO $ assertFailure $ "cred2 should not be present: " <> show (getAccAddress cred3) <> " " <> show (getAccAddress cred2)
+                Just _ -> liftIO $ assertFailure $ "cred2 should not be present: " <> show (getAccAddress cred3)
 
     -- finalize bp3 and make sure that the state of the lfb matches b3.
     let b4 = signedPB testBB4
@@ -308,7 +313,7 @@ testDeployCredentialBranching = runTestMonad noBaker testTime genesisData $ do
 
     lfbState <- use (lastFinalized . to bpState)
     noAccountsLfb <- length <$> getAccountList lfbState
-    liftIO $ assertEqual "check that there is one extra account" (noGenesisAccs + 2) noAccountsLfb
+    liftIO $ assertEqual "check that there aer two extra accounts (cred 1 and 3)" (noGenesisAccs + 2) noAccountsLfb
 
     getAccount lfbState (getAccAddress cred1) >>= \case
         Nothing -> liftIO $ assertFailure "Should yield cred1"
@@ -320,7 +325,16 @@ testDeployCredentialBranching = runTestMonad noBaker testTime genesisData $ do
 
     getAccount lfbState (getAccAddress cred2) >>= \case
         Nothing -> return ()
-        Just _ -> liftIO $ assertFailure $ "cred2 should not be present: " <> show (getAccAddress cred3) <> " " <> show (getAccAddress cred2)
+        Just _ -> liftIO $ assertFailure $ "cred2 should not be present: " <> show (getAccAddress cred2)
+
+    -- Check that querying the old bs is not affected by the updated lmdb backed account map.
+    noFinal <- length <$> getAccountList genesisState
+    liftIO $ assertEqual "There should be the same number of accounts present" noGenesisAccs noFinal
+    -- We thaw here so we can use @bsoGetAccountIndex@ for querying account index directly.
+    updatableBlockState <- thawBlockState genesisState
+    bsoGetAccountIndex updatableBlockState (getAccAddress cred1) >>= \case
+        Nothing -> return ()
+        Just _ -> liftIO $ assertFailure "cred 1 should not be present."
 
 tests :: Word -> Spec
 tests _ = describe "EndToEndTests.CredentialDeployments" $ do

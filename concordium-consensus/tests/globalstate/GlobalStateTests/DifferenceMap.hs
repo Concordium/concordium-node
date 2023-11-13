@@ -28,7 +28,7 @@ dummyPair seed = (fst $ randomAccountAddress (mkStdGen seed), AccountIndex $ fro
 --  Precondition: The provided @AccountAddress@ MUST be the canonical address,
 --  and it should be present in the underlying store.
 --  The equivalence lookup always looks up by an alias.
-testDoLookup :: (MonadIO m) => AccountAddress -> DiffMap.DifferenceMap -> m (Maybe AccountIndex)
+testDoLookup :: (MonadIO m) => AccountAddress -> DiffMap.DifferenceMap -> m (Either Int AccountIndex)
 testDoLookup accAddr diffMap = do
     res1 <- DiffMap.lookupViaEquivalenceClass (accountAddressEmbed $ createAlias accAddr 42) diffMap
     res2 <- DiffMap.lookupExact accAddr diffMap
@@ -41,8 +41,8 @@ testInsertLookupAccount = do
     emptyParentMap <- liftIO DiffMap.newEmptyReference
     let diffMap = uncurry DiffMap.insert acc $ DiffMap.empty emptyParentMap
     testDoLookup (fst acc) diffMap >>= \case
-        Nothing -> assertFailure "account should be present in diff map"
-        Just accIdx -> assertEqual "account should be there" (snd acc) accIdx
+        Left _ -> assertFailure "account should be present in diff map"
+        Right accIdx -> assertEqual "account should be there" (snd acc) accIdx
   where
     acc = dummyPair 1
 
@@ -68,8 +68,8 @@ testLookups = do
   where
     checkExists pair diffMap =
         testDoLookup (fst pair) diffMap >>= \case
-            Nothing -> assertFailure "account should be present"
-            Just accIdx -> assertEqual "wrong account index" (snd pair) accIdx
+            Left _ -> assertFailure "account should be present"
+            Right accIdx -> assertEqual "wrong account index" (snd pair) accIdx
 
 -- | Test flattening a difference map i.e. return all accounts as one flat map.
 testFlatten :: Assertion
@@ -114,12 +114,18 @@ insertionsAndLookups = it "insertions and lookups" $
             emptyRef <- liftIO DiffMap.newEmptyReference
             diffMap <- populateDiffMap inputs noDifferenceMaps $ DiffMap.empty emptyRef
             checkAll reference diffMap
+            let nonExistantAcc = fst (dummyPair (-1))
+            testDoLookup nonExistantAcc diffMap >>= \case
+                Right _ -> liftIO $ assertFailure "account should not be present"
+                Left size -> do
+                    expectedSize <- length <$> DiffMap.flatten diffMap
+                    liftIO $ assertEqual "Sizes should match" expectedSize size
   where
     checkAll ref diffMap = forM_ (HM.toList ref) (check diffMap)
     check diffMap (accAddr, accIdx) = do
         testDoLookup accAddr diffMap >>= \case
-            Nothing -> liftIO $ assertFailure "account address should be present"
-            Just actualAccIdx -> liftIO $ assertEqual "account index should be equal" accIdx actualAccIdx
+            Left _ -> liftIO $ assertFailure "account address should be present"
+            Right actualAccIdx -> liftIO $ assertEqual "account index should be equal" accIdx actualAccIdx
     -- return the generated difference map(s)
     populateDiffMap [] _ !accum = return accum
     -- dump any remaining accounts at the top most difference map.
@@ -132,7 +138,7 @@ insertionsAndLookups = it "insertions and lookups" $
 
 -- | A test that makes sure if multiple difference maps are
 --  derivied via a common parent, then additions in one branch
---  is not propagating to other branches.
+--  are not propagating to other branches.
 testMultipleChildrenDifferenceMaps :: Assertion
 testMultipleChildrenDifferenceMaps = do
     emptyRoot <- liftIO DiffMap.newEmptyReference
@@ -153,12 +159,14 @@ testMultipleChildrenDifferenceMaps = do
   where
     checkExists addr expectedAccIdx diffMap =
         testDoLookup addr diffMap >>= \case
-            Just accIdx -> liftIO $ assertEqual "Account index should match" expectedAccIdx accIdx
-            Nothing -> liftIO $ assertFailure "Expected an entry"
+            Right accIdx -> liftIO $ assertEqual "Account index should match" expectedAccIdx accIdx
+            Left _ -> liftIO $ assertFailure "Expected an entry"
     checkNotExists addr diffMap =
         testDoLookup addr diffMap >>= \case
-            Just _ -> liftIO $ assertFailure "Did not expect an entry"
-            Nothing -> return ()
+            Right _ -> liftIO $ assertFailure "Did not expect an entry"
+            Left size -> do
+                expectedSize <- length <$> DiffMap.flatten diffMap
+                liftIO $ assertEqual "Size reported back should match flattened size" expectedSize size
 
 -- | Test the 'fromList' function.
 testFromList :: Assertion

@@ -6,6 +6,11 @@
 - If an account does not have any pending transactions, then the transaction table is no longer used for tracking next available account nonce but
   instead the lfb block state is used.
 
+- Remove V1 GRPC API from the node. This removes configuration options
+  `CONCORDIUM_NODE_RPC_SERVER_PORT`, `CONCORDIUM_NODE_RPC_SERVER_ADDRESS`, 
+  `CONCORDIUM_NODE_RPC_SERVER_TOKEN`, `CONCORDIUM_NODE_DISABLE_RPC_SERVER_NODE_ENDPOINTS`
+  and their command line equivalents.
+
 ## 6.2.0
 
 - Add an additional health-check service to the V2 GRPC API.

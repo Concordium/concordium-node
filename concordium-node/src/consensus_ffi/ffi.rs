@@ -13,7 +13,6 @@ use crate::{
     write_or_die,
 };
 use anyhow::{anyhow, bail, Context};
-use byteorder::{NetworkEndian, ReadBytesExt};
 use concordium_base::{
     common::Serial,
     hashes::{BlockHash, TransactionHash},
@@ -21,7 +20,7 @@ use concordium_base::{
 use std::{
     convert::{TryFrom, TryInto},
     ffi::{CStr, CString},
-    io::{Cursor, Write},
+    io::Write,
     os::raw::{c_char, c_int},
     path::Path,
     ptr, slice,
@@ -460,70 +459,9 @@ extern "C" {
     pub fn stopBaker(consensus: *mut consensus_runner);
     pub fn stopConsensus(consensus: *mut consensus_runner);
 
-    // Consensus queries
-    pub fn getConsensusStatus(consensus: *mut consensus_runner) -> *const c_char;
-    pub fn getBlockInfo(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getAncestors(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-        amount: u64,
-    ) -> *const c_char;
-    pub fn getBranches(consensus: *mut consensus_runner) -> *const c_char;
     /// Get the total number of non-finalized transactions across all accounts.
     pub fn getNumberOfNonFinalizedTransactions(consensus: *mut consensus_runner) -> u64;
 
-    // State queries
-    pub fn getAccountList(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getInstances(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getAccountInfo(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-        account_address: *const c_char,
-    ) -> *const c_char;
-    pub fn getInstanceInfo(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-        contract_address: *const c_char,
-    ) -> *const c_char;
-    pub fn invokeContract(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-        context: *const c_char,
-        invoke_max_energy: u64,
-    ) -> *const c_char;
-    pub fn getRewardStatus(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getBirkParameters(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getModuleList(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getModuleSource(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-        module_ref: *const c_char,
-    ) -> *const u8;
-    pub fn getBakerList(consensus: *mut consensus_runner, block_hash: *const u8) -> *const c_char;
-    pub fn getPoolStatus(
-        consensus: *mut consensus_runner,
-        block_hash: *const u8,
-        passive_delegation: u8,
-        baker_id: u64,
-    ) -> *const c_char;
     pub fn freeCStr(hstring: *const c_char);
     pub fn getCatchUpStatus(
         consensus: *mut consensus_runner,
@@ -547,46 +485,7 @@ extern "C" {
     ) -> u8;
     pub fn checkIfWeAreFinalizer(consensus: *mut consensus_runner) -> u8;
     pub fn checkIfRunning(consensus: *mut consensus_runner) -> u8;
-    pub fn getAccountNonFinalizedTransactions(
-        consensus: *mut consensus_runner,
-        account_address: *const c_char,
-    ) -> *const c_char;
-    pub fn getBlockSummary(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getBlocksAtHeight(
-        consensus: *mut consensus_runner,
-        block_height: u64,
-        genesis_index: u32,
-        restrict: u8,
-    ) -> *const c_char;
     pub fn getLastFinalizedBlockHeight(consensus: *mut consensus_runner) -> u64;
-    pub fn getTransactionStatus(
-        consensus: *mut consensus_runner,
-        transaction_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getTransactionStatusInBlock(
-        consensus: *mut consensus_runner,
-        transaction_hash: *const c_char,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getNextAccountNonce(
-        consensus: *mut consensus_runner,
-        account_address: *const c_char,
-    ) -> *const c_char;
-    pub fn getAllIdentityProviders(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getAllAnonymityRevokers(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
-    pub fn getCryptographicParameters(
-        consensus: *mut consensus_runner,
-        block_hash: *const c_char,
-    ) -> *const c_char;
     pub fn importBlocks(
         consensus: *mut consensus_runner,
         import_file_path: *const u8,
@@ -2102,171 +2001,15 @@ impl ConsensusContainer {
         }
     }
 
-    pub fn get_consensus_status(&self) -> String {
-        wrap_c_call_string!(self, consensus, |consensus| getConsensusStatus(consensus))
-    }
-
-    pub fn get_block_info(&self, block_hash: &str) -> anyhow::Result<String> {
-        let c_str = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getBlockInfo(
-            consensus,
-            c_str.as_ptr()
-        )))
-    }
-
-    pub fn get_blocks_at_height(
-        &self,
-        block_height: u64,
-        genesis_index: u32,
-        restrict: bool,
-    ) -> String {
-        wrap_c_call_string!(self, consensus, |consensus| getBlocksAtHeight(
-            consensus,
-            block_height,
-            genesis_index,
-            restrict as u8
-        ))
-    }
-
     pub fn get_last_finalized_block_height(&self) -> u64 {
         let consensus = self.consensus.load(Ordering::SeqCst);
         unsafe { getLastFinalizedBlockHeight(consensus) }
-    }
-
-    pub fn get_ancestors(&self, block_hash: &str, amount: u64) -> anyhow::Result<String> {
-        let c_str = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getAncestors(
-            consensus,
-            c_str.as_ptr(),
-            amount
-        )))
-    }
-
-    pub fn get_branches(&self) -> String {
-        wrap_c_call_string!(self, consensus, |consensus| getBranches(consensus))
     }
 
     /// Get the total number of non-finalized transactions across all accounts.
     pub fn number_of_non_finalized_transactions(&self) -> u64 {
         let consensus = self.consensus.load(Ordering::SeqCst);
         unsafe { getNumberOfNonFinalizedTransactions(consensus) }
-    }
-
-    pub fn get_account_list(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getAccountList(
-            consensus,
-            block_hash.as_ptr()
-        )))
-    }
-
-    pub fn get_instances(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getInstances(
-            consensus,
-            block_hash.as_ptr()
-        )))
-    }
-
-    pub fn get_account_info(
-        &self,
-        block_hash: &str,
-        account_address: &str,
-    ) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        let account_address = CString::new(account_address)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getAccountInfo(
-            consensus,
-            block_hash.as_ptr(),
-            account_address.as_ptr()
-        )))
-    }
-
-    pub fn get_instance_info(
-        &self,
-        block_hash: &str,
-        contract_address: &str,
-    ) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        let contract_address = CString::new(contract_address)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getInstanceInfo(
-            consensus,
-            block_hash.as_ptr(),
-            contract_address.as_ptr()
-        )))
-    }
-
-    pub fn invoke_contract(
-        &self,
-        block_hash: &str,
-        context: &str,
-        invoke_max_energy: u64,
-    ) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        let context = CString::new(context)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| invokeContract(
-            consensus,
-            block_hash.as_ptr(),
-            context.as_ptr(),
-            invoke_max_energy
-        )))
-    }
-
-    pub fn get_reward_status(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getRewardStatus(
-            consensus,
-            block_hash.as_ptr()
-        )))
-    }
-
-    pub fn get_birk_parameters(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getBirkParameters(
-            consensus,
-            block_hash.as_ptr()
-        )))
-    }
-
-    pub fn get_module_list(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getModuleList(
-            consensus,
-            block_hash.as_ptr()
-        )))
-    }
-
-    pub fn get_module_source(&self, block_hash: &str, module_ref: &str) -> anyhow::Result<Vec<u8>> {
-        let block_hash = CString::new(block_hash)?;
-        let module_ref = CString::new(module_ref)?;
-        Ok(wrap_c_call_bytes!(self, |consensus| getModuleSource(
-            consensus,
-            block_hash.as_ptr(),
-            module_ref.as_ptr()
-        )))
-    }
-
-    pub fn get_baker_list(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getBakerList(
-            consensus,
-            block_hash.as_ptr() as *const u8
-        )))
-    }
-
-    pub fn get_pool_status(
-        &self,
-        block_hash: &str,
-        passive_delegation: bool,
-        baker_id: u64,
-    ) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getPoolStatus(
-            consensus,
-            block_hash.as_ptr() as *const u8,
-            passive_delegation as u8,
-            baker_id,
-        )))
     }
 
     /// Construct a catch-up request message. The message includes the packet
@@ -2344,78 +2087,6 @@ impl ConsensusContainer {
     /// this will return false.
     pub fn is_consensus_running(&self) -> bool {
         wrap_c_bool_call!(self, |consensus| checkIfRunning(consensus))
-    }
-
-    pub fn get_account_non_finalized_transactions(
-        &self,
-        account_address: &str,
-    ) -> anyhow::Result<String> {
-        let account_address = CString::new(account_address)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| {
-            getAccountNonFinalizedTransactions(consensus, account_address.as_ptr())
-        }))
-    }
-
-    pub fn get_block_summary(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getBlockSummary(
-            consensus,
-            block_hash.as_ptr()
-        )))
-    }
-
-    pub fn get_transaction_status(&self, transaction_hash: &str) -> anyhow::Result<String> {
-        let transaction_hash = CString::new(transaction_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getTransactionStatus(
-            consensus,
-            transaction_hash.as_ptr()
-        )))
-    }
-
-    pub fn get_transaction_status_in_block(
-        &self,
-        transaction_hash: &str,
-        block_hash: &str,
-    ) -> anyhow::Result<String> {
-        let transaction_hash = CString::new(transaction_hash)?;
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getTransactionStatusInBlock(
-            consensus,
-            transaction_hash.as_ptr(),
-            block_hash.as_ptr()
-        )))
-    }
-
-    pub fn get_next_account_nonce(&self, account_address: &str) -> anyhow::Result<String> {
-        let account_address = CString::new(account_address)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getNextAccountNonce(
-            consensus,
-            account_address.as_ptr(),
-        )))
-    }
-
-    pub fn get_identity_providers(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getAllIdentityProviders(
-            consensus,
-            block_hash.as_ptr(),
-        )))
-    }
-
-    pub fn get_anonymity_revokers(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getAllAnonymityRevokers(
-            consensus,
-            block_hash.as_ptr(),
-        )))
-    }
-
-    pub fn get_cryptographic_parameters(&self, block_hash: &str) -> anyhow::Result<String> {
-        let block_hash = CString::new(block_hash)?;
-        Ok(wrap_c_call_string!(self, consensus, |consensus| getCryptographicParameters(
-            consensus,
-            block_hash.as_ptr(),
-        )))
     }
 
     /// Import blocks from the given file path. If the file exists and the node
