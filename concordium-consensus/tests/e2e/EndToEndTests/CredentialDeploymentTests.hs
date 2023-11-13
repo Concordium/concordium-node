@@ -230,7 +230,7 @@ getAccAddress accCreation = case credential accCreation of
     NormalACWP x -> credentialAccountAddress $ cdiValues x
 
 -- | Test that two credential deployments (each on their own branch and with same block height) does not:
---  * Alter the state of the parent block (a new child difference map and assoicated reference is created).
+--  * Alter the state of the parent block (a new child difference map and associated reference is created).
 testDeployCredentialBranching :: Assertion
 testDeployCredentialBranching = runTestMonad noBaker testTime genesisData $ do
     genesisState <- use (lastFinalized . to bpState)

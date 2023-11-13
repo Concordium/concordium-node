@@ -155,5 +155,9 @@ clearReferences :: (MonadIO m) => DifferenceMap -> m ()
 clearReferences DifferenceMap{..} = do
     oParentDiffMap <- liftIO $ readIORef dmParentMapRef
     case oParentDiffMap of
-        Absent -> liftIO $ atomicWriteIORef dmParentMapRef Absent
-        Present diffMap -> clearReferences diffMap
+        Absent -> return ()
+        Present diffMap -> do
+            -- Clear this parent reference.
+            liftIO $ atomicWriteIORef dmParentMapRef Absent
+            -- Continue and check if the parent should have cleared it parent(s).
+            clearReferences diffMap
