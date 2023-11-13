@@ -3,6 +3,10 @@
 {-# LANGUAGE TemplateHaskell #-}
 
 -- | End to end tests for credential deployments.
+-- For future maintainers: Note that the blocks below have hardcoded transaction outcome and state hashes.
+-- These can be obtained by running the test and observe the program output.
+-- (The monad we're running the tests within has a logger)
+-- It is not expected that the hardcoded hashes change unless the protocol version changes (AND the underlying hashing scheme).
 module EndToEndTests.CredentialDeploymentTests (tests) where
 
 import Concordium.Utils
