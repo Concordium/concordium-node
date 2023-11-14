@@ -464,7 +464,7 @@ nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
         case Map.lookupMax (anfts ^. anftMap) of
             Nothing -> Just (anfts ^. anftNextNonce, True)
             Just (nonce, _) -> Just (nonce + 1, False)
-            
+
 -- * Transaction grouping
 
 -- | A group of one or more block items with sequential dependencies.
