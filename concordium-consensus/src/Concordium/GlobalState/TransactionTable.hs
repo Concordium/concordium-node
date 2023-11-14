@@ -135,7 +135,7 @@ getTransactionIndex bh = \case
 -- | The non-finalized transactions for a particular account.
 data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions
     { -- | Non-finalized transactions (for an account) and their verification results indexed by nonce.
-      _anftMap :: Map.Map Nonce (Map.Map Transaction TVer.VerificationResult),
+      _anftMap :: !(Map.Map Nonce (Map.Map Transaction TVer.VerificationResult)),
       -- | The next available nonce at the last finalized block.
       --  'anftMap' should only contain nonces that are at least 'anftNextNonce'.
       _anftNextNonce :: !Nonce
@@ -146,7 +146,7 @@ makeLenses ''AccountNonFinalizedTransactions
 
 -- | An account non-finalized table with no pending transactions.
 emptyANFT :: AccountNonFinalizedTransactions
-emptyANFT = AccountNonFinalizedTransactions Map.empty minNonce
+emptyANFT = emptyANFTWithNonce minNonce
 
 -- | An account non-finalized table with no pending transactions and given
 --  starting nonce.
@@ -206,7 +206,7 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 --  may also have a non-zero highest commit point if it is received in a block, but that block
 --  is not yet considered arrived (e.g. it is pending its parent).
 --
---  The '_ttNonFinalizedTransactions' should have an entry for every account which has a non-finalized transaction,
+--  The '_ttNonFinalizedTransactions' should have an entry for every account which have non-finalized transactions,
 --  with the exception of where the entry would be 'emptyANFT'. Similarly with
 --  '_ttNonFinalizedChainUpdates' and 'emptyNFCU'.  In particular, there should be
 --  an entry if the next nonce/sequence number is not the minimum value.
