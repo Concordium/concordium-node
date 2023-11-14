@@ -156,8 +156,8 @@ The build script goes through the following major steps:
      EnviromentVariables section:
      ```
      <!-- Path to the baker credentials file. -->
-     <key>CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE</key>
-     <string>/Library/Application Support/Concordium Node/Mainnet/Config/baker-credentials.json</string>
+     <key>CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE</key>
+     <string>/Library/Application Support/Concordium Node/Mainnet/Config/validator-credentials.json</string>
      ```
  2. Restart the given node by using the stop/start shortcuts.
 

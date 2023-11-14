@@ -2,6 +2,13 @@
 
 ## Unreleased changes
 
+- Add options `CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE` and
+  `CONCORDIUM_NODE_VALIDATOR_DECRYPT_CREDENTIALS` that alias
+  `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE`
+  `CONCORDIUM_NODE_BAKER_DECRYPT_CREDENTIALS`, respectively
+  The latter two options are still available, but hidden in the help text.
+- Support `validatorId` in addition to `bakerId` in the credentials to start a validator.
+
 ## 6.2.1
 
 - The account map is now kept solely on disk in a separate lmdb database and it is no longer part of the internal block state database.

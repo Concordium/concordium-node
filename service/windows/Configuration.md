@@ -52,11 +52,12 @@ data_dir = 'C:\ProgramData\Concordium\Node Runner\mainnet\data'
 The path to the data directory for the node, where the node's databases and the genesis data are stored.
 This must be a folder on your system, and must contain the genesis data file `genesis.dat`, or else the node will fail to start.
 
-### **baker_credentials** (string; optional)
+### **validator_credentials** (string; optional)
 ```
-baker_credentials = 'baker-credentials.json'
+validator_credentials = 'validator-credentials.json'
 ```
-The path to a baker credentials file if the node is to run as a baker.
+The path to a validator credentials file if the node is to run as a validator.
+The legacy option `baker_credentials` is an alias of this option.
 
 ### **listen.port** (integer; optional)
 ```

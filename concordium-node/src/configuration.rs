@@ -163,7 +163,14 @@ impl PrometheusConfig {
 }
 
 #[derive(StructOpt, Debug)]
-// Parameters related to Baking (only used in cli).
+/// Parameters related to Baking (only used in cli).
+//
+// This structure has a bit of redundancy. In particular it has duplicate
+// options for specifying credentials. The reason for this is that Concordium
+// underwent a renaming of "baker" to "validator". In order to streamline
+// documentation the additional option using "validator" was added, but in order
+// to keep backwards compatibility the existing options that use "baker" needed
+// to remain.
 pub struct BakerConfig {
     #[cfg(feature = "profiling")]
     #[structopt(
@@ -295,18 +302,34 @@ pub struct BakerConfig {
     pub account_cache_size: u32,
     #[structopt(
         long = "baker-credentials-file",
+        hidden = true,
         help = "Path to the baker credentials file. If the path is relative it is interpreted \
                 relative to the node process' working directory.",
         env = "CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE"
     )]
-    pub baker_credentials_file: Option<PathBuf>,
+    baker_credentials_file: Option<PathBuf>,
+    #[structopt(
+        long = "validator-credentials-file",
+        help = "Path to the validator credentials file. If the path is relative it is interpreted \
+                relative to the node process' working directory.",
+        env = "CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE"
+    )]
+    validator_credentials_file: Option<PathBuf>,
     #[structopt(
         long = "decrypt-baker-credentials",
+        hidden = true,
         help = "Indicate that the baker credentials are provided encrypted and thus need to be \
                 decrypted.",
         env = "CONCORDIUM_NODE_BAKER_DECRYPT_CREDENTIALS"
     )]
-    pub decrypt_baker_credentials: bool,
+    decrypt_baker_credentials: bool,
+    #[structopt(
+        long = "decrypt-validator-credentials",
+        help = "Indicate that the validator credentials are provided encrypted and thus need to \
+                be decrypted.",
+        env = "CONCORDIUM_NODE_VALIDATOR_DECRYPT_CREDENTIALS"
+    )]
+    decrypt_validator_credentials: bool,
     #[structopt(
         long = "modules-cache-size",
         help = "The maximum number of smart contract modules that can be stored in the module \
@@ -315,6 +338,56 @@ pub struct BakerConfig {
         env = "CONCORDIUM_NODE_CONSENSUS_MODULES_CACHE_SIZE"
     )]
     pub modules_cache_size: u32,
+}
+
+impl BakerConfig {
+    fn decrypt_credentials(&self) -> bool {
+        self.decrypt_baker_credentials || self.decrypt_validator_credentials
+    }
+
+    /// If the [`BakerConfig`] specifies that baker credentials should be read
+    /// then attempt to read them, returning an `Err` if this is not
+    /// possible.
+    ///
+    /// If the configuration does not specify baker credentials return
+    /// `Ok(None)`.
+    pub fn read_baker_credentials(&self) -> anyhow::Result<Option<Vec<u8>>> {
+        let path = match (
+            self.baker_credentials_file.as_ref(),
+            self.validator_credentials_file.as_ref(),
+        ) {
+            (None, None) => return Ok(None),
+            (Some(bcred), Some(vcred)) => {
+                anyhow::ensure!(
+                    bcred == vcred,
+                    "Both --baker-credentials-file and --validator-credentials-file are supplied, \
+                     and different."
+                );
+                bcred
+            }
+            (Some(cred), None) => cred,
+            (None, Some(cred)) => cred,
+        };
+        let read_data = match std::fs::read(path) {
+            Ok(read_data) => read_data,
+            Err(e) => anyhow::bail!("Cannot open the validator credentials file ({})!", e),
+        };
+        if self.decrypt_credentials() {
+            let et = serde_json::from_slice(&read_data)?;
+            let pass = rpassword::read_password_from_tty(Some(
+                "Enter password to decrypt baker credentials: ",
+            ))?;
+            match concordium_base::common::encryption::decrypt(&pass.into(), &et) {
+                Ok(d) => Ok(Some(d)),
+                Err(_) => anyhow::bail!(
+                    "Could not decrypt validator credentials. Most likely the password you \
+                     provided is incorrect."
+                ),
+            }
+        } else {
+            Ok(Some(read_data))
+        }
+    }
 }
 
 #[derive(StructOpt, Debug)]
