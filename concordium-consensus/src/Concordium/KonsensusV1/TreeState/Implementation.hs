@@ -57,7 +57,6 @@ import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
-import Concordium.GlobalState.TransactionTable
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.Types as GSTypes
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
@@ -289,9 +288,9 @@ mkInitialSkovData ::
     -- | Bakers at the genesis block
     EpochBakers ->
     -- | 'TransactionTable' to initialize the 'SkovData' with.
-    TransactionTable ->
+    TT.TransactionTable ->
     -- | 'PendingTransactionTable' to initialize the 'SkovData' with.
-    PendingTransactionTable ->
+    TT.PendingTransactionTable ->
     -- | The initial 'SkovData'
     SkovData pv
 mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transactionTable' pendingTransactionTable' =
@@ -742,7 +741,7 @@ getNonFinalizedCredential txhash sd = do
 --  that there are no pending or committed (but only finalized) transactions
 --  tied to this account.
 getNextAccountNonce ::
-    ( BlockStateStorage m,
+    ( BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
     -- | The 'AccountAddressEq' to get the next available nonce for.
@@ -758,11 +757,13 @@ getNextAccountNonce addr sd =
         Just ttResult -> return ttResult
         Nothing -> fetchFromLastFinalizedBlock
   where
-    fetchFromTransactionTable = return $! nextAccountNonce addr (sd ^. transactionTable)
+    fetchFromTransactionTable = return $! TT.nextAccountNonce addr (sd ^. transactionTable)
     fetchFromLastFinalizedBlock = do
         macct <- getAccount (sd ^. lastFinalized . to bpState) (aaeAddress addr)
         nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
         return (nextNonce, True)
+{-# INLINE getNextAccountNonce #-}
+
 
 -- | Finalizes a list of transactions in the in-memory transaction table.
 --  This removes the transactions (and any others with the same account and nonce, or update type
@@ -780,13 +781,16 @@ finalizeTransactions ::
     -- | The transactions to remove from the state.
     [BlockItem] ->
     m ()
-finalizeTransactions = do
-    mapM_ removeTrans
+finalizeTransactions = mapM_ removeTrans
   where
     removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
         let nonce = transactionNonce tr
             sender = accountAddressEmbed (transactionSender tr)
-        (nextNonce, _) <- getNextAccountNonce sender =<< get
+        anft <- use (transactionTable . TT.ttNonFinalizedTransactions . at' sender . non TT.emptyANFT)
+        nextNonce <- case Map.lookupMin (anft ^. TT.anftMap) of
+            Nothing -> do
+                fst <$> (getNextAccountNonce sender =<< get)
+            Just (n, _) -> return n
         unless (nextNonce == nonce) $
             throwM . TreeStateInvariantViolation $
                 "The recorded next nonce for the account "
@@ -796,7 +800,6 @@ finalizeTransactions = do
                     ++ ") doesn't match the one that is going to be finalized ("
                     ++ show nonce
                     ++ ")"
-        anft <- use (transactionTable . TT.ttNonFinalizedTransactions . at' sender . non TT.emptyANFT)
         let nfn = anft ^. TT.anftMap . at' nonce . non Map.empty
             wmdtr = WithMetadata{wmdData = tr, ..}
         unless (Map.member wmdtr nfn) $
@@ -813,11 +816,12 @@ finalizeTransactions = do
         transactionTable
             . TT.ttNonFinalizedTransactions
             . at' sender
-            ?=! ( anft
+            . non TT.emptyANFT
+            .=! ( anft
                     & (TT.anftMap . at' nonce .~ Nothing)
-                    & (TT.anftNextNonce .~ nonce + 1)
-                ) 
-    removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
+                )
+
+    removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} = do 
         transactionTable . TT.ttHashMap . at' wmdHash .= Nothing
     removeTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
         let sn = updateSeqNumber (uiHeader cu)

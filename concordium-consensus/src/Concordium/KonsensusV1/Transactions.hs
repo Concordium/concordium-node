@@ -33,7 +33,7 @@ import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.TreeState (MGSTrans (..))
 import qualified Concordium.GlobalState.Types as GSTypes
-import Concordium.KonsensusV1.TreeState.Implementation
+import Concordium.KonsensusV1.TreeState.Implementation as Impl
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.Types (updateSeqNumber)
@@ -64,17 +64,7 @@ instance
     ) =>
     AccountNonceQuery (AccountNonceQueryT m)
     where
-    getNextAccountNonce addr =
-        fetchFromTransactionTable >>= \case
-            Just ttResult -> return ttResult
-            Nothing -> fetchFromLastFinalizedBlock
-      where
-        fetchFromTransactionTable = TT.nextAccountNonce addr <$> use transactionTable
-        fetchFromLastFinalizedBlock = do
-            lfb <- use lastFinalized
-            macct <- getAccount (bpState lfb) (aaeAddress addr)
-            nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-            return (nextNonce, True)
+    getNextAccountNonce addr = Impl.getNextAccountNonce addr =<< get
     {-# INLINE getNextAccountNonce #-}
 
 -- | Verify a block item. This wraps 'TVer.verify'.

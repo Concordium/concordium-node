@@ -632,33 +632,6 @@ constructBlock StoredBlockWithStateHash{sbshStoredBlock = StoredBlock{..}, ..} =
     bstate <- loadBlockState sbshStateHash sbState
     makeBlockPointerFromPersistentBlock sbBlock bstate sbInfo
 
--- | Get the next account nonce.
---  If the account has any non-finalized transactions, then it
---  is being retrieved via the transaction table and otherwise
---  via the last finalized block.
-doGetNextAccountNonce ::
-    ( MonadState state m,
-      HasSkovPersistentData pv state,
-      BlockStateQuery m,
-      BlockState m ~ PBS.HashedPersistentBlockState pv,
-      BlockPointerMonad m,
-      BlockPointerType m ~ BlockPointer pv Weak (PBS.HashedPersistentBlockState pv)
-    ) =>
-    AccountAddressEq ->
-    m (Nonce, Bool)
-doGetNextAccountNonce addr =
-    fetchFromTransactionTable >>= \case
-        Just ttResult -> return ttResult
-        Nothing -> fetchFromLastFinalizedBlock
-  where
-    fetchFromTransactionTable = nextAccountNonce addr <$> use (skovPersistentData . transactionTable)
-    fetchFromLastFinalizedBlock = do
-        lfb <- use (skovPersistentData . lastFinalized)
-        st <- blockState lfb
-        macct <- getAccount st (aaeAddress addr)
-        nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-        return (nextNonce, True)
-
 instance
     ( MonadState state m,
       HasSkovPersistentData pv state,
@@ -672,7 +645,18 @@ instance
     ) =>
     AccountNonceQuery (PersistentTreeStateMonad state m)
     where
-    getNextAccountNonce = doGetNextAccountNonce
+    getNextAccountNonce addr = fetchFromTransactionTable >>= \case
+        Just ttResult -> return ttResult
+        Nothing -> fetchFromLastFinalizedBlock
+      where
+        fetchFromTransactionTable = nextAccountNonce addr <$> use (skovPersistentData . transactionTable)
+        fetchFromLastFinalizedBlock = do
+            lfb <- use (skovPersistentData . lastFinalized)
+            st <- blockState lfb
+            macct <- getAccount st (aaeAddress addr)
+            nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+            return (nextNonce, True)
+    {-# INLINE getNextAccountNonce #-}
 
 instance
     ( MonadLogger (PersistentTreeStateMonad state m),
@@ -936,10 +920,13 @@ instance
         finTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
             let nonce = transactionNonce tr
                 sender = accountAddressEmbed (transactionSender tr)
-            (nextNonce, _) <- doGetNextAccountNonce sender
+            anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
+            nextNonce <- case Map.lookupMin (anft ^. anftMap) of
+                Nothing -> do
+                    fst <$> getNextAccountNonce sender
+                Just (n, _) -> return n
             if nextNonce == nonce
                 then do
-                    anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                     let nfn = anft ^. anftMap . at' nonce . non Map.empty
                         wmdtr = WithMetadata{wmdData = tr, ..}
                     if Map.member wmdtr nfn
@@ -957,7 +944,6 @@ instance
                                 . at' sender
                                 ?= ( anft
                                         & (anftMap . at' nonce .~ Nothing)
-                                        & (anftNextNonce .~ nonce + 1)
                                    )
                             return ss
                         else do
