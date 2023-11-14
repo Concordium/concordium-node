@@ -11,6 +11,7 @@
 --    from the underlying tree state, in this case the 'SkovData pv'.
 module Concordium.KonsensusV1.Transactions where
 
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Cont
@@ -43,7 +44,7 @@ import qualified Concordium.TransactionVerification as TVer
 -- | Monad transformer for acquiring the next available account nonce from the
 --  underlying tree state.
 newtype AccountNonceQueryT (m :: Type -> Type) (a :: Type) = AccountNonceQueryT {runAccountNonceQueryT :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, TimeMonad, MonadState s, MonadReader r)
+    deriving (Functor, Applicative, Monad, MonadIO, TimeMonad, MonadState s, MonadReader r, MonadCatch, MonadThrow)
     deriving (MonadTrans) via IdentityT
 
 -- Instance for deducing the protocol version from the parameterized @m@ of the 'AccountNonceQueryT'.

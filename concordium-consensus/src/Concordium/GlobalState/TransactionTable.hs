@@ -133,9 +133,12 @@ getTransactionIndex bh = \case
 -- * Transaction table
 
 -- | The non-finalized transactions for a particular account.
-newtype AccountNonFinalizedTransactions = AccountNonFinalizedTransactions
+data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions
     { -- | Non-finalized transactions (for an account) and their verification results indexed by nonce.
-      _anftMap :: Map.Map Nonce (Map.Map Transaction TVer.VerificationResult)
+      _anftMap :: Map.Map Nonce (Map.Map Transaction TVer.VerificationResult),
+      -- | The next available nonce at the last finalized block.
+      --  'anftMap' should only contain nonces that are at least 'anftNextNonce'.
+      _anftNextNonce :: !Nonce
     }
     deriving (Eq, Show)
 
@@ -143,7 +146,12 @@ makeLenses ''AccountNonFinalizedTransactions
 
 -- | An account non-finalized table with no pending transactions.
 emptyANFT :: AccountNonFinalizedTransactions
-emptyANFT = AccountNonFinalizedTransactions Map.empty
+emptyANFT = AccountNonFinalizedTransactions Map.empty minNonce
+
+-- | An account non-finalized table with no pending transactions and given
+--  starting nonce.
+emptyANFTWithNonce :: Nonce -> AccountNonFinalizedTransactions
+emptyANFTWithNonce = AccountNonFinalizedTransactions Map.empty
 
 -- | The non-finalized chain updates of a particular type.
 data NonFinalizedChainUpdates = NonFinalizedChainUpdates
@@ -244,29 +252,9 @@ emptyTransactionTableWithSequenceNumbers :: [(AccountAddress, Nonce)] -> Map.Map
 emptyTransactionTableWithSequenceNumbers accs upds =
     TransactionTable
         { _ttHashMap = HM.empty,
-          _ttNonFinalizedTransactions = HM.fromList . map (\(k, _) -> (accountAddressEmbed k, emptyANFT)) . filter (\(_, n) -> n /= minNonce) $ accs,
+          _ttNonFinalizedTransactions = HM.fromList . map (\(k, n) -> (accountAddressEmbed k, emptyANFTWithNonce n)) . filter (\(_, n) -> n /= minNonce) $ accs,
           _ttNonFinalizedChainUpdates = emptyNFCUWithSequenceNumber <$> Map.filter (/= minUpdateSequenceNumber) upds
         }
-
--- | If the account has a non-finalized transaction then this
---  function returns the next available account nonce for the
---  provided account address in the first component and the
---  'Bool' in the second component is 'True' only if all transactions from the
---  provided account are finalized.
---  If the account does not have any non-finalized transaction then return @Nothing@.
-nextAccountNonce ::
-    -- | The account to look up the next account nonce for.
-    AccountAddressEq ->
-    -- | The transaction table to look up in.
-    TransactionTable ->
-    -- | ("the next available account nonce", "whether all transactions from the account are finalized").
-    Maybe (Nonce, Bool)
-nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
-    Nothing -> Nothing
-    Just anfts ->
-        case Map.lookupMax (anfts ^. anftMap) of
-            Nothing -> Nothing
-            Just (nonce, _) -> Just (nonce + 1, False)
 
 -- | Add a transaction to a transaction table if its nonce/sequence number is at least the next
 --  non-finalized nonce/sequence number.  A return value of 'True' indicates that the transaction
@@ -275,7 +263,7 @@ addTransaction :: BlockItem -> CommitPoint -> TVer.VerificationResult -> Transac
 addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
     case wmdData of
         NormalTransaction tr
-            | maybe  minNonce fst (nextAccountNonce sender tt0) <= nonce ->
+            | tt0 ^. senderANFT . anftNextNonce <= nonce ->
                 (True, tt1 & senderANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
           where
             sender = accountAddressEmbed (transactionSender tr)
@@ -296,6 +284,25 @@ addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
         _ -> (False, tt0)
   where
     tt1 = tt0 & ttHashMap . at' wmdHash ?~ (blockItem, Received cp verRes)
+
+-- | Returns the next available account nonce for the
+--  provided account address in the first component and the
+--  'Bool' in the second component is 'True' only if all transactions from the
+--  provided account are finalized.
+--  Returns @Nothing@ if no non-finalized transactions were recorded for the provided account.
+nextAccountNonce ::
+    -- | The account to look up the next account nonce for.
+    AccountAddressEq ->
+    -- | The transaction table to look up in.
+    TransactionTable ->
+    -- | ("the next available account nonce", "whether all transactions from the account are finalized").
+    Maybe (Nonce, Bool)
+nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
+    Nothing -> Nothing
+    Just anfts ->
+        case Map.lookupMax (anfts ^. anftMap) of
+            Nothing -> Just (anfts ^. anftNextNonce, True)
+            Just (nonce, _) -> Just (nonce + 1, False)
 
 -- | Look up a credential deployment in the transaction table. Returns 'Nothing' if the table
 --  contains no live 'CredentialDeployment' with the given hash.

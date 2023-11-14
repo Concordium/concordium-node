@@ -764,7 +764,6 @@ getNextAccountNonce addr sd =
         return (nextNonce, True)
 {-# INLINE getNextAccountNonce #-}
 
-
 -- | Finalizes a list of transactions in the in-memory transaction table.
 --  This removes the transactions (and any others with the same account and nonce, or update type
 --  and sequence number) and updates the next account nonce/update type sequence number.
@@ -774,7 +773,7 @@ getNextAccountNonce addr sd =
 --  updates the in-memory transaction table accordingly.
 finalizeTransactions ::
     ( MonadState (SkovData (MPV m)) m,
-      BlockStateStorage m,
+      BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadThrow m
     ) =>
@@ -786,11 +785,10 @@ finalizeTransactions = mapM_ removeTrans
     removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
         let nonce = transactionNonce tr
             sender = accountAddressEmbed (transactionSender tr)
-        anft <- use (transactionTable . TT.ttNonFinalizedTransactions . at' sender . non TT.emptyANFT)
-        nextNonce <- case Map.lookupMin (anft ^. TT.anftMap) of
-            Nothing -> do
-                fst <$> (getNextAccountNonce sender =<< get)
-            Just (n, _) -> return n
+        senderMinNonce <- do
+            macct <- flip getAccount (aaeAddress sender) =<< use (lastFinalized . to bpState)
+            fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+        nextNonce <- use (transactionTable . TT.ttNonFinalizedTransactions . at' sender . non (TT.emptyANFTWithNonce senderMinNonce) . TT.anftNextNonce)
         unless (nextNonce == nonce) $
             throwM . TreeStateInvariantViolation $
                 "The recorded next nonce for the account "
@@ -800,6 +798,7 @@ finalizeTransactions = mapM_ removeTrans
                     ++ ") doesn't match the one that is going to be finalized ("
                     ++ show nonce
                     ++ ")"
+        anft <- use (transactionTable . TT.ttNonFinalizedTransactions . at' sender . non TT.emptyANFT)
         let nfn = anft ^. TT.anftMap . at' nonce . non Map.empty
             wmdtr = WithMetadata{wmdData = tr, ..}
         unless (Map.member wmdtr nfn) $
@@ -811,7 +810,7 @@ finalizeTransactions = mapM_ removeTrans
         -- from the transaction table.
         -- They can never be part of any other block after this point.
         forM_ (Map.keys nfn) $
-          \deadTransaction -> transactionTable . TT.ttHashMap . at' (getHash deadTransaction) .= Nothing
+            \deadTransaction -> transactionTable . TT.ttHashMap . at' (getHash deadTransaction) .= Nothing
         -- Update the non-finalized transactions for the sender
         transactionTable
             . TT.ttNonFinalizedTransactions
@@ -819,9 +818,9 @@ finalizeTransactions = mapM_ removeTrans
             . non TT.emptyANFT
             .=! ( anft
                     & (TT.anftMap . at' nonce .~ Nothing)
+                    & (TT.anftNextNonce .~ nonce + 1)
                 )
-
-    removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} = do 
+    removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} = do
         transactionTable . TT.ttHashMap . at' wmdHash .= Nothing
     removeTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
         let sn = updateSeqNumber (uiHeader cu)

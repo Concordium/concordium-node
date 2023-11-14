@@ -645,9 +645,10 @@ instance
     ) =>
     AccountNonceQuery (PersistentTreeStateMonad state m)
     where
-    getNextAccountNonce addr = fetchFromTransactionTable >>= \case
-        Just ttResult -> return ttResult
-        Nothing -> fetchFromLastFinalizedBlock
+    getNextAccountNonce addr =
+        fetchFromTransactionTable >>= \case
+            Just ttResult -> return ttResult
+            Nothing -> fetchFromLastFinalizedBlock
       where
         fetchFromTransactionTable = nextAccountNonce addr <$> use (skovPersistentData . transactionTable)
         fetchFromLastFinalizedBlock = do
@@ -920,13 +921,14 @@ instance
         finTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
             let nonce = transactionNonce tr
                 sender = accountAddressEmbed (transactionSender tr)
-            anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
-            nextNonce <- case Map.lookupMin (anft ^. anftMap) of
-                Nothing -> do
-                    fst <$> getNextAccountNonce sender
-                Just (n, _) -> return n
+            senderMinNonce <- do
+                st <- blockState =<< use (skovPersistentData . lastFinalized)
+                macct <- getAccount st (aaeAddress sender)
+                fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+            nextNonce <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non (emptyANFTWithNonce senderMinNonce) . anftNextNonce)
             if nextNonce == nonce
                 then do
+                    anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
                     let nfn = anft ^. anftMap . at' nonce . non Map.empty
                         wmdtr = WithMetadata{wmdData = tr, ..}
                     if Map.member wmdtr nfn
@@ -944,6 +946,7 @@ instance
                                 . at' sender
                                 ?= ( anft
                                         & (anftMap . at' nonce .~ Nothing)
+                                        & (anftNextNonce .~ nonce + 1)
                                    )
                             return ss
                         else do
