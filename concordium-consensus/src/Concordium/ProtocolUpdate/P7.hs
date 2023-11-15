@@ -36,9 +36,9 @@ updates = HM.fromList [(Reboot.updateHash, return Reboot)]
 checkUpdate :: ProtocolUpdate -> Either String Update
 checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
     Nothing -> Left "Specification hash does not correspond to a known protocol update."
-    Just g -> case runGet g puSpecificationAuxiliaryData of
+    Just updateGet -> case runGet updateGet puSpecificationAuxiliaryData of
         Left err -> Left $! "Could not deserialize auxiliary data: " ++ err
-        Right r -> return r
+        Right update -> return update
 
 -- | Construct the genesis data for a P7 update.
 updateRegenesis ::
