@@ -207,10 +207,9 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 --  may also have a non-zero highest commit point if it is received in a block, but that block
 --  is not yet considered arrived (e.g. it is pending its parent).
 --
---  The '_ttNonFinalizedTransactions' should have an entry for every account which have non-finalized transactions,
---  with the exception of where the entry would be 'emptyANFT'. Similarly with
---  '_ttNonFinalizedChainUpdates' and 'emptyNFCU'.  In particular, there should be
---  an entry if the next nonce/sequence number is not the minimum value.
+--  The '_ttNonFinalizedTransactions' should have an entry for every account which have non-finalized transactions.
+--  The '_ttNonFinalizedChainUpdates' should have an entry for all kinds of 'UpdateType's with the exception of where it would be 'emptyNFCU'.
+--  In particular, there should be an entry if the next nonce/sequence number is not the minimum value.
 data TransactionTable = TransactionTable
     { -- | Map from transaction hashes to transactions, together with their current status.
       _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)),
