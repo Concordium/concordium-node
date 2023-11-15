@@ -106,7 +106,7 @@ migratePersistentBakerInfoEx ::
     t m (PersistentBakerInfoEx (AccountVersionFor pv))
 migratePersistentBakerInfoEx StateMigrationParametersTrivial = migrateReference return
 migratePersistentBakerInfoEx StateMigrationParametersP5ToP6{} = migrateReference return
-migratePersistentBakerInfoEx StateMigrationParametersP6ToP7 = migrateReference return
+migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = migrateReference return
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 --  See documentation of @migratePersistentBlockState@.
@@ -1355,7 +1355,7 @@ migratePersistentAccount ::
     t m (PersistentAccount (AccountVersionFor pv))
 migratePersistentAccount StateMigrationParametersTrivial acc = migrateV2ToV2 acc
 migratePersistentAccount StateMigrationParametersP5ToP6{} acc = migrateV2ToV2 acc
-migratePersistentAccount StateMigrationParametersP6ToP7 acc = migrateV2ToV2 acc
+migratePersistentAccount StateMigrationParametersP6ToP7{} acc = migrateV2ToV2 acc
 
 -- | Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
 --  'P4' to 'P5'.

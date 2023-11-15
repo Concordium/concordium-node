@@ -11,9 +11,8 @@
 --  * 'genesisCore':
 --
 --      * 'genesisTime' is the timestamp of the last finalized block of the previous chain.
---      * 'genesisEpochDuration' is calculated from the previous epoch duration (in slots) times
---        the slot duration.
---      * 'genesisSignatureThreshold' is 2/3.
+--      * 'genesisEpochDuration' is taken from the previous genesis.
+--      * 'genesisSignatureThreshold' is taken from the previous genesis.
 --
 --  * 'genesisFirstGenesis' is either:
 --
@@ -72,11 +71,11 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.ProtocolVersion
 
--- | The hash that identifies the P6.Reboot update.
+-- | The hash that identifies the P7.Reboot update.
 updateHash :: SHA256.Hash
 updateHash = SHA256.hash "P7.Reboot"
 
--- | Construct the genesis data for a P6.ProtocolP7 update.
+-- | Construct the genesis data for a P7.Reboot update.
 --  This takes the terminal block of the old chain which is used as the basis for constructing
 --  the new genesis block.
 updateRegenesis ::
@@ -93,7 +92,7 @@ updateRegenesis terminal = do
     let regenesisTime = blockTimestamp terminal
     -- Core parameters are derived from the old genesis, apart from genesis time which is set for
     -- the time of the terminal block.
-    gm <- use genesisMetadata
+    gMetadata <- use genesisMetadata
     BaseV1.CoreGenesisParametersV1{..} <- gmParameters <$> use genesisMetadata
     let core =
             BaseV1.CoreGenesisParametersV1
@@ -102,8 +101,8 @@ updateRegenesis terminal = do
                 }
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
     -- or the genesisFirstGenesis of the previous genesis otherwise.
-    let genesisFirstGenesis = gmFirstGenesisHash gm
-        genesisPreviousGenesis = gmCurrentGenesisHash gm
+    let genesisFirstGenesis = gmFirstGenesisHash gMetadata
+        genesisPreviousGenesis = gmCurrentGenesisHash gMetadata
         genesisTerminalBlock = getHash terminal
     let regenesisBlockState = bpState terminal
     genesisStateHash <- getStateHash regenesisBlockState

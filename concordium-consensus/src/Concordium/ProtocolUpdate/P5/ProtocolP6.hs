@@ -7,7 +7,7 @@
 --  The update is specified at:
 --  https://github.com/Concordium/concordium-update-proposals/blob/main/updates/P6.txt
 --
---  This protocol update is valid at protocol version P6, and updates
+--  This protocol update is valid at protocol version P5, and updates
 --  to protocol version P6.
 --  The block state is changed during the update.
 --
