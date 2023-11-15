@@ -2,7 +2,6 @@
 
 ## Unreleased changes
 - If an account does not have any non-finalized transactions, then the transaction table is no longer used for tracking next available account nonce.
-  If there are no non-finalized transactions for an account then keep track of the next available account nonce via the last finalized block.
 
 ## 6.2.1
 
