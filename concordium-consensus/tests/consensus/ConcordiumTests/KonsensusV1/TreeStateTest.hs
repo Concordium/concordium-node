@@ -493,8 +493,8 @@ dummyAccountAddress = dummyAccountAddressN 0
 --  in this file.
 --  Note that the tests presented in this module
 --  does no transaction processing i.e. verification of the transaction.
-dummyTransaction :: Nonce -> Transaction
-dummyTransaction n =
+dummyTransaction' :: AccountAddress -> Nonce -> Transaction
+dummyTransaction' accAddr n =
     addMetadata NormalTransaction 0 $
         makeAccountTransaction
             dummyTransactionSignature
@@ -503,13 +503,16 @@ dummyTransaction n =
   where
     hdr =
         TransactionHeader
-            { thSender = dummyAccountAddress,
+            { thSender = accAddr,
               thPayloadSize = payloadSize payload,
               thNonce = n,
               thExpiry = 500,
               thEnergyAmount = 5_000_000
             }
     payload = encodePayload $ Transfer dummyAccountAddress 10
+
+dummyTransaction :: Nonce -> Transaction
+dummyTransaction = dummyTransaction' dummyAccountAddress
 
 dummyTransactionBI :: Nonce -> BlockItem
 dummyTransactionBI = normalTransaction . dummyTransaction
