@@ -881,9 +881,22 @@ commitTransaction rnd bh ti transaction =
 --  was added.
 --  When adding a transaction from a block, use the 'Round' of the block. Otherwise use round @0@.
 --  The transaction must not already be present.
-addTransaction :: (MonadState (SkovData pv) m) => Round -> BlockItem -> TVer.VerificationResult -> m Bool
-addTransaction rnd transaction verRes = do
-    added <- transactionTable %%=! TT.addTransaction transaction (TT.commitPoint rnd) verRes
+addTransaction ::
+    ( MonadState (SkovData (MPV m)) m,
+      BlockStateQuery m,
+      GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
+    ) =>
+    Round ->
+    BlockItem ->
+    TVer.VerificationResult ->
+    m Bool
+addTransaction rnd transaction@WithMetadata{..} verRes = do
+    nextAccNonce <- case wmdData of
+        NormalTransaction tr -> do
+            mAcc <- flip getAccount (transactionSender tr) =<< use (lastFinalized . to bpState)
+            mapM (getAccountNonce . snd) mAcc
+        _ -> return Nothing
+    added <- transactionTable %%=! TT.addTransaction transaction (TT.commitPoint rnd) verRes nextAccNonce
     when added $ transactionTablePurgeCounter += 1
     return added
 

@@ -260,8 +260,22 @@ emptyTransactionTableWithSequenceNumbers accs upds =
 -- | Add a transaction to a transaction table if its nonce/sequence number is at least the next
 --  non-finalized nonce/sequence number.  A return value of 'True' indicates that the transaction
 --  was added.  The caller should check that the transaction is not already present.
-addTransaction :: BlockItem -> CommitPoint -> TVer.VerificationResult -> TransactionTable -> (Bool, TransactionTable)
-addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
+addTransaction ::
+    -- | Transaction to add.
+    BlockItem ->
+    -- | Commit point of the transaction.
+    CommitPoint ->
+    -- | The associated verification result.
+    TVer.VerificationResult ->
+    -- | An optional "next account nonce" to initialize the @anftNextNonce@ with.
+    --  This MUST be provided for normal transactions.
+    Maybe Nonce ->
+    -- | The transaction table to update.
+    TransactionTable ->
+    -- | First component is @True@ if table was updated.
+    --  Second component is the updated table.
+    (Bool, TransactionTable)
+addTransaction blockItem@WithMetadata{..} cp !verRes mLfbAccNonce tt0 =
     case wmdData of
         NormalTransaction tr
             | tt0 ^. senderANFT . anftNextNonce <= nonce ->
@@ -269,7 +283,8 @@ addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
           where
             sender = accountAddressEmbed (transactionSender tr)
             senderANFT :: Lens' TransactionTable AccountNonFinalizedTransactions
-            senderANFT = ttNonFinalizedTransactions . at' sender . non emptyANFT
+            senderANFT = ttNonFinalizedTransactions . at' sender . non anft
+            anft = maybe emptyANFT emptyANFTWithNonce mLfbAccNonce
             nonce = transactionNonce tr
             wmdtr = WithMetadata{wmdData = tr, ..}
         CredentialDeployment{} -> (True, tt1)

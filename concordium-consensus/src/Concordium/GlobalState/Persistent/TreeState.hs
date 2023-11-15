@@ -872,7 +872,13 @@ instance
                         oldCredential <- case wmdData of
                             CredentialDeployment{} -> memberTransactionTable wmdHash
                             _ -> return False
-                        let ~(added, newTT) = addTransaction bi (commitPoint slot) verRes tt
+                        nextAccNonce <- case wmdData of
+                            NormalTransaction tr -> do
+                                lfbState <- blockState =<< use (skovPersistentData . lastFinalized)
+                                mAcc <- getAccount lfbState (transactionSender tr)
+                                mapM (getAccountNonce . snd) mAcc
+                            _ -> return Nothing
+                        let ~(added, newTT) = addTransaction bi (commitPoint slot) verRes nextAccNonce tt
                         if not oldCredential && added
                             then do
                                 skovPersistentData . transactionTablePurgeCounter += 1
@@ -900,7 +906,13 @@ instance
                 oldCredential <- case wmdData of
                     CredentialDeployment{} -> memberTransactionTable wmdHash
                     _ -> return False
-                let ~(added, newTT) = addTransaction bi 0 verRes tt
+                nextAccNonce <- case wmdData of
+                    NormalTransaction tr -> do
+                        lfbState <- blockState =<< use (skovPersistentData . lastFinalized)
+                        mAcc <- getAccount lfbState (transactionSender tr)
+                        mapM (getAccountNonce . snd) mAcc
+                    _ -> return Nothing
+                let ~(added, newTT) = addTransaction bi 0 verRes nextAccNonce tt
                 if not oldCredential && added
                     then do
                         skovPersistentData . transactionTablePurgeCounter += 1
