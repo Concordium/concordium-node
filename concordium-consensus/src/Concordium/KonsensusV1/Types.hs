@@ -28,6 +28,7 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data (Regenesis, firstGenesisBlockHash, regenesisBlockHash, regenesisCoreParametersV1)
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
+import qualified Concordium.MerkleProofs as Merkle
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters (IsConsensusV1)
@@ -334,6 +335,9 @@ instance Serialize QuorumCertificate where
 instance HashableTo Hash.Hash QuorumCertificate where
     getHash = Hash.hash . encode
 
+instance (Monad m) => Merkle.MerkleProvable m QuorumCertificate where
+    buildMerkleProof _ qc = return [Merkle.RawData $ encode qc]
+
 -- | Check that the quorum certificate has:
 --
 --   * Valid signatures from members of the finalization committee.
@@ -455,6 +459,10 @@ instance HashableTo Hash.Hash (Option FinalizationEntry) where
     getHash (Present fe) = Hash.hash $ runPut $ do
         putWord8 1
         put fe
+
+instance (Monad m) => Merkle.MerkleProvable m (Option FinalizationEntry) where
+    buildMerkleProof _ Absent = return [Merkle.RawData (encode (0 :: Word8))]
+    buildMerkleProof _ (Present fe) = return [Merkle.RawData . runPut $ putWord8 1 >> put fe]
 
 -- | Check that a finalization entry is valid. This checks the validity of the two quorum
 --  certificates. Note that the structural invariants on 'FinalizationEntry' enforce the other
@@ -608,6 +616,10 @@ instance HashableTo Hash.Hash (Option TimeoutCertificate) where
     getHash (Present tc) = Hash.hash $ runPut $ do
         putWord8 1
         put tc
+
+instance (Monad m) => Merkle.MerkleProvable m (Option TimeoutCertificate) where
+    buildMerkleProof _ Absent = return [Merkle.RawData (encode (0 :: Word8))]
+    buildMerkleProof _ (Present tc) = return [Merkle.RawData . runPut $ putWord8 1 >> put tc]
 
 -- | Check that the signature on a timeout certificate is correct and that it contains a sufficient
 --  weight of signatures with respect to the finalization committee of a given epoch (the epoch of
@@ -1216,6 +1228,42 @@ computeBlockHash bhh bqh =
 
 instance HashableTo BlockHash BakedBlock where
     getHash bb = computeBlockHash (getHash bb) (getHash bb)
+
+instance (Monad m) => Merkle.MerkleProvable m BakedBlock where
+    buildMerkleProof open BakedBlock{..} = do
+        let blockHeader = optProof ["header"] . rawMerkle . runPut $ do
+                put bbRound
+                put bbEpoch
+                put (qcBlock bbQuorumCertificate)
+        let timestampBaker = optProof ["quasi", "meta", "bakerInfo", "timestampBaker"] . rawMerkle . runPut $ do
+                put bbTimestamp
+                put bbBaker
+        let nonce = optProof ["quasi", "meta", "bakerInfo", "nonce"] . rawMerkle . encode $ bbNonce
+        let bakerInfo = optProof ["quasi", "meta", "bakerInfo"] [timestampBaker, nonce]
+        let qcPath = ["quasi", "meta", "certificatesHash", "quorumCertificate"]
+        qcMerkleProof <- Merkle.buildMerkleProof (open . (qcPath ++)) bbQuorumCertificate
+        let qcHash = optProof qcPath qcMerkleProof
+        let tfPath = ["quasi", "meta", "certificatesHash", "timeoutFinalization"]
+        let tcPath = tfPath ++ ["timeoutCertificate"]
+        tcMerkleProof <- Merkle.buildMerkleProof (open . (tcPath ++)) bbTimeoutCertificate
+        let tcHash = optProof tcPath tcMerkleProof
+        let efePath = tfPath ++ ["epochFinalizationEntry"]
+        efeMerkleProof <- Merkle.buildMerkleProof (open . (efePath ++)) bbEpochFinalizationEntry
+        let efeHash = optProof efePath efeMerkleProof
+        let tfHash = optProof tfPath [tcHash, efeHash]
+        let certificatesHash = optProof ["quasi", "meta", "certificatesHash"] [qcHash, tfHash]
+        let blockMeta = optProof ["quasi", "meta"] [bakerInfo, certificatesHash]
+        let transactionsAndOutcomes = optProof ["quasi", "data", "transactionsAndOutcomes"] . rawMerkle . runPut $ do
+                put $ computeTransactionsHash bbTransactions
+                put bbTransactionOutcomesHash
+        let blockData = optProof ["quasi", "data"] [transactionsAndOutcomes, Merkle.RawData (encode bbStateHash)]
+        let blockQuasi = optProof ["quasi"] [blockMeta, blockData]
+        return [blockHeader, blockQuasi]
+      where
+        rawMerkle = (: []) . Merkle.RawData
+        optProof path proof
+            | open path = Merkle.SubProof proof
+            | otherwise = Merkle.RawData . Hash.hashToByteString . Merkle.toRootHash $ proof
 
 -- | Configuration information stored for the genesis block.
 data GenesisMetadata = GenesisMetadata
