@@ -645,15 +645,13 @@ instance
     ) =>
     AccountNonceQuery (PersistentTreeStateMonad state m)
     where
-    getNextAccountNonce addr =
-        fetchFromTransactionTable >>= \case
-            Just ttResult -> return ttResult
-            Nothing -> fetchFromLastFinalizedBlock
+    getNextAccountNonce addr = do
+        sd <- use skovPersistentData
+        maybe (fetchFromLastFinalizedBlock sd) return (fetchFromTransactionTable sd)
       where
-        fetchFromTransactionTable = nextAccountNonce addr <$> use (skovPersistentData . transactionTable)
-        fetchFromLastFinalizedBlock = do
-            lfb <- use (skovPersistentData . lastFinalized)
-            st <- blockState lfb
+        fetchFromTransactionTable skovData = nextAccountNonce addr (skovData ^. transactionTable)
+        fetchFromLastFinalizedBlock sd = do
+            st <- blockState $ sd ^. lastFinalized
             macct <- getAccount st (aaeAddress addr)
             nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
             return (nextNonce, True)
@@ -921,33 +919,31 @@ instance
         finTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
             let nonce = transactionNonce tr
                 sender = accountAddressEmbed (transactionSender tr)
-            tt <- use (skovPersistentData . transactionTable)
-            let mAnft = tt ^? ttNonFinalizedTransactions . ix sender
-            case mAnft of
-                Nothing -> logErrorAndThrowTS $ "When finalizing transactions there was no recorded next nonce for sender " <> show sender
-                Just anft -> do
-                    let nfn = anft ^. anftMap . at' nonce . non Map.empty
-                        wmdtr = WithMetadata{wmdData = tr, ..}
-                    if Map.member wmdtr nfn
-                        then do
-                            -- Remove any other transactions with this nonce from the transaction table.
-                            -- They can never be part of any other block after this point.
-                            forM_ (Map.keys (Map.delete wmdtr nfn)) $
-                                \deadTransaction -> skovPersistentData . transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
-                            -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
-                            ss <- deleteAndFinalizeStatus wmdHash
-                            -- Update the non-finalized transactions for the sender
-                            skovPersistentData
-                                . transactionTable
-                                . ttNonFinalizedTransactions
-                                . at' sender
-                                ?=! ( anft
-                                        & (anftMap . at' nonce .~ Nothing)
-                                        & (anftNextNonce .~ nonce + 1)
-                                    )
-                            return ss
-                        else do
-                            logErrorAndThrowTS $ "Tried to finalize transaction which is not known to be in the set of non-finalized transactions for the sender " ++ show sender
+            anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
+            let nfn = anft ^. anftMap . at' nonce . non Map.empty
+                wmdtr = WithMetadata{wmdData = tr, ..}
+            if Map.member wmdtr nfn
+                then do
+                    -- Remove any other transactions with this nonce from the transaction table.
+                    -- They can never be part of any other block after this point.
+                    forM_ (Map.keys (Map.delete wmdtr nfn)) $
+                        \deadTransaction -> skovPersistentData . transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
+                    -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
+                    ss <- deleteAndFinalizeStatus wmdHash
+                    -- Remove the transaction from the non finalized transactions.
+                    -- If there are no non-finalized transactions left then remove the entry
+                    -- for the sender in @ttNonFinalizedTransactions@.
+                    skovPersistentData
+                        . transactionTable
+                        . ttNonFinalizedTransactions
+                        . at' sender
+                        . non emptyANFT
+                        .=! ( anft
+                                & (anftMap . at' nonce .~ Nothing)
+                            )
+                    return ss
+                else do
+                    logErrorAndThrowTS $ "Tried to finalize transaction which is not known to be in the set of non-finalized transactions for the sender " ++ show sender
         finTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
             deleteAndFinalizeStatus wmdHash
         finTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do

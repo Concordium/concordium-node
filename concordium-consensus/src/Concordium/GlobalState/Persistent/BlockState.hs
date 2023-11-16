@@ -3789,6 +3789,8 @@ cacheStateAndGetTransactionTable ::
     m TransactionTable.TransactionTable
 cacheStateAndGetTransactionTable hpbs = do
     BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
+    -- cache the account table
+    accts <- cache bspAccounts
     -- cache the modules
     mods <- cache bspModules
     -- then cache the instances, but don't cache the modules again. Instead
@@ -3817,7 +3819,7 @@ cacheStateAndGetTransactionTable hpbs = do
         storePBS
             (hpbsPointers hpbs)
             BlockStatePointers
-                { bspAccounts = bspAccounts,
+                { bspAccounts = accts,
                   bspInstances = insts,
                   bspModules = mods,
                   bspBank = bspBank,

@@ -107,10 +107,13 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
                 | otherwise = (mmnonce <> Just (Max n), Just ts')
         put (mmnonce', tht')
         return mres
-    -- Purge the non-finalized transactions for a specific account by
-    -- collect non-finalized transactions for all accounts.
+    -- Purge the non-finalized transactions for an account,
+    -- accumulating the non-finalized transactions that were
+    -- not purged. Purging the transactions removes them
+    -- from the transaction table and updates the pending
+    -- transaction table accordingly.
     purgeAccount ::
-        -- accummulator
+        -- accumulator
         ( HM.HashMap AccountAddressEq AccountNonFinalizedTransactions,
           (PendingTransactionTable, TransactionHashTable)
         ) ->

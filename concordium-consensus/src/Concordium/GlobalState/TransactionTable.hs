@@ -133,12 +133,9 @@ getTransactionIndex bh = \case
 -- * Transaction table
 
 -- | The non-finalized transactions for a particular account.
-data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions
+newtype AccountNonFinalizedTransactions = AccountNonFinalizedTransactions
     { -- | Non-finalized transactions (for an account) and their verification results indexed by nonce.
-      _anftMap :: !(Map.Map Nonce (Map.Map Transaction TVer.VerificationResult)),
-      -- | The next available nonce at the last finalized block.
-      --  'anftMap' should only contain nonces that are at least 'anftNextNonce'.
-      _anftNextNonce :: !Nonce
+      _anftMap :: Map.Map Nonce (Map.Map Transaction TVer.VerificationResult)
     }
     deriving (Eq, Show)
 
@@ -147,12 +144,7 @@ makeLenses ''AccountNonFinalizedTransactions
 -- | Empty (no pending transactions) account non-finalized table starting at the
 --  minimal nonce.
 emptyANFT :: AccountNonFinalizedTransactions
-emptyANFT = emptyANFTWithNonce minNonce
-
--- | An account non-finalized table with no pending transactions and given
---  starting nonce.
-emptyANFTWithNonce :: Nonce -> AccountNonFinalizedTransactions
-emptyANFTWithNonce = AccountNonFinalizedTransactions Map.empty
+emptyANFT = AccountNonFinalizedTransactions Map.empty
 
 -- | The non-finalized chain updates of a particular type.
 data NonFinalizedChainUpdates = NonFinalizedChainUpdates
@@ -207,9 +199,9 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 --  may also have a non-zero highest commit point if it is received in a block, but that block
 --  is not yet considered arrived (e.g. it is pending its parent).
 --
---  The '_ttNonFinalizedTransactions' should have an entry for every account which have non-finalized transactions.
+--  The '_ttNonFinalizedTransactions' should have an entry for every account which has non-finalized transactions.
 --  The '_ttNonFinalizedChainUpdates' should have an entry for all kinds of 'UpdateType's with the exception of where it would be 'emptyNFCU'.
---  In particular, there should be an entry if the next nonce/sequence number is not the minimum value.
+--  In particular, there should be an entry if the next sequence number is not the minimum value.
 data TransactionTable = TransactionTable
     { -- | Map from transaction hashes to transactions, together with their current status.
       _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)),
@@ -246,18 +238,12 @@ emptyTransactionTable =
           _ttNonFinalizedChainUpdates = Map.empty
         }
 
--- | A transaction table with no transactions, but with the initial next sequence numbers
---  set for the accounts and update types.
-emptyTransactionTableWithSequenceNumbers :: [(AccountAddress, Nonce)] -> Map.Map UpdateType UpdateSequenceNumber -> TransactionTable
-emptyTransactionTableWithSequenceNumbers accs upds =
-    TransactionTable
-        { _ttHashMap = HM.empty,
-          _ttNonFinalizedTransactions = HM.fromList . map (\(k, n) -> (accountAddressEmbed k, emptyANFTWithNonce n)) . filter (\(_, n) -> n /= minNonce) $ accs,
-          _ttNonFinalizedChainUpdates = emptyNFCUWithSequenceNumber <$> Map.filter (/= minUpdateSequenceNumber) upds
-        }
-
--- | Add a transaction to a transaction table if its nonce/sequence number is at least the next
---  non-finalized nonce/sequence number.  A return value of 'True' indicates that the transaction
+-- | Add a transaction to a transaction table.
+--  For chain updates it is checked that the sequence number is at least the next
+--  non-finalized sequence number.
+--  Nothing is checked for normal transactions.
+--
+-- A return value of 'True' indicates that the transaction
 --  was added.  The caller should check that the transaction is not already present.
 addTransaction ::
     -- | Transaction to add.
@@ -278,7 +264,7 @@ addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
             sender = accountAddressEmbed (transactionSender tr)
             senderANFT :: Lens' TransactionTable AccountNonFinalizedTransactions
             senderANFT = ttNonFinalizedTransactions . at' sender . non anft
-            anft = emptyANFTWithNonce nonce
+            anft = emptyANFT
             nonce = transactionNonce tr
             wmdtr = WithMetadata{wmdData = tr, ..}
         CredentialDeployment{} -> (True, tt1)
@@ -471,7 +457,7 @@ nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
     Nothing -> Nothing
     Just anfts ->
         case Map.lookupMax (anfts ^. anftMap) of
-            Nothing -> Just (anfts ^. anftNextNonce, True)
+            Nothing -> Nothing
             Just (nonce, _) -> Just (nonce + 1, False)
 
 -- * Transaction grouping

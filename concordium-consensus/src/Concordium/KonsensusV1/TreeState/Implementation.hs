@@ -753,11 +753,9 @@ getNextAccountNonce ::
     -- | The resulting account nonce and whether it is finalized or not.
     m (Nonce, Bool)
 getNextAccountNonce addr sd =
-    fetchFromTransactionTable >>= \case
-        Just ttResult -> return ttResult
-        Nothing -> fetchFromLastFinalizedBlock
+    maybe fetchFromLastFinalizedBlock return fetchFromTransactionTable
   where
-    fetchFromTransactionTable = return $! TT.nextAccountNonce addr (sd ^. transactionTable)
+    fetchFromTransactionTable = TT.nextAccountNonce addr (sd ^. transactionTable)
     fetchFromLastFinalizedBlock = do
         macct <- getAccount (sd ^. lastFinalized . to bpState) (aaeAddress addr)
         nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
@@ -783,31 +781,29 @@ finalizeTransactions = mapM_ removeTrans
     removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
         let nonce = transactionNonce tr
             sender = accountAddressEmbed (transactionSender tr)
-        tt <- use transactionTable
-        let mAnft = tt ^? TT.ttNonFinalizedTransactions . ix sender
-        case mAnft of
-            Nothing -> throwM . TreeStateInvariantViolation $ "When finalizing transactions there was no recorded next nonce for sender " <> show sender
-            Just anft -> do
-                let nfn = anft ^. TT.anftMap . at' nonce . non Map.empty
-                    wmdtr = WithMetadata{wmdData = tr, ..}
-                unless (Map.member wmdtr nfn) $
-                    throwM . TreeStateInvariantViolation $
-                        "Tried to finalize transaction which is not known to be in the set of \
-                        \non-finalized transactions for the sender "
-                            ++ show sender
-                -- Remove the transaction, and any other transactions with the same (account, nonce),
-                -- from the transaction table.
-                -- They can never be part of any other block after this point.
-                forM_ (Map.keys nfn) $
-                    \deadTransaction -> transactionTable . TT.ttHashMap . at' (getHash deadTransaction) .= Nothing
-                -- Update the non-finalized transactions for the sender
-                transactionTable
-                    . TT.ttNonFinalizedTransactions
-                    . at' sender
-                    ?=! ( anft
-                            & (TT.anftMap . at' nonce .~ Nothing)
-                            & (TT.anftNextNonce .~ nonce + 1)
-                        )
+        anft <- use (transactionTable . TT.ttNonFinalizedTransactions . at' sender . non TT.emptyANFT)
+        let nfn = anft ^. TT.anftMap . at' nonce . non Map.empty
+            wmdtr = WithMetadata{wmdData = tr, ..}
+        unless (Map.member wmdtr nfn) $
+            throwM . TreeStateInvariantViolation $
+                "Tried to finalize transaction which is not known to be in the set of \
+                \non-finalized transactions for the sender "
+                    ++ show sender
+        -- Remove the transaction, and any other transactions with the same (account, nonce),
+        -- from the transaction table.
+        -- They can never be part of any other block after this point.
+        forM_ (Map.keys nfn) $
+            \deadTransaction -> transactionTable . TT.ttHashMap . at' (getHash deadTransaction) .= Nothing
+        -- Remove the transaction from the non finalized transactions.
+        -- If there are no non-finalized transactions left then remove the entry
+        -- for the sender in @ttNonFinalizedTransactions@.
+        transactionTable
+            . TT.ttNonFinalizedTransactions
+            . at' sender
+            . non TT.emptyANFT
+            .=! ( anft
+                    & (TT.anftMap . at' nonce .~ Nothing)
+                )
     removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} = do
         transactionTable . TT.ttHashMap . at' wmdHash .= Nothing
     removeTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
