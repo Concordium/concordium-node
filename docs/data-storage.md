@@ -44,6 +44,10 @@ are
 
    for each block since genesis.
 
+3. the **account map database ** which stores
+  - a table that maps finalized account addresses to account indices
+    across all protocol versions.
+
 The **tree state** is stored in an LMDB database with 5 key-value **stores**.
 Three of these store blocks, finalization records and the status of finalized
 transactions. A fourth indexes blocks by height. The remaining store is used
@@ -57,12 +61,17 @@ example, if an account does not change from one block to another then most of
 its data is not copied, only some metadata related to its position in the
 account table.
 
+The **account map** is stored in an LMDB database with 1 key-value **store**,
+which stores all account addresses and assoicated account indices for all
+finalized accounts on the chain.
+
 In the event of a protocol update, a new chain is started, with a new genesis
 block that is based on the last finalized block of the previous chain. The new
 chain maintains a separate **tree state** and **block state** from the previous
 chain. Once a protocol update occurs, the tree state and block state databases
 of the old chain will not be changed any further, since no new blocks will be
-finalized on the old chain.
+finalized on the old chain. The **account map** operates across protocol versions
+so there will only ever exist one **account map**.
 
 ### Data processed by the node
 
@@ -516,7 +525,7 @@ indices.
 
 The first is an index of non-finalized transactions for an account. This
 contains the next nonce (from the perspective of the last finalized block) for
-each existing account, and, if there are any, the nonce-indexed transactions
+each accounts which have one or more non-finalized transactions, and the nonce-indexed transactions
 that are not yet finalized for the account. This information is used in two
 ways. The next nonce for the account is used both to deduplicate transactions
 on the network, and to ensure that no transaction is ever put into two
