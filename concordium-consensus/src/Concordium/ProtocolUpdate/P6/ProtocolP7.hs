@@ -17,9 +17,9 @@
 --
 --  * 'genesisFirstGenesis' is either:
 --
---      * the hash of the genesis block of the previous chain, if it is a 'GDP5Initial'; or
+--      * the hash of the genesis block of the previous chain, if it is a 'GDP6Initial'; or
 --      * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
---        is a 'GDP5Regenesis'.
+--        is a 'GDP6Regenesis'.
 --
 --  * 'genesisPreviousGenesis' is the hash of the previous genesis block.
 --
@@ -72,7 +72,7 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.ProtocolVersion
 
--- | The hash that identifies a update from P5 to P6 protocol.
+-- | The hash that identifies a update from P6 to P7 protocol.
 --  This is the hash of the published specification document.
 updateHash :: SHA256.Hash
 updateHash = SHA256.hash "P6.ProtocolP7-placeholder-until-spec-hash-is-known"
