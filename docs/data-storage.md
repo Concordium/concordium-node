@@ -62,7 +62,7 @@ its data is not copied, only some metadata related to its position in the
 account table.
 
 The **account map** is stored in an LMDB database with 1 key-value **store**,
-which stores all account addresses and assoicated account indices for all
+which stores all account addresses and associated account indices for all
 finalized accounts on the chain.
 
 In the event of a protocol update, a new chain is started, with a new genesis
