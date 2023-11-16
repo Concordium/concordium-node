@@ -34,7 +34,7 @@ import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.TreeState (MGSTrans (..))
 import qualified Concordium.GlobalState.Types as GSTypes
-import Concordium.KonsensusV1.TreeState.Implementation as Impl
+import qualified Concordium.KonsensusV1.TreeState.Implementation as Impl
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Scheduler.Types (updateSeqNumber)
@@ -61,7 +61,7 @@ deriving via (MGSTrans AccountNonceQueryT m) instance (ModuleQuery m) => ModuleQ
 instance
     ( BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      MonadState (SkovData (MPV m)) m
+      MonadState (Impl.SkovData (MPV m)) m
     ) =>
     AccountNonceQuery (AccountNonceQueryT m)
     where
@@ -73,7 +73,7 @@ verifyBlockItem ::
     ( BlockStateQuery m,
       MonadProtocolVersion m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
-      MonadState (SkovData (MPV m)) m
+      MonadState (Impl.SkovData (MPV m)) m
     ) =>
     -- | Block time (if transaction is in a block) or current time.
     Timestamp ->
@@ -107,7 +107,7 @@ verifyBlockItem ts bi ctx = runAccountNonceQueryT (runTransactionVerifierT (TVer
 --
 --  This is an internal function only and should not be called directly.
 addPendingTransaction ::
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (Impl.SkovData (MPV m)) m,
       TimeMonad m,
       BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
@@ -118,21 +118,21 @@ addPendingTransaction ::
 addPendingTransaction bi = do
     case wmdData bi of
         NormalTransaction tx -> do
-            fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
+            fbState <- bpState <$> (Impl._focusBlock <$> gets' Impl._skovPendingTransactions)
             macct <- getAccount fbState $! transactionSender tx
             nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
             when (nextNonce <= transactionNonce tx) $ do
-                pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
-                purgeTransactionTable False =<< currentTime
+                Impl.pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
+                Impl.purgeTransactionTable False =<< currentTime
         CredentialDeployment _ -> do
-            pendingTransactionTable %=! TT.addPendingDeployCredential txHash
-            purgeTransactionTable False =<< currentTime
+            Impl.pendingTransactionTable %=! TT.addPendingDeployCredential txHash
+            Impl.purgeTransactionTable False =<< currentTime
         ChainUpdate cu -> do
-            fbState <- bpState <$> (_focusBlock <$> gets' _skovPendingTransactions)
+            fbState <- bpState <$> (Impl._focusBlock <$> gets' Impl._skovPendingTransactions)
             nextSN <- getNextUpdateSequenceNumber fbState (updateType (uiPayload cu))
             when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
-                pendingTransactionTable %=! TT.addPendingUpdate nextSN cu
-                purgeTransactionTable False =<< currentTime
+                Impl.pendingTransactionTable %=! TT.addPendingUpdate nextSN cu
+                Impl.purgeTransactionTable False =<< currentTime
   where
     txHash = getHash bi
 
@@ -143,7 +143,7 @@ addPendingTransaction bi = do
 processBlockItem ::
     ( MonadProtocolVersion m,
       IsConsensusV1 (MPV m),
-      MonadState (SkovData (MPV m)) m,
+      MonadState (Impl.SkovData (MPV m)) m,
       TimeMonad m,
       BlockStateQuery m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
@@ -154,7 +154,7 @@ processBlockItem ::
     m AddTransactionResult
 processBlockItem bi = do
     -- First we check whether the transaction already exists in the transaction table.
-    tt <- use' transactionTable
+    tt <- use' Impl.transactionTable
     case tt ^. TT.ttHashMap . at' txHash of
         Just (duplicateTransaction, dupStatus) -> return $! Duplicate duplicateTransaction (Just $! dupStatus ^. TT.tsVerRes)
         Nothing -> do
@@ -168,7 +168,7 @@ processBlockItem bi = do
   where
     -- Insert the transaction into the transaction table and pending transaction table.
     insertTransaction okRes = do
-        added <- addTransaction 0 bi $! TVer.Ok okRes
+        added <- Impl.addTransaction 0 bi $! TVer.Ok okRes
         if added
             then do
                 addPendingTransaction bi
@@ -177,7 +177,7 @@ processBlockItem bi = do
                 return ObsoleteNonce
     -- Create a context suitable for verifying a transaction within a 'Individual' context.
     getCtx = do
-        _ctxBs <- bpState <$> gets' _lastFinalized
+        _ctxBs <- bpState <$> gets' Impl._lastFinalized
         chainParams <- Concordium.GlobalState.BlockState.getChainParameters _ctxBs
         let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
         return $! Context{_ctxTransactionOrigin = TVer.Individual, ..}
@@ -197,7 +197,7 @@ processBlockItem bi = do
 preverifyTransaction ::
     ( BlockStateQuery m,
       MonadProtocolVersion m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (Impl.SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       IsConsensusV1 (MPV m),
       TimeMonad m
@@ -205,9 +205,9 @@ preverifyTransaction ::
     BlockItem ->
     m (Bool, TVer.VerificationResult)
 preverifyTransaction bi =
-    gets (lookupLiveTransaction (getHash bi)) >>= \case
+    gets (Impl.lookupLiveTransaction (getHash bi)) >>= \case
         Nothing -> do
-            lastFinState <- bpState <$> use lastFinalized
+            lastFinState <- bpState <$> use Impl.lastFinalized
             chainParams <- Concordium.GlobalState.BlockState.getChainParameters lastFinState
             let ctx =
                     Context
@@ -225,7 +225,7 @@ preverifyTransaction bi =
 -- | Add a transaction to the transaction table that has already been successfully verified.
 addPreverifiedTransaction ::
     ( BlockStateQuery m,
-      MonadState (SkovData (MPV m)) m,
+      MonadState (Impl.SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       TimeMonad m
     ) =>
@@ -233,7 +233,7 @@ addPreverifiedTransaction ::
     TVer.OkResult ->
     m AddTransactionResult
 addPreverifiedTransaction bi okRes = do
-    added <- addTransaction 0 bi $! TVer.Ok okRes
+    added <- Impl.addTransaction 0 bi $! TVer.Ok okRes
     if added
         then do
             addPendingTransaction bi
@@ -253,7 +253,7 @@ processBlockItems ::
     forall m pv.
     ( MonadProtocolVersion m,
       IsConsensusV1 pv,
-      MonadState (SkovData pv) m,
+      MonadState (Impl.SkovData pv) m,
       BlockStateQuery m,
       TimeMonad m,
       MPV m ~ pv,
@@ -291,14 +291,14 @@ processBlockItems bb parentPointer = do
         ContT (Maybe r) m (BlockItem, TVer.VerificationResult)
     process verificationContext bi = ContT $ \continue -> do
         let txHash = getHash bi
-        tt' <- gets' _transactionTable
+        tt' <- gets' Impl._transactionTable
         -- Check whether we already have the transaction.
         case tt' ^. TT.ttHashMap . at' txHash of
             Just (bi', results) -> do
                 -- If we have received the transaction before we update the maximum committed round
                 -- if the new round is higher.
                 when (TT.commitPoint theRound > results ^. TT.tsCommitPoint) $
-                    transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateCommitPoint theRound
+                    Impl.transactionTable . TT.ttHashMap . at' txHash . mapped . _2 %=! TT.updateCommitPoint theRound
                 continue (bi', results ^. TT.tsVerRes)
             Nothing -> do
                 -- We verify the transaction and check whether it's acceptable i.e. Ok or MaybeOk.
@@ -313,7 +313,7 @@ processBlockItems bb parentPointer = do
                     -- when processing transactions which originate from a block.
                     -- We add it to the transaction table and continue with the next transaction.
                     acceptedRes -> do
-                        addOK <- addTransaction theRound bi acceptedRes
+                        addOK <- Impl.addTransaction theRound bi acceptedRes
                         -- If the transaction was obsolete, we stop processing transactions.
                         if addOK
                             then do

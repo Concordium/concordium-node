@@ -266,24 +266,19 @@ addTransaction ::
     CommitPoint ->
     -- | The associated verification result.
     TVer.VerificationResult ->
-    -- | An optional "next account nonce" to initialize the @anftNextNonce@ with.
-    --  This MUST be provided for normal transactions.
-    Maybe Nonce ->
     -- | The transaction table to update.
     TransactionTable ->
     -- | First component is @True@ if table was updated.
     --  Second component is the updated table.
     (Bool, TransactionTable)
-addTransaction blockItem@WithMetadata{..} cp !verRes mLfbAccNonce tt0 =
+addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
     case wmdData of
-        NormalTransaction tr
-            | tt0 ^. senderANFT . anftNextNonce <= nonce ->
-                (True, tt1 & senderANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
+        NormalTransaction tr -> (True, tt1 & senderANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
           where
             sender = accountAddressEmbed (transactionSender tr)
             senderANFT :: Lens' TransactionTable AccountNonFinalizedTransactions
             senderANFT = ttNonFinalizedTransactions . at' sender . non anft
-            anft = maybe emptyANFT emptyANFTWithNonce mLfbAccNonce
+            anft = emptyANFTWithNonce nonce
             nonce = transactionNonce tr
             wmdtr = WithMetadata{wmdData = tr, ..}
         CredentialDeployment{} -> (True, tt1)

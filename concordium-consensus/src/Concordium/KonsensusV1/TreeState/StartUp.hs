@@ -457,18 +457,13 @@ loadCertifiedBlocks = do
         cacheBlockState (bpState blockPointer)
         blockTable . liveMap . at' (getHash blockPointer) ?=! blockPointer
         addToBranches blockPointer
-        forM_ (blockTransactions blockPointer) $ \tr@WithMetadata{..} -> do
+        forM_ (blockTransactions blockPointer) $ \tr -> do
             -- Add transactions to the transaction table as 'TVer.TrustedSuccess', since they
             -- occur in blocks that have already been checked.
             let verRes = TVer.Ok TVer.TrustedSuccess
-                -- as the block is certified, then the nonce of the transaction MUST correspond to
-                -- the "next account nonce" from the perspective of the last finalized block.
-                nextAccNonce = case wmdData of
-                    NormalTransaction tx -> Just $ transactionNonce tx
-                    _ -> Nothing
             added <-
                 transactionTable
-                    %%=! TT.addTransaction tr (TT.commitPoint (blockRound blockPointer)) verRes nextAccNonce
+                    %%=! TT.addTransaction tr (TT.commitPoint (blockRound blockPointer)) verRes
             unless added $
                 throwM . TreeStateInvariantViolation $
                     "Transaction in certified block cannot be added to transaction table"

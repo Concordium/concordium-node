@@ -3789,7 +3789,6 @@ cacheStateAndGetTransactionTable ::
     m TransactionTable.TransactionTable
 cacheStateAndGetTransactionTable hpbs = do
     BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
-    -- Accounts are loaded and possibly cached now.
     -- cache the modules
     mods <- cache bspModules
     -- then cache the instances, but don't cache the modules again. Instead

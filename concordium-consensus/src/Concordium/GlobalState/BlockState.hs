@@ -1437,8 +1437,8 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Cache the block state.
     cacheBlockState :: BlockState m -> m ()
 
-    -- | Cache the block state and get the initial (empty) transaction table,
-    --  and update sequence numbers populated.
+    -- | Cache the block state and get the initial (empty) transaction table with
+    --  the next "update sequence numbers".
     cacheBlockStateAndGetTransactionTable :: BlockState m -> m TransactionTable
 
     -- | Populate the LMDB account map if it has not already been initialized.

@@ -872,13 +872,7 @@ instance
                         oldCredential <- case wmdData of
                             CredentialDeployment{} -> memberTransactionTable wmdHash
                             _ -> return False
-                        nextAccNonce <- case wmdData of
-                            NormalTransaction tr -> do
-                                lfbState <- blockState =<< use (skovPersistentData . lastFinalized)
-                                mAcc <- getAccount lfbState (transactionSender tr)
-                                mapM (getAccountNonce . snd) mAcc
-                            _ -> return Nothing
-                        let ~(added, newTT) = addTransaction bi (commitPoint slot) verRes nextAccNonce tt
+                        let ~(added, newTT) = addTransaction bi (commitPoint slot) verRes tt
                         if not oldCredential && added
                             then do
                                 skovPersistentData . transactionTablePurgeCounter += 1
@@ -906,13 +900,7 @@ instance
                 oldCredential <- case wmdData of
                     CredentialDeployment{} -> memberTransactionTable wmdHash
                     _ -> return False
-                nextAccNonce <- case wmdData of
-                    NormalTransaction tr -> do
-                        lfbState <- blockState =<< use (skovPersistentData . lastFinalized)
-                        mAcc <- getAccount lfbState (transactionSender tr)
-                        mapM (getAccountNonce . snd) mAcc
-                    _ -> return Nothing
-                let ~(added, newTT) = addTransaction bi 0 verRes nextAccNonce tt
+                let ~(added, newTT) = addTransaction bi 0 verRes tt
                 if not oldCredential && added
                     then do
                         skovPersistentData . transactionTablePurgeCounter += 1
@@ -933,14 +921,11 @@ instance
         finTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
             let nonce = transactionNonce tr
                 sender = accountAddressEmbed (transactionSender tr)
-            senderMinNonce <- do
-                st <- blockState =<< use (skovPersistentData . lastFinalized)
-                macct <- getAccount st (aaeAddress sender)
-                fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-            nextNonce <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non (emptyANFTWithNonce senderMinNonce) . anftNextNonce)
-            if nextNonce == nonce
-                then do
-                    anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
+            tt <- use (skovPersistentData . transactionTable)
+            let mAnft = tt ^? ttNonFinalizedTransactions . ix sender
+            case mAnft of
+                Nothing -> logErrorAndThrowTS $ "When finalizing transactions there was no recorded next nonce for sender " <> show sender
+                Just anft -> do
                     let nfn = anft ^. anftMap . at' nonce . non Map.empty
                         wmdtr = WithMetadata{wmdData = tr, ..}
                     if Map.member wmdtr nfn
@@ -956,16 +941,13 @@ instance
                                 . transactionTable
                                 . ttNonFinalizedTransactions
                                 . at' sender
-                                ?= ( anft
+                                ?=! ( anft
                                         & (anftMap . at' nonce .~ Nothing)
                                         & (anftNextNonce .~ nonce + 1)
-                                   )
+                                    )
                             return ss
                         else do
                             logErrorAndThrowTS $ "Tried to finalize transaction which is not known to be in the set of non-finalized transactions for the sender " ++ show sender
-                else do
-                    logErrorAndThrowTS $
-                        "The recorded next nonce for the account " ++ show sender ++ " (" ++ show nextNonce ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
         finTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
             deleteAndFinalizeStatus wmdHash
         finTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
