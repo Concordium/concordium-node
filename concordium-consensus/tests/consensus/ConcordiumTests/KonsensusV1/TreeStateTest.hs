@@ -585,7 +585,7 @@ testLookupLiveTransaction = describe "lookupLiveTransaction" $ do
         $ lookupLiveTransaction (txHash 4) sd
   where
     txHash nonce = getHash (dummyTransactionBI nonce)
-    addTrans nonce = snd . TT.addTransaction (dummyTransactionBI nonce) 0 (dummySuccessTransactionResult nonce) Nothing
+    addTrans nonce = snd . TT.addTransaction (dummyTransactionBI nonce) 0 (dummySuccessTransactionResult nonce)
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -605,7 +605,7 @@ testLookupTransaction = describe "lookupTransaction" $ do
     it "absent" $ lookupAndCheck (txHash 5) Nothing
   where
     txHash nonce = getHash (dummyTransactionBI nonce)
-    addTrans nonce = snd . TT.addTransaction (dummyTransactionBI nonce) 0 (dummySuccessTransactionResult nonce) Nothing
+    addTrans nonce = snd . TT.addTransaction (dummyTransactionBI nonce) 0 (dummySuccessTransactionResult nonce)
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -652,7 +652,7 @@ testGetNonFinalizedAccountTransactions = describe "getNonFinalizedAccountTransac
             1
             sd
   where
-    addTrans n = snd . TT.addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n) Nothing
+    addTrans n = snd . TT.addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -683,7 +683,7 @@ testGetNonFinalizedChainUpdates = describe "getNonFinalizedChainUpdates" $ do
             []
             $ getNonFinalizedChainUpdates UpdateProtocol 1 sd
   where
-    addChainUpdate n = snd . TT.addTransaction (dummyChainUpdate n) 0 (dummySuccessTransactionResult n) Nothing
+    addChainUpdate n = snd . TT.addTransaction (dummyChainUpdate n) 0 (dummySuccessTransactionResult n)
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -704,7 +704,7 @@ testGetNonFinalizedCredential = describe "getNonFinalizedCredential" $ do
     it "absent" $ do
         assertEqual "non-finalized credential deployment is absent" Nothing $ getNonFinalizedCredential nonExistingHash sd
   where
-    addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment Nothing
+    addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     credDeploymentHash = getHash dummyCredentialDeployment
     nonExistingHash :: TransactionHash
     nonExistingHash = TransactionHashV0 $! Hash.hash $! Hash.hashToByteString $! v0TransactionHash credDeploymentHash
@@ -736,7 +736,7 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
     -- Note that tests are run via some other skov data than the default one of the
     -- test monad. This is fine as we do not rely on the underlying block state.
     runTestWithBS = Helper.runMyTestMonad Dummy.dummyIdentityProviders (timestampToUTCTime 1)
-    addTrans n = snd . TT.addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n) Nothing
+    addTrans n = snd . TT.addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -757,17 +757,17 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
 testRemoveTransactions :: Spec
 testRemoveTransactions = describe "finalizeTransactions" $ do
     it "normal transactions" $ do
-        (_, sd') <- runTestWithBS sd (finalizeTransactions [normalTransaction tr0])
+        sd' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd
         assertEqual
             "Account non-finalized transactions"
-            (Just TT.AccountNonFinalizedTransactions{TT._anftNextNonce = 2, TT._anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
+            (Just TT.AccountNonFinalizedTransactions{_anftNextNonce = 2, _anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
             (sd' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "transaction hash map"
             (HM.fromList [(getHash tr1, (normalTransaction tr1, TT.Received 0 (dummySuccessTransactionResult 2)))])
             (sd' ^. transactionTable . TT.ttHashMap)
     it "chain updates" $ do
-        (_, sd') <- runTestWithBS sd1 (finalizeTransactions [chainUpdate cu0])
+        sd' <- execStateT (finalizeTransactions [chainUpdate cu0]) sd1
         assertEqual
             "Chain update non-finalized transactions"
             (Just TT.NonFinalizedChainUpdates{_nfcuNextSequenceNumber = 2, _nfcuMap = Map.singleton 2 (Map.singleton cu1 (dummySuccessTransactionResult 2))})
@@ -781,7 +781,7 @@ testRemoveTransactions = describe "finalizeTransactions" $ do
             )
             (sd' ^. transactionTable . TT.ttHashMap)
     it "credential deployments" $ do
-        (_, sd') <- runTestWithBS sd2 (finalizeTransactions [credentialDeployment cred0])
+        sd' <- execStateT (finalizeTransactions [credentialDeployment cred0]) sd2
         assertEqual
             "Non-finalized credential deployments"
             (sd' ^. transactionTable . TT.ttHashMap . at credDeploymentHash)
@@ -791,11 +791,6 @@ testRemoveTransactions = describe "finalizeTransactions" $ do
             (HM.fromList [(getHash tr1, (normalTransaction tr1, TT.Received 0 (dummySuccessTransactionResult 2)))])
             (sd' ^. transactionTable . TT.ttHashMap)
   where
-    -- Run the computation via the helper test monad, @put@ the provided skov data before running the computation.
-    -- This is ok as we do not rely on the underlying block state.
-    runTestWithBS somesd a = Helper.runMyTestMonad Dummy.dummyIdentityProviders (timestampToUTCTime 1) $ do
-        put somesd
-        a
     sender = accountAddressEmbed dummyAccountAddress
     tr0 = dummyTransaction 1
     tr1 = dummyTransaction 2
@@ -803,9 +798,9 @@ testRemoveTransactions = describe "finalizeTransactions" $ do
     cu0 = dummyUpdateInstructionWM 1
     cu1 = dummyUpdateInstructionWM 2
     cred0 = credentialDeploymentWM
-    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t)) Nothing
-    addChainUpdate u = snd . TT.addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u)) Nothing
-    addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment Nothing
+    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addChainUpdate u = snd . TT.addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
+    addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     credDeploymentHash = getHash dummyCredentialDeployment
     sd =
         dummyInitialSkovData
@@ -833,10 +828,10 @@ testRemoveTransactions = describe "finalizeTransactions" $ do
 testAddTransaction :: Spec
 testAddTransaction = describe "addTransaction" $ do
     it "add transaction" $ do
-        (_, sd') <- runTestWithBS dummyInitialSkovData (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1))
+        sd' <- execStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) dummyInitialSkovData
         assertEqual
             "Account non-finalized transactions"
-            (Just TT.AccountNonFinalizedTransactions{TT._anftNextNonce = 1, TT._anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
+            (Just TT.AccountNonFinalizedTransactions{_anftNextNonce = 1, _anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
             (sd' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "transaction hash map"
@@ -846,15 +841,10 @@ testAddTransaction = describe "addTransaction" $ do
             "transaction table purge counter is incremented"
             (1 + dummyInitialSkovData ^. transactionTablePurgeCounter)
             (sd' ^. transactionTablePurgeCounter)
-        (_, sd'') <- runTestWithBS sd' (finalizeTransactions [normalTransaction tr0])
-        (added, _) <- runTestWithBS sd'' (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1))
+        sd'' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd'
+        added <- evalStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
         assertEqual "tx should not be added" False added
   where
-    -- Run the computation via the helper test monad, @put@ the provided skov data before running the computation.
-    -- This is ok as we do not rely on the underlying block state.
-    runTestWithBS somesd a = Helper.runMyTestMonad Dummy.dummyIdentityProviders (timestampToUTCTime 1) $ do
-        put somesd
-        a
     tr0Round = 1
     tr0 = dummyTransaction 1
     sender = accountAddressEmbed dummyAccountAddress
@@ -872,7 +862,7 @@ testCommitTransaction = describe "commitTransaction" $ do
             (sd' ^. transactionTable . TT.ttHashMap)
   where
     tr0 = dummyTransaction 1
-    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t)) Nothing
+    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -889,26 +879,21 @@ testCommitTransaction = describe "commitTransaction" $ do
 testMarkTransactionDead :: Spec
 testMarkTransactionDead = describe "markTransactionDead" $ do
     it "mark committed transaction dead" $ do
-        (_, sd') <- runTestWithBS sd (commitTransaction 1 bh 0 (normalTransaction tr0))
-        (_, sd'') <- runTestWithBS sd' (markTransactionDead bh (normalTransaction tr0))
+        sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
+        sd'' <- execStateT (markTransactionDead bh (normalTransaction tr0)) sd'
         assertEqual
             "transaction hash map"
             (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 1 (dummySuccessTransactionResult (transactionNonce tr0))))])
             (sd'' ^. transactionTable . TT.ttHashMap)
     it "mark received transaction dead" $ do
-        (_, sd') <- runTestWithBS sd (markTransactionDead bh (normalTransaction tr0))
+        sd' <- execStateT (markTransactionDead bh (normalTransaction tr0)) sd
         assertEqual
             "transaction hash map"
             (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 0 (dummySuccessTransactionResult (transactionNonce tr0))))])
             (sd' ^. transactionTable . TT.ttHashMap)
   where
-    -- Run the computation via the helper test monad, @put@ the provided skov data before running the computation.
-    -- This is ok as we do not rely on the underlying block state.
-    runTestWithBS somesd a = Helper.runMyTestMonad Dummy.dummyIdentityProviders (timestampToUTCTime 1) $ do
-        put somesd
-        a
     tr0 = dummyTransaction 1
-    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t)) Nothing
+    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
         dummyInitialSkovData
             & transactionTable
@@ -924,15 +909,15 @@ testPurgeTransactionTable :: Spec
 testPurgeTransactionTable = describe "purgeTransactionTable" $ do
     it "force purge the transaction table" $ do
         -- increment the purge counter.
-        (_, sd') <- runTestWithBS sd (addTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1))
-        (_, sd'') <- runTestWithBS sd' (purgeTransactionTable True theTime)
+        sd' <- execStateT (addTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
+        sd'' <- execStateT (purgeTransactionTable True theTime) sd'
         assertEqual
             "purge counter should be reset"
             0
             (sd'' ^. transactionTablePurgeCounter)
         assertEqual
             "Account non-finalized transactions"
-            Nothing
+            (Just $ TT.AccountNonFinalizedTransactions{_anftMap = Map.empty, TT._anftNextNonce = 1})
             (sd'' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "Chain update non-finalized transactions"
@@ -943,13 +928,8 @@ testPurgeTransactionTable = describe "purgeTransactionTable" $ do
             Nothing
             (sd'' ^. transactionTable . TT.ttHashMap . at credDeploymentHash)
   where
-    -- Run the computation via the helper test monad, @put@ the provided skov data before running the computation.
-    -- This is ok as we do not rely on the underlying block state.
-    runTestWithBS somesd a = Helper.runMyTestMonad Dummy.dummyIdentityProviders (timestampToUTCTime 1) $ do
-        put somesd
-        a
-    addChainUpdate u = snd . TT.addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u)) Nothing
-    addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment Nothing
+    addChainUpdate u = snd . TT.addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
+    addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     tr0 = dummyTransaction 1
     cu0 = dummyUpdateInstructionWM 1
     theTime = timestampToUTCTime $! Timestamp 1596409021
@@ -991,7 +971,7 @@ testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
   where
     tr0 = dummyTransaction 1
     bh = BlockHash minBound
-    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t)) Nothing
+    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
         skovDataWithTestBlocks
             & transactionTable

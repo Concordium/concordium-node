@@ -772,7 +772,7 @@ getNextAccountNonce addr sd =
 --  nonce. This does not write the transactions to the low-level tree state database, but just
 --  updates the in-memory transaction table accordingly.
 finalizeTransactions ::
-    ( MonadState (SkovData (MPV m)) m,
+    ( MonadState (SkovData pv) m,
       MonadThrow m
     ) =>
     -- | The transactions to remove from the state.
@@ -870,7 +870,7 @@ commitTransaction rnd bh ti transaction =
 --  When adding a transaction from a block, use the 'Round' of the block. Otherwise use round @0@.
 --  The transaction must not already be present.
 addTransaction ::
-    (MonadState (SkovData (MPV m)) m) =>
+    (MonadState (SkovData pv) m) =>
     Round ->
     BlockItem ->
     TVer.VerificationResult ->
