@@ -149,26 +149,7 @@ migrateSeedState ::
     SeedState (SeedStateVersionFor pv)
 migrateSeedState StateMigrationParametersTrivial{} ss = case ss of
     SeedStateV0{} -> ss -- In consensus v0, seed state update is handled prior to migration
-    SeedStateV1{..} ->
-        SeedStateV1
-            { -- Reset the epoch to 0.
-              ss1Epoch = 0,
-              ss1CurrentLeadershipElectionNonce = newNonce,
-              ss1UpdatedNonce = newNonce,
-              -- We maintain the trigger block time. This forces an epoch transition as soon as possible
-              -- which will effectively substitute for the epoch transition that would have happened
-              -- on the previous consensus, had it not shut down.
-              ss1TriggerBlockTime = ss1TriggerBlockTime,
-              -- We flag the epoch transition as triggered so that the epoch transition will happen
-              -- as soon as possible.
-              ss1EpochTransitionTriggered = True,
-              -- We clear the shutdown flag.
-              ss1ShutdownTriggered = False
-            }
-      where
-        -- We derive the new nonce from the updated nonce on the basis that it was fixed
-        -- at the trigger block from the previous consensus.
-        newNonce = H.hash $ "Regenesis" <> encode ss1UpdatedNonce
+    SeedStateV1{} -> migrateSeedStateV1Trivial ss
 migrateSeedState StateMigrationParametersP1P2{} ss = ss
 migrateSeedState StateMigrationParametersP2P3{} ss = ss
 migrateSeedState StateMigrationParametersP3ToP4{} ss = ss
@@ -176,6 +157,30 @@ migrateSeedState StateMigrationParametersP4ToP5{} ss = ss
 migrateSeedState (StateMigrationParametersP5ToP6 (P6.StateMigrationData _ time)) SeedStateV0{..} =
     let seed = H.hash $ "Regenesis" <> encode ss0CurrentLeadershipElectionNonce
     in  initialSeedStateV1 seed time
+migrateSeedState StateMigrationParametersP6ToP7{} ss = migrateSeedStateV1Trivial ss
+
+-- | Trivial migration of a 'SeedStateV1' between protocol versions.
+migrateSeedStateV1Trivial :: SeedState 'SeedStateVersion1 -> SeedState 'SeedStateVersion1
+migrateSeedStateV1Trivial SeedStateV1{..} =
+    SeedStateV1
+        { -- Reset the epoch to 0.
+          ss1Epoch = 0,
+          ss1CurrentLeadershipElectionNonce = newNonce,
+          ss1UpdatedNonce = newNonce,
+          -- We maintain the trigger block time. This forces an epoch transition as soon as possible
+          -- which will effectively substitute for the epoch transition that would have happened
+          -- on the previous consensus, had it not shut down.
+          ss1TriggerBlockTime = ss1TriggerBlockTime,
+          -- We flag the epoch transition as triggered so that the epoch transition will happen
+          -- as soon as possible.
+          ss1EpochTransitionTriggered = True,
+          -- We clear the shutdown flag.
+          ss1ShutdownTriggered = False
+        }
+  where
+    -- We derive the new nonce from the updated nonce on the basis that it was fixed
+    -- at the trigger block from the previous consensus.
+    newNonce = H.hash $ "Regenesis" <> encode ss1UpdatedNonce
 
 -- | See documentation of @migratePersistentBlockState@.
 --
@@ -602,6 +607,10 @@ migrateBlockRewardDetails StateMigrationParametersP4ToP5{} _ _ (SomeParam TimePa
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
 migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
@@ -2167,6 +2176,7 @@ doGetRewardStatus pbs = do
         SP4 -> rewardsV1
         SP5 -> rewardsV1
         SP6 -> rewardsV1
+        SP7 -> rewardsV1
 
 doRewardFoundationAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
 doRewardFoundationAccount pbs reward = do
@@ -2292,6 +2302,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
                     SP4 -> accountCanonicalAddress acc'
                     SP5 -> return _auIndex
                     SP6 -> return _auIndex
+                    SP7 -> return _auIndex
                 !oldRel <- accountNextReleaseTimestamp acc
                 !newRel <- accountNextReleaseTimestamp acc'
                 return (acctRef :: RSAccountRef pv, oldRel, newRel)
@@ -2834,6 +2845,7 @@ doProcessReleaseSchedule pbs ts = do
                     SP4 -> processAccountP1
                     SP5 -> processAccountP5
                     SP6 -> processAccountP5
+                    SP7 -> processAccountP5
             (newAccs, newRS) <- foldM processAccount (bspAccounts bsp, remRS) affectedAccounts
             storePBS pbs (bsp{bspAccounts = newAccs, bspReleaseSchedule = newRS})
 
@@ -3685,6 +3697,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
                     Nothing -> error "Account with release schedule does not exist"
                     Just ai -> ai
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
+            StateMigrationParametersP6ToP7{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     newAccounts <- Accounts.migrateAccounts migration bspAccounts
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules

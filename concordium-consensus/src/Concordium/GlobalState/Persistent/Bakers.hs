@@ -147,6 +147,7 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
             StateMigrationParametersP3ToP4{} -> NoParam
             StateMigrationParametersP4ToP5 -> NoParam
             (StateMigrationParametersP5ToP6 P6.StateMigrationData{..}) -> SomeParam $ P6.updateFinalizationCommitteeParameters migrationProtocolUpdateData
+            StateMigrationParametersP6ToP7{} -> _bakerFinalizationCommitteeParameters
     return
         PersistentEpochBakers
             { _bakerInfos = newBakerInfos,
@@ -298,6 +299,10 @@ migratePersistentActiveDelegators StateMigrationParametersP5ToP6{} = \case
     PersistentActiveDelegatorsV1{..} -> do
         newDelegators <- Trie.migrateTrieN True return adDelegators
         return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
+migratePersistentActiveDelegators StateMigrationParametersP6ToP7{} = \case
+    PersistentActiveDelegatorsV1{..} -> do
+        newDelegators <- Trie.migrateTrieN True return adDelegators
+        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
 
 emptyPersistentActiveDelegators :: forall av. (IsAccountVersion av) => PersistentActiveDelegators av
 emptyPersistentActiveDelegators =
@@ -346,6 +351,7 @@ migrateTotalActiveCapital StateMigrationParametersP2P3 _ x = x
 migrateTotalActiveCapital (StateMigrationParametersP3ToP4 _) bts TotalActiveCapitalV0 = TotalActiveCapitalV1 bts
 migrateTotalActiveCapital StateMigrationParametersP4ToP5 _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
 migrateTotalActiveCapital StateMigrationParametersP5ToP6{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
+migrateTotalActiveCapital StateMigrationParametersP6ToP7{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
 
 instance (IsAccountVersion av) => Serialize (TotalActiveCapital av) where
     put TotalActiveCapitalV0 = return ()
