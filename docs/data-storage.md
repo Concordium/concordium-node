@@ -524,9 +524,10 @@ The transaction table stores, in memory, the non-finalized transactions and two
 indices.
 
 The first is an index of non-finalized transactions for an account. This
-contains the next nonce (from the perspective of the last finalized block) for
-each account which have one or more non-finalized transactions, and the nonce-indexed transactions
-that are not yet finalized for the account. This information is used in two
+contains the nonce-indexed transactions that are not yet finalized for the account. 
+For chain updates then both the non-finalized updates (indexed by sequence number) and
+the last finalized sequence number are stored for each update type.
+This information is used in two
 ways. The next nonce for the account is used both to deduplicate transactions
 on the network, and to ensure that no transaction is ever put into two
 blocks on the same branch. The index of transactions by nonce is used when the
