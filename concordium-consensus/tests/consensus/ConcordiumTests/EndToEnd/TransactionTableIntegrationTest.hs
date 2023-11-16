@@ -126,38 +126,50 @@ testBB4 =
 --  transactions has been finalized and the transaction table is fully purged.
 testAnftNonce :: Assertion
 testAnftNonce = runTestMonad noBaker testTime genesisData $ do
+    nonce <- getNextAccountNonce sender =<< get
+    liftIO $
+        assertEqual
+            "Transaction is not received"
+            (1, True)
+            nonce
     let b1 = signedPB testBB1
     succeedReceiveBlock b1
     let b2 = signedPB testBB2
     succeedReceiveBlock b2
 
-    sd <- get
+    nonce' <- getNextAccountNonce sender =<< get
     liftIO $
         assertEqual
-            "sender should be present in transaction table"
-            (Just 1)
-            (sd ^? transactionTable . TT.ttNonFinalizedTransactions . ix sender . TT.anftNextNonce)
+            "Transaction is in non-finalized transactions"
+            (2, False)
+            nonce'
 
     let b3 = signedPB testBB3
     succeedReceiveBlock b3
     -- transaction in b1 is now finalized and we force purge the table so
     -- sender is expunged from transaction table.
     purgeTransactionTable True (posixSecondsToUTCTime 1)
-    sd' <- get
+    sd <- get
+    nonce'' <- getNextAccountNonce sender sd
     liftIO $
         assertEqual
-            "sender should not be present in tt"
+            "first transaction should be finalized"
+            (2, True)
+            nonce''
+    liftIO $
+        assertEqual
+            "transaction should not be in the anft map for the sender anymore"
             Nothing
-            (sd' ^? transactionTable . TT.ttNonFinalizedTransactions . ix sender . TT.anftNextNonce)
+            (sd ^? transactionTable . TT.ttNonFinalizedTransactions . ix sender)
 
     let b4 = signedPB testBB4
     succeedReceiveBlock b4
-    sd'' <- get
+    nonce''' <- getNextAccountNonce sender =<< get
     liftIO $
         assertEqual
             "sender should be present in tt again and anftNextNonce is correctly set"
-            (Just 2)
-            (sd'' ^? transactionTable . TT.ttNonFinalizedTransactions . ix sender . TT.anftNextNonce)
+            (3, False)
+            nonce'''
   where
     sender = accountAddressEmbed foundationAccountAddress
 

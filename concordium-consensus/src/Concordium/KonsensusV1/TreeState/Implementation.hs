@@ -860,8 +860,12 @@ commitTransaction rnd bh ti transaction =
         . _2
         %=! TT.addResult bh rnd ti
 
--- | Add a transaction to the transaction table if its nonce/sequence number is at least the next
---  non-finalized nonce/sequence number. The return value is 'True' if and only if the transaction
+-- | Add a transaction to the transaction table.
+--  For chain updates it is checked that the sequence number is at least the next
+--  non-finalized sequence number.
+--  Nothing is checked for normal transactions. This is ok as they have
+--  been verified before this is called.
+--  The return value is 'True' if and only if the transaction
 --  was added.
 --  When adding a transaction from a block, use the 'Round' of the block. Otherwise use round @0@.
 --  The transaction must not already be present.

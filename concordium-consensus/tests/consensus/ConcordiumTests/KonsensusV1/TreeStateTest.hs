@@ -730,7 +730,7 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
     it "with finalized transactions" $ do
         void $ runTestWithBS $ do
             n2 <- getNextAccountNonce (accountAddressEmbed (dummyAccountAddressN 2)) sd
-            liftIO $ n2 `shouldBe` (7, True)
+            liftIO $ n2 `shouldBe` (1, True)
   where
     -- Run the computation via the helper test monad.
     -- Note that tests are run via some other skov data than the default one of the
@@ -743,7 +743,7 @@ testGetNextAccountNonce = describe "getNextAccountNonce" $ do
                 %~ addTrans 2
                     . addTrans 3
                     . ( TT.ttNonFinalizedTransactions . at (accountAddressEmbed (dummyAccountAddressN 2))
-                            ?~ TT.emptyANFTWithNonce 7
+                            ?~ TT.emptyANFT
                       )
 
 -- | Testing 'finalizeTransactions'.
@@ -760,7 +760,7 @@ testRemoveTransactions = describe "finalizeTransactions" $ do
         sd' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd
         assertEqual
             "Account non-finalized transactions"
-            (Just TT.AccountNonFinalizedTransactions{_anftNextNonce = 2, _anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
+            (Just TT.AccountNonFinalizedTransactions{_anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
             (sd' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "transaction hash map"
@@ -831,7 +831,7 @@ testAddTransaction = describe "addTransaction" $ do
         sd' <- execStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) dummyInitialSkovData
         assertEqual
             "Account non-finalized transactions"
-            (Just TT.AccountNonFinalizedTransactions{_anftNextNonce = 1, _anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
+            (Just TT.AccountNonFinalizedTransactions{_anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
             (sd' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "transaction hash map"
@@ -842,11 +842,12 @@ testAddTransaction = describe "addTransaction" $ do
             (1 + dummyInitialSkovData ^. transactionTablePurgeCounter)
             (sd' ^. transactionTablePurgeCounter)
         sd'' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd'
-        added <- evalStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd''
-        assertEqual "tx should not be added" False added
+        added <- evalStateT (addTransaction tr0Round (normalTransaction tr1) (dummySuccessTransactionResult 1)) sd''
+        assertEqual "tx should be added" True added
   where
     tr0Round = 1
     tr0 = dummyTransaction 1
+    tr1 = dummyTransaction 2
     sender = accountAddressEmbed dummyAccountAddress
 
 -- | Test of 'commitTransaction'.
@@ -917,7 +918,7 @@ testPurgeTransactionTable = describe "purgeTransactionTable" $ do
             (sd'' ^. transactionTablePurgeCounter)
         assertEqual
             "Account non-finalized transactions"
-            (Just $ TT.AccountNonFinalizedTransactions{_anftMap = Map.empty, TT._anftNextNonce = 1})
+            Nothing
             (sd'' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "Chain update non-finalized transactions"
