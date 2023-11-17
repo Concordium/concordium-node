@@ -634,17 +634,35 @@ constructBlock StoredBlockWithStateHash{sbshStoredBlock = StoredBlock{..}, ..} =
 
 instance
     ( MonadState state m,
-      HasSkovPersistentData pv state
+      HasSkovPersistentData pv state,
+      BlockStateQuery m,
+      BlockState m ~ PBS.HashedPersistentBlockState pv,
+      MonadProtocolVersion m,
+      MPV m ~ pv,
+      MonadLogger (PersistentTreeStateMonad state m),
+      MonadIO (PersistentTreeStateMonad state m),
+      BlockStateStorage (PersistentTreeStateMonad state m)
     ) =>
     AccountNonceQuery (PersistentTreeStateMonad state m)
     where
-    getNextAccountNonce addr = nextAccountNonce addr <$> use (skovPersistentData . transactionTable)
+    getNextAccountNonce addr = do
+        sd <- use skovPersistentData
+        maybe (fetchFromLastFinalizedBlock sd) return (fetchFromTransactionTable sd)
+      where
+        fetchFromTransactionTable skovData = (,False) <$> nextAccountNonce addr (skovData ^. transactionTable)
+        fetchFromLastFinalizedBlock sd = do
+            st <- blockState $ sd ^. lastFinalized
+            macct <- getAccount st (aaeAddress addr)
+            nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+            return (nextNonce, True)
+    {-# INLINE getNextAccountNonce #-}
 
 instance
     ( MonadLogger (PersistentTreeStateMonad state m),
       MonadIO (PersistentTreeStateMonad state m),
       BlockStateStorage (PersistentTreeStateMonad state m),
       MonadState state m,
+      BlockStateQuery m,
       HasSkovPersistentData pv state,
       MonadProtocolVersion m,
       MPV m ~ pv,
@@ -873,19 +891,31 @@ instance
         -- check if the transaction is in the transaction table cache
         case tt ^? ttHashMap . ix trHash of
             Nothing -> do
-                -- Finalized credentials are not present in the transaction table, so we
-                -- check if they are already in the on-disk transaction table.
-                -- For other transaction types, we use the nonce/sequence number to rule
-                -- out the transaction already being finalized.
-                oldCredential <- case wmdData of
-                    CredentialDeployment{} -> memberTransactionTable wmdHash
-                    _ -> return False
-                let ~(added, newTT) = addTransaction bi 0 verRes tt
-                if not oldCredential && added
+                mayAddTransaction <- case wmdData of
+                    -- Finalized credentials are not present in the transaction table, so we
+                    -- check if they are already in the on-disk transaction table.
+                    -- For other transaction types, we use the nonce/sequence number to rule
+                    -- out the transaction already being finalized.
+                    NormalTransaction tr -> do
+                        lfbState <- use (skovPersistentData . lastFinalized . to _bpState)
+                        mAcc <- getAccount lfbState $ transactionSender tr
+                        nonce <- maybe (pure minNonce) getAccountNonce (snd <$> mAcc)
+                        return $! nonce <= transactionNonce tr
+                    -- We need to check here that the nonce is still ok with respect to the last finalized block,
+                    -- because it could be that a block was finalized thus the next account nonce being incremented
+                    -- after this transaction was received and pre-verified.
+                    CredentialDeployment{} -> not <$> memberTransactionTable wmdHash
+                    -- the sequence number will be checked by @Impl.addTransaction@.
+                    _ -> return True
+                if mayAddTransaction
                     then do
-                        skovPersistentData . transactionTablePurgeCounter += 1
-                        skovPersistentData . transactionTable .=! newTT
-                        return (Added bi verRes)
+                        let ~(added, newTT) = addTransaction bi 0 verRes tt
+                        if added
+                            then do
+                                skovPersistentData . transactionTablePurgeCounter += 1
+                                skovPersistentData . transactionTable .=! newTT
+                                return (Added bi verRes)
+                            else return ObsoleteNonce
                     else return ObsoleteNonce
             Just (bi', results) -> do
                 -- The `Finalized` case is not reachable because finalized transactions are removed
@@ -902,33 +932,23 @@ instance
             let nonce = transactionNonce tr
                 sender = accountAddressEmbed (transactionSender tr)
             anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
-            if anft ^. anftNextNonce == nonce
+            let nfn = anft ^. anftMap . at' nonce . non Map.empty
+                wmdtr = WithMetadata{wmdData = tr, ..}
+            if Map.member wmdtr nfn
                 then do
-                    let nfn = anft ^. anftMap . at' nonce . non Map.empty
-                        wmdtr = WithMetadata{wmdData = tr, ..}
-                    if Map.member wmdtr nfn
-                        then do
-                            -- Remove any other transactions with this nonce from the transaction table.
-                            -- They can never be part of any other block after this point.
-                            forM_ (Map.keys (Map.delete wmdtr nfn)) $
-                                \deadTransaction -> skovPersistentData . transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
-                            -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
-                            ss <- deleteAndFinalizeStatus wmdHash
-                            -- Update the non-finalized transactions for the sender
-                            skovPersistentData
-                                . transactionTable
-                                . ttNonFinalizedTransactions
-                                . at' sender
-                                ?= ( anft
-                                        & (anftMap . at' nonce .~ Nothing)
-                                        & (anftNextNonce .~ nonce + 1)
-                                   )
-                            return ss
-                        else do
-                            logErrorAndThrowTS $ "Tried to finalize transaction which is not known to be in the set of non-finalized transactions for the sender " ++ show sender
+                    -- Remove any other transactions with this nonce from the transaction table.
+                    -- They can never be part of any other block after this point.
+                    forM_ (Map.keys (Map.delete wmdtr nfn)) $
+                        \deadTransaction -> skovPersistentData . transactionTable . ttHashMap . at' (getHash deadTransaction) .= Nothing
+                    -- Mark the status of the transaction as finalized, and remove the data from the in-memory table.
+                    ss <- deleteAndFinalizeStatus wmdHash
+                    -- Remove the transaction from the non finalized transactions.
+                    -- If there are no non-finalized transactions left then remove the entry
+                    -- for the sender in @ttNonFinalizedTransactions@.
+                    skovPersistentData . transactionTable %=! finalizeTransactionAt sender nonce
+                    return ss
                 else do
-                    logErrorAndThrowTS $
-                        "The recorded next nonce for the account " ++ show sender ++ " (" ++ show (anft ^. anftNextNonce) ++ ") doesn't match the one that is going to be finalized (" ++ show nonce ++ ")"
+                    logErrorAndThrowTS $ "Tried to finalize transaction which is not known to be in the set of non-finalized transactions for the sender " ++ show sender
         finTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
             deleteAndFinalizeStatus wmdHash
         finTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do

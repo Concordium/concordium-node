@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased changes
+- If an account does not have any non-finalized transactions, then the transaction table is no longer used for tracking next available account nonce.
 
 - Add options `CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE` and
   `CONCORDIUM_NODE_VALIDATOR_DECRYPT_CREDENTIALS` that alias

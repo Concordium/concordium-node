@@ -107,20 +107,35 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
                 | otherwise = (mmnonce <> Just (Max n), Just ts')
         put (mmnonce', tht')
         return mres
-    -- Purge the non-finalized transactions for a specific account.
-    purgeAccount :: AccountAddressEq -> AccountNonFinalizedTransactions -> State (PendingTransactionTable, TransactionHashTable) AccountNonFinalizedTransactions
-    purgeAccount addr AccountNonFinalizedTransactions{..} = do
-        (ptt0, trs0) <- get
+    -- Purge the non-finalized transactions for an account,
+    -- accumulating the non-finalized transactions that were
+    -- not purged. Purging the transactions removes them
+    -- from the transaction table and updates the pending
+    -- transaction table accordingly.
+    purgeAccount ::
+        -- accumulator
+        ( HM.HashMap AccountAddressEq AccountNonFinalizedTransactions,
+          (PendingTransactionTable, TransactionHashTable)
+        ) ->
+        -- current entry key
+        AccountAddressEq ->
+        -- current entry value
+        AccountNonFinalizedTransactions ->
+        -- result
+        ( HM.HashMap AccountAddressEq AccountNonFinalizedTransactions,
+          (PendingTransactionTable, TransactionHashTable)
+        )
+    purgeAccount (!anfts, (ptt0, trs0)) addr AccountNonFinalizedTransactions{..} =
         -- Purge the transactions from the transaction table.
         let (newANFTMap, (mmax, !trs1)) = runState (Map.traverseMaybeWithKey purgeTxs _anftMap) (Nothing, trs0)
-        -- Update the pending transaction table.
-        let updptt (Just (Max newHigh)) (Just (low, _))
+            -- Update the pending transaction table.
+            updptt (Just (Max newHigh)) (Just (low, _))
                 | newHigh < low = Nothing
                 | otherwise = Just (low, newHigh)
             updptt _ _ = Nothing
             !ptt1 = ptt0 & pttWithSender . at' addr %~ updptt mmax
-        put (ptt1, trs1)
-        return AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..}
+            anfts' = if null newANFTMap then anfts else HM.insert addr AccountNonFinalizedTransactions{_anftMap = newANFTMap, ..} anfts
+        in  (anfts', (ptt1, trs1))
     -- Purge the deploy credential transactions that are pending.
     purgeDeployCredentials = do
         dc0 <- use (_1 . pttDeployCredential)
@@ -175,8 +190,11 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
             !ptt1 = ptt0 & pttUpdates . at' uty %~ updptt mmax
         in  (nfcu{_nfcuMap = newNFCUMap}, (ptt1, uis1))
     purge = do
-        -- Purge each account
-        nnft <- HM.traverseWithKey purgeAccount _ttNonFinalizedTransactions
+        -- Purge each account, and possibly remove the @AccountNonFinalizedTransactions@
+        -- if an account does not have any pending transactions left.
+        pttAndTxTable <- get
+        let (!nnft, (!ptt, !txTable)) = HM.foldlWithKey' purgeAccount (HM.empty, pttAndTxTable) _ttNonFinalizedTransactions
+        put (ptt, txTable)
         -- Purge credential deployments
         purgeDeployCredentials
         -- Purge chain updates
