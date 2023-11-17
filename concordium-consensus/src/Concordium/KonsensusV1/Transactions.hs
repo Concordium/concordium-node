@@ -233,13 +233,25 @@ addPreverifiedTransaction ::
     TVer.OkResult ->
     m AddTransactionResult
 addPreverifiedTransaction bi okRes = do
-    added <- Impl.addTransaction 0 bi $! TVer.Ok okRes
-    if added
+    -- We need to check here that the nonce is still ok, because it could be
+    -- that a block was finalized thus the next account nonce being incremented
+    -- after this transaction was received and pre-verified.
+    isNonceOk <- case wmdData bi of
+        NormalTransaction tr -> do
+            (nonce, _) <- runAccountNonceQueryT $ getNextAccountNonce $ accountAddressEmbed (transactionSender tr)
+            return $! nonce <= transactionNonce tr
+        -- the sequence number will be checked by @Impl.addTransaction@.
+        _ -> return True
+    if isNonceOk
         then do
-            addPendingTransaction bi
-            return $! Added bi $! TVer.Ok okRes
-        else -- If the transaction was not added it means it contained an old nonce.
-            return ObsoleteNonce
+            added <- Impl.addTransaction 0 bi $! TVer.Ok okRes
+            if added
+                then do
+                    addPendingTransaction bi
+                    return $! Added bi $! TVer.Ok okRes
+                else -- If the (chain update) transaction was not added it means it contained an old nonce.
+                    return ObsoleteNonce
+        else return ObsoleteNonce
 
 -- | Process the 'BlockItem's of a 'BakedBlock', verifying them and adding them to the transaction
 --  table and pending transactions, marking them as committed for the block. If any of the

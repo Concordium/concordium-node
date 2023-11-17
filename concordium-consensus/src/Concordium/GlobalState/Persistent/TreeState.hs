@@ -898,12 +898,24 @@ instance
                 oldCredential <- case wmdData of
                     CredentialDeployment{} -> memberTransactionTable wmdHash
                     _ -> return False
-                let ~(added, newTT) = addTransaction bi 0 verRes tt
-                if not oldCredential && added
+                -- We need to check here that the nonce is still ok, because it could be
+                -- that a block was finalized thus the next account nonce being incremented
+                -- after this transaction was received and pre-verified.
+                isNonceOk <- case wmdData of
+                    NormalTransaction tr -> do
+                        (nonce, _) <- getNextAccountNonce $ accountAddressEmbed (transactionSender tr)
+                        return $! nonce <= transactionNonce tr
+                    -- the sequence number will be checked by @Impl.addTransaction@.
+                    _ -> return False
+                if isNonceOk
                     then do
-                        skovPersistentData . transactionTablePurgeCounter += 1
-                        skovPersistentData . transactionTable .=! newTT
-                        return (Added bi verRes)
+                        let ~(added, newTT) = addTransaction bi 0 verRes tt
+                        if not oldCredential && added
+                            then do
+                                skovPersistentData . transactionTablePurgeCounter += 1
+                                skovPersistentData . transactionTable .=! newTT
+                                return (Added bi verRes)
+                            else return ObsoleteNonce
                     else return ObsoleteNonce
             Just (bi', results) -> do
                 -- The `Finalized` case is not reachable because finalized transactions are removed
