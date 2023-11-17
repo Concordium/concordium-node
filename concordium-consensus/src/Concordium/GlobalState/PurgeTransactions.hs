@@ -192,9 +192,9 @@ purgeTables lastFinCommitPoint oldestArrivalTime currentTime TransactionTable{..
     purge = do
         -- Purge each account, and possibly remove the @AccountNonFinalizedTransactions@
         -- if an account does not have any pending transactions left.
-        s <- get
-        let (nnft, s') = HM.foldlWithKey' purgeAccount (HM.empty, s) _ttNonFinalizedTransactions
-        put s'
+        pttAndTxTable <- get
+        let (nnft, pttAndTxTable') = HM.foldlWithKey' purgeAccount (HM.empty, pttAndTxTable) _ttNonFinalizedTransactions
+        put pttAndTxTable'
         -- Purge credential deployments
         purgeDeployCredentials
         -- Purge chain updates

@@ -649,7 +649,7 @@ instance
         sd <- use skovPersistentData
         maybe (fetchFromLastFinalizedBlock sd) return (fetchFromTransactionTable sd)
       where
-        fetchFromTransactionTable skovData = nextAccountNonce addr (skovData ^. transactionTable)
+        fetchFromTransactionTable skovData = (,False) <$> nextAccountNonce addr (skovData ^. transactionTable)
         fetchFromLastFinalizedBlock sd = do
             st <- blockState $ sd ^. lastFinalized
             macct <- getAccount st (aaeAddress addr)
@@ -933,14 +933,7 @@ instance
                     -- Remove the transaction from the non finalized transactions.
                     -- If there are no non-finalized transactions left then remove the entry
                     -- for the sender in @ttNonFinalizedTransactions@.
-                    skovPersistentData
-                        . transactionTable
-                        . ttNonFinalizedTransactions
-                        . at' sender
-                        . non emptyANFT
-                        .=! ( anft
-                                & (anftMap . at' nonce .~ Nothing)
-                            )
+                    skovPersistentData . transactionTable %=! finalizeTransactionAt sender nonce
                     return ss
                 else do
                     logErrorAndThrowTS $ "Tried to finalize transaction which is not known to be in the set of non-finalized transactions for the sender " ++ show sender

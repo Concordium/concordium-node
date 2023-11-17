@@ -755,7 +755,7 @@ getNextAccountNonce ::
 getNextAccountNonce addr sd =
     maybe fetchFromLastFinalizedBlock return fetchFromTransactionTable
   where
-    fetchFromTransactionTable = TT.nextAccountNonce addr (sd ^. transactionTable)
+    fetchFromTransactionTable = (,False) <$> TT.nextAccountNonce addr (sd ^. transactionTable)
     fetchFromLastFinalizedBlock = do
         macct <- getAccount (sd ^. lastFinalized . to bpState) (aaeAddress addr)
         nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
@@ -797,13 +797,7 @@ finalizeTransactions = mapM_ removeTrans
         -- Remove the transaction from the non finalized transactions.
         -- If there are no non-finalized transactions left then remove the entry
         -- for the sender in @ttNonFinalizedTransactions@.
-        transactionTable
-            . TT.ttNonFinalizedTransactions
-            . at' sender
-            . non TT.emptyANFT
-            .=! ( anft
-                    & (TT.anftMap . at' nonce .~ Nothing)
-                )
+        transactionTable %=! TT.finalizeTransactionAt sender nonce
     removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} = do
         transactionTable . TT.ttHashMap . at' wmdHash .= Nothing
     removeTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do

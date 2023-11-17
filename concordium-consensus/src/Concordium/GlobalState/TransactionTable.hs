@@ -451,14 +451,24 @@ nextAccountNonce ::
     AccountAddressEq ->
     -- | The transaction table to look up in.
     TransactionTable ->
-    -- | ("the next available account nonce", "whether all transactions from the account are finalized").
-    Maybe (Nonce, Bool)
+    -- | Maybe "the next available account nonce" with respect to the provided 'TransactionTable'.
+    Maybe Nonce
 nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
     Nothing -> Nothing
     Just anfts ->
         case Map.lookupMax (anfts ^. anftMap) of
             Nothing -> Nothing
-            Just (nonce, _) -> Just (nonce + 1, False)
+            Just (nonce, _) -> Just (nonce + 1)
+
+finalizeTransactionAt :: AccountAddressEq -> Nonce -> TransactionTable -> TransactionTable
+finalizeTransactionAt addr nonce tt =
+    tt
+        & ttNonFinalizedTransactions
+            . at' addr
+            . non emptyANFT
+            . anftMap
+            . at' nonce
+            .~ Nothing
 
 -- * Transaction grouping
 

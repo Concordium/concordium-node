@@ -3780,8 +3780,8 @@ cacheState hpbs = do
                 }
     return ()
 
--- | Cache the block state and get the initial (empty) transaction table with the next account nonces
---  and update sequence numbers populated.
+-- | Cache the block state and get the initial (empty) transaction table with the next
+-- update sequence numbers populated.
 cacheStateAndGetTransactionTable ::
     forall pv m.
     (SupportsPersistentState pv m) =>
