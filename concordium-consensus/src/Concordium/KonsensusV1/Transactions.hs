@@ -233,12 +233,14 @@ addPreverifiedTransaction ::
     TVer.OkResult ->
     m AddTransactionResult
 addPreverifiedTransaction bi okRes = do
-    -- We need to check here that the nonce is still ok, because it could be
-    -- that a block was finalized thus the next account nonce being incremented
+    -- We need to check here that the nonce is still ok with respect to the last finalized block,
+    -- because it could be that a block was finalized thus the next account nonce being incremented
     -- after this transaction was received and pre-verified.
     isNonceOk <- case wmdData bi of
         NormalTransaction tr -> do
-            (nonce, _) <- runAccountNonceQueryT $ getNextAccountNonce $ accountAddressEmbed (transactionSender tr)
+            lfbState <- use (Impl.lastFinalized . to bpState)
+            mAcc <- getAccount lfbState $ transactionSender tr
+            nonce <- maybe (pure minNonce) getAccountNonce (snd <$> mAcc)
             return $! nonce <= transactionNonce tr
         -- the sequence number will be checked by @Impl.addTransaction@.
         _ -> return True

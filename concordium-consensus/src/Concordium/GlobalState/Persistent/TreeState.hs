@@ -898,12 +898,14 @@ instance
                 oldCredential <- case wmdData of
                     CredentialDeployment{} -> memberTransactionTable wmdHash
                     _ -> return False
-                -- We need to check here that the nonce is still ok, because it could be
-                -- that a block was finalized thus the next account nonce being incremented
+                -- We need to check here that the nonce is still ok with respect to the last finalized block,
+                -- because it could be that a block was finalized thus the next account nonce being incremented
                 -- after this transaction was received and pre-verified.
                 isNonceOk <- case wmdData of
                     NormalTransaction tr -> do
-                        (nonce, _) <- getNextAccountNonce $ accountAddressEmbed (transactionSender tr)
+                        lfbState <- use (skovPersistentData . lastFinalized . to _bpState)
+                        mAcc <- getAccount lfbState $ transactionSender tr
+                        nonce <- maybe (pure minNonce) getAccountNonce (snd <$> mAcc)
                         return $! nonce <= transactionNonce tr
                     -- the sequence number will be checked by @Impl.addTransaction@.
                     _ -> return False
