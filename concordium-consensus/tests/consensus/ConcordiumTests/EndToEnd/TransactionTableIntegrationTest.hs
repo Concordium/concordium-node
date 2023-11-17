@@ -122,10 +122,10 @@ testBB4 =
   where
     bakerId = 3
 
--- | Test that the anftNextNonce is correctly set when adding a new transaction after
---  transactions has been finalized and the transaction table is fully purged.
-testAnftNonce :: Assertion
-testAnftNonce = runTestMonad noBaker testTime genesisData $ do
+-- | Test that the @getNextAccountNonce@ returns correctly when adding a new transaction for an account A, after
+--  some prior transactions for account A has been finalized (and the transaction table is fully purged).
+testAccountNonce :: Assertion
+testAccountNonce = runTestMonad noBaker testTime genesisData $ do
     nonce <- getNextAccountNonce sender =<< get
     liftIO $
         assertEqual
@@ -175,4 +175,4 @@ testAnftNonce = runTestMonad noBaker testTime genesisData $ do
 
 tests :: Spec
 tests = describe "EndToEndTests.TransactionTableIntegrationTest" $ do
-    it "anftNextNonce test" testAnftNonce
+    it "account nonce test" testAccountNonce
