@@ -442,9 +442,7 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
                 Just (low - 1, high)
 
 -- | Returns the next available account nonce for the
---  provided account address in the first component and the
---  'Bool' in the second component is 'True' only if all transactions from the
---  provided account are finalized.
+--  provided account address from the perspective of the 'TransactionTable'.
 --  Returns @Nothing@ if no non-finalized transactions were recorded for the provided account.
 nextAccountNonce ::
     -- | The account to look up the next account nonce for.
@@ -453,14 +451,25 @@ nextAccountNonce ::
     TransactionTable ->
     -- | Maybe "the next available account nonce" with respect to the provided 'TransactionTable'.
     Maybe Nonce
-nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
-    Nothing -> Nothing
-    Just anfts ->
-        case Map.lookupMax (anfts ^. anftMap) of
-            Nothing -> Nothing
-            Just (nonce, _) -> Just (nonce + 1)
+nextAccountNonce addr tt = do
+    anfts <- tt ^. ttNonFinalizedTransactions . at' addr
+    (nonce, _) <- Map.lookupMax (anfts ^. anftMap)
+    return (nonce + 1)
 
-finalizeTransactionAt :: AccountAddressEq -> Nonce -> TransactionTable -> TransactionTable
+-- | Remove a non-finalized transaction from the
+-- 'ttNonFinalizedTransactions' of the provided 'TransactionTable'
+--  for the provided sender 'AccountAddressEq'
+--  and account 'Nonce'.
+--  Returns back the updated 'TransactionTable'.
+finalizeTransactionAt ::
+    -- | Sender of the transaction
+    AccountAddressEq ->
+    -- | The nonce of the transaction
+    Nonce ->
+    -- | 'TransactionTable' to update
+    TransactionTable ->
+    -- | The resulting 'TransactionTable'
+    TransactionTable
 finalizeTransactionAt addr nonce tt =
     tt
         & ttNonFinalizedTransactions
