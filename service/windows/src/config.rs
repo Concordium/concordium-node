@@ -154,6 +154,25 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             );
             let baker_credentials =
                 toml_get_as!(as_str, &node, "baker_credentials").map(make_relative_path);
+            let validator_credentials =
+                toml_get_as!(as_str, &node, "validator_credentials").map(make_relative_path);
+            // In order to support legacy configuration files we support both
+            // baker_credentials and validator_credentials.
+            // We allow both, but to prevent errors we mandate that if both options are
+            // supplied they are consistent.
+            let baker_credentials = match (baker_credentials, validator_credentials) {
+                (Some(bcred), Some(vcred)) => {
+                    anyhow::ensure!(
+                        bcred == vcred,
+                        "Both `baker_credentials` and `validator_credentials` are specified, and \
+                         different."
+                    );
+                    Some(bcred)
+                }
+                (baker_credentials, validator_credentials) => {
+                    baker_credentials.or(validator_credentials)
+                }
+            };
             let log_config = if let Some(config) = toml_get_as!(as_str, &node, "log", "config") {
                 LoggerConfig::Config(make_relative_path(config))
             } else if let Some(log_path) = toml_get_as!(as_str, &node, "log", "path") {

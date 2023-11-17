@@ -96,29 +96,7 @@ pub fn get_baker_data(
         Err(e) => bail!("Cannot open the genesis file ({})", e),
     };
 
-    let private_data = if let Some(path) = &conf.baker_credentials_file {
-        let read_data = match std::fs::read(path) {
-            Ok(read_data) => read_data,
-            Err(e) => bail!("Cannot open the baker credentials file ({})!", e),
-        };
-        if conf.decrypt_baker_credentials {
-            let et = serde_json::from_slice(&read_data)?;
-            let pass = rpassword::read_password_from_tty(Some(
-                "Enter password to decrypt baker credentials: ",
-            ))?;
-            match concordium_base::common::encryption::decrypt(&pass.into(), &et) {
-                Ok(d) => Some(d),
-                Err(_) => bail!(
-                    "Could not decrypt baker credentials. Most likely the password you provided \
-                     is incorrect."
-                ),
-            }
-        } else {
-            Some(read_data)
-        }
-    } else {
-        None
-    };
+    let private_data = conf.read_baker_credentials()?;
 
     Ok((genesis_data, private_data))
 }

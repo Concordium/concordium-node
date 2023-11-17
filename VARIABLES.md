@@ -22,10 +22,10 @@ Then this should be set to the external port in order to allow other nodes to co
 
 - `CONCORDIUM_NODE_DATA_DIR` Where the node should store its data, in particular the nodes database is stored here.
 
-## Baker
-Configurations related to baking.
+## Validator
+Configurations related to running a validator.
 
-- `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE` A path to the file containing the baker keys. The filepath must be either an absolute path or a relative filepath to the CWD of the process. If this variable is not set, then the node is not eligible for baking. 
+- `CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE` A path to the file containing the validator keys. The filepath must be either an absolute path or a relative filepath to the CWD of the process. If this variable is not set, then the node is not eligible for baking. 
 
 ## Connection
 Network related configurations for a node.
