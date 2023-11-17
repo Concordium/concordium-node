@@ -891,20 +891,19 @@ instance
         -- check if the transaction is in the transaction table cache
         case tt ^? ttHashMap . ix trHash of
             Nothing -> do
-                -- Finalized credentials are not present in the transaction table, so we
-                -- check if they are already in the on-disk transaction table.
-                -- For other transaction types, we use the nonce/sequence number to rule
-                -- out the transaction already being finalized.
-                --
-                -- We need to check here that the nonce is still ok with respect to the last finalized block,
-                -- because it could be that a block was finalized thus the next account nonce being incremented
-                -- after this transaction was received and pre-verified.
                 mayAddTransaction <- case wmdData of
+                    -- Finalized credentials are not present in the transaction table, so we
+                    -- check if they are already in the on-disk transaction table.
+                    -- For other transaction types, we use the nonce/sequence number to rule
+                    -- out the transaction already being finalized.
                     NormalTransaction tr -> do
                         lfbState <- use (skovPersistentData . lastFinalized . to _bpState)
                         mAcc <- getAccount lfbState $ transactionSender tr
                         nonce <- maybe (pure minNonce) getAccountNonce (snd <$> mAcc)
                         return $! nonce <= transactionNonce tr
+                    -- We need to check here that the nonce is still ok with respect to the last finalized block,
+                    -- because it could be that a block was finalized thus the next account nonce being incremented
+                    -- after this transaction was received and pre-verified.
                     CredentialDeployment{} -> not <$> memberTransactionTable wmdHash
                     -- the sequence number will be checked by @Impl.addTransaction@.
                     _ -> return True
