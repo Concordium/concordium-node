@@ -895,24 +895,23 @@ instance
                 -- check if they are already in the on-disk transaction table.
                 -- For other transaction types, we use the nonce/sequence number to rule
                 -- out the transaction already being finalized.
-                oldCredential <- case wmdData of
-                    CredentialDeployment{} -> memberTransactionTable wmdHash
-                    _ -> return False
+                --
                 -- We need to check here that the nonce is still ok with respect to the last finalized block,
                 -- because it could be that a block was finalized thus the next account nonce being incremented
                 -- after this transaction was received and pre-verified.
-                isNonceOk <- case wmdData of
+                mayAddTransaction <- case wmdData of
                     NormalTransaction tr -> do
                         lfbState <- use (skovPersistentData . lastFinalized . to _bpState)
                         mAcc <- getAccount lfbState $ transactionSender tr
                         nonce <- maybe (pure minNonce) getAccountNonce (snd <$> mAcc)
                         return $! nonce <= transactionNonce tr
+                    CredentialDeployment{} -> not <$> memberTransactionTable wmdHash
                     -- the sequence number will be checked by @Impl.addTransaction@.
-                    _ -> return False
-                if isNonceOk
+                    _ -> return True
+                if mayAddTransaction
                     then do
                         let ~(added, newTT) = addTransaction bi 0 verRes tt
-                        if not oldCredential && added
+                        if added
                             then do
                                 skovPersistentData . transactionTablePurgeCounter += 1
                                 skovPersistentData . transactionTable .=! newTT
