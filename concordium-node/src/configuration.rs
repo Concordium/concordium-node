@@ -360,8 +360,8 @@ impl BakerConfig {
             (Some(bcred), Some(vcred)) => {
                 anyhow::ensure!(
                     bcred == vcred,
-                    "Both --baker-credentials-file and --validator-credentials-file are supplied, \
-                     and different."
+                    "Different --baker-credentials-file and --validator-credentials-file are \
+                     supplied."
                 );
                 bcred
             }
@@ -375,7 +375,7 @@ impl BakerConfig {
         if self.decrypt_credentials() {
             let et = serde_json::from_slice(&read_data)?;
             let pass = rpassword::read_password_from_tty(Some(
-                "Enter password to decrypt baker credentials: ",
+                "Enter password to decrypt validator credentials: ",
             ))?;
             match concordium_base::common::encryption::decrypt(&pass.into(), &et) {
                 Ok(d) => Ok(Some(d)),
