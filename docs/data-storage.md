@@ -525,7 +525,7 @@ indices.
 
 The first is an index of non-finalized transactions for an account. This
 contains the nonce-indexed transactions that are not yet finalized for the account. 
-For chain updates then both the non-finalized updates (indexed by sequence number) and
+For chain updates both the non-finalized updates (indexed by sequence number) and
 the last finalized sequence number are stored for each update type.
 This information is used in two
 ways. The next nonce for the account is used both to deduplicate transactions
