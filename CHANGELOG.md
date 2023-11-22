@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix an bug that caused the node to crash on Windows when processing a protocol update.
+
 ## 6.2.2
 
 - The transaction table is only used for tracking next available account nonce

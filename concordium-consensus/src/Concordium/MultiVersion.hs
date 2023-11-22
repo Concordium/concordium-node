@@ -174,6 +174,7 @@ data DiskStateConfig = DiskStateConfig
       globalAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
 
+-- | Create a 'DiskStateConfig', opening the shared account map database in the process.
 makeDiskStateConfig :: FilePath -> IO DiskStateConfig
 makeDiskStateConfig stateBasePath = do
     globalAccountMap <- LMDBAccountMap.openDatabase (stateBasePath </> "accountmap")
