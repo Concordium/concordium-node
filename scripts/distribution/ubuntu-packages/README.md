@@ -192,17 +192,17 @@ which will set the environment variable `CONCORDIUM_NODE_LISTEN_PORT` to `8888` 
 
 The node supports the following environment variables.
 
-- `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE` the file with baker keys.
-  If it is set then the node will start as a baker, or at least attempt to.
+- `CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE` the file with validator keys.
+  If it is set then the node will start as a validator, or at least attempt to.
   This must be a path relative to the `WorkingDirectory` or an absolute path.
   Since the node is sandboxed it does not have access to the `/home` directory
   and some other parts of the system.
-  The recommended way to expose the baker keys to the node is to use the
+  The recommended way to expose the validator keys to the node is to use the
   `BindReadOnlyPaths` option to remap the file from wherever it is on the host
-  system to a location which the node can read. For example (this assumes the baker keys are located in `/home/user/baker-credentials.json` on the host system)
+  system to a location which the node can read. For example (this assumes the validator keys are located in `/home/user/validator-credentials.json` on the host system)
   ```
-  Environment=CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE=%S/concordium-${build_genesis_hash}/baker-credentials.json
-  BindReadOnlyPaths=/home/user/baker-credentials.json:%S/concordium-${build_genesis_hash}/baker-credentials.json
+  Environment=CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE=%S/concordium-${build_genesis_hash}/validator-credentials.json
+  BindReadOnlyPaths=/home/user/validator-credentials.json:%S/concordium-${build_genesis_hash}/validator-credentials.json
   ```
 
 

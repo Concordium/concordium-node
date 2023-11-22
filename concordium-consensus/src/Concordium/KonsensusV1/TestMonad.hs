@@ -25,10 +25,11 @@ import Concordium.Types
 
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import qualified Concordium.Genesis.Data.P6 as P6
+import qualified Concordium.Genesis.Data.P7 as P7
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters (
-    GenesisData (GDP6),
+    GenesisData (GDP6, GDP7),
     defaultRuntimeParameters,
     genesisBlockHash,
  )
@@ -145,6 +146,7 @@ instance HasBakerContext (TestContext pv) where
 genesisCore :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => GenesisData pv -> BaseV1.CoreGenesisParametersV1
 genesisCore = case protocolVersion @pv of
     SP6 -> \(GDP6 P6.GDP6Initial{genesisCore = core}) -> core
+    SP7 -> \(GDP7 P7.GDP7Initial{genesisCore = core}) -> core
 
 -- | Run an operation in the 'TestMonad' with the given baker, time and genesis data.
 --  This sets up a temporary blob store for the block state that is deleted after use.

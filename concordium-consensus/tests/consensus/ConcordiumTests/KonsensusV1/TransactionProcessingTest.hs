@@ -13,9 +13,9 @@
 --  The module 'ConcordiumTests.ReceiveTransactionsTest' contains more fine grained tests
 --  for each individual type of transaction, this is ok since the two
 --  consensus implementations share the same transaction verifier.
-module ConcordiumTests.KonsensusV1.TransactionProcessingTest (tests) where
+module ConcordiumTests.KonsensusV1.TransactionProcessingTest where
 
-import qualified Concordium.Crypto.SHA256 as Hash
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.Aeson as AE
@@ -37,6 +37,7 @@ import Test.Hspec
 
 import Concordium.Common.Version
 import Concordium.Crypto.DummyData
+import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data hiding (GenesisConfiguration)
@@ -120,7 +121,7 @@ dummyCredentialDeploymentHash = getHash dummyCredentialDeployment
 
 -- | A monad for deriving 'MonadTime' by means of a provided time.
 newtype FixedTimeT (m :: Type -> Type) a = FixedTime {runDeterministic :: UTCTime -> m a}
-    deriving (Functor, Applicative, Monad, MonadIO) via ReaderT UTCTime m
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch) via ReaderT UTCTime m
     deriving (MonadTrans) via ReaderT UTCTime
 
 instance (Monad m) => TimeMonad (FixedTimeT m) where
@@ -131,7 +132,7 @@ instance (MonadReader r m) => MonadReader r (FixedTimeT m) where
     local f (FixedTime k) = FixedTime $ local f . k
 
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail, TimeMonad, MonadState s)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail, TimeMonad, MonadState s, MonadThrow, MonadCatch)
 
 instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()

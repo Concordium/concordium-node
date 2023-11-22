@@ -2,10 +2,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | This module implements the P6.Reboot protocol update.
---  This protocol update is valid at protocol version P6, and updates
---  to protocol version P6.
---  This produces a new 'RegenesisDataP6' using the 'GDP6Regenesis' constructor,
+-- | This module implements the P7.Reboot protocol update.
+--  This protocol update is valid at protocol version P7, and updates
+--  to protocol version P7.
+--  This produces a new 'RegenesisDataP7' using the 'GDP7Regenesis' constructor,
 --  as follows:
 --
 --  * 'genesisCore':
@@ -16,9 +16,9 @@
 --
 --  * 'genesisFirstGenesis' is either:
 --
---      * the hash of the genesis block of the previous chain, if it is a 'GDP5Initial'; or
+--      * the hash of the genesis block of the previous chain, if it is a 'GDP7Initial'; or
 --      * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
---        is a 'GDP5Regenesis'.
+--        is a 'GDP6Regenesis'.
 --
 --  * 'genesisPreviousGenesis' is the hash of the previous genesis block.
 --
@@ -52,7 +52,7 @@
 --  time in the final epoch of the old consensus.)
 --  Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
 --  initial epoch of the new chain.
-module Concordium.ProtocolUpdate.P6.Reboot where
+module Concordium.ProtocolUpdate.P7.Reboot where
 
 import Control.Monad.State
 import Lens.Micro.Platform
@@ -60,7 +60,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
-import qualified Concordium.Genesis.Data.P6 as P6
+import qualified Concordium.Genesis.Data.P7 as P7
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
@@ -71,29 +71,28 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.ProtocolVersion
 
--- | The hash that identifies the P6.Reboot update:
---  8a984071ee285404c6148581369cf46ed325d1405d85e79cb6dfd5a8f5a70553
+-- | The hash that identifies the P7.Reboot update.
 updateHash :: SHA256.Hash
-updateHash = SHA256.hash "P6.Reboot"
+updateHash = SHA256.hash "P7.Reboot"
 
--- | Construct the genesis data for a P5.ProtocolP6 update.
+-- | Construct the genesis data for a P7.Reboot update.
 --  This takes the terminal block of the old chain which is used as the basis for constructing
 --  the new genesis block.
 updateRegenesis ::
-    ( MPV m ~ 'P6,
+    ( MPV m ~ 'P7,
       BlockStateStorage m,
       MonadState (SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
     -- | The terminal block of the old chain.
-    BlockPointer 'P6 ->
+    BlockPointer 'P7 ->
     m (PVInit m)
 updateRegenesis terminal = do
     -- Genesis time is the timestamp of the terminal block
     let regenesisTime = blockTimestamp terminal
     -- Core parameters are derived from the old genesis, apart from genesis time which is set for
     -- the time of the terminal block.
-    gm <- use genesisMetadata
+    gMetadata <- use genesisMetadata
     BaseV1.CoreGenesisParametersV1{..} <- gmParameters <$> use genesisMetadata
     let core =
             BaseV1.CoreGenesisParametersV1
@@ -102,10 +101,10 @@ updateRegenesis terminal = do
                 }
     -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
     -- or the genesisFirstGenesis of the previous genesis otherwise.
-    let genesisFirstGenesis = gmFirstGenesisHash gm
-        genesisPreviousGenesis = gmCurrentGenesisHash gm
+    let genesisFirstGenesis = gmFirstGenesisHash gMetadata
+        genesisPreviousGenesis = gmCurrentGenesisHash gMetadata
         genesisTerminalBlock = getHash terminal
     let regenesisBlockState = bpState terminal
     genesisStateHash <- getStateHash regenesisBlockState
-    let newGenesis = GenesisData.RGDP6 $ P6.GDP6Regenesis{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}}
+    let newGenesis = GenesisData.RGDP7 $ P7.GDP7Regenesis{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}}
     return (PVInit newGenesis GenesisData.StateMigrationParametersTrivial (bmHeight $ bpInfo terminal))

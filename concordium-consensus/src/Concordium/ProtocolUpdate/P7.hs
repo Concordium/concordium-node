@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Concordium.ProtocolUpdate.P6 (
+module Concordium.ProtocolUpdate.P7 (
     Update (..),
     checkUpdate,
     updateRegenesis,
@@ -22,34 +22,27 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
-import qualified Concordium.ProtocolUpdate.P6.ProtocolP7 as ProtocolP7
-import qualified Concordium.ProtocolUpdate.P6.Reboot as Reboot
+import qualified Concordium.ProtocolUpdate.P7.Reboot as Reboot
 
--- | Updates that are supported from protocol version P6.
-data Update
-    = Reboot
-    | ProtocolP7
+-- | Updates that are supported from protocol version P7.
+data Update = Reboot
     deriving (Show)
 
 -- | Hash map for resolving updates from their specification hash.
 updates :: HM.HashMap SHA256.Hash (Get Update)
-updates =
-    HM.fromList
-        [ (Reboot.updateHash, return Reboot)
-        -- (ProtocolP7.updateHash, return ProtocolP7) Comment out to enable updating to P7.
-        ]
+updates = HM.fromList [(Reboot.updateHash, return Reboot)]
 
 -- | Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: ProtocolUpdate -> Either String Update
 checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
     Nothing -> Left "Specification hash does not correspond to a known protocol update."
-    Just g -> case runGet g puSpecificationAuxiliaryData of
+    Just updateGet -> case runGet updateGet puSpecificationAuxiliaryData of
         Left err -> Left $! "Could not deserialize auxiliary data: " ++ err
-        Right r -> return r
+        Right update -> return update
 
--- | Construct the genesis data for a P6 update.
+-- | Construct the genesis data for a P7 update.
 updateRegenesis ::
-    ( MPV m ~ 'P6,
+    ( MPV m ~ 'P7,
       BlockStateStorage m,
       MonadState (SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
@@ -60,11 +53,9 @@ updateRegenesis ::
     BlockPointer (MPV m) ->
     m (PVInit m)
 updateRegenesis Reboot = Reboot.updateRegenesis
-updateRegenesis ProtocolP7 = ProtocolP7.updateRegenesis
 
 -- | Determine the protocol version the update will update to.
 updateNextProtocolVersion ::
     Update ->
     SomeProtocolVersion
-updateNextProtocolVersion Reboot{} = SomeProtocolVersion SP6
-updateNextProtocolVersion ProtocolP7{} = SomeProtocolVersion SP7
+updateNextProtocolVersion Reboot{} = SomeProtocolVersion SP7
