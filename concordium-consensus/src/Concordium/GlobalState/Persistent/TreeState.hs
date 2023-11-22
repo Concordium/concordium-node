@@ -328,15 +328,11 @@ checkExistingDatabase ::
     FilePath ->
     -- | Block state file
     FilePath ->
-    -- | Account map path
-    FilePath ->
     m Bool
-checkExistingDatabase treeStateDir blockStateFile accountMapDir = do
+checkExistingDatabase treeStateDir blockStateFile = do
     let treeStateFile = treeStateDir </> "data.mdb"
-    let accountMapFile = accountMapDir </> "data.mdb"
     bsPathEx <- liftIO $ doesPathExist blockStateFile
     tsPathEx <- liftIO $ doesPathExist treeStateFile
-    amPathEx <- liftIO $ doesPathExist accountMapFile
 
     -- Check whether a path is a normal file that is readable and writable
     let checkRWFile :: FilePath -> InitException -> m ()
@@ -362,11 +358,9 @@ checkExistingDatabase treeStateDir blockStateFile accountMapDir = do
             -- check whether it is a normal file and whether we have the right permissions
             checkRWFile blockStateFile BlockStatePermissionError
             checkRWFile treeStateFile TreeStatePermissionError
-            when amPathEx $ checkRWFile accountMapFile AccountMapPermissionError
             logEvent TreeState LLTrace "Existing database found."
             logEvent TreeState LLTrace $ "TreeState filepath: " ++ show treeStateFile
             logEvent TreeState LLTrace $ "BlockState filepath: " ++ show blockStateFile
-            logEvent TreeState LLTrace $ if amPathEx then "AccountMap filepath: " ++ show accountMapFile else "AccountMap not found"
             return True
         | bsPathEx -> do
             logEvent GlobalState LLWarning "Block state file exists, but tree state database does not. Deleting the block state file."

@@ -20,6 +20,7 @@ import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer hiding (BlockPointer)
 import Concordium.GlobalState.Classes
@@ -73,10 +74,11 @@ instance HasGlobalState (SkovPersistentData PV) (SkovPersistentData PV) where
 createGlobalState :: FilePath -> IO (PBS.PersistentBlockStateContext PV, SkovPersistentData PV)
 createGlobalState dbDir = do
     now <- utcTimeToTimestamp <$> getCurrentTime
+    accountMap <- LMDBAccountMap.openDatabase (dbDir </> "accountmap")
     let
         n = 3
         genesis = makeTestingGenesisDataP5 now n 1 1 dummyFinalizationCommitteeMaxSize dummyCryptographicParameters emptyIdentityProviders emptyAnonymityRevokers maxBound dummyKeyCollection dummyChainParameters
-        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat") (dbDir </> "accountmap")
+        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat") accountMap
     (x, y) <- runSilentLogger $ initialiseGlobalState genesis config
     return (x, y)
 

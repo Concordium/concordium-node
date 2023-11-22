@@ -3762,8 +3762,7 @@ cacheState hpbs = do
     rels <- cache bspReleaseSchedule
     red <- cache bspRewardDetails
     _ <-
-        storePBS
-            (hpbsPointers hpbs)
+        storePBS (hpbsPointers hpbs) $!
             BlockStatePointers
                 { bspAccounts = accts,
                   bspInstances = insts,

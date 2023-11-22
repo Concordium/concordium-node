@@ -49,6 +49,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..))
 import Concordium.GlobalState.Finalization
@@ -166,10 +167,17 @@ instance
 
 -- | Configuration for the global state that uses disk storage
 --  for both tree state and block state.
-newtype DiskStateConfig = DiskStateConfig
+data DiskStateConfig = DiskStateConfig
     { -- | Root directory for the global state.
-      stateBasePath :: FilePath
+      stateBasePath :: !FilePath,
+      -- | Account map.
+      globalAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
+
+makeDiskStateConfig :: FilePath -> IO DiskStateConfig
+makeDiskStateConfig stateBasePath = do
+    globalAccountMap <- LMDBAccountMap.openDatabase (stateBasePath </> "accountmap")
+    return DiskStateConfig{..}
 
 -- | Configuration information for a multi-version runner.
 --  The type parameter defines the finalization configuration, and should be an instance of
@@ -188,15 +196,13 @@ globalStateConfig ::
     DiskStateConfig ->
     RuntimeParameters ->
     GenesisIndex ->
-    -- | Absolute height of the genesis block.
-    AbsoluteBlockHeight ->
     GlobalStateConfig
-globalStateConfig DiskStateConfig{..} rtp gi _ =
+globalStateConfig DiskStateConfig{..} rtp gi =
     ( GlobalStateConfig
         { dtdbRuntimeParameters = rtp,
           dtdbTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
           dtdbBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
-          dtdAccountMapDirectory = stateBasePath </> "accountmap"
+          gscAccountMap = globalAccountMap
         }
     )
 
@@ -211,7 +217,7 @@ globalStateConfigV1 DiskStateConfig{..} rtp gi =
         { gscRuntimeParameters = rtp,
           gscTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
           gscBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
-          gscAccountMapDirectory = stateBasePath </> "accountmap"
+          gscAccountMap = globalAccountMap
         }
     )
 
@@ -639,7 +645,6 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                                         mvcStateConfig
                                         mvcRuntimeParameters
                                         vc0Index
-                                        genesisHeight
                                     )
                                     mvcFinalizationConfig
                                     UpdateHandler
@@ -741,7 +746,6 @@ checkForProtocolUpdateV0 = liftSkov body
                                         (mvcStateConfig mvConfiguration)
                                         (mvcRuntimeParameters mvConfiguration)
                                         vc0Index
-                                        vc0GenesisHeight
                                     )
                                     (mvcFinalizationConfig mvConfiguration)
                                     UpdateHandler
@@ -1173,7 +1177,6 @@ startupSkov genesis = do
                                     mvcStateConfig
                                     mvcRuntimeParameters
                                     genIndex
-                                    genHeight
                                 )
                                 mvcFinalizationConfig
                                 UpdateHandler
