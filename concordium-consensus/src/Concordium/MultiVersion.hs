@@ -1435,7 +1435,10 @@ shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
     -- Acquire the write lock. This prevents further updates, as they will block.
     takeMVar mvWriteLock
     versions <- readIORef mvVersions
+    -- Shut down the consensus databases.
     runLoggerT (forM_ versions evcShutdown) mvLog
+    -- Shut down the global account map.
+    LMDBAccountMap.closeDatabase (globalAccountMap (mvcStateConfig mvConfiguration))
 
 -- | Lift a version-0 consensus skov action to the 'MVR' monad, running it on a
 --  particular 'VersionedConfigurationV0'. Note that this does not
