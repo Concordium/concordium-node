@@ -34,6 +34,7 @@ import System.Random
 
 import Concordium.Afgjort.Finalize.Types
 import Concordium.GlobalState
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
@@ -69,7 +70,9 @@ type PV = 'P5
 -- | Construct the global state configuration.
 --  Can be customised if changing the configuration.
 makeGlobalStateConfig :: RuntimeParameters -> FilePath -> FilePath -> FilePath -> IO GlobalStateConfig
-makeGlobalStateConfig rt treeStateDir blockStateFile accMapDirectory = return $ GlobalStateConfig rt treeStateDir blockStateFile accMapDirectory
+makeGlobalStateConfig rt treeStateDir blockStateFile accMapDirectory = do
+    accMap <- LMDBAccountMap.openDatabase accMapDirectory
+    return $ GlobalStateConfig rt treeStateDir blockStateFile accMap
 
 {-
 type TreeConfig = PairGSConfig MemoryTreeMemoryBlockConfig DiskTreeDiskBlockConfig

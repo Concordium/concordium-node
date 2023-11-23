@@ -36,8 +36,8 @@ data GlobalStateConfig = GlobalStateConfig
       dtdbTreeStateDirectory :: !FilePath,
       -- | Path to the block state database.
       dtdbBlockStateFile :: !FilePath,
-      -- | Path to the account map database.
-      dtdAccountMapDirectory :: !FilePath
+      -- | Account map.
+      gscAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
 
 -- | Exceptions that can occur when initialising the global state.
@@ -71,7 +71,7 @@ type GSState pv = SkovPersistentData pv
 initialiseExistingGlobalState :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> GlobalStateConfig -> LogIO (Maybe (GSContext pv, GSState pv))
 initialiseExistingGlobalState _ GlobalStateConfig{..} = do
     -- check if all the necessary database files exist
-    existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile dtdAccountMapDirectory
+    existingDB <- checkExistingDatabase dtdbTreeStateDirectory dtdbBlockStateFile
     if existingDB
         then do
             logm <- ask
@@ -79,7 +79,7 @@ initialiseExistingGlobalState _ GlobalStateConfig{..} = do
                 pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
                 pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
                 pbscBlobStore <- loadBlobStore dtdbBlockStateFile
-                pbscAccountMap <- liftIO $ LMDBAccountMap.openDatabase dtdAccountMapDirectory
+                let pbscAccountMap = gscAccountMap
                 let pbsc = PersistentBlockStateContext{..}
                 skovData <-
                     runLoggerT (loadSkovPersistentData dtdbRuntimeParameters dtdbTreeStateDirectory pbsc) logm
@@ -95,7 +95,7 @@ initializePersistentBlockStateContext GlobalStateConfig{..} = do
     pbscBlobStore <- createBlobStore dtdbBlockStateFile
     pbscAccountCache <- newAccountCache (rpAccountsCacheSize dtdbRuntimeParameters)
     pbscModuleCache <- Modules.newModuleCache (rpModulesCacheSize dtdbRuntimeParameters)
-    pbscAccountMap <- LMDBAccountMap.openDatabase dtdAccountMapDirectory
+    let pbscAccountMap = gscAccountMap
     return PersistentBlockStateContext{..}
 
 -- | Migrate an existing global state. This is only intended to be used on a
