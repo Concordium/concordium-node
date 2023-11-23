@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 6.2.3
+
 - Fix an bug that caused the node to crash on Windows when processing a protocol update.
 
 ## 6.2.2
