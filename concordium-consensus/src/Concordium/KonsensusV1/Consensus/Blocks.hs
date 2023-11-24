@@ -121,7 +121,7 @@ uponReceivingBlock ::
     PendingBlock ->
     m BlockResult
 uponReceivingBlock pendingBlock = do
-    mp <- Merkle.buildMerkleProof (const False) (sbBlock (pbBlock pendingBlock))
+    mp <- Merkle.buildMerkleProof (const True) (sbBlock (pbBlock pendingBlock))
     logEvent Konsensus LLTrace $ show mp
     let mr = Merkle.parseMerkleProof (snd Merkle.blockSchema) (fst Merkle.blockSchema) mp
     logEvent Konsensus LLTrace $ show mr
