@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE MultiWayIf #-}
@@ -30,7 +31,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     PersistentState,
     BlockRewardDetails (..),
     PersistentBlockStateMonad (..),
-    withNewAccountCache,
+    withNewAccountCacheAndLMDBAccountMap,
     cacheState,
     cacheStateAndGetTransactionTable,
     migratePersistentBlockState,
@@ -40,6 +41,7 @@ module Concordium.GlobalState.Persistent.BlockState (
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
@@ -48,6 +50,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
 import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
@@ -86,7 +89,8 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
-
+import Control.Exception
+import qualified Control.Monad.Catch as MonadCatch
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
@@ -102,6 +106,7 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform
+import System.Directory (removeDirectoryRecursive)
 
 -- * Birk parameters
 
@@ -144,26 +149,7 @@ migrateSeedState ::
     SeedState (SeedStateVersionFor pv)
 migrateSeedState StateMigrationParametersTrivial{} ss = case ss of
     SeedStateV0{} -> ss -- In consensus v0, seed state update is handled prior to migration
-    SeedStateV1{..} ->
-        SeedStateV1
-            { -- Reset the epoch to 0.
-              ss1Epoch = 0,
-              ss1CurrentLeadershipElectionNonce = newNonce,
-              ss1UpdatedNonce = newNonce,
-              -- We maintain the trigger block time. This forces an epoch transition as soon as possible
-              -- which will effectively substitute for the epoch transition that would have happened
-              -- on the previous consensus, had it not shut down.
-              ss1TriggerBlockTime = ss1TriggerBlockTime,
-              -- We flag the epoch transition as triggered so that the epoch transition will happen
-              -- as soon as possible.
-              ss1EpochTransitionTriggered = True,
-              -- We clear the shutdown flag.
-              ss1ShutdownTriggered = False
-            }
-      where
-        -- We derive the new nonce from the updated nonce on the basis that it was fixed
-        -- at the trigger block from the previous consensus.
-        newNonce = H.hash $ "Regenesis" <> encode ss1UpdatedNonce
+    SeedStateV1{} -> migrateSeedStateV1Trivial ss
 migrateSeedState StateMigrationParametersP1P2{} ss = ss
 migrateSeedState StateMigrationParametersP2P3{} ss = ss
 migrateSeedState StateMigrationParametersP3ToP4{} ss = ss
@@ -171,6 +157,30 @@ migrateSeedState StateMigrationParametersP4ToP5{} ss = ss
 migrateSeedState (StateMigrationParametersP5ToP6 (P6.StateMigrationData _ time)) SeedStateV0{..} =
     let seed = H.hash $ "Regenesis" <> encode ss0CurrentLeadershipElectionNonce
     in  initialSeedStateV1 seed time
+migrateSeedState StateMigrationParametersP6ToP7{} ss = migrateSeedStateV1Trivial ss
+
+-- | Trivial migration of a 'SeedStateV1' between protocol versions.
+migrateSeedStateV1Trivial :: SeedState 'SeedStateVersion1 -> SeedState 'SeedStateVersion1
+migrateSeedStateV1Trivial SeedStateV1{..} =
+    SeedStateV1
+        { -- Reset the epoch to 0.
+          ss1Epoch = 0,
+          ss1CurrentLeadershipElectionNonce = newNonce,
+          ss1UpdatedNonce = newNonce,
+          -- We maintain the trigger block time. This forces an epoch transition as soon as possible
+          -- which will effectively substitute for the epoch transition that would have happened
+          -- on the previous consensus, had it not shut down.
+          ss1TriggerBlockTime = ss1TriggerBlockTime,
+          -- We flag the epoch transition as triggered so that the epoch transition will happen
+          -- as soon as possible.
+          ss1EpochTransitionTriggered = True,
+          -- We clear the shutdown flag.
+          ss1ShutdownTriggered = False
+        }
+  where
+    -- We derive the new nonce from the updated nonce on the basis that it was fixed
+    -- at the trigger block from the previous consensus.
+    newNonce = H.hash $ "Regenesis" <> encode ss1UpdatedNonce
 
 -- | See documentation of @migratePersistentBlockState@.
 --
@@ -600,6 +610,10 @@ migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimePa
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
 
 instance (MonadBlobStore m) => MHashableTo m (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where
     getHashM (BlockRewardDetailsV0 heb) = return $ Rewards.BlockRewardDetailsHashV0 (getHash heb)
@@ -867,6 +881,7 @@ bspPoolRewards bsp = case bspRewardDetails bsp of
     BlockRewardDetailsV1 pr -> pr
 
 -- | An initial 'HashedPersistentBlockState', which may be used for testing purposes.
+{-# WARNING initialPersistentState "should only be used for testing" #-}
 initialPersistentState ::
     (SupportsPersistentState pv m) =>
     SeedState (SeedStateVersionFor pv) ->
@@ -888,7 +903,6 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     updates <- refMake =<< initialUpdates keysCollection chainParams
     releaseSchedule <- emptyReleaseSchedule
     red <- emptyBlockRewardDetails
-
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -927,10 +941,11 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bspUpdates <- refMake =<< initialUpdates keysCollection chainParams
     bspReleaseSchedule <- emptyReleaseSchedule
     bspRewardDetails <- emptyBlockRewardDetails
+    bspAccounts <- Accounts.emptyAccounts
     bsp <-
         makeBufferedRef $
             BlockStatePointers
-                { bspAccounts = Accounts.emptyAccounts,
+                { bspAccounts = bspAccounts,
                   bspInstances = Instances.emptyInstances,
                   bspModules = modules,
                   bspBank = makeHashed Rewards.emptyBankStatus,
@@ -2161,6 +2176,7 @@ doGetRewardStatus pbs = do
         SP4 -> rewardsV1
         SP5 -> rewardsV1
         SP6 -> rewardsV1
+        SP7 -> rewardsV1
 
 doRewardFoundationAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
 doRewardFoundationAccount pbs reward = do
@@ -2245,11 +2261,6 @@ doAccountList pbs = do
     bsp <- loadPBS pbs
     Accounts.accountAddresses (bspAccounts bsp)
 
-doAddressWouldClash :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AccountAddress -> m Bool
-doAddressWouldClash pbs addr = do
-    bsp <- loadPBS pbs
-    Accounts.addressWouldClash addr (bspAccounts bsp)
-
 doRegIdExists :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ID.CredentialRegistrationID -> m Bool
 doRegIdExists pbs regid = do
     bsp <- loadPBS pbs
@@ -2291,6 +2302,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
                     SP4 -> accountCanonicalAddress acc'
                     SP5 -> return _auIndex
                     SP6 -> return _auIndex
+                    SP7 -> return _auIndex
                 !oldRel <- accountNextReleaseTimestamp acc
                 !newRel <- accountNextReleaseTimestamp acc'
                 return (acctRef :: RSAccountRef pv, oldRel, newRel)
@@ -2833,6 +2845,7 @@ doProcessReleaseSchedule pbs ts = do
                     SP4 -> processAccountP1
                     SP5 -> processAccountP5
                     SP6 -> processAccountP5
+                    SP7 -> processAccountP5
             (newAccs, newRS) <- foldM processAccount (bspAccounts bsp, remRS) affectedAccounts
             storePBS pbs (bsp{bspAccounts = newAccs, bspReleaseSchedule = newRS})
 
@@ -3308,8 +3321,13 @@ data PersistentBlockStateContext pv = PersistentBlockStateContext
       -- | Cache used for caching accounts.
       pbscAccountCache :: !(AccountCache (AccountVersionFor pv)),
       -- | Cache used for caching modules.
-      pbscModuleCache :: !Modules.ModuleCache
+      pbscModuleCache :: !Modules.ModuleCache,
+      -- | LMDB account map
+      pbscAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
+
+instance LMDBAccountMap.HasDatabaseHandlers (PersistentBlockStateContext pv) where
+    databaseHandlers = lens pbscAccountMap (\s v -> s{pbscAccountMap = v})
 
 instance HasBlobStore (PersistentBlockStateContext av) where
     blobStore = bscBlobStore . pbscBlobStore
@@ -3325,16 +3343,23 @@ instance Cache.HasCache Modules.ModuleCache (PersistentBlockStateContext pv) whe
 instance (IsProtocolVersion pv) => MonadProtocolVersion (BlobStoreT (PersistentBlockStateContext pv) m) where
     type MPV (BlobStoreT (PersistentBlockStateContext pv) m) = pv
 
--- | Create a new account cache of the specified size for running the given monadic operation by
+-- | Create a new account cache of the specified size and a temporary 'LMDBAccountMap' for running the given monadic operation by
 --  extending the 'BlobStore' context to a 'PersistentBlockStateContext'.
-withNewAccountCache :: (MonadIO m) => Int -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
-withNewAccountCache size bsm = do
-    ac <- liftIO $ newAccountCache size
-    mc <- liftIO $ Modules.newModuleCache 100
-    alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc) bsm
+-- Note. this function should only be used for tests.
+withNewAccountCacheAndLMDBAccountMap :: (MonadIO m, MonadCatch.MonadMask m) => Int -> FilePath -> BlobStoreT (PersistentBlockStateContext pv) m a -> BlobStoreT BlobStore m a
+withNewAccountCacheAndLMDBAccountMap size lmdbAccountMapDir bsm = MonadCatch.bracket openLmdbAccMap closeLmdbAccMap runAction
+  where
+    openLmdbAccMap = liftIO $ LMDBAccountMap.openDatabase lmdbAccountMapDir
+    closeLmdbAccMap handlers = liftIO $ do
+        LMDBAccountMap.closeDatabase handlers
+        removeDirectoryRecursive lmdbAccountMapDir `catch` (\(e :: IOException) -> liftIO $ void $ print e)
+    runAction lmdbAccMap = do
+        ac <- liftIO $ newAccountCache size
+        mc <- liftIO $ Modules.newModuleCache 100
+        alterBlobStoreT (\bs -> PersistentBlockStateContext bs ac mc lmdbAccMap) bsm
 
 newtype PersistentBlockStateMonad (pv :: ProtocolVersion) (r :: Type) (m :: Type -> Type) (a :: Type) = PersistentBlockStateMonad {runPersistentBlockStateMonad :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger, TimeMonad, MTL.MonadState s)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadLogger, TimeMonad, MTL.MonadState s, MonadCatch.MonadCatch, MonadCatch.MonadThrow)
 
 type PersistentState av pv r m =
     ( MonadIO m,
@@ -3342,7 +3367,9 @@ type PersistentState av pv r m =
       HasBlobStore r,
       AccountVersionFor pv ~ av,
       Cache.HasCache (AccountCache av) r,
-      Cache.HasCache Modules.ModuleCache r
+      Cache.HasCache Modules.ModuleCache r,
+      LMDBAccountMap.HasDatabaseHandlers r,
+      MonadLogger m
     )
 
 instance MonadTrans (PersistentBlockStateMonad pv r) where
@@ -3354,6 +3381,8 @@ instance (PersistentState av pv r m) => MonadBlobStore (PutH (PersistentBlockSta
 
 instance (PersistentState av pv r m) => Cache.MonadCache (AccountCache av) (PersistentBlockStateMonad pv r m)
 instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
+
+deriving via (LMDBAccountMap.AccountMapStoreMonad m) instance (MonadIO m, MonadLogger m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m)
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
@@ -3475,7 +3504,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetAccountIndex = doGetAccountIndex
     bsoGetAccountByIndex = doGetAccountByIndex
     bsoGetInstance = doGetInstance
-    bsoAddressWouldClash = doAddressWouldClash
+    bsoAddressWouldClash = doGetAccountExists
     bsoRegIdExists = doRegIdExists
     bsoCreateAccount = doCreateAccount
     bsoPutNewInstance = doPutNewInstance
@@ -3546,10 +3575,9 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
-    thawBlockState HashedPersistentBlockState{..} =
-        liftIO $ newIORef =<< readIORef hpbsPointers
+    thawBlockState = doThawBlockState
 
-    freezeBlockState pbs = hashBlockState pbs
+    freezeBlockState = hashBlockState
 
     dropUpdatableBlockState pbs = liftIO $ writeIORef pbs (error "Block state dropped")
 
@@ -3567,6 +3595,19 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         liftIO $ writeIORef hpbsPointers inner'
         flushStore
         return ref
+
+    saveAccounts HashedPersistentBlockState{..} = do
+        -- this load should be cheap as the blockstate is in memory.
+        accs <- bspAccounts <$> loadPBS hpbsPointers
+        -- write the accounts that were created in the block and
+        -- potentially non-finalized parent blocks.
+        -- Note that this also empties the difference map for the
+        -- block.
+        void $ Accounts.writeAccountsCreated accs
+
+    reconstructAccountDifferenceMap HashedPersistentBlockState{..} parentDifferenceMap listOfAccounts = do
+        accs <- bspAccounts <$> loadPBS hpbsPointers
+        Accounts.reconstructDifferenceMap parentDifferenceMap listOfAccounts accs
 
     loadBlockState hpbsHashM ref = do
         hpbsPointers <- liftIO $ newIORef $ blobRefToBufferedRef ref
@@ -3588,6 +3629,11 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     cacheBlockState = cacheState
 
     cacheBlockStateAndGetTransactionTable = cacheStateAndGetTransactionTable
+    tryPopulateAccountMap HashedPersistentBlockState{..} = do
+        -- load the top level references and write the accounts to the LMDB backed
+        -- account map (if this has not already been done).
+        BlockStatePointers{..} <- loadPBS hpbsPointers
+        LMDBAccountMap.tryPopulateLMDBStore bspAccounts
 
 -- | Migrate the block state from the representation used by protocol version
 --  @oldpv@ to the one used by protocol version @pv@. The migration is done gradually,
@@ -3651,6 +3697,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
                     Nothing -> error "Account with release schedule does not exist"
                     Just ai -> ai
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
+            StateMigrationParametersP6ToP7{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     newAccounts <- Accounts.migrateAccounts migration bspAccounts
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
@@ -3688,6 +3735,23 @@ migrateBlockPointers migration BlockStatePointers{..} = do
               bspRewardDetails = newRewardDetails
             }
 
+-- | Thaw the block state, making it ready for modification.
+--  This function wraps the underlying 'PersistentBlockState' of the provided 'HashedPersistentBlockState' in a new 'IORef'
+--  such that changes to the thawed block state does not propagate into the parent state.
+--
+--  Further the 'DiffMap.DifferenceMap' of the accounts structure in the provided block state is
+--  "bumped" in the sense that a new one is created for the new thawed block with a pointer to the parent difference map.
+--  The parent difference map is empty if the parent is persisted otherwise it may contain new accounts created in that block.
+doThawBlockState ::
+    (SupportsPersistentState pv m) =>
+    HashedPersistentBlockState pv ->
+    m (PersistentBlockState pv)
+doThawBlockState HashedPersistentBlockState{..} = do
+    bsp@BlockStatePointers{..} <- loadPBS hpbsPointers
+    bspAccounts' <- Accounts.mkNewChildDifferenceMap bspAccounts
+    let bsp' = bsp{bspAccounts = bspAccounts'}
+    liftIO $ newIORef =<< makeBufferedRef bsp'
+
 -- | Cache the block state.
 cacheState ::
     forall pv m.
@@ -3711,8 +3775,7 @@ cacheState hpbs = do
     rels <- cache bspReleaseSchedule
     red <- cache bspRewardDetails
     _ <-
-        storePBS
-            (hpbsPointers hpbs)
+        storePBS (hpbsPointers hpbs) $!
             BlockStatePointers
                 { bspAccounts = accts,
                   bspInstances = insts,
@@ -3729,8 +3792,8 @@ cacheState hpbs = do
                 }
     return ()
 
--- | Cache the block state and get the initial (empty) transaction table with the next account nonces
---  and update sequence numbers populated.
+-- | Cache the block state and get the initial (empty) transaction table with the next
+-- update sequence numbers populated.
 cacheStateAndGetTransactionTable ::
     forall pv m.
     (SupportsPersistentState pv m) =>
@@ -3738,22 +3801,9 @@ cacheStateAndGetTransactionTable ::
     m TransactionTable.TransactionTable
 cacheStateAndGetTransactionTable hpbs = do
     BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
-    -- When caching the accounts, we populate the transaction table with the next account nonces.
-    -- This is done by using 'liftCache' on the account table with a custom cache function that
-    -- records the nonces.
-    let perAcct acct = do
-            -- Note: we do not need to cache the account because a loaded account is already fully
-            -- cached. (Indeed, 'cache' is defined to be 'pure'.)
-            nonce <- accountNonce acct
-            unless (nonce == minNonce) $ do
-                addr <- accountCanonicalAddress acct
-                MTL.modify
-                    ( TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
-                        ?~ TransactionTable.emptyANFTWithNonce nonce
-                    )
-            return acct
-    (accts, tt0) <- MTL.runStateT (liftCache perAcct bspAccounts) TransactionTable.emptyTransactionTable
-    -- first cache the modules
+    -- cache the account table
+    accts <- cache bspAccounts
+    -- cache the modules
     mods <- cache bspModules
     -- then cache the instances, but don't cache the modules again. Instead
     -- share the references in memory we have already constructed by caching
@@ -3774,7 +3824,7 @@ cacheStateAndGetTransactionTable hpbs = do
                             & TransactionTable.ttNonFinalizedChainUpdates . at' uty
                                 ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
                 else return tt
-    tt <- foldM updInTT tt0 [minBound ..]
+    tt <- foldM updInTT TransactionTable.emptyTransactionTable [minBound ..]
     rels <- cache bspReleaseSchedule
     red <- cache bspRewardDetails
     _ <-

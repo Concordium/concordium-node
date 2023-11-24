@@ -36,12 +36,13 @@ main = do
             hFlush logFile
     let dataDir = "data" </> ("db" ++ show now)
     createDirectoryIfMissing True dataDir
+    diskStateConfig <- makeDiskStateConfig dataDir
     let config ::
             MultiVersionConfiguration
                 (NoFinalization ThreadTimer)
         config =
             MultiVersionConfiguration
-                { mvcStateConfig = DiskStateConfig dataDir,
+                { mvcStateConfig = diskStateConfig,
                   mvcFinalizationConfig = NoFinalization,
                   mvcRuntimeParameters = defaultRuntimeParameters{rpTransactionsPurgingDelay = 0, rpAccountsCacheSize = 10000}
                 }

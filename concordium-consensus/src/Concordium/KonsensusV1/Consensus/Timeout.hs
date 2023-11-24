@@ -36,6 +36,7 @@ import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.TimerMonad
+import Concordium.Types.Option
 
 -- | Reasons that a 'TimeoutMessage' can be rejected.
 data ReceiveTimeoutMessageRejectReason

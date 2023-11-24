@@ -9,10 +9,12 @@ import qualified GlobalStateTests.Accounts (tests)
 import qualified GlobalStateTests.BlobStore (tests)
 import qualified GlobalStateTests.BlockHash (tests)
 import qualified GlobalStateTests.Cache (tests)
+import qualified GlobalStateTests.DifferenceMap (tests)
 import qualified GlobalStateTests.EnduringDataFlags (tests)
 import qualified GlobalStateTests.FinalizationSerializationSpec (tests)
 import qualified GlobalStateTests.Instances (tests)
 import qualified GlobalStateTests.LFMBTree (tests)
+import qualified GlobalStateTests.LMDBAccountMap (tests)
 import qualified GlobalStateTests.PersistentTreeState (tests)
 import qualified GlobalStateTests.Trie (tests)
 import qualified GlobalStateTests.UpdateQueues (tests)
@@ -47,3 +49,5 @@ main = atLevel $ \lvl -> hspec $ do
     GlobalStateTests.EnduringDataFlags.tests
     GlobalStateTests.BlobStore.tests
     GlobalStateTests.UpdateQueues.tests
+    GlobalStateTests.LMDBAccountMap.tests
+    GlobalStateTests.DifferenceMap.tests

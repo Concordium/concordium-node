@@ -62,6 +62,7 @@ import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Account
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Wasm as GSWasm
@@ -1385,6 +1386,36 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
+    -- | Ensure that any accounts created in a block are persisted.
+    --  This should be called when a block is being finalized.
+    --
+    --  Precondition: The block state must be in memory and it must not have been archived.
+    saveAccounts :: BlockState m -> m ()
+
+    -- | Reconstructs the account difference map and return it.
+    --  This function is used for blocks that are stored but are not finalized (in particular, certified blocks)
+    --  since only the accounts for finalized blocks are stored in the LMDB store.
+    --
+    --  Preconditions:
+    --  * This function MUST only be called on a certified block.
+    --  * This function MUST only be called on a block state that does not already
+    --    have a difference map.
+    --  * The provided list of accounts MUST correspond to the accounts created in the block,
+    --    and the account addresses in the list MUST be by order of creation.
+    --  * The provided difference map reference MUST be the one of the parent block.
+    --
+    --  This function should only be used when starting from an already initialized state, and hence
+    --  we need to reconstruct the difference map since the accounts are not yet finalized.
+    reconstructAccountDifferenceMap ::
+        -- | The block state to reconstruct the difference map for.
+        BlockState m ->
+        -- | The difference map reference from the parent block's state.
+        DiffMap.DifferenceMapReference ->
+        -- | The account addresses created in the block, in order of creation.
+        [AccountAddress] ->
+        -- | Reference to the new difference map for the block.
+        m DiffMap.DifferenceMapReference
+
     -- | Load a block state from a reference, given its state hash if provided,
     --  otherwise calculate the state hash upon loading.
     --  In particular the 'StateHash' should be supplied if loading a non-genesis block state.
@@ -1406,9 +1437,15 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Cache the block state.
     cacheBlockState :: BlockState m -> m ()
 
-    -- | Cache the block state and get the initial (empty) transaction table with the next account nonces
-    --  and update sequence numbers populated.
+    -- | Cache the block state and get the initial (empty) transaction table with
+    --  the next "update sequence numbers".
     cacheBlockStateAndGetTransactionTable :: BlockState m -> m TransactionTable
+
+    -- | Populate the LMDB account map if it has not already been initialized.
+    --  If the lmdb store has already been initialized, then this function does nothing.
+    --  Otherwise this function populates the lmdb backed account map with the accounts
+    --  present in the account table of the block state.
+    tryPopulateAccountMap :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m) where
     getModuleArtifact = lift . getModuleArtifact
@@ -1671,24 +1708,29 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
+    saveAccounts = lift . saveAccounts
+    reconstructAccountDifferenceMap bs parentMap = lift . reconstructAccountDifferenceMap bs parentMap
     loadBlockState hsh = lift . loadBlockState hsh
     serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback
     collapseCaches = lift collapseCaches
     cacheBlockState = lift . cacheBlockState
     cacheBlockStateAndGetTransactionTable = lift . cacheBlockStateAndGetTransactionTable
+    tryPopulateAccountMap = lift . tryPopulateAccountMap
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
     {-# INLINE purgeBlockState #-}
     {-# INLINE archiveBlockState #-}
     {-# INLINE saveBlockState #-}
+    {-# INLINE reconstructAccountDifferenceMap #-}
     {-# INLINE loadBlockState #-}
     {-# INLINE serializeBlockState #-}
     {-# INLINE blockStateLoadCallback #-}
     {-# INLINE collapseCaches #-}
     {-# INLINE cacheBlockState #-}
     {-# INLINE cacheBlockStateAndGetTransactionTable #-}
+    {-# INLINE tryPopulateAccountMap #-}
 
 deriving via (MGSTrans MaybeT m) instance (BlockStateQuery m) => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperations (MaybeT m)

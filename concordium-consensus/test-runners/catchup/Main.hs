@@ -313,10 +313,11 @@ callbacks myPeerId peersRef monitorChan = Callbacks{..}
     notifyUnsupportedProtocolUpdate = Nothing
 
 -- | Construct a 'MultiVersionConfiguration' to use for each baker node.
-config :: FilePath -> BakerIdentity -> MultiVersionConfiguration (BufferedFinalization ThreadTimer)
-config dataPath bid = MultiVersionConfiguration{..}
+config :: FilePath -> BakerIdentity -> IO (MultiVersionConfiguration (BufferedFinalization ThreadTimer))
+config dataPath bid = do
+    mvcStateConfig <- makeDiskStateConfig dataPath
+    return MultiVersionConfiguration{..}
   where
-    mvcStateConfig = DiskStateConfig dataPath
     mvcFinalizationConfig =
         BufferedFinalization
             ( FinalizationInstance
@@ -395,7 +396,7 @@ main = do
                     let s = show now ++ "-" ++ show (bakerId bid)
                         d = "data" </> ("db" ++ s)
                     createDirectoryIfMissing True d
-                    let bconfig = config d bid
+                    bconfig <- config d bid
                     logFile <- openFile ("consensus-" ++ s ++ ".log") WriteMode
                     let blogger src lvl msg = {- when (lvl == LLInfo) $ -} do
                             timestamp <- getCurrentTime

@@ -31,6 +31,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Afgjort.Monad
 import Concordium.GlobalState
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
@@ -524,9 +525,16 @@ instance (c ~ SkovConfig pv finconfig handlerconfig, AccountVersionFor pv ~ av) 
 instance (c ~ SkovConfig pv finconfig handlerconfig) => HasCache ModuleCache (SkovTContext h (SkovContext c)) where
     projectCache = projectCache . srContext
 
+instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDatabaseHandlers (SkovContext c) where
+    databaseHandlers = lens scGSContext (\s v -> s{scGSContext = v}) . LMDBAccountMap.databaseHandlers
+
+instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDatabaseHandlers (SkovTContext h (SkovContext c)) where
+    databaseHandlers = lens srContext (\s v -> s{srContext = v}) . LMDBAccountMap.databaseHandlers
+
 deriving instance
     ( IsProtocolVersion pv,
       MonadIO m,
+      MonadLogger m,
       c ~ SkovConfig pv finconfig handlerconfig
     ) =>
     BlockStateQuery (SkovT pv h c m)
@@ -534,6 +542,7 @@ deriving instance
 deriving instance
     ( MonadIO m,
       IsProtocolVersion pv,
+      MonadLogger m,
       c ~ SkovConfig pv finconfig handlerconfig
     ) =>
     AccountOperations (SkovT pv h c m)
@@ -541,6 +550,7 @@ deriving instance
 deriving instance
     ( MonadIO m,
       IsProtocolVersion pv,
+      MonadLogger m,
       c ~ SkovConfig pv finconfig handlerconfig
     ) =>
     ContractStateOperations (SkovT pv h c m)
@@ -548,6 +558,7 @@ deriving instance
 deriving instance
     ( MonadIO m,
       IsProtocolVersion pv,
+      MonadLogger m,
       c ~ SkovConfig pv finconfig handlerconfig
     ) =>
     ModuleQuery (SkovT pv h c m)
@@ -555,6 +566,7 @@ deriving instance
 deriving instance
     ( IsProtocolVersion pv,
       MonadIO m,
+      MonadLogger m,
       c ~ SkovConfig pv finconfig handlerconfig
     ) =>
     BlockStateOperations (SkovT pv h c m)
@@ -562,6 +574,7 @@ deriving instance
 deriving instance
     ( IsProtocolVersion pv,
       MonadIO m,
+      MonadLogger m,
       c ~ SkovConfig pv finconfig handlerconfig
     ) =>
     BlockStateStorage (SkovT pv h c m)

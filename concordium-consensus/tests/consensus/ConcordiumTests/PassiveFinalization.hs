@@ -28,6 +28,7 @@ import Concordium.Crypto.SHA256
 
 import Concordium.Genesis.Data.P1
 import Concordium.GlobalState
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
@@ -367,10 +368,11 @@ createInitStates additionalFinMembers = do
                             }
                     }
         createState (bid, _, _, _) = liftIO $ withTempDirectory "." "tmp-consensus-data" $ \tempDir -> do
+            accountMap <- LMDBAccountMap.openDatabase (tempDir </> "accountmap")
             let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                 config =
                     SkovConfig
-                        (GlobalStateConfig defaultRuntimeParameters tempDir (tempDir </> "data" <.> "blob"))
+                        (GlobalStateConfig defaultRuntimeParameters tempDir (tempDir </> "data" <.> "blob") accountMap)
                         (ActiveFinalization fininst)
                         NoHandler
             (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)

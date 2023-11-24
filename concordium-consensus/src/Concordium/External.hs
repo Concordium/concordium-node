@@ -3,7 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Concordium.External where
+module Concordium.External (ConsensusRunner (..)) where
 
 import Control.Exception
 import Control.Monad
@@ -23,11 +23,8 @@ import qualified Proto.V2.Concordium.Types as Proto
 import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 import System.Directory
 import System.FilePath
-import Text.Read (readMaybe)
 
-import Concordium.Common.Version
 import qualified Concordium.Crypto.SHA256 as SHA256
-import Concordium.ID.Types
 import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Block (AbsoluteBlockHeight)
@@ -42,7 +39,6 @@ import Concordium.GlobalState.Persistent.TreeState (InitException (..))
 import Concordium.MultiVersion (
     Callbacks (..),
     CatchUpConfiguration (..),
-    DiskStateConfig (..),
     MVR (..),
     MultiVersionConfiguration (..),
     MultiVersionRunner (..),
@@ -59,8 +55,6 @@ import Concordium.Skov (
     UpdateResult (..),
  )
 import Concordium.TimerMonad (ThreadTimer)
-import qualified Concordium.Types.InvokeContract as InvokeContract
-import qualified Concordium.Types.Queries as Queries
 
 -- | A 'PeerID' identifies peer at the p2p layer.
 type PeerID = Word64
@@ -270,6 +264,7 @@ toStartResult =
                 GenesisBlockIncorrect _ -> 9
                 DatabaseInvariantViolation _ -> 10
                 IncorrectDatabaseVersion _ -> 11
+                AccountMapPermissionError -> 12
 
 -- | Catch exceptions which may occur at start up and return an appropriate exit code.
 handleStartExceptions :: LogMethod IO -> IO StartResult -> IO Int64
@@ -463,7 +458,7 @@ startConsensus
             appDataPath <- peekCStringLen (appDataC, fromIntegral appDataLenC)
             -- Do globalstate migration if necessary
             migrateGlobalState appDataPath logM
-            let mvcStateConfig = DiskStateConfig appDataPath
+            mvcStateConfig <- MV.makeDiskStateConfig appDataPath
             let mvcFinalizationConfig =
                     BufferedFinalization
                         ( FinalizationInstance
@@ -611,7 +606,7 @@ startConsensusPassive
             appDataPath <- peekCStringLen (appDataC, fromIntegral appDataLenC)
             -- Do globalstate migration if necessary
             migrateGlobalState appDataPath logM
-            let mvcStateConfig = DiskStateConfig appDataPath
+            mvcStateConfig <- MV.makeDiskStateConfig appDataPath
             let mvcFinalizationConfig = NoFinalization
             -- Callbacks
             regenesisRef <- makeRegenesisRef regenesisFree regenesisPtr
@@ -1000,98 +995,10 @@ toCString lbs = do
     poke end (0 :: CChar)
     return buf
 
--- | Encode a value as JSON in a CString. The allocated string must be explicitly freed to avoid
---  memory leaks.
-jsonCString :: (AE.ToJSON a) => a -> IO CString
-jsonCString = toCString . AE.encode
-
--- | Converts a 'BS.ByteString' to a 'CString' that encodes the length of the
---  string in big-endian in the first four bytes (not including the length).
---  This string should be freed after use by calling 'free'.
-byteStringToCString :: BS.ByteString -> IO CString
-byteStringToCString bs = do
-    let bsp = BS.concat [S.runPut (S.putWord32be (fromIntegral (BS.length bs))), bs]
-    -- This use of unsafe is fine because bsp is a non-null string.
-    BS.unsafeUseAsCStringLen bsp $ \(cstr, len) -> do
-        dest <- mallocBytes len
-        copyBytes dest cstr len
-        return dest
-
 -- | Free a 'CString'. This should be called to dispose of any 'CString' values that are returned by
 --  queries.
 freeCStr :: CString -> IO ()
 freeCStr = free
-
--- | Convenience wrapper for queries that return JSON values.
-jsonQuery ::
-    (AE.ToJSON a) =>
-    -- | Consensus pointer
-    StablePtr ConsensusRunner ->
-    -- | Configuration-independent query operation
-    (forall finconf. MVR finconf a) ->
-    IO CString
-jsonQuery cptr a = do
-    (ConsensusRunner mvr) <- deRefStablePtr cptr
-    res <- runMVR a mvr
-    jsonCString res
-
--- | Decode a block hash from a null-terminated base-16 string.
-decodeBlockHash :: CString -> IO (Maybe BlockHash)
-decodeBlockHash blockcstr = readMaybe <$> peekCString blockcstr
-
--- | Decode an account address from a null-terminated base-58 string.
-decodeAccountAddress :: CString -> IO (Either String AccountAddress)
-decodeAccountAddress acctstr = addressFromBytes <$> BS.packCString acctstr
-
--- | Decode an instance address from a null-terminated JSON-encoded string.
-decodeInstanceAddress :: CString -> IO (Maybe ContractAddress)
-decodeInstanceAddress inststr = AE.decodeStrict <$> BS.packCString inststr
-
--- | Decode a module reference from a null-terminated base-16 string.
-decodeModuleRef :: CString -> IO (Maybe ModuleRef)
-decodeModuleRef modstr = readMaybe <$> peekCString modstr
-
--- | Decode the context passed to the @invokeContract@ method.
-decodeContractContext :: CString -> IO (Maybe InvokeContract.ContractContext)
-decodeContractContext ctxStr = AE.decodeStrict <$> BS.packCString ctxStr
-
--- | Decode a transaction hash from a null-terminated base-16 string.
-decodeTransactionHash :: CString -> IO (Maybe TransactionHash)
-decodeTransactionHash trHashStr = readMaybe <$> peekCString trHashStr
-
--- ** General queries
-
--- | Returns a null-terminated string with a JSON representation of the current status of Consensus.
-getConsensusStatus :: StablePtr ConsensusRunner -> IO CString
-getConsensusStatus cptr = jsonQuery cptr Q.getConsensusStatus
-
--- ** Queries against latest tree
-
--- | Returns a null-terminated string with a JSON representation of the current branches from the
---  last finalized block (inclusive).
-getBranches :: StablePtr ConsensusRunner -> IO CString
-getBranches cptr = jsonQuery cptr Q.getBranches
-
--- | Get the list of live blocks at a given height.
---  The height is interpreted relative to the genesis block at the specified index.
---  The last parameter indicates whether to restrict to a single genesis (if it is a non-zero value).
---  Returns a null-terminated string encoding a JSON list.
-getBlocksAtHeight ::
-    StablePtr ConsensusRunner ->
-    -- | Block height to query
-    Word64 ->
-    -- | Genesis index that block height is based on
-    Word32 ->
-    -- | Non-zero to restrict to blocks at specified genesis index
-    Word8 ->
-    IO CString
-getBlocksAtHeight cptr height genIndex restrict =
-    jsonQuery cptr $
-        fmap fst
-            <$> Q.getBlocksAtHeight
-                (BlockHeight height)
-                (GenesisIndex genIndex)
-                (restrict /= 0)
 
 -- | Retrieve the last finalized block height relative to the most recent genesis index. Used for
 -- resuming out-of-band catchup.
@@ -1106,274 +1013,6 @@ getNumberOfNonFinalizedTransactions :: StablePtr ConsensusRunner -> IO Word64
 getNumberOfNonFinalizedTransactions cptr = do
     (ConsensusRunner mvr) <- deRefStablePtr cptr
     fromIntegral <$> runMVR Q.getNumberOfNonFinalizedTransactions mvr
-
--- ** Block-indexed queries
-
--- | Given a null-terminated string that represents a block hash (base 16), returns a null-terminated
---  string containing a JSON representation of the block.
---  If the block hash is invalid or unknown, this returns the JSON null value.
---  For details of the value returned, see 'Concordium.Queries.Types.BlockInfo'.
-getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
-getBlockInfo cptr blockcstr =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getBlockInfo (Queries.Given bh))
-
--- | Get the list of transactions in a block with short summaries of their effects.
---  Returns a null-terminated string encoding a JSON value.
---  If the block hash is invalid or unknown, this returns the JSON null value.
---  For details of the value returned, see 'Concordium.Queries.Types.BlockSummary'.
-getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
-getBlockSummary cptr blockcstr =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.getBlockSummary bh)
-
--- | Get the status of the rewards parameters for the given block. The block must
---  be given as a null-terminated base16 encoding of the block hash.
---  The return value is a null-terminated, JSON encoded value.
---  The returned string should be freed by calling 'freeCStr'.
-getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
-getRewardStatus cptr blockcstr =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getRewardStatus (Queries.Given bh))
-
--- | Get birk parameters for the given block. The block must be given as a
---  null-terminated base16 encoding of the block hash.
---  The return value is a null-terminated JSON-encoded value.
---  The returned string should be freed by calling 'freeCStr'.
-getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
-getBirkParameters cptr blockcstr =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getBlockBirkParameters (Queries.Given bh))
-
--- | Get the cryptographic parameters in a given block. The block must be given as a
---  null-terminated base16 encoding of the block hash.
---  The return value is a null-terminated JSON-encoded object.
---  The returned string should be freed by calling 'freeCStr'.
-getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
-getCryptographicParameters cptr blockcstr =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr $ Versioned 0 . Q.responseToMaybe <$> Q.getCryptographicParameters (Queries.Given bh)
-
--- | Get all of the identity providers registered in the system as of a given block.
---  The block must be given as a null-terminated base16 encoding of the block hash.
---  The return value is a null-terminated JSON-encoded list. (Or null for an invalid block.)
---  The returned string should be freed by calling 'freeCStr'.
-getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
-getAllIdentityProviders cptr blockcstr =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAllIdentityProviders (Queries.Given bh))
-
--- | Get all of the identity providers registered in the system as of a given block.
---  The block must be given as a null-terminated base16 encoding of the block hash.
---  The return value is a null-terminated JSON-encoded list. (Or null for an invalid block.)
---  The returned string should be freed by calling 'freeCStr'.
-getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
-getAllAnonymityRevokers cptr blockcstr =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAllAnonymityRevokers (Queries.Given bh))
-
--- | Given a null-terminated string that represents a block hash (base 16), and a number of blocks,
---  returns a null-terminated string containing a JSON list of the ancestors of the node (up to the
---  given number, including the block itself).
---  If the block hash is invalid or unknown, this returns the JSON null value.
-getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
-getAncestors cptr blockcstr depth =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAncestors (Queries.Given bh) (BlockHeight depth))
-
--- | Get the list of account addresses in the given block. The block must be
---  given as a null-terminated base16 encoding of the block hash. The return
---  value is a null-terminated JSON-encoded list of addresses.
---  The returned string should be freed by calling 'freeCStr'.
-getAccountList :: StablePtr ConsensusRunner -> CString -> IO CString
-getAccountList cptr blockcstr =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAccountList (Queries.Given bh))
-
--- | Get the list of contract instances (their addresses) in the given block. The
---  block must be given as a null-terminated base16 encoding of the block hash.
---  The return value is a null-terminated JSON-encoded list of addresses.
---  The returned string should be freed by calling 'freeCStr'.
-getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
-getInstances cptr blockcstr =
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getInstanceList (Queries.Given bh))
-
--- | Get the list of modules in the given block. The block must be given as a
---  null-terminated base16 encoding of the block hash.
---  The return value is a null-terminated JSON-encoded list.
---  The returned string should be freed by calling 'freeCStr'.
-getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
-getModuleList cptr blockcstr = do
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getModuleList (Queries.Given bh))
-
--- | Get account information for the given block and identifier. The block must be
---  given as a null-terminated base16 encoding of the block hash and the account
---  identifier (second CString) must be given as a null-terminated string in
---  either base-58 encoding (same format as returned by 'getAccountList') if it is
---  an account address, or base-16 encoding if it is the credential registration
---  ID. The return value is a null-terminated, json encoded information. The
---  returned string should be freed by calling 'freeCStr'.
-getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-getAccountInfo cptr blockcstr acctcstr = do
-    mblock <- decodeBlockHash blockcstr
-    acctbs <- BS.packCString acctcstr
-    let account = decodeAccountIdentifier acctbs
-    case (mblock, account) of
-        (Just bh, Just acct) -> jsonQuery cptr (Q.responseToMaybe <$> Q.getAccountInfo (Queries.Given bh) acct)
-        _ -> jsonCString AE.Null
-
--- | Get instance information the given block and instance. The block must be
---  given as a null-terminated base16 encoding of the block hash and the address
---  (second CString) must be given as a null-terminated JSON-encoded value
---  (an object with numeric fields "index" and "subindex").
---  The return value is a null-terminated, json encoded information.
---  The returned string should be freed by calling 'freeCStr'.
-getInstanceInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-getInstanceInfo cptr blockcstr instcstr = do
-    mblock <- decodeBlockHash blockcstr
-    minst <- decodeInstanceAddress instcstr
-    case (mblock, minst) of
-        (Just bh, Just inst) -> jsonQuery cptr (Q.responseToMaybe <$> Q.getInstanceInfo (Queries.Given bh) inst)
-        _ -> jsonCString AE.Null
-
--- | Run the smart contract entrypoint in a given context and in the state at the
---  end of the given block.
---  The block must be given as a null-terminated base16 encoding of the block
---  hash and the context (second CString) must be given as a null-terminated
---  JSON-encoded value.
---  The return value is a null-terminated, json encoded information. It is either null
---  in case the input cannot be decoded, or the block does not exist,
---  or the JSON encoding of InvokeContract.InvokeContractResult.
---  The returned string should be freed by calling 'freeCStr'.
-invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> Word64 -> IO CString
-invokeContract cptr blockcstr ctxcstr maxInvokeEnergy = do
-    mblock <- decodeBlockHash blockcstr
-    mctx <- decodeContractContext ctxcstr
-    case (mblock, mctx) of
-        (Just bh, Just ctx) -> do
-            -- Make sure the max allowed energy is respected.
-            let effectiveCtx = ctx{InvokeContract.ccEnergy = min (InvokeContract.ccEnergy ctx) (fromIntegral maxInvokeEnergy)}
-            jsonQuery cptr (Q.responseToMaybe <$> Q.invokeContract (Queries.Given bh) effectiveCtx)
-        _ -> jsonCString AE.Null
-
--- | Get the source code of a module as deployed on the chain at a particular block.
---  The block must be given as a null-terminated base16 encoding of the block hash.
---  The module is referenced by a null-terminated base16 encoding of the module hash.
---  The return value is __NOT__ JSON encoded but rather it is a binary
---  serialization. The first 4 bytes are the length (big-endian) of the rest of the string, and
---  the string is __NOT__ null terminated and can contain null characters.
---  The returned string should be freed by calling 'freeCStr'.
---  If the module is not found, the length field of the string will be 0.
-getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-getModuleSource cptr blockcstr modcstr = do
-    (ConsensusRunner mvr) <- deRefStablePtr cptr
-    mblock <- decodeBlockHash blockcstr
-    mmod <- decodeModuleRef modcstr
-    case (mblock, mmod) of
-        (Just bh, Just modref) -> do
-            msrc <- runMVR (Q.responseToMaybe <$> Q.getModuleSource (Queries.Given bh) modref) mvr
-            byteStringToCString $ maybe BS.empty S.encode (join msrc)
-        _ -> byteStringToCString BS.empty
-
--- | Get the list of bakers registered at the given block. The block must be given as a
---  null-terminated base16 encoding of the block hash.
---  The return value is a null-terminated JSON-encoded list if the block is valid, and "null"
---  otherwise.
---  The returned string should be freed by calling 'freeCStr'.
-getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
-getBakerList cptr blockcstr = do
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getRegisteredBakers (Queries.Given bh))
-
--- | Get the status of a baker pool or the passive delegators with respect to a particular block.
---  The block must be given as a null-terminated base16 encoding of the block hash.
---  The third argument indicates if the status for the passive delegators is to be returned (indicated by
---  a true (non-zero) value). The fourth argument indicates which baker to get the status for
---  in the case that the passive delegator status is not requested. (This argument is ignored if the
---  passive delegator status is requested.)
---  The return value is a null-terminated JSON-encoded object, or "null" if the block or pool
---  are invalid.
---  The returned string should be freed by calling 'freeCStr'.
-getPoolStatus ::
-    StablePtr ConsensusRunner ->
-    -- | Block hash (null-terminated base16)
-    CString ->
-    -- | Whether to get the passive delegator status
-    Word8 ->
-    -- | Baker ID to get status for (if not passive delegators)
-    Word64 ->
-    IO CString
-getPoolStatus cptr blockcstr passive bid = do
-    decodeBlockHash blockcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just bh -> jsonQuery cptr (Q.responseToMaybe <$> Q.getPoolStatus (Queries.Given bh) mbid)
-  where
-    mbid = if passive /= 0 then Nothing else Just (BakerId (AccountIndex bid))
-
--- ** Transaction-indexed queries
-
--- | Get the status of a transaction. The input is a base16-encoded null-terminated string
---  denoting a transaction hash. The return value is a null-terminated JSON string encoding a
---  JSON value.
-getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
-getTransactionStatus cptr trcstr =
-    decodeTransactionHash trcstr >>= \case
-        Nothing -> jsonCString AE.Null
-        Just tr -> jsonQuery cptr (Q.getTransactionStatus tr)
-
--- | Get the status of a transaction. The first input is a base16-encoded null-terminated string
---  denoting a transaction hash, the second input is the hash of the block.
---  The return value is a null-terminated string encoding a JSON value.
---  The arguments are
---
---    * pointer to the consensus runner
---    * null-terminated C string with a base16 encoded transaction hash
---    * null-terminated C string with base16 encoded block hash
-getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-getTransactionStatusInBlock cptr trcstr bhcstr = do
-    mtr <- decodeTransactionHash trcstr
-    mblock <- decodeBlockHash bhcstr
-    case (mtr, mblock) of
-        (Just tr, Just bh) -> jsonQuery cptr (Q.getTransactionStatusInBlock tr bh)
-        _ -> jsonCString AE.Null
-
--- ** Account-indexed queries
-
--- | Get the list of non-finalized transactions for a given account.
---  The arguments are
---
---    * pointer to the consensus runner
---    * null-terminated C string with account address.
-getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
-getAccountNonFinalizedTransactions cptr addrcstr =
-    decodeAccountAddress addrcstr >>= \case
-        Left _ -> jsonCString AE.Null
-        Right acct -> jsonQuery cptr (Q.getAccountNonFinalizedTransactions acct)
-
--- | Get the best guess for the next available account nonce.
---  The arguments are
---
---    * pointer to the consensus runner
---    * null-terminated C string with account address.
-getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
-getNextAccountNonce cptr addrcstr =
-    decodeAccountAddress addrcstr >>= \case
-        Left _ -> jsonCString AE.Null
-        Right acct -> jsonQuery cptr (Q.getNextAccountNonce acct)
 
 -- ** Baker/finalizer status queries
 
@@ -1530,10 +1169,6 @@ foreign export ccall receiveFinalizationMessage :: StablePtr ConsensusRunner -> 
 foreign export ccall receiveFinalizationRecord :: StablePtr ConsensusRunner -> GenesisIndex -> CString -> Int64 -> IO Int64
 foreign export ccall receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO Int64
 
-foreign export ccall getConsensusStatus :: StablePtr ConsensusRunner -> IO CString
-foreign export ccall getBlockInfo :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getAncestors :: StablePtr ConsensusRunner -> CString -> Word64 -> IO CString
-foreign export ccall getBranches :: StablePtr ConsensusRunner -> IO CString
 foreign export ccall getNumberOfNonFinalizedTransactions :: StablePtr ConsensusRunner -> IO Word64
 
 foreign export ccall
@@ -1553,27 +1188,7 @@ foreign export ccall
         FunPtr DirectMessageCallback ->
         IO ReceiveResult
 
-foreign export ccall getAccountList :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getInstances :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getAccountInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-foreign export ccall getInstanceInfo :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-foreign export ccall invokeContract :: StablePtr ConsensusRunner -> CString -> CString -> Word64 -> IO CString
-foreign export ccall getRewardStatus :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getBirkParameters :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getModuleList :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getModuleSource :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-foreign export ccall getBakerList :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getPoolStatus :: StablePtr ConsensusRunner -> CString -> Word8 -> Word64 -> IO CString
-foreign export ccall getTransactionStatus :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getTransactionStatusInBlock :: StablePtr ConsensusRunner -> CString -> CString -> IO CString
-foreign export ccall getAccountNonFinalizedTransactions :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getBlockSummary :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getNextAccountNonce :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getBlocksAtHeight :: StablePtr ConsensusRunner -> Word64 -> Word32 -> Word8 -> IO CString
 foreign export ccall getLastFinalizedBlockHeight :: StablePtr ConsensusRunner -> IO Word64
-foreign export ccall getAllIdentityProviders :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getAllAnonymityRevokers :: StablePtr ConsensusRunner -> CString -> IO CString
-foreign export ccall getCryptographicParameters :: StablePtr ConsensusRunner -> CString -> IO CString
 
 -- baker status checking
 foreign export ccall bakerStatusBestBlock :: StablePtr ConsensusRunner -> Ptr Word64 -> Ptr Word8 -> Ptr Double -> IO Word8

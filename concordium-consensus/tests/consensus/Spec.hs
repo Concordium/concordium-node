@@ -7,6 +7,8 @@ import qualified ConcordiumTests.Afgjort.Freeze (tests)
 import qualified ConcordiumTests.Afgjort.Lottery (tests)
 import qualified ConcordiumTests.Afgjort.Types (tests)
 import qualified ConcordiumTests.Afgjort.WMVBA (tests)
+import qualified ConcordiumTests.EndToEnd.CredentialDeploymentTests (tests)
+import qualified ConcordiumTests.EndToEnd.TransactionTableIntegrationTest (tests)
 import qualified ConcordiumTests.FinalizationRecover (test)
 import qualified ConcordiumTests.KonsensusV1.CatchUp (tests)
 import qualified ConcordiumTests.KonsensusV1.Consensus (tests)
@@ -63,3 +65,5 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.KonsensusV1.Timeout.tests
     ConcordiumTests.KonsensusV1.Consensus.Blocks.tests
     ConcordiumTests.KonsensusV1.CatchUp.tests
+    ConcordiumTests.EndToEnd.CredentialDeploymentTests.tests lvl
+    ConcordiumTests.EndToEnd.TransactionTableIntegrationTest.tests

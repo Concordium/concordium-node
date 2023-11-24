@@ -22,10 +22,10 @@ Then this should be set to the external port in order to allow other nodes to co
 
 - `CONCORDIUM_NODE_DATA_DIR` Where the node should store its data, in particular the nodes database is stored here.
 
-## Baker
-Configurations related to baking.
+## Validator
+Configurations related to running a validator.
 
-- `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE` A path to the file containing the baker keys. The filepath must be either an absolute path or a relative filepath to the CWD of the process. If this variable is not set, then the node is not eligible for baking. 
+- `CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE` A path to the file containing the validator keys. The filepath must be either an absolute path or a relative filepath to the CWD of the process. If this variable is not set, then the node is not eligible for baking. 
 
 ## Connection
 Network related configurations for a node.
@@ -45,11 +45,3 @@ This variable is set as a percentage wrt. `CONCORDIUM_NODE_CONNECTION_DESIRED_NO
 This should be set a bit higher than the maximum number of nodes, so that new peers are accepted and discovered over time. The default value is 20. 
 
 - `CONCORDIUM_NODE_CONNECTION_THREAD_POOL_SIZE` Specifies the thread pool size of the node for handling connection events in parallel. The default value is 4. 
-
-## gRPC
-Configuration parameters related to the built-in gRPC server.
-
-- `CONCORDIUM_NODE_RPC_SERVER_ADDR` Is the listen address of the node's gRPC V1 server.
-
-- `CONCORDIUM_NODE_RPC_SERVER_PORT` Is the listen port of the node's gRPC server.
-(Note if `CONCORDIUM_NODE_RPC_SERVER_ADDR` or `CONCORDIUM_NODE_RPC_SERVER_PORT` are changed, then the variable `CONCORDIUM_NODE_COLLECTOR_GRPC_HOST` must be changed accordingly for the node-collector-service)

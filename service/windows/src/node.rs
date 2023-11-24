@@ -53,16 +53,10 @@ pub struct NodeConfig {
     pub data_dir:            PathBuf,
     // Credentials file (optional)
     pub baker_credentials:   Option<PathBuf>,
-    // Address to accept GRPC requests on
-    pub rpc_address:         Option<IpAddr>,
-    // Port for GRPC requests
-    pub rpc_port:            Option<u16>,
     // Address to accept GRPC V2 requests on
     pub grpc2_address:       Option<IpAddr>,
     // Port for GRPC V2 requests
     pub grpc2_port:          Option<u16>,
-    // GRPC authentication token
-    pub rpc_token:           Option<String>,
     // Address to listen for peer-to-peer connections on
     pub listen_address:      Option<IpAddr>,
     // Port for peer-to-peer connections
@@ -147,7 +141,8 @@ impl NodeConfig {
                 .env("CONCORDIUM_NODE_COLLECTOR_URL", self.collector_url.as_ref().unwrap());
 
             // If the rpc address is not given, or is unspecified, default to local host
-            let mut collector_rpc_ip = self.rpc_address.unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+            let mut collector_rpc_ip =
+                self.grpc2_address.unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
             if collector_rpc_ip.is_unspecified() {
                 collector_rpc_ip = if collector_rpc_ip.is_ipv4() {
                     IpAddr::V4(Ipv4Addr::LOCALHOST)
@@ -180,11 +175,6 @@ impl NodeConfig {
             if let Some(interval) = self.collector_interval {
                 collector_cmd
                     .env("CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL", interval.to_string());
-            }
-
-            if let Some(auth_token) = &self.rpc_token {
-                collector_cmd
-                    .env("CONCORDIUM_NODE_COLLECTOR_GRPC_AUTHENTICATION_TOKEN", auth_token);
             }
 
             collector_cmd.args(&self.collector_args);
@@ -222,22 +212,13 @@ impl NodeConfig {
         cmd.env("CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES", self.bootstrap_nodes.clone());
         self.baker_credentials
             .as_ref()
-            .map(|bcred| cmd.env("CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE", bcred.clone()));
-        self.rpc_address
-            .as_ref()
-            .map(|rpcaddr| cmd.env("CONCORDIUM_NODE_RPC_SERVER_ADDR", rpcaddr.to_string()));
-        self.rpc_port
-            .as_ref()
-            .map(|rpcport| cmd.env("CONCORDIUM_NODE_RPC_SERVER_PORT", rpcport.to_string()));
+            .map(|bcred| cmd.env("CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE", bcred.clone()));
         self.grpc2_address
             .as_ref()
             .map(|rpcaddr| cmd.env("CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS", rpcaddr.to_string()));
         self.grpc2_port
             .as_ref()
             .map(|rpcport| cmd.env("CONCORDIUM_NODE_GRPC2_LISTEN_PORT", rpcport.to_string()));
-        self.rpc_token
-            .as_ref()
-            .map(|rpctoken| cmd.env("CONCORDIUM_NODE_RPC_SERVER_TOKEN", rpctoken));
         self.listen_address
             .as_ref()
             .map(|listenaddr| cmd.env("CONCORDIUM_NODE_LISTEN_ADDRESS", listenaddr.to_string()));

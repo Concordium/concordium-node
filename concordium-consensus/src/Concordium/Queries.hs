@@ -75,6 +75,7 @@ import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
+import Concordium.Types.Option
 import Control.Monad.State.Class
 import Data.Time
 
@@ -658,7 +659,7 @@ getNextAccountNonce accountAddress =
         )
         -- consensus v1
         ( do
-            (nanNonce, nanAllFinal) <- gets (SkovV1.getNextAccountNonce acctEq)
+            (nanNonce, nanAllFinal) <- SkovV1.getNextAccountNonce acctEq =<< get
             return NextAccountNonce{..}
         )
   where
@@ -731,7 +732,7 @@ getBlockInfo =
             let biBlockArriveTime = SkovV1.blockArriveTime bp
             let biBlockSlot = Nothing -- no slots in consensus version 1
             let biBlockSlotTime = timestampToUTCTime $ SkovV1.blockTimestamp bp
-            let biBlockBaker = SkovV1.ofOption Nothing (Just . SkovV1.blockBaker) $ SkovV1.blockBakedData bp
+            let biBlockBaker = ofOption Nothing (Just . SkovV1.blockBaker) $ SkovV1.blockBakedData bp
             let biTransactionCount = SkovV1.blockTransactionCount bp
             let biTransactionEnergyCost = SkovV1.blockEnergyCost bp
             let biTransactionsSize = fromIntegral $ SkovV1.blockTransactionsSize bp
@@ -741,60 +742,6 @@ getBlockInfo =
             let biEpoch = Just $ SkovV1.blockEpoch bp
             return BlockInfo{..}
         )
-
--- | Get a detailed summary of a particular block including:
---    * The transaction outcomes in the block (including special transactions)
---    * Details of any finalization record in the block
---    * The state of the chain parameters and any pending updates
-getBlockSummary :: forall finconf. BlockHash -> MVR finconf (Maybe BlockSummary)
-getBlockSummary = liftSkovQueryBlock getBlockSummarySkovV0M getBlockSummarySkovV1M
-  where
-    getBlockSummarySkovV0M ::
-        forall pv.
-        (SkovMonad (VersionedSkovV0M finconf pv)) =>
-        BlockPointerType (VersionedSkovV0M finconf pv) ->
-        VersionedSkovV0M finconf pv BlockSummary
-    getBlockSummarySkovV0M bp = do
-        bs <- blockState bp
-        bsTransactionSummaries <- BS.getOutcomes bs
-        bsSpecialEvents <- BS.getSpecialOutcomes bs
-        bsFinalizationData <- case blockFinalizationData <$> blockFields bp of
-            Just (BlockFinalizationData FinalizationRecord{..}) -> do
-                -- Get the finalization committee by examining the previous finalized block
-                fsFinalizers <-
-                    blockAtFinIndex (finalizationIndex - 1) >>= \case
-                        Nothing -> return Vec.empty
-                        Just prevFin -> do
-                            com <- getFinalizationCommittee prevFin
-                            let signers = Set.fromList (finalizationProofParties finalizationProof)
-                                fromPartyInfo i PartyInfo{..} =
-                                    FinalizationSummaryParty
-                                        { fspBakerId = partyBakerId,
-                                          fspWeight = fromIntegral partyWeight,
-                                          fspSigned = Set.member (fromIntegral i) signers
-                                        }
-                            return $ Vec.imap fromPartyInfo (parties com)
-                let fsFinalizationBlockPointer = finalizationBlockPointer
-                    fsFinalizationIndex = finalizationIndex
-                    fsFinalizationDelay = finalizationDelay
-                return $ Just FinalizationSummary{..}
-            _ -> return Nothing
-        bsUpdates <- BS.getUpdates bs
-        let bsProtocolVersion = protocolVersion @pv
-        return BlockSummary{..}
-    getBlockSummarySkovV1M ::
-        forall pv.
-        (IsProtocolVersion pv) =>
-        BlockPointerType (VersionedSkovV1M finconf pv) ->
-        VersionedSkovV1M finconf pv BlockSummary
-    getBlockSummarySkovV1M bp = do
-        bs <- blockState bp
-        bsTransactionSummaries <- BS.getOutcomes bs
-        bsSpecialEvents <- BS.getSpecialOutcomes bs
-        let bsFinalizationData = Nothing
-        bsUpdates <- BS.getUpdates bs
-        let bsProtocolVersion = protocolVersion @pv
-        return BlockSummary{..}
 
 -- | Get the block items of a block.
 getBlockItems :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse [BlockItem])
@@ -957,7 +904,7 @@ getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
         updates <- BS.getUpdates bs
         return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
 
--- | Get the total amount of GTU in existence and status of the reward accounts.
+-- | Get the total amount of CCD in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR finconf (BHIQueryResponse RewardStatus)
 getRewardStatus =
     liftSkovQueryBHI
@@ -1664,9 +1611,9 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
               qcAggregateSignature = QueriesKonsensusV1.QuorumCertificateSignature . (SkovV1.theQuorumSignature . SkovV1.qcAggregateSignature) $ qc,
               qcSignatories = finalizerSetToBakerIds committee (SkovV1.qcSignatories qc)
             }
-    mkTimeoutCertificateOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.TimeoutCertificate -> Maybe QueriesKonsensusV1.TimeoutCertificate
-    mkTimeoutCertificateOut _ SkovV1.Absent = Nothing
-    mkTimeoutCertificateOut committee (SkovV1.Present tc) =
+    mkTimeoutCertificateOut :: SkovV1.FinalizationCommittee -> Option SkovV1.TimeoutCertificate -> Maybe QueriesKonsensusV1.TimeoutCertificate
+    mkTimeoutCertificateOut _ Absent = Nothing
+    mkTimeoutCertificateOut committee (Present tc) =
         Just $
             QueriesKonsensusV1.TimeoutCertificate
                 { tcRound = SkovV1.tcRound tc,
@@ -1675,9 +1622,9 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
                   tcFinalizerQCRoundsSecondEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsSecondEpoch tc,
                   tcAggregateSignature = QueriesKonsensusV1.TimeoutCertificateSignature . (SkovV1.theTimeoutSignature . SkovV1.tcAggregateSignature) $ tc
                 }
-    mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> SkovV1.Option SkovV1.FinalizationEntry -> Maybe QueriesKonsensusV1.EpochFinalizationEntry
-    mkEpochFinalizationEntryOut _ SkovV1.Absent = Nothing
-    mkEpochFinalizationEntryOut committee (SkovV1.Present SkovV1.FinalizationEntry{..}) =
+    mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> Option SkovV1.FinalizationEntry -> Maybe QueriesKonsensusV1.EpochFinalizationEntry
+    mkEpochFinalizationEntryOut _ Absent = Nothing
+    mkEpochFinalizationEntryOut committee (Present SkovV1.FinalizationEntry{..}) =
         Just $
             QueriesKonsensusV1.EpochFinalizationEntry
                 { efeFinalizedQC = mkQuorumCertificateOut committee feFinalizedQuorumCertificate,

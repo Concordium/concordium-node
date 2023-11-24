@@ -10,7 +10,6 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 -- FIXME: GHC 9.2.5 reports that `MonadBlobStore m` is a redundant constraint in a
@@ -183,6 +182,7 @@ import Concordium.Types.Updates
 import Concordium.Wasm
 
 import qualified Concordium.Crypto.SHA256 as H
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.Types.HashableTo
 
 -- | A @BlobRef a@ represents an offset on a file, at
@@ -309,24 +309,30 @@ destroyBlobStore bs@BlobStore{..} = do
 --  The given FilePath is a directory where the temporary blob
 --  store will be created.
 --  The blob store file is deleted afterwards.
-runBlobStoreTemp :: FilePath -> BlobStoreM a -> IO a
-runBlobStoreTemp dir a = bracket openf closef usef
+runBlobStoreTemp :: forall m a. (MonadIO m, MonadCatch.MonadMask m) => FilePath -> BlobStoreT BlobStore m a -> m a
+runBlobStoreTemp dir a = MonadCatch.bracket openf closef usef
   where
-    openf = openBinaryTempFile dir "blb.dat"
-    closef (tempFP, h) = do
+    openf = liftIO $ openBinaryTempFile dir "blb.dat"
+    closef (tempFP, h) = liftIO $ do
         hClose h
         performGC
         removeFile tempFP `catch` (\(_ :: IOException) -> return ())
+    usef :: (FilePath, Handle) -> m a
     usef (fp, h) = do
-        mv <- newMVar (BlobHandle h True 0)
-        mmap <- newIORef BS.empty
-        let bscBlobStore = BlobStoreAccess mv fp mmap
-        (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
-        res <- runBlobStoreM a BlobStore{..}
-        _ <- takeMVar mv
-        writeIORef mmap BS.empty
-        freeCallbacks bscLoadCallback bscStoreCallback
-        return res
+        bs <- liftIO $ do
+            mv <- newMVar (BlobHandle h True 0)
+            mmap <- newIORef BS.empty
+            let bscBlobStore = BlobStoreAccess mv fp mmap
+            (bscLoadCallback, bscStoreCallback) <- mkCallbacksFromBlobStore bscBlobStore
+            return BlobStore{..}
+        res <- runBlobStoreT a bs
+        liftIO $ do
+            let BlobStore{..} = bs
+                BlobStoreAccess mv _ mmap = bscBlobStore
+            _ <- takeMVar mv
+            writeIORef mmap BS.empty
+            freeCallbacks bscLoadCallback bscStoreCallback
+            return res
 
 -- | Truncate the blob store after the blob stored at the given offset. The blob should not be
 -- corrupted (i.e., its size header should be readable, and its size should match the size header).
@@ -587,13 +593,19 @@ type SupportMigration m t = (MonadBlobStore m, MonadTrans t, MonadBlobStore (t m
 --  based on the context (rather than lifting).
 newtype BlobStoreT (r :: Type) (m :: Type -> Type) (a :: Type) = BlobStoreT {runBlobStoreT :: r -> m a}
     deriving
-        (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch)
+        (Functor, Applicative, Monad, MonadReader r, MonadIO, MonadFail, MonadLogger, MonadCatch.MonadThrow, MonadCatch.MonadCatch, MonadCatch.MonadMask)
         via (ReaderT r m)
     deriving
         (MonadTrans)
         via (ReaderT r)
 
 instance (HasBlobStore r, MonadIO m) => MonadBlobStore (BlobStoreT r m)
+
+deriving via
+    (LMDBAccountMap.AccountMapStoreMonad (BlobStoreT r m))
+    instance
+        (MonadIO m, MonadLogger m, LMDBAccountMap.HasDatabaseHandlers r) =>
+        LMDBAccountMap.MonadAccountMapStore (BlobStoreT r m)
 
 -- | Apply a given function to modify the context of a 'BlobStoreT' operation.
 alterBlobStoreT :: (r1 -> r2) -> BlobStoreT r2 m a -> BlobStoreT r1 m a

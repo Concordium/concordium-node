@@ -25,7 +25,6 @@ pub mod plugins;
 
 #[cfg(feature = "network_dump")]
 pub mod dumper;
-pub mod rpc;
 pub mod stats_export_service;
 pub mod utils;
 

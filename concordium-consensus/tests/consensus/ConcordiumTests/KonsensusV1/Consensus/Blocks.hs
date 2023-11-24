@@ -22,6 +22,7 @@ import Test.Hspec
 
 import qualified Concordium.Crypto.DummyData as Dummy
 import qualified Concordium.Crypto.SHA256 as H
+import Concordium.Crypto.SignatureScheme as Sig
 import Concordium.Genesis.Data
 import Concordium.Types
 import Concordium.Types.BakerIdentity
@@ -46,6 +47,7 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Startup
 import Concordium.TimerMonad
+import Concordium.Types.Option
 
 maxBaker :: (Integral a) => a
 maxBaker = 5
@@ -74,8 +76,16 @@ bakers :: [(BakerIdentity, FullBakerInfo)]
     foundationAcct =
         Dummy.createCustomAccount
             1_000_000_000_000
-            (Dummy.deterministicKP 0)
-            (Dummy.accountAddressFrom 0)
+            foundationKeyPair
+            foundationAccountAddress
+
+-- | Key pair for the foundation account
+foundationKeyPair :: Sig.KeyPair
+foundationKeyPair = Dummy.deterministicKP 0
+
+-- | Account address for the foundation account
+foundationAccountAddress :: AccountAddress
+foundationAccountAddress = Dummy.accountAddressFrom 0
 
 -- | Hash of the genesis block.
 genesisHash :: BlockHash

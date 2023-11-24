@@ -49,6 +49,7 @@ import Concordium.Afgjort.Finalize
 import Concordium.Afgjort.Finalize.Types
 import Concordium.Birk.Bake
 import Concordium.GlobalState
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Block
 import Concordium.GlobalState.BlockPointer (BlockPointer (..), BlockPointerData (..))
 import Concordium.GlobalState.Finalization
@@ -65,7 +66,6 @@ import qualified Concordium.KonsensusV1.SkovMonad as SkovV1
 import qualified Concordium.KonsensusV1.Transactions as SkovV1
 import qualified Concordium.KonsensusV1.TreeState.LowLevel.LMDB as LowLevelDB
 import qualified Concordium.KonsensusV1.TreeState.Types as SkovV1
-import Concordium.KonsensusV1.Types (Option (..))
 import qualified Concordium.KonsensusV1.Types as KonsensusV1
 import qualified Concordium.ProtocolUpdate.V0 as ProtocolUpdateV0
 import qualified Concordium.ProtocolUpdate.V1 as ProtocolUpdateV1
@@ -74,6 +74,7 @@ import Concordium.TimeMonad
 import Concordium.TimerMonad
 import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.CatchUp
+import Concordium.Types.Option
 
 -- | Handler configuration for supporting protocol updates.
 --  This handler defines an instance of 'HandlerConfigHandlers' that responds to finalization events
@@ -166,10 +167,18 @@ instance
 
 -- | Configuration for the global state that uses disk storage
 --  for both tree state and block state.
-newtype DiskStateConfig = DiskStateConfig
+data DiskStateConfig = DiskStateConfig
     { -- | Root directory for the global state.
-      stateBasePath :: FilePath
+      stateBasePath :: !FilePath,
+      -- | Account map.
+      globalAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
+
+-- | Create a 'DiskStateConfig', opening the shared account map database in the process.
+makeDiskStateConfig :: FilePath -> IO DiskStateConfig
+makeDiskStateConfig stateBasePath = do
+    globalAccountMap <- LMDBAccountMap.openDatabase (stateBasePath </> "accountmap")
+    return DiskStateConfig{..}
 
 -- | Configuration information for a multi-version runner.
 --  The type parameter defines the finalization configuration, and should be an instance of
@@ -188,14 +197,13 @@ globalStateConfig ::
     DiskStateConfig ->
     RuntimeParameters ->
     GenesisIndex ->
-    -- | Absolute height of the genesis block.
-    AbsoluteBlockHeight ->
     GlobalStateConfig
-globalStateConfig DiskStateConfig{..} rtp gi _ =
+globalStateConfig DiskStateConfig{..} rtp gi =
     ( GlobalStateConfig
         { dtdbRuntimeParameters = rtp,
           dtdbTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
-          dtdbBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat"
+          dtdbBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
+          gscAccountMap = globalAccountMap
         }
     )
 
@@ -209,7 +217,8 @@ globalStateConfigV1 DiskStateConfig{..} rtp gi =
     ( SkovV1.GlobalStateConfig
         { gscRuntimeParameters = rtp,
           gscTreeStateDirectory = stateBasePath </> ("treestate-" ++ show gi),
-          gscBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat"
+          gscBlockStateFile = stateBasePath </> ("blockstate-" ++ show gi) <.> "dat",
+          gscAccountMap = globalAccountMap
         }
     )
 
@@ -289,7 +298,7 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
                 let isHomeBaked = case nodeBakerIdMaybe of
                         Nothing -> False
                         Just nodeBakerId ->
-                            KonsensusV1.Present nodeBakerId
+                            Present nodeBakerId
                                 == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData block)
                 liftIO (notifyCallback (getHash block) height isHomeBaked)
 
@@ -304,7 +313,7 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
                         let isHomeBaked = case nodeBakerIdMaybe of
                                 Nothing -> False
                                 Just nodeBakerId ->
-                                    KonsensusV1.Present nodeBakerId
+                                    Present nodeBakerId
                                         == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
                         liftIO (notifyCallback (getHash bp) height isHomeBaked)
         checkForProtocolUpdateV1
@@ -637,7 +646,6 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                                         mvcStateConfig
                                         mvcRuntimeParameters
                                         vc0Index
-                                        genesisHeight
                                     )
                                     mvcFinalizationConfig
                                     UpdateHandler
@@ -739,7 +747,6 @@ checkForProtocolUpdateV0 = liftSkov body
                                         (mvcStateConfig mvConfiguration)
                                         (mvcRuntimeParameters mvConfiguration)
                                         vc0Index
-                                        vc0GenesisHeight
                                     )
                                     (mvcFinalizationConfig mvConfiguration)
                                     UpdateHandler
@@ -1171,7 +1178,6 @@ startupSkov genesis = do
                                     mvcStateConfig
                                     mvcRuntimeParameters
                                     genIndex
-                                    genHeight
                                 )
                                 mvcFinalizationConfig
                                 UpdateHandler
@@ -1429,7 +1435,10 @@ shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
     -- Acquire the write lock. This prevents further updates, as they will block.
     takeMVar mvWriteLock
     versions <- readIORef mvVersions
+    -- Shut down the consensus databases.
     runLoggerT (forM_ versions evcShutdown) mvLog
+    -- Shut down the global account map.
+    LMDBAccountMap.closeDatabase (globalAccountMap (mvcStateConfig mvConfiguration))
 
 -- | Lift a version-0 consensus skov action to the 'MVR' monad, running it on a
 --  particular 'VersionedConfigurationV0'. Note that this does not

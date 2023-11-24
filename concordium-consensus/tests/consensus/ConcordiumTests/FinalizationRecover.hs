@@ -16,6 +16,7 @@ import Concordium.Startup
 import Concordium.Types.ProtocolVersion
 
 import Concordium.GlobalState
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.DummyData as Dummy
@@ -36,8 +37,10 @@ type PV = 'P1
 dummyArs :: AnonymityRevokers
 dummyArs = emptyAnonymityRevokers
 
-makeGlobalStateConfig :: FilePath -> RuntimeParameters -> GlobalStateConfig
-makeGlobalStateConfig tempDir rt = GlobalStateConfig rt tempDir (tempDir </> "data" <.> "blob")
+makeGlobalStateConfig :: FilePath -> RuntimeParameters -> IO GlobalStateConfig
+makeGlobalStateConfig tempDir rt = do
+    accountMap <- LMDBAccountMap.openDatabase (tempDir </> "accountmap")
+    return $ GlobalStateConfig rt tempDir (tempDir </> "data" <.> "blob") accountMap
 
 genesis :: Word -> (GenesisData PV, [(BakerIdentity, FullBakerInfo)], Amount)
 genesis nBakers =
@@ -80,7 +83,8 @@ setup nBakers = withTempDirectory "." "tmp-consensus-data" $ \tempDir -> do
                 fullBakers
                 genTotal
     let finInstances = map (makeFinalizationInstance . fst) bakers
-    (gsc, gss) <- runSilentLogger (initialiseGlobalState genData $ makeGlobalStateConfig tempDir defaultRuntimeParameters)
+    gsConfig <- makeGlobalStateConfig tempDir defaultRuntimeParameters
+    (gsc, gss) <- runSilentLogger (initialiseGlobalState genData gsConfig)
     active <- forM finInstances (\inst -> (initialState inst,) <$> runSilentLogger (getFinalizationState (Just inst) gsc gss))
     passive <- (initialPassiveState,) <$> runSilentLogger (getFinalizationState Nothing gsc gss)
     return $ passive : active

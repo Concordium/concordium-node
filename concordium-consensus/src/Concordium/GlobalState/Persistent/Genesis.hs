@@ -17,6 +17,7 @@ import qualified Concordium.Genesis.Data.P3 as P3
 import qualified Concordium.Genesis.Data.P4 as P4
 import qualified Concordium.Genesis.Data.P5 as P5
 import qualified Concordium.Genesis.Data.P6 as P6
+import qualified Concordium.Genesis.Data.P7 as P7
 import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as Basic
 import qualified Concordium.GlobalState.CapitalDistribution as CapDist
 import qualified Concordium.GlobalState.Persistent.Account as Account
@@ -74,6 +75,9 @@ genesisState gd = MTL.runExceptT $ case Types.protocolVersion @pv of
     Types.SP6 -> case gd of
         GenesisData.GDP6 P6.GDP6Initial{..} ->
             buildGenesisBlockState (CGPV1 genesisCore) genesisInitialState
+    Types.SP7 -> case gd of
+        GenesisData.GDP7 P7.GDP7Initial{..} ->
+            buildGenesisBlockState (CGPV1 genesisCore) genesisInitialState
 
 -------- Types -----------
 
@@ -110,18 +114,20 @@ data AccumGenesisState pv = AccumGenesisState
 --------- Helper functions ----------
 
 -- | The initial value for accumulating data from genesis data accounts.
-initialAccumGenesisState :: AccumGenesisState pv
-initialAccumGenesisState =
-    AccumGenesisState
-        { agsAllAccounts = Accounts.emptyAccounts,
-          agsBakerIds = Trie.empty,
-          agsBakerKeys = Trie.empty,
-          agsTotal = 0,
-          agsStakedTotal = 0,
-          agsBakerInfoRefs = Vec.empty,
-          agsBakerStakes = Vec.empty,
-          agsBakerCapitals = Vec.empty
-        }
+initialAccumGenesisState :: (MTL.MonadIO m) => m (AccumGenesisState pv)
+initialAccumGenesisState = do
+    emptyAccs <- Accounts.emptyAccounts
+    return $
+        AccumGenesisState
+            { agsAllAccounts = emptyAccs,
+              agsBakerIds = Trie.empty,
+              agsBakerKeys = Trie.empty,
+              agsTotal = 0,
+              agsStakedTotal = 0,
+              agsBakerInfoRefs = Vec.empty,
+              agsBakerStakes = Vec.empty,
+              agsBakerCapitals = Vec.empty
+            }
 
 -- | Construct a hashed persistent block state from the data in genesis.
 -- The result is immediately flushed to disc and cached.
@@ -132,8 +138,9 @@ buildGenesisBlockState ::
     GenesisData.GenesisState pv ->
     MTL.ExceptT String m (BS.HashedPersistentBlockState pv, TransactionTable.TransactionTable)
 buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
+    initState <- initialAccumGenesisState
     -- Iterate the accounts in genesis once and accumulate all relevant information.
-    AccumGenesisState{..} <- Vec.ifoldM' accumStateFromGenesisAccounts initialAccumGenesisState genesisAccounts
+    AccumGenesisState{..} <- Vec.ifoldM' accumStateFromGenesisAccounts initState genesisAccounts
 
     -- Birk parameters
     persistentBirkParameters :: BS.PersistentBirkParameters pv <- do
@@ -258,7 +265,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                 genesisChainParameters
                 genesisAccount
         -- Insert the account
-        (maybeIndex, nextAccounts0) <- Accounts.putNewAccount persistentAccount $ agsAllAccounts state
+        (maybeIndex, nextAccounts0) <- Accounts.putNewAccount persistentAccount (agsAllAccounts state)
         nextAccounts <- case maybeIndex of
             Nothing -> MTL.throwError "Duplicate account address in genesis accounts."
             Just ai ->

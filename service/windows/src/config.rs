@@ -154,6 +154,25 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             );
             let baker_credentials =
                 toml_get_as!(as_str, &node, "baker_credentials").map(make_relative_path);
+            let validator_credentials =
+                toml_get_as!(as_str, &node, "validator_credentials").map(make_relative_path);
+            // In order to support legacy configuration files we support both
+            // baker_credentials and validator_credentials.
+            // We allow both, but to prevent errors we mandate that if both options are
+            // supplied they are consistent.
+            let baker_credentials = match (baker_credentials, validator_credentials) {
+                (Some(bcred), Some(vcred)) => {
+                    anyhow::ensure!(
+                        bcred == vcred,
+                        "Both `baker_credentials` and `validator_credentials` are specified, and \
+                         different."
+                    );
+                    Some(bcred)
+                }
+                (baker_credentials, validator_credentials) => {
+                    baker_credentials.or(validator_credentials)
+                }
+            };
             let log_config = if let Some(config) = toml_get_as!(as_str, &node, "log", "config") {
                 LoggerConfig::Config(make_relative_path(config))
             } else if let Some(log_path) = toml_get_as!(as_str, &node, "log", "path") {
@@ -175,16 +194,6 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             let log_level = toml_get_as!(as_str, &node, "log", "level")
                 .or_else(|| toml_get_as!(as_str, &common, "log", "level"))
                 .and_then(|level| Level::from_str(level).ok());
-            let rpc_address = if let Some(ip_str) = toml_get_as!(as_str, &node, "rpc", "ip") {
-                Some(ip_str.parse()?)
-            } else {
-                None
-            };
-            let rpc_port = if let Some(port) = toml_get_as!(as_integer, &node, "rpc", "port") {
-                Some(u16::try_from(port)?)
-            } else {
-                None
-            };
             let grpc2_address = if let Some(ip_str) = toml_get_as!(as_str, &node, "grpc2", "ip") {
                 Some(ip_str.parse()?)
             } else {
@@ -195,9 +204,6 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             } else {
                 None
             };
-            let rpc_token = toml_get_as!(as_str, &node, "rpc", "token")
-                .or_else(|| toml_get_as!(as_str, &common, "rpc", "token"))
-                .map(String::from);
             let listen_address = if let Some(ip_str) = toml_get_as!(as_str, &node, "listen", "ip") {
                 Some(ip_str.parse()?)
             } else {
@@ -269,9 +275,6 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
                 config_dir,
                 data_dir,
                 baker_credentials,
-                rpc_address,
-                rpc_port,
-                rpc_token,
                 grpc2_address,
                 grpc2_port,
                 listen_address,

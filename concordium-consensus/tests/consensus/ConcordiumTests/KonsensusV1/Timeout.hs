@@ -40,6 +40,7 @@ import Concordium.Startup
 import Concordium.Types
 import Concordium.Types.BakerIdentity
 import qualified Concordium.Types.DummyData as Dummy
+import Concordium.Types.Option
 import ConcordiumTests.KonsensusV1.Common
 import ConcordiumTests.KonsensusV1.TreeStateTest hiding (tests)
 import ConcordiumTests.KonsensusV1.Types hiding (tests)

@@ -36,6 +36,7 @@ import Concordium.Types.DummyData
 import Concordium.Types.SeedState
 
 import Concordium.Birk.Bake
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.PoolRewards (BakerPoolRewardDetails (transactionFeesAccrued))
 import Concordium.GlobalState.BlockPointer (BlockPointer (_bpState))
@@ -336,9 +337,10 @@ withPersistentState pbsc is f =
 
 createGlobalState :: (IsProtocolVersion pv, IsConsensusV0 pv) => FilePath -> IO (PersistentBlockStateContext pv, MyPersistentTreeState pv)
 createGlobalState dbDir = do
+    accMap <- LMDBAccountMap.openDatabase (dbDir </> "accountmap")
     let
         n = 5
-        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat")
+        config = GlobalStateConfig defaultRuntimeParameters dbDir (dbDir </> "blockstate" <.> "dat") accMap
     (x, y) <- runSilentLogger $ initialiseGlobalState (genesis n ^. _1) config
     return (x, y)
 

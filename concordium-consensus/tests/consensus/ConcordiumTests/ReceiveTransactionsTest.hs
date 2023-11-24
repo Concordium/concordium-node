@@ -243,8 +243,8 @@ runTestSkovQueryMonad' :: TestSkovQueryMonad a -> UTCTime -> GenesisData PV -> I
 runTestSkovQueryMonad' act time gd = do
     withTempDirectory "." "treestate" $ \tsDir -> do
         Blob.runBlobStoreTemp "." $
-            BS.withNewAccountCache 1000 $ do
-                initState <- runPersistentBlockStateMonad $ initialData tsDir
+            BS.withNewAccountCacheAndLMDBAccountMap 1000 "accountmap" $ do
+                initState <- runNoLoggerT $ runPersistentBlockStateMonad $ initialData tsDir
                 runDeterministic (runNoLoggerT (runStateT (runPersistentBlockStateMonad . runPersistentTreeStateMonad . runSkovQueryMonad $ act) initState)) time
   where
     initialData ::
@@ -252,7 +252,7 @@ runTestSkovQueryMonad' act time gd = do
         BS.PersistentBlockStateMonad
             PV
             (BS.PersistentBlockStateContext PV)
-            (Blob.BlobStoreM' (BS.PersistentBlockStateContext PV))
+            (NoLoggerT (Blob.BlobStoreM' (BS.PersistentBlockStateContext PV)))
             TestSkovState
     initialData tsDir = do
         (bs, genTT) <-
