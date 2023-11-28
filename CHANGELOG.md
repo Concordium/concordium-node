@@ -2,9 +2,12 @@
 
 ## Unreleased changes
 
+- Fix a bug where `GetBlockPendingUpdates` fails to report pending updates to the finalization
+  committee parameters.
+
 ## 6.2.3
 
-- Fix an bug that caused the node to crash on Windows when processing a protocol update.
+- Fix a bug that caused the node to crash on Windows when processing a protocol update.
 
 ## 6.2.2
 

@@ -822,6 +822,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
                 `merge` queueMapperOptional PUETimeoutParameters _pTimeoutParametersQueue
                 `merge` queueMapperOptional PUEMinBlockTime _pMinBlockTimeQueue
                 `merge` queueMapperOptional PUEBlockEnergyLimit _pBlockEnergyLimitQueue
+                `merge` queueMapperOptional PUEFinalizationCommitteeParameters _pFinalizationCommitteeParametersQueue
           where
             cpv :: SChainParametersVersion cpv
             cpv = chainParametersVersion
