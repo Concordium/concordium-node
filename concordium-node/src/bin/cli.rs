@@ -12,7 +12,7 @@ static A: System = System;
 use anyhow::Context;
 use concordium_node::{
     common::PeerType,
-    configuration::{self as config, AppPreferences, Config},
+    configuration as config,
     consensus_ffi::{
         consensus::{
             ConsensusContainer, ConsensusLogLevel, Regenesis, CALLBACK_QUEUE,
@@ -58,7 +58,10 @@ fn main() -> anyhow::Result<()> {
     runtime.block_on(main_worker(conf, app_prefs))
 }
 
-async fn main_worker(conf: Config, mut app_prefs: AppPreferences) -> anyhow::Result<()> {
+async fn main_worker(
+    conf: config::Config,
+    mut app_prefs: config::AppPreferences,
+) -> anyhow::Result<()> {
     let stats_export_service = instantiate_stats_export_engine(&conf.prometheus)?;
     let regenesis_arc: Arc<Regenesis> = Arc::new(Default::default());
 
