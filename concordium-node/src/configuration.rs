@@ -538,6 +538,12 @@ pub struct GRPC2Config {
         default_value = "20"
     )]
     pub keepalive_timeout: u64,
+    #[structopt(
+        long = "grpc2-num-threads",
+        help = "Maximum number of threads to use for handling grpc2 queries. If not set defaults to number of (logical) CPUs",
+        env = "CONCORDIUM_NODE_GRPC2_NUM_THREADS",
+    )]
+    pub num_threads: Option<usize>,
 }
 
 impl GRPC2Config {

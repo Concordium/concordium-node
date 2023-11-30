@@ -12,7 +12,7 @@ static A: System = System;
 use anyhow::Context;
 use concordium_node::{
     common::PeerType,
-    configuration as config,
+    configuration::{self as config, AppPreferences, Config},
     consensus_ffi::{
         consensus::{
             ConsensusContainer, ConsensusLogLevel, Regenesis, CALLBACK_QUEUE,
@@ -47,10 +47,18 @@ use tokio::sync::broadcast;
 use concordium_node::stats_export_service::start_push_gateway;
 use std::net::SocketAddr;
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let (conf, mut app_prefs) = get_config_and_logging_setup()?;
+fn main() -> anyhow::Result<()> {
+    let (conf, app_prefs) = get_config_and_logging_setup()?;
+    let num_blocking_threads = conf.cli.grpc2.num_threads.unwrap_or_else(num_cpus::get);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .max_blocking_threads(num_blocking_threads)
+        .build()
+        .context("Unable to start the node.")?;
+    runtime.block_on(main_worker(conf, app_prefs))
+}
 
+async fn main_worker(conf: Config, mut app_prefs: AppPreferences) -> anyhow::Result<()> {
     let stats_export_service = instantiate_stats_export_engine(&conf.prometheus)?;
     let regenesis_arc: Arc<Regenesis> = Arc::new(Default::default());
 

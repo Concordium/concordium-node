@@ -627,7 +627,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base"
-version = "3.1.1"
+version = "3.2.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -716,6 +716,7 @@ dependencies = [
  "mio 0.7.14",
  "nohash-hasher",
  "noiseexplorer_xx",
+ "num_cpus",
  "preferences",
  "prometheus",
  "prost",

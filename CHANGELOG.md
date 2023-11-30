@@ -4,6 +4,12 @@
 
 - Fix a bug where `GetBlockPendingUpdates` fails to report pending updates to the finalization
   committee parameters.
+- Run GRPC queries in blocking threads. This improves node resource management
+  and increases responsiveness of the GRPC server in cases of high number of
+  concurrent queries. To support this a new configuration option
+  `CONCORDIUM_NODE_GRPC2_NUM_THREADS` is added to determine the number of
+  threads available for handling GRPC queries. If not set this defaults to the
+  number of (logical) CPUs.
 
 ## 6.2.3
 
