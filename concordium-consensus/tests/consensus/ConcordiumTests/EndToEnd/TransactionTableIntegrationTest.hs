@@ -45,7 +45,7 @@ transfer2 :: BlockItem
 transfer2 = normalTransaction $ addMetadata (\x -> NormalTransaction{biTransaction = x}) 1001 (biTransaction $ mkTransferTransaction 2)
 
 -- | Valid block for round 1 with 1 normal transfer
-testBB1 :: BakedBlock
+testBB1 :: BakedBlock PV
 testBB1 =
     BakedBlock
         { bbRound = 1,
@@ -65,7 +65,7 @@ testBB1 =
 
 -- | Valid block for round 2.
 --  This block carries a QC for 'testBB1' thus certifying it.
-testBB2 :: BakedBlock
+testBB2 :: BakedBlock PV
 testBB2 =
     BakedBlock
         { bbRound = 2,
@@ -85,7 +85,7 @@ testBB2 =
 
 -- | Valid block for round 3, finalizes 'testBB1' as this block
 --  carries a QC for 'testBB2'.
-testBB3 :: BakedBlock
+testBB3 :: BakedBlock PV
 testBB3 =
     BakedBlock
         { bbRound = 3,
@@ -104,7 +104,7 @@ testBB3 =
     bakerId = 4
 
 -- | Valid block for round 4 with 1 normal transfer
-testBB4 :: BakedBlock
+testBB4 :: BakedBlock PV
 testBB4 =
     BakedBlock
         { bbRound = 4,

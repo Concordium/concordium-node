@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -87,6 +88,7 @@ import Concordium.Scheduler.DummyData
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
+import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 
 -- konsensus v1 related imports.
@@ -167,7 +169,7 @@ dummyBakedBlock ::
     -- | The timestamp of the block
     Timestamp ->
     -- | The empty baked block
-    BakedBlock
+    BakedBlock pv
 dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
   where
     bbEpoch = 0
@@ -183,6 +185,7 @@ dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
 -- | Create a 'SignedBlock' by signing the
 --  'dummyBakedBlock' with 'dummySignKeys'
 dummySignedBlock ::
+    (IsProtocolVersion pv) =>
     -- | 'BlockHash' of the parent
     BlockHash ->
     -- | 'Round' of the block
@@ -190,18 +193,19 @@ dummySignedBlock ::
     -- | Timestamp of the block
     Timestamp ->
     -- | The signed block
-    SignedBlock
+    SignedBlock pv
 dummySignedBlock parentHash rnd = signBlock dummySignKeys dummyGenesisBlockHash . dummyBakedBlock parentHash rnd
 
 -- | Construct a 'PendingBlock' for the provided 'Round' where the
 --  parent is indicated by the provided 'BlockHash'.
 dummyPendingBlock ::
+    (IsProtocolVersion pv) =>
     -- | Parent 'BlockHash'
     BlockHash ->
     -- | The 'Timestamp' of the block
     Timestamp ->
     -- | The resulting 'PendingBlock'
-    PendingBlock
+    PendingBlock pv
 dummyPendingBlock parentHash ts =
     PendingBlock
         { pbBlock = dummySignedBlock parentHash 1 ts,
@@ -210,6 +214,7 @@ dummyPendingBlock parentHash ts =
 
 -- | A 'BlockPointer' referrring to the 'dummySignedBlock' for the provided 'Round'
 dummyBlock ::
+    (IsProtocolVersion pv) =>
     -- | 'Round' of the block that the created 'BlockPointer' should point to.
     Round ->
     -- | The 'BlockPointer'
@@ -325,15 +330,15 @@ runTestLLDB initDB a = do
 
 -- Test values
 
-genB :: BlockPointer pv
+genB :: BlockPointer 'P6
 genB = dummyBlock 0
-lastFin :: BlockPointer pv
+lastFin :: BlockPointer 'P6
 lastFin = dummyBlock 20
-testB :: BlockPointer pv
+testB :: BlockPointer 'P6
 testB = dummyBlock 21
-focusB :: BlockPointer pv
+focusB :: BlockPointer 'P6
 focusB = dummyBlock 22
-pendingB :: PendingBlock
+pendingB :: PendingBlock 'P6
 pendingB = dummyPendingBlock (BlockHash minBound) 33
 deadH :: BlockHash
 deadH = BlockHash (Hash.hash "DeadBlock")
@@ -354,9 +359,8 @@ toStoredBlock BlockPointer{..} =
 --
 --  * 'testB' (alive)
 --  * 'focusB' (parent is 'testB')
---  * 'pendingB' (pending)
 --  * the block indicated by 'deadH' has added to the dead cache.
-skovDataWithTestBlocks :: SkovData pv
+skovDataWithTestBlocks :: SkovData 'P6
 skovDataWithTestBlocks =
     dummyInitialSkovData
         & lastFinalized .~ lastFin
@@ -372,7 +376,7 @@ skovDataWithTestBlocks =
                )
 
 -- | A test 'LowLevelDB' with the genesis block.
-lldbWithGenesis :: LowLevelDB pv
+lldbWithGenesis :: LowLevelDB 'P6
 lldbWithGenesis =
     initialLowLevelDB
         sb
@@ -406,7 +410,7 @@ testGetBlockStatus = describe "getBlockStatus" $ do
     it "unknown block" $ getStatus unknownH BlockUnknown
   where
     getStatus bh expect = do
-        s <- runTestLLDB (lldbWithGenesis @'P6) $ getBlockStatus bh sd
+        s <- runTestLLDB lldbWithGenesis $ getBlockStatus bh sd
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
@@ -424,7 +428,7 @@ testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
     it "unknown block" $ getStatus unknownH $ RecentBlock BlockUnknown
   where
     getStatus bh expect = do
-        s <- runTestLLDB (lldbWithGenesis @'P6) $ getRecentBlockStatus bh sd
+        s <- runTestLLDB lldbWithGenesis $ getRecentBlockStatus bh sd
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
@@ -612,7 +616,7 @@ testLookupTransaction = describe "lookupTransaction" $ do
                 %~ addTrans 2
                     . addTrans 3
     db =
-        (lldbWithGenesis @'P6)
+        lldbWithGenesis
             { lldbTransactions = HM.fromList [(txHash 1, FinalizedTransactionStatus 1 0)]
             }
     lookupAndCheck hsh expectedOutcome = do
@@ -621,7 +625,7 @@ testLookupTransaction = describe "lookupTransaction" $ do
 
 -- | Testing 'getNonFinalizedAccountTransactions'
 --  This test ensures that:
---  * An existing non finalized account transction can be looked up
+--  * An existing non finalized account transaction can be looked up
 --  * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testGetNonFinalizedAccountTransactions :: Spec
 testGetNonFinalizedAccountTransactions = describe "getNonFinalizedAccountTransactions" $ do

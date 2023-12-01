@@ -491,7 +491,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
             & currentTimeoutMessages .~ Present (TimeoutMessages 0 (Map.singleton (FinalizerIndex 1) duplicateMessage) Map.empty)
     -- A low level database which consists of a finalized block for height 0 otherwise empty.
     lldb =
-        let myLLDB = lldbWithGenesis @'P6
+        let myLLDB = lldbWithGenesis
         in  myLLDB{lldbBlocks = HM.singleton someOldFinalizedBlockHash $ toStoredBlock (dummyBlock 20)}
     -- receive the timeout message in the provided tree state context and
     -- check that the result is as expected.

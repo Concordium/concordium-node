@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -34,7 +35,7 @@ import qualified Concordium.Types.Transactions as Transactions
 
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBT)
+import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBTV0)
 import Concordium.GlobalState.BlockState (TransactionSummaryV1)
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.KonsensusV1.Consensus
@@ -48,6 +49,9 @@ import Concordium.KonsensusV1.Types
 import Concordium.Startup
 import Concordium.TimerMonad
 import Concordium.Types.Option
+import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
+
+type PV = 'P6
 
 maxBaker :: (Integral a) => a
 maxBaker = 5
@@ -122,7 +126,7 @@ theFinalizers = [0 .. maxBaker]
 allFinalizers :: FinalizerSet
 allFinalizers = finalizerSet $ FinalizerIndex <$> [0 .. maxBaker]
 
-validQCFor :: BakedBlock -> QuorumCertificate
+validQCFor :: (IsProtocolVersion pv) => BakedBlock pv -> QuorumCertificate
 validQCFor bb =
     QuorumCertificate
         { qcSignatories = allFinalizers,
@@ -142,10 +146,10 @@ validQCFor bb =
             }
     sig = fold [signQuorumSignatureMessage qsm (bakerAggKey i) | i <- theFinalizers]
 
-validSignBlock :: BakedBlock -> SignedBlock
+validSignBlock :: (IsProtocolVersion pv) => BakedBlock pv -> SignedBlock pv
 validSignBlock bb = signBlock (bakerKey (bbBaker bb)) genesisHash bb
 
-invalidSignBlock :: BakedBlock -> SignedBlock
+invalidSignBlock :: (IsProtocolVersion pv) => BakedBlock pv -> SignedBlock pv
 invalidSignBlock bb = signBlock (bakerKey (bbBaker bb)) (getHash bb) bb
 
 -- | Create a valid timeout message given a QC and a round.
@@ -203,25 +207,25 @@ timeoutMessagesFor qc curRound curEpoch = mkTm <$> bakers
 transactionOutcomesHash ::
     [TransactionSummaryV1] ->
     [Transactions.SpecialTransactionOutcome] ->
-    Transactions.TransactionOutcomesHash
+    TransactionOutcomes.TransactionOutcomesHash
 transactionOutcomesHash outcomes specialOutcomes =
-    Transactions.TransactionOutcomesHash $
+    TransactionOutcomes.TransactionOutcomesHash $
         H.hashShort $
             "TransactionOutcomesHashV1"
                 <> H.hashToShortByteString out
                 <> H.hashToShortByteString special
   where
     lfmbHash :: (HashableTo H.Hash a) => [a] -> H.Hash
-    lfmbHash = hashAsLFMBT (H.hash "EmptyLFMBTree") . fmap getHash
+    lfmbHash = hashAsLFMBTV0 (H.hash "EmptyLFMBTree") . fmap getHash
     out = lfmbHash outcomes
     special = lfmbHash specialOutcomes
 
 -- | Compute the transaction outcomes hash for a block with no transactions.
-emptyBlockTOH :: BakerId -> Transactions.TransactionOutcomesHash
+emptyBlockTOH :: BakerId -> TransactionOutcomes.TransactionOutcomesHash
 emptyBlockTOH bid = transactionOutcomesHash [] [BlockAccrueReward 0 0 0 0 0 0 bid]
 
 -- | Valid block for round 1.
-testBB1 :: BakedBlock
+testBB1 :: BakedBlock PV
 testBB1 =
     BakedBlock
         { bbRound = 1,
@@ -240,7 +244,7 @@ testBB1 =
     bakerId = 2
 
 -- | Valid block for round 2, descended from 'testBB1'.
-testBB2 :: BakedBlock
+testBB2 :: BakedBlock PV
 testBB2 =
     BakedBlock
         { bbRound = 2,
@@ -259,7 +263,7 @@ testBB2 =
     bakerId = 4
 
 -- | Valid block for round 3, descended from 'testBB2'.
-testBB3 :: BakedBlock
+testBB3 :: BakedBlock PV
 testBB3 =
     BakedBlock
         { bbRound = 3,
@@ -278,7 +282,7 @@ testBB3 =
     bakerId = 4
 
 -- | A valid block for round 2 where round 1 timed out.
-testBB2' :: BakedBlock
+testBB2' :: BakedBlock PV
 testBB2' =
     testBB2
         { bbQuorumCertificate = genQC,
@@ -289,7 +293,7 @@ testBB2' =
     genQC = genesisQuorumCertificate genesisHash
 
 -- | A valid block for round 3 descended from 'testBB2''.
-testBB3' :: BakedBlock
+testBB3' :: BakedBlock PV
 testBB3' =
     testBB3
         { bbQuorumCertificate = validQCFor testBB2',
@@ -297,7 +301,7 @@ testBB3' =
         }
 
 -- | A valid block for round 4 descended from 'testBB3''.
-testBB4' :: BakedBlock
+testBB4' :: BakedBlock PV
 testBB4' =
     BakedBlock
         { bbRound = 4,
@@ -316,7 +320,7 @@ testBB4' =
     bakerId = 3
 
 -- | A valid block for round 3 descended from the genesis block with a timeout for round 2.
-testBB3'' :: BakedBlock
+testBB3'' :: BakedBlock PV
 testBB3'' =
     testBB3
         { bbQuorumCertificate = genQC,
@@ -328,7 +332,7 @@ testBB3'' =
 
 -- | Valid block for round 1.
 --  This should be past the epoch transition trigger time.
-testBB1E :: BakedBlock
+testBB1E :: BakedBlock PV
 testBB1E =
     BakedBlock
         { bbRound = 1,
@@ -347,7 +351,7 @@ testBB1E =
     bakerId = 2
 
 -- | Valid block for round 2. Descends from 'testBB1E'.
-testBB2E :: BakedBlock
+testBB2E :: BakedBlock PV
 testBB2E =
     BakedBlock
         { bbRound = 2,
@@ -368,7 +372,7 @@ testBB2E =
 -- | A block that is valid for round 3, descending from 'testBB2E', but which should not be validated
 --  by a finalizer because it is in epoch 0. With the QC for 'testBB2E', a finalizer should move into
 --  epoch 1, and thus refuse to validate this block.
-testBB3EX :: BakedBlock
+testBB3EX :: BakedBlock PV
 testBB3EX =
     BakedBlock
         { bbRound = 3,
@@ -403,7 +407,7 @@ testEpochLEN = nonceForNewEpoch genesisFullBakers $ upd testBB1E genesisSeedStat
 
 -- | Valid block for round 3, epoch 1. Descends from 'testBB2E'. The finalization entry is
 --  'testEpochFinEntry'.
-testBB3E :: BakedBlock
+testBB3E :: BakedBlock PV
 testBB3E =
     BakedBlock
         { bbRound = 3,
@@ -425,7 +429,7 @@ testBB3E =
 --  'testEpochFinEntry'. The block contains a valid timeout certificate for round 2.
 --  The block is not valid, because the highest round in the finalization entry is lower than the
 --  round of the parent block.
-testBB3E' :: BakedBlock
+testBB3E' :: BakedBlock PV
 testBB3E' =
     testBB3E
         { bbQuorumCertificate = validQCFor testBB1E,
@@ -433,7 +437,7 @@ testBB3E' =
         }
 
 -- | Valid block for round 3, epoch 1. Descends from 'testBB3E'.
-testBB4E :: BakedBlock
+testBB4E :: BakedBlock PV
 testBB4E =
     BakedBlock
         { bbRound = 4,
@@ -453,7 +457,7 @@ testBB4E =
 
 -- | Valid block for round 4 epoch 1. Descends from 'testBB2E', with finalization entry
 --  'testEpochFinEntry'. The block contains a valid timeout for round 3.
-testBB4E' :: BakedBlock
+testBB4E' :: BakedBlock PV
 testBB4E' =
     testBB4E
         { bbQuorumCertificate = validQCFor testBB2E,
@@ -464,7 +468,7 @@ testBB4E' =
 
 -- | Valid block for round 5, epoch 1. Descends from 'testBB3E'. The timeout certificate for round
 --  4 spans epoch 0 and 1.
-testBB5E' :: BakedBlock
+testBB5E' :: BakedBlock PV
 testBB5E' =
     BakedBlock
         { bbRound = rnd,
@@ -505,7 +509,7 @@ testBB5E' =
     finsA = take 3 [0 .. maxBaker]
     finsB = drop 3 [0 .. maxBaker]
 
-testBB2Ex :: BakedBlock
+testBB2Ex :: BakedBlock PV
 testBB2Ex =
     testBB2E
         { bbQuorumCertificate = genQC,
@@ -521,7 +525,7 @@ testEpochLENx = nonceForNewEpoch genesisFullBakers $ upd testBB2Ex genesisSeedSt
   where
     upd b = updateSeedStateForBlock (bbTimestamp b) (bbNonce b) False
 
-testBB3Ex :: BakedBlock
+testBB3Ex :: BakedBlock PV
 testBB3Ex =
     BakedBlock
         { bbRound = 3,
@@ -540,7 +544,7 @@ testBB3Ex =
     bakerId = 2
 
 -- | Valid block in round 3 descended from 'testBB1E' with a timeout.
-testBB3EA :: BakedBlock
+testBB3EA :: BakedBlock PV
 testBB3EA =
     BakedBlock
         { bbRound = 3,
@@ -560,7 +564,7 @@ testBB3EA =
 
 -- | Valid block in round 4, epoch 1, descended from 'testBB3EA', with a finalization proof based on
 --  'testBB2E'.
-testBB4EA :: BakedBlock
+testBB4EA :: BakedBlock PV
 testBB4EA =
     BakedBlock
         { bbRound = 4,
@@ -578,7 +582,7 @@ testBB4EA =
   where
     bakerId = 1
 
-succeedReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
+succeedReceiveBlock :: PendingBlock 'P6 -> TestMonad 'P6 ()
 succeedReceiveBlock pb = do
     res <- uponReceivingBlock pb
     case res of
@@ -597,7 +601,7 @@ succeedReceiveBlock pb = do
                 _ -> liftIO . assertFailure $ "Expected OnBlock event on executeBlock, but saw: " ++ show events
         _ -> liftIO . assertFailure $ "Expected BlockResultSuccess after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
 
-duplicateReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
+duplicateReceiveBlock :: PendingBlock 'P6 -> TestMonad 'P6 ()
 duplicateReceiveBlock pb = do
     res <- uponReceivingBlock pb
     case res of
@@ -609,7 +613,7 @@ duplicateReceiveBlock pb = do
                 _ -> liftIO . assertFailure $ "Expected BlockAlive after executeBlock, but found: " ++ show status ++ "\n" ++ show pb
         _ -> liftIO . assertFailure $ "Expected BlockResultDoubleSign after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
 
-succeedReceiveBlockFailExecute :: PendingBlock -> TestMonad 'P6 ()
+succeedReceiveBlockFailExecute :: PendingBlock 'P6 -> TestMonad 'P6 ()
 succeedReceiveBlockFailExecute pb = do
     res <- uponReceivingBlock pb
     case res of
@@ -622,7 +626,7 @@ succeedReceiveBlockFailExecute pb = do
                 _ -> liftIO . assertFailure $ "Expected BlockUnknown or BlockDead after executeBlock, but found: " ++ show status ++ "\n" ++ show pb
         _ -> liftIO . assertFailure $ "Expected BlockResultSuccess after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
 
-duplicateReceiveBlockFailExecute :: PendingBlock -> TestMonad 'P6 ()
+duplicateReceiveBlockFailExecute :: PendingBlock 'P6 -> TestMonad 'P6 ()
 duplicateReceiveBlockFailExecute pb = do
     res <- uponReceivingBlock pb
     case res of
@@ -635,24 +639,24 @@ duplicateReceiveBlockFailExecute pb = do
                 _ -> liftIO . assertFailure $ "Expected BlockUnknown or BlockDead after executeBlock, but found: " ++ show status ++ "\n" ++ show pb
         _ -> liftIO . assertFailure $ "Expected BlockResultDoubleSign after uponReceivingBlock, but found: " ++ show res ++ "\n" ++ show pb
 
-pendingReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
+pendingReceiveBlock :: PendingBlock 'P6 -> TestMonad 'P6 ()
 pendingReceiveBlock pb = do
     res <- uponReceivingBlock pb
     case res of
         BlockResultPending -> return ()
         _ -> liftIO . assertFailure $ "Expected BlockResultPending after uponReceivingBlock, but found: " ++ show res
 
-staleReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
+staleReceiveBlock :: PendingBlock 'P6 -> TestMonad 'P6 ()
 staleReceiveBlock sb = do
     res <- uponReceivingBlock sb
     liftIO $ res `shouldBe` BlockResultStale
 
-invalidReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
+invalidReceiveBlock :: PendingBlock 'P6 -> TestMonad 'P6 ()
 invalidReceiveBlock sb = do
     res <- uponReceivingBlock sb
     liftIO $ res `shouldBe` BlockResultInvalid
 
-earlyReceiveBlock :: PendingBlock -> TestMonad 'P6 ()
+earlyReceiveBlock :: PendingBlock 'P6 -> TestMonad 'P6 ()
 earlyReceiveBlock sb = do
     res <- uponReceivingBlock sb
     liftIO $ res `shouldBe` BlockResultEarly
@@ -696,7 +700,7 @@ checkDead b =
   where
     bh = getHash b
 
-signedPB :: BakedBlock -> PendingBlock
+signedPB :: (IsProtocolVersion pv) => BakedBlock pv -> PendingBlock pv
 signedPB bb =
     PendingBlock
         { pbReceiveTime = timestampToUTCTime $ bbTimestamp bb,

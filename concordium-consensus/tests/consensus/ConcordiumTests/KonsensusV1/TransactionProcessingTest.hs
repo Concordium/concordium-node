@@ -63,6 +63,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Option
 import Concordium.Types.Parameters
+import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 
 import Concordium.GlobalState.Transactions
@@ -455,7 +456,7 @@ testProcessBlockItems = describe "processBlockItems" $ do
     -- This block is not valid or makes much sense in the context
     -- of a chain. But it does have transactions and that is what we care
     -- about in this test.
-    blockToProcess :: [BlockItem] -> BakedBlock
+    blockToProcess :: [BlockItem] -> BakedBlock 'P6
     blockToProcess txs =
         let bbRound = 1
             bbEpoch = 0

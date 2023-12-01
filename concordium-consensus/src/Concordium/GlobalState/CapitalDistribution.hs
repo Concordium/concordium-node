@@ -1,3 +1,9 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+
 -- | This module contains common types for representing the capital distribution of bakers and
 --  delegators.  A snapshot of the capital distribution is taken when the bakers for a payday are
 --  calculated.  This is then used to determine how rewards are distributed among the bakers and
@@ -5,6 +11,7 @@
 module Concordium.GlobalState.CapitalDistribution where
 
 import Data.Serialize
+import Data.Singletons
 import qualified Data.Vector as Vec
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -61,14 +68,21 @@ instance Serialize BakerCapital where
         bcDelegatorCapital <- flip Vec.generateM (const get) =<< getLength
         return BakerCapital{..}
 
-instance HashableTo Hash.Hash BakerCapital where
-    getHash BakerCapital{..} = Hash.hash $
-        runPut $ do
-            put bcBakerId
-            put bcBakerEquityCapital
-            put $ LFMBT.hashFromFoldable bcDelegatorCapital
+newtype BakerCapitalHash' (bhv :: BlockHashVersion) = BakerCapitalHash
+    { theBakerCapitalHash :: Hash.Hash
+    }
+    deriving newtype (Eq, Ord, Show, Read, Serialize)
 
-instance (Monad m) => MHashableTo m Hash.Hash BakerCapital
+type BakerCapitalHash (pv :: ProtocolVersion) =
+    BakerCapitalHash' (BlockHashVersionFor pv)
+
+instance (IsBlockHashVersion bhv) => HashableTo (BakerCapitalHash' bhv) BakerCapital where
+    getHash BakerCapital{..} = BakerCapitalHash . Hash.hash . runPut $ do
+        put bcBakerId
+        put bcBakerEquityCapital
+        put $ LFMBT.lfmbtHash (sing @bhv) bcDelegatorCapital
+
+instance (IsBlockHashVersion bhv, Monad m) => MHashableTo m (BakerCapitalHash' bhv) BakerCapital
 
 -- | The total capital delegated to the baker.
 bcTotalDelegatorCapital :: BakerCapital -> Amount
@@ -93,13 +107,30 @@ instance Serialize CapitalDistribution where
         passiveDelegatorsCapital <- flip Vec.generateM (const get) =<< getLength
         return CapitalDistribution{..}
 
-instance HashableTo Hash.Hash CapitalDistribution where
-    getHash CapitalDistribution{..} =
-        Hash.hashOfHashes
-            (LFMBT.hashFromFoldable bakerPoolCapital)
-            (LFMBT.hashFromFoldable passiveDelegatorsCapital)
+newtype CapitalDistributionHash' (bhv :: BlockHashVersion) = CapitalDistributionHash
+    { theCapitalDistributionHash :: Hash.Hash
+    }
+    deriving newtype (Eq, Ord, Show, Read, Serialize)
 
-instance (Monad m) => MHashableTo m Hash.Hash CapitalDistribution
+type CapitalDistributionHash (pv :: ProtocolVersion) =
+    CapitalDistributionHash' (BlockHashVersionFor pv)
+
+instance
+    (IsBlockHashVersion bhv) =>
+    HashableTo (CapitalDistributionHash' bhv) CapitalDistribution
+    where
+    getHash CapitalDistribution{..} =
+        CapitalDistributionHash $
+            Hash.hashOfHashes
+                (lfmbtHash (theBakerCapitalHash @bhv . getHash) bakerPoolCapital)
+                (lfmbtHash getHash passiveDelegatorsCapital)
+      where
+        lfmbtHash :: (a -> Hash.Hash) -> Vec.Vector a -> Hash.Hash
+        lfmbtHash gHash = LFMBT.theLFMBTreeHash . LFMBT.lfmbtHash' (sing @bhv) gHash
+
+instance
+    (IsBlockHashVersion bhv, Monad m) =>
+    MHashableTo m (CapitalDistributionHash' bhv) CapitalDistribution
 
 -- | The empty 'CapitalDistribution', with no bakers or passive delegators.
 emptyCapitalDistribution :: CapitalDistribution

@@ -186,7 +186,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
         Types.SAVDelegationSupported ->
             case Types.delegationChainParameters @pv of
                 Types.DelegationChainParameters -> do
-                    capRef :: Blob.HashedBufferedRef CapDist.CapitalDistribution <-
+                    capRef :: Blob.HashedBufferedRef' (CapDist.CapitalDistributionHash pv) CapDist.CapitalDistribution <-
                         Blob.refMakeFlushed
                             CapDist.CapitalDistribution
                                 { bakerPoolCapital = agsBakerCapitals,

@@ -61,16 +61,16 @@
 --  for keeping track of non persisted accounts for supporting e.g. queries via the ‘AccountAddress'.
 module Concordium.GlobalState.Persistent.Accounts where
 
-import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.AccountMap as OldMap
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.BlockState (AccountsHash (..))
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
-import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
+import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree', LFMBTreeHash, LFMBTreeHash' (..))
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.ID.Parameters
@@ -143,8 +143,10 @@ type SupportsPersistentAccount pv m =
       LMDBAccountMap.MonadAccountMapStore m
     )
 
-instance (SupportsPersistentAccount pv m) => MHashableTo m H.Hash (Accounts pv) where
-    getHashM Accounts{..} = getHashM accountTable
+instance (SupportsPersistentAccount pv m) => MHashableTo m (AccountsHash pv) (Accounts pv) where
+    getHashM Accounts{..} =
+        AccountsHash . theLFMBTreeHash
+            <$> getHashM @m @(LFMBTreeHash pv) accountTable
 
 -- | Write accounts created for this block or any non-persisted parent block.
 --  Note that this also empties the difference map for this block.

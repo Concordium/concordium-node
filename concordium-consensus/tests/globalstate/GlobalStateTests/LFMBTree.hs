@@ -66,9 +66,15 @@ testingFunction2 = do
             liftIO $ testElements'' `shouldBe` map Just ["A", "B", "Correct"] ++ [Nothing]
         )
 
-testHashAsLFMBT :: Property
-testHashAsLFMBT = forAll (fmap BS.pack <$> listOf (vector 10)) $ \bs ->
-    LFMBT.hashAsLFMBT (H.hash "EmptyLFMBTree") (getHash <$> bs) === getHash (LFMBT.fromFoldable @Word64 bs)
+testHashAsLFMBTV0 :: Property
+testHashAsLFMBTV0 = forAll (fmap BS.pack <$> listOf (vector 10)) $ \bs ->
+    LFMBT.hashAsLFMBTV0 (H.hash "EmptyLFMBTree") (getHash <$> bs)
+        === LFMBT.theLFMBTreeHash @'BlockHashVersion0 getHash (LFMBT.fromFoldable @Word64 bs)
+
+testHashAsLFMBTV1 :: Property
+testHashAsLFMBTV1 = forAll (fmap BS.pack <$> listOf (vector 10)) $ \bs ->
+    LFMBT.hashAsLFMBTV1 (H.hash "EmptyLFMBTree") (getHash <$> bs)
+        === LFMBT.theLFMBTreeHash @'BlockHashVersion1 getHash (LFMBT.fromFoldable @Word64 bs)
 
 tests :: Spec
 tests =
@@ -80,5 +86,8 @@ tests =
             "Using BufferedRef"
             testingFunction2
         it
-            "testHashAsLFMBT"
-            testHashAsLFMBT
+            "testHashAsLFMBTV0"
+            testHashAsLFMBTV0
+        it
+            "testHashAsLFMBTV1"
+            testHashAsLFMBTV1

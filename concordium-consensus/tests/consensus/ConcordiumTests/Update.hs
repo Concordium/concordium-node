@@ -35,7 +35,7 @@ import Concordium.GlobalState.Block
 import qualified Concordium.GlobalState.BlockPointer as BS
 import Concordium.GlobalState.Parameters
 import Concordium.Types.IdentityProviders
-import Concordium.Types.Transactions
+import Concordium.Types.TransactionOutcomes
 
 import Concordium.Logger
 

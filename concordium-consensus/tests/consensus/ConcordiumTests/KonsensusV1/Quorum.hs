@@ -207,7 +207,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
             & lastFinalized .~ finalizedBlockPointer (Round 0) 1
     -- Run the 'receiveQuorumMessage' action.
     receiveAndCheck skovData qm expect = do
-        resultCode <- runTestLLDB (lldbWithGenesis @'P6) $ receiveQuorumMessage qm skovData
+        resultCode <- runTestLLDB lldbWithGenesis $ receiveQuorumMessage qm skovData
         resultCode `shouldBe` expect
 
 tests :: Spec

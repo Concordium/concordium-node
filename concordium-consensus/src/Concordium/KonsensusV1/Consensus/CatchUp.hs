@@ -76,7 +76,7 @@ data CatchUpPartialResponse m
     = -- | The next block in the stream.
       CatchUpPartialResponseBlock
         { -- | Next block.
-          cuprNextBlock :: SignedBlock,
+          cuprNextBlock :: SignedBlock (MPV m),
           -- | Continuation for getting any further blocks.
           cuprContinue :: m (CatchUpPartialResponse m),
           -- | Continuation that gets the terminal data in the case where there are no further

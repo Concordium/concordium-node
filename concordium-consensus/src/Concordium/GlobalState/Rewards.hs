@@ -114,21 +114,24 @@ epochBlockHash bid h =
                 <> encode bid
                 <> H.hashToByteString (ebHash h)
 
-newtype PoolRewardsHash = PoolRewardsHash {prHash :: H.Hash}
+newtype PoolRewardsHash (bhv :: BlockHashVersion) = PoolRewardsHash {prHash :: H.Hash}
     deriving newtype (Eq, Ord, Show, Serialize)
 
 -- | Hash of block reward details.
-data BlockRewardDetailsHash (av :: AccountVersion) where
-    BlockRewardDetailsHashV0 :: !EpochBlocksHash -> BlockRewardDetailsHash 'AccountV0
+data BlockRewardDetailsHash' (av :: AccountVersion) (bhv :: BlockHashVersion) where
+    BlockRewardDetailsHashV0 :: !EpochBlocksHash -> BlockRewardDetailsHash' 'AccountV0 bhv
     BlockRewardDetailsHashV1 ::
         (AVSupportsDelegation av) =>
-        !PoolRewardsHash ->
-        BlockRewardDetailsHash av
+        !(PoolRewardsHash bhv) ->
+        BlockRewardDetailsHash' av bhv
 
-deriving instance Show (BlockRewardDetailsHash av)
-deriving instance Eq (BlockRewardDetailsHash av)
+deriving instance Show (BlockRewardDetailsHash' av bhv)
+deriving instance Eq (BlockRewardDetailsHash' av bhv)
+
+type BlockRewardDetailsHash (pv :: ProtocolVersion) =
+    BlockRewardDetailsHash' (AccountVersionFor pv) (BlockHashVersionFor pv)
 
 -- | SHA256 hash of 'BlockRewardDetailsHash'.
-brdHash :: BlockRewardDetailsHash av -> H.Hash
+brdHash :: BlockRewardDetailsHash' av bhv -> H.Hash
 brdHash (BlockRewardDetailsHashV0 eb) = ebHash eb
 brdHash (BlockRewardDetailsHashV1 ha) = prHash ha

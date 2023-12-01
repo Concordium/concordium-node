@@ -32,6 +32,7 @@ import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
+import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 
 -- | A dummy UTCTime used for tests where the actual value is not significant.
@@ -86,7 +87,7 @@ dummyBlockSig = Block.sign dummyKP "someMessage"
 -- | A helper function for creating a 'BakedBlock' given a round. Used by 'dummyBlock' to create blocks.
 --  The block is well-formed and contains the supplied transactions and is for the specified round.
 --  Beyond that, there should be no expectation on the data in the block.
-dummyBakedBlock :: Round -> Vector.Vector BlockItem -> BakedBlock
+dummyBakedBlock :: Round -> Vector.Vector BlockItem -> BakedBlock 'P6
 dummyBakedBlock n ts =
     BakedBlock
         { bbRound = n,
@@ -173,7 +174,7 @@ dummyStoredBlocks =
 -- | A FinalizationEntry. Both used by 'writeBlocks' and used when testing 'lookupLatestFinalizationEntry'.
 dummyFinalizationEntry :: FinalizationEntry
 dummyFinalizationEntry =
-    let feSuccessorProof = BlockQuasiHash dummyHash
+    let feSuccessorProof = SuccessorProof dummyHash
         feFinalizedQuorumCertificate = dummyQC
         succRound = qcRound feFinalizedQuorumCertificate + 1
         feSuccessorQuorumCertificate =

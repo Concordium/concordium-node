@@ -33,6 +33,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
 ) where
 
 import Concordium.Crypto.SHA256
+import Concordium.GlobalState.BlockState (ModulesHash (..))
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
@@ -282,8 +283,11 @@ data Modules = Modules
 makeLenses ''Modules
 
 -- | The hash of the collection of modules is the hash of the tree.
-instance (SupportsPersistentModule m) => MHashableTo m Hash Modules where
-    getHashM = getHashM . _modulesTable
+instance (SupportsPersistentModule m, IsBlockHashVersion (BlockHashVersionFor pv)) => MHashableTo m (ModulesHash pv) Modules where
+    getHashM =
+        fmap (ModulesHash . LFMB.theLFMBTreeHash @(BlockHashVersionFor pv))
+            . getHashM
+            . _modulesTable
 
 instance (SupportsPersistentModule m) => BlobStorable m Modules where
     load = do

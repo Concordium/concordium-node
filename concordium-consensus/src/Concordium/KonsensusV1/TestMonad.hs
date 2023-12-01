@@ -101,7 +101,7 @@ data TestEvent (pv :: ProtocolVersion)
     | -- | Implements 'sendQuorumMessage' of 'MonadBroadcast'.
       SendQuorumMessage !QuorumMessage
     | -- | Implements 'sendBlock' of 'MonadBroadcast'.
-      SendBlock !SignedBlock
+      SendBlock !(SignedBlock pv)
     | -- | Implements 'onBlock' of 'MonadConsensusEvent'.
       OnBlock !(Block pv)
     | -- | Implements 'onFinalize' of 'MonadConsensusEvent'.

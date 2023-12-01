@@ -76,7 +76,7 @@ credBi3 =
     tt = utcTimeToTransactionTime testTime
 
 -- | Valid block for round 1 with 1 credential deployment.
-testBB1 :: BakedBlock
+testBB1 :: BakedBlock PV
 testBB1 =
     BakedBlock
         { bbRound = 1,
@@ -96,7 +96,7 @@ testBB1 =
 
 -- | Valid block for round 2.
 --  This block carries a QC for 'testBB1' thus certifying it.
-testBB2 :: BakedBlock
+testBB2 :: BakedBlock PV
 testBB2 =
     BakedBlock
         { bbRound = 2,
@@ -116,7 +116,7 @@ testBB2 =
 
 -- | Valid block for round 3, finalizes 'testBB1' as this block
 --  carries a QC for 'testBB2'.
-testBB3 :: BakedBlock
+testBB3 :: BakedBlock PV
 testBB3 =
     BakedBlock
         { bbRound = 3,
@@ -154,7 +154,7 @@ testDeployCredential = runTestMonad noBaker testTime genesisData $ do
 -- | Valid block for round 2.
 --  This block has one credential deployment.
 --  This block carries a QC for 'testBB1' thus certifying it.
-testBB2' :: BakedBlock
+testBB2' :: BakedBlock PV
 testBB2' =
     BakedBlock
         { bbRound = 2,
@@ -174,7 +174,7 @@ testBB2' =
 
 -- | Valid block for round 3, carries a TC for round 2.
 --  This block has one credential deployment.
-testBB3' :: BakedBlock
+testBB3' :: BakedBlock PV
 testBB3' =
     BakedBlock
         { bbRound = 3,
@@ -192,7 +192,7 @@ testBB3' =
   where
     bakerId = 4
 
-testBB4 :: BakedBlock
+testBB4 :: BakedBlock PV
 testBB4 =
     BakedBlock
         { bbRound = 4,
@@ -210,7 +210,7 @@ testBB4 =
   where
     bakerId = 3
 
-testBB5 :: BakedBlock
+testBB5 :: BakedBlock PV
 testBB5 =
     BakedBlock
         { bbRound = 5,

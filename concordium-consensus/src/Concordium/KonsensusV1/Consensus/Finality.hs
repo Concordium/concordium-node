@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -45,6 +46,7 @@ import Concordium.Types.Option
 --
 --  This function incorporates the functionality of @checkFinality@ from the bluepaper.
 processCertifiedBlock ::
+    forall m.
     ( MonadState (SkovData (MPV m)) m,
       TimeMonad m,
       MonadIO m,
@@ -54,6 +56,7 @@ processCertifiedBlock ::
       MonadThrow m,
       MonadConsensusEvent m,
       MonadLogger m,
+      MonadProtocolVersion m,
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>

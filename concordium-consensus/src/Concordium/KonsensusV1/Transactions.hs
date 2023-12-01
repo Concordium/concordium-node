@@ -274,7 +274,7 @@ processBlockItems ::
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
     -- | The baked block
-    BakedBlock ->
+    BakedBlock pv ->
     -- | Pointer to the parent block.
     BlockPointer pv ->
     -- | Return 'True' only if all transactions were

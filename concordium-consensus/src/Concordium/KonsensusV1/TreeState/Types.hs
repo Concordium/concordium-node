@@ -136,7 +136,7 @@ instance Eq (BlockPointer pv) where
     (==) = on (==) (getHash @BlockHash)
 
 instance BlockData (BlockPointer pv) where
-    type BakedBlockDataType (BlockPointer pv) = SignedBlock
+    type BakedBlockDataType (BlockPointer pv) = SignedBlock pv
     blockRound = blockRound . bpBlock
     blockEpoch = blockEpoch . bpBlock
     blockTimestamp = blockTimestamp . bpBlock
@@ -159,19 +159,19 @@ instance HasBlockMetadata (BlockPointer pv) where
     blockMetadata = bpInfo
 
 -- | A block that is pending its parent.
-data PendingBlock = PendingBlock
+data PendingBlock (pv :: ProtocolVersion) = PendingBlock
     { -- | The block itself.
-      pbBlock :: !SignedBlock,
+      pbBlock :: !(SignedBlock pv),
       -- | The time that the block was received by the consensus.
       pbReceiveTime :: !UTCTime
     }
     deriving (Eq, Show)
 
-instance HashableTo BlockHash PendingBlock where
+instance HashableTo BlockHash (PendingBlock pv) where
     getHash PendingBlock{..} = getHash pbBlock
 
-instance BlockData PendingBlock where
-    type BakedBlockDataType PendingBlock = SignedBlock
+instance BlockData (PendingBlock pv) where
+    type BakedBlockDataType (PendingBlock pv) = SignedBlock pv
     blockRound = blockRound . pbBlock
     blockEpoch = blockEpoch . pbBlock
     blockTimestamp = blockTimestamp . pbBlock
@@ -180,7 +180,7 @@ instance BlockData PendingBlock where
     blockTransactionCount = blockTransactionCount . pbBlock
     blockStateHash = blockStateHash . pbBlock
 
-instance BakedBlockData PendingBlock where
+instance BakedBlockData (PendingBlock pv) where
     blockQuorumCertificate = blockQuorumCertificate . pbBlock
     blockParent = blockParent . pbBlock
     blockBaker = blockBaker . pbBlock
@@ -190,9 +190,13 @@ instance BakedBlockData PendingBlock where
     blockSignature = blockSignature . pbBlock
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
 
-deserializeExactVersionedPendingBlock :: SProtocolVersion pv -> BS.ByteString -> UTCTime -> Either String PendingBlock
-deserializeExactVersionedPendingBlock spv blockBS recTime =
-    case runGet (getSignedBlock spv (utcTimeToTransactionTime recTime)) blockBS of
+deserializeExactVersionedPendingBlock ::
+    (IsProtocolVersion pv) =>
+    BS.ByteString ->
+    UTCTime ->
+    Either String (PendingBlock pv)
+deserializeExactVersionedPendingBlock blockBS recTime =
+    case runGet (getSignedBlock (utcTimeToTransactionTime recTime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right signedBlock -> Right $ PendingBlock signedBlock recTime
 

@@ -1,8 +1,12 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Concordium.GlobalState.Persistent.PoolRewards (
     module Concordium.GlobalState.Basic.BlockState.PoolRewards,
+    CapitalDistributionRef,
     PoolRewards (..),
     emptyPoolRewards,
     makerPersistentPoolRewards,
@@ -14,6 +18,7 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     lookupBakerCapitalAndRewardDetails,
     migratePoolRewardsP1,
     migratePoolRewards,
+    migratePoolRewardsChangeHash,
 ) where
 
 import Control.Exception (assert)
@@ -40,18 +45,21 @@ import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 
-import Concordium.Utils.Serialization.Put
+import Concordium.Utils.Serialization.Put (MonadPut (liftPut))
+
+type CapitalDistributionRef (bhv :: BlockHashVersion) =
+    HashedBufferedRef' (CapitalDistributionHash' bhv) CapitalDistribution
 
 -- | Details of rewards accruing over the course of a reward period, and details about the capital
 --  distribution for this reward period and (possibly) the next. Note, 'currentCapital' and
 --  'nextCapital' are the same except in the epoch before a payday, where 'nextCapital' is updated
 --  to record the capital distribution for the next reward period.
-data PoolRewards = PoolRewards
+data PoolRewards (bhv :: BlockHashVersion) = PoolRewards
     { -- | The capital distribution for the next reward period.
       --  This is updated the epoch before a payday.
-      nextCapital :: !(HashedBufferedRef CapitalDistribution),
+      nextCapital :: !(CapitalDistributionRef bhv),
       -- | The capital distribution for the current reward period.
-      currentCapital :: !(HashedBufferedRef CapitalDistribution),
+      currentCapital :: !(CapitalDistributionRef bhv),
       -- | The details of rewards accruing to baker pools.
       --  These are indexed by the index of the baker in the capital distribution (_not_ the BakerId).
       bakerPoolRewardDetails :: !(LFMBT.LFMBTree Word64 BufferedRef BakerPoolRewardDetails),
@@ -68,15 +76,38 @@ data PoolRewards = PoolRewards
 
 -- | Migrate pool rewards from @m@ to the new backing store @t m@.
 --  This takes the new next payday epoch as a parameter, since this should always be updated on
---  a protocol update.
+--  a protocol update. This does not allow the hashing scheme to change in the migration, and
+--  thus can reuse hashes.
 migratePoolRewards ::
     (SupportMigration m t) =>
     Epoch ->
-    PoolRewards ->
-    t m PoolRewards
+    PoolRewards bhv ->
+    t m (PoolRewards bhv)
 migratePoolRewards newNextPayday PoolRewards{..} = do
     nextCapital' <- migrateHashedBufferedRefKeepHash nextCapital
     currentCapital' <- migrateHashedBufferedRefKeepHash currentCapital
+    bakerPoolRewardDetails' <- LFMBT.migrateLFMBTree (migrateReference return) bakerPoolRewardDetails
+    return
+        PoolRewards
+            { nextCapital = nextCapital',
+              currentCapital = currentCapital',
+              bakerPoolRewardDetails = bakerPoolRewardDetails',
+              nextPaydayEpoch = newNextPayday,
+              ..
+            }
+
+-- | Migrate pool rewards from @m@ to the new backing store @t m@.
+--  This takes the new next payday epoch as a parameter, since this should always be updated on
+--  a protocol update. Compared to 'migratePoolRewards', this implementation supports
+--  changing the hashing scheme used for the pool rewards.
+migratePoolRewardsChangeHash ::
+    (SupportMigration m t, IsBlockHashVersion bhv1) =>
+    Epoch ->
+    PoolRewards bhv0 ->
+    t m (PoolRewards bhv1)
+migratePoolRewardsChangeHash newNextPayday PoolRewards{..} = do
+    nextCapital' <- migrateHashedBufferedRef return nextCapital
+    currentCapital' <- migrateHashedBufferedRef return currentCapital
     bakerPoolRewardDetails' <- LFMBT.migrateLFMBTree (migrateReference return) bakerPoolRewardDetails
     return
         PoolRewards
@@ -91,8 +122,8 @@ migratePoolRewards newNextPayday PoolRewards{..} = do
 
 -- | Migrate pool rewards from the format before delegation to the P4 format.
 migratePoolRewardsP1 ::
-    forall m.
-    (MonadBlobStore m) =>
+    forall m bhv.
+    (MonadBlobStore m, IsBlockHashVersion bhv) =>
     -- | Current epoch bakers and stakes, in ascending order of 'BakerId'.
     [(BakerId, Amount)] ->
     -- | Next epoch bakers and stakes, in ascending order of 'BakerId'.
@@ -103,7 +134,7 @@ migratePoolRewardsP1 ::
     Epoch ->
     -- | Mint rate for the next payday
     MintRate ->
-    m PoolRewards
+    m (PoolRewards bhv)
 migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
     (nextCapital, _) <- refFlush =<< bufferHashed (makeCD nextBakers)
     (currentCapital, _) <- refFlush =<< bufferHashed (makeCD curBakers)
@@ -135,9 +166,9 @@ migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
 
 -- | Look up the baker capital and reward details for a baker ID.
 lookupBakerCapitalAndRewardDetails ::
-    (MonadBlobStore m) =>
+    (MonadBlobStore m, IsBlockHashVersion bhv) =>
     BakerId ->
-    PoolRewards ->
+    PoolRewards bhv ->
     m (Maybe (BakerCapital, BakerPoolRewardDetails))
 lookupBakerCapitalAndRewardDetails bid PoolRewards{..} = do
     cdistr <- refLoad currentCapital
@@ -146,7 +177,7 @@ lookupBakerCapitalAndRewardDetails bid PoolRewards{..} = do
         Just (index, capital) ->
             fmap (capital,) <$> LFMBT.lookup (fromIntegral index) bakerPoolRewardDetails
 
-instance (MonadBlobStore m) => BlobStorable m PoolRewards where
+instance (MonadBlobStore m) => BlobStorable m (PoolRewards bhv) where
     storeUpdate pr0 = do
         (pNextCapital, nextCapital) <- storeUpdate (nextCapital pr0)
         (pCurrentCapital, currentCapital) <- storeUpdate (currentCapital pr0)
@@ -188,7 +219,7 @@ instance (MonadBlobStore m) => BlobStorable m PoolRewards where
 -- | Serialize 'PoolRewards'.
 --  The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
 --  length of 'bakerPoolCapital' of 'currentCapital'.
-putPoolRewards :: (MonadBlobStore m, MonadPut m) => PoolRewards -> m ()
+putPoolRewards :: (MonadBlobStore m, MonadPut m, IsBlockHashVersion bhv) => PoolRewards bhv -> m ()
 putPoolRewards PoolRewards{..} = do
     nxtCapital <- refLoad nextCapital
     curCapital <- refLoad currentCapital
@@ -203,15 +234,15 @@ putPoolRewards PoolRewards{..} = do
             put nextPaydayEpoch
             put nextPaydayMintRate
 
-instance (MonadBlobStore m) => MHashableTo m PoolRewardsHash PoolRewards where
+instance (MonadBlobStore m, IsBlockHashVersion bhv) => MHashableTo m (PoolRewardsHash bhv) (PoolRewards bhv) where
     getHashM PoolRewards{..} = do
         hNextCapital <- getHashM nextCapital
         hCurrentCapital <- getHashM currentCapital
         hBakerPoolRewardDetails <- getHashM bakerPoolRewardDetails
         return $!
-            PoolRewardsHash . Hash.hashOfHashes hNextCapital $
-                Hash.hashOfHashes hCurrentCapital $
-                    Hash.hashOfHashes hBakerPoolRewardDetails $
+            PoolRewardsHash . Hash.hashOfHashes (theCapitalDistributionHash @bhv hNextCapital) $
+                Hash.hashOfHashes (theCapitalDistributionHash @bhv hCurrentCapital) $
+                    Hash.hashOfHashes (BasicLFMBT.theLFMBTreeHash @bhv hBakerPoolRewardDetails) $
                         getHash $
                             runPut $
                                 put passiveDelegationTransactionRewards
@@ -219,7 +250,7 @@ instance (MonadBlobStore m) => MHashableTo m PoolRewardsHash PoolRewards where
                                     <> put nextPaydayEpoch
                                     <> put nextPaydayMintRate
 
-instance (MonadBlobStore m) => Cacheable m PoolRewards where
+instance (MonadBlobStore m, IsBlockHashVersion bhv) => Cacheable m (PoolRewards bhv) where
     cache pr@PoolRewards{nextPaydayEpoch = nextPaydayEpoch, nextPaydayMintRate = nextPaydayMintRate} = do
         nextCapital <- cache (nextCapital pr)
         currentCapital <- cache (currentCapital pr)
@@ -228,11 +259,11 @@ instance (MonadBlobStore m) => Cacheable m PoolRewards where
         foundationTransactionRewards <- cache (foundationTransactionRewards pr)
         return PoolRewards{..}
 
-makerPersistentPoolRewards :: (MonadBlobStore m) => BasicPoolRewards.PoolRewards -> m PoolRewards
+makerPersistentPoolRewards :: (MonadBlobStore m, IsBlockHashVersion bhv) => BasicPoolRewards.PoolRewards bhv -> m (PoolRewards bhv)
 makerPersistentPoolRewards bpr = do
     nc <- refMake (_unhashed (BasicPoolRewards.nextCapital bpr))
     cc <- refMake (_unhashed (BasicPoolRewards.currentCapital bpr))
-    bprd <- LFMBT.fromAscList $ BasicLFMBT.toAscList $ BasicPoolRewards.bakerPoolRewardDetails bpr
+    bprd <- LFMBT.fromAscList $ Vec.toList $ BasicPoolRewards.bakerPoolRewardDetails bpr
     return
         PoolRewards
             { nextCapital = nc,
@@ -245,11 +276,11 @@ makerPersistentPoolRewards bpr = do
             }
 
 -- | The empty 'PoolRewards'.
-emptyPoolRewards :: (MonadBlobStore m) => m PoolRewards
+emptyPoolRewards :: (MonadBlobStore m, IsBlockHashVersion bhv) => m (PoolRewards bhv)
 emptyPoolRewards = makerPersistentPoolRewards BasicPoolRewards.emptyPoolRewards
 
 -- | List of baker and number of blocks baked by this baker in the reward period.
-bakerBlockCounts :: (MonadBlobStore m) => PoolRewards -> m [(BakerId, Word64)]
+bakerBlockCounts :: (MonadBlobStore m, IsBlockHashVersion bhv) => PoolRewards bhv -> m [(BakerId, Word64)]
 bakerBlockCounts PoolRewards{..} = do
     cc <- refLoad currentCapital
     rds <- LFMBT.toAscPairList bakerPoolRewardDetails
@@ -264,9 +295,9 @@ bakerBlockCounts PoolRewards{..} = do
 -- | Rotate the capital distribution, so that the current capital distribution is replaced by the
 --  next one, and set up empty pool rewards.
 rotateCapitalDistribution ::
-    (MonadBlobStore m, Reference m ref PoolRewards) =>
-    ref PoolRewards ->
-    m (ref PoolRewards)
+    (MonadBlobStore m, Reference m ref (PoolRewards bhv), IsBlockHashVersion bhv) =>
+    ref (PoolRewards bhv) ->
+    m (ref (PoolRewards bhv))
 rotateCapitalDistribution oldPoolRewards = do
     pr <- refLoad oldPoolRewards
     nextCap <- refLoad (nextCapital pr)
@@ -282,11 +313,11 @@ rotateCapitalDistribution oldPoolRewards = do
             }
 
 setNextCapitalDistribution ::
-    (MonadBlobStore m, Reference m ref PoolRewards) =>
+    (MonadBlobStore m, Reference m ref (PoolRewards bhv), IsBlockHashVersion bhv) =>
     [(BakerId, Amount, [(DelegatorId, Amount)])] ->
     [(DelegatorId, Amount)] ->
-    ref PoolRewards ->
-    m (ref PoolRewards)
+    ref (PoolRewards bhv) ->
+    m (ref (PoolRewards bhv))
 setNextCapitalDistribution bakers passive oldPoolRewards = do
     let bakerPoolCapital = Vec.fromList $ map mkBakCap bakers
     let passiveDelegatorsCapital = Vec.fromList $ map mkDelCap passive
@@ -302,8 +333,8 @@ setNextCapitalDistribution bakers passive oldPoolRewards = do
 
 -- | The total capital passively delegated in the current reward period capital distribution.
 currentPassiveDelegationCapital ::
-    (MonadBlobStore m) =>
-    PoolRewards ->
+    (MonadBlobStore m, IsBlockHashVersion bhv) =>
+    PoolRewards bhv ->
     m Amount
 currentPassiveDelegationCapital PoolRewards{..} =
     Vec.sum . fmap dcDelegatorCapital . passiveDelegatorsCapital <$> refLoad currentCapital

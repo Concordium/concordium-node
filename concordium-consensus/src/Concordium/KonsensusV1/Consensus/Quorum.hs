@@ -269,6 +269,7 @@ makeQuorumCertificate qcBlockPointer sd@SkovData{..} = do
 --  'Concordium.KonsensusV1.Consensus.Blocks'.)
 processQuorumMessage ::
     ( IsConsensusV1 (MPV m),
+      MonadProtocolVersion m,
       MonadThrow m,
       MonadIO m,
       BlockStateStorage m,

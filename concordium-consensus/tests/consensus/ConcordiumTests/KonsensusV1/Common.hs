@@ -14,7 +14,7 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types
 import Concordium.Types.Option
-import Concordium.Types.Transactions
+import Concordium.Types.TransactionOutcomes
 import ConcordiumTests.KonsensusV1.TreeStateTest hiding (tests)
 
 -- | Just an arbitrary chosen block hash used for testing.
@@ -38,13 +38,26 @@ someBlockPointer bh r e =
         }
   where
     -- A dummy block pointer with no meaningful state.
-    bakedBlock = BakedBlock r e 0 0 (dummyQuorumCertificate $ BlockHash minBound) Absent Absent dummyBlockNonce Vec.empty emptyTransactionOutcomesHashV1 (StateHashV0 $ Hash.hash "empty state hash")
+    bakedBlock =
+        BakedBlock
+            { bbRound = r,
+              bbEpoch = e,
+              bbTimestamp = 0,
+              bbBaker = 0,
+              bbQuorumCertificate = dummyQuorumCertificate $ BlockHash minBound,
+              bbTimeoutCertificate = Absent,
+              bbEpochFinalizationEntry = Absent,
+              bbNonce = dummyBlockNonce,
+              bbTransactions = Vec.empty,
+              bbTransactionOutcomesHash = toTransactionOutcomesHash emptyTransactionOutcomesHashV1,
+              bbStateHash = StateHashV0 $ Hash.hash "empty state hash"
+            }
 
 -- | A block pointer with 'myBlockHash' as block hash.
 myBlockPointer :: Round -> Epoch -> BlockPointer 'P6
 myBlockPointer = someBlockPointer myBlockHash
 
--- | A key pair created from the provided seeed.
+-- | A key pair created from the provided seed.
 sigKeyPair' :: Int -> Sig.KeyPair
 sigKeyPair' seed = fst $ Dummy.randomBlockKeyPair $ mkStdGen seed
 

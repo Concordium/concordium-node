@@ -149,7 +149,7 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
       -- | Handler to broadcast a quorum message.
       _sendQuorumHandler :: QuorumMessage -> m (),
       -- | Handler to broadcast a block.
-      _sendBlockHandler :: SignedBlock -> m (),
+      _sendBlockHandler :: SignedBlock pv -> m (),
       -- | An event handler called when a block becomes live.
       _onBlockHandler :: BlockPointer pv -> m (),
       -- | An event handler called per finalization. It is called with the

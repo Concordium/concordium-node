@@ -57,9 +57,9 @@ import Concordium.Types.Option
 
 -- | A block that has passed initial verification, but must still be executed, added to the state,
 --  and (potentially) signed as a finalizer.
-data VerifiedBlock = VerifiedBlock
+data VerifiedBlock (pv :: ProtocolVersion) = VerifiedBlock
     { -- | The block that has passed initial verification.
-      vbBlock :: !PendingBlock,
+      vbBlock :: !(PendingBlock pv),
       -- | The bakers and finalizers for the epoch of this block.
       vbBakersAndFinalizers :: !BakersAndFinalizers,
       -- | The baker info for the block's own baker.
@@ -69,8 +69,8 @@ data VerifiedBlock = VerifiedBlock
     }
     deriving (Eq, Show)
 
-instance BlockData VerifiedBlock where
-    type BakedBlockDataType VerifiedBlock = SignedBlock
+instance BlockData (VerifiedBlock pv) where
+    type BakedBlockDataType (VerifiedBlock pv) = SignedBlock pv
     blockRound = blockRound . vbBlock
     blockEpoch = blockEpoch . vbBlock
     blockTimestamp = blockTimestamp . vbBlock
@@ -82,12 +82,12 @@ instance BlockData VerifiedBlock where
 -- * Receiving blocks
 
 -- | The result type for 'uponReceivingBlock'.
-data BlockResult
+data BlockResult pv
     = -- | The block was successfully received, but not yet executed.
-      BlockResultSuccess !VerifiedBlock
+      BlockResultSuccess !(VerifiedBlock pv)
     | -- | The baker also signed another block in the same round, but the block was otherwise
       --  successfully received, but not yet executed.
-      BlockResultDoubleSign !VerifiedBlock
+      BlockResultDoubleSign !(VerifiedBlock pv)
     | -- | The block contains data that is not valid with respect to the chain.
       BlockResultInvalid
     | -- | The block is too old to be added to the chain.
@@ -113,14 +113,15 @@ data BlockResult
 --  'executeBlock' to complete the procedure (as necessary).
 uponReceivingBlock ::
     ( IsConsensusV1 (MPV m),
+      MonadProtocolVersion m,
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadLogger m
     ) =>
-    PendingBlock ->
-    m BlockResult
+    PendingBlock (MPV m) ->
+    m (BlockResult (MPV m))
 uponReceivingBlock pendingBlock = do
     mp <- Merkle.buildMerkleProof (const True) (sbBlock (pbBlock pendingBlock))
     logEvent Konsensus LLTrace $ show mp
@@ -193,8 +194,8 @@ receiveBlockKnownParent ::
       MonadLogger m
     ) =>
     BlockPointer (MPV m) ->
-    PendingBlock ->
-    m BlockResult
+    PendingBlock (MPV m) ->
+    m (BlockResult (MPV m))
 receiveBlockKnownParent parent pendingBlock = do
     logEvent Konsensus LLInfo $ "Block " <> show pbHash <> " received."
     let nominalTime = timestampToUTCTime $ blockTimestamp pendingBlock
@@ -335,8 +336,8 @@ receiveBlockUnknownParent ::
       MonadState (SkovData (MPV m)) m,
       MonadLogger m
     ) =>
-    PendingBlock ->
-    m BlockResult
+    PendingBlock pv ->
+    m (BlockResult (MPV m))
 receiveBlockUnknownParent pendingBlock = do
     earlyThreshold <- rpEarlyBlockThreshold <$> use runtimeParameters
     if blockTimestamp pendingBlock
@@ -381,7 +382,7 @@ getMinBlockTime b = do
 addBlock ::
     (TimeMonad m, MonadState (SkovData (MPV m)) m, MonadConsensusEvent m, MonadLogger m) =>
     -- | Block to add
-    PendingBlock ->
+    PendingBlock (MPV m) ->
     -- | Block state
     HashedPersistentBlockState (MPV m) ->
     -- | Parent pointer
@@ -447,7 +448,7 @@ processBlock ::
     -- | Parent block (@parent@)
     BlockPointer (MPV m) ->
     -- | Block being processed (@pendingBlock@)
-    VerifiedBlock ->
+    VerifiedBlock (MPV m) ->
     m (Maybe (BlockPointer (MPV m)))
 processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     -- Check that the QC is consistent with the parent block round.
@@ -988,7 +989,7 @@ executeBlock ::
       MonadConsensusEvent m,
       MonadLogger m
     ) =>
-    VerifiedBlock ->
+    VerifiedBlock (MPV m) ->
     m ()
 executeBlock verifiedBlock = do
     isShutdown <- use isConsensusShutdown
@@ -1161,7 +1162,7 @@ bakeBlock ::
       MonadLogger m
     ) =>
     BakeBlockInputs (MPV m) ->
-    m SignedBlock
+    m (SignedBlock (MPV m))
 bakeBlock BakeBlockInputs{..} = do
     curTimestamp <- utcTimeToTimestamp <$> currentTime
     minBlockTime <- getMinBlockTime bbiParent

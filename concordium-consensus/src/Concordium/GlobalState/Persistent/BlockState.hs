@@ -29,7 +29,8 @@ module Concordium.GlobalState.Persistent.BlockState (
     emptyPersistentTransactionOutcomes,
     PersistentBlockStateContext (..),
     PersistentState,
-    BlockRewardDetails (..),
+    BlockRewardDetails' (..),
+    BlockRewardDetails,
     PersistentBlockStateMonad (..),
     withNewAccountCacheAndLMDBAccountMap,
     cacheState,
@@ -81,6 +82,7 @@ import Concordium.Types.HashableTo
 import qualified Concordium.Types.IdentityProviders as IPS
 import Concordium.Types.Queries (CurrentPaydayBakerPoolStatus (..), PoolStatus (..), RewardStatus' (..), makePoolPendingChange)
 import Concordium.Types.SeedState
+import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
 import Concordium.Types.Updates
@@ -557,9 +559,11 @@ putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
         EpochBlock{..} <- refLoad ebref
         loadEB (s Seq.|> ebBakerId) ebPrevious
 
-data BlockRewardDetails (av :: AccountVersion) where
-    BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails 'AccountV0
-    BlockRewardDetailsV1 :: (AVSupportsDelegation av) => !(HashedBufferedRef' Rewards.PoolRewardsHash PoolRewards) -> BlockRewardDetails av
+data BlockRewardDetails' (av :: AccountVersion) (bhv :: BlockHashVersion) where
+    BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails' 'AccountV0 bhv
+    BlockRewardDetailsV1 :: (AVSupportsDelegation av) => !(HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv)) -> BlockRewardDetails' av bhv
+
+type BlockRewardDetails pv = BlockRewardDetails' (AccountVersionFor pv) (BlockHashVersionFor pv)
 
 -- | Migrate the block reward details.
 --  When migrating to a 'P4' or later, this sets the 'nextPaydayEpoch' to the reward period length.
@@ -578,8 +582,8 @@ migrateBlockRewardDetails ::
     OParam 'PTTimeParameters (ChainParametersVersionFor pv) TimeParameters ->
     -- | The epoch number before the protocol update.
     Epoch ->
-    BlockRewardDetails (AccountVersionFor oldpv) ->
-    t m (BlockRewardDetails (AccountVersionFor pv))
+    BlockRewardDetails oldpv ->
+    t m (BlockRewardDetails pv)
 migrateBlockRewardDetails StateMigrationParametersTrivial _ _ tp oldEpoch = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
     (BlockRewardDetailsV1 hbr) -> case tp of
@@ -613,24 +617,30 @@ migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimePa
 migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
-            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+            <$> migrateHashedBufferedRef (migratePoolRewardsChangeHash (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
 
-instance (MonadBlobStore m) => MHashableTo m (Rewards.BlockRewardDetailsHash av) (BlockRewardDetails av) where
+instance
+    (MonadBlobStore m, IsBlockHashVersion bhv) =>
+    MHashableTo m (Rewards.BlockRewardDetailsHash' av bhv) (BlockRewardDetails' av bhv)
+    where
     getHashM (BlockRewardDetailsV0 heb) = return $ Rewards.BlockRewardDetailsHashV0 (getHash heb)
     getHashM (BlockRewardDetailsV1 pr) = Rewards.BlockRewardDetailsHashV1 <$> getHashM pr
 
-instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BlockRewardDetails av) where
+instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BlockRewardDetails' av bhv) where
     storeUpdate (BlockRewardDetailsV0 heb) = fmap (fmap BlockRewardDetailsV0) $ storeUpdate heb
     storeUpdate (BlockRewardDetailsV1 hpr) = fmap (fmap BlockRewardDetailsV1) $ storeUpdate hpr
     load = case delegationSupport @av of
         SAVDelegationNotSupported -> fmap (fmap BlockRewardDetailsV0) load
         SAVDelegationSupported -> fmap (fmap BlockRewardDetailsV1) load
 
-instance (MonadBlobStore m) => Cacheable m (BlockRewardDetails av) where
+instance (MonadBlobStore m, IsBlockHashVersion bhv) => Cacheable m (BlockRewardDetails' av bhv) where
     cache (BlockRewardDetailsV0 heb) = BlockRewardDetailsV0 <$> cache heb
     cache (BlockRewardDetailsV1 hpr) = BlockRewardDetailsV1 <$> cache hpr
 
-putBlockRewardDetails :: (MonadBlobStore m, MonadPut m) => BlockRewardDetails av -> m ()
+putBlockRewardDetails ::
+    (MonadBlobStore m, MonadPut m, IsBlockHashVersion bhv) =>
+    BlockRewardDetails' av bhv ->
+    m ()
 putBlockRewardDetails (BlockRewardDetailsV0 heb) = putHashedEpochBlocksV0 heb
 putBlockRewardDetails (BlockRewardDetailsV1 hpr) = refLoad hpr >>= putPoolRewards
 
@@ -638,16 +648,16 @@ putBlockRewardDetails (BlockRewardDetailsV1 hpr) = refLoad hpr >>= putPoolReward
 consBlockRewardDetails ::
     (MonadBlobStore m) =>
     BakerId ->
-    BlockRewardDetails 'AccountV0 ->
-    m (BlockRewardDetails 'AccountV0)
+    BlockRewardDetails' 'AccountV0 bhv ->
+    m (BlockRewardDetails' 'AccountV0 bhv)
 consBlockRewardDetails bid (BlockRewardDetailsV0 heb) = do
     BlockRewardDetailsV0 <$> consEpochBlock bid heb
 
 -- | The empty 'BlockRewardDetails'.
 emptyBlockRewardDetails ::
-    forall av m.
-    (MonadBlobStore m, IsAccountVersion av) =>
-    m (BlockRewardDetails av)
+    forall av bhv m.
+    (MonadBlobStore m, IsAccountVersion av, IsBlockHashVersion bhv) =>
+    m (BlockRewardDetails' av bhv)
 emptyBlockRewardDetails =
     case delegationSupport @av of
         SAVDelegationNotSupported -> return $ BlockRewardDetailsV0 emptyHashedEpochBlocks
@@ -688,21 +698,36 @@ emptyMerkleTransactionOutcomes =
 --  the hashing scheme is not a hash list but a merkle tree, so it is the root hash that is
 --  used in the final 'BlockHash'.
 data PersistentTransactionOutcomes (tov :: TransactionOutcomesVersion) where
-    PTOV0 :: Transactions.TransactionOutcomes -> PersistentTransactionOutcomes 'TOV0
+    PTOV0 :: TransactionOutcomes.TransactionOutcomes -> PersistentTransactionOutcomes 'TOV0
     PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'TOV1
+    PTOV2 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'TOV2
 
 -- | Create an empty persistent transaction outcome
 emptyPersistentTransactionOutcomes :: forall tov. (IsTransactionOutcomesVersion tov) => PersistentTransactionOutcomes tov
 emptyPersistentTransactionOutcomes = case transactionOutcomesVersion @tov of
-    STOV0 -> PTOV0 Transactions.emptyTransactionOutcomesV0
+    STOV0 -> PTOV0 TransactionOutcomes.emptyTransactionOutcomesV0
     STOV1 -> PTOV1 emptyMerkleTransactionOutcomes
+    STOV2 -> PTOV2 emptyMerkleTransactionOutcomes
 
-instance (BlobStorable m TransactionSummaryV1) => MHashableTo m Transactions.TransactionOutcomesHash (PersistentTransactionOutcomes tov) where
+instance
+    (BlobStorable m TransactionSummaryV1) =>
+    MHashableTo m (TransactionOutcomes.TransactionOutcomesHashV tov) (PersistentTransactionOutcomes tov)
+    where
     getHashM (PTOV0 bto) = return (getHash bto)
     getHashM (PTOV1 MerkleTransactionOutcomes{..}) = do
-        out <- getHashM mtoOutcomes
-        special <- getHashM mtoSpecials
-        return $! Transactions.TransactionOutcomesHash (H.hashShort ("TransactionOutcomesHashV1" <> H.hashToShortByteString out <> H.hashToShortByteString special))
+        out <- getHashM @_ @(LFMBT.LFMBTreeHash' 'BlockHashVersion0) mtoOutcomes
+        special <- getHashM @_ @(LFMBT.LFMBTreeHash' 'BlockHashVersion0) mtoSpecials
+        return $!
+            TransactionOutcomes.TransactionOutcomesHashV . H.hashLazy . runPutLazy $ do
+                putShortByteString "TransactionOutcomesHashV1"
+                put out
+                put special
+    getHashM (PTOV2 MerkleTransactionOutcomes{..}) = do
+        out <- getHashM @_ @(LFMBT.LFMBTreeHash' 'BlockHashVersion1) mtoOutcomes
+        special <- getHashM @_ @(LFMBT.LFMBTreeHash' 'BlockHashVersion1) mtoSpecials
+        return $!
+            TransactionOutcomes.TransactionOutcomesHashV $
+                H.hashOfHashes (LFMBT.theLFMBTreeHash out) (LFMBT.theLFMBTreeHash special)
 
 instance
     ( TransactionOutcomesVersionFor (MPV m) ~ tov,
@@ -711,16 +736,20 @@ instance
     ) =>
     BlobStorable m (PersistentTransactionOutcomes tov)
     where
-    storeUpdate out@(PTOV0 bto) = return (Transactions.putTransactionOutcomes bto, out)
-    storeUpdate (PTOV1 MerkleTransactionOutcomes{..}) = do
-        (pout, mtoOutcomes') <- storeUpdate mtoOutcomes
-        (pspecial, mtoSpecials') <- storeUpdate mtoSpecials
-        return (pout <> pspecial, PTOV1 MerkleTransactionOutcomes{mtoOutcomes = mtoOutcomes', mtoSpecials = mtoSpecials'})
+    storeUpdate out@(PTOV0 bto) = return (TransactionOutcomes.putTransactionOutcomes bto, out)
+    storeUpdate out = case out of
+        PTOV1 mto -> (_2 %~ PTOV1) <$> inner mto
+        PTOV2 mto -> (_2 %~ PTOV2) <$> inner mto
+      where
+        inner MerkleTransactionOutcomes{..} = do
+            (pout, mtoOutcomes') <- storeUpdate mtoOutcomes
+            (pspecial, mtoSpecials') <- storeUpdate mtoSpecials
+            return (pout <> pspecial, MerkleTransactionOutcomes{mtoOutcomes = mtoOutcomes', mtoSpecials = mtoSpecials'})
 
     load = do
         case transactionOutcomesVersion @(TransactionOutcomesVersionFor (MPV m)) of
             STOV0 -> do
-                out <- PTOV0 <$!> Transactions.getTransactionOutcomes (protocolVersion @(MPV m))
+                out <- PTOV0 <$!> TransactionOutcomes.getTransactionOutcomes (protocolVersion @(MPV m))
                 pure . pure $! out
             STOV1 -> do
                 mout <- load
@@ -729,6 +758,13 @@ instance
                     mtoOutcomes <- mout
                     mtoSpecials <- mspecials
                     return $! PTOV1 MerkleTransactionOutcomes{..}
+            STOV2 -> do
+                mout <- load
+                mspecials <- load
+                return $! do
+                    mtoOutcomes <- mout
+                    mtoSpecials <- mspecials
+                    return $! PTOV2 MerkleTransactionOutcomes{..}
 
 -- | Create an empty 'PersistentTransactionOutcomes' based on the 'ProtocolVersion'.
 emptyTransactionOutcomes ::
@@ -737,8 +773,9 @@ emptyTransactionOutcomes ::
     Proxy pv ->
     PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)
 emptyTransactionOutcomes Proxy = case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
-    STOV0 -> PTOV0 Transactions.emptyTransactionOutcomesV0
+    STOV0 -> PTOV0 TransactionOutcomes.emptyTransactionOutcomesV0
     STOV1 -> PTOV1 emptyMerkleTransactionOutcomes
+    STOV2 -> PTOV2 emptyMerkleTransactionOutcomes
 
 -- | References to the components that make up the block state.
 --
@@ -750,7 +787,7 @@ emptyTransactionOutcomes Proxy = case transactionOutcomesVersion @(TransactionOu
 data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
     { bspAccounts :: !(Accounts.Accounts pv),
       bspInstances :: !(Instances.Instances pv),
-      bspModules :: !(HashedBufferedRef Modules.Modules),
+      bspModules :: !(HashedBufferedRef' (ModulesHash pv) Modules.Modules),
       bspBank :: !(Hashed Rewards.BankStatus),
       bspIdentityProviders :: !(HashedBufferedRef IPS.IdentityProviders),
       bspAnonymityRevokers :: !(HashedBufferedRef ARS.AnonymityRevokers),
@@ -761,7 +798,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       bspTransactionOutcomes :: !(PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)),
       -- | Details of bakers that baked blocks in the current epoch. This is
       --  used for rewarding bakers at the end of epochs.
-      bspRewardDetails :: !(BlockRewardDetails (AccountVersionFor pv))
+      bspRewardDetails :: !(BlockRewardDetails pv)
     }
 
 -- | Lens for accessing the birk parameters of a 'BlockStatePointers' structure.
@@ -876,13 +913,17 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
             return $! BlockStatePointers{..}
 
 -- | Accessor for getting the pool rewards when supported by the protocol version.
-bspPoolRewards :: (PVSupportsDelegation pv) => BlockStatePointers pv -> HashedBufferedRef' Rewards.PoolRewardsHash PoolRewards
+bspPoolRewards ::
+    (PVSupportsDelegation pv, bhv ~ BlockHashVersionFor pv) =>
+    BlockStatePointers pv ->
+    HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv)
 bspPoolRewards bsp = case bspRewardDetails bsp of
     BlockRewardDetailsV1 pr -> pr
 
 -- | An initial 'HashedPersistentBlockState', which may be used for testing purposes.
 {-# WARNING initialPersistentState "should only be used for testing" #-}
 initialPersistentState ::
+    forall pv m.
     (SupportsPersistentState pv m) =>
     SeedState (SeedStateVersionFor pv) ->
     CryptographicParameters ->
@@ -2708,24 +2749,41 @@ doGetTransactionOutcome pbs transHash = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
         PTOV0 bto -> return $! bto ^? ix transHash
-        PTOV1 bto -> do
-            fmap _transactionSummaryV1 <$> LFMBT.lookup transHash (mtoOutcomes bto)
+        PTOV1 bto -> fmap _transactionSummaryV1 <$> LFMBT.lookup transHash (mtoOutcomes bto)
+        PTOV2 bto -> fmap _transactionSummaryV1 <$> LFMBT.lookup transHash (mtoOutcomes bto)
 
-doGetTransactionOutcomesHash :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> m Transactions.TransactionOutcomesHash
+doGetTransactionOutcomesHash ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    m TransactionOutcomes.TransactionOutcomesHash
 doGetTransactionOutcomesHash pbs = do
     bsp <- loadPBS pbs
-    getHashM (bspTransactionOutcomes bsp)
+    TransactionOutcomes.toTransactionOutcomesHash @(TransactionOutcomesVersionFor pv)
+        <$> getHashM (bspTransactionOutcomes bsp)
 
 doSetTransactionOutcomes :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> [TransactionSummary] -> m (PersistentBlockState pv)
 doSetTransactionOutcomes pbs transList = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
         PTOV0 _ ->
-            storePBS pbs bsp{bspTransactionOutcomes = PTOV0 (Transactions.transactionOutcomesV0FromList transList)}
+            storePBS
+                pbs
+                bsp
+                    { bspTransactionOutcomes =
+                        PTOV0 (TransactionOutcomes.transactionOutcomesV0FromList transList)
+                    }
         PTOV1 _ -> do
-            mtoOutcomes <- LFMBT.fromAscList . map TransactionSummaryV1 $ transList
-            let mtoSpecials = LFMBT.empty
-            storePBS pbs bsp{bspTransactionOutcomes = PTOV1 MerkleTransactionOutcomes{..}}
+            mto <- makeMTO
+            storePBS pbs bsp{bspTransactionOutcomes = PTOV1 mto}
+        PTOV2 _ -> do
+            mto <- makeMTO
+            storePBS pbs bsp{bspTransactionOutcomes = PTOV2 mto}
+  where
+    makeMTO :: m MerkleTransactionOutcomes
+    makeMTO = do
+        mtoOutcomes <- LFMBT.fromAscList . map TransactionSummaryV1 $ transList
+        return MerkleTransactionOutcomes{mtoSpecials = LFMBT.empty, ..}
 
 doNotifyEncryptedBalanceChange :: (SupportsPersistentState pv m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
 doNotifyEncryptedBalanceChange pbs amntDiff = do
@@ -2736,25 +2794,34 @@ doGetSpecialOutcomes :: (SupportsPersistentState pv m, MonadProtocolVersion m) =
 doGetSpecialOutcomes pbs = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
-        PTOV0 bto -> return (bto ^. Transactions.outcomeSpecial)
+        PTOV0 bto -> return (bto ^. TransactionOutcomes.outcomeSpecial)
         PTOV1 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
+        PTOV2 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
 
 doGetOutcomes :: (SupportsPersistentState pv m, MonadProtocolVersion m) => PersistentBlockState pv -> m (Vec.Vector TransactionSummary)
 doGetOutcomes pbs = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
-        PTOV0 bto -> return (Transactions.outcomeValues bto)
+        PTOV0 bto -> return (TransactionOutcomes.outcomeValues bto)
         PTOV1 bto -> Vec.fromList . map _transactionSummaryV1 <$> LFMBT.toAscList (mtoOutcomes bto)
+        PTOV2 bto -> Vec.fromList . map _transactionSummaryV1 <$> LFMBT.toAscList (mtoOutcomes bto)
 
 doAddSpecialTransactionOutcome :: (SupportsPersistentState pv m, MonadProtocolVersion m) => PersistentBlockState pv -> Transactions.SpecialTransactionOutcome -> m (PersistentBlockState pv)
 doAddSpecialTransactionOutcome pbs !o = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
         PTOV0 bto ->
-            storePBS pbs $! bsp{bspTransactionOutcomes = PTOV0 (bto & Transactions.outcomeSpecial %~ (Seq.|> o))}
+            storePBS pbs $!
+                bsp
+                    { bspTransactionOutcomes =
+                        PTOV0 (bto & TransactionOutcomes.outcomeSpecial %~ (Seq.|> o))
+                    }
         PTOV1 bto -> do
             (_, newSpecials) <- LFMBT.append o (mtoSpecials bto)
             storePBS pbs $! bsp{bspTransactionOutcomes = PTOV1 (bto{mtoSpecials = newSpecials})}
+        PTOV2 bto -> do
+            (_, newSpecials) <- LFMBT.append o (mtoSpecials bto)
+            storePBS pbs $! bsp{bspTransactionOutcomes = PTOV2 (bto{mtoSpecials = newSpecials})}
 
 doGetElectionDifficulty ::
     ( SupportsPersistentState pv m,
@@ -3004,7 +3071,7 @@ doMarkFinalizationAwakeBakers pbs bids = do
     bpc <- bakerPoolCapital <$> refLoad (currentCapital pr)
     newBPRs <- foldM (markFinalizerAwake bpc) bprs bids
     newBlockRewardDetails <- BlockRewardDetailsV1 <$> refMake pr{bakerPoolRewardDetails = newBPRs}
-    newHash :: (Rewards.BlockRewardDetailsHash (AccountVersionFor pv)) <-
+    newHash :: (Rewards.BlockRewardDetailsHash pv) <-
         getHashM newBlockRewardDetails
     oldHash <- getHashM (bspRewardDetails bsp)
     if newHash == oldHash

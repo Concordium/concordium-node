@@ -51,7 +51,7 @@ instance (IsProtocolVersion pv) => Serialize (StoredBlock pv) where
             v -> fail $ "Unsupported StoredBlock version: " ++ show v
 
 instance BlockData (StoredBlock pv) where
-    type BakedBlockDataType (StoredBlock pv) = BakedBlockDataType SignedBlock
+    type BakedBlockDataType (StoredBlock pv) = SignedBlock pv
     blockRound = blockRound . stbBlock
     blockEpoch = blockEpoch . stbBlock
     blockTimestamp = blockTimestamp . stbBlock

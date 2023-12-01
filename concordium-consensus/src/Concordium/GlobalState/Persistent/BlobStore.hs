@@ -1621,10 +1621,10 @@ migrateHashedBufferedRefKeepHash hb = do
 --  already. The input reference is uncached, and the new references is flushed
 --  to disk, as well as cached in memory.
 migrateHashedBufferedRef ::
-    (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) =>
+    (MonadTrans t, MHashableTo (t m) h2 b, BlobStorable m a, BlobStorable (t m) b) =>
     (a -> t m b) ->
-    HashedBufferedRef' h a ->
-    t m (HashedBufferedRef' h b)
+    HashedBufferedRef' h1 a ->
+    t m (HashedBufferedRef' h2 b)
 migrateHashedBufferedRef f hb = do
     !newRef <- refMake =<< f =<< lift (refLoad (bufferedReference hb))
     -- compute the hash while the data is in memory.
@@ -1639,7 +1639,7 @@ migrateHashedBufferedRef f hb = do
 type HashedBufferedRef = HashedBufferedRef' H.Hash
 
 -- | Created a 'HashedBufferedRef' value from a 'Hashed' value, retaining the hash.
-bufferHashed :: (MonadIO m) => Hashed a -> m (HashedBufferedRef a)
+bufferHashed :: (MonadIO m) => Hashed' h a -> m (HashedBufferedRef' h a)
 bufferHashed (Hashed !val !h) = do
     br <- makeBufferedRef val
     hashRef <- liftIO $ newIORef (Some h)
@@ -1662,7 +1662,7 @@ instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedB
                 return h
             Some h -> return h
 
-instance (Show a) => Show (HashedBufferedRef a) where
+instance (Show a) => Show (HashedBufferedRef' h a) where
     show ref = show (bufferedReference ref)
 
 instance (DirectBlobStorable m a) => BlobStorable m (HashedBufferedRef' h a) where

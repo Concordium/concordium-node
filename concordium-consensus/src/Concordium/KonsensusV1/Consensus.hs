@@ -49,7 +49,7 @@ class MonadBroadcast m where
     sendQuorumMessage :: QuorumMessage -> m ()
 
     -- | Broadcast a 'SignedBlock'.
-    sendBlock :: SignedBlock -> m ()
+    sendBlock :: SignedBlock (MPV m) -> m ()
 
 -- | This class provides event handlers for consensus events. A runner should implement this to
 --  handle these events.

@@ -1,3 +1,7 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE TypeApplications #-}
+
 -- | Testing of 'Concordium.KonsensusV1.Types' and 'Concordium.KonsensusV1.TreeState.Types' modules.
 module ConcordiumTests.KonsensusV1.Types where
 
@@ -20,12 +24,12 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Transactions
-import qualified Concordium.Types.Transactions as Transactions
 import qualified Data.FixedByteString as FBS
 
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types.Option
+import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
 
 -- | Generate a 'FinalizerSet'. The size parameter determines the size of the committee that
 --  the finalizers are (nominally) sampled from.
@@ -101,7 +105,7 @@ genFinalizationEntry :: Gen FinalizationEntry
 genFinalizationEntry = do
     feFinalizedQuorumCertificate <- genQuorumCertificate
     preQC <- genQuorumCertificate
-    feSuccessorProof <- BlockQuasiHash . Hash.Hash . FBS.pack <$> vector 32
+    feSuccessorProof <- SuccessorProof . Hash.Hash . FBS.pack <$> vector 32
     let succRound = qcRound feFinalizedQuorumCertificate + 1
     let sqcEpoch = qcEpoch feFinalizedQuorumCertificate
     let feSuccessorQuorumCertificate =
@@ -224,7 +228,7 @@ genTransactions = Vector.fromList <$> listOf trans
 
 -- | Generate an arbitrary baked block with no transactions.
 --  The baker of the block is number 42.
-genBakedBlock :: Gen BakedBlock
+genBakedBlock :: Gen (BakedBlock pv)
 genBakedBlock = do
     bbRound <- genRound
     bbEpoch <- genEpoch
@@ -237,7 +241,9 @@ genBakedBlock = do
         BakedBlock
             { bbTimeoutCertificate = Absent,
               bbEpochFinalizationEntry = Absent,
-              bbTransactionOutcomesHash = Transactions.emptyTransactionOutcomesHashV1,
+              bbTransactionOutcomesHash =
+                TransactionOutcomes.toTransactionOutcomesHash
+                    TransactionOutcomes.emptyTransactionOutcomesHashV1,
               bbBaker = 42,
               ..
             }
@@ -246,7 +252,7 @@ genBakedBlock = do
 --  The signer of the block is chosen among the arbitrary signers.
 --  The baker of the block is number 42.
 --  This generator is suitable for testing serialization.
-genSignedBlock :: Gen SignedBlock
+genSignedBlock :: (IsProtocolVersion pv) => Gen (SignedBlock pv)
 genSignedBlock = do
     kp <- genBlockKeyPair
     bBlock <- genBakedBlock
@@ -295,8 +301,8 @@ propSerializeBakedBlock =
 -- | Test that serializing then deserializing a signed block is the identity.
 propSerializeSignedBlock :: Property
 propSerializeSignedBlock =
-    forAll genSignedBlock $ \sb ->
-        case runGet (getSignedBlock SP6 (TransactionTime 42)) $! runPut (putSignedBlock sb) of
+    forAll (genSignedBlock @'P6) $ \sb ->
+        case runGet (getSignedBlock (TransactionTime 42)) $! runPut (putSignedBlock sb) of
             Left _ -> False
             Right sb' -> sb == sb'
 
@@ -385,14 +391,14 @@ propSignQuorumSignatureMessageDiffBody =
 
 propSignBakedBlock :: Property
 propSignBakedBlock =
-    forAll genBakedBlock $ \bb ->
+    forAll (genBakedBlock @'P6) $ \bb ->
         forAll genBlockHash $ \genesisHash ->
             forAll genBlockKeyPair $ \kp@(Sig.KeyPair _ pk) ->
                 (verifyBlockSignature pk genesisHash (signBlock kp genesisHash bb))
 
 propSignBakedBlockDiffKey :: Property
 propSignBakedBlockDiffKey =
-    forAll genBakedBlock $ \bb ->
+    forAll (genBakedBlock @'P6) $ \bb ->
         forAll genBlockHash $ \genesisHash ->
             forAll genBlockKeyPair $ \kp ->
                 forAll genBlockKeyPair $ \(Sig.KeyPair _ pk1) ->

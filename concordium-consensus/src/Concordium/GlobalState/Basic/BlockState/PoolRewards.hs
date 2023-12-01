@@ -1,11 +1,15 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module Concordium.GlobalState.Basic.BlockState.PoolRewards where
 
 import Control.Exception
-import Control.Monad
 import qualified Data.Map.Strict as Map
 import Data.Serialize
+import Data.Singletons
 import qualified Data.Vector as Vec
 import Data.Word
 import Lens.Micro.Platform
@@ -57,16 +61,16 @@ instance (Monad m) => MHashableTo m Hash.Hash BakerPoolRewardDetails
 
 -- | Details of rewards accruing over the course of a reward period, and details about the capital
 --  distribution for this reward period and (possibly) the next.
-data PoolRewards = PoolRewards
+data PoolRewards (bhv :: BlockHashVersion) = PoolRewards
     { -- | The capital distribution for the next reward period.
       --  This is updated the epoch before a payday.
-      nextCapital :: !(Hashed CapitalDistribution),
+      nextCapital :: !(Hashed' (CapitalDistributionHash' bhv) CapitalDistribution),
       -- | The capital distribution for the current reward period.
-      currentCapital :: !(Hashed CapitalDistribution),
+      currentCapital :: !(Hashed' (CapitalDistributionHash' bhv) CapitalDistribution),
       -- | The details of rewards accruing to baker pools.
       --  These are indexed by the index of the baker in the capital distribution (_not_ the BakerId).
       --  There must be an entry for each baker in 'currentCapital'.
-      bakerPoolRewardDetails :: !(LFMBT.LFMBTree Word64 BakerPoolRewardDetails),
+      bakerPoolRewardDetails :: !(Vec.Vector BakerPoolRewardDetails),
       -- | The transaction reward amount accruing to the passive delegators.
       passiveDelegationTransactionRewards :: !Amount,
       -- | The transaction reward fraction accruing to the foundation.
@@ -79,7 +83,7 @@ data PoolRewards = PoolRewards
     deriving (Show)
 
 -- | Traversal for accessing the reward details for a particular baker ID.
-rewardDetails :: BakerId -> Traversal' PoolRewards BakerPoolRewardDetails
+rewardDetails :: BakerId -> Traversal' (PoolRewards bhv) BakerPoolRewardDetails
 rewardDetails bid f pr
     | Just (index, _) <- mindex =
         (\bprd -> pr{bakerPoolRewardDetails = bprd})
@@ -89,32 +93,35 @@ rewardDetails bid f pr
     mindex = binarySearchI bcBakerId (bakerPoolCapital $ _unhashed $ currentCapital pr) bid
 
 -- | Look up the baker capital and reward details for a baker ID.
-lookupBakerCapitalAndRewardDetails :: BakerId -> PoolRewards -> Maybe (BakerCapital, BakerPoolRewardDetails)
+lookupBakerCapitalAndRewardDetails :: BakerId -> PoolRewards bhv -> Maybe (BakerCapital, BakerPoolRewardDetails)
 lookupBakerCapitalAndRewardDetails bid PoolRewards{..} = do
     (index, capital) <- binarySearchI bcBakerId (bakerPoolCapital $ _unhashed currentCapital) bid
     rds <- bakerPoolRewardDetails ^? ix (fromIntegral index)
     return (capital, rds)
 
-instance HashableTo PoolRewardsHash PoolRewards where
+instance (IsBlockHashVersion bhv) => HashableTo (PoolRewardsHash bhv) (PoolRewards bhv) where
     getHash PoolRewards{..} =
-        PoolRewardsHash . Hash.hashOfHashes (getHash nextCapital) $
-            Hash.hashOfHashes (getHash currentCapital) $
-                Hash.hashOfHashes (getHash bakerPoolRewardDetails) $
+        PoolRewardsHash . Hash.hashOfHashes (getCDHash nextCapital) $
+            Hash.hashOfHashes (getCDHash currentCapital) $
+                Hash.hashOfHashes prdHash $
                     getHash $
                         runPut $
                             put passiveDelegationTransactionRewards
                                 <> put foundationTransactionRewards
                                 <> put nextPaydayEpoch
                                 <> put nextPaydayMintRate
+      where
+        getCDHash = theCapitalDistributionHash @bhv . getHash
+        prdHash = LFMBT.theLFMBTreeHash $ LFMBT.lfmbtHash' (sing @bhv) getHash bakerPoolRewardDetails
 
 -- | The empty 'PoolRewards', where there are no bakers, delegators or rewards.
 --  This is generally not used except as a dummy value for testing.
-emptyPoolRewards :: PoolRewards
+emptyPoolRewards :: (IsBlockHashVersion bhv) => PoolRewards bhv
 emptyPoolRewards =
     PoolRewards
         { nextCapital = makeHashed emptyCapitalDistribution,
           currentCapital = makeHashed emptyCapitalDistribution,
-          bakerPoolRewardDetails = LFMBT.empty,
+          bakerPoolRewardDetails = Vec.empty,
           passiveDelegationTransactionRewards = 0,
           foundationTransactionRewards = 0,
           nextPaydayEpoch = 0,
@@ -124,14 +131,15 @@ emptyPoolRewards =
 -- | A 'Putter' for 'PoolRewards'.
 --  The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
 --  length of @bakerPoolCapital (_unhashed currentCapital)@.
-putPoolRewards :: Putter PoolRewards
+putPoolRewards :: Putter (PoolRewards bhv)
 putPoolRewards PoolRewards{..} = do
     put (_unhashed nextCapital)
     put (_unhashed currentCapital)
-    let bprdList = LFMBT.toAscList bakerPoolRewardDetails
-    assert (Vec.length (bakerPoolCapital (_unhashed currentCapital)) == length bprdList) $
-        mapM_ put $
-            LFMBT.toAscList bakerPoolRewardDetails
+    assert
+        ( Vec.length (bakerPoolCapital (_unhashed currentCapital))
+            == Vec.length bakerPoolRewardDetails
+        )
+        $ mapM_ put bakerPoolRewardDetails
     put passiveDelegationTransactionRewards
     put foundationTransactionRewards
     put nextPaydayEpoch
@@ -140,15 +148,14 @@ putPoolRewards PoolRewards{..} = do
 -- | Deserialize 'PoolRewards'.
 --  The 'bakerPoolRewardDetails' is serialized as a flat list, with the length implied by the
 --  length of @bakerPoolCapital (_unhashed currentCapital)@.
-getPoolRewards :: Get PoolRewards
+getPoolRewards :: (IsBlockHashVersion bhv) => Get (PoolRewards bhv)
 getPoolRewards = do
     nextCapital <- makeHashed <$> get
     currentCapital <- makeHashed <$> get
     bakerPoolRewardDetails <-
-        LFMBT.fromList
-            <$> replicateM
-                (Vec.length (bakerPoolCapital (_unhashed currentCapital)))
-                get
+        Vec.replicateM
+            (Vec.length (bakerPoolCapital (_unhashed currentCapital)))
+            get
     passiveDelegationTransactionRewards <- get
     foundationTransactionRewards <- get
     nextPaydayEpoch <- get
@@ -156,39 +163,40 @@ getPoolRewards = do
     return PoolRewards{..}
 
 -- | List of baker and number of blocks baked by this baker in the reward period.
-bakerBlockCounts :: PoolRewards -> [(BakerId, Word64)]
+bakerBlockCounts :: PoolRewards bhv -> [(BakerId, Word64)]
 bakerBlockCounts PoolRewards{..} =
     zipWith
         bc
         (Vec.toList (bakerPoolCapital (_unhashed currentCapital)))
-        (LFMBT.toAscPairList bakerPoolRewardDetails)
+        (Vec.toList bakerPoolRewardDetails)
   where
-    bc BakerCapital{..} (_, BakerPoolRewardDetails{..}) = (bcBakerId, blockCount)
+    bc BakerCapital{..} BakerPoolRewardDetails{..} = (bcBakerId, blockCount)
 
 -- | Rotate the capital distribution, so that the current capital distribution is replaced by the
 --  next one, and set up empty pool rewards.
-rotateCapitalDistribution :: PoolRewards -> PoolRewards
+rotateCapitalDistribution :: PoolRewards bhv -> PoolRewards bhv
 rotateCapitalDistribution pr =
     pr
         { currentCapital = nextCapital pr,
           bakerPoolRewardDetails =
-            LFMBT.fromList $
-                replicate
-                    (Vec.length (bakerPoolCapital (_unhashed (nextCapital pr))))
-                    emptyBakerPoolRewardDetails
+            Vec.replicate
+                (Vec.length (bakerPoolCapital (_unhashed (nextCapital pr))))
+                emptyBakerPoolRewardDetails
         }
 
 -- | Set the next 'CapitalDistribution'.
 setNextCapitalDistribution ::
+    (IsBlockHashVersion bhv) =>
     CapitalDistribution ->
-    PoolRewards ->
-    PoolRewards
+    PoolRewards bhv ->
+    PoolRewards bhv
 setNextCapitalDistribution cd pr =
     pr{nextCapital = makeHashed cd}
 
 -- | Construct 'PoolRewards' for migrating from 'P3' to 'P4'.
 --  This is used to construct the state of the genesis block.
 makePoolRewardsForMigration ::
+    (IsBlockHashVersion bhv) =>
     -- | Current epoch bakers and stakes, in ascending order of 'BakerId'.
     Vec.Vector (BakerId, Amount) ->
     -- | Next epoch bakers and stakes, in ascending order of 'BakerId'.
@@ -199,12 +207,12 @@ makePoolRewardsForMigration ::
     Epoch ->
     -- | Mint rate for the next payday
     MintRate ->
-    PoolRewards
+    PoolRewards bhv
 makePoolRewardsForMigration curBakers nextBakers bakedBlocks npEpoch npMintRate =
     PoolRewards
         { nextCapital = makeCD nextBakers,
           currentCapital = makeCD curBakers,
-          bakerPoolRewardDetails = LFMBT.fromFoldable (makePRD <$> curBakers),
+          bakerPoolRewardDetails = makePRD <$> curBakers,
           passiveDelegationTransactionRewards = 0,
           foundationTransactionRewards = 0,
           nextPaydayEpoch = npEpoch,
@@ -228,13 +236,14 @@ makePoolRewardsForMigration curBakers nextBakers bakedBlocks npEpoch npMintRate 
 
 -- | Make initial pool rewards for a genesis block state.
 makeInitialPoolRewards ::
+    (IsBlockHashVersion bhv) =>
     -- | Genesis capital distribution
     CapitalDistribution ->
     -- | Epoch of next payday
     Epoch ->
     -- | Mint rate
     MintRate ->
-    PoolRewards
+    PoolRewards bhv
 makeInitialPoolRewards cdist npEpoch npMintRate =
     PoolRewards
         { nextCapital = initCD,
@@ -247,9 +256,9 @@ makeInitialPoolRewards cdist npEpoch npMintRate =
         }
   where
     initCD = makeHashed cdist
-    bprd = LFMBT.fromList (replicate (length (bakerPoolCapital cdist)) emptyBakerPoolRewardDetails)
+    bprd = Vec.replicate (length (bakerPoolCapital cdist)) emptyBakerPoolRewardDetails
 
 -- | The total capital passively delegated in the current reward period's capital distribution.
-currentPassiveDelegationCapital :: PoolRewards -> Amount
+currentPassiveDelegationCapital :: PoolRewards bhv -> Amount
 currentPassiveDelegationCapital =
     Vec.sum . fmap dcDelegatorCapital . passiveDelegatorsCapital . _unhashed . currentCapital

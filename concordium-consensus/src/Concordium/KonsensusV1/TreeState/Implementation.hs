@@ -463,7 +463,7 @@ getFirstFinalizedBlockOfEpoch epochOrBlock sd
 makeLiveBlock ::
     (MonadState (SkovData pv) m) =>
     -- | Pending block to make live
-    PendingBlock ->
+    PendingBlock pv ->
     -- | Block state associated with the block
     PBS.HashedPersistentBlockState pv ->
     BlockHeight ->
