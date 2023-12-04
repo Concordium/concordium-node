@@ -676,10 +676,16 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                             config <- readMVar configRef
                             runMVR (runSkovV1Transaction config a) mvr
                     let !handlers = skovV1Handlers vc1Index genesisHeight
+                    let genesisBlockHeightInfo =
+                            KonsensusV1.GenesisBlockHeightInfo
+                                { gbhiAbsoluteHeight = genesisHeight,
+                                  gbhiGenesisIndex = vc1Index
+                                }
                     (vc1Context, st) <-
                         runLoggerT
                             ( SkovV1.initialiseNewSkovV1
                                 gd
+                                genesisBlockHeightInfo
                                 (SkovV1.BakerContext (bakerIdentity <$> mvBaker))
                                 -- Handler context
                                 handlers
@@ -803,12 +809,19 @@ checkForProtocolUpdateV0 = liftSkov body
                         oldGS <- Skov.SkovT $ Skov.ssGSState <$> State.get
                         let oldTT = SkovV0._transactionTable oldGS
                             oldPTT = SkovV0._pendingTransactions oldGS
+                        let genesisBlockHeightInfo =
+                                KonsensusV1.GenesisBlockHeightInfo
+                                    { gbhiAbsoluteHeight = vc1GenesisHeight,
+                                      gbhiGenesisIndex = vc1Index
+                                    }
                         -- Migrate the old state to the new protocol and
                         -- get the new skov context and state.
                         (vc1Context, newState) <-
                             liftIO $
                                 runLoggerT
                                     ( SkovV1.migrateSkovV1
+                                        -- Block height information for the genesis block
+                                        genesisBlockHeightInfo
                                         -- regenesis
                                         nextGenesis
                                         -- migration
@@ -963,6 +976,11 @@ checkForProtocolUpdateV1 = body
                                 config <- readMVar configRef
                                 runMVR (runSkovV1Transaction config a) mvr
                         let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
+                        let genesisBlockHeightInfo =
+                                KonsensusV1.GenesisBlockHeightInfo
+                                    { gbhiAbsoluteHeight = vc1GenesisHeight,
+                                      gbhiGenesisIndex = vc1Index
+                                    }
                         -- get the block state from the terminal block
                         lastFinBlockState <- KonsensusV1.getTerminalBlockState
                         -- the existing persistent block state context.
@@ -973,6 +991,8 @@ checkForProtocolUpdateV1 = body
                             liftIO $
                                 runLoggerT
                                     ( SkovV1.migrateSkovV1
+                                        -- Block height information for the genesis block.
+                                        genesisBlockHeightInfo
                                         -- regenesis
                                         nextGenesis
                                         -- migration
@@ -1228,6 +1248,11 @@ startupSkov genesis = do
                     Nothing -> activateLast
             ConsensusV1 -> do
                 let !handlers = skovV1Handlers genIndex genHeight
+                let genesisBlockHeightInfo =
+                        KonsensusV1.GenesisBlockHeightInfo
+                            { gbhiAbsoluteHeight = genHeight,
+                              gbhiGenesisIndex = genIndex
+                            }
                 -- We need an "unlift" operation to run a SkovV1 transaction in an IO context.
                 -- This is used for implementing timer handlers.
                 -- The "unlift" is implemented by using an 'MVar' to store the configuration in,
@@ -1240,6 +1265,7 @@ startupSkov genesis = do
                 r <-
                     mvrLogIO $
                         SkovV1.initialiseExistingSkovV1
+                            genesisBlockHeightInfo
                             (SkovV1.BakerContext (bakerIdentity <$> mvBaker mvr))
                             -- Handler context
                             handlers

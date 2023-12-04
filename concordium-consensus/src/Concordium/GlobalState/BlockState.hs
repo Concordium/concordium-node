@@ -567,7 +567,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the transactionOutcomesHash of a given block.
     getTransactionOutcomesHash :: BlockState m -> m TransactionOutcomesHash
 
-    -- | Get the stateHash of a given block.
+    -- | Get the StateHash of a given block.
     getStateHash :: BlockState m -> m StateHash
 
     -- | Get all transaction outcomes for this block.

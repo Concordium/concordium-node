@@ -1,8 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -28,9 +30,11 @@ import Concordium.Genesis.Data (Regenesis, firstGenesisBlockHash, regenesisBlock
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import Concordium.Types
+import Concordium.Types.Block (AbsoluteBlockHeight)
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.Parameters (IsConsensusV1)
+import qualified Concordium.Types.ProtocolVersion as BasePV
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
@@ -181,6 +185,27 @@ finalizerByBakerId = binarySearch finalizerBakerId . committeeFinalizers
 finalizerByIndex :: FinalizationCommittee -> FinalizerIndex -> Maybe FinalizerInfo
 finalizerByIndex finCom finInd =
     committeeFinalizers finCom Vector.!? fromIntegral (theFinalizerIndex finInd)
+
+-- | Hash of the finalization committee, only the weight and BLS verify key of each finalizer are used
+-- for computing this.
+newtype FinalizationCommitteeHash = FinalizationCommitteeHash
+    { theFinalizationCommitteeHash :: Hash.Hash
+    }
+
+-- | Compute the hash of the finalization committee. Only the weight and BLS verify key of each
+-- finalizer are used for computing this.
+computeFinalizationCommitteeHash :: FinalizationCommittee -> FinalizationCommitteeHash
+computeFinalizationCommitteeHash FinalizationCommittee{..} =
+    FinalizationCommitteeHash $
+        LFMBT.hashAsLFMBT emptyCommitteeHash $
+            computeFinalizerInfoHash <$> Vector.toList committeeFinalizers
+  where
+    emptyCommitteeHash = Hash.hash "EmptyFinalizationCommittee"
+    computeFinalizerInfoHash :: FinalizerInfo -> Hash.Hash
+    computeFinalizerInfoHash info = Hash.hashOfHashes weightHash blsKeyHash
+      where
+        weightHash = Hash.hash $ runPut $ put (finalizerWeight info)
+        blsKeyHash = Hash.hash $ runPut $ put (finalizerBlsKey info)
 
 -- | A set of 'FinalizerIndex'es.
 --  This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
@@ -795,6 +820,9 @@ instance Serialize FinalizationMessage where
 
 -- | Projections for the data associated with a baked (i.e. non-genesis) block.
 class BakedBlockData d where
+    -- | The protocol version associated with the block.
+    type BakedBlockProtocolVersion d :: ProtocolVersion
+
     -- | Quorum certificate on the parent block.
     blockQuorumCertificate :: d -> QuorumCertificate
 
@@ -818,8 +846,8 @@ class BakedBlockData d where
     -- | The baker's signature on the block.
     blockSignature :: d -> BlockSignature
 
-    -- | The hash of the block's transaction outcomes.
-    blockTransactionOutcomesHash :: d -> TransactionOutcomesHash
+    -- | The hashes derived from the state and content of the block.
+    blockDerivableHashes :: d -> DerivableBlockHashes (BakedBlockProtocolVersion d)
 
 -- | Projections for the data associated with a block (including a genesis block).
 class BlockData b where
@@ -847,11 +875,8 @@ class BlockData b where
     --  prop> blockTransactionCount b = length (blockTransactions b)
     blockTransactionCount :: b -> Int
 
-    -- | The hash of the block state after executing the block.
-    blockStateHash :: b -> StateHash
-
 -- | A 'BakedBlock' consists of a non-genesis block, excluding the block signature.
-data BakedBlock = BakedBlock
+data BakedBlock (pv :: ProtocolVersion) = BakedBlock
     { -- | Block round number. Must be non-zero.
       bbRound :: !Round,
       -- | Block epoch number.
@@ -870,12 +895,63 @@ data BakedBlock = BakedBlock
       bbNonce :: !BlockNonce,
       -- | Transactions in the block.
       bbTransactions :: !(Vector.Vector BlockItem),
-      -- | Hash of the transaction outcomes.
-      bbTransactionOutcomesHash :: !TransactionOutcomesHash,
-      -- | Hash of the block state.
-      bbStateHash :: !StateHash
+      -- | Hashes derived from state and computations of the block.
+      bbDerivableHashes :: !(DerivableBlockHashes pv)
     }
     deriving (Eq, Show)
+
+-- | Hashes in a block which can be derived from the current state and content of the block.
+-- This version is used prior to P7.
+data BlockDerivableHashesV0 = BlockDerivableHashesV0
+    { -- | Hash of the transaction outcomes.
+      bdhv0TransactionOutcomesHash :: !TransactionOutcomesHash,
+      -- | Hash of the block state.
+      bdhv0BlockStateHash :: !StateHash
+    }
+    deriving (Eq, Show)
+
+-- | Hashes in a block which can be derived from the current state and content of the block.
+-- This version is in P7 and onwards.
+data BlockDerivableHashesV1 = BlockDerivableHashesV1
+    { -- | Hash of the block results, includes block state and transaction outcomes.
+      bdhv1BlockResultHash :: !BlockResultHash
+    }
+    deriving (Eq, Show)
+
+-- | Hashes in a block which can be derived from the current state and content of the block.
+-- This type depends on the protocol version.
+type DerivableBlockHashes (pv :: ProtocolVersion) = DerivableBlockHashesBHV (BasePV.BlockHashVersionFor pv)
+
+-- | Hashes in a block which can be derived from the current state and content of the block.
+-- This type depends on the block hash version.
+data DerivableBlockHashesBHV (bhv :: BasePV.BlockHashVersion) where
+    -- | For block hasing version 0 (Prior to P7).
+    DBHashesV0 :: !BlockDerivableHashesV0 -> DerivableBlockHashesBHV 'BasePV.BlockHashVersion0
+    -- | For block hasing version 1 (P7 and onwards).
+    DBHashesV1 :: !BlockDerivableHashesV1 -> DerivableBlockHashesBHV 'BasePV.BlockHashVersion1
+
+deriving instance Show (DerivableBlockHashesBHV bhv)
+deriving instance Eq (DerivableBlockHashesBHV bhv)
+
+-- | Serialize derivable hashes.
+putDerivableBlockHashes :: Putter (DerivableBlockHashesBHV bhv)
+putDerivableBlockHashes derivableBlockHashes = case derivableBlockHashes of
+    DBHashesV0 hashes -> do
+        put $ bdhv0BlockStateHash hashes
+        put $ bdhv0TransactionOutcomesHash hashes
+    DBHashesV1 hashes -> do
+        put $ bdhv1BlockResultHash hashes
+
+-- | Deserialize derivable hashes.
+getDerivableBlockHashes :: SProtocolVersion pv -> Get (DerivableBlockHashes pv)
+getDerivableBlockHashes spv = case BasePV.sBlockHashVersionFor spv of
+    BasePV.SBlockHashVersion0 -> do
+        bdhv0BlockStateHash <- get
+        bdhv0TransactionOutcomesHash <- get
+        return $ DBHashesV0 BlockDerivableHashesV0{..}
+    BasePV.SBlockHashVersion1 -> do
+        bdhv1BlockResultHash <- get
+        return $ DBHashesV1 BlockDerivableHashesV1{..}
 
 -- | Flags indicating which optional values are set in a 'BakedBlock'.
 data BakedBlockFlags = BakedBlockFlags
@@ -884,7 +960,7 @@ data BakedBlockFlags = BakedBlockFlags
     }
 
 -- | Get the 'BakedBlockFlags' associated with a 'BakedBlock'.
-bakedBlockFlags :: BakedBlock -> BakedBlockFlags
+bakedBlockFlags :: BakedBlock pv -> BakedBlockFlags
 bakedBlockFlags BakedBlock{..} =
     BakedBlockFlags
         { bbfTimeoutCertificate = isPresent bbTimeoutCertificate,
@@ -907,15 +983,14 @@ instance Serialize BakedBlockFlags where
                 }
 
 -- | Serialize a 'BakedBlock'.
-putBakedBlock :: Putter BakedBlock
+putBakedBlock :: Putter (BakedBlock pv)
 putBakedBlock bb@BakedBlock{..} = do
     put bbRound
     put bbEpoch
     put bbTimestamp
     put bbBaker
     put bbNonce
-    put bbStateHash
-    put bbTransactionOutcomesHash
+    putDerivableBlockHashes bbDerivableHashes
     put bbQuorumCertificate
     put (bakedBlockFlags bb)
     mapM_ put bbTimeoutCertificate
@@ -925,15 +1000,14 @@ putBakedBlock bb@BakedBlock{..} = do
 
 -- | Deserialize a 'BakedBlock'. The protocol version is used to determine which transaction
 --  types are allowed in the block.
-getBakedBlock :: SProtocolVersion pv -> TransactionTime -> Get BakedBlock
+getBakedBlock :: SProtocolVersion pv -> TransactionTime -> Get (BakedBlock pv)
 getBakedBlock spv tt = label "BakedBlock" $ do
     bbRound <- get
     bbEpoch <- get
     bbTimestamp <- get
     bbBaker <- get
     bbNonce <- get
-    bbStateHash <- get
-    bbTransactionOutcomesHash <- get
+    bbDerivableHashes <- getDerivableBlockHashes spv
     bbQuorumCertificate <- get
     BakedBlockFlags{..} <- get
     bbTimeoutCertificate <-
@@ -964,9 +1038,9 @@ getBakedBlock spv tt = label "BakedBlock" $ do
 -- | A baked block, together with the block hash and block signature.
 --
 --  Invariant: @sbHash == getHash sbBlock@.
-data SignedBlock = SignedBlock
+data SignedBlock (pv :: ProtocolVersion) = SignedBlock
     { -- | The block contents.
-      sbBlock :: !BakedBlock,
+      sbBlock :: !(BakedBlock pv),
       -- | The hash of the block.
       sbHash :: !BlockHash,
       -- | Signature of the baker on the block.
@@ -974,17 +1048,18 @@ data SignedBlock = SignedBlock
     }
     deriving (Eq, Show)
 
-instance BakedBlockData SignedBlock where
+instance BakedBlockData (SignedBlock pv) where
+    type BakedBlockProtocolVersion (SignedBlock pv) = pv
     blockQuorumCertificate = bbQuorumCertificate . sbBlock
     blockBaker = bbBaker . sbBlock
     blockTimeoutCertificate = bbTimeoutCertificate . sbBlock
     blockEpochFinalizationEntry = bbEpochFinalizationEntry . sbBlock
     blockNonce = bbNonce . sbBlock
     blockSignature = sbSignature
-    blockTransactionOutcomesHash = bbTransactionOutcomesHash . sbBlock
+    blockDerivableHashes = bbDerivableHashes . sbBlock
 
-instance BlockData SignedBlock where
-    type BakedBlockDataType SignedBlock = SignedBlock
+instance BlockData (SignedBlock pv) where
+    type BakedBlockDataType (SignedBlock pv) = SignedBlock pv
     blockRound = bbRound . sbBlock
     blockEpoch = bbEpoch . sbBlock
     blockTimestamp = bbTimestamp . sbBlock
@@ -992,22 +1067,21 @@ instance BlockData SignedBlock where
     blockTransactions = Vector.toList . bbTransactions . sbBlock
     {-# INLINE blockTransactions #-}
     blockTransactionCount = Vector.length . bbTransactions . sbBlock
-    blockStateHash = bbStateHash . sbBlock
 
-instance HashableTo BlockHash SignedBlock where
+instance HashableTo BlockHash (SignedBlock pv) where
     getHash = sbHash
 
-instance (Monad m) => MHashableTo m BlockHash SignedBlock
+instance (Monad m) => MHashableTo m BlockHash (SignedBlock pv)
 
 -- | Serialize a 'SignedBlock', including the signature.
-putSignedBlock :: Putter SignedBlock
+putSignedBlock :: Putter (SignedBlock pv)
 putSignedBlock SignedBlock{..} = do
     putBakedBlock sbBlock
     put sbSignature
 
 -- | Deserialize a 'SignedBlock'. The protocol version is used to determine which transactions types
 --  are permitted.
-getSignedBlock :: SProtocolVersion pv -> TransactionTime -> Get SignedBlock
+getSignedBlock :: SProtocolVersion pv -> TransactionTime -> Get (SignedBlock pv)
 getSignedBlock spv tt = do
     sbBlock <- getBakedBlock spv tt
     let sbHash = getHash sbBlock
@@ -1065,9 +1139,9 @@ signBlock ::
     -- | The genesis hash
     BlockHash ->
     -- | The baked block
-    BakedBlock ->
+    BakedBlock pv ->
     -- | The resulting signed block.
-    SignedBlock
+    SignedBlock pv
 signBlock privKey genesisHash sbBlock = SignedBlock{..}
   where
     sbHash = getHash sbBlock
@@ -1101,7 +1175,7 @@ data BlockHeader = BlockHeader
     deriving (Eq)
 
 -- | The block header for a 'BakedBlock'.
-bbBlockHeader :: BakedBlock -> BlockHeader
+bbBlockHeader :: BakedBlock pv -> BlockHeader
 bbBlockHeader BakedBlock{..} =
     BlockHeader
         { bhRound = bbRound,
@@ -1120,7 +1194,7 @@ instance HashableTo BlockHeaderHash BlockHeader where
         put bhEpoch
         put bhParent
 
-instance HashableTo BlockHeaderHash BakedBlock where
+instance HashableTo BlockHeaderHash (BakedBlock pv) where
     getHash = getHash . bbBlockHeader
 
 -- | Hash of a block's contents. This is combined with the 'BlockHeaderHash' to produce a
@@ -1135,7 +1209,7 @@ computeTransactionsHash bis =
         (Hash.hash "")
         (v0TransactionHash . getHash <$> Vector.toList bis)
 
-instance HashableTo BlockQuasiHash BakedBlock where
+instance HashableTo BlockQuasiHash (BakedBlock pv) where
     getHash BakedBlock{..} = BlockQuasiHash $ Hash.hashOfHashes metaHash dataHash
       where
         metaHash = Hash.hashOfHashes bakerInfoHash certificatesHash
@@ -1153,13 +1227,18 @@ instance HashableTo BlockQuasiHash BakedBlock where
                   where
                     timeoutHash = getHash bbTimeoutCertificate
                     finalizationHash = getHash bbEpochFinalizationEntry
-        dataHash = Hash.hashOfHashes transactionsAndOutcomesHash stateHash
-          where
-            transactionsAndOutcomesHash = Hash.hashOfHashes transactionsHash outcomesHash
+        dataHash = case bbDerivableHashes of
+            DBHashesV0 derivableHashesV0 -> Hash.hashOfHashes transactionsAndOutcomesHash stateHash
+              where
+                transactionsAndOutcomesHash = Hash.hashOfHashes transactionsHash outcomesHash
+                  where
+                    transactionsHash = computeTransactionsHash bbTransactions
+                    outcomesHash = tohGet $ bdhv0TransactionOutcomesHash derivableHashesV0
+                stateHash = v0StateHash $ bdhv0BlockStateHash derivableHashesV0
+            DBHashesV1 derivableHashesV1 -> Hash.hashOfHashes transactionsHash stateHash
               where
                 transactionsHash = computeTransactionsHash bbTransactions
-                outcomesHash = tohGet bbTransactionOutcomesHash
-            stateHash = v0StateHash bbStateHash
+                stateHash = theBlockResultHash $ bdhv1BlockResultHash derivableHashesV1
 
 -- | Compute the block hash from the header hash and quasi-hash.
 computeBlockHash :: BlockHeaderHash -> BlockQuasiHash -> BlockHash
@@ -1169,7 +1248,7 @@ computeBlockHash bhh bqh =
             (theBlockHeaderHash bhh)
             (theBlockQuasiHash bqh)
 
-instance HashableTo BlockHash BakedBlock where
+instance HashableTo BlockHash (BakedBlock pv) where
     getHash bb = computeBlockHash (getHash bb) (getHash bb)
 
 -- | Configuration information stored for the genesis block.
@@ -1212,6 +1291,23 @@ instance Serialize GenesisMetadata where
         gmStateHash <- get
         return GenesisMetadata{..}
 
+-- | Block height information for the (current) genesis block.
+data GenesisBlockHeightInfo = GenesisBlockHeightInfo
+    { -- | The absolute height of the current genesis block.
+      gbhiAbsoluteHeight :: !AbsoluteBlockHeight,
+      -- | The genesis index of the current genesis block.
+      gbhiGenesisIndex :: !GenesisIndex
+    }
+
+instance Serialize GenesisBlockHeightInfo where
+    put GenesisBlockHeightInfo{..} = do
+        put gbhiAbsoluteHeight
+        put gbhiGenesisIndex
+    get = do
+        gbhiAbsoluteHeight <- get
+        gbhiGenesisIndex <- get
+        return GenesisBlockHeightInfo{..}
+
 -- | Either a genesis block or a normal block.
 --  A normal block MUST have a non-zero round number.
 --
@@ -1219,11 +1315,11 @@ instance Serialize GenesisMetadata where
 --  'StateHash', which abstract from the genesis data.
 data Block (pv :: ProtocolVersion)
     = GenesisBlock !GenesisMetadata
-    | NormalBlock !SignedBlock
+    | NormalBlock !(SignedBlock pv)
     deriving (Eq, Show)
 
 instance BlockData (Block pv) where
-    type BakedBlockDataType (Block pv) = SignedBlock
+    type BakedBlockDataType (Block pv) = SignedBlock pv
     blockRound GenesisBlock{} = 0
     blockRound (NormalBlock b) = blockRound b
     blockEpoch GenesisBlock{} = 0
@@ -1237,8 +1333,6 @@ instance BlockData (Block pv) where
     {-# INLINE blockTransactions #-}
     blockTransactionCount GenesisBlock{} = 0
     blockTransactionCount (NormalBlock b) = blockTransactionCount b
-    blockStateHash (GenesisBlock gc) = gmStateHash gc
-    blockStateHash (NormalBlock b) = blockStateHash b
 
 instance HashableTo BlockHash (Block pv) where
     getHash (GenesisBlock gc) = gmCurrentGenesisHash gc
@@ -1291,7 +1385,7 @@ newtype BlockSignatureWitness = BlockSignatureWitness {bswBlockHash :: BlockHash
     deriving (Eq, Show)
 
 -- | Derive a 'BlockSignatureWitness' from a signed block.
-toBlockSignatureWitness :: SignedBlock -> BlockSignatureWitness
+toBlockSignatureWitness :: SignedBlock pv -> BlockSignatureWitness
 toBlockSignatureWitness = BlockSignatureWitness . getHash
 
 -- | A proof that contains the 'Epoch' for a 'QuorumCertificate'
