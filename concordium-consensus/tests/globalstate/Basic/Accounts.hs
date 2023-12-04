@@ -1,15 +1,18 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Basic.Accounts where
 
-import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Genesis.Data
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBTree
+import Concordium.GlobalState.BlockState (AccountsHash (..))
 import Concordium.ID.Parameters
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
@@ -18,12 +21,11 @@ import Concordium.Types.HashableTo
 import Control.Monad
 import Data.Foldable
 import qualified Data.Map.Strict as Map
+import qualified Data.Sequence as Seq
 import Data.Serialize
 import GHC.Stack (HasCallStack)
 import Lens.Micro.Internal (Index, IxValue, Ixed)
 import Lens.Micro.Platform
-
-import qualified Basic.AccountTable as AT
 
 -- | Representation of the set of accounts on the chain.
 --  Each account has an 'AccountIndex' which is the order
@@ -46,7 +48,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts
     { -- | Unique index of accounts by 'AccountAddress'
       accountMap :: !(AccountMap.PureAccountMap pv),
       -- | Hashed Merkle-tree of the accounts.
-      accountTable :: !(AT.AccountTable (AccountVersionFor pv)),
+      accountTable :: !(Seq.Seq (Account (AccountVersionFor pv))),
       -- | A mapping of 'ID.CredentialRegistrationID's to accounts on which they are used.
       accountRegIds :: !(Map.Map ID.RawCredentialRegistrationID AccountIndex)
     }
@@ -54,11 +56,12 @@ data Accounts (pv :: ProtocolVersion) = Accounts
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
     show Accounts{..} = "Accounts {\n" ++ (concatMap showAcct . AccountMap.toListPure $ accountMap) ++ "accountRegIds = " ++ show accountRegIds ++ "\n}"
       where
-        showAcct (addr, ind) = show addr ++ " => " ++ maybe "MISSING" show (accountTable ^? ix ind) ++ "\n"
+        showAcct (addr, ind) =
+            show addr ++ " => " ++ maybe "MISSING" show (accountTable ^? ix (fromIntegral ind)) ++ "\n"
 
 -- | An 'Accounts' with no accounts.
 emptyAccounts :: Accounts pv
-emptyAccounts = Accounts AccountMap.empty AT.Empty Map.empty
+emptyAccounts = Accounts AccountMap.empty Seq.Empty Map.empty
 
 -- | Add or modify a given account.
 --  If an account matching the given account's address does not exist,
@@ -78,10 +81,11 @@ putAccount !acct = snd . putAccountWithIndex acct
 putAccountWithIndex :: (IsProtocolVersion pv) => Account (AccountVersionFor pv) -> Accounts pv -> (AccountIndex, Accounts pv)
 putAccountWithIndex !acct Accounts{..} =
     case AccountMap.lookupPure addr accountMap of
-        Nothing ->
-            let (i, newAccountTable) = AT.append acct accountTable
-            in  (i, Accounts (AccountMap.insertPure addr i accountMap) newAccountTable accountRegIds)
-        Just i -> (i, Accounts accountMap (accountTable & ix i .~ acct) accountRegIds)
+        Nothing -> (i, Accounts (AccountMap.insertPure addr i accountMap) newAccountTable accountRegIds)
+          where
+            i = fromIntegral $ Seq.length accountTable
+            newAccountTable = accountTable Seq.|> acct
+        Just i -> (i, Accounts accountMap (accountTable & ix (fromIntegral i) .~ acct) accountRegIds)
   where
     addr = acct ^. accountAddress
 
@@ -109,7 +113,7 @@ exists addr Accounts{..} = AccountMap.isAddressAssignedPure addr accountMap
 getAccount :: (IsProtocolVersion pv) => AccountAddress -> Accounts pv -> Maybe (Account (AccountVersionFor pv))
 getAccount addr Accounts{..} = case AccountMap.lookupPure addr accountMap of
     Nothing -> Nothing
-    Just i -> accountTable ^? ix i
+    Just i -> accountTable ^? ix (fromIntegral i)
 
 getAccountIndex :: (IsProtocolVersion pv) => AccountAddress -> Accounts pv -> Maybe AccountIndex
 getAccountIndex addr Accounts{..} = AccountMap.lookupPure addr accountMap
@@ -119,11 +123,11 @@ getAccountIndex addr Accounts{..} = AccountMap.lookupPure addr accountMap
 getAccountWithIndex :: (IsProtocolVersion pv) => AccountAddress -> Accounts pv -> Maybe (AccountIndex, Account (AccountVersionFor pv))
 getAccountWithIndex addr Accounts{..} = case AccountMap.lookupPure addr accountMap of
     Nothing -> Nothing
-    Just i -> (i,) <$> accountTable ^? ix i
+    Just i -> (i,) <$> accountTable ^? ix (fromIntegral i)
 
 -- | Traversal for accessing the account at a given index.
 indexedAccount :: (IsProtocolVersion pv) => AccountIndex -> Traversal' (Accounts pv) (Account (AccountVersionFor pv))
-indexedAccount ai = lens accountTable (\a v -> a{accountTable = v}) . ix ai
+indexedAccount ai = lens accountTable (\a v -> a{accountTable = v}) . ix (fromIntegral ai)
 
 -- | Lens for accessing the account at a given index, assuming the account exists.
 --  If the account does not exist, this throws an error.
@@ -163,7 +167,7 @@ updateAccount !upd =
 unsafeGetAccount :: (IsProtocolVersion pv) => AccountAddress -> Accounts pv -> Account (AccountVersionFor pv)
 unsafeGetAccount addr Accounts{..} = case AccountMap.lookupPure addr accountMap of
     Nothing -> error $ "unsafeGetAccount: Account " ++ show addr ++ " does not exist."
-    Just i -> accountTable ^?! ix i
+    Just i -> accountTable ^?! ix (fromIntegral i)
 
 -- | Check whether the given address would clash with any existing addresses in
 --  the accounts structure. The meaning of this depends on the protocol version.
@@ -189,8 +193,12 @@ recordRegIds rids accs = accs{accountRegIds = Map.union (accountRegIds accs) (Ma
 
 -- since credentials can only be used on one account the union is well-defined, the maps should be disjoint.
 
-instance HashableTo H.Hash (Accounts pv) where
-    getHash Accounts{..} = getHash accountTable
+instance (IsProtocolVersion pv) => HashableTo (AccountsHash pv) (Accounts pv) where
+    getHash =
+        AccountsHash
+            . LFMBTree.theLFMBTreeHash
+            . LFMBTree.lfmbtHash (sBlockHashVersionFor (protocolVersion @pv))
+            . accountTable
 
 type instance Index (Accounts pv) = AccountAddress
 type instance IxValue (Accounts pv) = (Account (AccountVersionFor pv))
@@ -199,21 +207,21 @@ instance (IsProtocolVersion pv) => Ixed (Accounts pv) where
     ix addr f acc@Accounts{..} =
         case AccountMap.lookupPure addr accountMap of
             Nothing -> pure acc
-            Just i -> (\atable -> acc{accountTable = atable}) <$> ix i f accountTable
+            Just i -> (\atable -> acc{accountTable = atable}) <$> ix (fromIntegral i) f accountTable
 
 -- | Convert an 'Accounts' to a list of 'Account's with their indexes.
 accountList :: Accounts pv -> [(AccountIndex, Account (AccountVersionFor pv))]
-accountList = AT.toList . accountTable
+accountList = zip [0 ..] . toList . accountTable
 
 -- | Fold over the account table in ascending order of account index.
 foldAccounts :: (a -> Account (AccountVersionFor pv) -> a) -> a -> Accounts pv -> a
-foldAccounts f a = AT.foldl' f a . accountTable
+foldAccounts f a = foldl' f a . accountTable
 
 -- | Serialize 'Accounts' in V0 format.
 serializeAccounts :: (IsProtocolVersion pv) => GlobalContext -> Putter (Accounts pv)
 serializeAccounts cryptoParams Accounts{..} = do
-    putWord64be $ AT.size accountTable
-    forM_ (AT.toList accountTable) $ \(_, acct) -> serializeAccount cryptoParams acct
+    putWord64be $ fromIntegral $ Seq.length accountTable
+    forM_ accountTable $ \acct -> serializeAccount cryptoParams acct
 
 -- | Deserialize 'Accounts'. The serialization format may depend on the protocol version.
 --  The state migration determines how do construct an 'Accounts' at a new protocol version 'pv'
@@ -245,7 +253,7 @@ deserializeAccounts migration cryptoParams = do
                     (i + 1)
                     Accounts
                         { accountMap = AccountMap.insertPure (acct ^. accountAddress) acctId accountMap,
-                          accountTable = snd (AT.append acct accountTable),
+                          accountTable = accountTable Seq.|> acct,
                           accountRegIds = newRegIds
                         }
             | otherwise = return accts

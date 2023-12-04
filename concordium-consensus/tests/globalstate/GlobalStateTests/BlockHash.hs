@@ -35,6 +35,7 @@ import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState (emptyPersistentTransactionOutcomes)
 import Concordium.Types.DummyData
 import Concordium.Types.HashableTo
+import Concordium.Types.TransactionOutcomes
 import Control.Monad.IO.Class
 import System.Random
 
@@ -196,9 +197,13 @@ tests = do
                 defaultHash `shouldNotBe` hash'
 
             specify "Hash of emptyPersistentTransactionOutcomes (TOV0) is hash of emptyTransactionOutcomesV0" $
-                runDummyHashMonad (getHashM @_ @TransactionOutcomesHash (emptyPersistentTransactionOutcomes @'TOV0))
-                    `shouldBe` getHash emptyTransactionOutcomesV0
+                runDummyHashMonad (getHashM (emptyPersistentTransactionOutcomes @'TOV0))
+                    `shouldBe` getHash @(TransactionOutcomesHashV 'TOV0) emptyTransactionOutcomesV0
 
             specify "Hash of emptyPersistentTransactionOutcomes (TOV1) is emptyTransactionOutcomesHashV1" $
-                runDummyHashMonad (getHashM @_ @TransactionOutcomesHash (emptyPersistentTransactionOutcomes @'TOV1))
+                runDummyHashMonad (getHashM (emptyPersistentTransactionOutcomes @'TOV1))
                     `shouldBe` emptyTransactionOutcomesHashV1
+
+            specify "Hash of emptyPersistentTransactionOutcomes (TOV2) is emptyTransactionOutcomesHashV2" $
+                runDummyHashMonad (getHashM (emptyPersistentTransactionOutcomes @'TOV2))
+                    `shouldBe` emptyTransactionOutcomesHashV2
