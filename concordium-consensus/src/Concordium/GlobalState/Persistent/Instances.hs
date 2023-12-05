@@ -29,7 +29,11 @@ import Concordium.Utils.Serialization (putByteStringLen)
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
 
-import Concordium.GlobalState.BlockState (InstanceInfoType (..), InstanceInfoTypeV (..))
+import Concordium.GlobalState.BlockState (
+    InstanceInfoType (..),
+    InstanceInfoTypeV (..),
+    InstancesHash (..),
+ )
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.Instance as Instance
 import Concordium.GlobalState.Persistent.BlobStore
@@ -632,9 +636,16 @@ instance Show (Instances pv) where
     show InstancesEmpty = "Empty"
     show (InstancesTree _ t) = showFix showITString t
 
-instance (IsProtocolVersion pv, SupportsPersistentModule m) => MHashableTo m H.Hash (Instances pv) where
-    getHashM InstancesEmpty = return $ H.hash "EmptyInstances"
-    getHashM (InstancesTree _ t) = getHash <$> mproject t
+makeInstancesHash :: forall pv. (IsProtocolVersion pv) => Word64 -> H.Hash -> InstancesHash pv
+makeInstancesHash size inner = case sBlockHashVersionFor (protocolVersion @pv) of
+    SBlockHashVersion0 -> InstancesHash inner
+    SBlockHashVersion1 -> InstancesHash . H.hashLazy . runPutLazy $ do
+        putWord64be size
+        put inner
+
+instance (IsProtocolVersion pv, SupportsPersistentModule m) => MHashableTo m (InstancesHash pv) (Instances pv) where
+    getHashM InstancesEmpty = return $ makeInstancesHash 0 $ H.hash "EmptyInstances"
+    getHashM (InstancesTree size t) = makeInstancesHash size . getHash <$> mproject t
 
 instance (IsProtocolVersion pv, SupportsPersistentModule m) => BlobStorable m (Instances pv) where
     storeUpdate i@InstancesEmpty = return (putWord8 0, i)

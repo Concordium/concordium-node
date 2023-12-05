@@ -111,6 +111,10 @@ newtype AccountsHash (pv :: ProtocolVersion) = AccountsHash {theAccountsHash :: 
 newtype ModulesHash (pv :: ProtocolVersion) = ModulesHash {theModulesHash :: H.Hash}
     deriving newtype (Eq, Ord, Show, Serialize)
 
+-- | Hash associated with the instances table.
+newtype InstancesHash (pv :: ProtocolVersion) = InstancesHash {theInstancesHash :: H.Hash}
+    deriving newtype (Eq, Ord, Show, Serialize)
+
 -- | The hashes of the block state components, which are combined
 --  to produce a 'StateHash'.
 data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs
@@ -121,7 +125,7 @@ data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs
       bshModules :: ModulesHash pv,
       bshBankStatus :: H.Hash,
       bshAccounts :: AccountsHash pv,
-      bshInstances :: H.Hash,
+      bshInstances :: InstancesHash pv,
       bshUpdates :: H.Hash,
       bshBlockRewardDetails :: BlockRewardDetailsHash pv
     }
@@ -139,7 +143,7 @@ makeBlockStateHash BlockStateHashInputs{..} =
                 )
                 ( H.hashOfHashes
                     (H.hashOfHashes (theModulesHash bshModules) bshBankStatus)
-                    (H.hashOfHashes (theAccountsHash bshAccounts) bshInstances)
+                    (H.hashOfHashes (theAccountsHash bshAccounts) (theInstancesHash bshInstances))
                 )
             )
             ( H.hashOfHashes

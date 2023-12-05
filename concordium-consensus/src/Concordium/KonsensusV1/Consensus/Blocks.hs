@@ -49,7 +49,6 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import qualified Concordium.KonsensusV1.TreeState.LowLevel as LowLevel
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
-import qualified Concordium.MerkleProofs as Merkle
 import Concordium.Scheduler (FilteredTransactions (..))
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
@@ -113,7 +112,6 @@ data BlockResult pv
 --  'executeBlock' to complete the procedure (as necessary).
 uponReceivingBlock ::
     ( IsConsensusV1 (MPV m),
-      MonadProtocolVersion m,
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
       BlockStateStorage m,
@@ -123,10 +121,6 @@ uponReceivingBlock ::
     PendingBlock (MPV m) ->
     m (BlockResult (MPV m))
 uponReceivingBlock pendingBlock = do
-    mp <- Merkle.buildMerkleProof (const True) (sbBlock (pbBlock pendingBlock))
-    logEvent Konsensus LLTrace $ show mp
-    let mr = Merkle.parseMerkleProof (snd Merkle.blockSchema) (fst Merkle.blockSchema) mp
-    logEvent Konsensus LLTrace $ show mr
     isShutdown <- use isConsensusShutdown
     if isShutdown
         then return BlockResultConsensusShutdown

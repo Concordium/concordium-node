@@ -11,7 +11,6 @@
 
 module Concordium.Types.TransactionOutcomes where
 
-import qualified Data.Aeson as AE
 import Data.Hashable
 import qualified Data.Sequence as Seq
 import qualified Data.Serialize as S
@@ -67,7 +66,7 @@ instance HashableTo (TransactionOutcomesHashV 'TOV0) TransactionOutcomes where
 --     @(outcomes <> special)@, where @outcomes@ and @special@ are the version 1 LFMBTree hashes
 --     of the normal and special transaction outcomes respectively.
 newtype TransactionOutcomesHash = TransactionOutcomesHash {tohGet :: H.Hash}
-    deriving newtype (Eq, Ord, Show, S.Serialize, AE.ToJSON, AE.FromJSON, AE.FromJSONKey, AE.ToJSONKey, Read, Hashable)
+    deriving newtype (Eq, Ord, Show, S.Serialize, Read, Hashable)
 
 -- | A wrapper around a 'H.Hash', representing the hash of transaction outcomes in
 --  a block. The type parameter indicates the hashing scheme used to derive the hash.
@@ -86,7 +85,7 @@ newtype TransactionOutcomesHash = TransactionOutcomesHash {tohGet :: H.Hash}
 newtype TransactionOutcomesHashV (tov :: TransactionOutcomesVersion) = TransactionOutcomesHashV
     { theTransactionOutcomesHashV :: H.Hash
     }
-    deriving newtype (Eq, Ord, Show, S.Serialize, AE.ToJSON, AE.FromJSON, AE.FromJSONKey, AE.ToJSONKey, Read, Hashable)
+    deriving newtype (Eq, Ord, Show, S.Serialize, Read, Hashable)
 
 -- | Convert a 'TransactionOutcomesHashV' to a 'TransactionOutcomesHash'. This erases the
 --  type-level information about the transaction outcomes hashing version used.
