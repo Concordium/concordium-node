@@ -476,17 +476,17 @@ getFirstFinalizedBlockOfEpoch epochOrBlock sd
 --  The hash of the block state MUST match the block state hash of the block; this is not checked.
 --  [Note: this does not affect the '_branches' of the 'SkovData'.]
 makeLiveBlock ::
-    forall m.
-    (MonadState (SkovData (MPV m)) m, IsProtocolVersion (MPV m)) =>
+    forall m pv.
+    (MonadState (SkovData pv) m, IsProtocolVersion pv) =>
     -- | Pending block to make live
-    PendingBlock (MPV m) ->
+    PendingBlock pv ->
     -- | Block state associated with the block
-    PBS.HashedPersistentBlockState (MPV m) ->
+    PBS.HashedPersistentBlockState pv ->
     BlockHeight ->
     UTCTime ->
     -- | Energy used in executing the block
     Energy ->
-    m (BlockPointer (MPV m))
+    m (BlockPointer pv)
 makeLiveBlock pb st height arriveTime energyCost = do
     let bp =
             BlockPointer
@@ -499,7 +499,7 @@ makeLiveBlock pb st height arriveTime energyCost = do
                           bmTransactionsSize = fromIntegral $ sum (biSize <$> blockTransactions pb),
                           bmBlockStateHash =
                             Cond.conditionally
-                                (sBlockStateHashInMetadata (sBlockHashVersionFor (protocolVersion @(MPV m))))
+                                (sBlockStateHashInMetadata (sBlockHashVersionFor (protocolVersion @pv)))
                                 (getHash st)
                         },
                   bpBlock = NormalBlock (pbBlock pb),

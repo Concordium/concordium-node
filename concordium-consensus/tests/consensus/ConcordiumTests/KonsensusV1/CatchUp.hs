@@ -39,7 +39,7 @@ assertCatchupResponse ::
     -- | The expected terminal data.
     CatchUpTerminalData ->
     -- | The expected blocks to be served.
-    [SignedBlock] ->
+    [SignedBlock (MPV m)] ->
     -- | The response.
     CatchUpPartialResponse m ->
     m ()
@@ -124,7 +124,7 @@ testQuorumMessage finIndex rnd e ptr =
 
 -- | Create a finalization entry where the @QuorumCertificate@ denotes the block being finalized,
 --  and the @BakedBlock@ is the successor block (which has a QC for the finalized block) and thus finalizing it.
-testFinalizationEntry :: BakedBlock -> BakedBlock -> FinalizationEntry
+testFinalizationEntry :: (IsProtocolVersion pv) => BakedBlock pv -> BakedBlock pv -> FinalizationEntry
 testFinalizationEntry finalizedBlock sucBlock =
     FinalizationEntry
         { feFinalizedQuorumCertificate = bbQuorumCertificate finalizedBlock,
@@ -133,7 +133,7 @@ testFinalizationEntry finalizedBlock sucBlock =
         }
 
 -- | Timeout the provided round with a pointer to the proved block.
-mkTimeout :: Round -> BakedBlock -> TestMonad 'P6 ()
+mkTimeout :: Round -> BakedBlock 'P6 -> TestMonad 'P6 ()
 mkTimeout rnd bb =
     mapM_
         ( \bid ->
@@ -368,8 +368,12 @@ catchupWithTwoBranchesResponse = runTest $ do
                           bbEpochFinalizationEntry = Absent,
                           bbNonce = computeBlockNonce genesisLEN 4 (TestBlocks.bakerVRFKey (3 :: Int)),
                           bbTransactions = Vec.empty,
-                          bbTransactionOutcomesHash = emptyBlockTOH 3,
-                          bbStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
+                          bbDerivableHashes =
+                            DBHashesV0 $
+                                BlockDerivableHashesV0
+                                    { bdhv0TransactionOutcomesHash = emptyBlockTOH 3,
+                                      bdhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
+                                    }
                         }
     TestBlocks.succeedReceiveBlock b4
     -- There is one current timeout message and one current quorum message
@@ -473,8 +477,12 @@ testMakeCatchupStatus = runTest $ do
                           bbEpochFinalizationEntry = Absent,
                           bbNonce = computeBlockNonce genesisLEN 4 (TestBlocks.bakerVRFKey (3 :: Int)),
                           bbTransactions = Vec.empty,
-                          bbTransactionOutcomesHash = emptyBlockTOH 3,
-                          bbStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
+                          bbDerivableHashes =
+                            DBHashesV0 $
+                                BlockDerivableHashesV0
+                                    { bdhv0TransactionOutcomesHash = emptyBlockTOH 3,
+                                      bdhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
+                                    }
                         }
     TestBlocks.succeedReceiveBlock b4
     -- There is one current timeout message and one current quorum message

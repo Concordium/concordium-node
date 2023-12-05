@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -13,9 +14,9 @@
 --  The module 'ConcordiumTests.ReceiveTransactionsTest' contains more fine grained tests
 --  for each individual type of transaction, this is ok since the two
 --  consensus implementations share the same transaction verifier.
-module ConcordiumTests.KonsensusV1.TransactionProcessingTest (tests) where
+module ConcordiumTests.KonsensusV1.TransactionProcessingTest where
 
-import qualified Concordium.Crypto.SHA256 as Hash
+import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.Aeson as AE
@@ -37,6 +38,7 @@ import Test.Hspec
 
 import Concordium.Common.Version
 import Concordium.Crypto.DummyData
+import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data hiding (GenesisConfiguration)
@@ -120,7 +122,7 @@ dummyCredentialDeploymentHash = getHash dummyCredentialDeployment
 
 -- | A monad for deriving 'MonadTime' by means of a provided time.
 newtype FixedTimeT (m :: Type -> Type) a = FixedTime {runDeterministic :: UTCTime -> m a}
-    deriving (Functor, Applicative, Monad, MonadIO) via ReaderT UTCTime m
+    deriving (Functor, Applicative, Monad, MonadIO, MonadThrow, MonadCatch) via ReaderT UTCTime m
     deriving (MonadTrans) via ReaderT UTCTime
 
 instance (Monad m) => TimeMonad (FixedTimeT m) where
@@ -131,7 +133,7 @@ instance (MonadReader r m) => MonadReader r (FixedTimeT m) where
     local f (FixedTime k) = FixedTime $ local f . k
 
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
-    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail, TimeMonad, MonadState s)
+    deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail, TimeMonad, MonadState s, MonadThrow, MonadCatch)
 
 instance (Monad m) => MonadLogger (NoLoggerT m) where
     logEvent _ _ _ = return ()
@@ -184,11 +186,15 @@ runMyTestMonad idps time action = do
         return $! initialSkovData bs
 
 -- | Initialize a 'SkovData pv' with the provided block state.
-initialSkovData :: HashedPersistentBlockState pv -> SkovData pv
+initialSkovData :: (IsProtocolVersion pv) => HashedPersistentBlockState pv -> SkovData pv
 initialSkovData bs =
     mkInitialSkovData
         defaultRuntimeParameters
         (dummyGenesisMetadata (getHash bs))
+        GenesisBlockHeightInfo
+            { gbhiAbsoluteHeight = 0,
+              gbhiGenesisIndex = 0
+            }
         bs
         10_000
         dummyEpochBakers
@@ -454,7 +460,7 @@ testProcessBlockItems = describe "processBlockItems" $ do
     -- This block is not valid or makes much sense in the context
     -- of a chain. But it does have transactions and that is what we care
     -- about in this test.
-    blockToProcess :: [BlockItem] -> BakedBlock
+    blockToProcess :: [BlockItem] -> BakedBlock 'P6
     blockToProcess txs =
         let bbRound = 1
             bbEpoch = 0
@@ -466,8 +472,12 @@ testProcessBlockItems = describe "processBlockItems" $ do
             -- The first transfer is 'MaybeOk'.
             -- But second transaction is not verifiable (i.e. 'NotOk') because of the chosen set of identity providers,
             bbTransactions = Vec.fromList txs
-            bbTransactionOutcomesHash = TransactionOutcomesHash minBound
-            bbStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
+            bbDerivableHashes =
+                DBHashesV0 $
+                    BlockDerivableHashesV0
+                        { bdhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
+                          bdhv0BlockStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
+                        }
         in  BakedBlock
                 { bbQuorumCertificate =
                     QuorumCertificate

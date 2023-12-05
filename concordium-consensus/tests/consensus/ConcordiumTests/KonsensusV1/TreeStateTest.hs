@@ -1,6 +1,9 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -82,9 +85,9 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data.BaseV1
-import Concordium.GlobalState.TransactionTable (emptyPendingTransactionTable, emptyTransactionTable)
 import Concordium.Scheduler.DummyData
 import Concordium.Types
+import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Transactions
@@ -119,6 +122,9 @@ dummyPersistentBlockState = unsafePerformIO $ newIORef $ blobRefToBufferedRef (B
 
 dummyStateHash :: StateHash
 dummyStateHash = StateHashV0 $ Hash.hash "DummyPersistentBlockState"
+
+dummyBlockResultHash :: BlockResultHash
+dummyBlockResultHash = BlockResultHash $ Hash.hash "DummyBlockResult"
 
 -- | A dummy block state that has no content.
 dummyBlockState :: HashedPersistentBlockState pv
@@ -158,6 +164,8 @@ dummyBlockNonce = VRF.prove dummyVRFKeys ""
 --  by the provided 'parentHash' and the 'Round' of the block
 --  by provided 'Round'
 dummyBakedBlock ::
+    forall pv.
+    (IsProtocolVersion pv) =>
     -- | 'BlockHash' of the parent.
     BlockHash ->
     -- | The round of the block
@@ -165,7 +173,7 @@ dummyBakedBlock ::
     -- | The timestamp of the block
     Timestamp ->
     -- | The empty baked block
-    BakedBlock
+    BakedBlock pv
 dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
   where
     bbEpoch = 0
@@ -175,12 +183,23 @@ dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
     bbEpochFinalizationEntry = Absent
     bbNonce = dummyBlockNonce
     bbTransactions = mempty
-    bbTransactionOutcomesHash = TransactionOutcomesHash minBound
-    bbStateHash = dummyStateHash
+    bbDerivableHashes = case (sBlockHashVersionFor (protocolVersion @pv)) of
+        SBlockHashVersion0 ->
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
+                      bdhv0BlockStateHash = dummyStateHash
+                    }
+        SBlockHashVersion1 ->
+            DBHashesV1 $
+                BlockDerivableHashesV1
+                    { bdhv1BlockResultHash = dummyBlockResultHash
+                    }
 
 -- | Create a 'SignedBlock' by signing the
 --  'dummyBakedBlock' with 'dummySignKeys'
 dummySignedBlock ::
+    (IsProtocolVersion pv) =>
     -- | 'BlockHash' of the parent
     BlockHash ->
     -- | 'Round' of the block
@@ -188,18 +207,19 @@ dummySignedBlock ::
     -- | Timestamp of the block
     Timestamp ->
     -- | The signed block
-    SignedBlock
+    SignedBlock pv
 dummySignedBlock parentHash rnd = signBlock dummySignKeys dummyGenesisBlockHash . dummyBakedBlock parentHash rnd
 
 -- | Construct a 'PendingBlock' for the provided 'Round' where the
 --  parent is indicated by the provided 'BlockHash'.
 dummyPendingBlock ::
+    (IsProtocolVersion pv) =>
     -- | Parent 'BlockHash'
     BlockHash ->
     -- | The 'Timestamp' of the block
     Timestamp ->
     -- | The resulting 'PendingBlock'
-    PendingBlock
+    PendingBlock pv
 dummyPendingBlock parentHash ts =
     PendingBlock
         { pbBlock = dummySignedBlock parentHash 1 ts,
@@ -208,6 +228,8 @@ dummyPendingBlock parentHash ts =
 
 -- | A 'BlockPointer' referrring to the 'dummySignedBlock' for the provided 'Round'
 dummyBlock ::
+    forall pv.
+    (IsProtocolVersion pv) =>
     -- | 'Round' of the block that the created 'BlockPointer' should point to.
     Round ->
     -- | The 'BlockPointer'
@@ -220,7 +242,11 @@ dummyBlock rnd = BlockPointer{..}
               bmReceiveTime = timestampToUTCTime 0,
               bmArriveTime = timestampToUTCTime 0,
               bmEnergyCost = 0,
-              bmTransactionsSize = 0
+              bmTransactionsSize = 0,
+              bmBlockStateHash =
+                Cond.conditionally
+                    (sBlockStateHashInMetadata (sBlockHashVersionFor (protocolVersion @pv)))
+                    dummyStateHash
             }
     bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd 0
     bpState = dummyBlockState
@@ -289,16 +315,20 @@ dummyEpochBakers = EpochBakers bf bf bf 1
 --  Note that as the 'SkovData pv' returned here is constructed by simple dummy values,
 --  then is not suitable for carrying out block state queries or operations.
 --  But this is fine as we do not require that from the tests here.
-dummyInitialSkovData :: SkovData pv
+dummyInitialSkovData :: SkovData 'P6
 dummyInitialSkovData =
     mkInitialSkovData
         defaultRuntimeParameters
         dummyGenesisMetadata
+        GenesisBlockHeightInfo
+            { gbhiAbsoluteHeight = 0,
+              gbhiGenesisIndex = 0
+            }
         dummyBlockState
         10_000
         dummyEpochBakers
-        emptyTransactionTable
-        emptyPendingTransactionTable
+        TT.emptyTransactionTable
+        TT.emptyPendingTransactionTable
 
 -- | A 'LowLevelDB' for testing purposes.
 newtype TestLLDB pv = TestLLDB {theTestLLDB :: IORef (LowLevelDB pv)}
@@ -323,15 +353,15 @@ runTestLLDB initDB a = do
 
 -- Test values
 
-genB :: BlockPointer pv
+genB :: BlockPointer 'P6
 genB = dummyBlock 0
-lastFin :: BlockPointer pv
+lastFin :: BlockPointer 'P6
 lastFin = dummyBlock 20
-testB :: BlockPointer pv
+testB :: BlockPointer 'P6
 testB = dummyBlock 21
-focusB :: BlockPointer pv
+focusB :: BlockPointer 'P6
 focusB = dummyBlock 22
-pendingB :: PendingBlock
+pendingB :: PendingBlock 'P6
 pendingB = dummyPendingBlock (BlockHash minBound) 33
 deadH :: BlockHash
 deadH = BlockHash (Hash.hash "DeadBlock")
@@ -352,9 +382,8 @@ toStoredBlock BlockPointer{..} =
 --
 --  * 'testB' (alive)
 --  * 'focusB' (parent is 'testB')
---  * 'pendingB' (pending)
 --  * the block indicated by 'deadH' has added to the dead cache.
-skovDataWithTestBlocks :: SkovData pv
+skovDataWithTestBlocks :: SkovData 'P6
 skovDataWithTestBlocks =
     dummyInitialSkovData
         & lastFinalized .~ lastFin
@@ -370,7 +399,7 @@ skovDataWithTestBlocks =
                )
 
 -- | A test 'LowLevelDB' with the genesis block.
-lldbWithGenesis :: LowLevelDB pv
+lldbWithGenesis :: LowLevelDB 'P6
 lldbWithGenesis =
     initialLowLevelDB
         sb
@@ -404,7 +433,7 @@ testGetBlockStatus = describe "getBlockStatus" $ do
     it "unknown block" $ getStatus unknownH BlockUnknown
   where
     getStatus bh expect = do
-        s <- runTestLLDB (lldbWithGenesis @'P6) $ getBlockStatus bh sd
+        s <- runTestLLDB lldbWithGenesis $ getBlockStatus bh sd
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
@@ -422,7 +451,7 @@ testGetRecentBlockStatus = describe "getRecentBlockStatus" $ do
     it "unknown block" $ getStatus unknownH $ RecentBlock BlockUnknown
   where
     getStatus bh expect = do
-        s <- runTestLLDB (lldbWithGenesis @'P6) $ getRecentBlockStatus bh sd
+        s <- runTestLLDB lldbWithGenesis $ getRecentBlockStatus bh sd
         s `shouldBe` expect
     sd = skovDataWithTestBlocks
 
@@ -434,7 +463,7 @@ testMakeLiveBlock :: Spec
 testMakeLiveBlock = it "makeLiveBlock" $ do
     let arrTime = timestampToUTCTime 5
         hgt = 23
-    let (res, sd) = runState (makeLiveBlock pendingB dummyBlockState hgt arrTime 0) skovDataWithTestBlocks
+    let (res, sd) = runState (makeLiveBlock @_ @'P6 pendingB dummyBlockState hgt arrTime 0) skovDataWithTestBlocks
     res
         `shouldBe` BlockPointer
             { bpState = dummyBlockState,
@@ -444,7 +473,11 @@ testMakeLiveBlock = it "makeLiveBlock" $ do
                       bmHeight = 23,
                       bmArriveTime = arrTime,
                       bmEnergyCost = 0,
-                      bmTransactionsSize = 0
+                      bmTransactionsSize = 0,
+                      bmBlockStateHash =
+                        Cond.conditionally
+                            (sBlockStateHashInMetadata (sBlockHashVersionFor SP6))
+                            dummyStateHash
                     },
               bpBlock = NormalBlock (pbBlock pendingB)
             }
@@ -607,7 +640,7 @@ testLookupTransaction = describe "lookupTransaction" $ do
                 %~ addTrans 2
                     . addTrans 3
     db =
-        (lldbWithGenesis @'P6)
+        lldbWithGenesis
             { lldbTransactions = HM.fromList [(txHash 1, FinalizedTransactionStatus 1 0)]
             }
     lookupAndCheck hsh expectedOutcome = do

@@ -76,7 +76,7 @@ credBi3 =
     tt = utcTimeToTransactionTime testTime
 
 -- | Valid block for round 1 with 1 credential deployment.
-testBB1 :: BakedBlock
+testBB1 :: BakedBlock PV
 testBB1 =
     BakedBlock
         { bbRound = 1,
@@ -88,15 +88,19 @@ testBB1 =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.fromList [credBi1],
-          bbTransactionOutcomesHash = read "b9444648bf759471276fdba1930af0c543847d22de89c27939791898d757516d",
-          bbStateHash = read "b8bc96ec5f162db36784ea96ec29e3e8ad92abff341a6847e3bf524fdada28ff"
+          bbDerivableHashes =
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = read "b9444648bf759471276fdba1930af0c543847d22de89c27939791898d757516d",
+                      bdhv0BlockStateHash = read "b8bc96ec5f162db36784ea96ec29e3e8ad92abff341a6847e3bf524fdada28ff"
+                    }
         }
   where
     bakerId = 2
 
 -- | Valid block for round 2.
 --  This block carries a QC for 'testBB1' thus certifying it.
-testBB2 :: BakedBlock
+testBB2 :: BakedBlock PV
 testBB2 =
     BakedBlock
         { bbRound = 2,
@@ -108,15 +112,19 @@ testBB2 =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
-          bbStateHash = read "798d5089818bcc7b8873e2585fb4fbf3d4dceffca32531259f466e7c435c8817"
+          bbDerivableHashes =
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
+                      bdhv0BlockStateHash = read "798d5089818bcc7b8873e2585fb4fbf3d4dceffca32531259f466e7c435c8817"
+                    }
         }
   where
     bakerId = 4
 
 -- | Valid block for round 3, finalizes 'testBB1' as this block
 --  carries a QC for 'testBB2'.
-testBB3 :: BakedBlock
+testBB3 :: BakedBlock PV
 testBB3 =
     BakedBlock
         { bbRound = 3,
@@ -128,8 +136,12 @@ testBB3 =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
-          bbStateHash = read "4da0deab5b564cd77c617a2ac7dc8a6064f87e99b09e58c87b5f9e687db2197a"
+          bbDerivableHashes =
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
+                      bdhv0BlockStateHash = read "4da0deab5b564cd77c617a2ac7dc8a6064f87e99b09e58c87b5f9e687db2197a"
+                    }
         }
   where
     bakerId = 4
@@ -154,7 +166,7 @@ testDeployCredential = runTestMonad noBaker testTime genesisData $ do
 -- | Valid block for round 2.
 --  This block has one credential deployment.
 --  This block carries a QC for 'testBB1' thus certifying it.
-testBB2' :: BakedBlock
+testBB2' :: BakedBlock PV
 testBB2' =
     BakedBlock
         { bbRound = 2,
@@ -166,15 +178,19 @@ testBB2' =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.fromList [credBi2],
-          bbTransactionOutcomesHash = read "abc4628869bb526115226dd01ad54bf33f54609fa770d50a9242aaf009f42fa1",
-          bbStateHash = read "e3cf3b280159bc20645738fb1343486d16104989a524fb5feb59ac1b0b7af9ad"
+          bbDerivableHashes =
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = read "abc4628869bb526115226dd01ad54bf33f54609fa770d50a9242aaf009f42fa1",
+                      bdhv0BlockStateHash = read "e3cf3b280159bc20645738fb1343486d16104989a524fb5feb59ac1b0b7af9ad"
+                    }
         }
   where
     bakerId = 4
 
 -- | Valid block for round 3, carries a TC for round 2.
 --  This block has one credential deployment.
-testBB3' :: BakedBlock
+testBB3' :: BakedBlock PV
 testBB3' =
     BakedBlock
         { bbRound = 3,
@@ -186,13 +202,17 @@ testBB3' =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.fromList [credBi3],
-          bbTransactionOutcomesHash = read "3af8504795a03353248be256f66366263f7484c814c5a26760210bbdfd609003",
-          bbStateHash = read "67eb8f778a4a43efa80c73a954110154ae417e21d43c33b857b962af36913e29"
+          bbDerivableHashes =
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = read "3af8504795a03353248be256f66366263f7484c814c5a26760210bbdfd609003",
+                      bdhv0BlockStateHash = read "67eb8f778a4a43efa80c73a954110154ae417e21d43c33b857b962af36913e29"
+                    }
         }
   where
     bakerId = 4
 
-testBB4 :: BakedBlock
+testBB4 :: BakedBlock PV
 testBB4 =
     BakedBlock
         { bbRound = 4,
@@ -204,13 +224,17 @@ testBB4 =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
-          bbStateHash = read "9e698b9c6425b382d8fda5584f530688c237ad013e8aaf848fea274e50244111"
+          bbDerivableHashes =
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
+                      bdhv0BlockStateHash = read "9e698b9c6425b382d8fda5584f530688c237ad013e8aaf848fea274e50244111"
+                    }
         }
   where
     bakerId = 3
 
-testBB5 :: BakedBlock
+testBB5 :: BakedBlock PV
 testBB5 =
     BakedBlock
         { bbRound = 5,
@@ -222,8 +246,12 @@ testBB5 =
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce genesisLEN 5 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
-          bbTransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
-          bbStateHash = read "d9dd62c227d1cbc0d42da0d90bfc11d61533d058cc54b0745d6a597039dbe0ec"
+          bbDerivableHashes =
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
+                      bdhv0BlockStateHash = read "d9dd62c227d1cbc0d42da0d90bfc11d61533d058cc54b0745d6a597039dbe0ec"
+                    }
         }
   where
     bakerId = 3

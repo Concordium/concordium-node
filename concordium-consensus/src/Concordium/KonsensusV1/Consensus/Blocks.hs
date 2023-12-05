@@ -1353,7 +1353,7 @@ computeBlockResultHash newState relativeBlockHeight = do
         genesisBlockHeightInfo <- use genesisBlockHeight
         return
             BlockHeightInfo
-                { bhiAbsoluteBlockHeight = gbhiAbsoluteHeight genesisBlockHeightInfo,
+                { bhiAbsoluteBlockHeight = localToAbsoluteBlockHeight (gbhiAbsoluteHeight genesisBlockHeightInfo) relativeBlockHeight,
                   bhiGenesisIndex = gbhiGenesisIndex genesisBlockHeightInfo,
                   bhiRelativeBlockHeight = relativeBlockHeight
                 }
