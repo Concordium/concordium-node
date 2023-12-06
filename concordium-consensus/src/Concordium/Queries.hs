@@ -659,7 +659,7 @@ getNextAccountNonce accountAddress =
         )
         -- consensus v1
         ( do
-            (nanNonce, nanAllFinal) <- gets (SkovV1.getNextAccountNonce acctEq)
+            (nanNonce, nanAllFinal) <- SkovV1.getNextAccountNonce acctEq =<< get
             return NextAccountNonce{..}
         )
   where
@@ -822,6 +822,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
                 `merge` queueMapperOptional PUETimeoutParameters _pTimeoutParametersQueue
                 `merge` queueMapperOptional PUEMinBlockTime _pMinBlockTimeQueue
                 `merge` queueMapperOptional PUEBlockEnergyLimit _pBlockEnergyLimitQueue
+                `merge` queueMapperOptional PUEFinalizationCommitteeParameters _pFinalizationCommitteeParametersQueue
           where
             cpv :: SChainParametersVersion cpv
             cpv = chainParametersVersion

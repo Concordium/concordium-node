@@ -212,7 +212,7 @@ impl NodeConfig {
         cmd.env("CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES", self.bootstrap_nodes.clone());
         self.baker_credentials
             .as_ref()
-            .map(|bcred| cmd.env("CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE", bcred.clone()));
+            .map(|bcred| cmd.env("CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE", bcred.clone()));
         self.grpc2_address
             .as_ref()
             .map(|rpcaddr| cmd.env("CONCORDIUM_NODE_GRPC2_LISTEN_ADDRESS", rpcaddr.to_string()));

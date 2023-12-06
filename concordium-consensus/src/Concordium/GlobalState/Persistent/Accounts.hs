@@ -246,6 +246,19 @@ instance (SupportsPersistentAccount pv m, av ~ AccountVersionFor pv) => Cacheabl
         return
             accts{accountTable = acctTable}
 
+-- This instance is here so we can cache the account table when starting up,
+-- allowing for efficient modification of the state.
+instance (SupportsPersistentAccount pv m) => Cacheable m (Accounts pv) where
+    cache accts = do
+        let atLeaf =
+                return @_
+                    @( HashedCachedRef
+                        (AccountCache (AccountVersionFor pv))
+                        (PersistentAccount (AccountVersionFor pv))
+                     )
+        acctTable <- liftCache atLeaf (accountTable accts)
+        return accts{accountTable = acctTable}
+
 -- | Create a new empty 'Accounts' structure.
 emptyAccounts :: (MonadIO m) => m (Accounts pv)
 emptyAccounts = do

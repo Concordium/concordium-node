@@ -2,6 +2,26 @@
 
 ## Unreleased changes
 
+- Fix a bug where `GetBlockPendingUpdates` fails to report pending updates to the finalization
+  committee parameters.
+
+## 6.2.3
+
+- Fix a bug that caused the node to crash on Windows when processing a protocol update.
+
+## 6.2.2
+
+- The transaction table is only used for tracking next available account nonce
+  for accounts that have non-finalized transactions. This reduces memory usage
+  and startup time.
+
+- Add options `CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE` and
+  `CONCORDIUM_NODE_VALIDATOR_DECRYPT_CREDENTIALS` that alias
+  `CONCORDIUM_NODE_BAKER_CREDENTIALS_FILE`
+  `CONCORDIUM_NODE_BAKER_DECRYPT_CREDENTIALS`, respectively
+  The latter two options are still available, but hidden in the help text.
+- Support `validatorId` in addition to `bakerId` in the credentials to start a validator.
+
 ## 6.2.1
 
 - The account map is now kept solely on disk in a separate lmdb database and it is no longer part of the internal block state database.

@@ -3,7 +3,7 @@
 module Concordium.Types.BakerIdentity where
 
 import Control.Monad
-import Data.Aeson (FromJSON, parseJSON, withObject, (.:))
+import Data.Aeson (FromJSON, parseJSON, withObject, (.:), (.:?))
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as BLS
@@ -51,7 +51,16 @@ bakerElectionPublicKey ident = VRF.publicKey (bakerElectionKey ident)
 
 instance FromJSON BakerIdentity where
     parseJSON v = flip (withObject "Baker identity:") v $ \obj -> do
-        bakerId <- obj .: "bakerId"
+        maybeBakerId <- obj .:? "bakerId"
+        maybeValidatorId <- obj .:? "validatorId"
+        bakerId <- case (maybeBakerId, maybeValidatorId) of
+            (Nothing, Nothing) -> fail "Neither 'validatorId' nor 'bakerId' are specified."
+            (Just bid, Nothing) -> return bid
+            (Nothing, Just bid) -> return bid
+            (Just bid, Just vid) ->
+                if bid == vid
+                    then return vid
+                    else fail "'bakerId' and 'validatorId' are both specified, but different."
         bakerSignKey <- parseJSON v
         bakerElectionKey <- parseJSON v
         bakerAggregationKey <- obj .: "aggregationSignKey"

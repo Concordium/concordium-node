@@ -39,7 +39,6 @@ import Concordium.GlobalState.Persistent.TreeState (InitException (..))
 import Concordium.MultiVersion (
     Callbacks (..),
     CatchUpConfiguration (..),
-    DiskStateConfig (..),
     MVR (..),
     MultiVersionConfiguration (..),
     MultiVersionRunner (..),
@@ -459,7 +458,7 @@ startConsensus
             appDataPath <- peekCStringLen (appDataC, fromIntegral appDataLenC)
             -- Do globalstate migration if necessary
             migrateGlobalState appDataPath logM
-            let mvcStateConfig = DiskStateConfig appDataPath
+            mvcStateConfig <- MV.makeDiskStateConfig appDataPath
             let mvcFinalizationConfig =
                     BufferedFinalization
                         ( FinalizationInstance
@@ -607,7 +606,7 @@ startConsensusPassive
             appDataPath <- peekCStringLen (appDataC, fromIntegral appDataLenC)
             -- Do globalstate migration if necessary
             migrateGlobalState appDataPath logM
-            let mvcStateConfig = DiskStateConfig appDataPath
+            mvcStateConfig <- MV.makeDiskStateConfig appDataPath
             let mvcFinalizationConfig = NoFinalization
             -- Callbacks
             regenesisRef <- makeRegenesisRef regenesisFree regenesisPtr

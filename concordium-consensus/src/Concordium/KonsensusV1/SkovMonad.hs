@@ -344,8 +344,8 @@ data GlobalStateConfig = GlobalStateConfig
       gscTreeStateDirectory :: !FilePath,
       -- | Path to the block state file.
       gscBlockStateFile :: !FilePath,
-      -- | Path to the account map directory
-      gscAccountMapDirectory :: !FilePath
+      -- | Account map.
+      gscAccountMap :: !LMDBAccountMap.DatabaseHandlers
     }
 
 -- | Context used by the 'InitMonad'.
@@ -499,7 +499,7 @@ initialiseExistingSkovV1 ::
     LogIO (Maybe (ExistingSkov pv m))
 initialiseExistingSkovV1 genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov gsc@GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Attempting to use existing global state."
-    existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile gscAccountMapDirectory
+    existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile
     if existingDB
         then do
             pbsc <- newPersistentBlockStateContext False gsc
@@ -766,5 +766,5 @@ newPersistentBlockStateContext initialize GlobalStateConfig{..} = liftIO $ do
     pbscBlobStore <- if initialize then createBlobStore gscBlockStateFile else loadBlobStore gscBlockStateFile
     pbscAccountCache <- newAccountCache $ rpAccountsCacheSize gscRuntimeParameters
     pbscModuleCache <- Modules.newModuleCache $ rpModulesCacheSize gscRuntimeParameters
-    pbscAccountMap <- LMDBAccountMap.openDatabase gscAccountMapDirectory
+    let pbscAccountMap = gscAccountMap
     return PersistentBlockStateContext{..}

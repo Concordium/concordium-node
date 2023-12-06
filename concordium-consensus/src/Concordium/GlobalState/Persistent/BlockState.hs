@@ -3775,8 +3775,7 @@ cacheState hpbs = do
     rels <- cache bspReleaseSchedule
     red <- cache bspRewardDetails
     _ <-
-        storePBS
-            (hpbsPointers hpbs)
+        storePBS (hpbsPointers hpbs) $!
             BlockStatePointers
                 { bspAccounts = accts,
                   bspInstances = insts,
@@ -3793,8 +3792,8 @@ cacheState hpbs = do
                 }
     return ()
 
--- | Cache the block state and get the initial (empty) transaction table with the next account nonces
---  and update sequence numbers populated.
+-- | Cache the block state and get the initial (empty) transaction table with the next
+-- update sequence numbers populated.
 cacheStateAndGetTransactionTable ::
     forall pv m.
     (SupportsPersistentState pv m) =>
@@ -3802,22 +3801,9 @@ cacheStateAndGetTransactionTable ::
     m TransactionTable.TransactionTable
 cacheStateAndGetTransactionTable hpbs = do
     BlockStatePointers{..} <- loadPBS (hpbsPointers hpbs)
-    -- When caching the accounts, we populate the transaction table with the next account nonces.
-    -- This is done by using 'liftCache' on the account table with a custom cache function that
-    -- records the nonces.
-    let perAcct acct = do
-            -- Note: we do not need to cache the account because a loaded account is already fully
-            -- cached. (Indeed, 'cache' is defined to be 'pure'.)
-            nonce <- accountNonce acct
-            unless (nonce == minNonce) $ do
-                addr <- accountCanonicalAddress acct
-                MTL.modify
-                    ( TransactionTable.ttNonFinalizedTransactions . at' (accountAddressEmbed addr)
-                        ?~ TransactionTable.emptyANFTWithNonce nonce
-                    )
-            return acct
-    (accts, tt0) <- MTL.runStateT (liftCache perAcct bspAccounts) TransactionTable.emptyTransactionTable
-    -- first cache the modules
+    -- cache the account table
+    accts <- cache bspAccounts
+    -- cache the modules
     mods <- cache bspModules
     -- then cache the instances, but don't cache the modules again. Instead
     -- share the references in memory we have already constructed by caching
@@ -3838,7 +3824,7 @@ cacheStateAndGetTransactionTable hpbs = do
                             & TransactionTable.ttNonFinalizedChainUpdates . at' uty
                                 ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
                 else return tt
-    tt <- foldM updInTT tt0 [minBound ..]
+    tt <- foldM updInTT TransactionTable.emptyTransactionTable [minBound ..]
     rels <- cache bspReleaseSchedule
     red <- cache bspRewardDetails
     _ <-

@@ -50,6 +50,7 @@ import Concordium.Types.Accounts
 import Concordium.Crypto.SHA256 as Hash
 import Data.FixedByteString as FBS
 
+import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import qualified Concordium.GlobalState.DummyData as Dummy
 
 -- | Protocol version
@@ -132,10 +133,11 @@ createInitStates dir = do
         createState uni =
             liftIO
                 . ( \(bid, _, _, _) -> do
+                        accountMap <- LMDBAccountMap.openDatabase (dir </> uni <.> "accountmap")
                         let fininst = FinalizationInstance (bakerSignKey bid) (bakerElectionKey bid) (bakerAggregationKey bid)
                             config =
                                 SkovConfig
-                                    (GlobalStateConfig defaultRuntimeParameters (dir </> uni) (dir </> uni <.> "dat") (dir </> uni <.> "accountmap"))
+                                    (GlobalStateConfig defaultRuntimeParameters (dir </> uni) (dir </> uni <.> "dat") accountMap)
                                     (ActiveFinalization fininst)
                                     NoHandler
                         (initCtx, initState) <- runSilentLogger (initialiseSkov gen config)

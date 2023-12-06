@@ -133,12 +133,9 @@ getTransactionIndex bh = \case
 -- * Transaction table
 
 -- | The non-finalized transactions for a particular account.
-data AccountNonFinalizedTransactions = AccountNonFinalizedTransactions
+newtype AccountNonFinalizedTransactions = AccountNonFinalizedTransactions
     { -- | Non-finalized transactions (for an account) and their verification results indexed by nonce.
-      _anftMap :: !(Map.Map Nonce (Map.Map Transaction TVer.VerificationResult)),
-      -- | The next available nonce at the last finalized block.
-      --  'anftMap' should only contain nonces that are at least 'anftNextNonce'.
-      _anftNextNonce :: !Nonce
+      _anftMap :: Map.Map Nonce (Map.Map Transaction TVer.VerificationResult)
     }
     deriving (Eq, Show)
 
@@ -147,12 +144,7 @@ makeLenses ''AccountNonFinalizedTransactions
 -- | Empty (no pending transactions) account non-finalized table starting at the
 --  minimal nonce.
 emptyANFT :: AccountNonFinalizedTransactions
-emptyANFT = emptyANFTWithNonce minNonce
-
--- | An account non-finalized table with no pending transactions and given
---  starting nonce.
-emptyANFTWithNonce :: Nonce -> AccountNonFinalizedTransactions
-emptyANFTWithNonce = AccountNonFinalizedTransactions Map.empty
+emptyANFT = AccountNonFinalizedTransactions Map.empty
 
 -- | The non-finalized chain updates of a particular type.
 data NonFinalizedChainUpdates = NonFinalizedChainUpdates
@@ -207,14 +199,13 @@ emptyNFCUWithSequenceNumber = NonFinalizedChainUpdates Map.empty
 --  may also have a non-zero highest commit point if it is received in a block, but that block
 --  is not yet considered arrived (e.g. it is pending its parent).
 --
---  Generally, '_ttNonFinalizedTransactions' should have an entry for every account,
---  with the exception of where the entry would be 'emptyANFT'. Similarly with
---  '_ttNonFinalizedChainUpdates' and 'emptyNFCU'.  In particular, there should be
---  an entry if the next nonce/sequence number is not the minimum value.
+--  The '_ttNonFinalizedTransactions' should have an entry for every account which has non-finalized transactions.
+--  The '_ttNonFinalizedChainUpdates' should have an entry for all kinds of 'UpdateType's with the exception of where it would be 'emptyNFCU'.
+--  In particular, there should be an entry if the next sequence number is not the minimum value.
 data TransactionTable = TransactionTable
     { -- | Map from transaction hashes to transactions, together with their current status.
       _ttHashMap :: !(HM.HashMap TransactionHash (BlockItem, LiveTransactionStatus)),
-      -- | For each account, the non-finalized transactions for that account,
+      -- | For accounts that have non-finalized transactions, the non-finalized transactions for that account,
       --  grouped by nonce. See $equivalence for reasons why AccountAddressEq is used.
       _ttNonFinalizedTransactions :: !(HM.HashMap AccountAddressEq AccountNonFinalizedTransactions),
       -- | For each update types, the non-finalized update instructions, grouped by
@@ -247,29 +238,33 @@ emptyTransactionTable =
           _ttNonFinalizedChainUpdates = Map.empty
         }
 
--- | A transaction table with no transactions, but with the initial next sequence numbers
---  set for the accounts and update types.
-emptyTransactionTableWithSequenceNumbers :: [(AccountAddress, Nonce)] -> Map.Map UpdateType UpdateSequenceNumber -> TransactionTable
-emptyTransactionTableWithSequenceNumbers accs upds =
-    TransactionTable
-        { _ttHashMap = HM.empty,
-          _ttNonFinalizedTransactions = HM.fromList . map (\(k, n) -> (accountAddressEmbed k, emptyANFTWithNonce n)) . filter (\(_, n) -> n /= minNonce) $ accs,
-          _ttNonFinalizedChainUpdates = emptyNFCUWithSequenceNumber <$> Map.filter (/= minUpdateSequenceNumber) upds
-        }
-
--- | Add a transaction to a transaction table if its nonce/sequence number is at least the next
---  non-finalized nonce/sequence number.  A return value of 'True' indicates that the transaction
+-- | Add a transaction to a transaction table.
+--  For chain updates it is checked that the sequence number is at least the next
+--  non-finalized sequence number.
+--  Nothing is checked for normal transactions.
+--
+-- A return value of 'True' indicates that the transaction
 --  was added.  The caller should check that the transaction is not already present.
-addTransaction :: BlockItem -> CommitPoint -> TVer.VerificationResult -> TransactionTable -> (Bool, TransactionTable)
+addTransaction ::
+    -- | Transaction to add.
+    BlockItem ->
+    -- | Commit point of the transaction.
+    CommitPoint ->
+    -- | The associated verification result.
+    TVer.VerificationResult ->
+    -- | The transaction table to update.
+    TransactionTable ->
+    -- | First component is @True@ if table was updated.
+    --  Second component is the updated table.
+    (Bool, TransactionTable)
 addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
     case wmdData of
-        NormalTransaction tr
-            | tt0 ^. senderANFT . anftNextNonce <= nonce ->
-                (True, tt1 & senderANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
+        NormalTransaction tr -> (True, tt1 & senderANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
           where
             sender = accountAddressEmbed (transactionSender tr)
             senderANFT :: Lens' TransactionTable AccountNonFinalizedTransactions
-            senderANFT = ttNonFinalizedTransactions . at' sender . non emptyANFT
+            senderANFT = ttNonFinalizedTransactions . at' sender . non anft
+            anft = emptyANFT
             nonce = transactionNonce tr
             wmdtr = WithMetadata{wmdData = tr, ..}
         CredentialDeployment{} -> (True, tt1)
@@ -447,22 +442,42 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
                 Just (low - 1, high)
 
 -- | Returns the next available account nonce for the
---  provided account address in the first component and the
---  'Bool' in the second component is 'True' only if all transactions from the
---  provided account are finalized.
+--  provided account address from the perspective of the 'TransactionTable'.
+--  Returns @Nothing@ if no non-finalized transactions were recorded for the provided account.
 nextAccountNonce ::
     -- | The account to look up the next account nonce for.
     AccountAddressEq ->
     -- | The transaction table to look up in.
     TransactionTable ->
-    -- | ("the next available account nonce", "whether all transactions from the account are finalized").
-    (Nonce, Bool)
-nextAccountNonce addr tt = case tt ^. ttNonFinalizedTransactions . at' addr of
-    Nothing -> (minNonce, True)
-    Just anfts ->
-        case Map.lookupMax (anfts ^. anftMap) of
-            Nothing -> (anfts ^. anftNextNonce, True)
-            Just (nonce, _) -> (nonce + 1, False)
+    -- | Maybe "the next available account nonce" with respect to the provided 'TransactionTable'.
+    Maybe Nonce
+nextAccountNonce addr tt = do
+    anfts <- tt ^. ttNonFinalizedTransactions . at' addr
+    (nonce, _) <- Map.lookupMax (anfts ^. anftMap)
+    return (nonce + 1)
+
+-- | Remove a non-finalized transaction from the
+-- 'ttNonFinalizedTransactions' of the provided 'TransactionTable'
+--  for the provided sender 'AccountAddressEq'
+--  and account 'Nonce'.
+--  Returns back the updated 'TransactionTable'.
+finalizeTransactionAt ::
+    -- | Sender of the transaction
+    AccountAddressEq ->
+    -- | The nonce of the transaction
+    Nonce ->
+    -- | 'TransactionTable' to update
+    TransactionTable ->
+    -- | The resulting 'TransactionTable'
+    TransactionTable
+finalizeTransactionAt addr nonce tt =
+    tt
+        & ttNonFinalizedTransactions
+            . at' addr
+            . non emptyANFT
+            . anftMap
+            . at' nonce
+            .~ Nothing
 
 -- * Transaction grouping
 
