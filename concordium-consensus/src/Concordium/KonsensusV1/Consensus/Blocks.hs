@@ -57,7 +57,7 @@ import Concordium.KonsensusV1.Types
 import Concordium.Scheduler (FilteredTransactions (..))
 import Concordium.TimerMonad
 import Concordium.Types.BakerIdentity
-import Concordium.Types.Block (AbsoluteBlockHeight)
+import Concordium.Types.Block (AbsoluteBlockHeight, localToAbsoluteBlockHeight)
 import Concordium.Types.Option
 import Concordium.Types.Transactions (TransactionOutcomesHash)
 
