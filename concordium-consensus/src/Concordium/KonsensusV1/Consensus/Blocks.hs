@@ -1334,21 +1334,19 @@ computeBlockResultHash ::
 computeBlockResultHash newState relativeBlockHeight = do
     theBlockStateHash <- getStateHash newState
     transactionOutcomesHash <- getTransactionOutcomesHash newState
-    currentFinalizationCommitteeHash <- do
-        finalizationCommittee <- use (to bakersForCurrentEpoch . bfFinalizers)
-        return $ computeFinalizationCommitteeHash finalizationCommittee
+    currentFinalizationCommitteeHash <- use $ to bakersForCurrentEpoch . bfFinalizerHash
     nextFinalizationCommitteeHash <- do
         -- Attempt to get the finalization committee from SkovData otherwise compute it from the
         -- information in the block state.
         currentEpoch <- use (roundStatus . rsCurrentEpoch)
         nextSkovBakersAndFinalizers <- gets (getBakersForEpoch (currentEpoch + 1))
-        nextFinalizationCommittee <- case nextSkovBakersAndFinalizers of
-            Just bakersAndFinalizers -> return $ bakersAndFinalizers ^. bfFinalizers
+        case nextSkovBakersAndFinalizers of
+            Just bakersAndFinalizers -> return $ bakersAndFinalizers ^. bfFinalizerHash
             Nothing -> do
                 nextFullBakers <- getNextEpochBakers newState
                 nextFinalizationParameters <- getNextEpochFinalizationCommitteeParameters newState
-                return $ computeFinalizationCommittee nextFullBakers nextFinalizationParameters
-        return $ computeFinalizationCommitteeHash nextFinalizationCommittee
+                let nextFinalizationCommittee = computeFinalizationCommittee nextFullBakers nextFinalizationParameters
+                return $ computeFinalizationCommitteeHash nextFinalizationCommittee
     blockHeightInfo <- do
         genesisBlockHeightInfo <- use genesisBlockHeight
         return

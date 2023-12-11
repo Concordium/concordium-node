@@ -292,8 +292,11 @@ dummyBakersAndFinalizers :: BakersAndFinalizers
 dummyBakersAndFinalizers =
     BakersAndFinalizers
         { _bfBakers = FullBakers Vec.empty 0,
-          _bfFinalizers = FinalizationCommittee Vec.empty 0
+          _bfFinalizers = finalizers,
+          _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
         }
+  where
+    finalizers = FinalizationCommittee Vec.empty 0
 
 -- | Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
 dummyEpochBakers :: EpochBakers

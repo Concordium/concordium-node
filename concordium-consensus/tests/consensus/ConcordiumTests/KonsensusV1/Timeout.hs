@@ -469,7 +469,11 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- COnstruct the finalization committee
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- Construct a set of 0 bakers and 3 finalisers with indices 0,1,2.
-    bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) finalizers
+    bakersAndFinalizers =
+        BakersAndFinalizers
+            (FullBakers Vec.empty 0)
+            finalizers
+            (computeFinalizationCommitteeHash finalizers)
     -- A tree state where the following applies:
     -- - Current round is 2
     -- - Current epoch is 0

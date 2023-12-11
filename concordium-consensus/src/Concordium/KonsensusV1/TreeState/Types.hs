@@ -432,7 +432,9 @@ data BakersAndFinalizers = BakersAndFinalizers
     { -- | Bakers set.
       _bfBakers :: !FullBakers,
       -- | Finalizers set.
-      _bfFinalizers :: !FinalizationCommittee
+      _bfFinalizers :: !FinalizationCommittee,
+      -- | Hash computed from the BLS verify key and weight of each finalizer included in the set above.
+      _bfFinalizerHash :: !FinalizationCommitteeHash
     }
     deriving (Eq, Show)
 

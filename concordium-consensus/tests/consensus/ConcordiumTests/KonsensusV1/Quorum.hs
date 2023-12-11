@@ -104,10 +104,12 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
+    finalizers = FinalizationCommittee (Vec.fromList $ fi <$> [1, 2, 3]) 3
     bfs =
         BakersAndFinalizers
             { _bfBakers = FullBakers Vec.empty 0,
-              _bfFinalizers = FinalizationCommittee (Vec.fromList $ fi <$> [1, 2, 3]) 3
+              _bfFinalizers = finalizers,
+              _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
             }
     -- A skov data not capable of forming a quorum certificate
     sd =
@@ -179,7 +181,12 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
     vrfPublicKey = VRF.publicKey someVRFKeyPair
-    bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) (FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2, fi 3]) 4)
+    finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2, fi 3]) 4
+    bakersAndFinalizers =
+        BakersAndFinalizers
+            (FullBakers Vec.empty 0)
+            finalizers
+            (computeFinalizationCommitteeHash finalizers)
     -- A skov data where
     -- - the current round and epoch is set to 1 (next payday is at epoch 2).
     -- - there are 3 finalizers 1, 2 and 3 each with a weight of 1 (total weight is 3).

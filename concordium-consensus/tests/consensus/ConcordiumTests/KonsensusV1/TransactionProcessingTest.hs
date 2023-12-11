@@ -82,8 +82,11 @@ dummyBakersAndFinalizers :: BakersAndFinalizers
 dummyBakersAndFinalizers =
     BakersAndFinalizers
         { _bfBakers = FullBakers Vec.empty 0,
-          _bfFinalizers = FinalizationCommittee Vec.empty 0
+          _bfFinalizers = finalizers,
+          _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
         }
+  where
+    finalizers = FinalizationCommittee Vec.empty 0
 
 -- | A valid 'AccountCreation' with expiry 1596409020
 validAccountCreation :: AccountCreation
