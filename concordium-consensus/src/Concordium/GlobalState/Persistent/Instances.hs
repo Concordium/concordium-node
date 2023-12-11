@@ -78,6 +78,7 @@ data PersistentInstanceParameters = PersistentInstanceParameters
       -- | Hash of the fixed parameters
       pinstanceParameterHash :: !H.Hash
     }
+    deriving (Eq)
 
 instance Show PersistentInstanceParameters where
     show PersistentInstanceParameters{..} = show pinstanceAddress ++ " :: " ++ show pinstanceContractModule ++ "." ++ show pinstanceInitName
@@ -553,12 +554,12 @@ newContractInstanceIT mk t0 = (\(res, v) -> (res,) <$> membed v) =<< nci 0 t0 =<
     nci offset _ (Branch h f True _ l r) = do
         projl <- mproject l
         projr <- mproject r
-        if branchHasVacancies projl
+        if hasVacancies projl
             then do
                 (res, projl') <- nci offset l projl
                 l' <- membed projl'
                 return (res, makeBranch h f projl' projr l' r)
-            else assert (branchHasVacancies projr) $ do
+            else assert (hasVacancies projr) $ do
                 (res, projr') <- nci (setBit offset (fromIntegral h)) r projr
                 r' <- membed projr'
                 return (res, makeBranch h f projl projr' l r')
@@ -614,7 +615,7 @@ migrateIT modules (BufferedFix bf) = BufferedFix <$> migrateReference go bf
 data Instances pv
     = -- | The empty instance table
       InstancesEmpty
-    | -- | A non-empty instance table (recording the size)
+    | -- | A non-empty instance table, recording the number of leaf nodes, including vacancies
       InstancesTree !Word64 !(BufferedFix (IT pv))
 
 migrateInstances ::
@@ -680,11 +681,21 @@ newContractInstance fnew InstancesEmpty = do
     let ca = ContractAddress 0 0
     (res, newInst) <- fnew ca
     (res,) . InstancesTree 1 <$> membed (Leaf newInst)
-newContractInstance fnew (InstancesTree s it) = (\(res, it') -> (res, InstancesTree (s + 1) it')) <$> newContractInstanceIT fnew it
+newContractInstance fnew (InstancesTree s it) = do
+    ((isFreshIndex, !res), !it') <- newContractInstanceIT fnew' it
+    let !s' = if isFreshIndex then s + 1 else s
+        insts = InstancesTree s' it'
+    return (res, insts)
+  where
+    fnew' ca = do
+        (r, inst) <- fnew ca
+        -- The size of the tree grows exactly when the new subindex is 0.
+        -- Otherwise, a vacancy is filled, and the size does not grow.
+        return ((contractSubindex ca == 0, r), inst)
 
 deleteContractInstance :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => ContractAddress -> Instances pv -> m (Instances pv)
 deleteContractInstance _ InstancesEmpty = return InstancesEmpty
-deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree (s - 1)) . membed) (contractIndex addr) =<< mproject it0
+deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree s) . membed) (contractIndex addr) =<< mproject it0
   where
     dci succCont i (Leaf inst)
         | i == 0 = do
