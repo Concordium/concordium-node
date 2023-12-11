@@ -1326,7 +1326,7 @@ computeBlockResultHash ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       IsConsensusV1 (MPV m)
     ) =>
-    -- | The new block state for the block.
+    -- | The block state right after executing the block.
     HashedPersistentBlockState (MPV m) ->
     -- | The relative block height for the block.
     BlockHeight ->

@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Testing of 'Concordium.KonsensusV1.Types' and 'Concordium.KonsensusV1.TreeState.Types' modules.

@@ -1,6 +1,5 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -186,7 +185,7 @@ dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
     bbEpochFinalizationEntry = Absent
     bbNonce = dummyBlockNonce
     bbTransactions = mempty
-    bbDerivableHashes = case (sBlockHashVersionFor (protocolVersion @pv)) of
+    bbDerivableHashes = case sBlockHashVersionFor (protocolVersion @pv) of
         SBlockHashVersion0 ->
             DBHashesV0 $
                 BlockDerivableHashesV0

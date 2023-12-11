@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -191,6 +192,7 @@ finalizerByIndex finCom finInd =
 newtype FinalizationCommitteeHash = FinalizationCommitteeHash
     { theFinalizationCommitteeHash :: Hash.Hash
     }
+    deriving newtype (Eq, Show)
 
 -- | Compute the hash of the finalization committee. Only the weight and BLS verify key of each
 -- finalizer are used for computing this.
@@ -912,11 +914,11 @@ data BlockDerivableHashesV0 = BlockDerivableHashesV0
 
 -- | Hashes in a block which can be derived from the current state and content of the block.
 -- This version is in P7 and onwards.
-data BlockDerivableHashesV1 = BlockDerivableHashesV1
+newtype BlockDerivableHashesV1 = BlockDerivableHashesV1
     { -- | Hash of the block results, includes block state and transaction outcomes.
-      bdhv1BlockResultHash :: !BlockResultHash
+      bdhv1BlockResultHash :: BlockResultHash
     }
-    deriving (Eq, Show)
+    deriving newtype (Eq, Show)
 
 -- | Hashes in a block which can be derived from the current state and content of the block.
 -- This type depends on the protocol version.
@@ -925,9 +927,9 @@ type DerivableBlockHashes (pv :: ProtocolVersion) = DerivableBlockHashesBHV (Bas
 -- | Hashes in a block which can be derived from the current state and content of the block.
 -- This type depends on the block hash version.
 data DerivableBlockHashesBHV (bhv :: BasePV.BlockHashVersion) where
-    -- | For block hasing version 0 (Prior to P7).
+    -- | For block hashing version 0 (Prior to P7).
     DBHashesV0 :: !BlockDerivableHashesV0 -> DerivableBlockHashesBHV 'BasePV.BlockHashVersion0
-    -- | For block hasing version 1 (P7 and onwards).
+    -- | For block hashing version 1 (P7 and onwards).
     DBHashesV1 :: !BlockDerivableHashesV1 -> DerivableBlockHashesBHV 'BasePV.BlockHashVersion1
 
 deriving instance Show (DerivableBlockHashesBHV bhv)
