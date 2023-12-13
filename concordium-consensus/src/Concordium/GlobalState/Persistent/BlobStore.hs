@@ -168,9 +168,9 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 -- Imports for providing instances
 import Concordium.Common.Time
 import Concordium.GlobalState.Account
-import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.Parameters as Parameters
+import Concordium.GlobalState.PoolRewards
 import Concordium.Logger (MonadLogger)
 import Concordium.Types
 import Concordium.Types.Accounts

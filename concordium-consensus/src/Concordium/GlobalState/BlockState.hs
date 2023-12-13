@@ -74,10 +74,10 @@ import Concordium.Utils.Serialization
 import qualified Concordium.Wasm as Wasm
 
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
+import Concordium.GlobalState.Persistent.PoolRewards
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
 import Concordium.Types.Accounts
