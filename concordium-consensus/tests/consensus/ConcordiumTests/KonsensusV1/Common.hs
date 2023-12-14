@@ -54,7 +54,8 @@ someBlockPointer bh r e =
               bbDerivableHashes =
                 DBHashesV0 $
                     BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = emptyTransactionOutcomesHashV1,
+                        { bdhv0TransactionOutcomesHash =
+                            toTransactionOutcomesHash emptyTransactionOutcomesHashV1,
                           bdhv0BlockStateHash = StateHashV0 $ Hash.hash "empty state hash"
                         }
             }

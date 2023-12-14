@@ -238,12 +238,13 @@ genBakedBlock sProtocolVersion = do
     bbTransactions <- genTransactions
     bbDerivableHashes <- case sBlockHashVersionFor sProtocolVersion of
         SBlockHashVersion0 -> do
-    bbStateHash <- StateHashV0 . Hash.Hash . FBS.pack <$> vector 32
+            bbStateHash <- StateHashV0 . Hash.Hash . FBS.pack <$> vector 32
             return $
                 DBHashesV0 $
                     BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = TransactionOutcomes.toTransactionOutcomesHash
-                            TransactionOutcomes.emptyTransactionOutcomesHashV1,
+                        { bdhv0TransactionOutcomesHash =
+                            TransactionOutcomes.toTransactionOutcomesHash
+                                TransactionOutcomes.emptyTransactionOutcomesHashV1,
                           bdhv0BlockStateHash = bbStateHash
                         }
         SBlockHashVersion1 -> do
