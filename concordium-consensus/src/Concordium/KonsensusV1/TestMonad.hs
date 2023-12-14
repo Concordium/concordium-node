@@ -183,10 +183,16 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                       gmFirstGenesisHash = genesisBlockHash genData,
                       gmStateHash = getHash genState
                     }
+        let genesisBlockHeightInfo =
+                GenesisBlockHeightInfo
+                    { gbhiAbsoluteHeight = 0,
+                      gbhiGenesisIndex = 0
+                    }
         let _tsSkovData =
                 mkInitialSkovData
                     defaultRuntimeParameters
                     genMetadata
+                    genesisBlockHeightInfo
                     genState
                     genTimeoutBase
                     genEpochBakers

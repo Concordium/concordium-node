@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -82,8 +83,11 @@ dummyBakersAndFinalizers :: BakersAndFinalizers
 dummyBakersAndFinalizers =
     BakersAndFinalizers
         { _bfBakers = FullBakers Vec.empty 0,
-          _bfFinalizers = FinalizationCommittee Vec.empty 0
+          _bfFinalizers = finalizers,
+          _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
         }
+  where
+    finalizers = FinalizationCommittee Vec.empty 0
 
 -- | A valid 'AccountCreation' with expiry 1596409020
 validAccountCreation :: AccountCreation
@@ -186,11 +190,15 @@ runMyTestMonad idps time action = do
         return $! initialSkovData bs
 
 -- | Initialize a 'SkovData pv' with the provided block state.
-initialSkovData :: HashedPersistentBlockState pv -> SkovData pv
+initialSkovData :: (IsProtocolVersion pv) => HashedPersistentBlockState pv -> SkovData pv
 initialSkovData bs =
     mkInitialSkovData
         defaultRuntimeParameters
         (dummyGenesisMetadata (getHash bs))
+        GenesisBlockHeightInfo
+            { gbhiAbsoluteHeight = 0,
+              gbhiGenesisIndex = 0
+            }
         bs
         10_000
         dummyEpochBakers
@@ -468,8 +476,12 @@ testProcessBlockItems = describe "processBlockItems" $ do
             -- The first transfer is 'MaybeOk'.
             -- But second transaction is not verifiable (i.e. 'NotOk') because of the chosen set of identity providers,
             bbTransactions = Vec.fromList txs
-            bbTransactionOutcomesHash = TransactionOutcomesHash minBound
-            bbStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
+            bbDerivableHashes =
+                DBHashesV0 $
+                    BlockDerivableHashesV0
+                        { bdhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
+                          bdhv0BlockStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
+                        }
         in  BakedBlock
                 { bbQuorumCertificate =
                     QuorumCertificate

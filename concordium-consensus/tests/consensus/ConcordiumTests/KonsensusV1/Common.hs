@@ -13,6 +13,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types
+import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.Option
 import Concordium.Types.TransactionOutcomes
 import ConcordiumTests.KonsensusV1.TreeStateTest hiding (tests)
@@ -31,7 +32,8 @@ someBlockPointer bh r e =
                   bmReceiveTime = timestampToUTCTime 0,
                   bmArriveTime = timestampToUTCTime 0,
                   bmEnergyCost = 0,
-                  bmTransactionsSize = 0
+                  bmTransactionsSize = 0,
+                  bmBlockStateHash = Cond.CFalse
                 },
           bpBlock = NormalBlock $ SignedBlock bakedBlock bh (Sig.sign sigKeyPair "foo"),
           bpState = dummyBlockState
@@ -49,8 +51,12 @@ someBlockPointer bh r e =
               bbEpochFinalizationEntry = Absent,
               bbNonce = dummyBlockNonce,
               bbTransactions = Vec.empty,
-              bbTransactionOutcomesHash = toTransactionOutcomesHash emptyTransactionOutcomesHashV1,
-              bbStateHash = StateHashV0 $ Hash.hash "empty state hash"
+              bbDerivableHashes =
+                DBHashesV0 $
+                    BlockDerivableHashesV0
+                        { bdhv0TransactionOutcomesHash = emptyTransactionOutcomesHashV1,
+                          bdhv0BlockStateHash = StateHashV0 $ Hash.hash "empty state hash"
+                        }
             }
 
 -- | A block pointer with 'myBlockHash' as block hash.

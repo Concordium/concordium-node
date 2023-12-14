@@ -1,5 +1,5 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Testing of 'Concordium.KonsensusV1.Types' and 'Concordium.KonsensusV1.TreeState.Types' modules.
@@ -228,22 +228,36 @@ genTransactions = Vector.fromList <$> listOf trans
 
 -- | Generate an arbitrary baked block with no transactions.
 --  The baker of the block is number 42.
-genBakedBlock :: Gen (BakedBlock pv)
-genBakedBlock = do
+genBakedBlock :: SProtocolVersion pv -> Gen (BakedBlock pv)
+genBakedBlock sProtocolVersion = do
     bbRound <- genRound
     bbEpoch <- genEpoch
     bbTimestamp <- genTimestamp
     bbQuorumCertificate <- genQuorumCertificate
     bbNonce <- genBlockNonce
-    bbStateHash <- StateHashV0 . Hash.Hash . FBS.pack <$> vector 32
     bbTransactions <- genTransactions
+    bbDerivableHashes <- case sBlockHashVersionFor sProtocolVersion of
+        SBlockHashVersion0 -> do
+    bbStateHash <- StateHashV0 . Hash.Hash . FBS.pack <$> vector 32
+            return $
+                DBHashesV0 $
+                    BlockDerivableHashesV0
+                        { bdhv0TransactionOutcomesHash = TransactionOutcomes.toTransactionOutcomesHash
+                            TransactionOutcomes.emptyTransactionOutcomesHashV1,
+                          bdhv0BlockStateHash = bbStateHash
+                        }
+        SBlockHashVersion1 -> do
+            blockResultHash <- BlockResultHash . Hash.Hash . FBS.pack <$> vector 32
+            return $
+                DBHashesV1 $
+                    BlockDerivableHashesV1
+                        { bdhv1BlockResultHash = blockResultHash
+                        }
+
     return
         BakedBlock
             { bbTimeoutCertificate = Absent,
               bbEpochFinalizationEntry = Absent,
-              bbTransactionOutcomesHash =
-                TransactionOutcomes.toTransactionOutcomesHash
-                    TransactionOutcomes.emptyTransactionOutcomesHashV1,
               bbBaker = 42,
               ..
             }
@@ -255,7 +269,7 @@ genBakedBlock = do
 genSignedBlock :: (IsProtocolVersion pv) => Gen (SignedBlock pv)
 genSignedBlock = do
     kp <- genBlockKeyPair
-    bBlock <- genBakedBlock
+    bBlock <- genBakedBlock protocolVersion
     genesisHash <- genBlockHash
     return $! signBlock kp genesisHash bBlock
 
@@ -293,7 +307,7 @@ propSerializeTimeoutMessage = forAll genTimeoutMessage serCheck
 -- | Test that serializing then deserializing a baked block is the identity.
 propSerializeBakedBlock :: Property
 propSerializeBakedBlock =
-    forAll genBakedBlock $ \bb ->
+    forAll (genBakedBlock SP6) $ \bb ->
         case runGet (getBakedBlock SP6 (TransactionTime 42)) $! runPut (putBakedBlock bb) of
             Left _ -> False
             Right bb' -> bb == bb'
@@ -391,14 +405,14 @@ propSignQuorumSignatureMessageDiffBody =
 
 propSignBakedBlock :: Property
 propSignBakedBlock =
-    forAll (genBakedBlock @'P6) $ \bb ->
+    forAll (genBakedBlock SP6) $ \bb ->
         forAll genBlockHash $ \genesisHash ->
             forAll genBlockKeyPair $ \kp@(Sig.KeyPair _ pk) ->
                 (verifyBlockSignature pk genesisHash (signBlock kp genesisHash bb))
 
 propSignBakedBlockDiffKey :: Property
 propSignBakedBlockDiffKey =
-    forAll (genBakedBlock @'P6) $ \bb ->
+    forAll (genBakedBlock SP6) $ \bb ->
         forAll genBlockHash $ \genesisHash ->
             forAll genBlockKeyPair $ \kp ->
                 forAll genBlockKeyPair $ \(Sig.KeyPair _ pk1) ->

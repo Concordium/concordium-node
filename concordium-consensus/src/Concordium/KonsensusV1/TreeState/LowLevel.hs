@@ -8,6 +8,7 @@ module Concordium.KonsensusV1.TreeState.LowLevel where
 import Data.Serialize
 
 import Concordium.Types
+import qualified Concordium.Types.Conditionally as Cond
 
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
@@ -23,12 +24,25 @@ type BlockStateRef (pv :: ProtocolVersion) = BlobRef (BlockStatePointers pv)
 --  stored.
 data StoredBlock (pv :: ProtocolVersion) = StoredBlock
     { -- | Metadata about the block.
-      stbInfo :: !BlockMetadata,
+      stbInfo :: !(BlockMetadata pv),
       -- | The block itself.
       stbBlock :: !(Block pv),
       -- | Pointer to the state in the block state storage.
       stbStatePointer :: !(BlockStateRef pv)
     }
+
+-- | Get the block state hash for a stored block.
+stbBlockStateHash :: StoredBlock pv -> StateHash
+stbBlockStateHash storedBlock =
+    -- Prior to P7, the block state hash is stored in the baked block, for P7 and onwards the block
+    -- state hash is stored in the block metadata.
+    case bmBlockStateHash $ blockMetadata $ stbInfo storedBlock of
+        Cond.CTrue cBlockStateHash -> cBlockStateHash
+        Cond.CFalse -> case stbBlock storedBlock of
+            GenesisBlock meta -> gmStateHash meta
+            NormalBlock signedBlock ->
+                case blockDerivableHashes signedBlock of
+                    DBHashesV0 hashes -> bdhv0BlockStateHash hashes
 
 instance (IsProtocolVersion pv) => Serialize (StoredBlock pv) where
     put StoredBlock{..} = do
@@ -58,12 +72,12 @@ instance BlockData (StoredBlock pv) where
     blockBakedData = blockBakedData . stbBlock
     blockTransactions = blockTransactions . stbBlock
     blockTransactionCount = blockTransactionCount . stbBlock
-    blockStateHash = blockStateHash . stbBlock
 
 instance HashableTo BlockHash (StoredBlock pv) where
     getHash = getHash . stbBlock
 
 instance HasBlockMetadata (StoredBlock pv) where
+    type BlockMetadataProtocolVersion (StoredBlock pv) = pv
     blockMetadata = stbInfo
 
 -- | 'MonadTreeStateStore' defines the interface to the low-level tree state database.

@@ -1,8 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -29,9 +32,11 @@ import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import qualified Concordium.MerkleProofs as Merkle
 import Concordium.Types
+import Concordium.Types.Block (AbsoluteBlockHeight)
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.Parameters (IsConsensusV1)
+import qualified Concordium.Types.ProtocolVersion as BasePV
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
@@ -185,6 +190,28 @@ finalizerByBakerId = binarySearch finalizerBakerId . committeeFinalizers
 finalizerByIndex :: FinalizationCommittee -> FinalizerIndex -> Maybe FinalizerInfo
 finalizerByIndex finCom finInd =
     committeeFinalizers finCom Vector.!? fromIntegral (theFinalizerIndex finInd)
+
+-- | Hash of the finalization committee, only the weight and BLS verify key of each finalizer are used
+-- for computing this.
+newtype FinalizationCommitteeHash = FinalizationCommitteeHash
+    { theFinalizationCommitteeHash :: Hash.Hash
+    }
+    deriving newtype (Eq, Show)
+
+-- | Compute the hash of the finalization committee. Only the weight and BLS verify key of each
+-- finalizer are used for computing this.
+computeFinalizationCommitteeHash :: FinalizationCommittee -> FinalizationCommitteeHash
+computeFinalizationCommitteeHash FinalizationCommittee{..} =
+    FinalizationCommitteeHash $
+        LFMBT.hashAsLFMBTV1 emptyCommitteeHash $
+            computeFinalizerInfoHash <$> Vector.toList committeeFinalizers
+  where
+    emptyCommitteeHash = Hash.hash "EmptyFinalizationCommittee"
+    computeFinalizerInfoHash :: FinalizerInfo -> Hash.Hash
+    computeFinalizerInfoHash info = Hash.hashOfHashes weightHash blsKeyHash
+      where
+        weightHash = Hash.hash $ runPut $ put (finalizerWeight info)
+        blsKeyHash = Hash.hash $ runPut $ put (finalizerBlsKey info)
 
 -- | A set of 'FinalizerIndex'es.
 --  This is represented as a bit vector, where the bit @i@ is set iff the finalizer index @i@ is
@@ -815,6 +842,9 @@ instance Serialize FinalizationMessage where
 
 -- | Projections for the data associated with a baked (i.e. non-genesis) block.
 class BakedBlockData d where
+    -- | The protocol version associated with the block.
+    type BakedBlockProtocolVersion d :: ProtocolVersion
+
     -- | Quorum certificate on the parent block.
     blockQuorumCertificate :: d -> QuorumCertificate
 
@@ -838,8 +868,8 @@ class BakedBlockData d where
     -- | The baker's signature on the block.
     blockSignature :: d -> BlockSignature
 
-    -- | The hash of the block's transaction outcomes.
-    blockTransactionOutcomesHash :: d -> TransactionOutcomesHash
+    -- | The hashes derived from the state and content of the block.
+    blockDerivableHashes :: d -> DerivableBlockHashes (BakedBlockProtocolVersion d)
 
 -- | Projections for the data associated with a block (including a genesis block).
 class BlockData b where
@@ -867,9 +897,6 @@ class BlockData b where
     --  prop> blockTransactionCount b = length (blockTransactions b)
     blockTransactionCount :: b -> Int
 
-    -- | The hash of the block state after executing the block.
-    blockStateHash :: b -> StateHash
-
 -- | A 'BakedBlock' consists of a non-genesis block, excluding the block signature.
 data BakedBlock (pv :: ProtocolVersion) = BakedBlock
     { -- | Block round number. Must be non-zero.
@@ -890,12 +917,63 @@ data BakedBlock (pv :: ProtocolVersion) = BakedBlock
       bbNonce :: !BlockNonce,
       -- | Transactions in the block.
       bbTransactions :: !(Vector.Vector BlockItem),
-      -- | Hash of the transaction outcomes.
-      bbTransactionOutcomesHash :: !TransactionOutcomesHash,
-      -- | Hash of the block state.
-      bbStateHash :: !StateHash
+      -- | Hashes derived from state and computations of the block.
+      bbDerivableHashes :: !(DerivableBlockHashes pv)
     }
     deriving (Eq, Show)
+
+-- | Hashes in a block which can be derived from the current state and content of the block.
+-- This version is used prior to P7.
+data BlockDerivableHashesV0 = BlockDerivableHashesV0
+    { -- | Hash of the transaction outcomes.
+      bdhv0TransactionOutcomesHash :: !TransactionOutcomesHash,
+      -- | Hash of the block state.
+      bdhv0BlockStateHash :: !StateHash
+    }
+    deriving (Eq, Show)
+
+-- | Hashes in a block which can be derived from the current state and content of the block.
+-- This version is in P7 and onwards.
+newtype BlockDerivableHashesV1 = BlockDerivableHashesV1
+    { -- | Hash of the block results, includes block state and transaction outcomes.
+      bdhv1BlockResultHash :: BlockResultHash
+    }
+    deriving newtype (Eq, Show)
+
+-- | Hashes in a block which can be derived from the current state and content of the block.
+-- This type depends on the protocol version.
+type DerivableBlockHashes (pv :: ProtocolVersion) = DerivableBlockHashesBHV (BasePV.BlockHashVersionFor pv)
+
+-- | Hashes in a block which can be derived from the current state and content of the block.
+-- This type depends on the block hash version.
+data DerivableBlockHashesBHV (bhv :: BasePV.BlockHashVersion) where
+    -- | For block hashing version 0 (Prior to P7).
+    DBHashesV0 :: !BlockDerivableHashesV0 -> DerivableBlockHashesBHV 'BasePV.BlockHashVersion0
+    -- | For block hashing version 1 (P7 and onwards).
+    DBHashesV1 :: !BlockDerivableHashesV1 -> DerivableBlockHashesBHV 'BasePV.BlockHashVersion1
+
+deriving instance Show (DerivableBlockHashesBHV bhv)
+deriving instance Eq (DerivableBlockHashesBHV bhv)
+
+-- | Serialize derivable hashes.
+putDerivableBlockHashes :: Putter (DerivableBlockHashesBHV bhv)
+putDerivableBlockHashes derivableBlockHashes = case derivableBlockHashes of
+    DBHashesV0 hashes -> do
+        put $ bdhv0BlockStateHash hashes
+        put $ bdhv0TransactionOutcomesHash hashes
+    DBHashesV1 hashes -> do
+        put $ bdhv1BlockResultHash hashes
+
+-- | Deserialize derivable hashes.
+getDerivableBlockHashes :: SProtocolVersion pv -> Get (DerivableBlockHashes pv)
+getDerivableBlockHashes spv = case BasePV.sBlockHashVersionFor spv of
+    BasePV.SBlockHashVersion0 -> do
+        bdhv0BlockStateHash <- get
+        bdhv0TransactionOutcomesHash <- get
+        return $ DBHashesV0 BlockDerivableHashesV0{..}
+    BasePV.SBlockHashVersion1 -> do
+        bdhv1BlockResultHash <- get
+        return $ DBHashesV1 BlockDerivableHashesV1{..}
 
 -- | Flags indicating which optional values are set in a 'BakedBlock'.
 data BakedBlockFlags = BakedBlockFlags
@@ -934,8 +1012,7 @@ putBakedBlock bb@BakedBlock{..} = do
     put bbTimestamp
     put bbBaker
     put bbNonce
-    put bbStateHash
-    put bbTransactionOutcomesHash
+    putDerivableBlockHashes bbDerivableHashes
     put bbQuorumCertificate
     put (bakedBlockFlags bb)
     mapM_ put bbTimeoutCertificate
@@ -952,8 +1029,7 @@ getBakedBlock spv tt = label "BakedBlock" $ do
     bbTimestamp <- get
     bbBaker <- get
     bbNonce <- get
-    bbStateHash <- get
-    bbTransactionOutcomesHash <- get
+    bbDerivableHashes <- getDerivableBlockHashes spv
     bbQuorumCertificate <- get
     BakedBlockFlags{..} <- get
     bbTimeoutCertificate <-
@@ -995,13 +1071,14 @@ data SignedBlock (pv :: ProtocolVersion) = SignedBlock
     deriving (Eq, Show)
 
 instance BakedBlockData (SignedBlock pv) where
+    type BakedBlockProtocolVersion (SignedBlock pv) = pv
     blockQuorumCertificate = bbQuorumCertificate . sbBlock
     blockBaker = bbBaker . sbBlock
     blockTimeoutCertificate = bbTimeoutCertificate . sbBlock
     blockEpochFinalizationEntry = bbEpochFinalizationEntry . sbBlock
     blockNonce = bbNonce . sbBlock
     blockSignature = sbSignature
-    blockTransactionOutcomesHash = bbTransactionOutcomesHash . sbBlock
+    blockDerivableHashes = bbDerivableHashes . sbBlock
 
 instance BlockData (SignedBlock pv) where
     type BakedBlockDataType (SignedBlock pv) = SignedBlock pv
@@ -1012,7 +1089,6 @@ instance BlockData (SignedBlock pv) where
     blockTransactions = Vector.toList . bbTransactions . sbBlock
     {-# INLINE blockTransactions #-}
     blockTransactionCount = Vector.length . bbTransactions . sbBlock
-    blockStateHash = bbStateHash . sbBlock
 
 instance HashableTo BlockHash (SignedBlock pv) where
     getHash = sbHash
@@ -1178,13 +1254,18 @@ instance (IsBlockHashVersion bhv) => HashableTo (BlockQuasiHash' bhv) (BakedBloc
                   where
                     timeoutHash = getHash bbTimeoutCertificate
                     finalizationHash = getHash bbEpochFinalizationEntry
-        dataHash = Hash.hashOfHashes transactionsAndOutcomesHash stateHash
-          where
-            transactionsAndOutcomesHash = Hash.hashOfHashes transactionsHash outcomesHash
+        dataHash = case bbDerivableHashes of
+            DBHashesV0 derivableHashesV0 -> Hash.hashOfHashes transactionsAndOutcomesHash stateHash
+              where
+                transactionsAndOutcomesHash = Hash.hashOfHashes transactionsHash outcomesHash
+                  where
+                    transactionsHash = computeTransactionsHash (sing @bhv) bbTransactions
+                    outcomesHash = tohGet $ bdhv0TransactionOutcomesHash derivableHashesV0
+                stateHash = v0StateHash $ bdhv0BlockStateHash derivableHashesV0
+            DBHashesV1 derivableHashesV1 -> Hash.hashOfHashes transactionsHash stateHash
               where
                 transactionsHash = computeTransactionsHash (sing @bhv) bbTransactions
-                outcomesHash = tohGet bbTransactionOutcomesHash
-            stateHash = v0StateHash bbStateHash
+                stateHash = theBlockResultHash $ bdhv1BlockResultHash derivableHashesV1
 
 instance (IsProtocolVersion pv) => HashableTo SuccessorProof (BakedBlock pv) where
     getHash = makeSuccessorProof @(BlockHashVersionFor pv) . getHash
@@ -1205,7 +1286,7 @@ computeBlockHash bhh bqh = computeBlockHash' bhh (theBlockQuasiHash bqh)
 instance (IsProtocolVersion pv) => HashableTo BlockHash (BakedBlock pv) where
     getHash bb = computeBlockHash @(BlockHashVersionFor pv) (getHash bb) (getHash bb)
 
-instance (Monad m, IsProtocolVersion pv) => Merkle.MerkleProvable m (BakedBlock pv) where
+instance (Monad m, IsProtocolVersion pv, BlockHashVersionFor pv ~ 'BlockHashVersion1) => Merkle.MerkleProvable m (BakedBlock pv) where
     buildMerkleProof open BakedBlock{..} = do
         let blockHeader = optProof ["header"] . rawMerkle . runPut $ do
                 put bbRound
@@ -1229,10 +1310,10 @@ instance (Monad m, IsProtocolVersion pv) => Merkle.MerkleProvable m (BakedBlock 
         let tfHash = optProof tfPath [tcHash, efeHash]
         let certificatesHash = optProof ["quasi", "meta", "certificatesHash"] [qcHash, tfHash]
         let blockMeta = optProof ["quasi", "meta"] [bakerInfo, certificatesHash]
-        let transactionsAndOutcomes = optProof ["quasi", "data", "transactionsAndOutcomes"] . rawMerkle . runPut $ do
-                put $ computeTransactionsHash (sing @(BlockHashVersionFor pv)) bbTransactions
-                put bbTransactionOutcomesHash
-        let blockData = optProof ["quasi", "data"] [transactionsAndOutcomes, Merkle.RawData (encode bbStateHash)]
+        let transactions = Merkle.RawData $ encode $ computeTransactionsHash (sing @(BlockHashVersionFor pv)) bbTransactions
+        let result = case bbDerivableHashes of
+                DBHashesV1 resultHash -> Merkle.RawData $ encode $ bdhv1BlockResultHash resultHash
+        let blockData = optProof ["quasi", "data"] [transactions, result]
         let blockQuasi = optProof ["quasi"] [blockMeta, blockData]
         return [blockHeader, blockQuasi]
       where
@@ -1281,6 +1362,23 @@ instance Serialize GenesisMetadata where
         gmStateHash <- get
         return GenesisMetadata{..}
 
+-- | Block height information for the (current) genesis block.
+data GenesisBlockHeightInfo = GenesisBlockHeightInfo
+    { -- | The absolute height of the current genesis block.
+      gbhiAbsoluteHeight :: !AbsoluteBlockHeight,
+      -- | The genesis index of the current genesis block.
+      gbhiGenesisIndex :: !GenesisIndex
+    }
+
+instance Serialize GenesisBlockHeightInfo where
+    put GenesisBlockHeightInfo{..} = do
+        put gbhiAbsoluteHeight
+        put gbhiGenesisIndex
+    get = do
+        gbhiAbsoluteHeight <- get
+        gbhiGenesisIndex <- get
+        return GenesisBlockHeightInfo{..}
+
 -- | Either a genesis block or a normal block.
 --  A normal block MUST have a non-zero round number.
 --
@@ -1306,8 +1404,6 @@ instance BlockData (Block pv) where
     {-# INLINE blockTransactions #-}
     blockTransactionCount GenesisBlock{} = 0
     blockTransactionCount (NormalBlock b) = blockTransactionCount b
-    blockStateHash (GenesisBlock gc) = gmStateHash gc
-    blockStateHash (NormalBlock b) = blockStateHash b
 
 instance HashableTo BlockHash (Block pv) where
     getHash (GenesisBlock gc) = gmCurrentGenesisHash gc

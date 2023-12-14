@@ -1,7 +1,8 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -86,6 +87,7 @@ import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.Scheduler.DummyData
 import Concordium.Types
+import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.TransactionOutcomes
@@ -123,6 +125,9 @@ dummyPersistentBlockState = unsafePerformIO $ newIORef $ blobRefToBufferedRef (B
 
 dummyStateHash :: StateHash
 dummyStateHash = StateHashV0 $ Hash.hash "DummyPersistentBlockState"
+
+dummyBlockResultHash :: BlockResultHash
+dummyBlockResultHash = BlockResultHash $ Hash.hash "DummyBlockResult"
 
 -- | A dummy block state that has no content.
 dummyBlockState :: HashedPersistentBlockState pv
@@ -162,6 +167,8 @@ dummyBlockNonce = VRF.prove dummyVRFKeys ""
 --  by the provided 'parentHash' and the 'Round' of the block
 --  by provided 'Round'
 dummyBakedBlock ::
+    forall pv.
+    (IsProtocolVersion pv) =>
     -- | 'BlockHash' of the parent.
     BlockHash ->
     -- | The round of the block
@@ -179,8 +186,18 @@ dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
     bbEpochFinalizationEntry = Absent
     bbNonce = dummyBlockNonce
     bbTransactions = mempty
-    bbTransactionOutcomesHash = TransactionOutcomesHash minBound
-    bbStateHash = dummyStateHash
+    bbDerivableHashes = case sBlockHashVersionFor (protocolVersion @pv) of
+        SBlockHashVersion0 ->
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
+                      bdhv0BlockStateHash = dummyStateHash
+                    }
+        SBlockHashVersion1 ->
+            DBHashesV1 $
+                BlockDerivableHashesV1
+                    { bdhv1BlockResultHash = dummyBlockResultHash
+                    }
 
 -- | Create a 'SignedBlock' by signing the
 --  'dummyBakedBlock' with 'dummySignKeys'
@@ -214,6 +231,7 @@ dummyPendingBlock parentHash ts =
 
 -- | A 'BlockPointer' referrring to the 'dummySignedBlock' for the provided 'Round'
 dummyBlock ::
+    forall pv.
     (IsProtocolVersion pv) =>
     -- | 'Round' of the block that the created 'BlockPointer' should point to.
     Round ->
@@ -227,7 +245,11 @@ dummyBlock rnd = BlockPointer{..}
               bmReceiveTime = timestampToUTCTime 0,
               bmArriveTime = timestampToUTCTime 0,
               bmEnergyCost = 0,
-              bmTransactionsSize = 0
+              bmTransactionsSize = 0,
+              bmBlockStateHash =
+                Cond.conditionally
+                    (sBlockStateHashInMetadata (sBlockHashVersionFor (protocolVersion @pv)))
+                    dummyStateHash
             }
     bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd 0
     bpState = dummyBlockState
@@ -271,8 +293,11 @@ dummyBakersAndFinalizers :: BakersAndFinalizers
 dummyBakersAndFinalizers =
     BakersAndFinalizers
         { _bfBakers = FullBakers Vec.empty 0,
-          _bfFinalizers = FinalizationCommittee Vec.empty 0
+          _bfFinalizers = finalizers,
+          _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
         }
+  where
+    finalizers = FinalizationCommittee Vec.empty 0
 
 -- | Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
 dummyEpochBakers :: EpochBakers
@@ -296,11 +321,15 @@ dummyEpochBakers = EpochBakers bf bf bf 1
 --  Note that as the 'SkovData pv' returned here is constructed by simple dummy values,
 --  then is not suitable for carrying out block state queries or operations.
 --  But this is fine as we do not require that from the tests here.
-dummyInitialSkovData :: SkovData pv
+dummyInitialSkovData :: SkovData 'P6
 dummyInitialSkovData =
     mkInitialSkovData
         defaultRuntimeParameters
         dummyGenesisMetadata
+        GenesisBlockHeightInfo
+            { gbhiAbsoluteHeight = 0,
+              gbhiGenesisIndex = 0
+            }
         dummyBlockState
         10_000
         dummyEpochBakers
@@ -440,7 +469,7 @@ testMakeLiveBlock :: Spec
 testMakeLiveBlock = it "makeLiveBlock" $ do
     let arrTime = timestampToUTCTime 5
         hgt = 23
-    let (res, sd) = runState (makeLiveBlock pendingB dummyBlockState hgt arrTime 0) skovDataWithTestBlocks
+    let (res, sd) = runState (makeLiveBlock @_ @'P6 pendingB dummyBlockState hgt arrTime 0) skovDataWithTestBlocks
     res
         `shouldBe` BlockPointer
             { bpState = dummyBlockState,
@@ -450,7 +479,11 @@ testMakeLiveBlock = it "makeLiveBlock" $ do
                       bmHeight = 23,
                       bmArriveTime = arrTime,
                       bmEnergyCost = 0,
-                      bmTransactionsSize = 0
+                      bmTransactionsSize = 0,
+                      bmBlockStateHash =
+                        Cond.conditionally
+                            (sBlockStateHashInMetadata (sBlockHashVersionFor SP6))
+                            dummyStateHash
                     },
               bpBlock = NormalBlock (pbBlock pendingB)
             }

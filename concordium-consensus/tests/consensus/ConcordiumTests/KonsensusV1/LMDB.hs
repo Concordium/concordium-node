@@ -30,6 +30,7 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Logger
 import Concordium.Types
+import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.TransactionOutcomes
@@ -99,8 +100,12 @@ dummyBakedBlock n ts =
           bbEpochFinalizationEntry = Absent,
           bbNonce = dummyProof,
           bbTransactions = ts,
-          bbTransactionOutcomesHash = TransactionOutcomesHash dummyHash,
-          bbStateHash = StateHashV0 dummyHash
+          bbDerivableHashes =
+            DBHashesV0 $
+                BlockDerivableHashesV0
+                    { bdhv0TransactionOutcomesHash = TransactionOutcomesHash dummyHash,
+                      bdhv0BlockStateHash = StateHashV0 dummyHash
+                    }
         }
 
 -- | A helper function for creating an account address given a seed.
@@ -148,13 +153,13 @@ dummyBlock n ts = NormalBlock $ SignedBlock b h dummyBlockSig
 --  Empty 'StoredBlock's with different hashes can then be constructed by calling this function with different rounds.
 --  The blocks are derived from 'dummyBlock' with the supplied height and round, but no block items.
 dummyStoredBlockEmpty :: BlockHeight -> Round -> StoredBlock 'P6
-dummyStoredBlockEmpty h n = StoredBlock (BlockMetadata h dummyTime dummyTime 0 0) (dummyBlock n Vector.empty) (BlobRef 0)
+dummyStoredBlockEmpty h n = StoredBlock (BlockMetadata h dummyTime dummyTime 0 0 Cond.CFalse) (dummyBlock n Vector.empty) (BlobRef 0)
 
 -- | A helper function for creating a StoredBlock with the given block height and round, and with one transaction.
 --  'StoredBlock's (with one transaction) with different hashes can then be constructed by calling this function with different rounds.
 --  The blocks are derived from 'dummyBlock' with the supplied height and round, and a singular 'dummyBlockItem'.
 dummyStoredBlockOneTransaction :: BlockHeight -> Round -> StoredBlock 'P6
-dummyStoredBlockOneTransaction h n = StoredBlock (BlockMetadata h dummyTime dummyTime 200 200) (dummyBlock n $ Vector.singleton dummyBlockItem) (BlobRef 0)
+dummyStoredBlockOneTransaction h n = StoredBlock (BlockMetadata h dummyTime dummyTime 200 200 Cond.CFalse) (dummyBlock n $ Vector.singleton dummyBlockItem) (BlobRef 0)
 
 -- | List of stored blocks used for testing. The heights are chosen so it is tested that the endianness of the stored block heights are correct.
 dummyStoredBlocks :: [StoredBlock 'P6]
