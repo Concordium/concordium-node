@@ -1,6 +1,8 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Module testing functions from the 'Concordium.KonsensusV1.Quorum' module.
@@ -22,6 +24,7 @@ import Concordium.KonsensusV1.Consensus.Quorum
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types
+import Concordium.Types.Parameters
 
 import Concordium.KonsensusV1.TreeState.Implementation
 import ConcordiumTests.KonsensusV1.Common
@@ -48,13 +51,13 @@ genQuorumMessageFor bh = do
 -- | Test for ensuring that when a
 --  new 'QuorumMessage' is added to the 'QuorumMessages' type,
 --  then the weight is being accumulated and signatures are aggregated.
-propAddQuorumMessage :: Property
-propAddQuorumMessage =
+propAddQuorumMessage :: SProtocolVersion pv -> Property
+propAddQuorumMessage sProtocolVersion =
     forAll genQuorumMessage $ \qm0 ->
         forAll (genQuorumMessageFor (qmBlock qm0)) $ \qm1 ->
             (qm0 /= qm1) ==>
                 forAll genFinalizerWeight $ \weight -> forAll genBakerId $ \bakerId0 -> forAll genBakerId $ \bakerId1 -> do
-                    let verifiedQuorumMessage0 = VerifiedQuorumMessage qm0 weight bakerId0 $! myBlockPointer 0 0
+                    let verifiedQuorumMessage0 = VerifiedQuorumMessage qm0 weight bakerId0 $! myBlockPointer sProtocolVersion 0 0
                         qsm' = addQuorumMessage verifiedQuorumMessage0 emptyQuorumMessages
                     assertEqual
                         "The quorum message should have been added"
@@ -67,7 +70,7 @@ propAddQuorumMessage =
                         "The finalizer weight, signature and finalizer index should be present"
                         (weight, qmSignature qm0, finalizerSet [qmFinalizerIndex qm0])
                         (fromJust $! qsm' ^? smBlockToWeightsAndSignatures . ix (qmBlock qm0))
-                    let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight bakerId1 $! myBlockPointer 0 0
+                    let verifiedQuorumMessage1 = VerifiedQuorumMessage qm1 weight bakerId1 $! myBlockPointer sProtocolVersion 0 0
                         qsm'' = addQuorumMessage verifiedQuorumMessage1 qsm'
                     assertEqual
                         "The quorum message should have been added"
@@ -83,23 +86,29 @@ propAddQuorumMessage =
 
 -- | Test that checks that a 'QuorumCertificate' can be formed when
 --  there are enough finalizers (weighted) who have signed off a round.
-testMakeQuorumCertificate :: Spec
-testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
-    it "should not create a qc as there are not enough weight" $ do
-        assertEqual
-            "No quorum certificate should be created"
-            Nothing
-            (makeQuorumCertificate qcBlockPointer sd)
-    it "should create a certificate when there is enough weight" $ do
-        assertEqual
-            "A quorum certificate should have been generated"
-            (Just (QuorumCertificate qcBlockHash 1 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
-            (makeQuorumCertificate qcBlockPointer sd')
-    it "should not create a qc as there are no signatures present" $ do
-        assertEqual
-            "No quorum certificate should be created"
-            Nothing
-            (makeQuorumCertificate qcBlockPointer sdNoMessages)
+testMakeQuorumCertificate ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testMakeQuorumCertificate sProtocolVersion pvString =
+    describe (pvString ++ "Quorum Certificate creation") $ do
+        it "should not create a qc as there are not enough weight" $ do
+            assertEqual
+                "No quorum certificate should be created"
+                Nothing
+                (makeQuorumCertificate qcBlockPointer sd)
+        it "should create a certificate when there is enough weight" $ do
+            assertEqual
+                "A quorum certificate should have been generated"
+                (Just (QuorumCertificate qcBlockHash 1 0 (emptyQuorumSignature <> emptyQuorumSignature) (finalizerSet $ FinalizerIndex <$> [1, 2])))
+                (makeQuorumCertificate qcBlockPointer sd')
+        it "should not create a qc as there are no signatures present" $ do
+            assertEqual
+                "No quorum certificate should be created"
+                Nothing
+                (makeQuorumCertificate qcBlockPointer sdNoMessages)
   where
     fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey vrfPublicKey blsPublicKey (BakerId $ AccountIndex (fromIntegral fIdx))
     blsPublicKey = Bls.derivePublicKey someBlsSecretKey
@@ -126,16 +135,21 @@ testMakeQuorumCertificate = describe "Quorum Certificate creation" $ do
         dummyInitialSkovData
             & skovEpochBakers .~ EpochBakers bfs bfs bfs 1
     qcBlockHash = BlockHash minBound
-    qcBlockPointer = someBlockPointer qcBlockHash 1 0
-    verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight (fromIntegral finalizerIndex) $ myBlockPointer 0 0
+    qcBlockPointer = someBlockPointer sProtocolVersion qcBlockHash 1 0
+    verifiedQuorumMessage finalizerIndex weight = VerifiedQuorumMessage (quorumMessage finalizerIndex) weight (fromIntegral finalizerIndex) $ myBlockPointer sProtocolVersion 0 0
     quorumMessage finalizerIndex = QuorumMessage emptyQuorumSignature qcBlockHash (FinalizerIndex finalizerIndex) 0 0
     emptyQuorumSignature = QuorumSignature Bls.emptySignature
 
 -- | Tests for receiving a quorum message.
 --  In particular this test checks that the return codes are as expected
 --  with respect to the received 'QuorumMessage'
-testReceiveQuorumMessage :: Spec
-testReceiveQuorumMessage = describe "Receive quorum message" $ do
+testReceiveQuorumMessage ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testReceiveQuorumMessage sProtocolVersion pvString = describe (pvString ++ ": Receive quorum message") $ do
     it "future epoch triggers catchup" $ receiveAndCheck sd messageFromFuture CatchupRequired
     it "obsolete round rejects" $ receiveAndCheck sd obsoleteMessage $ Rejected ObsoleteRound
     it "invalid finalizer rejects" $ receiveAndCheck sd invalidFinalizerMessage $ Rejected NotAFinalizer
@@ -194,8 +208,8 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
     deadBlock = BlockHash $ Hash.hash "dead block"
     liveBlock = BlockHash $ Hash.hash "live block"
     finalizedBlock = BlockHash $ Hash.hash "finalized block"
-    finalizedBlockPointer = someBlockPointer finalizedBlock
-    liveBlockPointer = someBlockPointer liveBlock
+    finalizedBlockPointer = someBlockPointer sProtocolVersion finalizedBlock
+    liveBlockPointer = someBlockPointer sProtocolVersion liveBlock
     -- the round and epoch here is for making it easier to trigger the various cases
     -- with respect to the alive block (i.e. we set the focus block here).
     sd = sd' 1 1
@@ -208,7 +222,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . nextPayday .~ 2
-            & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1 1 $ myBlockPointer (Round r) e)
+            & currentQuorumMessages %~ addQuorumMessage (VerifiedQuorumMessage duplicateMessage 1 1 $ myBlockPointer sProtocolVersion (Round r) e)
             & blockTable . deadBlocks %~ insertDeadCache deadBlock
             & skovPendingTransactions . focusBlock .~ liveBlockPointer (Round r) e
             & lastFinalized .~ finalizedBlockPointer (Round 0) 1
@@ -219,6 +233,7 @@ testReceiveQuorumMessage = describe "Receive quorum message" $ do
 
 tests :: Spec
 tests = describe "KonsensusV1.Quorum" $ do
-    it "Adding a quorum message" propAddQuorumMessage
-    testMakeQuorumCertificate
-    testReceiveQuorumMessage
+    forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
+        it (pvString ++ ": Adding a quorum message") $ propAddQuorumMessage spv
+        testMakeQuorumCertificate spv pvString
+        testReceiveQuorumMessage spv pvString

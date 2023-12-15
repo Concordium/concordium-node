@@ -1,8 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
-{-# LANGUAGE MonoLocalBinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -45,6 +46,7 @@ import Concordium.Genesis.Data hiding (GenesisConfiguration)
 import qualified Concordium.Genesis.Data.Base as Base
 import Concordium.Genesis.Data.BaseV1
 import Concordium.Genesis.Data.P6
+import Concordium.Genesis.Data.P7
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
@@ -145,15 +147,15 @@ instance (Monad m) => MonadLogger (NoLoggerT m) where
 --  as it derives the required capabilities.
 --  I.e. 'BlockStateQuery' is supported via the 'PersistentBlockStateMonad and a 'MonadState' over the 'SkovData pv'.
 --  Further it makes use of the 'FixedTimeT' which has an instance for the 'TimeMonad'.
-type MyTestMonad =
+type MyTestMonad pv =
     AccountNonceQueryT
         ( PersistentBlockStateMonad
-            'P6
-            (PersistentBlockStateContext 'P6)
+            pv
+            (PersistentBlockStateContext pv)
             ( NoLoggerT
                 ( StateT
-                    (SkovData 'P6)
-                    (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6)))
+                    (SkovData pv)
+                    (FixedTimeT (BlobStoreM' (PersistentBlockStateContext pv)))
                 )
             )
         )
@@ -164,7 +166,13 @@ type MyTestMonad =
 --  In particular the @idps@ indicate which identity providers are registered
 --  on the chain and the @time@ indicates the actual time that the action is running within.
 --  The @time@ is used for transaction verification.
-runMyTestMonad :: IdentityProviders -> UTCTime -> MyTestMonad a -> IO (a, SkovData 'P6)
+runMyTestMonad ::
+    forall pv a.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    IdentityProviders ->
+    UTCTime ->
+    MyTestMonad pv a ->
+    IO (a, SkovData pv)
 runMyTestMonad idps time action = do
     runBlobStoreTemp "." $
         withNewAccountCacheAndLMDBAccountMap 1_000 "accountmap" $ do
@@ -177,13 +185,13 @@ runMyTestMonad idps time action = do
   where
     initialData ::
         PersistentBlockStateMonad
-            'P6
-            (PersistentBlockStateContext 'P6)
-            (NoLoggerT (BlobStoreM' (PersistentBlockStateContext 'P6)))
-            (SkovData 'P6)
+            pv
+            (PersistentBlockStateContext pv)
+            (NoLoggerT (BlobStoreM' (PersistentBlockStateContext pv)))
+            (SkovData pv)
     initialData = do
         (bs, _) <-
-            genesisState (makeTestingGenesisDataP6 idps) >>= \case
+            genesisState (makeTestingGenesisData @pv idps) >>= \case
                 Left err -> error $ "Invalid genesis state: " ++ err
                 Right x -> return x
         return $! initialSkovData bs
@@ -225,20 +233,31 @@ coreGenesisParams = CoreGenesisParametersV1{genesisTime = 0, genesisEpochDuratio
 --  The identity providers should be passed in as it makes it easier
 --  to test some scenarios for credential deployments.
 --  See the tests for these scenarios.
-makeTestingGenesisDataP6 :: IdentityProviders -> GenesisData 'P6
-makeTestingGenesisDataP6 idps =
+makeTestingGenesisData :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => IdentityProviders -> GenesisData pv
+makeTestingGenesisData idps =
     let genesisCryptographicParameters = myCryptographicParameters
         genesisIdentityProviders = idps
         genesisAnonymityRevokers = myAnonymityRevokers
-        genesisUpdateKeys = dummyKeyCollection
-        genesisChainParameters = dummyChainParameters
+        genesisUpdateKeys =
+            withIsAuthorizationsVersionForPV
+                (protocolVersion @pv)
+                (dummyKeyCollection @(AuthorizationsVersionForPV pv))
+        genesisChainParameters = dummyChainParameters @(ChainParametersVersionFor pv)
         genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
         genesisAccounts = Vec.fromList $ makeFakeBakers 1
-    in  GDP6
-            GDP6Initial
-                { genesisCore = coreGenesisParams,
-                  genesisInitialState = Base.GenesisState{..}
-                }
+    in  case protocolVersion @pv of
+            SP6 ->
+                GDP6
+                    GDP6Initial
+                        { genesisCore = coreGenesisParams,
+                          genesisInitialState = Base.GenesisState{..}
+                        }
+            SP7 ->
+                GDP7
+                    GDP7Initial
+                        { genesisCore = coreGenesisParams,
+                          genesisInitialState = Base.GenesisState{..}
+                        }
 
 -- | Utility function for parrsing identity providers.
 readIps :: BSL.ByteString -> Maybe IdentityProviders
@@ -319,7 +338,7 @@ testProcessBlockItem :: Spec
 testProcessBlockItem = describe "processBlockItem" $ do
     -- Test that an 'Ok' transaction is accepted into the state when being received individually.
     it "Ok transaction" $ do
-        (pbiRes, sd') <- runMyTestMonad myIdentityProviders theTime (processBlockItem dummyCredentialDeployment)
+        (pbiRes, sd') <- runMyTestMonad @'P6 myIdentityProviders theTime (processBlockItem dummyCredentialDeployment)
         -- The credential deployment is valid and so should the result reflect this.
         assertEqual
             "The credential deployment should be accepted"
@@ -343,7 +362,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
     it "MaybeOk transaction" $ do
         -- We use a normal transfer transaction here with an invalid sender as it will yield a
         -- 'MaybeOk' verification result.
-        (pbiRes, sd') <- runMyTestMonad dummyIdentityProviders theTime (processBlockItem dummyTransactionBI)
+        (pbiRes, sd') <- runMyTestMonad @'P6 dummyIdentityProviders theTime (processBlockItem dummyTransactionBI)
         assertEqual
             "The credential deployment should be rejected (the identity provider has correct id but wrong keys used for the credential deployment)"
             (NotAdded $ TVer.MaybeOk $ TVer.NormalTransactionInvalidSender dummyAccountAddress)
@@ -362,7 +381,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
             (sd' ^. transactionTablePurgeCounter)
     -- Test that a 'NotOk' transaction is rejected when being received individually.
     it "NotOk transaction" $ do
-        (pbiRes, sd') <- runMyTestMonad dummyIdentityProviders theTime (processBlockItem dummyCredentialDeployment)
+        (pbiRes, sd') <- runMyTestMonad @'P6 dummyIdentityProviders theTime (processBlockItem dummyCredentialDeployment)
         assertEqual
             "The credential deployment should be rejected (the identity provider has correct id but wrong keys used for the credential deployment)"
             (NotAdded $ TVer.NotOk TVer.CredentialDeploymentInvalidSignatures)
@@ -380,7 +399,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
             0
             (sd' ^. transactionTablePurgeCounter)
     it "No duplicates" $ do
-        (pbiRes, sd') <- runMyTestMonad myIdentityProviders theTime (processBlockItem dummyCredentialDeployment >> processBlockItem dummyCredentialDeployment)
+        (pbiRes, sd') <- runMyTestMonad @'P6 myIdentityProviders theTime (processBlockItem dummyCredentialDeployment >> processBlockItem dummyCredentialDeployment)
         assertEqual
             "We just added the same twice, so the latter one added should be recognized as a duplicate."
             (Duplicate dummyCredentialDeployment $ Just $ TVer.Ok TVer.CredentialDeploymentSuccess)

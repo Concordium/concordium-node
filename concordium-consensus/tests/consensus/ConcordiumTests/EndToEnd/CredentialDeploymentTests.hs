@@ -1,6 +1,9 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE GADTs #-}
 
 -- | End to end tests for credential deployments.
 -- For future maintainers: Note that the blocks below have hardcoded transaction outcome and state hashes.
@@ -31,6 +34,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.Transactions
+import Concordium.Types.Parameters
 
 import ConcordiumTests.KonsensusV1.Consensus.Blocks hiding (testBB1, testBB2, testBB2', testBB3, testBB3', tests)
 
@@ -76,79 +80,103 @@ credBi3 =
     tt = utcTimeToTransactionTime testTime
 
 -- | Valid block for round 1 with 1 credential deployment.
-testBB1 :: BakedBlock PV
+testBB1 :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
 testBB1 =
     BakedBlock
         { bbRound = 1,
           bbEpoch = 0,
           bbTimestamp = 1_000,
           bbBaker = bakerId,
-          bbQuorumCertificate = genesisQuorumCertificate genesisHash,
+          bbQuorumCertificate = genesisQuorumCertificate (genesisHash sProtocolVersion),
           bbTimeoutCertificate = Absent,
           bbEpochFinalizationEntry = Absent,
-          bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 1 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.fromList [credBi1],
-          bbDerivableHashes =
-            DBHashesV0 $
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 ->
+              DBHashesV0 $
                 BlockDerivableHashesV0
                     { bdhv0TransactionOutcomesHash = read "b9444648bf759471276fdba1930af0c543847d22de89c27939791898d757516d",
                       bdhv0BlockStateHash = read "b8bc96ec5f162db36784ea96ec29e3e8ad92abff341a6847e3bf524fdada28ff"
                     }
+            SBlockHashVersion1 ->
+                DBHashesV1 $
+                    BlockDerivableHashesV1
+                        { bdhv1BlockResultHash = read "4afb7f50e89b6ae3fb04fbb3854a70cf31bff01dfcbbd65d22f5d20032f4bce0"
+                        }
+
         }
   where
+    sProtocolVersion = protocolVersion @pv
     bakerId = 2
 
 -- | Valid block for round 2.
 --  This block carries a QC for 'testBB1' thus certifying it.
-testBB2 :: BakedBlock PV
+testBB2 :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
 testBB2 =
     BakedBlock
         { bbRound = 2,
           bbEpoch = 0,
           bbTimestamp = 3_000,
           bbBaker = bakerId,
-          bbQuorumCertificate = validQCFor testBB1,
+          bbQuorumCertificate = validQCFor @pv testBB1,
           bbTimeoutCertificate = Absent,
           bbEpochFinalizationEntry = Absent,
-          bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 2 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.empty,
-          bbDerivableHashes =
-            DBHashesV0 $
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 ->
+              DBHashesV0 $
                 BlockDerivableHashesV0
                     { bdhv0TransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
                       bdhv0BlockStateHash = read "798d5089818bcc7b8873e2585fb4fbf3d4dceffca32531259f466e7c435c8817"
                     }
+            SBlockHashVersion1 ->
+                DBHashesV1 $
+                    BlockDerivableHashesV1
+                        { bdhv1BlockResultHash = read "612cb7a13a9cb8d403f2b4992321f3919debd923c9fdaadd68153a417064b1d7"
+                        }
         }
   where
+    sProtocolVersion = protocolVersion @pv
     bakerId = 4
 
 -- | Valid block for round 3, finalizes 'testBB1' as this block
 --  carries a QC for 'testBB2'.
-testBB3 :: BakedBlock PV
+testBB3 :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
 testBB3 =
     BakedBlock
         { bbRound = 3,
           bbEpoch = 0,
           bbTimestamp = 5_000,
           bbBaker = bakerId,
-          bbQuorumCertificate = validQCFor testBB2,
+          bbQuorumCertificate = validQCFor @pv testBB2,
           bbTimeoutCertificate = Absent,
           bbEpochFinalizationEntry = Absent,
-          bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 3 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.empty,
-          bbDerivableHashes =
-            DBHashesV0 $
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 -> DBHashesV0 $
                 BlockDerivableHashesV0
                     { bdhv0TransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
                       bdhv0BlockStateHash = read "4da0deab5b564cd77c617a2ac7dc8a6064f87e99b09e58c87b5f9e687db2197a"
                     }
+            SBlockHashVersion1 ->
+                DBHashesV1 $
+                    BlockDerivableHashesV1
+                        { bdhv1BlockResultHash = read "83d2d20e5836df6dddbbfc65bbc13f67f8117cc871bbd4eeb635efe528571397"
+                        }
         }
   where
+    sProtocolVersion = protocolVersion @pv
     bakerId = 4
 
 -- | A test that deploys a single credential, and it ends up in the last finalized block.
-testDeployCredential :: Assertion
-testDeployCredential = runTestMonad noBaker testTime genesisData $ do
+testDeployCredential :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String ->
+  Spec
+testDeployCredential sProtocolVersion pvString =
+  it (pvString ++ ": deploy and finalize one credential") $
+   runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
     lfbState0 <- use (lastFinalized . to bpState)
     noAccs0 <- length <$> getAccountList lfbState0
     let b1 = signedPB testBB1
@@ -166,94 +194,115 @@ testDeployCredential = runTestMonad noBaker testTime genesisData $ do
 -- | Valid block for round 2.
 --  This block has one credential deployment.
 --  This block carries a QC for 'testBB1' thus certifying it.
-testBB2' :: BakedBlock PV
+testBB2' :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
 testBB2' =
     BakedBlock
         { bbRound = 2,
           bbEpoch = 0,
           bbTimestamp = 3_000,
           bbBaker = bakerId,
-          bbQuorumCertificate = validQCFor testBB1,
+          bbQuorumCertificate = validQCFor @pv testBB1,
           bbTimeoutCertificate = Absent,
           bbEpochFinalizationEntry = Absent,
-          bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 2 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.fromList [credBi2],
-          bbDerivableHashes =
-            DBHashesV0 $
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 -> DBHashesV0 $
                 BlockDerivableHashesV0
                     { bdhv0TransactionOutcomesHash = read "abc4628869bb526115226dd01ad54bf33f54609fa770d50a9242aaf009f42fa1",
                       bdhv0BlockStateHash = read "e3cf3b280159bc20645738fb1343486d16104989a524fb5feb59ac1b0b7af9ad"
                     }
+            SBlockHashVersion1 ->
+              DBHashesV1 $ BlockDerivableHashesV1
+                        { bdhv1BlockResultHash = read "04225271b518f16c0cb63282d08bff365d6236ff6c1e63e0da5c40fc3af96136"
+                        }
+
         }
   where
+    sProtocolVersion = protocolVersion @pv
     bakerId = 4
 
 -- | Valid block for round 3, carries a TC for round 2.
 --  This block has one credential deployment.
-testBB3' :: BakedBlock PV
+testBB3' :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
 testBB3' =
     BakedBlock
         { bbRound = 3,
           bbEpoch = 0,
           bbTimestamp = 5_000,
           bbBaker = bakerId,
-          bbQuorumCertificate = validQCFor testBB1,
-          bbTimeoutCertificate = Present (validTimeoutFor (validQCFor testBB1) 2),
+          bbQuorumCertificate = validQCFor @pv testBB1,
+          bbTimeoutCertificate = Present (validTimeoutFor sProtocolVersion (validQCFor @pv testBB1) 2),
           bbEpochFinalizationEntry = Absent,
-          bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 3 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.fromList [credBi3],
-          bbDerivableHashes =
-            DBHashesV0 $
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 -> DBHashesV0 $
                 BlockDerivableHashesV0
                     { bdhv0TransactionOutcomesHash = read "3af8504795a03353248be256f66366263f7484c814c5a26760210bbdfd609003",
                       bdhv0BlockStateHash = read "67eb8f778a4a43efa80c73a954110154ae417e21d43c33b857b962af36913e29"
                     }
+            SBlockHashVersion1 ->
+              DBHashesV1 $ BlockDerivableHashesV1
+                        { bdhv1BlockResultHash = read "ca469c03bae422c5059e40f5ea683bd7be0d4bae0b8295021a674af78ef04f37"
+                        }
         }
   where
+    sProtocolVersion = protocolVersion @pv
     bakerId = 4
 
-testBB4 :: BakedBlock PV
+testBB4 :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
 testBB4 =
     BakedBlock
         { bbRound = 4,
           bbEpoch = 0,
           bbTimestamp = 7_000,
           bbBaker = bakerId,
-          bbQuorumCertificate = validQCFor testBB3',
+          bbQuorumCertificate = validQCFor @pv testBB3',
           bbTimeoutCertificate = Absent,
           bbEpochFinalizationEntry = Absent,
-          bbNonce = computeBlockNonce genesisLEN 4 (bakerVRFKey bakerId),
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 4 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.empty,
-          bbDerivableHashes =
-            DBHashesV0 $
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 -> DBHashesV0 $
                 BlockDerivableHashesV0
                     { bdhv0TransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
                       bdhv0BlockStateHash = read "9e698b9c6425b382d8fda5584f530688c237ad013e8aaf848fea274e50244111"
                     }
+            SBlockHashVersion1 ->
+              DBHashesV1 $ BlockDerivableHashesV1
+                        { bdhv1BlockResultHash = read "3f2846dfe9e52dd9537831df434e876ae029f43e7855fe5eba0212b7df4b2645"
+                        }
         }
   where
+    sProtocolVersion = protocolVersion @pv
     bakerId = 3
 
-testBB5 :: BakedBlock PV
+testBB5 :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
 testBB5 =
     BakedBlock
         { bbRound = 5,
           bbEpoch = 0,
           bbTimestamp = 9_000,
           bbBaker = bakerId,
-          bbQuorumCertificate = validQCFor testBB4,
+          bbQuorumCertificate = validQCFor @pv testBB4,
           bbTimeoutCertificate = Absent,
           bbEpochFinalizationEntry = Absent,
-          bbNonce = computeBlockNonce genesisLEN 5 (bakerVRFKey bakerId),
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 5 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.empty,
-          bbDerivableHashes =
-            DBHashesV0 $
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 -> DBHashesV0 $
                 BlockDerivableHashesV0
                     { bdhv0TransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
                       bdhv0BlockStateHash = read "d9dd62c227d1cbc0d42da0d90bfc11d61533d058cc54b0745d6a597039dbe0ec"
                     }
+            SBlockHashVersion1 ->
+              DBHashesV1 $ BlockDerivableHashesV1
+                        { bdhv1BlockResultHash = read "7bafef3db7a89a0475c4132a71fda2fa67d6e9ace01d02aaf9fd8cdc05c4e4ad"
+                        }
         }
   where
+    sProtocolVersion = protocolVersion @pv
     bakerId = 3
 
 -- | Compute the 'AccountCreation' from the provided 'AccountCreation'.
@@ -264,8 +313,10 @@ getAccAddress accCreation = case credential accCreation of
 
 -- | Test that two credential deployments (each on their own branch and with same block height) does not:
 --  * Alter the state of the parent block (a new child difference map and associated reference is created).
-testDeployCredentialBranching :: Assertion
-testDeployCredentialBranching = runTestMonad noBaker testTime genesisData $ do
+testDeployCredentialBranching :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String ->
+  Spec
+testDeployCredentialBranching sProtocolVersion pvString = it (pvString ++ ": deploy two credentials in two branches") $
+  runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
     genesisState <- use (lastFinalized . to bpState)
     noGenesisAccs <- length <$> getAccountList genesisState
     let b1 = signedPB testBB1
@@ -366,5 +417,6 @@ testDeployCredentialBranching = runTestMonad noBaker testTime genesisData $ do
 
 tests :: Word -> Spec
 tests _ = describe "EndToEndTests.CredentialDeployments" $ do
-    it "deploy and finalize one credential" testDeployCredential
-    it "deploy two credentials in two branches" testDeployCredentialBranching
+    forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
+       testDeployCredential spv pvString
+       testDeployCredentialBranching spv pvString
