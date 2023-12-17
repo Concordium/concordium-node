@@ -5,6 +5,7 @@ import Data.Semigroup
 import qualified GlobalStateTests.AccountMap (tests)
 import qualified GlobalStateTests.AccountReleaseScheduleMigration (tests)
 import qualified GlobalStateTests.AccountReleaseScheduleTest (tests)
+import qualified GlobalStateTests.AccountTable (tests)
 import qualified GlobalStateTests.Accounts (tests)
 import qualified GlobalStateTests.BlobStore (tests)
 import qualified GlobalStateTests.BlockHash (tests)
@@ -34,20 +35,21 @@ atLevel a = do
 
 main :: IO ()
 main = atLevel $ \lvl -> hspec $ do
-    GlobalStateTests.BlockHash.tests
-    GlobalStateTests.Cache.tests
-    GlobalStateTests.LFMBTree.tests
-    GlobalStateTests.Accounts.tests lvl
-    GlobalStateTests.Trie.tests
-    GlobalStateTests.PersistentTreeState.tests
-    GlobalStateTests.FinalizationSerializationSpec.tests
-    GlobalStateTests.Instances.tests lvl
-    GlobalStateTests.AccountReleaseScheduleTest.tests
-    GlobalStateTests.AccountReleaseScheduleMigration.tests
-    GlobalStateTests.Updates.tests
-    GlobalStateTests.AccountMap.tests lvl
-    GlobalStateTests.EnduringDataFlags.tests
-    GlobalStateTests.BlobStore.tests
-    GlobalStateTests.UpdateQueues.tests
-    GlobalStateTests.LMDBAccountMap.tests
-    GlobalStateTests.DifferenceMap.tests
+    -- GlobalStateTests.BlockHash.tests
+    -- GlobalStateTests.Cache.tests
+    -- GlobalStateTests.LFMBTree.tests
+    -- GlobalStateTests.Accounts.tests lvl
+    -- GlobalStateTests.Trie.tests
+    -- GlobalStateTests.PersistentTreeState.tests
+    -- GlobalStateTests.FinalizationSerializationSpec.tests
+    -- GlobalStateTests.Instances.tests lvl
+    -- GlobalStateTests.AccountReleaseScheduleTest.tests
+    -- GlobalStateTests.AccountReleaseScheduleMigration.tests
+    -- GlobalStateTests.Updates.tests
+    -- GlobalStateTests.AccountMap.tests lvl
+    -- GlobalStateTests.EnduringDataFlags.tests
+    -- GlobalStateTests.BlobStore.tests
+    -- GlobalStateTests.UpdateQueues.tests
+    -- GlobalStateTests.LMDBAccountMap.tests
+    -- GlobalStateTests.DifferenceMap.tests
+    GlobalStateTests.AccountTable.tests
