@@ -226,14 +226,8 @@ emptyBlockTOH bid = transactionOutcomesHash [] [BlockAccrueReward 0 0 0 0 0 0 bi
 
 setStateHash :: StateHash -> BakedBlock PV -> BakedBlock PV
 setStateHash newStateHash block = case bbDerivableHashes block of
-    DBHashesV0 hashes ->
-        block
-            { bbDerivableHashes =
-                DBHashesV0 $
-                    hashes
-                        { bdhv0BlockStateHash = newStateHash
-                        }
-            }
+    hashes@DerivableBlockHashesV0{} ->
+        block{bbDerivableHashes = hashes{dbhv0BlockStateHash = newStateHash}}
 
 -- | Valid block for round 1.
 testBB1 :: BakedBlock PV
@@ -249,11 +243,10 @@ testBB1 =
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "dee89435dba1609a84fa62283d2f63ec50f85b9c22f8815daf348df5428ccb65"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "dee89435dba1609a84fa62283d2f63ec50f85b9c22f8815daf348df5428ccb65"
+                }
         }
   where
     bakerId = 2
@@ -272,11 +265,10 @@ testBB2 =
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "d36974d10f1331559e396be5f8e31ecedc2042ebf941bc2fad6050e9e082f206"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "d36974d10f1331559e396be5f8e31ecedc2042ebf941bc2fad6050e9e082f206"
+                }
         }
   where
     bakerId = 4
@@ -295,11 +287,10 @@ testBB3 =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "50998f735737ce13b35715a173efb7a3ad20cba597ba540985cd562a0b7bed74"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "50998f735737ce13b35715a173efb7a3ad20cba597ba540985cd562a0b7bed74"
+                }
         }
   where
     bakerId = 4
@@ -339,11 +330,10 @@ testBB4' =
           bbNonce = computeBlockNonce genesisLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "3bb5b307d7abc6fad2464455f604d63512fff93d7fdeb2aa08d5a8f2720340fe"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "3bb5b307d7abc6fad2464455f604d63512fff93d7fdeb2aa08d5a8f2720340fe"
+                }
         }
   where
     bakerId = 3
@@ -375,11 +365,10 @@ testBB1E =
           bbNonce = computeBlockNonce genesisLEN 1 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "3ce2fe0d538434fa7677549a4acbdecea606bd47a61fa39735de1dc144c95eab"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "3ce2fe0d538434fa7677549a4acbdecea606bd47a61fa39735de1dc144c95eab"
+                }
         }
   where
     bakerId = 2
@@ -398,11 +387,10 @@ testBB2E =
           bbNonce = computeBlockNonce genesisLEN 2 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "df5d25b8ffbad7be62be0ae2ce1a4730018062c3bda6d6caa02ea03545a263fd"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "df5d25b8ffbad7be62be0ae2ce1a4730018062c3bda6d6caa02ea03545a263fd"
+                }
         }
   where
     bakerId = 4
@@ -423,11 +411,10 @@ testBB3EX =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "81e1b33e20088562fcb48c619ea16e800d7fba58995fa6487a6209cf448c7d08"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "81e1b33e20088562fcb48c619ea16e800d7fba58995fa6487a6209cf448c7d08"
+                }
         }
   where
     bakerId = 4
@@ -462,11 +449,10 @@ testBB3E =
           bbNonce = computeBlockNonce testEpochLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "dc31a663a0bd166507e21cc641759018651c716b3571531672956abf24b0f4bc"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "dc31a663a0bd166507e21cc641759018651c716b3571531672956abf24b0f4bc"
+                }
         }
   where
     bakerId = 5
@@ -496,11 +482,10 @@ testBB4E =
           bbNonce = computeBlockNonce testEpochLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "daa799010a8b4acb47fa97b876abed73621db292029360734d9c8978b5859e7b"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "daa799010a8b4acb47fa97b876abed73621db292029360734d9c8978b5859e7b"
+                }
         }
   where
     bakerId = 1
@@ -532,11 +517,10 @@ testBB5E' =
           bbNonce = computeBlockNonce testEpochLEN rnd (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "ff8cd1198e3926f743e91a97484d75f1109534aaf9655e1c8c9507d4d0ebd8b3"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "ff8cd1198e3926f743e91a97484d75f1109534aaf9655e1c8c9507d4d0ebd8b3"
+                }
         }
   where
     bakerId = 2
@@ -594,11 +578,10 @@ testBB3Ex =
           bbNonce = computeBlockNonce testEpochLENx 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "dc31a663a0bd166507e21cc641759018651c716b3571531672956abf24b0f4bc"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "dc31a663a0bd166507e21cc641759018651c716b3571531672956abf24b0f4bc"
+                }
         }
   where
     bakerId = 2
@@ -617,11 +600,10 @@ testBB3EA =
           bbNonce = computeBlockNonce genesisLEN 3 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "df5d25b8ffbad7be62be0ae2ce1a4730018062c3bda6d6caa02ea03545a263fd"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "df5d25b8ffbad7be62be0ae2ce1a4730018062c3bda6d6caa02ea03545a263fd"
+                }
         }
   where
     bakerId = 4
@@ -641,11 +623,10 @@ testBB4EA =
           bbNonce = computeBlockNonce testEpochLEN 4 (bakerVRFKey bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes =
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
-                      bdhv0BlockStateHash = read "41b44dd4db52dae4021a0d71fbec00a423ffc9892cf97bf6e506d722cdaaeb0d"
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = emptyBlockTOH bakerId,
+                  dbhv0BlockStateHash = read "41b44dd4db52dae4021a0d71fbec00a423ffc9892cf97bf6e506d722cdaaeb0d"
+                }
         }
   where
     bakerId = 1
@@ -1075,11 +1056,10 @@ testReceiveIncorrectTransactionOutcomesHash = runTestMonad noBaker testTime gene
         signedPB
             testBB1
                 { bbDerivableHashes =
-                    DBHashesV0 $
-                        BlockDerivableHashesV0
-                            { bdhv0TransactionOutcomesHash = read "0000000000000000000000000000000000000000000000000000000000000000",
-                              bdhv0BlockStateHash = read "dee89435dba1609a84fa62283d2f63ec50f85b9c22f8815daf348df5428ccb65"
-                            }
+                    DerivableBlockHashesV0
+                        { dbhv0TransactionOutcomesHash = read "0000000000000000000000000000000000000000000000000000000000000000",
+                          dbhv0BlockStateHash = read "dee89435dba1609a84fa62283d2f63ec50f85b9c22f8815daf348df5428ccb65"
+                        }
                 }
 
 testReceiveIncorrectStateHash :: Assertion

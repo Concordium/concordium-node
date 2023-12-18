@@ -476,11 +476,10 @@ testProcessBlockItems = describe "processBlockItems" $ do
             -- But second transaction is not verifiable (i.e. 'NotOk') because of the chosen set of identity providers,
             bbTransactions = Vec.fromList txs
             bbDerivableHashes =
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
-                          bdhv0BlockStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
+                      dbhv0BlockStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
+                    }
         in  BakedBlock
                 { bbQuorumCertificate =
                     QuorumCertificate

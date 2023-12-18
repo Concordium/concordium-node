@@ -240,18 +240,16 @@ genBakedBlock sProtocolVersion = do
         SBlockHashVersion0 -> do
             bbStateHash <- StateHashV0 . Hash.Hash . FBS.pack <$> vector 32
             return $
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = Transactions.emptyTransactionOutcomesHashV1,
-                          bdhv0BlockStateHash = bbStateHash
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = Transactions.emptyTransactionOutcomesHashV1,
+                      dbhv0BlockStateHash = bbStateHash
+                    }
         SBlockHashVersion1 -> do
             blockResultHash <- BlockResultHash . Hash.Hash . FBS.pack <$> vector 32
             return $
-                DBHashesV1 $
-                    BlockDerivableHashesV1
-                        { bdhv1BlockResultHash = blockResultHash
-                        }
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = blockResultHash
+                    }
 
     return
         BakedBlock

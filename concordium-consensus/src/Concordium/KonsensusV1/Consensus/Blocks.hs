@@ -16,21 +16,20 @@ import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Data.Function
 import Data.Ord
-import qualified Data.Serialize as Serialize
 import Data.Time
 import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.BakerIdentity
+import Concordium.Types.Block (localToAbsoluteBlockHeight)
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Types.Parameters hiding (getChainParameters)
-import qualified Concordium.Types.ProtocolVersion as BasePV
 import Concordium.Types.SeedState
-import qualified Concordium.Types.Transactions as Types
 import Concordium.Utils
 
 import Concordium.Genesis.Data.BaseV1
@@ -56,10 +55,6 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Scheduler (FilteredTransactions (..))
 import Concordium.TimerMonad
-import Concordium.Types.BakerIdentity
-import Concordium.Types.Block (AbsoluteBlockHeight, localToAbsoluteBlockHeight)
-import Concordium.Types.Option
-import Concordium.Types.Transactions (TransactionOutcomesHash)
 
 -- | A block that has passed initial verification, but must still be executed, added to the state,
 --  and (potentially) signed as a finalizer.
@@ -762,49 +757,49 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                         rejectBlock
                     Right (newState, energyUsed) ->
                         case blockDerivableHashes pendingBlock of
-                            DBHashesV0 pendingBlockDerivableHashes -> do
-                                -- Prior to PV7 the transaction outcome was tracked separate from
-                                -- the state hash, meaning both have to be checked here.
-                                outcomesHash <- getTransactionOutcomesHash newState
-                                let pendingBlockTxOutcomesHash = bdhv0TransactionOutcomesHash pendingBlockDerivableHashes
-                                let pendingBlockStateHash = bdhv0BlockStateHash pendingBlockDerivableHashes
-                                if
-                                    | outcomesHash /= pendingBlockTxOutcomesHash -> do
-                                        -- Incorrect transaction outcomes
-                                        logEvent Konsensus LLTrace $
-                                            "Block "
-                                                <> show pbHash
-                                                <> " stated transaction outcome hash ("
-                                                <> show pendingBlockTxOutcomesHash
-                                                <> ") does not match computed value ("
-                                                <> show outcomesHash
-                                                <> ")."
-                                        flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
-                                        rejectBlock
-                                    | getHash newState /= pendingBlockStateHash -> do
-                                        -- Incorrect state hash
-                                        logEvent Konsensus LLTrace $
-                                            "Block "
-                                                <> show pbHash
-                                                <> " stated state hash ("
-                                                <> show pendingBlockStateHash
-                                                <> ") does not match computed value ("
-                                                <> show (getHash newState :: StateHash)
-                                                <> ")."
-                                        flag $ BlockInvalidStateHash sBlock (bpBlock parent)
-                                        rejectBlock
-                                    | otherwise ->
-                                        continue newState energyUsed
-                            DBHashesV1 pendingBlockDerivableHashes -> do
+                            DerivableBlockHashesV0
+                                { dbhv0TransactionOutcomesHash = pendingBlockTxOutcomesHash,
+                                  dbhv0BlockStateHash = pendingBlockStateHash
+                                } -> do
+                                    -- Prior to PV7 the transaction outcome was tracked separate from
+                                    -- the state hash, meaning both have to be checked here.
+                                    outcomesHash <- getTransactionOutcomesHash newState
+                                    if
+                                        | outcomesHash /= pendingBlockTxOutcomesHash -> do
+                                            -- Incorrect transaction outcomes
+                                            logEvent Konsensus LLTrace $
+                                                "Block "
+                                                    <> show pbHash
+                                                    <> " stated transaction outcome hash ("
+                                                    <> show pendingBlockTxOutcomesHash
+                                                    <> ") does not match computed value ("
+                                                    <> show outcomesHash
+                                                    <> ")."
+                                            flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
+                                            rejectBlock
+                                        | getHash newState /= pendingBlockStateHash -> do
+                                            -- Incorrect state hash
+                                            logEvent Konsensus LLTrace $
+                                                "Block "
+                                                    <> show pbHash
+                                                    <> " stated state hash ("
+                                                    <> show pendingBlockStateHash
+                                                    <> ") does not match computed value ("
+                                                    <> show (getHash newState :: StateHash)
+                                                    <> ")."
+                                            flag $ BlockInvalidStateHash sBlock (bpBlock parent)
+                                            rejectBlock
+                                        | otherwise ->
+                                            continue newState energyUsed
+                            DerivableBlockHashesV1{dbhv1BlockResultHash = pendingBlockResultHash} -> do
                                 -- Starting from P7 the baked block only contains a block result hash
                                 -- which is computed from transaction outcomes, the block state hash
                                 -- and more.
-                                let pendingBlockResultHash = bdhv1BlockResultHash pendingBlockDerivableHashes
                                 let relativeBlockHeight = 1 + blockHeight parent
                                 computedResultHash <- computeBlockResultHash newState relativeBlockHeight
                                 if computedResultHash /= pendingBlockResultHash
                                     then do
-                                        -- Incorrect state hash
+                                        -- Incorrect block result hash
                                         logEvent Konsensus LLTrace $
                                             "Block "
                                                 <> show pbHash
@@ -1225,15 +1220,15 @@ bakeBlock BakeBlockInputs{..} = do
     updateFocusBlockTo bbiParent
     ptt <- use pendingTransactionTable
     (filteredTransactions, newState, energyUsed) <- constructBlockState runtime tt ptt executionData
-    bbDerivableHashes <- case BasePV.blockHashVersion @(BasePV.BlockHashVersionFor (MPV m)) of
-        BasePV.SBlockHashVersion0 -> do
-            bdhv0TransactionOutcomesHash <- getTransactionOutcomesHash newState
-            bdhv0BlockStateHash <- getStateHash newState
-            return $ DBHashesV0 BlockDerivableHashesV0{..}
-        BasePV.SBlockHashVersion1 -> do
+    bbDerivableHashes <- case blockHashVersion @(BlockHashVersionFor (MPV m)) of
+        SBlockHashVersion0 -> do
+            dbhv0TransactionOutcomesHash <- getTransactionOutcomesHash newState
+            dbhv0BlockStateHash <- getStateHash newState
+            return $ DerivableBlockHashesV0{..}
+        SBlockHashVersion1 -> do
             let relativeBlockHeight = 1 + blockHeight bbiParent
-            bdhv1BlockResultHash <- computeBlockResultHash newState relativeBlockHeight
-            return $ DBHashesV1 BlockDerivableHashesV1{..}
+            dbhv1BlockResultHash <- computeBlockResultHash newState relativeBlockHeight
+            return $ DerivableBlockHashesV1{..}
     let bakedBlock =
             BakedBlock
                 { bbRound = bbiRound,
@@ -1271,52 +1266,6 @@ bakeBlock BakeBlockInputs{..} = do
     transactionTable .=! newTT
     pendingTransactionTable .=! newPTT
     return signedBlock
-
--- | Information needed for computing the result hash for a block.
-data BlockResultHashInput = BlockResultHashInput
-    { -- | Hash of the block state.
-      shiBlockStateHash :: StateHash,
-      -- | Hash of the transaction outcomes.
-      shiTransationOutcomesHash :: TransactionOutcomesHash,
-      -- | The finalization committee hash for the current epoch.
-      shiCurrentFinalizationCommitteeHash :: FinalizationCommitteeHash,
-      -- | The finalization committee hash for the next epoch.
-      shiNextFinalizationCommitteeHash :: FinalizationCommitteeHash,
-      -- | The block height information of this block.
-      shiBlockHeightInfo :: BlockHeightInfo
-    }
-
--- | The block height information of a block.
-data BlockHeightInfo = BlockHeightInfo
-    { -- | The absolute height of the block.
-      bhiAbsoluteBlockHeight :: AbsoluteBlockHeight,
-      -- | The genesis index of the block.
-      bhiGenesisIndex :: !GenesisIndex,
-      -- | The relative block height from the genesis prior to this block.
-      bhiRelativeBlockHeight :: !BlockHeight
-    }
-
--- | Compute the block result hash given the result hash input.
-makeBlockResultHash :: BlockResultHashInput -> BlockResultHash
-makeBlockResultHash BlockResultHashInput{..} =
-    BlockResultHash $
-        Hash.hashOfHashes
-            ( Hash.hashOfHashes
-                (v0StateHash shiBlockStateHash)
-                (Types.tohGet shiTransationOutcomesHash)
-            )
-            ( Hash.hashOfHashes
-                (blockHeightInfoHash shiBlockHeightInfo)
-                ( Hash.hashOfHashes
-                    (theFinalizationCommitteeHash shiCurrentFinalizationCommitteeHash)
-                    (theFinalizationCommitteeHash shiNextFinalizationCommitteeHash)
-                )
-            )
-  where
-    blockHeightInfoHash BlockHeightInfo{..} = Hash.hash $ Serialize.runPut $ do
-        Serialize.put bhiAbsoluteBlockHeight
-        Serialize.put bhiGenesisIndex
-        Serialize.put bhiRelativeBlockHeight
 
 -- | Extract information from SkovData and the block state to compute the result block hash.
 computeBlockResultHash ::

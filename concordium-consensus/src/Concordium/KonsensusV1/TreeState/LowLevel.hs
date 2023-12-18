@@ -31,6 +31,8 @@ data StoredBlock (pv :: ProtocolVersion) = StoredBlock
       stbStatePointer :: !(BlockStateRef pv)
     }
 
+type instance BlockProtocolVersion (StoredBlock pv) = pv
+
 -- | Get the block state hash for a stored block.
 stbBlockStateHash :: StoredBlock pv -> StateHash
 stbBlockStateHash storedBlock =
@@ -42,7 +44,7 @@ stbBlockStateHash storedBlock =
             GenesisBlock meta -> gmStateHash meta
             NormalBlock signedBlock ->
                 case blockDerivableHashes signedBlock of
-                    DBHashesV0 hashes -> bdhv0BlockStateHash hashes
+                    DerivableBlockHashesV0{..} -> dbhv0BlockStateHash
 
 instance (IsProtocolVersion pv) => Serialize (StoredBlock pv) where
     put StoredBlock{..} = do
@@ -77,7 +79,6 @@ instance HashableTo BlockHash (StoredBlock pv) where
     getHash = getHash . stbBlock
 
 instance HasBlockMetadata (StoredBlock pv) where
-    type BlockMetadataProtocolVersion (StoredBlock pv) = pv
     blockMetadata = stbInfo
 
 -- | 'MonadTreeStateStore' defines the interface to the low-level tree state database.

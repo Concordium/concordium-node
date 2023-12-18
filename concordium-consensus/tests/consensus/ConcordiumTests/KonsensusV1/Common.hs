@@ -52,11 +52,10 @@ someBlockPointer bh r e =
               bbNonce = dummyBlockNonce,
               bbTransactions = Vec.empty,
               bbDerivableHashes =
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-                          bdhv0BlockStateHash = StateHashV0 $ Hash.hash "empty state hash"
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = emptyTransactionOutcomesHashV1,
+                      dbhv0BlockStateHash = StateHashV0 $ Hash.hash "empty state hash"
+                    }
             }
 
 -- | A block pointer with 'myBlockHash' as block hash.

@@ -369,11 +369,10 @@ catchupWithTwoBranchesResponse = runTest $ do
                           bbNonce = computeBlockNonce genesisLEN 4 (TestBlocks.bakerVRFKey (3 :: Int)),
                           bbTransactions = Vec.empty,
                           bbDerivableHashes =
-                            DBHashesV0 $
-                                BlockDerivableHashesV0
-                                    { bdhv0TransactionOutcomesHash = emptyBlockTOH 3,
-                                      bdhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
-                                    }
+                            DerivableBlockHashesV0
+                                { dbhv0TransactionOutcomesHash = emptyBlockTOH 3,
+                                  dbhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
+                                }
                         }
     TestBlocks.succeedReceiveBlock b4
     -- There is one current timeout message and one current quorum message
@@ -478,11 +477,10 @@ testMakeCatchupStatus = runTest $ do
                           bbNonce = computeBlockNonce genesisLEN 4 (TestBlocks.bakerVRFKey (3 :: Int)),
                           bbTransactions = Vec.empty,
                           bbDerivableHashes =
-                            DBHashesV0 $
-                                BlockDerivableHashesV0
-                                    { bdhv0TransactionOutcomesHash = emptyBlockTOH 3,
-                                      bdhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
-                                    }
+                            DerivableBlockHashesV0
+                                { dbhv0TransactionOutcomesHash = emptyBlockTOH 3,
+                                  dbhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
+                                }
                         }
     TestBlocks.succeedReceiveBlock b4
     -- There is one current timeout message and one current quorum message
