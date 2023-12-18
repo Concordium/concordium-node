@@ -104,16 +104,14 @@ dummyBakedBlock sProtocolVersion n ts =
           bbTransactions = ts,
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
             SBlockHashVersion0 ->
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = TransactionOutcomesHash dummyHash,
-                          bdhv0BlockStateHash = StateHashV0 dummyHash
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = TransactionOutcomesHash dummyHash,
+                      dbhv0BlockStateHash = StateHashV0 dummyHash
+                    }
             SBlockHashVersion1 ->
-                DBHashesV1 $
-                    BlockDerivableHashesV1
-                        { bdhv1BlockResultHash = BlockResultHash dummyHash
-                        }
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = BlockResultHash dummyHash
+                    }
         }
 
 -- | A helper function for creating an account address given a seed.

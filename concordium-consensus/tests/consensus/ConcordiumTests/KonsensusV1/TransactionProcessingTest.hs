@@ -506,16 +506,14 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
             bbTransactions = Vec.fromList txs
             bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
                 SBlockHashVersion0 ->
-                    DBHashesV0 $
-                        BlockDerivableHashesV0
-                            { bdhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
-                              bdhv0BlockStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
-                            }
+                    DerivableBlockHashesV0
+                        { dbhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
+                          dbhv0BlockStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
+                        }
                 SBlockHashVersion1 ->
-                    DBHashesV1 $
-                        BlockDerivableHashesV1
-                            { bdhv1BlockResultHash = BlockResultHash $ Hash.hash "DummyBlockResultHash"
-                            }
+                    DerivableBlockHashesV1
+                        { dbhv1BlockResultHash = BlockResultHash $ Hash.hash "DummyBlockResultHash"
+                        }
         in  BakedBlock
                 { bbQuorumCertificate =
                     QuorumCertificate

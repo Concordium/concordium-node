@@ -155,16 +155,14 @@ dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
     bbTransactions = mempty
     bbDerivableHashes = case sBlockHashVersionFor (protocolVersion @pv) of
         SBlockHashVersion0 ->
-            DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
-                      bdhv0BlockStateHash = Common.dummyStateHash
-                    }
+            DerivableBlockHashesV0
+                { dbhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
+                  dbhv0BlockStateHash = Common.dummyStateHash
+                }
         SBlockHashVersion1 ->
-            DBHashesV1 $
-                BlockDerivableHashesV1
-                    { bdhv1BlockResultHash = dummyBlockResultHash
-                    }
+            DerivableBlockHashesV1
+                { dbhv1BlockResultHash = dummyBlockResultHash
+                }
 
 -- | Create a 'SignedBlock' by signing the
 --  'dummyBakedBlock' with 'dummySignKeys'

@@ -445,16 +445,14 @@ catchupWithTwoBranchesResponse sProtocolVersion =
                               bbTransactions = Vec.empty,
                               bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
                                 SBlockHashVersion0 ->
-                                    DBHashesV0 $
-                                        BlockDerivableHashesV0
-                                            { bdhv0TransactionOutcomesHash = emptyBlockTOH 3,
-                                              bdhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
-                                            }
+                                    DerivableBlockHashesV0
+                                        { dbhv0TransactionOutcomesHash = emptyBlockTOH 3,
+                                          dbhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
+                                        }
                                 SBlockHashVersion1 ->
-                                    DBHashesV1 $
-                                        BlockDerivableHashesV1
-                                            { bdhv1BlockResultHash = read "f36a049939054eac3e8662e4ab0310d8e12381ee2ba77a9c16fa19c205ea64b3"
-                                            }
+                                    DerivableBlockHashesV1
+                                        { dbhv1BlockResultHash = read "f36a049939054eac3e8662e4ab0310d8e12381ee2ba77a9c16fa19c205ea64b3"
+                                        }
                             }
         TestBlocks.succeedReceiveBlock b4
         -- There is one current timeout message and one current quorum message
@@ -582,16 +580,14 @@ testMakeCatchupStatus sProtocolVersion =
                               bbTransactions = Vec.empty,
                               bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
                                 SBlockHashVersion0 ->
-                                    DBHashesV0 $
-                                        BlockDerivableHashesV0
-                                            { bdhv0TransactionOutcomesHash = emptyBlockTOH 3,
-                                              bdhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
-                                            }
+                                    DerivableBlockHashesV0
+                                        { dbhv0TransactionOutcomesHash = emptyBlockTOH 3,
+                                          dbhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
+                                        }
                                 SBlockHashVersion1 ->
-                                    DBHashesV1 $
-                                        BlockDerivableHashesV1
-                                            { bdhv1BlockResultHash = read "f36a049939054eac3e8662e4ab0310d8e12381ee2ba77a9c16fa19c205ea64b3"
-                                            }
+                                    DerivableBlockHashesV1
+                                        { dbhv1BlockResultHash = read "f36a049939054eac3e8662e4ab0310d8e12381ee2ba77a9c16fa19c205ea64b3"
+                                        }
                             }
         TestBlocks.succeedReceiveBlock b4
         -- There is one current timeout message and one current quorum message

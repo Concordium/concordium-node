@@ -95,16 +95,14 @@ testBB1 =
           bbTransactions = Vec.fromList [credBi1],
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
             SBlockHashVersion0 ->
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = read "b9444648bf759471276fdba1930af0c543847d22de89c27939791898d757516d",
-                          bdhv0BlockStateHash = read "b8bc96ec5f162db36784ea96ec29e3e8ad92abff341a6847e3bf524fdada28ff"
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = read "b9444648bf759471276fdba1930af0c543847d22de89c27939791898d757516d",
+                      dbhv0BlockStateHash = read "b8bc96ec5f162db36784ea96ec29e3e8ad92abff341a6847e3bf524fdada28ff"
+                    }
             SBlockHashVersion1 ->
-                DBHashesV1 $
-                    BlockDerivableHashesV1
-                        { bdhv1BlockResultHash = read "4afb7f50e89b6ae3fb04fbb3854a70cf31bff01dfcbbd65d22f5d20032f4bce0"
-                        }
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "4afb7f50e89b6ae3fb04fbb3854a70cf31bff01dfcbbd65d22f5d20032f4bce0"
+                    }
         }
   where
     sProtocolVersion = protocolVersion @pv
@@ -126,16 +124,14 @@ testBB2 =
           bbTransactions = Vec.empty,
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
             SBlockHashVersion0 ->
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
-                          bdhv0BlockStateHash = read "798d5089818bcc7b8873e2585fb4fbf3d4dceffca32531259f466e7c435c8817"
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
+                      dbhv0BlockStateHash = read "798d5089818bcc7b8873e2585fb4fbf3d4dceffca32531259f466e7c435c8817"
+                    }
             SBlockHashVersion1 ->
-                DBHashesV1 $
-                    BlockDerivableHashesV1
-                        { bdhv1BlockResultHash = read "612cb7a13a9cb8d403f2b4992321f3919debd923c9fdaadd68153a417064b1d7"
-                        }
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "612cb7a13a9cb8d403f2b4992321f3919debd923c9fdaadd68153a417064b1d7"
+                    }
         }
   where
     sProtocolVersion = protocolVersion @pv
@@ -157,16 +153,14 @@ testBB3 =
           bbTransactions = Vec.empty,
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
             SBlockHashVersion0 ->
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
-                          bdhv0BlockStateHash = read "4da0deab5b564cd77c617a2ac7dc8a6064f87e99b09e58c87b5f9e687db2197a"
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = read "375fef64a251f353d608171d283d00fe00aa0bd77596ba7703c810f48056ef89",
+                      dbhv0BlockStateHash = read "4da0deab5b564cd77c617a2ac7dc8a6064f87e99b09e58c87b5f9e687db2197a"
+                    }
             SBlockHashVersion1 ->
-                DBHashesV1 $
-                    BlockDerivableHashesV1
-                        { bdhv1BlockResultHash = read "83d2d20e5836df6dddbbfc65bbc13f67f8117cc871bbd4eeb635efe528571397"
-                        }
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "83d2d20e5836df6dddbbfc65bbc13f67f8117cc871bbd4eeb635efe528571397"
+                    }
         }
   where
     sProtocolVersion = protocolVersion @pv
@@ -212,16 +206,14 @@ testBB2' =
           bbTransactions = Vec.fromList [credBi2],
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
             SBlockHashVersion0 ->
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = read "abc4628869bb526115226dd01ad54bf33f54609fa770d50a9242aaf009f42fa1",
-                          bdhv0BlockStateHash = read "e3cf3b280159bc20645738fb1343486d16104989a524fb5feb59ac1b0b7af9ad"
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = read "abc4628869bb526115226dd01ad54bf33f54609fa770d50a9242aaf009f42fa1",
+                      dbhv0BlockStateHash = read "e3cf3b280159bc20645738fb1343486d16104989a524fb5feb59ac1b0b7af9ad"
+                    }
             SBlockHashVersion1 ->
-                DBHashesV1 $
-                    BlockDerivableHashesV1
-                        { bdhv1BlockResultHash = read "04225271b518f16c0cb63282d08bff365d6236ff6c1e63e0da5c40fc3af96136"
-                        }
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "04225271b518f16c0cb63282d08bff365d6236ff6c1e63e0da5c40fc3af96136"
+                    }
         }
   where
     sProtocolVersion = protocolVersion @pv
@@ -243,16 +235,14 @@ testBB3' =
           bbTransactions = Vec.fromList [credBi3],
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
             SBlockHashVersion0 ->
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = read "3af8504795a03353248be256f66366263f7484c814c5a26760210bbdfd609003",
-                          bdhv0BlockStateHash = read "67eb8f778a4a43efa80c73a954110154ae417e21d43c33b857b962af36913e29"
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = read "3af8504795a03353248be256f66366263f7484c814c5a26760210bbdfd609003",
+                      dbhv0BlockStateHash = read "67eb8f778a4a43efa80c73a954110154ae417e21d43c33b857b962af36913e29"
+                    }
             SBlockHashVersion1 ->
-                DBHashesV1 $
-                    BlockDerivableHashesV1
-                        { bdhv1BlockResultHash = read "ca469c03bae422c5059e40f5ea683bd7be0d4bae0b8295021a674af78ef04f37"
-                        }
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "ca469c03bae422c5059e40f5ea683bd7be0d4bae0b8295021a674af78ef04f37"
+                    }
         }
   where
     sProtocolVersion = protocolVersion @pv
@@ -272,16 +262,14 @@ testBB4 =
           bbTransactions = Vec.empty,
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
             SBlockHashVersion0 ->
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
-                          bdhv0BlockStateHash = read "9e698b9c6425b382d8fda5584f530688c237ad013e8aaf848fea274e50244111"
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
+                      dbhv0BlockStateHash = read "9e698b9c6425b382d8fda5584f530688c237ad013e8aaf848fea274e50244111"
+                    }
             SBlockHashVersion1 ->
-                DBHashesV1 $
-                    BlockDerivableHashesV1
-                        { bdhv1BlockResultHash = read "3f2846dfe9e52dd9537831df434e876ae029f43e7855fe5eba0212b7df4b2645"
-                        }
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "3f2846dfe9e52dd9537831df434e876ae029f43e7855fe5eba0212b7df4b2645"
+                    }
         }
   where
     sProtocolVersion = protocolVersion @pv
@@ -301,16 +289,14 @@ testBB5 =
           bbTransactions = Vec.empty,
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
             SBlockHashVersion0 ->
-                DBHashesV0 $
-                    BlockDerivableHashesV0
-                        { bdhv0TransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
-                          bdhv0BlockStateHash = read "d9dd62c227d1cbc0d42da0d90bfc11d61533d058cc54b0745d6a597039dbe0ec"
-                        }
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = read "b0972dd7af05ed6feaa40099fffa9c5c5e0ba9741938166cdb57584780688743",
+                      dbhv0BlockStateHash = read "d9dd62c227d1cbc0d42da0d90bfc11d61533d058cc54b0745d6a597039dbe0ec"
+                    }
             SBlockHashVersion1 ->
-                DBHashesV1 $
-                    BlockDerivableHashesV1
-                        { bdhv1BlockResultHash = read "7bafef3db7a89a0475c4132a71fda2fa67d6e9ace01d02aaf9fd8cdc05c4e4ad"
-                        }
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "7bafef3db7a89a0475c4132a71fda2fa67d6e9ace01d02aaf9fd8cdc05c4e4ad"
+                    }
         }
   where
     sProtocolVersion = protocolVersion @pv

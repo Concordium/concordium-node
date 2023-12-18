@@ -106,16 +106,14 @@ someBlockPointer sProtocolVersion bh r e =
               bbTransactions = Vec.empty,
               bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
                 SBlockHashVersion0 ->
-                    DBHashesV0 $
-                        BlockDerivableHashesV0
-                            { bdhv0TransactionOutcomesHash = emptyTransactionOutcomesHashV1,
-                              bdhv0BlockStateHash = stateHash
-                            }
+                    DerivableBlockHashesV0
+                        { dbhv0TransactionOutcomesHash = emptyTransactionOutcomesHashV1,
+                          dbhv0BlockStateHash = stateHash
+                        }
                 SBlockHashVersion1 ->
-                    DBHashesV1 $
-                        BlockDerivableHashesV1
-                            { bdhv1BlockResultHash = BlockResultHash $ Hash.hash "empty state hash"
-                            }
+                    DerivableBlockHashesV1
+                        { dbhv1BlockResultHash = BlockResultHash $ Hash.hash "empty state hash"
+                        }
             }
 
 -- | A block pointer with 'myBlockHash' as block hash.
