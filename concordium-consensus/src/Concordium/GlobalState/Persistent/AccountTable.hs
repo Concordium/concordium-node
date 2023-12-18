@@ -65,13 +65,15 @@ readFileLength MemoryMappedFileHandle{..} = mask $ \restore -> do
 
 -- | Open a 'MemoryMappedByteString' at the provided 'FilePath'.
 --  If the file does not exist, then it is created.
-openMemoryMappedByteString :: FilePath -> IO MemoryMappedByteString
+--  Returns the 'MemoryMapppedByteString' in the first component and the
+--  size of the file in the second component.
+openMemoryMappedByteString :: FilePath -> IO (MemoryMappedByteString, Word64)
 openMemoryMappedByteString mmfhFilePath = do
     mmfhHandle <- openBinaryFile mmfhFilePath ReadWriteMode
     mmfhSize <- fromIntegral <$> hFileSize mmfhHandle
     mmFileHandle <- newMVar MemoryMappedFileHandle{..}
     mmapRef <- newIORef =<< mmapFileByteString mmfhFilePath Nothing
-    return MemoryMappedByteString{..}
+    return (MemoryMappedByteString{..}, fromIntegral mmfhSize)
 
 -- | Close a 'MemoryMappedByteString' and flushing the memory mapped @ByteString@
 --  to disk in the process.
@@ -125,7 +127,6 @@ appendBytesToMemoryMappedByteString bs MemoryMappedByteString{..} = bracket acqu
 --
 --  Invariants:
 --    * The tree must always be non-empty.
---  todo: documentation.
 data FlatLFMB = FlatLFMB
     { -- | The underlying memory mapped byte string that
       --  holds onto the contents of the tree.
@@ -134,14 +135,26 @@ data FlatLFMB = FlatLFMB
       flfmbHeight :: !Word64
     }
 
+-- | Size of each node in 'FlatLFMB'
+--  8 bytes for the blob ref (word64) plus 32 bytes for the sha256 hash.
+nodeSize :: Word64
+nodeSize = 40
+
+-- | A node in a 'FlatLFMB'.
 type Node = BS.ByteString
 
 -- | Make a new flattened left full merkle binary tree.
-mkFlatLFMB :: Node -> IO FlatLFMB
-mkFlatLFMB node = do
-    let flfmbHeight = 0
-    flfmbMmap <- openMemoryMappedByteString ""
+mkFlatLFMB :: FilePath -> Node -> IO FlatLFMB
+mkFlatLFMB fp node = do
+    (flfmbMmap, _) <- openMemoryMappedByteString fp
     void $ appendBytesToMemoryMappedByteString node flfmbMmap
+    return FlatLFMB{flfmbHeight = 0, ..}
+
+-- | Load a 'FlatLFMB' at the provided @FilePath@.
+loadFlatLFMB :: FilePath -> IO FlatLFMB
+loadFlatLFMB fp = do
+    (flfmbMmap, fileSize) <- openMemoryMappedByteString fp
+    let flfmbHeight = fileSize `div` nodeSize -- todo: store the height at the start of the file.
     return FlatLFMB{..}
 
 -- | Get the location of the root node in the tree.
@@ -150,7 +163,7 @@ mkFlatLFMB node = do
 getRootNodeRange :: FlatLFMB -> Range
 getRootNodeRange FlatLFMB{..} =
     let offset = (2 ^ flfmbHeight) - (1 :: Word64)
-    in  (offset, offset + 40)
+    in  (offset, offset + nodeSize)
 
 -- | Get the location of the hash of the root node.
 --  Precondition: @FlatLFMB@ must be non-empty.
@@ -202,11 +215,6 @@ instance Serialize (AccountTableEntry a) where
         ateHash <- get
         return AccountTableEntry{..}
 
--- | Size of an 'AccountTableEntry' in bytes.
---  8 bytes for the blob ref (word64) plus 32 bytes for the sha256 hash.
-entrySize :: Int
-entrySize = 40
-
 data AccountTable = AccountTable
     { -- | read-only contents of the memory mapped file.
       ataMmap :: !(IORef BS.ByteString),
@@ -227,7 +235,7 @@ readEntry _ = undefined
 getAccountEntry :: (MonadIO m) => AccountTable -> AccountIndex -> m (AccountTableEntry a)
 getAccountEntry AccountTable{..} (AccountIndex ai) = do
     arr <- liftIO $ readIORef ataMmap
-    let entryBytes = BS.take entrySize $ BS.drop accountOffset arr
+    let entryBytes = BS.take (fromIntegral nodeSize) $ BS.drop accountOffset arr
     case decode entryBytes of
         Left err -> undefined -- todo error handling
         Right a -> return a
