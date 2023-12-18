@@ -73,6 +73,8 @@ data BlockMetadata pv = BlockMetadata
     }
     deriving (Eq, Show)
 
+type instance BlockProtocolVersion (BlockMetadata pv) = pv
+
 instance forall pv. (IsProtocolVersion pv) => Serialize (BlockMetadata pv) where
     put BlockMetadata{..} = do
         put bmHeight
@@ -99,11 +101,8 @@ instance forall pv. (IsProtocolVersion pv) => Serialize (BlockMetadata pv) where
 
 -- | A class for structures that include 'BlockMetadata'.
 class HasBlockMetadata bm where
-    -- | The protocol version of the metadata.
-    type BlockMetadataProtocolVersion bm :: ProtocolVersion
-
     -- | Get the block metadata.
-    blockMetadata :: bm -> BlockMetadata (BlockMetadataProtocolVersion bm)
+    blockMetadata :: bm -> BlockMetadata (BlockProtocolVersion bm)
 
     -- | The height of the block.
     blockHeight :: bm -> BlockHeight
@@ -131,7 +130,6 @@ class HasBlockMetadata bm where
     {-# INLINE blockTransactionsSize #-}
 
 instance HasBlockMetadata (BlockMetadata pv) where
-    type BlockMetadataProtocolVersion (BlockMetadata pv) = pv
     blockMetadata = id
 
 -- | A pointer to a block that has been executed
@@ -144,6 +142,8 @@ data BlockPointer (pv :: ProtocolVersion) = BlockPointer
       -- | The resulting state of executing the block.
       bpState :: !(PBS.HashedPersistentBlockState pv)
     }
+
+type instance BlockProtocolVersion (BlockPointer pv) = pv
 
 instance HashableTo BlockHash (BlockPointer pv) where
     getHash BlockPointer{..} = getHash bpBlock
@@ -172,7 +172,6 @@ instance Show (BlockPointer pv) where
             ++ "] }"
 
 instance HasBlockMetadata (BlockPointer pv) where
-    type BlockMetadataProtocolVersion (BlockPointer pv) = pv
     blockMetadata = bpInfo
 
 -- | A block that is pending its parent.
@@ -183,6 +182,8 @@ data PendingBlock (pv :: ProtocolVersion) = PendingBlock
       pbReceiveTime :: !UTCTime
     }
     deriving (Eq, Show)
+
+type instance BlockProtocolVersion (PendingBlock pv) = pv
 
 instance HashableTo BlockHash (PendingBlock pv) where
     getHash PendingBlock{..} = getHash pbBlock
@@ -197,7 +198,6 @@ instance BlockData (PendingBlock pv) where
     blockTransactionCount = blockTransactionCount . pbBlock
 
 instance BakedBlockData (PendingBlock pv) where
-    type BakedBlockProtocolVersion (PendingBlock pv) = pv
     blockQuorumCertificate = blockQuorumCertificate . pbBlock
     blockParent = blockParent . pbBlock
     blockBaker = blockBaker . pbBlock
