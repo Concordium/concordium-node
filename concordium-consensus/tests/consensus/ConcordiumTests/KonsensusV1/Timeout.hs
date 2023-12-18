@@ -44,7 +44,7 @@ import Concordium.Types.BakerIdentity
 import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Option
 import Concordium.Types.Parameters
-import ConcordiumTests.KonsensusV1.Common
+import qualified ConcordiumTests.KonsensusV1.Common as Common
 import ConcordiumTests.KonsensusV1.TreeStateTest hiding (tests)
 import ConcordiumTests.KonsensusV1.Types hiding (tests)
 
@@ -153,9 +153,8 @@ testUponTimeoutEvent ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testUponTimeoutEvent sProtocolVersion pvString = it (pvString ++ ": Test uponTimeoutEvent") $ do
+testUponTimeoutEvent sProtocolVersion = it "Test uponTimeoutEvent" $ do
     runTestMonad @pv baker testTime (genesisData sProtocolVersion) $ do
         lastSigned <- use $ persistentRoundStatus . prsLastSignedTimeoutMessage
         liftIO $ assertEqual "last signed timeout message should be absent" Absent lastSigned
@@ -197,8 +196,12 @@ testUponTimeoutEvent sProtocolVersion pvString = it (pvString ++ ": Test uponTim
 --  * that the round is indeed advanced
 --  * that the field @rsPreviousRoundTC@ is set with a valid TC
 --  * that the field @receivedTimeoutMessages@ of 'SkovData' is now @Absent@
-testProcessTimeout :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testProcessTimeout sProtocolVersion pvString = it (pvString ++ ": Test processTimeout") $ do
+testProcessTimeout ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testProcessTimeout sProtocolVersion = it "Test processTimeout" $ do
     runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
         currentRound <- use $ roundStatus . rsCurrentRound
         liftIO $ assertEqual "Round should be 1" 1 currentRound
@@ -274,9 +277,9 @@ testProcessTimeout sProtocolVersion pvString = it (pvString ++ ": Test processTi
     testTime = timestampToUTCTime 1_000
 
 -- | Test 'updateTimeoutMessages'.
-testUpdateTimeoutMessages :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testUpdateTimeoutMessages sProtocolVersion pvString =
-    describe (pvString ++ ": Test updateTimeoutMessages") $ do
+testUpdateTimeoutMessages :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testUpdateTimeoutMessages sProtocolVersion =
+    describe "Test updateTimeoutMessages" $ do
         it "Adding message, no messages already stored" $
             assertEqual "Should get stored" (Just messages1) $
                 updateTimeoutMessages Absent $
@@ -388,25 +391,30 @@ testUpdateTimeoutMessages sProtocolVersion pvString =
 
 -- | Test the 'receiveTimeoutMessage' function which partially verifies
 --  a 'TimeoutMessage'.
-testReceiveTimeoutMessage :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testReceiveTimeoutMessage sProtocolVersion pvString = describe (pvString ++ ": Receive timeout message") $ do
-    it "rejects obsolete round" $ receiveAndCheck sd obsoleteRoundMessage $ Rejected ObsoleteRound
-    it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
-    it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired
-    it "rejects from a non finalizer" $ receiveAndCheck sd notAFinalizerQCMessage $ Rejected NotAFinalizer
-    it "rejects on unknown finalization committee" $ receiveAndCheck sd unknownFinalizationCommittee $ Rejected ObsoleteQC
-    it "rejects on an invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
-    it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM CatchupRequired
-    it "rejects when the qc points to an old finalized block" $ receiveAndCheck sd obsoleteQCPointer $ Rejected ObsoleteQCPointer
-    it "initializes catch-up when the qc pointer is unknown" $ receiveAndCheck sd unknownQCPointer CatchupRequired
-    it "rejects when the qc points to a dead block" $ receiveAndCheck sd qcPointerIsDead $ Rejected DeadQCPointer
-    it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending CatchupRequired
-    it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage $ Rejected Duplicate
-    it "rejects double signing" $ receiveAndCheck sd doubleSignMessage $ Rejected DoubleSigning
-    it "received a valid timeout message" $
-        receiveAndCheck sd validTimeoutMessage $
-            Received $
-                PartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers True (Present $ someBlockPointer sProtocolVersion liveBlockHash 1 0)
+testReceiveTimeoutMessage ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testReceiveTimeoutMessage sProtocolVersion =
+    describe "Receive timeout message" $ do
+        it "rejects obsolete round" $ receiveAndCheck sd obsoleteRoundMessage $ Rejected ObsoleteRound
+        it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
+        it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired
+        it "rejects from a non finalizer" $ receiveAndCheck sd notAFinalizerQCMessage $ Rejected NotAFinalizer
+        it "rejects on unknown finalization committee" $ receiveAndCheck sd unknownFinalizationCommittee $ Rejected ObsoleteQC
+        it "rejects on an invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
+        it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM CatchupRequired
+        it "rejects when the qc points to an old finalized block" $ receiveAndCheck sd obsoleteQCPointer $ Rejected ObsoleteQCPointer
+        it "initializes catch-up when the qc pointer is unknown" $ receiveAndCheck sd unknownQCPointer CatchupRequired
+        it "rejects when the qc points to a dead block" $ receiveAndCheck sd qcPointerIsDead $ Rejected DeadQCPointer
+        it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending CatchupRequired
+        it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage $ Rejected Duplicate
+        it "rejects double signing" $ receiveAndCheck sd doubleSignMessage $ Rejected DoubleSigning
+        it "received a valid timeout message" $
+            receiveAndCheck sd validTimeoutMessage $
+                Received $
+                    PartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers True (Present $ Common.someBlockPointer sProtocolVersion liveBlockHash 1 0)
   where
     -- A valid timeout message that should pass the initial verification.
     -- This is sent from finalizer with index 2.
@@ -469,7 +477,7 @@ testReceiveTimeoutMessage sProtocolVersion pvString = describe (pvString ++ ": R
     -- Create a valid timeout signature.
     validTimeoutSignature fidx r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlkHash (Round r) qr qe) (blsPrivateKey fidx)
     -- sign and create a timeout message.
-    mkTimeoutMessage body = signTimeoutMessage body genesisBlkHash $ sigKeyPair' (fromIntegral $ theFinalizerIndex $ tmFinalizerIndex body)
+    mkTimeoutMessage body = signTimeoutMessage body genesisBlkHash $ Common.sigKeyPair' (fromIntegral $ theFinalizerIndex $ tmFinalizerIndex body)
     -- A block hash for a block marked as pending.
     pendingBlockHash = BlockHash $ Hash.hash "A pending block"
     -- A block hash for a block marked as dead.
@@ -491,11 +499,11 @@ testReceiveTimeoutMessage sProtocolVersion pvString = describe (pvString ++ ": R
     -- @liveBlockHash@.
     anotherLiveBlock = BlockHash $ Hash.hash "another live block"
     -- A block that is recorded as live in the tree state
-    liveBlock = someBlockPointer sProtocolVersion liveBlockHash 3 0
+    liveBlock = Common.someBlockPointer sProtocolVersion liveBlockHash 3 0
     -- FinalizerInfo for the finalizer index provided.
     -- All finalizers has the same keys attached.
     fi :: Word32 -> FinalizerInfo
-    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 (sigPublicKey' (fromIntegral fIdx)) vrfPublicKey (blsPublicKey fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 (Common.sigPublicKey' (fromIntegral fIdx)) vrfPublicKey (blsPublicKey fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- COnstruct the finalization committee
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- Construct a set of 0 bakers and 3 finalisers with indices 0,1,2.
@@ -514,7 +522,7 @@ testReceiveTimeoutMessage sProtocolVersion pvString = describe (pvString ++ ": R
             & roundStatus . rsCurrentRound .~ Round 2
             & roundStatus . rsCurrentEpoch .~ 0
             & genesisMetadata %~ (\existingGenesis -> existingGenesis{gmCurrentGenesisHash = genesisBlkHash, gmFirstGenesisHash = genesisBlkHash})
-            & lastFinalized .~ myBlockPointer sProtocolVersion (Round 1) 0
+            & lastFinalized .~ Common.myBlockPointer sProtocolVersion (Round 1) 0
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & blockTable . deadBlocks %~ insertDeadCache deadBlockHash
@@ -537,15 +545,16 @@ testReceiveTimeoutMessage sProtocolVersion pvString = describe (pvString ++ ": R
 -- | Tests for executing timeout messages.
 --  The @executeTimeoutMessage@ executes a 'TimeoutMessage' which is partially verified
 --  by @receiveTimeoutMessage@.
-testExecuteTimeoutMessages :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testExecuteTimeoutMessages sProtocolVersion pvString = describe (pvString ++ ": execute timeout messages") $ do
-    it "rejects message with invalid bls signature" $ execute invalidAggregateSignature InvalidAggregateSignature
-    it "accepts message where there is already checked a valid qc for the round" $ execute validMessageAbsentQCPointer ExecutionSuccess
-    it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 2 0
-    it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute newValidQCTimeoutMessage ExecutionSuccess
-    it "rejects message with qc round no greater than highest qc and invalic qc" $ execute wrongEpochMessage $ InvalidQC $ someInvalidQC 0 0
-    it "accepts message with qc round no greather than highest qc and valid qc" $ execute oldValidQCTimeoutMessage ExecutionSuccess
-    it "accepts message with qc already checked for that round and qc checks out (qc round <= higest qc)" $ execute oldRoundValidTimeoutMessage ExecutionSuccess
+testExecuteTimeoutMessages :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testExecuteTimeoutMessages sProtocolVersion =
+    describe "execute timeout messages" $ do
+        it "rejects message with invalid bls signature" $ execute invalidAggregateSignature InvalidAggregateSignature
+        it "accepts message where there is already checked a valid qc for the round" $ execute validMessageAbsentQCPointer ExecutionSuccess
+        it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 2 0
+        it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute newValidQCTimeoutMessage ExecutionSuccess
+        it "rejects message with qc round no greater than highest qc and invalic qc" $ execute wrongEpochMessage $ InvalidQC $ someInvalidQC 0 0
+        it "accepts message with qc round no greather than highest qc and valid qc" $ execute oldValidQCTimeoutMessage ExecutionSuccess
+        it "accepts message with qc already checked for that round and qc checks out (qc round <= higest qc)" $ execute oldRoundValidTimeoutMessage ExecutionSuccess
   where
     -- action that runs @executeTimeoutMessage@ on the provided
     -- timeout message and checks that it matches the expectation.
@@ -561,7 +570,7 @@ testExecuteTimeoutMessages sProtocolVersion pvString = describe (pvString ++ ": 
             .= CertifiedBlock
                 { cbQuorumCertificate = someQC (Round 1) 0,
                   cbQuorumBlock =
-                    someBlockPointer
+                    Common.someBlockPointer
                         sProtocolVersion
                         (BlockHash $ Hash.hash "quorum block hash")
                         0
@@ -578,7 +587,7 @@ testExecuteTimeoutMessages sProtocolVersion pvString = describe (pvString ++ ": 
     -- the finalizer with the provided finalizer index.
     -- Note that all finalizers use the same keys.
     fi :: Word32 -> FinalizerInfo
-    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 Common.sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- a qc has already been checked for the round and the @pvtmBlock@ is absent
     validMessageAbsentQCPointer = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers True Absent
     -- The bls signature will be rejected.
@@ -595,7 +604,7 @@ testExecuteTimeoutMessages sProtocolVersion pvString = describe (pvString ++ ": 
             { pvtmTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 (someInvalidQC 2 0),
               pvtmQuorumFinalizers = finalizers,
               pvtmAggregateSignatureValid = True,
-              pvtmBlock = Present $ myBlockPointer sProtocolVersion 1 0
+              pvtmBlock = Present $ Common.myBlockPointer sProtocolVersion 1 0
             }
     -- wrong epoch
     wrongEpochMessage =
@@ -603,7 +612,7 @@ testExecuteTimeoutMessages sProtocolVersion pvString = describe (pvString ++ ": 
             { pvtmTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0),
               pvtmQuorumFinalizers = finalizers,
               pvtmAggregateSignatureValid = True,
-              pvtmBlock = Present $ myBlockPointer sProtocolVersion 1 0
+              pvtmBlock = Present $ Common.myBlockPointer sProtocolVersion 1 0
             }
     -- the finalization committee.
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
@@ -636,7 +645,7 @@ testExecuteTimeoutMessages sProtocolVersion pvString = describe (pvString ++ ": 
     -- a qc with the empty signature.
     someInvalidQC r e = QuorumCertificate someBlockHash r e (QuorumSignature Bls.emptySignature) $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2, FinalizerIndex 3]
     -- a signed timeout message with the provided body.
-    mkTimeoutMessage body = signTimeoutMessage body genesisBlkHash sigKeyPair
+    mkTimeoutMessage body = signTimeoutMessage body genesisBlkHash Common.sigKeyPair
     -- the foundation account for the genesis data.
     foundationAcct =
         Dummy.createCustomAccount
@@ -663,10 +672,9 @@ testCheckTimeoutCertificate ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testCheckTimeoutCertificate sProtocolVersion pvString =
-    describe (pvString ++ ": check timeout certificate") $ do
+testCheckTimeoutCertificate sProtocolVersion =
+    describe "check timeout certificate" $ do
         it "accepts timeout certificate" checkOkTC
         it "rejects with wrong genesis" wrongGenesis
         it "rejects when there is not enough weight" insufficientWeight
@@ -701,18 +709,19 @@ testCheckTimeoutCertificate sProtocolVersion pvString =
 
 tests :: Spec
 tests = describe "KonsensusV1.Timeout" $ do
-    TestBlocks.forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
-        testReceiveTimeoutMessage spv pvString
-        testExecuteTimeoutMessages spv pvString
-        testProcessTimeout spv pvString
-        testUponTimeoutEvent spv pvString
-        testUpdateTimeoutMessages spv pvString
-        testCheckTimeoutCertificate spv pvString
+    Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
+        describe pvString $ do
+            testReceiveTimeoutMessage spv
+            testExecuteTimeoutMessages spv
+            testProcessTimeout spv
+            testUponTimeoutEvent spv
+            testUpdateTimeoutMessages spv
+            testCheckTimeoutCertificate spv
 
-        it "Test updateCurrentTimeout" $ do
-            testUpdateCurrentTimeout 10_000 (3 % 2) 15_000
-            testUpdateCurrentTimeout 10_000 (4 % 3) 13_333
-            testUpdateCurrentTimeout 10_000 (5 % 3) 16_666
-            testUpdateCurrentTimeout 3_000 (4 % 3) 4_000
-            testUpdateCurrentTimeout 80_000 (10 % 9) 88_888
-            testUpdateCurrentTimeout 8_000 (8 % 7) 9_142
+    it "Test updateCurrentTimeout" $ do
+        testUpdateCurrentTimeout 10_000 (3 % 2) 15_000
+        testUpdateCurrentTimeout 10_000 (4 % 3) 13_333
+        testUpdateCurrentTimeout 10_000 (5 % 3) 16_666
+        testUpdateCurrentTimeout 3_000 (4 % 3) 4_000
+        testUpdateCurrentTimeout 80_000 (10 % 9) 88_888
+        testUpdateCurrentTimeout 8_000 (8 % 7) 9_142

@@ -55,6 +55,8 @@ import Concordium.Startup
 import Concordium.TimerMonad
 import Concordium.Types.Option
 
+import qualified ConcordiumTests.KonsensusV1.Common as Common
+
 type PV = 'P6
 
 maxBaker :: (Integral a) => a
@@ -1042,9 +1044,9 @@ testTime :: UTCTime
 testTime = timestampToUTCTime 5_000
 
 -- | Receive 3 valid blocks in consecutive rounds.
-testReceive3 :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testReceive3 sProtocolVersion pvString =
-    it (pvString ++ ": receive 3 consecutive blocks") $
+testReceive3 :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testReceive3 sProtocolVersion =
+    it "receive 3 consecutive blocks" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             let b1 = signedPB testBB1
             succeedReceiveBlock b1
@@ -1056,9 +1058,9 @@ testReceive3 sProtocolVersion pvString =
             checkFinalized b1
 
 -- | Receive 3 valid blocks in consecutive rounds, but with the block for round 2 being received first.
-testReceive3Reordered :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testReceive3Reordered sProtocolVersion pvString =
-    it (pvString ++ ": receive 3 blocks reordered") $
+testReceive3Reordered :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testReceive3Reordered sProtocolVersion =
+    it "receive 3 blocks reordered" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             let b2 = signedPB testBB2
             pendingReceiveBlock b2
@@ -1072,9 +1074,9 @@ testReceive3Reordered sProtocolVersion pvString =
             checkFinalized b1
 
 -- | Receive 4 valid blocks reordered across epochs.
-testReceive4Reordered :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testReceive4Reordered sProtocolVersion pvString =
-    it (pvString ++ ": receive 4 blocks reordered, multiple epochs") $
+testReceive4Reordered :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testReceive4Reordered sProtocolVersion =
+    it "receive 4 blocks reordered, multiple epochs" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             -- We get block 4, but we don't know the parent (BB3E)
             pendingReceiveBlock (signedPB testBB4E)
@@ -1094,9 +1096,9 @@ testReceive4Reordered sProtocolVersion pvString =
             checkLive (testBB4E @pv)
 
 -- | Receive 3 blocks where the first round is skipped due to timeout.
-testReceiveWithTimeout :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testReceiveWithTimeout sProtocolVersion pvString =
-    it (pvString ++ ": skip round 1, receive rounds 2,3,4") $
+testReceiveWithTimeout :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testReceiveWithTimeout sProtocolVersion =
+    it "skip round 1, receive rounds 2,3,4" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             let b2' = signedPB testBB2'
             succeedReceiveBlock b2'
@@ -1105,18 +1107,18 @@ testReceiveWithTimeout sProtocolVersion pvString =
             checkFinalized b2'
 
 -- | Receive a block twice.
-testReceiveDuplicate :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testReceiveDuplicate sProtocolVersion pvString =
-    it (pvString ++ ": receive duplicate block") $
+testReceiveDuplicate :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testReceiveDuplicate sProtocolVersion =
+    it "receive duplicate block" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlock $ signedPB testBB1
             res <- uponReceivingBlock $ signedPB testBB1
             liftIO $ res `shouldBe` BlockResultDuplicate
 
 -- | Receive an invalid block twice.
-testReceiveInvalidDuplicate :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testReceiveInvalidDuplicate sProtocolVersion pvString =
-    it (pvString ++ ": receive invalid duplicate block") $
+testReceiveInvalidDuplicate :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testReceiveInvalidDuplicate sProtocolVersion =
+    it "receive invalid duplicate block" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             let badBlock = signedPB badBakedBlock
             succeedReceiveBlockFailExecute badBlock
@@ -1143,10 +1145,9 @@ testReceiveStale ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveStale sProtocolVersion pvString =
-    it (pvString ++ ": receive stale round") $
+testReceiveStale sProtocolVersion =
+    it "receive stale round" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             mapM_ (succeedReceiveBlock . signedPB) [testBB2', testBB3', testBB4']
             res <- uponReceivingBlock (signedPB testBB1)
@@ -1156,10 +1157,9 @@ testReceiveEpoch ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveEpoch sProtocolVersion pvString =
-    it (pvString ++ ": epoch transition") $
+testReceiveEpoch sProtocolVersion =
+    it "epoch transition" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB3E, testBB4E]
 
@@ -1169,10 +1169,9 @@ testReceiveBlockDies ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveBlockDies sProtocolVersion pvString =
-    it (pvString ++ ": block dies on old branch") $
+testReceiveBlockDies sProtocolVersion =
+    it "block dies on old branch" $
         runTestMonad @pv noBaker testTime (genesisData sProtocolVersion) $ do
             -- Receive blocks testBB1, testBB2', testBB2 and testBB3.
             mapM_ (succeedReceiveBlock . signedPB) [testBB1, testBB2']
@@ -1190,10 +1189,9 @@ testReceiveBadFutureEpoch ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveBadFutureEpoch sProtocolVersion pvString =
-    it (pvString ++ ": receive a block in a bad future epoch") $
+testReceiveBadFutureEpoch sProtocolVersion =
+    it "receive a block in a bad future epoch" $
         runTestMonad @pv noBaker testTime (genesisData sProtocolVersion) $ do
             invalidReceiveBlock $ signedPB (testBB1{bbEpoch = 500})
             invalidReceiveBlock $ signedPB (testBB1{bbEpoch = 2})
@@ -1203,10 +1201,9 @@ testReceiveBadPastEpoch ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveBadPastEpoch sProtocolVersion pvString =
-    it (pvString ++ ": receive a block in a bad past epoch") $
+testReceiveBadPastEpoch sProtocolVersion =
+    it "receive a block in a bad past epoch" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB3E]
             invalidReceiveBlock $ signedPB testBB4'{bbQuorumCertificate = bbQuorumCertificate (testBB4E @pv)}
@@ -1216,10 +1213,9 @@ testReceiveBadEpochTransition ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveBadEpochTransition sProtocolVersion pvString =
-    it (pvString ++ ": receive a block in the next epoch where the transition is not allowed") $
+testReceiveBadEpochTransition sProtocolVersion =
+    it "receive a block in the next epoch where the transition is not allowed" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             invalidReceiveBlock $ signedPB (testBB1{bbEpoch = 1})
 
@@ -1229,10 +1225,9 @@ testReceiveBadSignature ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveBadSignature sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with a bad signature") $
+testReceiveBadSignature sProtocolVersion =
+    it "receive a block with a bad signature" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             invalidReceiveBlock $
                 PendingBlock
@@ -1247,10 +1242,9 @@ testReceiveWrongBaker ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveWrongBaker sProtocolVersion pvString =
-    it (pvString ++ ": receive a block from a baker that did not win the round") $
+testReceiveWrongBaker sProtocolVersion =
+    it "receive a block from a baker that did not win the round" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             let claimedBakerId = 0
             invalidReceiveBlock $
@@ -1269,10 +1263,9 @@ testReceiveEarlyUnknownParent ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveEarlyUnknownParent sProtocolVersion pvString =
-    it (pvString ++ ": receive a block from the future with an unknown parent") $
+testReceiveEarlyUnknownParent sProtocolVersion =
+    it "receive a block from the future with an unknown parent" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             res <- uponReceivingBlock $ (signedPB testBB2E){pbReceiveTime = testTime}
             liftIO $ res `shouldBe` BlockResultEarly
@@ -1283,10 +1276,9 @@ testReceiveBadSignatureUnknownParent ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveBadSignatureUnknownParent sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with a bad signature and unknown parent") $
+testReceiveBadSignatureUnknownParent sProtocolVersion =
+    it "receive a block with a bad signature and unknown parent" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             pendingReceiveBlock $
                 PendingBlock
@@ -1302,10 +1294,9 @@ testReceiveFutureEpochUnknownParent ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveFutureEpochUnknownParent sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with an unknown parent and epoch") $
+testReceiveFutureEpochUnknownParent sProtocolVersion =
+    it "receive a block with an unknown parent and epoch" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             pendingReceiveBlock $ signedPB testBB2{bbEpoch = 30}
 
@@ -1314,10 +1305,9 @@ testReceiveInconsistentQCRound ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveInconsistentQCRound sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with QC round inconsistent with the parent block") $
+testReceiveInconsistentQCRound sProtocolVersion =
+    it "receive a block with QC round inconsistent with the parent block" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlock $ signedPB testBB1
             succeedReceiveBlockFailExecute $
@@ -1331,10 +1321,9 @@ testReceiveInconsistentQCEpoch ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveInconsistentQCEpoch sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with QC epoch inconsistent with the parent block") $
+testReceiveInconsistentQCEpoch sProtocolVersion =
+    it "receive a block with QC epoch inconsistent with the parent block" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlock $ signedPB testBB1
             succeedReceiveBlockFailExecute $
@@ -1347,10 +1336,9 @@ testReceiveRoundInconsistent ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveRoundInconsistent sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with round before parent block round") $
+testReceiveRoundInconsistent sProtocolVersion =
+    it "receive a block with round before parent block round" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlock $ signedPB testBB2'
             -- Earlier round
@@ -1365,10 +1353,9 @@ testProcessEpochInconsistent ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testProcessEpochInconsistent sProtocolVersion pvString =
-    it (pvString ++ ": process a block with epoch before parent block epoch") $
+testProcessEpochInconsistent sProtocolVersion =
+    it "process a block with epoch before parent block epoch" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB3E]
             -- We skip 'uponReceivingBlock' and go straight to processing, because the condition would be
@@ -1393,10 +1380,9 @@ testReceiveIncorrectNonce ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveIncorrectNonce sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with incorrect block nonce") $
+testReceiveIncorrectNonce sProtocolVersion =
+    it "receive a block with incorrect block nonce" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
@@ -1407,10 +1393,9 @@ testReceiveTooFast ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveTooFast sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with timestamp too soon after parent") $
+testReceiveTooFast sProtocolVersion =
+    it "receive a block with timestamp too soon after parent" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
@@ -1421,10 +1406,9 @@ testReceiveMissingTC ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveMissingTC sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with a missing TC") $
+testReceiveMissingTC sProtocolVersion =
+    it "receive a block with a missing TC" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
@@ -1435,10 +1419,9 @@ testReceiveTCIncorrectRound ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveTCIncorrectRound sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with a TC for incorrect round") $
+testReceiveTCIncorrectRound sProtocolVersion =
+    it "receive a block with a TC for incorrect round" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
@@ -1451,10 +1434,9 @@ testReceiveTCUnexpected ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveTCUnexpected sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with an unexpected TC") $
+testReceiveTCUnexpected sProtocolVersion =
+    it "receive a block with an unexpected TC" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
@@ -1468,10 +1450,9 @@ testReceiveTCInconsistent1 ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveTCInconsistent1 sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with a QC behind the max QC of the TC") $
+testReceiveTCInconsistent1 sProtocolVersion =
+    it "receive a block with a QC behind the max QC of the TC" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
@@ -1483,10 +1464,9 @@ testReceiveTimeoutPastEpoch ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveTimeoutPastEpoch sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with a timeout where the block is in a new epoch") $
+testReceiveTimeoutPastEpoch sProtocolVersion =
+    it "receive a block with a timeout where the block is in a new epoch" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB4E']
 
@@ -1497,26 +1477,25 @@ testReceiveTimeoutPastEpochInvalid ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveTimeoutPastEpochInvalid sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with an invalid timeout where the block is in a new epoch") $
+testReceiveTimeoutPastEpochInvalid sProtocolVersion =
+    it "receive a block with an invalid timeout where the block is in a new epoch" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlock $ signedPB testBB1E
             succeedReceiveBlockFailExecute $ signedPB testBB3E'
 
 -- | Test receiving a block that is the start of a new epoch, but with an epoch finalization entry
 --  for a different branch.
-testReceiveFinalizationBranch :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testReceiveFinalizationBranch sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with an epoch finalization certificate for a different branch") $
+testReceiveFinalizationBranch :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testReceiveFinalizationBranch sProtocolVersion =
+    it "receive a block with an epoch finalization certificate for a different branch" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2Ex]
             succeedReceiveBlockFailExecute $ signedPB testBB3Ex
 
-testReceiveEpochTransitionTimeout :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testReceiveEpochTransitionTimeout sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with a timeout spanning epochs") $
+testReceiveEpochTransitionTimeout :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testReceiveEpochTransitionTimeout sProtocolVersion =
+    it "receive a block with a timeout spanning epochs" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB3E, testBB5E']
 
@@ -1544,10 +1523,9 @@ testReceiveInvalidQC ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveInvalidQC sProtocolVersion pvString =
-    it (pvString ++ ": receive a block with an invalid QC signature") $
+testReceiveInvalidQC sProtocolVersion =
+    it "receive a block with an invalid QC signature" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlock $ signedPB testBB1
             succeedReceiveBlockFailExecute $
@@ -1562,10 +1540,9 @@ testReceiveTimeoutEpochTransition1 ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testReceiveTimeoutEpochTransition1 sProtocolVersion pvString =
-    it (pvString ++ ": receive blocks with a timeout before an epoch transition") $
+testReceiveTimeoutEpochTransition1 sProtocolVersion =
+    it "receive blocks with a timeout before an epoch transition" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             mapM_
                 (succeedReceiveBlock . signedPB)
@@ -1580,10 +1557,9 @@ testMakeFirstBlock ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testMakeFirstBlock sProtocolVersion pvString =
-    it (pvString ++ ": make a block as baker 2") $
+testMakeFirstBlock sProtocolVersion =
+    it "make a block as baker 2" $
         runTestMonad (baker sProtocolVersion bakerId) testTime (genesisData sProtocolVersion) $ do
             ((), r) <- listen makeBlock
             let expectBlock = validSignBlock testBB1{bbTimestamp = utcTimeToTimestamp testTime}
@@ -1631,10 +1607,9 @@ testMakeFirstBlockEarly ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testMakeFirstBlockEarly sProtocolVersion pvString =
-    it (pvString ++ ": make a block as baker 2 early") $
+testMakeFirstBlockEarly sProtocolVersion =
+    it "make a block as baker 2 early" $
         runTestMonad (baker sProtocolVersion bakerId) curTime (genesisData sProtocolVersion) $ do
             ((), r) <- listen makeBlock
             let expectBlock = validSignBlock testBB1{bbTimestamp = utcTimeToTimestamp blkTime}
@@ -1689,10 +1664,9 @@ testNoMakeFirstBlock ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testNoMakeFirstBlock sProtocolVersion pvString =
-    it (pvString ++ ": fail to make a block as baker 0") $
+testNoMakeFirstBlock sProtocolVersion =
+    it "fail to make a block as baker 0" $
         runTestMonad (baker sProtocolVersion 0) testTime (genesisData sProtocolVersion) $ do
             ((), r) <- listen makeBlock
             liftIO $ assertEqual "Produced events" [] r
@@ -1705,10 +1679,9 @@ testTimeoutMakeBlock ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testTimeoutMakeBlock sProtocolVersion pvString =
-    it (pvString ++ ": make a block after first round timeout") $
+testTimeoutMakeBlock sProtocolVersion =
+    it "make a block after first round timeout" $
         runTestMonad (baker sProtocolVersion bakerId) testTime (genesisData sProtocolVersion) $ do
             let genQC = genesisQuorumCertificate (genesisHash sProtocolVersion)
             -- Once the timeout certificate is generated, 'processTimeout' calls 'makeBlock'.
@@ -1767,10 +1740,9 @@ testNoSignIncorrectEpoch ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testNoSignIncorrectEpoch sProtocolVersion pvString =
-    it (pvString ++ ": refuse to sign a block in old epoch after epoch transition") $
+testNoSignIncorrectEpoch sProtocolVersion =
+    it "refuse to sign a block in old epoch after epoch transition" $
         runTestMonad (baker sProtocolVersion 0) testTime (genesisData sProtocolVersion) $ do
             let blocks = [testBB1E, testBB2E, testBB3EX]
             ((), r) <- listen $ mapM_ (succeedReceiveBlock . signedPB) blocks
@@ -1810,10 +1782,9 @@ testSignCorrectEpoch ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testSignCorrectEpoch sProtocolVersion pvString =
-    it (pvString ++ ": sign a block in a new epoch") $
+testSignCorrectEpoch sProtocolVersion =
+    it "sign a block in a new epoch" $
         runTestMonad (baker sProtocolVersion bakerId) testTime (genesisData sProtocolVersion) $ do
             ((), r) <- listen $ mapM_ (succeedReceiveBlock . signedPB) blocks
             let onblock = OnBlock . NormalBlock . validSignBlock
@@ -1865,10 +1836,9 @@ testSignCorrectEpochReordered ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testSignCorrectEpochReordered sProtocolVersion pvString =
-    it (pvString ++ ": sign a block in a new epoch where blocks are reordered") $
+testSignCorrectEpochReordered sProtocolVersion =
+    it "sign a block in a new epoch where blocks are reordered" $
         runTestMonad (baker sProtocolVersion bakerId) testTime (genesisData sProtocolVersion) $ do
             ((), events0) <- listen $ pendingReceiveBlock $ signedPB testBB3E
             liftIO $ assertEqual "Events after receiving testBB3E" [] events0
@@ -1916,10 +1886,9 @@ testMakeBlockNewEpoch ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testMakeBlockNewEpoch sProtocolVersion pvString =
-    it (pvString ++ ": make first block in a new epoch") $
+testMakeBlockNewEpoch sProtocolVersion =
+    it "make first block in a new epoch" $
         runTestMonad (baker sProtocolVersion bakerId) testTime (genesisData sProtocolVersion) $ do
             -- We use 'testBB3EX' because it contains a QC that finalizes the trigger block.
             mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB3EX]
@@ -1963,75 +1932,52 @@ testMakeBlockNewEpoch sProtocolVersion pvString =
     qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers sProtocolVersion !! bakerId)
     expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
 
--- | Call a function for each protocol version starting from P6 where the new conensus was
--- introduced, returning a list of results. Notice the return type for the function must be
--- independent of the protocol version.
---
---  This is used to run a test against every protocol version.
-forEveryProtocolVersion ::
-    (forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec) ->
-    Spec
-forEveryProtocolVersion check =
-    sequence_
-        [ check SP1 "P1",
-          check SP2 "P2",
-          check SP3 "P3",
-          check SP4 "P4",
-          check SP5 "P5",
-          check SP6 "P6",
-          check SP7 "P7"
-        ]
-
-forEveryProtocolVersionConsensusV1 :: (forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => SProtocolVersion pv -> String -> Spec) -> Spec
-forEveryProtocolVersionConsensusV1 check = forEveryProtocolVersion $ \spv pvString -> case consensusVersionFor spv of
-    ConsensusV0 -> return ()
-    ConsensusV1 -> check spv pvString
-
 tests :: Spec
 tests = describe "KonsensusV1.Consensus.Blocks" $ do
     describe "uponReceiveingBlockPV" $ do
-        forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
-            testReceive3 spv pvString
-            testReceive3Reordered spv pvString
-            testReceive4Reordered spv pvString
-            testReceiveWithTimeout spv pvString
-            testReceiveDuplicate spv pvString
-            testReceiveInvalidDuplicate spv pvString
-            testReceiveStale spv pvString
-            testReceiveEpoch spv pvString
-            testReceiveBlockDies spv pvString
-            testReceiveBadFutureEpoch spv pvString
-            testReceiveBadPastEpoch spv pvString
-            testReceiveBadEpochTransition spv pvString
-            testReceiveBadSignature spv pvString
-            testReceiveWrongBaker spv pvString
-            testReceiveEarlyUnknownParent spv pvString
-            testReceiveBadSignatureUnknownParent spv pvString
-            testReceiveFutureEpochUnknownParent spv pvString
-            testReceiveInconsistentQCRound spv pvString
-            testReceiveInconsistentQCEpoch spv pvString
-            testReceiveRoundInconsistent spv pvString
-            testProcessEpochInconsistent spv pvString
-            testReceiveIncorrectNonce spv pvString
-            testReceiveTooFast spv pvString
-            testReceiveMissingTC spv pvString
-            testReceiveTCIncorrectRound spv pvString
-            testReceiveTCUnexpected spv pvString
-            testReceiveTCInconsistent1 spv pvString
-            testReceiveTimeoutPastEpoch spv pvString
-            testReceiveTimeoutPastEpochInvalid spv pvString
-            testReceiveFinalizationBranch spv pvString
-            testReceiveEpochTransitionTimeout spv pvString
-            testReceiveInvalidQC spv pvString
-            testMakeFirstBlock spv pvString
-            testMakeFirstBlockEarly spv pvString
-            testNoMakeFirstBlock spv pvString
-            testTimeoutMakeBlock spv pvString
-            testNoSignIncorrectEpoch spv pvString
-            testSignCorrectEpoch spv pvString
-            testSignCorrectEpochReordered spv pvString
-            testMakeBlockNewEpoch spv pvString
-            testReceiveTimeoutEpochTransition1 spv pvString
+        Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
+            describe pvString $ do
+                testReceive3 spv
+                testReceive3Reordered spv
+                testReceive4Reordered spv
+                testReceiveWithTimeout spv
+                testReceiveDuplicate spv
+                testReceiveInvalidDuplicate spv
+                testReceiveStale spv
+                testReceiveEpoch spv
+                testReceiveBlockDies spv
+                testReceiveBadFutureEpoch spv
+                testReceiveBadPastEpoch spv
+                testReceiveBadEpochTransition spv
+                testReceiveBadSignature spv
+                testReceiveWrongBaker spv
+                testReceiveEarlyUnknownParent spv
+                testReceiveBadSignatureUnknownParent spv
+                testReceiveFutureEpochUnknownParent spv
+                testReceiveInconsistentQCRound spv
+                testReceiveInconsistentQCEpoch spv
+                testReceiveRoundInconsistent spv
+                testProcessEpochInconsistent spv
+                testReceiveIncorrectNonce spv
+                testReceiveTooFast spv
+                testReceiveMissingTC spv
+                testReceiveTCIncorrectRound spv
+                testReceiveTCUnexpected spv
+                testReceiveTCInconsistent1 spv
+                testReceiveTimeoutPastEpoch spv
+                testReceiveTimeoutPastEpochInvalid spv
+                testReceiveFinalizationBranch spv
+                testReceiveEpochTransitionTimeout spv
+                testReceiveInvalidQC spv
+                testMakeFirstBlock spv
+                testMakeFirstBlockEarly spv
+                testNoMakeFirstBlock spv
+                testTimeoutMakeBlock spv
+                testNoSignIncorrectEpoch spv
+                testSignCorrectEpoch spv
+                testSignCorrectEpochReordered spv
+                testMakeBlockNewEpoch spv
+                testReceiveTimeoutEpochTransition1 spv
 
     describe "uponReceiveingBlock (P6 only)" $ do
         it "receive a block with an incorrect transaction outcomes hash" testReceiveIncorrectTransactionOutcomesHash

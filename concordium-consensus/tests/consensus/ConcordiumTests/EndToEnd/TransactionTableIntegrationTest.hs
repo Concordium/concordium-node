@@ -1,6 +1,6 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | End to end test that check transaction table is as expected while the tree state processes blocks.
@@ -21,9 +21,10 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types
 import Concordium.Types.Execution
 import Concordium.Types.Option
-import Concordium.Types.Transactions
 import Concordium.Types.Parameters
+import Concordium.Types.Transactions
 
+import qualified ConcordiumTests.KonsensusV1.Common as Common
 import ConcordiumTests.KonsensusV1.Consensus.Blocks hiding (testBB1, testBB2, testBB2', testBB3, testBB3', tests)
 
 -- | Make a raw transfer transaction with the provided nonce.
@@ -62,17 +63,17 @@ testBB1 =
           bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 1 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.fromList [transfer1],
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
-            SBlockHashVersion0 -> DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = read "13907ff30e010398b3438b73a55f6fd02177d653527aafb6b77360a646cb938c",
-                      bdhv0BlockStateHash = read "84d5b24177c60db5fb17f62a5cc93a500afc6565977f080cbd9260a68be66925"
-                    }
+            SBlockHashVersion0 ->
+                DBHashesV0 $
+                    BlockDerivableHashesV0
+                        { bdhv0TransactionOutcomesHash = read "13907ff30e010398b3438b73a55f6fd02177d653527aafb6b77360a646cb938c",
+                          bdhv0BlockStateHash = read "84d5b24177c60db5fb17f62a5cc93a500afc6565977f080cbd9260a68be66925"
+                        }
             SBlockHashVersion1 ->
                 DBHashesV1 $
                     BlockDerivableHashesV1
                         { bdhv1BlockResultHash = read "2265bb2759ce64984122dae6df3ee505e92bbca35d334802cbfbb8d4eaba7d4b"
                         }
-
         }
   where
     sProtocolVersion = protocolVersion @pv
@@ -93,16 +94,17 @@ testBB2 =
           bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 2 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
-            SBlockHashVersion0 -> DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = read "f840ea702e095175b8c2fceacc2377d5d2d0be867350bc0bdd8c6d56ee14797c",
-                      bdhv0BlockStateHash = read "0b286c7356d7c69717e42b39fc3cabf2fd82dbc4713f2e752084b1b9e2c5bdb8"
-                    }
+            SBlockHashVersion0 ->
+                DBHashesV0 $
+                    BlockDerivableHashesV0
+                        { bdhv0TransactionOutcomesHash = read "f840ea702e095175b8c2fceacc2377d5d2d0be867350bc0bdd8c6d56ee14797c",
+                          bdhv0BlockStateHash = read "0b286c7356d7c69717e42b39fc3cabf2fd82dbc4713f2e752084b1b9e2c5bdb8"
+                        }
             SBlockHashVersion1 ->
-              DBHashesV1 $ BlockDerivableHashesV1
+                DBHashesV1 $
+                    BlockDerivableHashesV1
                         { bdhv1BlockResultHash = read "a5e6a885a642a94deeccf8df29aa55062b4ae32423bc8dd9ed5ce3c076928cf9"
                         }
-
         }
   where
     sProtocolVersion = protocolVersion @pv
@@ -123,16 +125,17 @@ testBB3 =
           bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 3 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.empty,
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
-            SBlockHashVersion0 -> DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = read "9bbf1ab9edd3744bc88dfc0a6aa87a89dc51765d9a4b57bc8c7c49b1fb151099",
-                      bdhv0BlockStateHash = read "80d087748edeea46b7d0b8f25c8fb50bb015b498c11eeb03e8efe8b59e7d40f9"
-                    }
-            SBlockHashVersion1 -> DBHashesV1 $
+            SBlockHashVersion0 ->
+                DBHashesV0 $
+                    BlockDerivableHashesV0
+                        { bdhv0TransactionOutcomesHash = read "9bbf1ab9edd3744bc88dfc0a6aa87a89dc51765d9a4b57bc8c7c49b1fb151099",
+                          bdhv0BlockStateHash = read "80d087748edeea46b7d0b8f25c8fb50bb015b498c11eeb03e8efe8b59e7d40f9"
+                        }
+            SBlockHashVersion1 ->
+                DBHashesV1 $
                     BlockDerivableHashesV1
                         { bdhv1BlockResultHash = read "8202d3d2b8ddb55e355dd53f0d8206abf0c48e773f9b49de8e261fb3a050d858"
                         }
-
         }
   where
     sProtocolVersion = protocolVersion @pv
@@ -152,12 +155,14 @@ testBB4 =
           bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 4 (bakerVRFKey sProtocolVersion bakerId),
           bbTransactions = Vec.fromList [transfer2],
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
-            SBlockHashVersion0 -> DBHashesV0 $
-                BlockDerivableHashesV0
-                    { bdhv0TransactionOutcomesHash = read "d46c011009b5315c7cd32bb1345bd2e73a3cd6111a7e4d06c33e863f16c8c8bd",
-                      bdhv0BlockStateHash = read "a47ca3a8412ad577df94ae8ebc288f8972a499ce5315033bfc2f2c18ce00bfb8"
-                    }
-            SBlockHashVersion1 -> DBHashesV1 $
+            SBlockHashVersion0 ->
+                DBHashesV0 $
+                    BlockDerivableHashesV0
+                        { bdhv0TransactionOutcomesHash = read "d46c011009b5315c7cd32bb1345bd2e73a3cd6111a7e4d06c33e863f16c8c8bd",
+                          bdhv0BlockStateHash = read "a47ca3a8412ad577df94ae8ebc288f8972a499ce5315033bfc2f2c18ce00bfb8"
+                        }
+            SBlockHashVersion1 ->
+                DBHashesV1 $
                     BlockDerivableHashesV1
                         { bdhv1BlockResultHash = read "b3eb61d1b5a821e7ad9f2ba4b5b10071f106093d6bd2d9ebeb4fcb58e1fdb97d"
                         }
@@ -168,59 +173,62 @@ testBB4 =
 
 -- | Test that the @getNextAccountNonce@ returns correctly when adding a new transaction for an account A, after
 --  some prior transactions for account A has been finalized (and the transaction table is fully purged).
-testAccountNonce :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String ->
-  Spec
-testAccountNonce sProtocolVersion pvString =
-  it (pvString ++ "account nonce test") $ runTestMonad @pv noBaker testTime (genesisData sProtocolVersion) $ do
-    nonce <- getNextAccountNonce sender =<< get
-    liftIO $
-        assertEqual
-            "Transaction is not received"
-            (1, True)
-            nonce
-    let b1 = signedPB testBB1
-    succeedReceiveBlock b1
-    let b2 = signedPB testBB2
-    succeedReceiveBlock b2
+testAccountNonce ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testAccountNonce sProtocolVersion =
+    it "account nonce test" $ runTestMonad @pv noBaker testTime (genesisData sProtocolVersion) $ do
+        nonce <- getNextAccountNonce sender =<< get
+        liftIO $
+            assertEqual
+                "Transaction is not received"
+                (1, True)
+                nonce
+        let b1 = signedPB testBB1
+        succeedReceiveBlock b1
+        let b2 = signedPB testBB2
+        succeedReceiveBlock b2
 
-    nonce' <- getNextAccountNonce sender =<< get
-    liftIO $
-        assertEqual
-            "Transaction is in non-finalized transactions"
-            (2, False)
-            nonce'
+        nonce' <- getNextAccountNonce sender =<< get
+        liftIO $
+            assertEqual
+                "Transaction is in non-finalized transactions"
+                (2, False)
+                nonce'
 
-    let b3 = signedPB testBB3
-    succeedReceiveBlock b3
-    -- transaction in b1 is now finalized and we force purge the table so
-    -- sender is expunged from transaction table.
-    purgeTransactionTable True (posixSecondsToUTCTime 1)
-    sd <- get
-    nonce'' <- getNextAccountNonce sender sd
-    liftIO $
-        assertEqual
-            "first transaction should be finalized"
-            (2, True)
-            nonce''
-    liftIO $
-        assertEqual
-            "transaction should not be in the anft map for the sender anymore"
-            Nothing
-            (sd ^? transactionTable . TT.ttNonFinalizedTransactions . ix sender)
+        let b3 = signedPB testBB3
+        succeedReceiveBlock b3
+        -- transaction in b1 is now finalized and we force purge the table so
+        -- sender is expunged from transaction table.
+        purgeTransactionTable True (posixSecondsToUTCTime 1)
+        sd <- get
+        nonce'' <- getNextAccountNonce sender sd
+        liftIO $
+            assertEqual
+                "first transaction should be finalized"
+                (2, True)
+                nonce''
+        liftIO $
+            assertEqual
+                "transaction should not be in the anft map for the sender anymore"
+                Nothing
+                (sd ^? transactionTable . TT.ttNonFinalizedTransactions . ix sender)
 
-    let b4 = signedPB testBB4
-    succeedReceiveBlock b4
-    nonce''' <- getNextAccountNonce sender =<< get
-    liftIO $
-        assertEqual
-            "sender should be present in tt again and anftNextNonce is correctly set"
-            (3, False)
-            nonce'''
+        let b4 = signedPB testBB4
+        succeedReceiveBlock b4
+        nonce''' <- getNextAccountNonce sender =<< get
+        liftIO $
+            assertEqual
+                "sender should be present in tt again and anftNextNonce is correctly set"
+                (3, False)
+                nonce'''
   where
     sender = accountAddressEmbed foundationAccountAddress
 
 tests :: Spec
 tests = describe "EndToEndTests.TransactionTableIntegrationTest" $ do
-    forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
-      testAccountNonce spv pvString
-
+    Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
+        describe pvString $
+            testAccountNonce spv

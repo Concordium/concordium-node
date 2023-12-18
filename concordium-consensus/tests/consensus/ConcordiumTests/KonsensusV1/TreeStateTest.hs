@@ -59,7 +59,15 @@
 --
 --  Refer to each individual test for a more detailed description of what each individual test
 --  verifies.
-module ConcordiumTests.KonsensusV1.TreeStateTest where
+module ConcordiumTests.KonsensusV1.TreeStateTest (
+    tests,
+    dummyBlock,
+    dummyGenesisBlockHash,
+    dummyInitialSkovData,
+    lldbWithGenesis,
+    toStoredBlock,
+    runTestLLDB,
+) where
 
 import Control.Monad.Reader
 import Control.Monad.State
@@ -73,7 +81,6 @@ import qualified Data.Sequence as Seq
 import qualified Data.Vector as Vec
 import Data.Word ()
 import Lens.Micro.Platform
-import System.IO.Unsafe
 import System.Random
 import Test.HUnit
 import Test.Hspec
@@ -82,7 +89,6 @@ import Test.Hspec
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
-import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.Scheduler.DummyData
@@ -97,7 +103,6 @@ import Concordium.Types.Transactions
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.TreeState (insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.TransactionTable as TT
 import Concordium.ID.Types
@@ -110,7 +115,7 @@ import qualified Concordium.TransactionVerification as TVer
 import Concordium.Types.Option
 import Concordium.Types.Updates
 
-import qualified ConcordiumTests.KonsensusV1.Consensus.Blocks as BlocksTests
+import qualified ConcordiumTests.KonsensusV1.Common as Common
 import qualified ConcordiumTests.KonsensusV1.TransactionProcessingTest as Helper
 
 -- We derive these instances here so we don't accidentally end up using them in production.
@@ -119,50 +124,11 @@ deriving instance Eq (BlockStatus pv)
 deriving instance Eq (BlockTable pv)
 deriving instance Eq (RecentBlockStatus pv)
 
--- | A dummy block state that is just a @BlobRef maxBound@.
-dummyPersistentBlockState :: PersistentBlockState pv
-{-# NOINLINE dummyPersistentBlockState #-}
-dummyPersistentBlockState = unsafePerformIO $ newIORef $ blobRefToBufferedRef refNull
-
-dummyStateHash :: StateHash
-dummyStateHash = StateHashV0 $ Hash.hash "DummyPersistentBlockState"
-
 dummyBlockResultHash :: BlockResultHash
 dummyBlockResultHash = BlockResultHash $ Hash.hash "DummyBlockResult"
 
--- | A dummy block state that has no content.
-dummyBlockState :: HashedPersistentBlockState pv
-dummyBlockState = HashedPersistentBlockState{..}
-  where
-    hpbsPointers = dummyPersistentBlockState
-    hpbsHash = dummyStateHash
-
--- | A 'QuorumCertificate' pointing to the block provided.
---  The certificate itself is inherently invalid as it is for round and epoch 0.
---  Further no one signed it and it has an empty signature.
---  However for the tests exposed here it is sufficient.
-dummyQuorumCertificate :: BlockHash -> QuorumCertificate
-dummyQuorumCertificate blockHash =
-    QuorumCertificate
-        { qcBlock = blockHash,
-          qcRound = 0,
-          qcEpoch = 0,
-          qcAggregateSignature = mempty,
-          qcSignatories = FinalizerSet 0
-        }
-
--- | An arbitrary chosen 'VRF.KeyPair'.
---  This is required to create the 'dummyBlockNonce'.
-dummyVRFKeys :: VRF.KeyPair
-dummyVRFKeys = fst $ VRF.randomKeyPair (mkStdGen 0)
-
 dummySignKeys :: BakerSignPrivateKey
 dummySignKeys = fst $ randomBlockKeyPair $ mkStdGen 42
-
--- | A BlockNonce consisting
---  of a VRF proof on the empty string with the 'dummyVRFKeys'.
-dummyBlockNonce :: BlockNonce
-dummyBlockNonce = VRF.prove dummyVRFKeys ""
 
 -- | An empty block where the parent is indicated
 --  by the provided 'parentHash' and the 'Round' of the block
@@ -182,17 +148,17 @@ dummyBakedBlock parentHash bbRound bbTimestamp = BakedBlock{..}
   where
     bbEpoch = 0
     bbBaker = 0
-    bbQuorumCertificate = dummyQuorumCertificate parentHash
+    bbQuorumCertificate = Common.dummyQuorumCertificate parentHash
     bbTimeoutCertificate = Absent
     bbEpochFinalizationEntry = Absent
-    bbNonce = dummyBlockNonce
+    bbNonce = Common.dummyBlockNonce
     bbTransactions = mempty
     bbDerivableHashes = case sBlockHashVersionFor (protocolVersion @pv) of
         SBlockHashVersion0 ->
             DBHashesV0 $
                 BlockDerivableHashesV0
                     { bdhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
-                      bdhv0BlockStateHash = dummyStateHash
+                      bdhv0BlockStateHash = Common.dummyStateHash
                     }
         SBlockHashVersion1 ->
             DBHashesV1 $
@@ -250,10 +216,10 @@ dummyBlock rnd = BlockPointer{..}
               bmBlockStateHash =
                 Cond.conditionally
                     (sBlockStateHashInMetadata (sBlockHashVersionFor (protocolVersion @pv)))
-                    dummyStateHash
+                    Common.dummyStateHash
             }
     bpBlock = NormalBlock $ dummySignedBlock (BlockHash minBound) rnd 0
-    bpState = dummyBlockState
+    bpState = Common.dummyBlockState
 
 -- | A 'BlockHash' suitable for configuring
 --  a 'GenesisMetadata' (see 'dummyGenesisMetadata') which is
@@ -279,14 +245,8 @@ dummyGenesisMetadata =
                 },
           gmCurrentGenesisHash = dummyGenesisBlockHash,
           gmFirstGenesisHash = dummyGenesisBlockHash,
-          gmStateHash = getHash dummyBlockState
+          gmStateHash = getHash Common.dummyBlockState
         }
-
--- | A 'LeadershipElectionNonce'.
---  It is arbitrary chosen and has no effect on the tests carried
---  out in this module.
-dummyLeadershipElectionNonce :: LeadershipElectionNonce
-dummyLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
 
 -- | Dummy bakers and finalizers with no bakers or finalizers.
 --  This is only suitable for when the value is not meaningfully used.
@@ -331,7 +291,7 @@ dummyInitialSkovData =
             { gbhiAbsoluteHeight = 0,
               gbhiGenesisIndex = 0
             }
-        dummyBlockState
+        Common.dummyBlockState
         10_000
         dummyEpochBakers
         TT.emptyTransactionTable
@@ -421,10 +381,9 @@ testGetMemoryBlockStatus ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testGetMemoryBlockStatus _ pvString =
-    describe (pvString ++ ": getMemoryBlockStatus") $ do
+testGetMemoryBlockStatus _ =
+    describe "getMemoryBlockStatus" $ do
         it "last finalized" $ getMemoryBlockStatus (getHash (lastFin @pv)) sd `shouldBe` Just (BlockFinalized lastFin)
         it "live" $ getMemoryBlockStatus (getHash (testB @pv)) sd `shouldBe` Just (BlockAlive testB)
         it "focus block" $ getMemoryBlockStatus (getHash (focusB @pv)) sd `shouldBe` Just (BlockAlive focusB)
@@ -440,10 +399,9 @@ testGetBlockStatus ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testGetBlockStatus _ pvString =
-    describe (pvString ++ ": getBlockStatus") $ do
+testGetBlockStatus _ =
+    describe ": getBlockStatus" $ do
         it "last finalized" $ getStatus (getHash (lastFin @pv)) $ BlockFinalized lastFin
         it "live" $ getStatus (getHash (testB @pv)) $ BlockAlive testB
         it "focus block" $ getStatus (getHash (focusB @pv)) $ BlockAlive focusB
@@ -464,9 +422,8 @@ testGetRecentBlockStatus ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testGetRecentBlockStatus _ pvString = describe (pvString ++ ": getRecentBlockStatus") $ do
+testGetRecentBlockStatus _ = describe ": getRecentBlockStatus" $ do
     it "last finalized" $ getStatus (getHash (lastFin @pv)) $ RecentBlock $ BlockFinalized lastFin
     it "live" $ getStatus (getHash (testB @pv)) $ RecentBlock $ BlockAlive testB
     it "focus block" $ getStatus (getHash (focusB @pv)) $ RecentBlock $ BlockAlive focusB
@@ -487,15 +444,14 @@ testMakeLiveBlock ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testMakeLiveBlock sProtocolVersion pvString = it (pvString ++ "makeLiveBlock") $ do
+testMakeLiveBlock sProtocolVersion = it "makeLiveBlock" $ do
     let arrTime = timestampToUTCTime 5
         hgt = 23
-    let (res, sd) = runState (makeLiveBlock @_ @pv pendingB dummyBlockState hgt arrTime 0) skovDataWithTestBlocks
+    let (res, sd) = runState (makeLiveBlock @_ @pv pendingB Common.dummyBlockState hgt arrTime 0) skovDataWithTestBlocks
     res
         `shouldBe` BlockPointer
-            { bpState = dummyBlockState,
+            { bpState = Common.dummyBlockState,
               bpInfo =
                 BlockMetadata
                     { bmReceiveTime = pbReceiveTime (pendingB @pv),
@@ -506,7 +462,7 @@ testMakeLiveBlock sProtocolVersion pvString = it (pvString ++ "makeLiveBlock") $
                       bmBlockStateHash =
                         Cond.conditionally
                             (sBlockStateHashInMetadata (sBlockHashVersionFor sProtocolVersion))
-                            dummyStateHash
+                            Common.dummyStateHash
                     },
               bpBlock = NormalBlock (pbBlock pendingB)
             }
@@ -521,9 +477,8 @@ testMarkBlockDead ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testMarkBlockDead _ pvString = describe (pvString ++ "markBlockDead") $ do
+testMarkBlockDead _ = describe "markBlockDead" $ do
     it "live" $ mbd (getHash (testB @pv))
     it "focus block" $ mbd (getHash (focusB @pv))
     it "pending block" $ mbd (getHash (pendingB @pv))
@@ -632,9 +587,8 @@ testLookupLiveTransaction ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testLookupLiveTransaction _ pvString = describe (pvString ++ ": lookupLiveTransaction") $ do
+testLookupLiveTransaction _ = describe "lookupLiveTransaction" $ do
     it "present" $ do
         assertEqual
             "status transaction 1"
@@ -672,9 +626,8 @@ testLookupTransaction ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testLookupTransaction _ pvString = describe (pvString ++ ": lookupTransaction") $ do
+testLookupTransaction _ = describe "lookupTransaction" $ do
     it "finalized" $ lookupAndCheck (txHash 1) (Just $ Finalized $ FinalizedTransactionStatus 1 0)
     it "live" $ lookupAndCheck (txHash 2) (Just $ Live $ TT.Received 0 $ dummySuccessTransactionResult 2)
     it "absent" $ lookupAndCheck (txHash 5) Nothing
@@ -702,10 +655,9 @@ testGetNonFinalizedAccountTransactions ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testGetNonFinalizedAccountTransactions _ pvString =
-    describe (pvString ++ ": getNonFinalizedAccountTransactions") $ do
+testGetNonFinalizedAccountTransactions _ =
+    describe "getNonFinalizedAccountTransactions" $ do
         it "present" $ do
             assertEqual
                 "transactions for dummy account 0 from 1"
@@ -748,9 +700,8 @@ testGetNonFinalizedChainUpdates ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testGetNonFinalizedChainUpdates _ pvString = describe (pvString ++ ": getNonFinalizedChainUpdates") $ do
+testGetNonFinalizedChainUpdates _ = describe "getNonFinalizedChainUpdates" $ do
     it "present" $ do
         assertEqual
             "chain updates for UpdateMicroGTUPerEuro are present"
@@ -783,9 +734,8 @@ testGetNonFinalizedCredential ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testGetNonFinalizedCredential _ pvString = describe (pvString ++ ": getNonFinalizedCredential") $ do
+testGetNonFinalizedCredential _ = describe "getNonFinalizedCredential" $ do
     it "present" $ do
         assertEqual
             "non-finalized credential deployment is present"
@@ -814,9 +764,8 @@ testGetNextAccountNonce ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testGetNextAccountNonce _ pvString = describe (pvString ++ ": getNextAccountNonce") $ do
+testGetNextAccountNonce _ = describe "getNextAccountNonce" $ do
     it "with non-finalized" $ do
         void $ runTestWithBS $ do
             transactionTable %= addTrans 2 . addTrans 3
@@ -845,9 +794,8 @@ testRemoveTransactions ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testRemoveTransactions _ pvString = describe (pvString ++ ": finalizeTransactions") $ do
+testRemoveTransactions _ = describe "finalizeTransactions" $ do
     it "normal transactions" $ do
         sd' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd
         assertEqual
@@ -921,11 +869,10 @@ testAddTransaction ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testAddTransaction _ pvString = describe (pvString ++ ": addTransaction") $ do
+testAddTransaction _ = describe "addTransaction" $ do
     it "add transaction" $ do
-        sd' <- execStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) (dummyInitialSkovData @'P6)
+        sd' <- execStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) (dummyInitialSkovData @pv)
         assertEqual
             "Account non-finalized transactions"
             (Just TT.AccountNonFinalizedTransactions{_anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
@@ -950,8 +897,12 @@ testAddTransaction _ pvString = describe (pvString ++ ": addTransaction") $ do
 -- | Test of 'commitTransaction'.
 --  The test checks that a live transaction i.e. present in the transaction table 'ttHashMap'
 --  is being set to committed for the provided round with a pointer to the block provided (by the 'BlockHash').
-testCommitTransaction :: Spec
-testCommitTransaction = describe "commitTransaction" $ do
+testCommitTransaction ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testCommitTransaction _ = describe "commitTransaction" $ do
     it "commit transaction" $ do
         sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
         assertEqual
@@ -962,7 +913,7 @@ testCommitTransaction = describe "commitTransaction" $ do
     tr0 = dummyTransaction 1
     addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
-        dummyInitialSkovData @'P6
+        dummyInitialSkovData @pv
             & transactionTable
                 %~ addTrans tr0
     bh = BlockHash minBound
@@ -974,8 +925,12 @@ testCommitTransaction = describe "commitTransaction" $ do
 --  Further the test checks that marking a (received) transaction as dead has no effect,
 --  as such a transaction will be freed from memory via transaction table purging
 --  at some point.
-testMarkTransactionDead :: Spec
-testMarkTransactionDead = describe "markTransactionDead" $ do
+testMarkTransactionDead ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testMarkTransactionDead _ = describe "markTransactionDead" $ do
     it "mark committed transaction dead" $ do
         sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
         sd'' <- execStateT (markTransactionDead bh (normalTransaction tr0)) sd'
@@ -993,7 +948,7 @@ testMarkTransactionDead = describe "markTransactionDead" $ do
     tr0 = dummyTransaction 1
     addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
-        dummyInitialSkovData @'P6
+        dummyInitialSkovData @pv
             & transactionTable
                 %~ addTrans tr0
     bh = BlockHash minBound
@@ -1003,8 +958,12 @@ testMarkTransactionDead = describe "markTransactionDead" $ do
 --  removed from the transaction table and the pending transactions.
 --  This test also ensures that the transaction table purge counter is reset
 --  after a purge has been carried out.
-testPurgeTransactionTable :: Spec
-testPurgeTransactionTable = describe "purgeTransactionTable" $ do
+testPurgeTransactionTable ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testPurgeTransactionTable _ = describe "purgeTransactionTable" $ do
     it "force purge the transaction table" $ do
         -- increment the purge counter.
         sd' <- execStateT (addTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
@@ -1030,12 +989,12 @@ testPurgeTransactionTable = describe "purgeTransactionTable" $ do
     addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     tr0 = dummyTransaction 1
     cu0 = dummyUpdateInstructionWM 1
-    theTime = timestampToUTCTime $! Timestamp 1596409021
+    theTime = timestampToUTCTime $! Timestamp 1_596_409_021
     sender = accountAddressEmbed dummyAccountAddress
     credDeploymentHash = getHash dummyCredentialDeployment
     -- Set the round for the last finalized block pointer.
     sd =
-        dummyInitialSkovData @'P6
+        dummyInitialSkovData @pv
             & transactionTable
                 %~ addChainUpdate cu0
                     . addCredential
@@ -1049,8 +1008,12 @@ testPurgeTransactionTable = describe "purgeTransactionTable" $ do
 --  * The block table is cleared
 --  * The branches is cleared
 --  * All committed transactions should be rolled back into the 'Received' state.
-testClearOnProtocolUpdate :: Spec
-testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
+testClearOnProtocolUpdate ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testClearOnProtocolUpdate _ = describe "clearOnProtocolUpdate" $
     it "clears on protocol update" $ do
         sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
         sd'' <- execStateT clearOnProtocolUpdate sd'
@@ -1071,34 +1034,32 @@ testClearOnProtocolUpdate = describe "clearOnProtocolUpdate" $
     bh = BlockHash minBound
     addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
-        skovDataWithTestBlocks @'P6
+        skovDataWithTestBlocks @pv
             & transactionTable
                 %~ addTrans tr0
 
 tests :: Spec
 tests = describe "KonsensusV1.TreeState" $ do
-    BlocksTests.forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
-        -- describe "BlockTable" $ do
-        --     testGetMemoryBlockStatus spv pvString
-        --     testGetBlockStatus spv pvString
-        --     testGetRecentBlockStatus spv pvString
-        -- describe "BlockTable" $ do
-        --     testMakeLiveBlock spv pvString
-        --     testMarkBlockDead spv pvString
-        describe "TransactionTable" $ do
-            -- testLookupLiveTransaction spv pvString
-            -- testLookupTransaction spv pvString
-            -- testGetNonFinalizedAccountTransactions spv pvString
-            -- testGetNonFinalizedChainUpdates spv pvString
-            -- testGetNonFinalizedCredential spv pvString
-            testGetNextAccountNonce spv pvString
-
--- testRemoveTransactions spv pvString
--- testAddTransaction spv pvString
-
--- describe "TransactionTable TODO" $ do
---     testCommitTransaction
---     testMarkTransactionDead
---     testPurgeTransactionTable
--- describe "Clear on protocol update TODO" $ do
---     testClearOnProtocolUpdate
+    Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
+        describe pvString $ do
+            describe "BlockTable" $ do
+                testGetMemoryBlockStatus spv
+                testGetBlockStatus spv
+                testGetRecentBlockStatus spv
+            describe "BlockTable" $ do
+                testMakeLiveBlock spv
+                testMarkBlockDead spv
+            describe "TransactionTable" $ do
+                testLookupLiveTransaction spv
+                testLookupTransaction spv
+                testGetNonFinalizedAccountTransactions spv
+                testGetNonFinalizedChainUpdates spv
+                testGetNonFinalizedCredential spv
+                testGetNextAccountNonce spv
+                testRemoveTransactions spv
+                testAddTransaction spv
+                testCommitTransaction spv
+                testMarkTransactionDead spv
+                testPurgeTransactionTable spv
+            describe "Clear on protocol update" $ do
+                testClearOnProtocolUpdate spv

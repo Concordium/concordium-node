@@ -33,6 +33,7 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.Option
 import ConcordiumTests.KonsensusV1.Consensus.Blocks
 
+import qualified ConcordiumTests.KonsensusV1.Common as Common
 import qualified ConcordiumTests.KonsensusV1.Consensus.Blocks as TestBlocks
 
 -- | Checking that the @CatchupPartialResponse m@ is as expected.
@@ -178,9 +179,9 @@ runTest =
 
 -- | Testing a basic test scenario where the node N knows
 --  of the block in round 1 and 2 and catches up the third block and a tm + qm for round 3.
-basicCatchupResponse :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-basicCatchupResponse sProtocolVersion pvString =
-    it (pvString ++ ": Test handleCatchUpRequest: Basics") $ runTest @pv $ do
+basicCatchupResponse :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+basicCatchupResponse sProtocolVersion =
+    it "Test handleCatchUpRequest: Basics" $ runTest @pv $ do
         mapM_
             (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
             [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
@@ -219,9 +220,9 @@ basicCatchupResponse sProtocolVersion pvString =
         assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
 -- | A test where the response covers an epoch transition.
-catchupWithEpochTransitionResponse :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-catchupWithEpochTransitionResponse sProtocolVersion pvString =
-    it (pvString ++ ": Test handleCatchUpRequest: Epoch transition") $ runTest @pv $ do
+catchupWithEpochTransitionResponse :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+catchupWithEpochTransitionResponse sProtocolVersion =
+    it "Test handleCatchUpRequest: Epoch transition" $ runTest @pv $ do
         mapM_
             (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
             [TestBlocks.testBB1E, TestBlocks.testBB2E, TestBlocks.testBB3E]
@@ -273,10 +274,9 @@ catchupWithTimeoutsResponse ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-catchupWithTimeoutsResponse sProtocolVersion pvString =
-    it (pvString ++ ": Test handleCatchUpRequest: Timeout in the middle of the chain") $ runTest @pv $ do
+catchupWithTimeoutsResponse sProtocolVersion =
+    it "Test handleCatchUpRequest: Timeout in the middle of the chain" $ runTest @pv $ do
         mapM_
             (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
             [TestBlocks.testBB1E, TestBlocks.testBB2E, TestBlocks.testBB3E, TestBlocks.testBB5E']
@@ -325,10 +325,9 @@ catchupWithOneTimeoutAtEndResponse ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-catchupWithOneTimeoutAtEndResponse sProtocolVersion pvString =
-    it (pvString ++ ": Test handleCatchUpRequest: One timeout certificate at end") $ runTest @pv $ do
+catchupWithOneTimeoutAtEndResponse sProtocolVersion =
+    it "Test handleCatchUpRequest: One timeout certificate at end" $ runTest @pv $ do
         mapM_
             (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
             [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
@@ -370,9 +369,9 @@ catchupWithOneTimeoutAtEndResponse sProtocolVersion pvString =
         assertCatchupResponse expectedTerminalData expectedBlocksServed =<< handleCatchUpRequest request =<< get
 
 -- | There is a timeout for round 3 and round 4.
-catchupWithTwoTimeoutsAtEndResponse :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-catchupWithTwoTimeoutsAtEndResponse _ pvString =
-    it (pvString ++ ": Test handleCatchUpRequest: Two timeout certificates at end") $ runTest @pv $ do
+catchupWithTwoTimeoutsAtEndResponse :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+catchupWithTwoTimeoutsAtEndResponse _ =
+    it "Test handleCatchUpRequest: Two timeout certificates at end" $ runTest @pv $ do
         mapM_
             (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
             [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
@@ -416,10 +415,9 @@ catchupWithTwoBranchesResponse ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-catchupWithTwoBranchesResponse sProtocolVersion pvString =
-    it (pvString ++ ": Test handleCatchUpRequest: Two branches") $ runTest @pv $ do
+catchupWithTwoBranchesResponse sProtocolVersion =
+    it "Test handleCatchUpRequest: Two branches" $ runTest @pv $ do
         mapM_
             (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
             [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
@@ -507,10 +505,9 @@ catchupWithEpochTransitionTimeout ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-catchupWithEpochTransitionTimeout sProtocolVersion pvString =
-    it (pvString ++ ": Test handleCatchUpRequest: Epoch transition with timeout") $ runTest @pv $ do
+catchupWithEpochTransitionTimeout sProtocolVersion =
+    it "Test handleCatchUpRequest: Epoch transition with timeout" $ runTest @pv $ do
         mapM_
             (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
             [TestBlocks.testBB1E, TestBlocks.testBB2E, TestBlocks.testBB3E]
@@ -550,10 +547,9 @@ testMakeCatchupStatus ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testMakeCatchupStatus sProtocolVersion pvString =
-    it (pvString ++ ": Test makeCatchUpRequestMessage") $ runTest @pv $ do
+testMakeCatchupStatus sProtocolVersion =
+    it "Test makeCatchUpRequestMessage" $ runTest @pv $ do
         mapM_
             (TestBlocks.succeedReceiveBlock . TestBlocks.signedPB)
             [TestBlocks.testBB1, TestBlocks.testBB2, TestBlocks.testBB3]
@@ -641,9 +637,9 @@ checkRoundStatus rs1 rs2 = do
 --  Hence this test serves as an integration test where
 --  catch-up status messages are generated and used to create responses,
 --  and the blocks from the response is received by the peer catching up.
-testCatchup :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testCatchup sProtocolVersion pvString =
-    it (pvString ++ ": Test catch-up integration test") $ do
+testCatchup :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testCatchup sProtocolVersion =
+    it "Test catch-up integration test" $ do
         -- Responder to catchup
         (rStatus, responderState) <- runTest @pv $ do
             mapM_
@@ -698,9 +694,9 @@ testCatchup sProtocolVersion pvString =
             liftIO . assertEqual "Unexpected last finalization entry" respLfe =<< use latestFinalizationEntry
 
 -- | Test catch-up through an epoch transition.
-testCatchupEpochTransition :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-testCatchupEpochTransition _ pvString =
-    it (pvString ++ ": Test catch-up integration test with epoch transition") $ do
+testCatchupEpochTransition :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testCatchupEpochTransition _ =
+    it "Test catch-up integration test with epoch transition" $ do
         -- Responder to catchup
         (rStatus, responderState) <- runTest @pv $ do
             mapM_
@@ -740,10 +736,9 @@ testCatchupTCAtEnd ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testCatchupTCAtEnd _ pvString =
-    it (pvString ++ ": Test catch-up integration test with TC at end") $ do
+testCatchupTCAtEnd _ =
+    it "Test catch-up integration test with TC at end" $ do
         -- Responder to catchup
         (rStatus, responderState) <- runTest $ do
             mapM_
@@ -788,10 +783,9 @@ testCatchupRequiredBehindLastFinalized ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testCatchupRequiredBehindLastFinalized _ pvString =
-    it (pvString ++ ": Test isCatchUpRequired: Catch-up responder is behind last finalized") $ do
+testCatchupRequiredBehindLastFinalized _ =
+    it "Test isCatchUpRequired: Catch-up responder is behind last finalized" $ do
         -- Send a catch up status message
         (rStatus, responderState) <- runTest @pv $ do
             let b1 = TestBlocks.signedPB TestBlocks.testBB1
@@ -815,10 +809,9 @@ testCatchupRequiredBehind ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testCatchupRequiredBehind _ pvString =
-    it (pvString ++ ": Test isCatchUpRequired: Catch-up responder is behind") $ do
+testCatchupRequiredBehind _ =
+    it "Test isCatchUpRequired: Catch-up responder is behind" $ do
         -- Send a catch up status message
         (rStatus, responderState) <- runTest @pv $ do
             let b1 = TestBlocks.signedPB TestBlocks.testBB1
@@ -843,10 +836,9 @@ testCatchupRequiredSameRound ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
-    String ->
     Spec
-testCatchupRequiredSameRound sProtocolVersion pvString =
-    it (pvString ++ ": Test isCatchUpRequired: Catch-up same round") $ do
+testCatchupRequiredSameRound sProtocolVersion =
+    it "Test isCatchUpRequired: Catch-up same round" $ do
         -- Send a catch up status message
         (rStatus, responderState) <- runTest @pv $ do
             mapM_
@@ -884,18 +876,19 @@ testCatchupRequiredSameRound sProtocolVersion pvString =
 
 tests :: Spec
 tests = describe "KonsensusV1.CatchUp" $ do
-    forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
-        basicCatchupResponse spv pvString
-        catchupWithEpochTransitionResponse spv pvString
-        catchupWithTimeoutsResponse spv pvString
-        catchupWithOneTimeoutAtEndResponse spv pvString
-        catchupWithTwoTimeoutsAtEndResponse spv pvString
-        catchupWithTwoBranchesResponse spv pvString
-        testMakeCatchupStatus spv pvString
-        testCatchup spv pvString
-        testCatchupEpochTransition spv pvString
-        testCatchupTCAtEnd spv pvString
-        testCatchupRequiredBehindLastFinalized spv pvString
-        testCatchupRequiredBehind spv pvString
-        testCatchupRequiredSameRound spv pvString
-        catchupWithEpochTransitionTimeout spv pvString
+    Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
+        describe pvString $ do
+            basicCatchupResponse spv
+            catchupWithEpochTransitionResponse spv
+            catchupWithTimeoutsResponse spv
+            catchupWithOneTimeoutAtEndResponse spv
+            catchupWithTwoTimeoutsAtEndResponse spv
+            catchupWithTwoBranchesResponse spv
+            testMakeCatchupStatus spv
+            testCatchup spv
+            testCatchupEpochTransition spv
+            testCatchupTCAtEnd spv
+            testCatchupRequiredBehindLastFinalized spv
+            testCatchupRequiredBehind spv
+            testCatchupRequiredSameRound spv
+            catchupWithEpochTransitionTimeout spv
