@@ -91,7 +91,14 @@ closeMemoryMappedByteString MemoryMappedByteString{..} = do
 
 -- | Read a 'Range' of the supplied memory mapped byte string.
 -- The supplied @Range@ must be well formed i.e., the second component must be greater than or equal to the first component.
-readByteString :: Range -> MemoryMappedByteString -> IO BS.ByteString
+readByteString ::
+    -- | Range to read from.
+    -- The range must be within the bounds of the underlying memory mapped 'ByteString'.
+    Range ->
+    -- | The memory mapped 'ByteString' to read from.
+    MemoryMappedByteString ->
+    -- | The resulting 'ByteString'.
+    IO BS.ByteString
 readByteString (start, end) MemoryMappedByteString{..} = do
     mmap <- readIORef mmapRef
     if fromIntegral end > BS.length mmap
@@ -146,10 +153,10 @@ replaceByteString offset bs MemoryMappedByteString{..} = do
             BS.hPut mmfhHandle bs
 
 -- | A flattened left full merkle binary tree.
---  Nodes and leaves are stored in-order.
+--  Nodes and leaves are stored in an in-order fashion.
 --
 --  Invariants:
---    * The tree must always be non-empty.
+--    * The tree MUST be non-empty.
 data FlatLFMB = FlatLFMB
     { -- | The underlying memory mapped byte string that
       --  holds onto the contents of the tree.
@@ -190,8 +197,10 @@ loadFlatLFMB fp = do
     let flfmbHeight = fileSize `div` fromIntegral nodeSize -- todo: store the height at the start of the file.
     return FlatLFMB{..}
 
+-- | Close up the underlying file handle used for the memory mapping.
+--  The caller shoudl not use the 'FlatLFMB' further after this function is called.
 closeFlatLFMB :: FlatLFMB -> IO ()
-closeFlatLFMB = undefined
+closeFlatLFMB FlatLFMB{..} = closeMemoryMappedByteString flfmbMmap
 
 -- | Get the location of the root node in the tree.
 --  Precondition: @FlatLFMB@ must be non-empty.
