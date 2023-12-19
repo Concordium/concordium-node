@@ -1,5 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DerivingVia #-}
 
 module Concordium.GlobalState.Persistent.AccountTable where
 
@@ -17,6 +19,7 @@ import Data.Word
 import System.IO
 import System.IO.MMap
 
+import Concordium.Crypto.ByteStringHelpers
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
@@ -33,13 +36,17 @@ data MemoryMappedFileHandle = MemoryMappedFileHandle
       -- | Size of the file
       mmfhSize :: !Int
     }
+    deriving (Eq, Show)
 
+-- | A 'ByteString' which is memory mapped via the handle @mmFileHandle@.
+--  The caller must make sure that writes are sequential
 data MemoryMappedByteString = MemoryMappedByteString
     { -- | The contents of the memory mapped file.
       mmapRef :: !(IORef BS.ByteString),
       -- | The underlying file that is memory mapped.
-      mmFileHandle :: !(MVar MemoryMappedFileHandle)
+      mmFileHandle :: !(IORef MemoryMappedFileHandle)
     }
+    deriving (Eq)
 
 newtype MemoryMappedByteStringError = MemoryMappedByteStringError String
     deriving (Eq, Show, Typeable)
@@ -71,34 +78,32 @@ openMemoryMappedByteString :: FilePath -> IO (MemoryMappedByteString, Word64)
 openMemoryMappedByteString mmfhFilePath = do
     mmfhHandle <- openBinaryFile mmfhFilePath ReadWriteMode
     mmfhSize <- fromIntegral <$> hFileSize mmfhHandle
-    mmFileHandle <- newMVar MemoryMappedFileHandle{..}
+    mmFileHandle <- newIORef MemoryMappedFileHandle{..}
     mmapRef <- newIORef =<< mmapFileByteString mmfhFilePath Nothing
     return (MemoryMappedByteString{..}, fromIntegral mmfhSize)
 
 -- | Close a 'MemoryMappedByteString' and flushing the memory mapped @ByteString@
 --  to disk in the process.
 closeMemoryMappedByteString :: MemoryMappedByteString -> IO ()
-closeMemoryMappedByteString MemoryMappedByteString{..} = bracket acquireHandle releaseHandle closeHandle
-  where
-    acquireHandle = takeMVar mmFileHandle
-    releaseHandle = putMVar mmFileHandle
-    closeHandle MemoryMappedFileHandle{..} = hClose mmfhHandle
+closeMemoryMappedByteString MemoryMappedByteString{..} = do
+    hdl <- readIORef mmFileHandle
+    hClose $ mmfhHandle hdl
 
 -- | Read a 'Range' of the supplied memory mapped byte string.
 -- The supplied @Range@ must be well formed i.e., the second component must be greater than or equal to the first component.
-readFromMemoryMappedByteString :: Range -> MemoryMappedByteString -> IO BS.ByteString
-readFromMemoryMappedByteString (start, end) MemoryMappedByteString{..} = do
+readByteString :: Range -> MemoryMappedByteString -> IO BS.ByteString
+readByteString (start, end) MemoryMappedByteString{..} = do
     mmap <- readIORef mmapRef
     if fromIntegral end > BS.length mmap
         then do
-            mmap' <- bracket acquireHandle releaseHandle remap
+            mmap' <- tryRemap
             writeIORef mmapRef mmap'
             return $ BS.take (fromIntegral end) $ BS.drop (fromIntegral start) mmap'
         else return $ BS.take (fromIntegral end) $ BS.drop (fromIntegral start) mmap
   where
-    acquireHandle = takeMVar mmFileHandle
-    releaseHandle = putMVar mmFileHandle
-    remap mmfh@MemoryMappedFileHandle{..} = do
+    -- Remap the file if the read is within bounds.
+    tryRemap = do
+        mmfh@MemoryMappedFileHandle{..} <- readIORef mmFileHandle
         fileLength <- readFileLength mmfh
         if fromIntegral end > fileLength
             then throwM . MemoryMappedByteStringError $ "Out of bounds read"
@@ -106,21 +111,39 @@ readFromMemoryMappedByteString (start, end) MemoryMappedByteString{..} = do
 
 -- | Append the provided 'ByteString' to the supplied 'MemoryMappedByteString'.
 --  Return the offset of the byte string.
-appendBytesToMemoryMappedByteString ::
+appendWithByteString ::
     -- | The 'ByteString' to append.
     BS.ByteString ->
     -- | The memory mapped byte string which is appended to.
     MemoryMappedByteString ->
     -- | The offset of the supplied 'ByteString' in the memory mapped byte string.
     IO Word64
-appendBytesToMemoryMappedByteString bs MemoryMappedByteString{..} = bracket acquireHandle releaseHandle appendAction
-  where
-    acquireHandle = takeMVar mmFileHandle
-    releaseHandle mmfh@MemoryMappedFileHandle{..} = putMVar mmFileHandle mmfh{mmfhSize = mmfhSize + BS.length bs}
-    appendAction MemoryMappedFileHandle{..} = do
-        hSeek mmfhHandle SeekFromEnd 0
-        BS.hPut mmfhHandle bs
-        return $ fromIntegral mmfhSize
+appendWithByteString bs MemoryMappedByteString{..} = do
+    mmfh@MemoryMappedFileHandle{..} <- readIORef mmFileHandle
+    hSeek mmfhHandle SeekFromEnd 0
+    BS.hPut mmfhHandle bs
+    writeIORef mmFileHandle mmfh{mmfhSize = mmfhSize + BS.length bs}
+    return $ fromIntegral mmfhSize
+
+-- | Overwrite the 'MemoryMappedByteString' starting at the provided offset with the provided 'ByteString'.
+--
+-- The starting offset must be within the existing bytestring, and so must the offset plus
+-- the size of the bytestring which is inserted.
+replaceByteString ::
+    -- | The offset
+    Word64 ->
+    -- | The new bytestring
+    BS.ByteString ->
+    -- | The memory mapped bytestring
+    MemoryMappedByteString ->
+    IO ()
+replaceByteString offset bs MemoryMappedByteString{..} = do
+    MemoryMappedFileHandle{..} <- readIORef mmFileHandle
+    if fromIntegral offset + BS.length bs > fromIntegral mmfhSize
+        then throwM . MemoryMappedByteStringError $ "Out of bounds replacing"
+        else do
+            hSeek mmfhHandle AbsoluteSeek (fromIntegral offset)
+            BS.hPut mmfhHandle bs
 
 -- | A flattened left full merkle binary tree.
 --  Nodes and leaves are stored in-order.
@@ -137,25 +160,38 @@ data FlatLFMB = FlatLFMB
 
 -- | Size of each node in 'FlatLFMB'
 --  8 bytes for the blob ref (word64) plus 32 bytes for the sha256 hash.
-nodeSize :: Word64
+nodeSize :: Int
 nodeSize = 40
 
+-- | Type used for encoding the size of a node.
+data NodeSize
+    deriving (Typeable, Data)
+
+instance FBS.FixedLength NodeSize where
+    fixedLength _ = nodeSize
+
 -- | A node in a 'FlatLFMB'.
-type Node = BS.ByteString
+newtype Node = Node (FBS.FixedByteString NodeSize)
+    deriving (Eq, Ord)
+    deriving (Show) via FBSHex NodeSize
+    deriving (Serialize) via FBSHex NodeSize
 
 -- | Make a new flattened left full merkle binary tree.
 mkFlatLFMB :: FilePath -> Node -> IO FlatLFMB
-mkFlatLFMB fp node = do
+mkFlatLFMB fp (Node fbs) = do
     (flfmbMmap, _) <- openMemoryMappedByteString fp
-    void $ appendBytesToMemoryMappedByteString node flfmbMmap
+    void $ appendWithByteString (FBS.toByteString fbs) flfmbMmap
     return FlatLFMB{flfmbHeight = 0, ..}
 
 -- | Load a 'FlatLFMB' at the provided @FilePath@.
 loadFlatLFMB :: FilePath -> IO FlatLFMB
 loadFlatLFMB fp = do
     (flfmbMmap, fileSize) <- openMemoryMappedByteString fp
-    let flfmbHeight = fileSize `div` nodeSize -- todo: store the height at the start of the file.
+    let flfmbHeight = fileSize `div` fromIntegral nodeSize -- todo: store the height at the start of the file.
     return FlatLFMB{..}
+
+closeFlatLFMB :: FlatLFMB -> IO ()
+closeFlatLFMB = undefined
 
 -- | Get the location of the root node in the tree.
 --  Precondition: @FlatLFMB@ must be non-empty.
@@ -163,7 +199,7 @@ loadFlatLFMB fp = do
 getRootNodeRange :: FlatLFMB -> Range
 getRootNodeRange FlatLFMB{..} =
     let offset = (2 ^ flfmbHeight) - (1 :: Word64)
-    in  (offset, offset + nodeSize)
+    in  (offset, offset + fromIntegral nodeSize)
 
 -- | Get the location of the hash of the root node.
 --  Precondition: @FlatLFMB@ must be non-empty.
@@ -184,7 +220,7 @@ getRootNodeReferenceRange flatLFMB =
 getRootHash :: FlatLFMB -> IO H.Hash
 getRootHash flatLFMB@FlatLFMB{..} = do
     let rootHash = getRootNodeHashRange flatLFMB
-    bs <- readFromMemoryMappedByteString rootHash flfmbMmap
+    bs <- readByteString rootHash flfmbMmap
     return $ H.Hash $ FBS.fromByteString bs
 
 -- * Change set

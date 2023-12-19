@@ -4,8 +4,9 @@ module GlobalStateTests.AccountTable (tests) where
 import Control.Exception
 import Control.Monad
 import qualified Data.ByteString as BS
+import Data.IORef
 import System.Directory
-import Test.HUnit
+import Test.HUnit hiding (Node)
 import Test.Hspec
 import Test.QuickCheck
 
@@ -15,7 +16,7 @@ import Concordium.GlobalState.Persistent.AccountTable
 withTemporaryMemoryMappedByteString :: FilePath -> (MemoryMappedByteString -> IO a) -> IO a
 withTemporaryMemoryMappedByteString tempFileName action = bracket openFile closeFile action
   where
-    openFile = openMemoryMappedByteString tempFileName
+    openFile = fst <$> openMemoryMappedByteString tempFileName
     closeFile mmap = do
         closeMemoryMappedByteString mmap
         removeFile tempFileName
@@ -24,32 +25,63 @@ withTemporaryMemoryMappedByteString tempFileName action = bracket openFile close
 testMemMappedByteString :: Assertion
 testMemMappedByteString = withTemporaryMemoryMappedByteString "mytestmmapbytestring" $ \mmap -> do
     let bs = BS.pack $ replicate 64 0
-    startOffset <- appendBytesToMemoryMappedByteString bs mmap
+    startOffset <- appendWithByteString bs mmap
     assertEqual "offset missmatch" 0 startOffset
-    bs' <- readFromMemoryMappedByteString (0, 32) mmap
+    bs' <- readByteString (0, 32) mmap
     assertEqual "bytestrings should match" (BS.take 32 bs) bs'
 
--- | Generate arbitrary byte strings.
-genByteString :: Gen [BS.ByteString]
+-- | Generate arbitrary byte strings and an offset for appending and replacing the bytestring.
+genByteString :: Gen (BS.ByteString, Int, BS.ByteString)
 genByteString = do
-    bssLen <- choose (0, 10)
-    bsLen <- choose (0, 128)
-    replicateM bssLen $ BS.pack <$> vector bsLen
+    bsLen <- choose (0, 256)
+    replaceBsLen <- choose (0, bsLen)
+    bs <- BS.pack <$> vector bsLen
+    replaceBs <- BS.pack <$> vector replaceBsLen
+    replaceOffset <- choose (0, bsLen - replaceBsLen)
+    return (bs, replaceOffset, replaceBs)
 
--- | Test reads and appending of 'MemoryMappedByteString' against a regular 'ByteString'.
+-- | Test reads, updates and appending of 'MemoryMappedByteString' against a regular 'ByteString'.
 testMemMappedByteStringProp :: Spec
 testMemMappedByteStringProp = it "test memory mapped bytestring" $ do
     withMaxSuccess 10000 $
-        forAll genByteString $ \bss -> withTemporaryMemoryMappedByteString "mytestmmapbytestring2" $ \mmap -> do
-            let bs = BS.empty
-            finalBs <- foldM (\acc newBs -> (addBs mmap) acc newBs) bs bss
-            bs' <- readFromMemoryMappedByteString (0, fromIntegral $ BS.length finalBs) mmap
-            assertEqual "ByteString and MemoryMappedByteString does not have same length" (BS.length finalBs) (BS.length bs')
-            assertEqual "ByteString and MemoryMappedByteString does not match" finalBs bs'
+        forAll genByteString $ \(bs, replaceOffset, newBs) -> withTemporaryMemoryMappedByteString "mytestmmapbytestring2" $ \mmap -> do
+            -- start with @bs@
+            void $ appendWithByteString bs mmap
+            -- append with @newBs@
+            (bs', addedBsOffset) <- appendBs mmap newBs bs
+            -- Check that the offset reported back is correct, i.e the length of the old bs.
+            assertEqual "Wrong offset for the added bytestring" (BS.length bs) (fromIntegral addedBsOffset)
+            newBs' <- readByteString (addedBsOffset, fromIntegral $ BS.length newBs) mmap
+            assertEqual "ByteString read from mmap should correspond to the one just appended" newBs newBs'
+            -- now replace some bytes with @newBs@
+            bs'' <- replaceBs mmap (fromIntegral replaceOffset) newBs bs'
+            -- Read the whole @ByteString@ from the @MemoryMappedByteString@ and compare with the actual @ByteString@.
+            allMmap <- readByteString (0, fromIntegral $ BS.length bs'') mmap
+            -- Read the cached size of the memory mapped file.
+            hdl <- readIORef $ mmFileHandle mmap
+            let cachedSize = mmfhSize hdl
+            actualFileSize <- readFileLength hdl
+            assertEqual "Actual file size and cached size does not match" actualFileSize (fromIntegral cachedSize)
+            assertEqual "ByteString and cached size does not match" (BS.length bs'') (fromIntegral cachedSize)
+            assertEqual "ByteString and MemoryMappedByteString does not have same length" (BS.length bs'') (BS.length allMmap)
+            assertEqual "ByteString and MemoryMappedByteString does not match" bs'' allMmap
   where
-    addBs mmap acc bs = do
-        void $ appendBytesToMemoryMappedByteString bs mmap
-        return $ acc <> bs
+    appendBs mmap bs existingBs = do
+        offsetOfAddedBs <- appendWithByteString bs mmap
+        return (existingBs <> bs, offsetOfAddedBs)
+    replaceBs mmap offset bs existingBs = do
+        void $ replaceByteString offset bs mmap
+        let (prefix, suffix) = BS.splitAt (fromIntegral $ offset) existingBs
+        return $ prefix <> bs <> BS.drop (BS.length bs) suffix
+
+-- | Perform the provided action with a temporary file used for backing the 'FlatLFMB'.
+withTemporaryFlatLFMB :: FilePath -> Node -> (FlatLFMB -> IO a) -> IO a
+withTemporaryFlatLFMB tempFileName root action = bracket openFile closeFile action
+  where
+    openFile = mkFlatLFMB tempFileName root
+    closeFile flatLfmb = do
+        closeFlatLFMB flatLfmb
+        removeFile tempFileName
 
 tests :: Spec
 tests = describe "AccountTable" $ do
