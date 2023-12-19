@@ -89,6 +89,7 @@ import Test.Hspec
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
+import Concordium.Genesis.Account
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.Scheduler.DummyData
@@ -529,6 +530,12 @@ dummyTransaction' accAddr n =
             }
     payload = encodePayload $ Transfer dummyAccountAddress 10
 
+dummyTransactionFromSender :: AccountAddress -> Nonce -> Transaction
+dummyTransactionFromSender = dummyTransaction'
+
+dummyTransactionBIFromSender :: AccountAddress -> Nonce -> BlockItem
+dummyTransactionBIFromSender accAddr = normalTransaction . (dummyTransactionFromSender accAddr)
+
 dummyTransaction :: Nonce -> Transaction
 dummyTransaction = dummyTransaction' dummyAccountAddress
 
@@ -755,9 +762,10 @@ testGetNonFinalizedCredential _ = describe "getNonFinalizedCredential" $ do
 -- | Testing 'getNextAccountNonce'
 --  This test ensures that the function returns
 --  the correct next account nonce.
---  TODO: The test as written is flawed because the account with transactions in the transaction
---  table may not actually even be in the proper account map. This also does not test the case
---  when the account does have finalized transactions.
+--
+--  Note that we do not test getting the next available account nonce
+--  for accounts with finalized transactions.
+-- This behaviour is tested in 'TransactionTableIntegrationTest' already.
 testGetNextAccountNonce ::
     forall pv.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
@@ -768,17 +776,21 @@ testGetNextAccountNonce _ = describe "getNextAccountNonce" $ do
         void $ runTestWithBS $ do
             transactionTable %= addTrans 2 . addTrans 3
             sd <- get
-            n0 <- getNextAccountNonce (accountAddressEmbed dummyAccountAddress) sd
+            n0 <- getNextAccountNonce (accountAddressEmbed accEqAddr) sd
             liftIO $ n0 `shouldBe` (4, False)
     it "with no transactions" $ do
         void $ runTestWithBS $ do
             sd <- get
-            n1 <- getNextAccountNonce (accountAddressEmbed dummyAccountAddress) sd
+            n1 <- getNextAccountNonce (accountAddressEmbed accEqAddr) sd
             liftIO $ n1 `shouldBe` (minNonce, True)
   where
+    -- An account that is present in the block state.
+    accEqAddr = gaAddress $ head $ Dummy.makeFakeBakers 1
+    bi = dummyTransactionBIFromSender accEqAddr
     -- Run the computation via the helper test monad.
     runTestWithBS = Helper.runMyTestMonad @pv Dummy.dummyIdentityProviders (timestampToUTCTime 1)
-    addTrans n = snd . TT.addTransaction (dummyTransactionBI n) 0 (dummySuccessTransactionResult n)
+    -- Add a transaction from @accEqAddr@ with the provided nonce to the transaction table.
+    addTrans n = snd . TT.addTransaction (bi n) 0 (dummySuccessTransactionResult n)
 
 -- | Testing 'finalizeTransactions'.
 --  This test ensures that the provided list of
