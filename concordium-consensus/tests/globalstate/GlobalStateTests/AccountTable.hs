@@ -14,14 +14,14 @@ import Concordium.GlobalState.Persistent.AccountTable
 
 -- | Perform the provided action with a temporary file used for backing the memory mapped bytestring.
 withTemporaryMemoryMappedByteString :: FilePath -> (MemoryMappedByteString -> IO a) -> IO a
-withTemporaryMemoryMappedByteString tempFileName action = bracket openFile closeFile action
+withTemporaryMemoryMappedByteString tempFileName = bracket openFile closeFile
   where
     openFile = fst <$> openMemoryMappedByteString tempFileName
     closeFile mmap = do
         closeMemoryMappedByteString mmap
         removeFile tempFileName
 
--- | Test simple open mmap bytestring, close mmmap bytestring, appending and reading from memory mapped bytestring.
+-- | Test simple open mmap bytestring, close mmmap bytestring; replacing, appending and reading from memory mapped bytestring.
 testMemMappedByteString :: Assertion
 testMemMappedByteString = withTemporaryMemoryMappedByteString "mytestmmapbytestring" $ \mmap -> do
     let bs = BS.pack $ replicate 64 0
@@ -29,6 +29,10 @@ testMemMappedByteString = withTemporaryMemoryMappedByteString "mytestmmapbytestr
     assertEqual "offset missmatch" 0 startOffset
     bs' <- readByteString (0, 32) mmap
     assertEqual "bytestrings should match" (BS.take 32 bs) bs'
+
+    void $ replaceByteString 0 (BS.pack $ replicate 10 1) mmap
+    bs'' <- readByteString (0, 10) mmap
+    assertEqual "replaced bytestrings should match" (BS.pack $ replicate 10 1) bs''
 
 -- | Generate arbitrary byte strings and an offset for appending and replacing the bytestring.
 genByteString :: Gen (BS.ByteString, Int, BS.ByteString)
@@ -71,19 +75,29 @@ testMemMappedByteStringProp = it "test memory mapped bytestring" $ do
         return (existingBs <> bs, offsetOfAddedBs)
     replaceBs mmap offset bs existingBs = do
         void $ replaceByteString offset bs mmap
-        let (prefix, suffix) = BS.splitAt (fromIntegral $ offset) existingBs
+        let (prefix, suffix) = BS.splitAt (fromIntegral offset) existingBs
         return $ prefix <> bs <> BS.drop (BS.length bs) suffix
 
 -- | Perform the provided action with a temporary file used for backing the 'FlatLFMB'.
-withTemporaryFlatLFMB :: FilePath -> Node -> (FlatLFMB -> IO a) -> IO a
-withTemporaryFlatLFMB tempFileName root action = bracket openFile closeFile action
+withTemporaryFlatLFMBTree :: FilePath -> (FlatLFMBTree -> IO a) -> IO a
+withTemporaryFlatLFMBTree tempFileName = bracket openFile closeFile
   where
-    openFile = mkFlatLFMB tempFileName root
+    openFile = mkFlatLFMBTree tempFileName
     closeFile flatLfmb = do
-        closeFlatLFMB flatLfmb
+        closeFlatLFMBTree flatLfmb
         removeFile tempFileName
+
+-- | Test getting and setting the metadata for a 'FlatLFMBTree'
+testGetAndSetMetadata :: Assertion
+testGetAndSetMetadata = withTemporaryFlatLFMBTree "testFlatLFMBTree" $ \tree -> do
+    metadata <- getMetadata 8 tree
+    assertEqual "Unexpected placeholder FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 0) metadata
+    void $ setMetadata (FlatLFMBTreeMetadata 1) tree
+    metadata' <- getMetadata 8 tree
+    assertEqual "Unexpected FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 1) metadata'
 
 tests :: Spec
 tests = describe "AccountTable" $ do
-    it "open append and read from memory mapped bytestring" testMemMappedByteString
+    it "open append, replace and read from memory mapped bytestring" testMemMappedByteString
     testMemMappedByteStringProp
+    it "get and set FlatLFMBTreeMetadata" testGetAndSetMetadata

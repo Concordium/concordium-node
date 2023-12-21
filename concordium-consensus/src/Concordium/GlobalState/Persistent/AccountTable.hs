@@ -108,7 +108,6 @@ readByteString (start, end) MemoryMappedByteString{..} = do
             return $ BS.take (fromIntegral end) $ BS.drop (fromIntegral start) mmap'
         else return $ BS.take (fromIntegral end) $ BS.drop (fromIntegral start) mmap
   where
-    -- Remap the file if the read is within bounds.
     tryRemap = do
         mmfh@MemoryMappedFileHandle{..} <- readIORef mmFileHandle
         fileLength <- readFileLength mmfh
@@ -136,6 +135,9 @@ appendWithByteString bs MemoryMappedByteString{..} = do
 --
 -- The starting offset must be within the existing bytestring, and so must the offset plus
 -- the size of the bytestring which is inserted.
+--
+-- Note that replacing any bytes (i.e. not appending) causes a remapping of the memory mapped file in order
+-- to ensure consistency between the readonly 'ByteString' and the actual memory mapped file.
 replaceByteString ::
     -- | The offset
     Word64 ->
@@ -151,22 +153,18 @@ replaceByteString offset bs MemoryMappedByteString{..} = do
         else do
             hSeek mmfhHandle AbsoluteSeek (fromIntegral offset)
             BS.hPut mmfhHandle bs
+            -- remap the file.
+            hFlush mmfhHandle
+            mmap' <- mmapFileByteString mmfhFilePath Nothing
+            writeIORef mmapRef mmap'
+
+-- * Flattened left full merkle binary tree which is used for a thawed 'AccountTable'.
 
 -- | A flattened left full merkle binary tree.
---  Nodes and leaves are stored in an in-order fashion.
---
---  Invariants:
---    * The tree MUST be non-empty.
-data FlatLFMB = FlatLFMB
-    { -- | The underlying memory mapped byte string that
-      --  holds onto the contents of the tree.
-      flfmbMmap :: !MemoryMappedByteString,
-      -- | The current height of the tree.
-      flfmbHeight :: !Word64
-    }
+newtype FlatLFMBTree = FlatLFMBTree MemoryMappedByteString
 
--- | Size of each node in 'FlatLFMB'
---  8 bytes for the blob ref (word64) plus 32 bytes for the sha256 hash.
+-- | Size of each node in 'FlatLFMBTree'
+--  8 bytes for the 'BlobRef'plus 32 bytes for the sha256 hash.
 nodeSize :: Int
 nodeSize = 40
 
@@ -177,60 +175,98 @@ data NodeSize
 instance FBS.FixedLength NodeSize where
     fixedLength _ = nodeSize
 
--- | A node in a 'FlatLFMB'.
+-- | A node in a 'FlatLFMBTree'.
 newtype Node = Node (FBS.FixedByteString NodeSize)
     deriving (Eq, Ord)
     deriving (Show) via FBSHex NodeSize
     deriving (Serialize) via FBSHex NodeSize
 
--- | Make a new flattened left full merkle binary tree.
-mkFlatLFMB :: FilePath -> Node -> IO FlatLFMB
-mkFlatLFMB fp (Node fbs) = do
-    (flfmbMmap, _) <- openMemoryMappedByteString fp
-    void $ appendWithByteString (FBS.toByteString fbs) flfmbMmap
-    return FlatLFMB{flfmbHeight = 0, ..}
+-- | Metadata for a 'FlatLFMBTree'.
+--  This data is located in the head of the 'FlatLFMBTree'.
+data FlatLFMBTreeMetadata = FlatLFMBTreeMetadata
+    { -- | Height of the block of which the data
+      --  in the 'FlatLFMBTree' corresponds to.
+      flfmbBlockHeight :: !BlockHeight
+    }
+    deriving (Eq, Show)
 
--- | Load a 'FlatLFMB' at the provided @FilePath@.
-loadFlatLFMB :: FilePath -> IO FlatLFMB
-loadFlatLFMB fp = do
-    (flfmbMmap, fileSize) <- openMemoryMappedByteString fp
-    let flfmbHeight = fileSize `div` fromIntegral nodeSize -- todo: store the height at the start of the file.
-    return FlatLFMB{..}
+instance Serialize FlatLFMBTreeMetadata where
+    get = FlatLFMBTreeMetadata <$> get
+
+    put FlatLFMBTreeMetadata{..} = do
+        put flfmbBlockHeight
+
+-- | Make a new flattened left full merkle binary tree.
+--  Note that this function writes a placeholder 'FlatFLMBTreeMetadata' to the 'FlatLFMBTree'.
+mkFlatLFMBTree :: FilePath -> IO FlatLFMBTree
+mkFlatLFMBTree fp = do
+    mmap <- fst <$> openMemoryMappedByteString fp
+    void $ appendWithByteString (encode $ FlatLFMBTreeMetadata 0) mmap
+    return $ FlatLFMBTree mmap
+
+-- | Load a 'FlatLFMBTree' at the provided @FilePath@.
+loadFlatLFMBTree :: FilePath -> IO FlatLFMBTree
+loadFlatLFMBTree fp = do
+    (flfmbMmap, _) <- openMemoryMappedByteString fp
+    return $ FlatLFMBTree flfmbMmap
 
 -- | Close up the underlying file handle used for the memory mapping.
---  The caller shoudl not use the 'FlatLFMB' further after this function is called.
-closeFlatLFMB :: FlatLFMB -> IO ()
-closeFlatLFMB FlatLFMB{..} = closeMemoryMappedByteString flfmbMmap
+--  The caller shoudl not use the 'FlatLFMBTree' further after this function is called.
+closeFlatLFMBTree :: FlatLFMBTree -> IO ()
+closeFlatLFMBTree (FlatLFMBTree mmap) = closeMemoryMappedByteString mmap
 
--- | Get the location of the root node in the tree.
---  Precondition: @FlatLFMB@ must be non-empty.
---  The root node is always located at 2^height - 1 in the memory mapped bytestring.
-getRootNodeRange :: FlatLFMB -> Range
-getRootNodeRange FlatLFMB{..} =
-    let offset = (2 ^ flfmbHeight) - (1 :: Word64)
-    in  (offset, offset + fromIntegral nodeSize)
+-- | Read the 'FlatLFMBTree'
+getMetadata ::
+    -- | Size of the metadata entry.
+    Word64 ->
+    -- | The 'FlatLFMBTree' to read the metadata from.
+    FlatLFMBTree ->
+    -- | The metadata stored for the 'FlatLFMBTree'.
+    IO FlatLFMBTreeMetadata
+getMetadata size (FlatLFMBTree mmap) = do
+    bs <- readByteString (0, size) mmap
+    case decode bs of
+        Left err -> error $ "Cannot decode FlatLFMBTreeMetadata: " <> err
+        Right metadata -> return metadata
 
--- | Get the location of the hash of the root node.
---  Precondition: @FlatLFMB@ must be non-empty.
-getRootNodeHashRange :: FlatLFMB -> Range
-getRootNodeHashRange flatLFMB =
-    let (rootStart, rootEnd) = getRootNodeRange flatLFMB
-    in  (rootStart + 8, rootEnd)
+-- | Set the metadata to the provided 'FlatLFMBTree'.
+setMetadata ::
+    -- | The new metadata.
+    FlatLFMBTreeMetadata ->
+    -- | The tree where the metadata is replaced.
+    FlatLFMBTree ->
+    IO ()
+setMetadata metadata (FlatLFMBTree mmap) = replaceByteString 0 (encode metadata) mmap
 
--- | Get the reference of the root node.
---  Precondition: @FlatLFMB@ must be non-empty.
-getRootNodeReferenceRange :: FlatLFMB -> Range
-getRootNodeReferenceRange flatLFMB =
-    let (rootStart, _) = getRootNodeRange flatLFMB
-    in  (rootStart, rootStart + 8)
+-- -- | Get the location of the root node in the tree.
+-- --  Precondition: @FlatLFMBTree@ must be non-empty.
+-- --  The root node is always located at 2^height - 1 in the memory mapped bytestring.
+-- getRootNodeRange :: FlatLFMBTree -> Range
+-- getRootNodeRange (FlatLFMBTree mmap) =
+--     let offset = (2 ^ flfmbHeight) - (1 :: Word64)
+--     in  (offset, offset + fromIntegral nodeSize)
 
--- | Get the root hash of the merkle tree.
---  Precondition: @FlatLFMB@ must be non-empty.
-getRootHash :: FlatLFMB -> IO H.Hash
-getRootHash flatLFMB@FlatLFMB{..} = do
-    let rootHash = getRootNodeHashRange flatLFMB
-    bs <- readByteString rootHash flfmbMmap
-    return $ H.Hash $ FBS.fromByteString bs
+-- -- | Get the location of the hash of the root node.
+-- --  Precondition: @FlatLFMBTree@ must be non-empty.
+-- getRootNodeHashRange :: FlatLFMBTree -> Range
+-- getRootNodeHashRange flatLFMB =
+--     let (rootStart, rootEnd) = getRootNodeRange flatLFMB
+--     in  (rootStart + 8, rootEnd)
+
+-- -- | Get the reference of the root node.
+-- --  Precondition: @FlatLFMBTree@ must be non-empty.
+-- getRootNodeReferenceRange :: FlatLFMBTree -> Range
+-- getRootNodeReferenceRange flatLFMB =
+--     let (rootStart, _) = getRootNodeRange flatLFMB
+--     in  (rootStart, rootStart + 8)
+
+-- -- | Get the root hash of the merkle tree.
+-- --  Precondition: @FlatLFMBTree@ must be non-empty.
+-- getRootHash :: FlatLFMBTree -> IO H.Hash
+-- getRootHash (FlatLFMBTree mmap) = do
+--     let rootHash = getRootNodeHashRange flatLFMB
+--     bs <- readByteString rootHash flfmbMmap
+--     return $ H.Hash $ FBS.fromByteString bs
 
 -- * Change set
 
