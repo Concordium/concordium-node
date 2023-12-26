@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module ConcordiumTests.KonsensusV1.LMDB (tests) where
@@ -34,6 +35,8 @@ import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.Transactions
+
+import qualified ConcordiumTests.KonsensusV1.Common as Common
 
 -- | A dummy UTCTime used for tests where the actual value is not significant.
 dummyTime :: UTCTime
@@ -87,8 +90,8 @@ dummyBlockSig = Block.sign dummyKP "someMessage"
 -- | A helper function for creating a 'BakedBlock' given a round. Used by 'dummyBlock' to create blocks.
 --  The block is well-formed and contains the supplied transactions and is for the specified round.
 --  Beyond that, there should be no expectation on the data in the block.
-dummyBakedBlock :: Round -> Vector.Vector BlockItem -> BakedBlock 'P6
-dummyBakedBlock n ts =
+dummyBakedBlock :: SProtocolVersion pv -> Round -> Vector.Vector BlockItem -> BakedBlock pv
+dummyBakedBlock sProtocolVersion n ts =
     BakedBlock
         { bbRound = n,
           bbEpoch = 1,
@@ -99,11 +102,16 @@ dummyBakedBlock n ts =
           bbEpochFinalizationEntry = Absent,
           bbNonce = dummyProof,
           bbTransactions = ts,
-          bbDerivableHashes =
-            DerivableBlockHashesV0
-                { dbhv0TransactionOutcomesHash = TransactionOutcomesHash dummyHash,
-                  dbhv0BlockStateHash = StateHashV0 dummyHash
-                }
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 ->
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = TransactionOutcomesHash dummyHash,
+                      dbhv0BlockStateHash = StateHashV0 dummyHash
+                    }
+            SBlockHashVersion1 ->
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = BlockResultHash dummyHash
+                    }
         }
 
 -- | A helper function for creating an account address given a seed.
@@ -141,37 +149,63 @@ dummyBlockItem =
 -- | A helper function for creating a block with the given round and block items.
 --  Blocks with different hashes can then be constructed by calling this function with different rounds.
 --  The blocks are derived from 'dummyBakedBlock' with the supplied round and block items.
-dummyBlock :: Round -> Vector.Vector BlockItem -> Block 'P6
-dummyBlock n ts = NormalBlock $ SignedBlock b h dummyBlockSig
+dummyBlock :: SProtocolVersion pv -> Round -> Vector.Vector BlockItem -> Block pv
+dummyBlock sProtocolVersion n ts = NormalBlock $ SignedBlock b h dummyBlockSig
   where
-    b = dummyBakedBlock n ts
+    b = dummyBakedBlock sProtocolVersion n ts
     h = getHash b
 
 -- | A helper function for creating a StoredBlock with the given block height and round, and with no transactions.
 --  Empty 'StoredBlock's with different hashes can then be constructed by calling this function with different rounds.
 --  The blocks are derived from 'dummyBlock' with the supplied height and round, but no block items.
-dummyStoredBlockEmpty :: BlockHeight -> Round -> StoredBlock 'P6
-dummyStoredBlockEmpty h n = StoredBlock (BlockMetadata h dummyTime dummyTime 0 0 Cond.CFalse) (dummyBlock n Vector.empty) (BlobRef 0)
+dummyStoredBlockEmpty :: SProtocolVersion pv -> BlockHeight -> Round -> StoredBlock pv
+dummyStoredBlockEmpty sProtocolVersion h n = StoredBlock blockMeta (dummyBlock sProtocolVersion n Vector.empty) (BlobRef 0)
+  where
+    blockMeta =
+        BlockMetadata
+            { bmHeight = h,
+              bmReceiveTime = dummyTime,
+              bmArriveTime = dummyTime,
+              bmEnergyCost = 0,
+              bmTransactionsSize = 0,
+              bmBlockStateHash =
+                Cond.conditionally
+                    (sBlockStateHashInMetadata (sBlockHashVersionFor sProtocolVersion))
+                    (StateHashV0 dummyHash)
+            }
 
 -- | A helper function for creating a StoredBlock with the given block height and round, and with one transaction.
 --  'StoredBlock's (with one transaction) with different hashes can then be constructed by calling this function with different rounds.
 --  The blocks are derived from 'dummyBlock' with the supplied height and round, and a singular 'dummyBlockItem'.
-dummyStoredBlockOneTransaction :: BlockHeight -> Round -> StoredBlock 'P6
-dummyStoredBlockOneTransaction h n = StoredBlock (BlockMetadata h dummyTime dummyTime 200 200 Cond.CFalse) (dummyBlock n $ Vector.singleton dummyBlockItem) (BlobRef 0)
+dummyStoredBlockOneTransaction :: SProtocolVersion pv -> BlockHeight -> Round -> StoredBlock pv
+dummyStoredBlockOneTransaction sProtocolVersion height n = StoredBlock blockMeta (dummyBlock sProtocolVersion n $ Vector.singleton dummyBlockItem) (BlobRef 0)
+  where
+    blockMeta =
+        BlockMetadata
+            { bmHeight = height,
+              bmReceiveTime = dummyTime,
+              bmArriveTime = dummyTime,
+              bmEnergyCost = 200,
+              bmTransactionsSize = 200,
+              bmBlockStateHash =
+                Cond.conditionally
+                    (sBlockStateHashInMetadata (sBlockHashVersionFor sProtocolVersion))
+                    (StateHashV0 dummyHash)
+            }
 
 -- | List of stored blocks used for testing. The heights are chosen so it is tested that the endianness of the stored block heights are correct.
-dummyStoredBlocks :: [StoredBlock 'P6]
-dummyStoredBlocks =
-    [ dummyStoredBlockEmpty 1 1,
-      dummyStoredBlockEmpty 0x100 2,
-      dummyStoredBlockEmpty 0x10000 3,
-      dummyStoredBlockEmpty 0x1000000 4,
-      dummyStoredBlockEmpty 0x100000000 5,
-      dummyStoredBlockEmpty 0x10000000000 6,
-      dummyStoredBlockEmpty 0x1000000000000 7,
-      dummyStoredBlockEmpty 0x100000000000000 8,
-      dummyStoredBlockEmpty 0 9,
-      dummyStoredBlockOneTransaction 5 10
+dummyStoredBlocks :: SProtocolVersion pv -> [StoredBlock pv]
+dummyStoredBlocks sProtocolVersion =
+    [ dummyStoredBlockEmpty sProtocolVersion 1 1,
+      dummyStoredBlockEmpty sProtocolVersion 0x100 2,
+      dummyStoredBlockEmpty sProtocolVersion 0x10000 3,
+      dummyStoredBlockEmpty sProtocolVersion 0x1000000 4,
+      dummyStoredBlockEmpty sProtocolVersion 0x100000000 5,
+      dummyStoredBlockEmpty sProtocolVersion 0x10000000000 6,
+      dummyStoredBlockEmpty sProtocolVersion 0x1000000000000 7,
+      dummyStoredBlockEmpty sProtocolVersion 0x100000000000000 8,
+      dummyStoredBlockEmpty sProtocolVersion 0 9,
+      dummyStoredBlockOneTransaction sProtocolVersion 5 10
     ]
 
 -- | A FinalizationEntry. Both used by 'writeBlocks' and used when testing 'lookupLatestFinalizationEntry'.
@@ -195,18 +229,18 @@ dummyFinalizationEntry =
 --  serves the disk based lmdb implementation the computation.
 runLLMDBTest ::
     String ->
-    DiskLLDBM pv (ReaderT (DatabaseHandlers 'P6) (LoggerT IO)) a ->
+    DiskLLDBM pv (ReaderT (DatabaseHandlers pv) (LoggerT IO)) a ->
     IO a
 runLLMDBTest name action = withTempDirectory "" name $ \path ->
     bracket
-        (openDatabase path :: IO (DatabaseHandlers 'P6))
+        (openDatabase path :: IO (DatabaseHandlers pv))
         closeDatabase
         (\dbhandlers -> runSilentLogger $ runReaderT (runDiskLLDBM action) dbhandlers)
 
 -- | Set up the database with the 'dummyStoredBlocks' finalized.
-setupDummy :: DiskLLDBM 'P6 (ReaderT (DatabaseHandlers 'P6) (LoggerT IO)) ()
-setupDummy = do
-    forM_ dummyStoredBlocks $ \sb ->
+setupDummy :: (IsProtocolVersion pv) => SProtocolVersion pv -> DiskLLDBM pv (ReaderT (DatabaseHandlers pv) (LoggerT IO)) ()
+setupDummy sProtocolVersion = do
+    forM_ (dummyStoredBlocks sProtocolVersion) $ \sb ->
         writeCertifiedBlock
             sb
             dummyQC
@@ -214,66 +248,66 @@ setupDummy = do
                   qcRound = blockRound sb,
                   qcEpoch = blockEpoch sb
                 }
-    writeFinalizedBlocks dummyStoredBlocks dummyFinalizationEntry
+    writeFinalizedBlocks (dummyStoredBlocks sProtocolVersion) dummyFinalizationEntry
 
 -- | Test that 'lookupLastBlock' returns the block with the greatest height among the dummy blocks.
 --  The dummy blocks are chosen to have a wide range of blockheights to catch possible endianness
 --  errors.
-testLookupLastBlock :: Assertion
-testLookupLastBlock = runLLMDBTest "lookupLastBlockTest" $ do
-    setupDummy
+testLookupLastBlock :: (IsProtocolVersion pv) => SProtocolVersion pv -> Assertion
+testLookupLastBlock sProtocolVersion = runLLMDBTest "lookupLastBlockTest" $ do
+    setupDummy sProtocolVersion
     lastBlock <- lookupLastFinalizedBlock
     case lastBlock of
         Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000000000" 0x100000000000000 (blockHeight sb)
 
 -- | Test that the function 'LookupFirstBlock' returns the block with height '0' from the dummy blocks.
-testLookupFirstBlock :: Assertion
-testLookupFirstBlock = runLLMDBTest "lookupFirstBlockTest" $ do
-    setupDummy
+testLookupFirstBlock :: (IsProtocolVersion pv) => SProtocolVersion pv -> Assertion
+testLookupFirstBlock sProtocolVersion = runLLMDBTest "lookupFirstBlockTest" $ do
+    setupDummy sProtocolVersion
     lastBlock <- lookupFirstBlock
     case lastBlock of
         Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0" 0 (blockHeight sb)
 
 -- | Test that the function 'LookupBlockByHeight' retrieves the correct block at height 0x10000.
-testLookupBlockByHeight :: Assertion
-testLookupBlockByHeight = runLLMDBTest "lookupBlockByHeightTest" $ do
-    setupDummy
+testLookupBlockByHeight :: (IsProtocolVersion pv) => SProtocolVersion pv -> Assertion
+testLookupBlockByHeight sProtocolVersion = runLLMDBTest "lookupBlockByHeightTest" $ do
+    setupDummy sProtocolVersion
     lastBlock <- lookupBlockByHeight 0x10000
     case lastBlock of
         Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0x10000" 0x10000 (blockHeight sb)
 
 -- | Test that the function 'memberBlock' returns 'True' for a selected block.
-testMemberBlock :: Assertion
-testMemberBlock = runLLMDBTest "memberBlockTest" $ do
-    setupDummy
-    isMember <- memberBlock $ getHash $ dummyBakedBlock 1 Vector.empty
+testMemberBlock :: (IsProtocolVersion pv) => SProtocolVersion pv -> Assertion
+testMemberBlock sProtocolVersion = runLLMDBTest "memberBlockTest" $ do
+    setupDummy sProtocolVersion
+    isMember <- memberBlock $ getHash $ dummyBakedBlock sProtocolVersion 1 Vector.empty
     liftIO $ assertBool "isMember should be True" isMember
 
 -- | Test that the function 'lookupBlock' retrieves a selected block.
-testLookupBlock :: Assertion
-testLookupBlock = runLLMDBTest "lookupBlockTest" $ do
-    setupDummy
-    block <- lookupBlock $ getHash $ dummyBakedBlock 5 Vector.empty
+testLookupBlock :: (IsProtocolVersion pv) => SProtocolVersion pv -> Assertion
+testLookupBlock sProtocolVersion = runLLMDBTest "lookupBlockTest" $ do
+    setupDummy sProtocolVersion
+    block <- lookupBlock $ getHash $ dummyBakedBlock sProtocolVersion 5 Vector.empty
     case block of
         Nothing -> liftIO $ assertFailure "Block should be Just"
         Just sb -> liftIO $ assertEqual "BlockHeight should be 0x100000000" 0x100000000 (blockHeight sb)
 
 -- | Test that the function 'lookupFinalizationEntry' retrieves a written expected finalization entry.
-testLookupLatestFinalizationEntry :: Assertion
-testLookupLatestFinalizationEntry = runLLMDBTest "lookupFinalizationEntryTest" $ do
-    setupDummy
+testLookupLatestFinalizationEntry :: (IsProtocolVersion pv) => SProtocolVersion pv -> Assertion
+testLookupLatestFinalizationEntry sProtocolVersion = runLLMDBTest "lookupFinalizationEntryTest" $ do
+    setupDummy sProtocolVersion
     fe <- lookupLatestFinalizationEntry
     case fe of
         Nothing -> liftIO $ assertFailure "Finalization entry should be Just"
         Just f -> liftIO $ assertEqual "Finalization entry should match" dummyFinalizationEntry f
 
 -- | Test that the function 'lookupTransaction' retrieves the expected transaction status.
-testLookupTransaction :: Assertion
-testLookupTransaction = runLLMDBTest "lookupTransactionTest" $ do
-    setupDummy
+testLookupTransaction :: (IsProtocolVersion pv) => SProtocolVersion pv -> Assertion
+testLookupTransaction sProtocolVersion = runLLMDBTest "lookupTransactionTest" $ do
+    setupDummy sProtocolVersion
     ft <- lookupTransaction $ wmdHash $ dummyBlockItem
     case ft of
         Nothing -> liftIO $ assertFailure "Finalized transaction status should be Just"
@@ -282,19 +316,21 @@ testLookupTransaction = runLLMDBTest "lookupTransactionTest" $ do
             liftIO $ assertEqual "Transaction index should be 0" 0 ftsIndex
 
 -- | Test that the function 'memberTransaction' identifies the presence of a known transaction.
-testMemberTransaction :: Assertion
-testMemberTransaction = runLLMDBTest "memberTransactionTest" $ do
-    setupDummy
+testMemberTransaction :: (IsProtocolVersion pv) => SProtocolVersion pv -> Assertion
+testMemberTransaction sProtocolVersion = runLLMDBTest "memberTransactionTest" $ do
+    setupDummy sProtocolVersion
     isMember <- memberTransaction $ wmdHash $ dummyBlockItem
     liftIO $ assertBool "memberTransaction should be True" isMember
 
 tests :: Spec
 tests = describe "KonsensusV2.LMDB" $ do
-    it "Test lookupLastBlock" testLookupLastBlock
-    it "Test lookupFirstBlock" testLookupFirstBlock
-    it "Test lookupBlockByHeight" testLookupBlockByHeight
-    it "Test memberBlock" testMemberBlock
-    it "Test lookupBlock" testLookupBlock
-    it "Test lookupLatestFinalizationEntry" testLookupLatestFinalizationEntry
-    it "Test lookupTransaction" testLookupTransaction
-    it "Test memberTransaction" testMemberTransaction
+    Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
+        describe pvString $ do
+            it "Test lookupLastBlock" $ testLookupLastBlock spv
+            it "Test lookupFirstBlock" $ testLookupFirstBlock spv
+            it "Test lookupBlockByHeight" $ testLookupBlockByHeight spv
+            it "Test memberBlock" $ testMemberBlock spv
+            it "Test lookupBlock" $ testLookupBlock spv
+            it "Test lookupLatestFinalizationEntry" $ testLookupLatestFinalizationEntry spv
+            it "Test lookupTransaction" $ testLookupTransaction spv
+            it "Test memberTransaction" $ testMemberTransaction spv

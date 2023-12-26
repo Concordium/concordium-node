@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Testing of 'Concordium.KonsensusV1.Types' and 'Concordium.KonsensusV1.TreeState.Types' modules.
@@ -21,15 +22,16 @@ import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.KonsensusV1.TreeState.Types
+import Concordium.KonsensusV1.Types
 import Concordium.Types
 import qualified Concordium.Types.DummyData as Dummy
+import Concordium.Types.Option
 import Concordium.Types.Transactions
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Data.FixedByteString as FBS
 
-import Concordium.KonsensusV1.TreeState.Types
-import Concordium.KonsensusV1.Types
-import Concordium.Types.Option
+import qualified ConcordiumTests.KonsensusV1.Common as Common
 
 -- | Generate a 'FinalizerSet'. The size parameter determines the size of the committee that
 --  the finalizers are (nominally) sampled from.
@@ -302,18 +304,22 @@ propSerializeTimeoutMessage :: Property
 propSerializeTimeoutMessage = forAll genTimeoutMessage serCheck
 
 -- | Test that serializing then deserializing a baked block is the identity.
-propSerializeBakedBlock :: Property
-propSerializeBakedBlock =
-    forAll (genBakedBlock SP6) $ \bb ->
-        case runGet (getBakedBlock SP6 (TransactionTime 42)) $! runPut (putBakedBlock bb) of
+propSerializeBakedBlock :: SProtocolVersion pv -> Property
+propSerializeBakedBlock sProtocolVersion =
+    forAll (genBakedBlock sProtocolVersion) $ \bb ->
+        case runGet (getBakedBlock sProtocolVersion (TransactionTime 42)) $! runPut (putBakedBlock bb) of
             Left _ -> False
             Right bb' -> bb == bb'
 
 -- | Test that serializing then deserializing a signed block is the identity.
-propSerializeSignedBlock :: Property
-propSerializeSignedBlock =
-    forAll (genSignedBlock @'P6) $ \sb ->
-        case runGet (getSignedBlock SP6 (TransactionTime 42)) $! runPut (putSignedBlock sb) of
+propSerializeSignedBlock ::
+    forall pv.
+    (IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Property
+propSerializeSignedBlock sProtocolVersion =
+    forAll (genSignedBlock @pv) $ \sb ->
+        case runGet (getSignedBlock sProtocolVersion (TransactionTime 42)) $! runPut (putSignedBlock sb) of
             Left _ -> False
             Right sb' -> sb == sb'
 
@@ -400,16 +406,16 @@ propSignQuorumSignatureMessageDiffBody =
                     pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 1))]
                 in  not (checkQuorumSignature qsm1 pubKeys qs')
 
-propSignBakedBlock :: Property
-propSignBakedBlock =
-    forAll (genBakedBlock SP6) $ \bb ->
+propSignBakedBlock :: SProtocolVersion pv -> Property
+propSignBakedBlock sProtocolVersion =
+    forAll (genBakedBlock sProtocolVersion) $ \bb ->
         forAll genBlockHash $ \genesisHash ->
             forAll genBlockKeyPair $ \kp@(Sig.KeyPair _ pk) ->
                 (verifyBlockSignature pk genesisHash (signBlock kp genesisHash bb))
 
-propSignBakedBlockDiffKey :: Property
-propSignBakedBlockDiffKey =
-    forAll (genBakedBlock SP6) $ \bb ->
+propSignBakedBlockDiffKey :: SProtocolVersion pv -> Property
+propSignBakedBlockDiffKey sProtocolVersion =
+    forAll (genBakedBlock sProtocolVersion) $ \bb ->
         forAll genBlockHash $ \genesisHash ->
             forAll genBlockKeyPair $ \kp ->
                 forAll genBlockKeyPair $ \(Sig.KeyPair _ pk1) ->
@@ -432,8 +438,6 @@ tests = describe "KonsensusV1.Types" $ do
     it "TimeoutCertificate serialization" propSerializeTimeoutCertificate
     it "TimeoutMessageBody serialization" propSerializeTimeoutMessageBody
     it "TimeoutMessage serialization" propSerializeTimeoutMessage
-    it "BakedBlock serialization" propSerializeBakedBlock
-    it "SignedBlock serialization" propSerializeSignedBlock
     it "RoundStatus serialization" propSerializePersistentRoundStatus
     it "TimeoutMessage signature check positive" propSignTimeoutMessagePositive
     it "TimeoutMessage signature check fails with different key" propSignTimeoutMessageDiffKey
@@ -444,6 +448,10 @@ tests = describe "KonsensusV1.Types" $ do
     it "QuorumSignatureMessage signature check positive" propSignQuorumSignatureMessage
     it "QuorumSignatureMessage signature check fails with different key" propSignQuorumSignatureMessageDiffKey
     it "QuorumSignatureMessage signature check fails with different body" propSignQuorumSignatureMessageDiffBody
-    it "SignedBlock signature check positive" propSignBakedBlock
-    it "SignedBlock signature fails with different key" propSignBakedBlockDiffKey
     it "Conversion to and from FinalizerSet" propFinalizerListIsInverseOfFinalizerSet
+    Common.forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
+        describe pvString $ do
+            it "SignedBlock serialization" $ propSerializeSignedBlock spv
+            it "BakedBlock serialization" $ propSerializeBakedBlock spv
+            it "SignedBlock signature fails with different key" $ propSignBakedBlockDiffKey spv
+            it "SignedBlock signature check positive" $ propSignBakedBlock spv
