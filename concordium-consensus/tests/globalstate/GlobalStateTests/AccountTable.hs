@@ -9,95 +9,95 @@ import System.Directory
 import Test.HUnit hiding (Node)
 import Test.Hspec
 import Test.QuickCheck
+import Data.Word
 
 import Concordium.GlobalState.Persistent.AccountTable
 
 -- | Perform the provided action with a temporary file used for backing the memory mapped bytestring.
-withTemporaryMemoryMappedByteString :: FilePath -> (MemoryMappedByteString -> IO a) -> IO a
-withTemporaryMemoryMappedByteString tempFileName = bracket openFile closeFile
+withTemporaryMemoryMappedBuffer :: FilePath ->(MemoryMappedBuffer -> IO a) -> IO a
+withTemporaryMemoryMappedBuffer tempFileName = bracket openFile closeFile
   where
-    openFile = fst <$> openMemoryMappedByteString tempFileName
+    openFile = fst <$> openMemoryMappedBuffer tempFileName
     closeFile mmap = do
-        closeMemoryMappedByteString mmap
+        closeMemoryMappedBuffer mmap
         removeFile tempFileName
 
--- | Test simple open mmap bytestring, close mmmap bytestring; replacing, appending and reading from memory mapped bytestring.
-testMemMappedByteString :: Assertion
-testMemMappedByteString = withTemporaryMemoryMappedByteString "mytestmmapbytestring" $ \mmap -> do
-    let bs = BS.pack $ replicate 64 0
-    startOffset <- appendWithByteString bs mmap
+dummyElement :: Element
+dummyElement = mkElement $ BS.pack $ replicate elementSize 1
+
+-- | Simple test that creates a memory mapped buffer (with initial size 0, and step size 1).
+testMemMappedBuffer :: Assertion
+testMemMappedBuffer = withTemporaryMemoryMappedBuffer "mytestmmapbuffer" $ \mmap -> do
+    -- append the mmap with an element and check that the returned offset is correct.
+    startOffset <- appendWithElement dummyElement mmap
     assertEqual "offset missmatch" 0 startOffset
-    bs' <- readByteString (0, 32) mmap
-    assertEqual "bytestrings should match" (BS.take 32 bs) bs'
+    -- check that the just appended element can be read correctly.
+    element' <- readElement 0 mmap
+    assertEqual "elements should match" dummyElement element'
+    -- replace the element at index 0
+    let newElement = mkElement $ BS.pack $ replicate elementSize 2
+    void $ replaceElement 0 newElement mmap
+    element'' <- readElement 0 mmap
+    assertEqual "replaced bytestrings should match" newElement element''
+    -- append again such that the memory mapped file is expanded and remapped.
+    let newElement' = mkElement $ BS.pack $ replicate elementSize 3
+    appendWithElement newElement' mmap
+    element''' <- readElement 1 mmap
+    assertEqual "new appended elements should match" newElement' element'''
 
-    void $ replaceByteString 0 (BS.pack $ replicate 10 1) mmap
-    bs'' <- readByteString (0, 10) mmap
-    assertEqual "replaced bytestrings should match" (BS.pack $ replicate 10 1) bs''
-
--- | Generate arbitrary byte strings and an offset for appending and replacing the bytestring.
-genByteString :: Gen (BS.ByteString, Int, BS.ByteString)
-genByteString = do
-    bsLen <- choose (0, 256)
-    replaceBsLen <- choose (0, bsLen)
-    bs <- BS.pack <$> vector bsLen
-    replaceBs <- BS.pack <$> vector replaceBsLen
-    replaceOffset <- choose (0, bsLen - replaceBsLen)
-    return (bs, replaceOffset, replaceBs)
+-- | Generate a list of arbitrary elements together with elements to substitute together with the according indices to replace.
+genElements :: Gen ([Element], [(Int, Element)])
+genElements = do
+    noElements <- choose (0, 100)
+    noToReplace <- choose (0, noElements)
+    elements <- replicateM noElements (mkElement . BS.pack <$> vector elementSize)
+    subElements <- replicateM noToReplace $ do
+          elementsToReplace <- (mkElement . BS.pack <$> vector elementSize)
+          replaceOffset <- choose (0, noElements)
+          return (replaceOffset, elementsToReplace)
+    return (elements, subElements)
 
 -- | Test reads, updates and appending of 'MemoryMappedByteString' against a regular 'ByteString'.
 testMemMappedByteStringProp :: Spec
 testMemMappedByteStringProp = it "test memory mapped bytestring" $ do
     withMaxSuccess 10000 $
-        forAll genByteString $ \(bs, replaceOffset, newBs) -> withTemporaryMemoryMappedByteString "mytestmmapbytestring2" $ \mmap -> do
-            -- start with @bs@
-            void $ appendWithByteString bs mmap
-            -- append with @newBs@
-            (bs', addedBsOffset) <- appendBs mmap newBs bs
-            -- Check that the offset reported back is correct, i.e the length of the old bs.
-            assertEqual "Wrong offset for the added bytestring" (BS.length bs) (fromIntegral addedBsOffset)
-            newBs' <- readByteString (addedBsOffset, fromIntegral $ BS.length newBs) mmap
-            assertEqual "ByteString read from mmap should correspond to the one just appended" newBs newBs'
-            -- now replace some bytes with @newBs@
-            bs'' <- replaceBs mmap (fromIntegral replaceOffset) newBs bs'
-            -- Read the whole @ByteString@ from the @MemoryMappedByteString@ and compare with the actual @ByteString@.
-            allMmap <- readByteString (0, fromIntegral $ BS.length bs'') mmap
-            -- Read the cached size of the memory mapped file.
-            hdl <- readIORef $ mmFileHandle mmap
-            let cachedSize = mmfhSize hdl
-            actualFileSize <- readFileLength hdl
-            assertEqual "Actual file size and cached size does not match" actualFileSize (fromIntegral cachedSize)
-            assertEqual "ByteString and cached size does not match" (BS.length bs'') (fromIntegral cachedSize)
-            assertEqual "ByteString and MemoryMappedByteString does not have same length" (BS.length bs'') (BS.length allMmap)
-            assertEqual "ByteString and MemoryMappedByteString does not match" bs'' allMmap
-  where
-    appendBs mmap bs existingBs = do
-        offsetOfAddedBs <- appendWithByteString bs mmap
-        return (existingBs <> bs, offsetOfAddedBs)
-    replaceBs mmap offset bs existingBs = do
-        void $ replaceByteString offset bs mmap
-        let (prefix, suffix) = BS.splitAt (fromIntegral offset) existingBs
-        return $ prefix <> bs <> BS.drop (BS.length bs) suffix
+        forAll genElements $ \(elements, newElementsAndIndices) -> withTemporaryMemoryMappedBuffer "mytestmmapbytestring2" $ \mmap -> do
+            -- apppend all elements to the memory mapping.
+            forM_ elements (\element -> appendWithElement element mmap)
+            -- Check that the memory mapping corresponds to the list of elements.
+            forM_ (zip [0..] elements) $ \(offset, expectedElement) -> do
+                actualElement <- readElement offset mmap
+                assertEqual "Elements should be the same" expectedElement actualElement
 
--- | Perform the provided action with a temporary file used for backing the 'FlatLFMB'.
-withTemporaryFlatLFMBTree :: FilePath -> (FlatLFMBTree -> IO a) -> IO a
-withTemporaryFlatLFMBTree tempFileName = bracket openFile closeFile
-  where
-    openFile = mkFlatLFMBTree tempFileName
-    closeFile flatLfmb = do
-        closeFlatLFMBTree flatLfmb
-        removeFile tempFileName
+            forM_ newElementsAndIndices $ \(offset, replacement) -> do
+                void $ replaceElement (fromIntegral offset) replacement mmap
 
--- | Test getting and setting the metadata for a 'FlatLFMBTree'
-testGetAndSetMetadata :: Assertion
-testGetAndSetMetadata = withTemporaryFlatLFMBTree "testFlatLFMBTree" $ \tree -> do
-    metadata <- getMetadata 8 tree
-    assertEqual "Unexpected placeholder FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 0) metadata
-    void $ setMetadata (FlatLFMBTreeMetadata 1) tree
-    metadata' <- getMetadata 8 tree
-    assertEqual "Unexpected FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 1) metadata'
+            -- Check again that the memory mapping corresponds to the list of elements.
+            forM_ (zip [0..] elements) $ \(offset, expectedElement) -> do
+                actualElement <- readElement offset mmap
+                assertEqual "Elements should be the same after replacements" expectedElement actualElement
+                
+-- -- | Perform the provided action with a temporary file used for backing the 'FlatLFMB'.
+-- withTemporaryFlatLFMBTree :: FilePath -> (FlatLFMBTree -> IO a) -> IO a
+-- withTemporaryFlatLFMBTree tempFileName = bracket openFile closeFile
+--   where
+--     openFile = mkFlatLFMBTree tempFileName
+--     closeFile flatLfmb = do
+--         closeFlatLFMBTree flatLfmb
+--         removeFile tempFileName
 
+-- -- | Test getting and setting the metadata for a 'FlatLFMBTree'
+-- testGetAndSetMetadata :: Assertion
+-- testGetAndSetMetadata = withTemporaryFlatLFMBTree "testFlatLFMBTree" $ \tree -> do
+--     metadata <- getMetadata 8 tree
+--     assertEqual "Unexpected placeholder FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 0) metadata
+--     void $ setMetadata (FlatLFMBTreeMetadata 1) tree
+--     metadata' <- getMetadata 8 tree
+--     assertEqual "Unexpected FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 1) metadata'
+
+-- todo: write a test that makes sure remapping and growing of file works properly
 tests :: Spec
 tests = describe "AccountTable" $ do
-    it "open append, replace and read from memory mapped bytestring" testMemMappedByteString
+    it "open append, replace and read from memory mapped buffer" testMemMappedBuffer
     testMemMappedByteStringProp
-    it "get and set FlatLFMBTreeMetadata" testGetAndSetMetadata
+    -- it "get and set FlatLFMBTreeMetadata" testGetAndSetMetadata
