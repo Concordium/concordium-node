@@ -16,23 +16,23 @@ import Data.IORef
 import qualified Data.IntMap.Strict as IntMap
 import Data.Serialize
 import Data.Word
+import Foreign hiding (void)
 import System.IO
 import System.IO.MMap
-import Foreign hiding (void)
 
 import Concordium.Crypto.ByteStringHelpers
-import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
 
 import Concordium.GlobalState.Persistent.Account
 
 -- | Size of each node in 'FlatLFMBTree'
---  8 bytes for the 'BlobRef'plus 32 bytes for the sha256 hash.
+--  8 bytes for the 'BlobRef' plus 32 bytes for the sha256 hash.
 elementSize :: Int
 elementSize = 40
 
--- | Type used for encoding the size of a node.
+-- | Type used for encoding the size of an 'Element' in a
+--  'MemoryMappedBuffer'.
 data ElementSize
     deriving (Typeable, Data)
 
@@ -45,6 +45,9 @@ newtype Element = Element (FBS.FixedByteString ElementSize)
     deriving (Show) via FBSHex ElementSize
     deriving (Serialize) via FBSHex ElementSize
 
+-- | Make an 'Element' from the provided 'ByteString'.
+--  Note. If the 'ByteString' does not have a @length == elementSize@ then it's
+--  either padded (with zero bytes) or truncated.
 mkElement :: BS.ByteString -> Element
 mkElement = Element <$> FBS.fromByteString
 
@@ -70,11 +73,8 @@ data MemoryMappedFileHandle = MemoryMappedFileHandle
     deriving (Eq, Show)
 
 -- | A 'ByteString' which is memory mapped via the handle @mmFileHandle@.
---  The caller must make sure that writes are sequential
-data MemoryMappedBuffer = MemoryMappedBuffer
-    { -- | The underlying file that is memory mapped.
-      mmFileHandle :: !(IORef MemoryMappedFileHandle)
-    }
+--  The caller must ensure sequential writes.
+newtype MemoryMappedBuffer = MemoryMappedBuffer {mmFileHandle :: IORef MemoryMappedFileHandle}
     deriving (Eq)
 
 newtype MemoryMappedBufferError = MemoryMappedBufferError String
@@ -94,7 +94,8 @@ openMemoryMappedBuffer mmfhFilePath = do
     hdl <- openBinaryFile mmfhFilePath ReadWriteMode
     hdlSize <- hFileSize hdl
     when (hdlSize == 0) $
-        BS.hPut hdl $ BS.replicate (fromIntegral defaultStepSize) 0
+        BS.hPut hdl $
+            BS.replicate (fromIntegral defaultStepSize) 0
     -- close and flush the handle so we can mmap the file.
     void $ hClose hdl
     (mmfhPtr, mmfhRawSize, mmfhOffset, mmfhSize) <- mmapFilePtr mmfhFilePath ReadWrite Nothing
@@ -124,7 +125,7 @@ readElement offset MemoryMappedBuffer{..} = do
     if fromIntegral offset > (mmfhSize `div` elementSize)
         then throwM . MemoryMappedBufferError $ "Out of bounds read"
         else peekElemOff mmfhPtr $ fromIntegral offset
-             
+
 -- | Append the provided 'Element' to the supplied 'MemoryMappedBuffer'.
 --  Return the offset of element.
 --
@@ -143,7 +144,8 @@ appendWithElement element MemoryMappedBuffer{..} = do
         void $ munmapFilePtr mmfhPtr mmfhRawSize
         void $ BS.appendFile mmfhFilePath $ BS.replicate (fromIntegral defaultStepSize) 0
         (mmfhPtr', mmfhRawSize', mmfhOffset', mmfhSize') <- mmapFilePtr mmfhFilePath ReadWrite Nothing
-        writeIORef mmFileHandle
+        writeIORef
+            mmFileHandle
             MemoryMappedFileHandle
                 { mmfhPtr = mmfhPtr',
                   mmfhRawSize = mmfhRawSize',
@@ -172,7 +174,7 @@ replaceElement ::
     IO ()
 replaceElement offset element MemoryMappedBuffer{..} = do
     MemoryMappedFileHandle{..} <- readIORef mmFileHandle
-    if fromIntegral mmfhSize > fromIntegral offset * elementSize 
+    if fromIntegral mmfhSize > fromIntegral offset * elementSize
         then void $ pokeElemOff mmfhPtr (fromIntegral offset) element
         else throwM . MemoryMappedBufferError $ "Out of bounds replacing"
 
@@ -180,7 +182,6 @@ replaceElement offset element MemoryMappedBuffer{..} = do
 
 -- | A flattened left full merkle binary tree.
 newtype FlatLFMBTree = FlatLFMBTree MemoryMappedBuffer
-
 
 -- | Metadata for a 'FlatLFMBTree'.
 --  This data is located in the head of the 'FlatLFMBTree'.
@@ -202,7 +203,6 @@ instance Serialize FlatLFMBTreeMetadata where
         put flfmbBlockHeight
         put flfmBlockHash
 
-
 -- | Create an 'Element' from a 'Metadata'.
 metadataToElement :: FlatLFMBTreeMetadata -> Element
 metadataToElement = Element <$> FBS.fromByteString . encode
@@ -216,7 +216,7 @@ defaultStepSize = 10000 * fromIntegral elementSize
 mkFlatLFMBTree :: FilePath -> IO FlatLFMBTree
 mkFlatLFMBTree fp = do
     mmap <- fst <$> openMemoryMappedBuffer fp
-    void $ appendWithElement (metadataToElement $ FlatLFMBTreeMetadata 0 $ BlockHash $ H.hash "0") mmap
+    void $ appendWithElement (metadataToElement $ FlatLFMBTreeMetadata 0 $ BlockHash minBound) mmap
     return $ FlatLFMBTree mmap
 
 -- | Load a 'FlatLFMBTree' at the provided @FilePath@.

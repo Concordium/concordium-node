@@ -1,20 +1,25 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Tests for the account table and related abstrations.
 module GlobalStateTests.AccountTable (tests) where
 
+import qualified Concordium.Crypto.SHA256 as H
+import Concordium.Types
 import Control.Exception
 import Control.Monad
 import qualified Data.ByteString as BS
 import Data.IORef
+import qualified Data.Map.Strict as Map
+import Data.Word
 import System.Directory
 import Test.HUnit hiding (Node)
 import Test.Hspec
 import Test.QuickCheck
-import Data.Word
 
 import Concordium.GlobalState.Persistent.AccountTable
 
 -- | Perform the provided action with a temporary file used for backing the memory mapped bytestring.
-withTemporaryMemoryMappedBuffer :: FilePath ->(MemoryMappedBuffer -> IO a) -> IO a
+withTemporaryMemoryMappedBuffer :: FilePath -> (MemoryMappedBuffer -> IO a) -> IO a
 withTemporaryMemoryMappedBuffer tempFileName = bracket openFile closeFile
   where
     openFile = fst <$> openMemoryMappedBuffer tempFileName
@@ -41,7 +46,7 @@ testMemMappedBuffer = withTemporaryMemoryMappedBuffer "mytestmmapbuffer" $ \mmap
     assertEqual "replaced bytestrings should match" newElement element''
     -- append again such that the memory mapped file is expanded and remapped.
     let newElement' = mkElement $ BS.pack $ replicate elementSize 3
-    appendWithElement newElement' mmap
+    void $ appendWithElement newElement' mmap
     element''' <- readElement 1 mmap
     assertEqual "new appended elements should match" newElement' element'''
 
@@ -50,54 +55,54 @@ genElements :: Gen ([Element], [(Int, Element)])
 genElements = do
     noElements <- choose (0, 100)
     noToReplace <- choose (0, noElements)
-    elements <- replicateM noElements (mkElement . BS.pack <$> vector elementSize)
+    elems <- replicateM noElements (mkElement . BS.pack <$> vector elementSize)
     subElements <- replicateM noToReplace $ do
-          elementsToReplace <- (mkElement . BS.pack <$> vector elementSize)
-          replaceOffset <- choose (0, noElements)
-          return (replaceOffset, elementsToReplace)
-    return (elements, subElements)
+        elementsToReplace <- mkElement . BS.pack <$> vector elementSize
+        replaceOffset <- choose (0, noElements)
+        return (replaceOffset, elementsToReplace)
+    return (elems, subElements)
 
 -- | Test reads, updates and appending of 'MemoryMappedByteString' against a regular 'ByteString'.
 testMemMappedByteStringProp :: Spec
 testMemMappedByteStringProp = it "test memory mapped bytestring" $ do
     withMaxSuccess 10000 $
-        forAll genElements $ \(elements, newElementsAndIndices) -> withTemporaryMemoryMappedBuffer "mytestmmapbytestring2" $ \mmap -> do
+        forAll genElements $ \(elems, newElementsAndIndices) -> withTemporaryMemoryMappedBuffer "mytestmmapbytestring2" $ \mmap -> do
             -- apppend all elements to the memory mapping.
-            forM_ elements (\element -> appendWithElement element mmap)
+            forM_ elems (`appendWithElement` mmap)
             -- Check that the memory mapping corresponds to the list of elements.
-            forM_ (zip [0..] elements) $ \(offset, expectedElement) -> do
+            forM_ (zip [0 ..] elems) $ \(offset, expectedElement) -> do
                 actualElement <- readElement offset mmap
                 assertEqual "Elements should be the same" expectedElement actualElement
 
             forM_ newElementsAndIndices $ \(offset, replacement) -> do
                 void $ replaceElement (fromIntegral offset) replacement mmap
-
+            let elems' = map snd . Map.toList $ Map.fromList newElementsAndIndices `Map.union` Map.fromList (zip [0 ..] elems)
             -- Check again that the memory mapping corresponds to the list of elements.
-            forM_ (zip [0..] elements) $ \(offset, expectedElement) -> do
+            forM_ (zip [0 ..] elems') $ \(offset, expectedElement) -> do
                 actualElement <- readElement offset mmap
                 assertEqual "Elements should be the same after replacements" expectedElement actualElement
-                
--- -- | Perform the provided action with a temporary file used for backing the 'FlatLFMB'.
--- withTemporaryFlatLFMBTree :: FilePath -> (FlatLFMBTree -> IO a) -> IO a
--- withTemporaryFlatLFMBTree tempFileName = bracket openFile closeFile
---   where
---     openFile = mkFlatLFMBTree tempFileName
---     closeFile flatLfmb = do
---         closeFlatLFMBTree flatLfmb
---         removeFile tempFileName
 
--- -- | Test getting and setting the metadata for a 'FlatLFMBTree'
--- testGetAndSetMetadata :: Assertion
--- testGetAndSetMetadata = withTemporaryFlatLFMBTree "testFlatLFMBTree" $ \tree -> do
---     metadata <- getMetadata 8 tree
---     assertEqual "Unexpected placeholder FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 0) metadata
---     void $ setMetadata (FlatLFMBTreeMetadata 1) tree
---     metadata' <- getMetadata 8 tree
---     assertEqual "Unexpected FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 1) metadata'
+-- | Perform the provided action with a temporary file used for backing the 'FlatLFMB'.
+withTemporaryFlatLFMBTree :: FilePath -> (FlatLFMBTree -> IO a) -> IO a
+withTemporaryFlatLFMBTree tempFileName = bracket openFile closeFile
+  where
+    openFile = mkFlatLFMBTree tempFileName
+    closeFile flatLfmb = do
+        closeFlatLFMBTree flatLfmb
+        removeFile tempFileName
+
+-- | Test getting and setting the metadata for a 'FlatLFMBTree'
+testGetAndSetMetadata :: Assertion
+testGetAndSetMetadata = withTemporaryFlatLFMBTree "testFlatLFMBTree" $ \tree -> do
+    metadata <- getMetadata tree
+    assertEqual "Unexpected placeholder FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 0 $ BlockHash minBound) metadata
+    void $ setMetadata (FlatLFMBTreeMetadata 1 $ BlockHash maxBound) tree
+    metadata' <- getMetadata tree
+    assertEqual "Unexpected FlatLFMBTreeMetadata" (FlatLFMBTreeMetadata 1 $ BlockHash maxBound) metadata'
 
 -- todo: write a test that makes sure remapping and growing of file works properly
 tests :: Spec
 tests = describe "AccountTable" $ do
     it "open append, replace and read from memory mapped buffer" testMemMappedBuffer
     testMemMappedByteStringProp
-    -- it "get and set FlatLFMBTreeMetadata" testGetAndSetMetadata
+    it "get and set FlatLFMBTreeMetadata" testGetAndSetMetadata
