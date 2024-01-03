@@ -3,14 +3,11 @@
 -- | Tests for the account table and related abstrations.
 module GlobalStateTests.AccountTable (tests) where
 
-import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Control.Exception
 import Control.Monad
 import qualified Data.ByteString as BS
-import Data.IORef
 import qualified Data.Map.Strict as Map
-import Data.Word
 import System.Directory
 import Test.HUnit hiding (Node)
 import Test.Hspec
