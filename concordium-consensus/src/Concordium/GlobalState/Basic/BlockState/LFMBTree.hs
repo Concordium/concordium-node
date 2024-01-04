@@ -349,6 +349,8 @@ hashP1FromFoldable = getHash . fromFoldable @Word64
 
 -- | Hash a list of hashes in the LFMBTree format, using the specified hash for the empty tree.
 --  This avoids building the full tree.
+--  This uses the V0 hashing scheme, where the hash of a node is the hash of the concatenated
+--  hashes of its children.
 hashAsLFMBTV0 ::
     -- | Hash to use for empty list
     H.Hash ->
@@ -376,7 +378,16 @@ lfmbtV0Hash' :: (Foldable f) => (v -> H.Hash) -> f v -> LFMBTreeHashV0
 {-# INLINE lfmbtV0Hash' #-}
 lfmbtV0Hash' hsh = LFMBTreeHash . hashAsLFMBTV0 (theLFMBTreeHash emptyTreeHash) . map hsh . toList
 
-hashAsLFMBTV1 :: H.Hash -> [H.Hash] -> H.Hash
+-- | Hash a list of hashes in the LFMBTree format, using the specified hash for the empty tree.
+--  This avoids building the full tree.
+--  This uses the V1 hashing scheme, where the top level hash is the hash of the concatenation of
+--  the number of leaves in the tree and the V0 hash.
+hashAsLFMBTV1 ::
+    -- | Hash to use for empty list
+    H.Hash ->
+    -- | List of hashes to construct into Merkle tree
+    [H.Hash] ->
+    H.Hash
 hashAsLFMBTV1 e l = H.hashLazy $! S.runPutLazy $ do
     S.putWord64be (fromIntegral $ length l)
     S.put $ hashAsLFMBTV0 e l

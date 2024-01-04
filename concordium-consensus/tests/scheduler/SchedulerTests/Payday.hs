@@ -38,7 +38,6 @@ import Concordium.Types.SeedState
 import Concordium.Birk.Bake
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.PoolRewards (BakerPoolRewardDetails (transactionFeesAccrued))
 import Concordium.GlobalState.BlockPointer (BlockPointer (_bpState))
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
@@ -48,6 +47,7 @@ import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.GlobalState.Persistent.TreeState
+import Concordium.GlobalState.PoolRewards (BakerPoolRewardDetails (transactionFeesAccrued))
 import Concordium.GlobalState.TreeState
 import Concordium.Startup
 import qualified SchedulerTests.Helpers as Helpers

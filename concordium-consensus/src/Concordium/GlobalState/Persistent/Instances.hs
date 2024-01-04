@@ -637,6 +637,10 @@ instance Show (Instances pv) where
     show InstancesEmpty = "Empty"
     show (InstancesTree _ t) = showFix showITString t
 
+-- | Compute an @'InstancesHash' pv@ given the size and root hash of the instances table.
+--  The behaviour is dependent on the block hashing version associated with the protocol version,
+--  namely @BlockHashVersionFor pv@. For @BlockHashVersion0@, only the root hash is used.
+--  for @BlockHashVersion1@, the size is concatenated with the root hash and then hashed.
 makeInstancesHash :: forall pv. (IsProtocolVersion pv) => Word64 -> H.Hash -> InstancesHash pv
 makeInstancesHash size inner = case sBlockHashVersionFor (protocolVersion @pv) of
     SBlockHashVersion0 -> InstancesHash inner
@@ -644,7 +648,10 @@ makeInstancesHash size inner = case sBlockHashVersionFor (protocolVersion @pv) o
         putWord64be size
         put inner
 
-instance (IsProtocolVersion pv, SupportsPersistentModule m) => MHashableTo m (InstancesHash pv) (Instances pv) where
+instance
+    (IsProtocolVersion pv, SupportsPersistentModule m) =>
+    MHashableTo m (InstancesHash pv) (Instances pv)
+    where
     getHashM InstancesEmpty = return $ makeInstancesHash 0 $ H.hash "EmptyInstances"
     getHashM (InstancesTree size t) = makeInstancesHash size . getHash <$> mproject t
 
@@ -677,21 +684,21 @@ emptyInstances :: Instances pv
 emptyInstances = InstancesEmpty
 
 newContractInstance :: forall m pv a. (IsProtocolVersion pv, SupportsPersistentModule m) => (ContractAddress -> m (a, PersistentInstance pv)) -> Instances pv -> m (a, Instances pv)
-newContractInstance fnew InstancesEmpty = do
+newContractInstance createInstanceFn InstancesEmpty = do
     let ca = ContractAddress 0 0
-    (res, newInst) <- fnew ca
+    (res, newInst) <- createInstanceFn ca
     (res,) . InstancesTree 1 <$> membed (Leaf newInst)
-newContractInstance fnew (InstancesTree s it) = do
-    ((isFreshIndex, !res), !it') <- newContractInstanceIT fnew' it
-    let !s' = if isFreshIndex then s + 1 else s
-        insts = InstancesTree s' it'
-    return (res, insts)
+newContractInstance createInstanceFn (InstancesTree size tree) = do
+    ((isFreshIndex, !result), !nextTree) <- newContractInstanceIT createFnWithFreshness tree
+    let !nextSize = if isFreshIndex then size + 1 else size
+        nextInstancesTree = InstancesTree nextSize nextTree
+    return (result, nextInstancesTree)
   where
-    fnew' ca = do
-        (r, inst) <- fnew ca
+    createFnWithFreshness newContractAddress = do
+        (result, createdInstance) <- createInstanceFn newContractAddress
         -- The size of the tree grows exactly when the new subindex is 0.
         -- Otherwise, a vacancy is filled, and the size does not grow.
-        return ((contractSubindex ca == 0, r), inst)
+        return ((contractSubindex newContractAddress == 0, result), createdInstance)
 
 deleteContractInstance :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => ContractAddress -> Instances pv -> m (Instances pv)
 deleteContractInstance _ InstancesEmpty = return InstancesEmpty

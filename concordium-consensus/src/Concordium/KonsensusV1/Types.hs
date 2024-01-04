@@ -16,6 +16,7 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Serialize
 import qualified Data.Set as Set
+import Data.Singletons
 import qualified Data.Vector as Vector
 import Data.Word
 import Numeric.Natural
@@ -32,12 +33,10 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.Parameters (IsConsensusV1)
+import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
-
-import Concordium.Types.TransactionOutcomes
-import Data.Singletons
 
 -- | The message that is signed by a finalizer to certify a block.
 data QuorumSignatureMessage = QuorumSignatureMessage
