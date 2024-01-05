@@ -796,7 +796,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 -- which is computed from transaction outcomes, the block state hash
                                 -- and more.
                                 let relativeBlockHeight = 1 + blockHeight parent
-                                computedResultHash <- computeBlockResultHash newState relativeBlockHeight
+                                let pendingBlockEpoch = blockEpoch pendingBlock
+                                computedResultHash <- computeBlockResultHash newState relativeBlockHeight pendingBlockEpoch
                                 if computedResultHash /= pendingBlockResultHash
                                     then do
                                         -- Incorrect block result hash
@@ -808,7 +809,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                                 <> ") does not match computed value ("
                                                 <> show computedResultHash
                                                 <> ")."
-                                        flag $ BlockInvalidStateHash sBlock (bpBlock parent)
+                                        flag $ BlockInvalidResultHash sBlock (bpBlock parent)
                                         rejectBlock
                                     else continue newState energyUsed
     getParentBakersAndFinalizers continue
@@ -1227,7 +1228,8 @@ bakeBlock BakeBlockInputs{..} = do
             return $ DerivableBlockHashesV0{..}
         SBlockHashVersion1 -> do
             let relativeBlockHeight = 1 + blockHeight bbiParent
-            dbhv1BlockResultHash <- computeBlockResultHash newState relativeBlockHeight
+            currentEpoch <- use (roundStatus . rsCurrentEpoch)
+            dbhv1BlockResultHash <- computeBlockResultHash newState relativeBlockHeight currentEpoch
             return $ DerivableBlockHashesV1{..}
     let bakedBlock =
             BakedBlock
@@ -1279,15 +1281,26 @@ computeBlockResultHash ::
     HashedPersistentBlockState (MPV m) ->
     -- | The relative block height for the block.
     BlockHeight ->
+    -- | The epoch of the block.
+    Epoch ->
     m BlockResultHash
-computeBlockResultHash newState relativeBlockHeight = do
+computeBlockResultHash newState relativeBlockHeight currentEpoch = do
     theBlockStateHash <- getStateHash newState
     transactionOutcomesHash <- getTransactionOutcomesHash newState
-    currentFinalizationCommitteeHash <- use $ to bakersForCurrentEpoch . bfFinalizerHash
-    nextFinalizationCommitteeHash <- do
-        -- Attempt to get the finalization committee from SkovData otherwise compute it from the
+    currentFinalizationCommitteeHash <- do
+        -- Attempt to get the current finalization committee from SkovData otherwise compute it from the
         -- information in the block state.
-        currentEpoch <- use (roundStatus . rsCurrentEpoch)
+        currentSkovBakersAndFinalizers <- gets (getBakersForEpoch currentEpoch)
+        case currentSkovBakersAndFinalizers of
+            Just bakersAndFinalizers -> return $ bakersAndFinalizers ^. bfFinalizerHash
+            Nothing -> do
+                currentFullBakers <- getCurrentEpochBakers newState
+                currentFinalizationParameters <- getCurrentEpochFinalizationCommitteeParameters newState
+                let nextFinalizationCommittee = computeFinalizationCommittee currentFullBakers currentFinalizationParameters
+                return $ computeFinalizationCommitteeHash nextFinalizationCommittee
+    nextFinalizationCommitteeHash <- do
+        -- Attempt to get the next finalization committee from SkovData otherwise compute it from the
+        -- information in the block state.
         nextSkovBakersAndFinalizers <- gets (getBakersForEpoch (currentEpoch + 1))
         case nextSkovBakersAndFinalizers of
             Just bakersAndFinalizers -> return $ bakersAndFinalizers ^. bfFinalizerHash

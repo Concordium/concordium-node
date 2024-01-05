@@ -70,6 +70,9 @@ data FlaggableOffense (pv :: ProtocolVersion)
     | -- | Execution of the block resulted in an unexpected state.
       --  Witnessed by the block received and the parent block.
       BlockInvalidStateHash !(SignedBlock pv) !(Block pv)
+    | -- | Execution of the block resulted in an unexpected result.
+      --  Witnessed by the block received and the parent block.
+      BlockInvalidResultHash !(SignedBlock pv) !(Block pv)
     | -- | An invalid block was signed by the 'QuorumMessage'.
       --  Witnessed by the 'QuorumMessage' received.
       SignedInvalidBlock !QuorumMessage
