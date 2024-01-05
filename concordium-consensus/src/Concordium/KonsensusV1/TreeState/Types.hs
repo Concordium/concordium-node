@@ -2,6 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -19,6 +20,7 @@ import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Types
+import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 
@@ -47,7 +49,7 @@ instance Serialize FinalizedTransactionStatus where
         return FinalizedTransactionStatus{..}
 
 -- | Metadata about a block that has been executed.
-data BlockMetadata = BlockMetadata
+data BlockMetadata pv = BlockMetadata
     { -- | The height of the block.
       bmHeight :: !BlockHeight,
       -- | The time that the block is received by the
@@ -61,17 +63,26 @@ data BlockMetadata = BlockMetadata
       -- | Energy cost of all transactions in the block.
       bmEnergyCost :: !Energy,
       -- | Size of the transaction data in bytes.
-      bmTransactionsSize :: !Word64
+      bmTransactionsSize :: !Word64,
+      -- | The block state hash, only present for P7 and onwards.
+      bmBlockStateHash ::
+        !( Cond.Conditionally
+            (BlockStateHashInMetadata (BlockHashVersionFor pv))
+            StateHash
+         )
     }
     deriving (Eq, Show)
 
-instance Serialize BlockMetadata where
+type instance BlockProtocolVersion (BlockMetadata pv) = pv
+
+instance forall pv. (IsProtocolVersion pv) => Serialize (BlockMetadata pv) where
     put BlockMetadata{..} = do
         put bmHeight
         putUTCPOSIXMicros bmReceiveTime
         putUTCPOSIXMicros bmArriveTime
         put bmEnergyCost
         putWord64be bmTransactionsSize
+        mapM_ put bmBlockStateHash
       where
         putUTCPOSIXMicros = putWord64be . floor . (1_000_000 *) . utcTimeToPOSIXSeconds
     get = do
@@ -80,6 +91,10 @@ instance Serialize BlockMetadata where
         bmArriveTime <- getUTCPOSIXMicros
         bmEnergyCost <- get
         bmTransactionsSize <- getWord64be
+        bmBlockStateHash <-
+            Cond.conditionallyA
+                (sBlockStateHashInMetadata (sBlockHashVersionFor (protocolVersion @pv)))
+                get
         return BlockMetadata{..}
       where
         getUTCPOSIXMicros = posixSecondsToUTCTime . (/ 1_000_000) . realToFrac <$> getWord64be
@@ -87,7 +102,7 @@ instance Serialize BlockMetadata where
 -- | A class for structures that include 'BlockMetadata'.
 class HasBlockMetadata bm where
     -- | Get the block metadata.
-    blockMetadata :: bm -> BlockMetadata
+    blockMetadata :: bm -> BlockMetadata (BlockProtocolVersion bm)
 
     -- | The height of the block.
     blockHeight :: bm -> BlockHeight
@@ -114,19 +129,21 @@ class HasBlockMetadata bm where
     blockTransactionsSize = bmTransactionsSize . blockMetadata
     {-# INLINE blockTransactionsSize #-}
 
-instance HasBlockMetadata BlockMetadata where
+instance HasBlockMetadata (BlockMetadata pv) where
     blockMetadata = id
 
 -- | A pointer to a block that has been executed
 --  and the resulting 'PBS.HashedPersistentBlockState'.
 data BlockPointer (pv :: ProtocolVersion) = BlockPointer
     { -- | Metadata for the block.
-      bpInfo :: !BlockMetadata,
+      bpInfo :: !(BlockMetadata pv),
       -- | The signed block.
       bpBlock :: !(Block pv),
       -- | The resulting state of executing the block.
       bpState :: !(PBS.HashedPersistentBlockState pv)
     }
+
+type instance BlockProtocolVersion (BlockPointer pv) = pv
 
 instance HashableTo BlockHash (BlockPointer pv) where
     getHash BlockPointer{..} = getHash bpBlock
@@ -136,14 +153,13 @@ instance Eq (BlockPointer pv) where
     (==) = on (==) (getHash @BlockHash)
 
 instance BlockData (BlockPointer pv) where
-    type BakedBlockDataType (BlockPointer pv) = SignedBlock
+    type BakedBlockDataType (BlockPointer pv) = SignedBlock pv
     blockRound = blockRound . bpBlock
     blockEpoch = blockEpoch . bpBlock
     blockTimestamp = blockTimestamp . bpBlock
     blockBakedData = blockBakedData . bpBlock
     blockTransactions = blockTransactions . bpBlock
     blockTransactionCount = blockTransactionCount . bpBlock
-    blockStateHash = blockStateHash . bpBlock
 
 instance Show (BlockPointer pv) where
     show BlockPointer{..} =
@@ -159,28 +175,29 @@ instance HasBlockMetadata (BlockPointer pv) where
     blockMetadata = bpInfo
 
 -- | A block that is pending its parent.
-data PendingBlock = PendingBlock
+data PendingBlock (pv :: ProtocolVersion) = PendingBlock
     { -- | The block itself.
-      pbBlock :: !SignedBlock,
+      pbBlock :: !(SignedBlock pv),
       -- | The time that the block was received by the consensus.
       pbReceiveTime :: !UTCTime
     }
     deriving (Eq, Show)
 
-instance HashableTo BlockHash PendingBlock where
+type instance BlockProtocolVersion (PendingBlock pv) = pv
+
+instance HashableTo BlockHash (PendingBlock pv) where
     getHash PendingBlock{..} = getHash pbBlock
 
-instance BlockData PendingBlock where
-    type BakedBlockDataType PendingBlock = SignedBlock
+instance BlockData (PendingBlock pv) where
+    type BakedBlockDataType (PendingBlock pv) = SignedBlock pv
     blockRound = blockRound . pbBlock
     blockEpoch = blockEpoch . pbBlock
     blockTimestamp = blockTimestamp . pbBlock
     blockBakedData = blockBakedData . pbBlock
     blockTransactions = blockTransactions . pbBlock
     blockTransactionCount = blockTransactionCount . pbBlock
-    blockStateHash = blockStateHash . pbBlock
 
-instance BakedBlockData PendingBlock where
+instance BakedBlockData (PendingBlock pv) where
     blockQuorumCertificate = blockQuorumCertificate . pbBlock
     blockParent = blockParent . pbBlock
     blockBaker = blockBaker . pbBlock
@@ -188,9 +205,9 @@ instance BakedBlockData PendingBlock where
     blockEpochFinalizationEntry = blockEpochFinalizationEntry . pbBlock
     blockNonce = blockNonce . pbBlock
     blockSignature = blockSignature . pbBlock
-    blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
+    blockDerivableHashes = blockDerivableHashes . pbBlock
 
-deserializeExactVersionedPendingBlock :: SProtocolVersion pv -> BS.ByteString -> UTCTime -> Either String PendingBlock
+deserializeExactVersionedPendingBlock :: SProtocolVersion pv -> BS.ByteString -> UTCTime -> Either String (PendingBlock pv)
 deserializeExactVersionedPendingBlock spv blockBS recTime =
     case runGet (getSignedBlock spv (utcTimeToTransactionTime recTime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
@@ -415,7 +432,9 @@ data BakersAndFinalizers = BakersAndFinalizers
     { -- | Bakers set.
       _bfBakers :: !FullBakers,
       -- | Finalizers set.
-      _bfFinalizers :: !FinalizationCommittee
+      _bfFinalizers :: !FinalizationCommittee,
+      -- | Hash computed from the BLS verify key and weight of each finalizer included in the set above.
+      _bfFinalizerHash :: !FinalizationCommitteeHash
     }
     deriving (Eq, Show)
 
