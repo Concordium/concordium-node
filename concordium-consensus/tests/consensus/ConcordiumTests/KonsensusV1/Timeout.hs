@@ -398,22 +398,22 @@ testReceiveTimeoutMessage ::
     Spec
 testReceiveTimeoutMessage sProtocolVersion =
     describe "Receive timeout message" $ do
-    it "rejects obsolete round" $ receiveAndCheck sd obsoleteRoundMessage $ Rejected ObsoleteRound
-    it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
-    it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired
-    it "rejects from a non finalizer" $ receiveAndCheck sd notAFinalizerQCMessage $ Rejected NotAFinalizer
-    it "rejects on unknown finalization committee" $ receiveAndCheck sd unknownFinalizationCommittee $ Rejected ObsoleteQC
-    it "rejects on an invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
-    it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM CatchupRequired
-    it "rejects when the qc points to an old finalized block" $ receiveAndCheck sd obsoleteQCPointer $ Rejected ObsoleteQCPointer
-    it "initializes catch-up when the qc pointer is unknown" $ receiveAndCheck sd unknownQCPointer CatchupRequired
-    it "rejects when the qc points to a dead block" $ receiveAndCheck sd qcPointerIsDead $ Rejected DeadQCPointer
-    it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending CatchupRequired
-    it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage $ Rejected Duplicate
-    it "rejects double signing" $ receiveAndCheck sd doubleSignMessage $ Rejected DoubleSigning
-    it "received a valid timeout message" $
-        receiveAndCheck sd validTimeoutMessage $
-            Received $
+        it "rejects obsolete round" $ receiveAndCheck sd obsoleteRoundMessage $ Rejected ObsoleteRound
+        it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
+        it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired
+        it "rejects from a non finalizer" $ receiveAndCheck sd notAFinalizerQCMessage $ Rejected NotAFinalizer
+        it "rejects on unknown finalization committee" $ receiveAndCheck sd unknownFinalizationCommittee $ Rejected ObsoleteQC
+        it "rejects on an invalid signature" $ receiveAndCheck sd invalidSignatureMessage $ Rejected InvalidSignature
+        it "initializes catch-up upon a future round" $ receiveAndCheck sd futureRoundTM CatchupRequired
+        it "rejects when the qc points to an old finalized block" $ receiveAndCheck sd obsoleteQCPointer $ Rejected ObsoleteQCPointer
+        it "initializes catch-up when the qc pointer is unknown" $ receiveAndCheck sd unknownQCPointer CatchupRequired
+        it "rejects when the qc points to a dead block" $ receiveAndCheck sd qcPointerIsDead $ Rejected DeadQCPointer
+        it "initializes catch-up when qc pointer is pending" $ receiveAndCheck sd qcPointerIsPending CatchupRequired
+        it "returns duplicate upon a duplicate timeout message" $ receiveAndCheck sd duplicateMessage $ Rejected Duplicate
+        it "rejects double signing" $ receiveAndCheck sd doubleSignMessage $ Rejected DoubleSigning
+        it "received a valid timeout message" $
+            receiveAndCheck sd validTimeoutMessage $
+                Received $
                     PartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers True (Present $ Common.someBlockPointer sProtocolVersion liveBlockHash 1 0)
   where
     -- A valid timeout message that should pass the initial verification.
@@ -548,13 +548,13 @@ testReceiveTimeoutMessage sProtocolVersion =
 testExecuteTimeoutMessages :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
 testExecuteTimeoutMessages sProtocolVersion =
     describe "execute timeout messages" $ do
-    it "rejects message with invalid bls signature" $ execute invalidAggregateSignature InvalidAggregateSignature
-    it "accepts message where there is already checked a valid qc for the round" $ execute validMessageAbsentQCPointer ExecutionSuccess
-    it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 2 0
-    it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute newValidQCTimeoutMessage ExecutionSuccess
-    it "rejects message with qc round no greater than highest qc and invalic qc" $ execute wrongEpochMessage $ InvalidQC $ someInvalidQC 0 0
-    it "accepts message with qc round no greather than highest qc and valid qc" $ execute oldValidQCTimeoutMessage ExecutionSuccess
-    it "accepts message with qc already checked for that round and qc checks out (qc round <= higest qc)" $ execute oldRoundValidTimeoutMessage ExecutionSuccess
+        it "rejects message with invalid bls signature" $ execute invalidAggregateSignature InvalidAggregateSignature
+        it "accepts message where there is already checked a valid qc for the round" $ execute validMessageAbsentQCPointer ExecutionSuccess
+        it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 2 0
+        it "accepts message where qc is ok (qc round is better than recorded highest qc)" $ execute newValidQCTimeoutMessage ExecutionSuccess
+        it "rejects message with qc round no greater than highest qc and invalic qc" $ execute wrongEpochMessage $ InvalidQC $ someInvalidQC 0 0
+        it "accepts message with qc round no greather than highest qc and valid qc" $ execute oldValidQCTimeoutMessage ExecutionSuccess
+        it "accepts message with qc already checked for that round and qc checks out (qc round <= higest qc)" $ execute oldRoundValidTimeoutMessage ExecutionSuccess
   where
     -- action that runs @executeTimeoutMessage@ on the provided
     -- timeout message and checks that it matches the expectation.
@@ -675,10 +675,10 @@ testCheckTimeoutCertificate ::
     Spec
 testCheckTimeoutCertificate sProtocolVersion =
     describe "check timeout certificate" $ do
-    it "accepts timeout certificate" checkOkTC
-    it "rejects with wrong genesis" wrongGenesis
-    it "rejects when there is not enough weight" insufficientWeight
-    it "rejects when the signature is invalid" invalidSignature
+        it "accepts timeout certificate" checkOkTC
+        it "rejects with wrong genesis" wrongGenesis
+        it "rejects when there is not enough weight" insufficientWeight
+        it "rejects when the signature is invalid" invalidSignature
   where
     checkOkTC = runTest $ do
         finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers

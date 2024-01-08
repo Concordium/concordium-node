@@ -319,7 +319,7 @@ propSerializeSignedBlock ::
     (IsProtocolVersion pv) =>
     SProtocolVersion pv ->
     Property
-propSerializeSignedBlock sProtocolVersion =
+propSerializeSignedBlock _ =
     forAll (genSignedBlock @pv) $ \sb ->
         case runGet (getSignedBlock (TransactionTime 42)) $! runPut (putSignedBlock sb) of
             Left _ -> False
