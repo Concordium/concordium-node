@@ -736,7 +736,7 @@ getBlockInfo =
             let biTransactionCount = SkovV1.blockTransactionCount bp
             let biTransactionEnergyCost = SkovV1.blockEnergyCost bp
             let biTransactionsSize = fromIntegral $ SkovV1.blockTransactionsSize bp
-            let biBlockStateHash = SkovV1.blockStateHash bp
+            let biBlockStateHash = getHash $ SkovV1.bpState bp
             let biProtocolVersion = demoteProtocolVersion (protocolVersion @pv)
             let biRound = Just $ SkovV1.blockRound bp
             let biEpoch = Just $ SkovV1.blockEpoch bp
@@ -822,6 +822,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
                 `merge` queueMapperOptional PUETimeoutParameters _pTimeoutParametersQueue
                 `merge` queueMapperOptional PUEMinBlockTime _pMinBlockTimeQueue
                 `merge` queueMapperOptional PUEBlockEnergyLimit _pBlockEnergyLimitQueue
+                `merge` queueMapperOptional PUEFinalizationCommitteeParameters _pFinalizationCommitteeParametersQueue
           where
             cpv :: SChainParametersVersion cpv
             cpv = chainParametersVersion

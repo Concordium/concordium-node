@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -23,7 +24,10 @@ import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.BakerIdentity
+import Concordium.Types.Block (localToAbsoluteBlockHeight)
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Types.Parameters hiding (getChainParameters)
 import Concordium.Types.SeedState
 import Concordium.Utils
@@ -51,8 +55,6 @@ import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Scheduler (FilteredTransactions (..))
 import Concordium.TimerMonad
-import Concordium.Types.BakerIdentity
-import Concordium.Types.Option
 
 -- | A block that has passed initial verification, but must still be executed, added to the state,
 --  and (potentially) signed as a finalizer.
@@ -76,7 +78,6 @@ instance BlockData (VerifiedBlock pv) where
     blockBakedData = blockBakedData . vbBlock
     blockTransactions = blockTransactions . vbBlock
     blockTransactionCount = blockTransactionCount . vbBlock
-    blockStateHash = blockStateHash . vbBlock
 
 -- * Receiving blocks
 
@@ -330,7 +331,7 @@ receiveBlockUnknownParent ::
       MonadState (SkovData (MPV m)) m,
       MonadLogger m
     ) =>
-    PendingBlock pv ->
+    PendingBlock (MPV m) ->
     m (BlockResult (MPV m))
 receiveBlockUnknownParent pendingBlock = do
     earlyThreshold <- rpEarlyBlockThreshold <$> use runtimeParameters
@@ -374,7 +375,8 @@ getMinBlockTime b = do
 --
 --   * The block must not already be a live block.
 addBlock ::
-    (TimeMonad m, MonadState (SkovData (MPV m)) m, MonadConsensusEvent m, MonadLogger m) =>
+    forall m.
+    (TimeMonad m, MonadState (SkovData (MPV m)) m, MonadConsensusEvent m, MonadLogger m, IsProtocolVersion (MPV m)) =>
     -- | Block to add
     PendingBlock (MPV m) ->
     -- | Block state
@@ -387,7 +389,7 @@ addBlock ::
 addBlock pendingBlock blockState parent energyUsed = do
     let height = blockHeight parent + 1
     now <- currentTime
-    newBlock <- makeLiveBlock pendingBlock blockState height now energyUsed
+    newBlock <- makeLiveBlock @m pendingBlock blockState height now energyUsed
     addToBranches newBlock
     logEvent Konsensus LLInfo $
         "Block "
@@ -426,6 +428,7 @@ addBlock pendingBlock blockState parent energyUsed = do
 --  * The block is signed by a valid baker for its epoch.
 --  * The baker is the leader for the round according to the parent block.
 processBlock ::
+    forall m.
     ( IsConsensusV1 (MPV m),
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
@@ -508,7 +511,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 --    block.
                                 -- This implies that the block is in the epoch after the last
                                 -- finalized block.
-                                newBlock <- addBlock pendingBlock blockState parent energyUsed
+                                newBlock <- addBlock @m pendingBlock blockState parent energyUsed
                                 let certifiedParent =
                                         CertifiedBlock
                                             { cbQuorumCertificate = blockQuorumCertificate pendingBlock,
@@ -752,35 +755,63 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 <> show failureReason
                         flag (BlockExecutionFailure sBlock)
                         rejectBlock
-                    Right (newState, energyUsed) -> do
-                        outcomesHash <- getTransactionOutcomesHash newState
-                        if
-                            | outcomesHash /= blockTransactionOutcomesHash pendingBlock -> do
-                                -- Incorrect transaction outcomes
-                                logEvent Konsensus LLTrace $
-                                    "Block "
-                                        <> show pbHash
-                                        <> " stated transaction outcome hash ("
-                                        <> show (blockTransactionOutcomesHash pendingBlock)
-                                        <> ") does not match computed value ("
-                                        <> show outcomesHash
-                                        <> ")."
-                                flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
-                                rejectBlock
-                            | getHash newState /= blockStateHash pendingBlock -> do
-                                -- Incorrect state hash
-                                logEvent Konsensus LLTrace $
-                                    "Block "
-                                        <> show pbHash
-                                        <> " stated state hash ("
-                                        <> show (blockStateHash pendingBlock)
-                                        <> ") does not match computed value ("
-                                        <> show (getHash newState :: StateHash)
-                                        <> ")."
-                                flag $ BlockInvalidStateHash sBlock (bpBlock parent)
-                                rejectBlock
-                            | otherwise ->
-                                continue newState energyUsed
+                    Right (newState, energyUsed) ->
+                        case blockDerivableHashes pendingBlock of
+                            DerivableBlockHashesV0
+                                { dbhv0TransactionOutcomesHash = pendingBlockTxOutcomesHash,
+                                  dbhv0BlockStateHash = pendingBlockStateHash
+                                } -> do
+                                    -- Prior to PV7 the transaction outcome was tracked separate from
+                                    -- the state hash, meaning both have to be checked here.
+                                    outcomesHash <- getTransactionOutcomesHash newState
+                                    if
+                                        | outcomesHash /= pendingBlockTxOutcomesHash -> do
+                                            -- Incorrect transaction outcomes
+                                            logEvent Konsensus LLTrace $
+                                                "Block "
+                                                    <> show pbHash
+                                                    <> " stated transaction outcome hash ("
+                                                    <> show pendingBlockTxOutcomesHash
+                                                    <> ") does not match computed value ("
+                                                    <> show outcomesHash
+                                                    <> ")."
+                                            flag $ BlockInvalidTransactionOutcomesHash sBlock (bpBlock parent)
+                                            rejectBlock
+                                        | getHash newState /= pendingBlockStateHash -> do
+                                            -- Incorrect state hash
+                                            logEvent Konsensus LLTrace $
+                                                "Block "
+                                                    <> show pbHash
+                                                    <> " stated state hash ("
+                                                    <> show pendingBlockStateHash
+                                                    <> ") does not match computed value ("
+                                                    <> show (getHash newState :: StateHash)
+                                                    <> ")."
+                                            flag $ BlockInvalidStateHash sBlock (bpBlock parent)
+                                            rejectBlock
+                                        | otherwise ->
+                                            continue newState energyUsed
+                            DerivableBlockHashesV1{dbhv1BlockResultHash = pendingBlockResultHash} -> do
+                                -- Starting from P7 the baked block only contains a block result hash
+                                -- which is computed from transaction outcomes, the block state hash
+                                -- and more.
+                                let relativeBlockHeight = 1 + blockHeight parent
+                                let pendingBlockEpoch = blockEpoch pendingBlock
+                                computedResultHash <- computeBlockResultHash newState relativeBlockHeight pendingBlockEpoch
+                                if computedResultHash /= pendingBlockResultHash
+                                    then do
+                                        -- Incorrect block result hash
+                                        logEvent Konsensus LLTrace $
+                                            "Block "
+                                                <> show pbHash
+                                                <> " stated result hash ("
+                                                <> show pendingBlockResultHash
+                                                <> ") does not match computed value ("
+                                                <> show computedResultHash
+                                                <> ")."
+                                        flag $ BlockInvalidResultHash sBlock (bpBlock parent)
+                                        rejectBlock
+                                    else continue newState energyUsed
     getParentBakersAndFinalizers continue
         | blockEpoch parent == blockEpoch pendingBlock = continue vbBakersAndFinalizers
         | otherwise =
@@ -1145,6 +1176,7 @@ prepareBakeBlockInputs = runMaybeT $ do
 
 -- | Construct a block given 'BakeBlockInputs'.
 bakeBlock ::
+    forall m.
     ( MonadState (SkovData (MPV m)) m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
@@ -1189,8 +1221,16 @@ bakeBlock BakeBlockInputs{..} = do
     updateFocusBlockTo bbiParent
     ptt <- use pendingTransactionTable
     (filteredTransactions, newState, energyUsed) <- constructBlockState runtime tt ptt executionData
-    bbTransactionOutcomesHash <- getTransactionOutcomesHash newState
-    bbStateHash <- getStateHash newState
+    bbDerivableHashes <- case blockHashVersion @(BlockHashVersionFor (MPV m)) of
+        SBlockHashVersion0 -> do
+            dbhv0TransactionOutcomesHash <- getTransactionOutcomesHash newState
+            dbhv0BlockStateHash <- getStateHash newState
+            return $ DerivableBlockHashesV0{..}
+        SBlockHashVersion1 -> do
+            let relativeBlockHeight = 1 + blockHeight bbiParent
+            currentEpoch <- use (roundStatus . rsCurrentEpoch)
+            dbhv1BlockResultHash <- computeBlockResultHash newState relativeBlockHeight currentEpoch
+            return $ DerivableBlockHashesV1{..}
     let bakedBlock =
             BakedBlock
                 { bbRound = bbiRound,
@@ -1228,6 +1268,64 @@ bakeBlock BakeBlockInputs{..} = do
     transactionTable .=! newTT
     pendingTransactionTable .=! newPTT
     return signedBlock
+
+-- | Extract information from SkovData and the block state to compute the result block hash.
+computeBlockResultHash ::
+    forall m.
+    ( MonadState (SkovData (MPV m)) m,
+      BlockStateStorage m,
+      BlockState m ~ HashedPersistentBlockState (MPV m),
+      IsConsensusV1 (MPV m)
+    ) =>
+    -- | The block state right after executing the block.
+    HashedPersistentBlockState (MPV m) ->
+    -- | The relative block height for the block.
+    BlockHeight ->
+    -- | The epoch of the block.
+    Epoch ->
+    m BlockResultHash
+computeBlockResultHash newState relativeBlockHeight currentEpoch = do
+    theBlockStateHash <- getStateHash newState
+    transactionOutcomesHash <- getTransactionOutcomesHash newState
+    currentFinalizationCommitteeHash <- do
+        -- Attempt to get the current finalization committee from SkovData otherwise compute it from the
+        -- information in the block state.
+        currentSkovBakersAndFinalizers <- gets (getBakersForEpoch currentEpoch)
+        case currentSkovBakersAndFinalizers of
+            Just bakersAndFinalizers -> return $ bakersAndFinalizers ^. bfFinalizerHash
+            Nothing -> do
+                currentFullBakers <- getCurrentEpochBakers newState
+                currentFinalizationParameters <- getCurrentEpochFinalizationCommitteeParameters newState
+                let nextFinalizationCommittee = computeFinalizationCommittee currentFullBakers currentFinalizationParameters
+                return $ computeFinalizationCommitteeHash nextFinalizationCommittee
+    nextFinalizationCommitteeHash <- do
+        -- Attempt to get the next finalization committee from SkovData otherwise compute it from the
+        -- information in the block state.
+        nextSkovBakersAndFinalizers <- gets (getBakersForEpoch (currentEpoch + 1))
+        case nextSkovBakersAndFinalizers of
+            Just bakersAndFinalizers -> return $ bakersAndFinalizers ^. bfFinalizerHash
+            Nothing -> do
+                nextFullBakers <- getNextEpochBakers newState
+                nextFinalizationParameters <- getNextEpochFinalizationCommitteeParameters newState
+                let nextFinalizationCommittee = computeFinalizationCommittee nextFullBakers nextFinalizationParameters
+                return $ computeFinalizationCommitteeHash nextFinalizationCommittee
+    blockHeightInfo <- do
+        genesisBlockHeightInfo <- use genesisBlockHeight
+        return
+            BlockHeightInfo
+                { bhiAbsoluteBlockHeight = localToAbsoluteBlockHeight (gbhiAbsoluteHeight genesisBlockHeightInfo) relativeBlockHeight,
+                  bhiGenesisIndex = gbhiGenesisIndex genesisBlockHeightInfo,
+                  bhiRelativeBlockHeight = relativeBlockHeight
+                }
+    return $
+        makeBlockResultHash
+            BlockResultHashInput
+                { shiBlockStateHash = theBlockStateHash,
+                  shiTransationOutcomesHash = transactionOutcomesHash,
+                  shiCurrentFinalizationCommitteeHash = currentFinalizationCommitteeHash,
+                  shiNextFinalizationCommitteeHash = nextFinalizationCommitteeHash,
+                  shiBlockHeightInfo = blockHeightInfo
+                }
 
 -- | Try to make a block, distribute it on the network and sign it as a finalizer.
 --  This function should be called after any operation that can advance the current round to

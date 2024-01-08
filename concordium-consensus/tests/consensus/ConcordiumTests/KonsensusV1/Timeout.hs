@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 -- | Module testing functions from the 'Concordium.KonsensusV1.Consensus.Timeout' module.
@@ -41,7 +43,8 @@ import Concordium.Types
 import Concordium.Types.BakerIdentity
 import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Option
-import ConcordiumTests.KonsensusV1.Common
+import Concordium.Types.Parameters
+import qualified ConcordiumTests.KonsensusV1.Common as Common
 import ConcordiumTests.KonsensusV1.TreeStateTest hiding (tests)
 import ConcordiumTests.KonsensusV1.Types hiding (tests)
 
@@ -54,9 +57,12 @@ testUpdateCurrentTimeout baseTimeout timeoutIncrease expectedTimeout = do
     let actualTimeout = updateCurrentTimeout timeoutIncrease baseTimeout
     assertEqual "Timeout duration should be correct" expectedTimeout actualTimeout
 
-genesisData :: GenesisData 'P6
-bakers :: [(BakerIdentity, FullBakerInfo)]
-(genesisData, bakers, _) =
+genesisDataV1 ::
+    forall pv.
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    SProtocolVersion pv ->
+    (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
+genesisDataV1 sProtocolVersion =
     makeGenesisDataV1
         0
         5
@@ -66,7 +72,7 @@ bakers :: [(BakerIdentity, FullBakerInfo)]
         Dummy.dummyArs
         [ foundationAcct
         ]
-        Dummy.dummyKeyCollection
+        (withIsAuthorizationsVersionForPV sProtocolVersion Dummy.dummyKeyCollection)
         Dummy.dummyChainParameters
   where
     foundationAcct =
@@ -75,20 +81,34 @@ bakers :: [(BakerIdentity, FullBakerInfo)]
             (Dummy.deterministicKP 0)
             (Dummy.accountAddressFrom 0)
 
-genesisHash :: BlockHash
-genesisHash = genesisBlockHash genesisData
+genesisData ::
+    forall pv.
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    SProtocolVersion pv ->
+    GenesisData pv
+genesisData sProtocolVersion = let (genData, _, _) = genesisDataV1 sProtocolVersion in genData
+
+bakers ::
+    forall pv.
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    SProtocolVersion pv ->
+    [(BakerIdentity, FullBakerInfo)]
+bakers sProtocolVersion = let (_, theBakers, _) = genesisDataV1 sProtocolVersion in theBakers
+
+genesisHash :: (IsProtocolVersion pv, IsConsensusV1 pv) => SProtocolVersion pv -> BlockHash
+genesisHash = genesisBlockHash . genesisData
 
 sigThreshold :: Rational
 sigThreshold = 2 % 3
 
 -- | Generate a timeout message signed by the finalizer with the finalizer index @fid@ from
 --  'bakers' above in epoch @e@ with a qc epoch @qce@.
-dummyTimeoutMessage' :: Int -> Epoch -> Epoch -> TimeoutMessage
-dummyTimeoutMessage' fid e qce =
-    signTimeoutMessage timeoutMessageBody genesisHash $
+dummyTimeoutMessage' :: (IsProtocolVersion pv, IsConsensusV1 pv) => SProtocolVersion pv -> Int -> Epoch -> Epoch -> TimeoutMessage
+dummyTimeoutMessage' sProtocolVersion fid e qce =
+    signTimeoutMessage timeoutMessageBody (genesisHash sProtocolVersion) $
         bakerSignKey $
             fst $
-                bakers !! fid
+                bakers sProtocolVersion !! fid
   where
     timeoutMessageBody =
         TimeoutMessageBody
@@ -102,20 +122,25 @@ dummyTimeoutMessage' fid e qce =
         signTimeoutSignatureMessage dummyTimeoutSigMessage $
             bakerAggregationKey $
                 fst $
-                    bakers !! fid
+                    bakers sProtocolVersion !! fid
     dummyTimeoutSigMessage =
         TimeoutSignatureMessage
-            { tsmGenesis = genesisBlockHash genesisData,
+            { tsmGenesis = genesisBlockHash (genesisData sProtocolVersion),
               tsmRound = 1,
               tsmQCRound = 0,
               tsmQCEpoch = 0
             }
-    quorumCert = QuorumCertificate genesisHash 0 qce mempty $ FinalizerSet 0
+    quorumCert = QuorumCertificate (genesisHash sProtocolVersion) 0 qce mempty $ FinalizerSet 0
 
 -- | Generate a timeout message signed by the finalizer index @fid@ from
 --  'bakers' above in epoch @e@ and qc epoch @e@.
-dummyTimeoutMessage :: Int -> Epoch -> TimeoutMessage
-dummyTimeoutMessage fid e = dummyTimeoutMessage' fid e e
+dummyTimeoutMessage ::
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    SProtocolVersion pv ->
+    Int ->
+    Epoch ->
+    TimeoutMessage
+dummyTimeoutMessage sProtocolVersion fid e = dummyTimeoutMessage' sProtocolVersion fid e e
 
 -- | Test the function 'uponTimeoutEvent' using the baker context of the finalizer with index 0 from
 --  @bakers@. This tests the following:
@@ -124,9 +149,13 @@ dummyTimeoutMessage fid e = dummyTimeoutMessage' fid e e
 --  * that 'sendTimeoutMessage' has been called with the expected timeout message.
 --  * that the field @receivedTimeoutMessages@ of 'SkovData' has been updated with
 --    expected timeout message (via the call to 'processTimeout').
-testUponTimeoutEvent :: Assertion
-testUponTimeoutEvent = do
-    runTestMonad baker testTime genesisData $ do
+testUponTimeoutEvent ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testUponTimeoutEvent sProtocolVersion = it "Test uponTimeoutEvent" $ do
+    runTestMonad @pv baker testTime (genesisData sProtocolVersion) $ do
         lastSigned <- use $ persistentRoundStatus . prsLastSignedTimeoutMessage
         liftIO $ assertEqual "last signed timeout message should be absent" Absent lastSigned
         (_, events) <- listen uponTimeoutEvent
@@ -150,12 +179,12 @@ testUponTimeoutEvent = do
                 expectedMessages
                 receivedMessages
   where
-    baker = BakerContext $ Just $ fst $ head bakers
+    baker = BakerContext $ Just $ fst $ head (bakers sProtocolVersion)
     testTime = timestampToUTCTime 1_000
     expectedMessages =
         Present $
             TimeoutMessages 0 (Map.singleton (FinalizerIndex 0) expectedMessage) Map.empty
-    expectedMessage = dummyTimeoutMessage 0 0
+    expectedMessage = dummyTimeoutMessage sProtocolVersion 0 0
 
 -- | Test 'processTimeout'.
 --  The following is tested before receival of enough timeout messages to form a valid TC:
@@ -167,14 +196,18 @@ testUponTimeoutEvent = do
 --  * that the round is indeed advanced
 --  * that the field @rsPreviousRoundTC@ is set with a valid TC
 --  * that the field @receivedTimeoutMessages@ of 'SkovData' is now @Absent@
-testProcessTimeout :: Assertion
-testProcessTimeout = do
-    runTestMonad noBaker testTime genesisData $ do
+testProcessTimeout ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testProcessTimeout sProtocolVersion = it "Test processTimeout" $ do
+    runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
         currentRound <- use $ roundStatus . rsCurrentRound
         liftIO $ assertEqual "Round should be 1" 1 currentRound
-        let message1 = dummyTimeoutMessage 0 0
-        let message2 = dummyTimeoutMessage 2 0
-        let message3 = dummyTimeoutMessage 4 0
+        let message1 = dummyTimeoutMessage sProtocolVersion 0 0
+        let message2 = dummyTimeoutMessage sProtocolVersion 2 0
+        let message3 = dummyTimeoutMessage sProtocolVersion 4 0
         processTimeout message1
 
         actualMessages <- use currentTimeoutMessages
@@ -238,128 +271,133 @@ testProcessTimeout = do
                 finComm <- use $ skovEpochBakers . currentEpochBakers . bfFinalizers
                 liftIO $
                     assertBool "TC should be valid" $
-                        checkTimeoutCertificate genesisHash sigThreshold finComm finComm finComm tc
+                        checkTimeoutCertificate (genesisHash sProtocolVersion) sigThreshold finComm finComm finComm tc
   where
     noBaker = BakerContext Nothing
     testTime = timestampToUTCTime 1_000
 
 -- | Test 'updateTimeoutMessages'.
-testUpdateTimeoutMessages :: Spec
-testUpdateTimeoutMessages =
+testUpdateTimeoutMessages :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testUpdateTimeoutMessages sProtocolVersion =
     describe "Test updateTimeoutMessages" $ do
         it "Adding message, no messages already stored" $
             assertEqual "Should get stored" (Just messages1) $
                 updateTimeoutMessages Absent $
-                    dummyTimeoutMessage 0 0
+                    dummyTimeoutMessage sProtocolVersion 0 0
         it "Adding message in first epoch, where one message is already stored in first epoch." $
             assertEqual "Should get stored" (Just messages2) $
                 updateTimeoutMessages (Present messages1) $
-                    dummyTimeoutMessage 1 0
+                    dummyTimeoutMessage sProtocolVersion 1 0
         it "Adding message in first epoch + 1, where the qc is in epoch." $
             assertEqual "Should get stored" (Just messages3') $
                 updateTimeoutMessages (Present messages1) $
-                    dummyTimeoutMessage' 1 1 0
+                    dummyTimeoutMessage' sProtocolVersion 1 1 0
         it "Adding message in first epoch + 1, where one message is already stored in first epoch." $
             assertEqual "Should get stored" (Just messages3) $
                 updateTimeoutMessages (Present messages1) $
-                    dummyTimeoutMessage 1 1
+                    dummyTimeoutMessage sProtocolVersion 1 1
         it "Adding message in first epoch, where messages are already stored in both epochs." $
             assertEqual "Should get stored" (Just messages4) $
                 updateTimeoutMessages (Present messages3) $
-                    dummyTimeoutMessage 2 0
+                    dummyTimeoutMessage sProtocolVersion 2 0
         it "Adding message in first epoch + 1 = second epoch, where messages are already stored in both epochs." $
             assertEqual "Should get stored" (Just messages4') $
                 updateTimeoutMessages (Present messages3) $
-                    dummyTimeoutMessage 2 1
+                    dummyTimeoutMessage sProtocolVersion 2 1
         it "Adding message in first epoch + 2, where one message is already stored in first epoch." $
             assertEqual "Should get stored" (Just messages5) $
                 updateTimeoutMessages (Present messages1) $
-                    dummyTimeoutMessage 1 2
+                    dummyTimeoutMessage sProtocolVersion 1 2
         it "Adding message in first epoch + 2, where messages are already stored in both epochs." $
             assertEqual "Should get stored" (Just messages5') $
                 updateTimeoutMessages (Present messages3) $
-                    dummyTimeoutMessage 2 2
+                    dummyTimeoutMessage sProtocolVersion 2 2
         it "Adding message in first epoch + 3, where one message is already stored in first epoch." $
             assertEqual "Should get stored" (Just messages5'') $
                 updateTimeoutMessages (Present messages1) $
-                    dummyTimeoutMessage 3 3
+                    dummyTimeoutMessage sProtocolVersion 3 3
         it "Adding message in first epoch + 3, where messages are already stored in both epochs." $
             assertEqual "Should get stored" (Just messages5'') $
                 updateTimeoutMessages (Present messages3) $
-                    dummyTimeoutMessage 3 3
+                    dummyTimeoutMessage sProtocolVersion 3 3
         it "Adding message in first epoch - 1, where one message is already stored in first epoch." $
             assertEqual "Should get stored" (Just messages6) $
                 updateTimeoutMessages (Present messages5) $
-                    dummyTimeoutMessage 0 1
+                    dummyTimeoutMessage sProtocolVersion 0 1
         it "Adding message in first epoch - 1, where messages are already stored in both epochs." $
             assertEqual "Should not get stored" Nothing $
                 updateTimeoutMessages (Present messages5') $
-                    dummyTimeoutMessage 0 0
+                    dummyTimeoutMessage sProtocolVersion 0 0
         it "Adding message in first epoch - 2, where messages are already stored in both epochs." $
             assertEqual "Should not get stored" Nothing $
                 updateTimeoutMessages (Present messages5) $
-                    dummyTimeoutMessage 0 0
+                    dummyTimeoutMessage sProtocolVersion 0 0
   where
     messages6 =
         TimeoutMessages
-            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage 1 2)],
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 1)],
+            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage sProtocolVersion 1 2)],
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage sProtocolVersion 0 1)],
               tmFirstEpoch = 1
             }
     messages5'' =
         TimeoutMessages
             { tmSecondEpochTimeouts = Map.empty,
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 3, dummyTimeoutMessage 3 3)],
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 3, dummyTimeoutMessage sProtocolVersion 3 3)],
               tmFirstEpoch = 3
             }
     messages5' =
         TimeoutMessages
-            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 2, dummyTimeoutMessage 2 2)],
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage 1 1)],
+            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 2, dummyTimeoutMessage sProtocolVersion 2 2)],
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage sProtocolVersion 1 1)],
               tmFirstEpoch = 1
             }
     messages5 =
         TimeoutMessages
             { tmSecondEpochTimeouts = Map.empty,
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage 1 2)],
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage sProtocolVersion 1 2)],
               tmFirstEpoch = 2
             }
     messages4' =
         TimeoutMessages
-            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage 1 1), (FinalizerIndex 2, dummyTimeoutMessage 2 1)],
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 0)],
+            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage sProtocolVersion 1 1), (FinalizerIndex 2, dummyTimeoutMessage sProtocolVersion 2 1)],
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage sProtocolVersion 0 0)],
               tmFirstEpoch = 0
             }
     messages4 =
         TimeoutMessages
-            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage 1 1)],
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 0), (FinalizerIndex 2, dummyTimeoutMessage 2 0)],
+            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage sProtocolVersion 1 1)],
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage sProtocolVersion 0 0), (FinalizerIndex 2, dummyTimeoutMessage sProtocolVersion 2 0)],
               tmFirstEpoch = 0
             }
     messages3' =
         TimeoutMessages
             { tmSecondEpochTimeouts = Map.empty,
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 0), (FinalizerIndex 1, dummyTimeoutMessage' 1 1 0)],
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage sProtocolVersion 0 0), (FinalizerIndex 1, dummyTimeoutMessage' sProtocolVersion 1 1 0)],
               tmFirstEpoch = 0
             }
     messages3 =
         TimeoutMessages
-            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage 1 1)],
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 0)],
+            { tmSecondEpochTimeouts = Map.fromList [(FinalizerIndex 1, dummyTimeoutMessage sProtocolVersion 1 1)],
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage sProtocolVersion 0 0)],
               tmFirstEpoch = 0
             }
     messages2 =
         TimeoutMessages
             { tmSecondEpochTimeouts = Map.empty,
-              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage 0 0), (FinalizerIndex 1, dummyTimeoutMessage 1 0)],
+              tmFirstEpochTimeouts = Map.fromList [(FinalizerIndex 0, dummyTimeoutMessage sProtocolVersion 0 0), (FinalizerIndex 1, dummyTimeoutMessage sProtocolVersion 1 0)],
               tmFirstEpoch = 0
             }
-    messages1 = TimeoutMessages 0 (Map.singleton (FinalizerIndex 0) $ dummyTimeoutMessage 0 0) Map.empty
+    messages1 = TimeoutMessages 0 (Map.singleton (FinalizerIndex 0) $ dummyTimeoutMessage sProtocolVersion 0 0) Map.empty
 
 -- | Test the 'receiveTimeoutMessage' function which partially verifies
 --  a 'TimeoutMessage'.
-testReceiveTimeoutMessage :: Spec
-testReceiveTimeoutMessage = describe "Receive timeout message" $ do
+testReceiveTimeoutMessage ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testReceiveTimeoutMessage sProtocolVersion =
+    describe "Receive timeout message" $ do
     it "rejects obsolete round" $ receiveAndCheck sd obsoleteRoundMessage $ Rejected ObsoleteRound
     it "rejects obsolete qc" $ receiveAndCheck sd obsoleteQCMessage $ Rejected ObsoleteQC
     it "initializes catch-up upon future epoch" $ receiveAndCheck sd futureEpochTM CatchupRequired
@@ -376,7 +414,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     it "received a valid timeout message" $
         receiveAndCheck sd validTimeoutMessage $
             Received $
-                PartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers True (Present $ someBlockPointer liveBlockHash 1 0)
+                    PartiallyVerifiedTimeoutMessage validTimeoutMessage finalizers True (Present $ Common.someBlockPointer sProtocolVersion liveBlockHash 1 0)
   where
     -- A valid timeout message that should pass the initial verification.
     -- This is sent from finalizer with index 2.
@@ -439,7 +477,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- Create a valid timeout signature.
     validTimeoutSignature fidx r qr qe = signTimeoutSignatureMessage (TimeoutSignatureMessage genesisBlkHash (Round r) qr qe) (blsPrivateKey fidx)
     -- sign and create a timeout message.
-    mkTimeoutMessage body = signTimeoutMessage body genesisBlkHash $ sigKeyPair' (fromIntegral $ theFinalizerIndex $ tmFinalizerIndex body)
+    mkTimeoutMessage body = signTimeoutMessage body genesisBlkHash $ Common.sigKeyPair' (fromIntegral $ theFinalizerIndex $ tmFinalizerIndex body)
     -- A block hash for a block marked as pending.
     pendingBlockHash = BlockHash $ Hash.hash "A pending block"
     -- A block hash for a block marked as dead.
@@ -461,15 +499,19 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
     -- @liveBlockHash@.
     anotherLiveBlock = BlockHash $ Hash.hash "another live block"
     -- A block that is recorded as live in the tree state
-    liveBlock = someBlockPointer liveBlockHash 3 0
+    liveBlock = Common.someBlockPointer sProtocolVersion liveBlockHash 3 0
     -- FinalizerInfo for the finalizer index provided.
     -- All finalizers has the same keys attached.
     fi :: Word32 -> FinalizerInfo
-    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 (sigPublicKey' (fromIntegral fIdx)) vrfPublicKey (blsPublicKey fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 (Common.sigPublicKey' (fromIntegral fIdx)) vrfPublicKey (blsPublicKey fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- COnstruct the finalization committee
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
     -- Construct a set of 0 bakers and 3 finalisers with indices 0,1,2.
-    bakersAndFinalizers = BakersAndFinalizers (FullBakers Vec.empty 0) finalizers
+    bakersAndFinalizers =
+        BakersAndFinalizers
+            (FullBakers Vec.empty 0)
+            finalizers
+            (computeFinalizationCommitteeHash finalizers)
     -- A tree state where the following applies:
     -- - Current round is 2
     -- - Current epoch is 0
@@ -480,7 +522,7 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
             & roundStatus . rsCurrentRound .~ Round 2
             & roundStatus . rsCurrentEpoch .~ 0
             & genesisMetadata %~ (\existingGenesis -> existingGenesis{gmCurrentGenesisHash = genesisBlkHash, gmFirstGenesisHash = genesisBlkHash})
-            & lastFinalized .~ myBlockPointer (Round 1) 0
+            & lastFinalized .~ Common.myBlockPointer sProtocolVersion (Round 1) 0
             & skovEpochBakers . currentEpochBakers .~ bakersAndFinalizers
             & skovEpochBakers . previousEpochBakers .~ bakersAndFinalizers
             & blockTable . deadBlocks %~ insertDeadCache deadBlockHash
@@ -491,10 +533,11 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
             & currentTimeoutMessages .~ Present (TimeoutMessages 0 (Map.singleton (FinalizerIndex 1) duplicateMessage) Map.empty)
     -- A low level database which consists of a finalized block for height 0 otherwise empty.
     lldb =
-        let myLLDB = lldbWithGenesis
+        let myLLDB = lldbWithGenesis @pv
         in  myLLDB{lldbBlocks = HM.singleton someOldFinalizedBlockHash $ toStoredBlock (dummyBlock 20)}
     -- receive the timeout message in the provided tree state context and
     -- check that the result is as expected.
+    receiveAndCheck :: SkovData pv -> TimeoutMessage -> ReceiveTimeoutMessageResult pv -> Expectation
     receiveAndCheck skovData tm expect = do
         resultCode <- runTestLLDB lldb $ receiveTimeoutMessage tm skovData
         resultCode `shouldBe` expect
@@ -502,8 +545,9 @@ testReceiveTimeoutMessage = describe "Receive timeout message" $ do
 -- | Tests for executing timeout messages.
 --  The @executeTimeoutMessage@ executes a 'TimeoutMessage' which is partially verified
 --  by @receiveTimeoutMessage@.
-testExecuteTimeoutMessages :: Spec
-testExecuteTimeoutMessages = describe "execute timeout messages" $ do
+testExecuteTimeoutMessages :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testExecuteTimeoutMessages sProtocolVersion =
+    describe "execute timeout messages" $ do
     it "rejects message with invalid bls signature" $ execute invalidAggregateSignature InvalidAggregateSignature
     it "accepts message where there is already checked a valid qc for the round" $ execute validMessageAbsentQCPointer ExecutionSuccess
     it "rejects message with invalid qc signature (qc round is better than recorded highest qc)" $ execute invalidQCTimeoutMessage $ InvalidQC $ someInvalidQC 2 0
@@ -519,12 +563,18 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- - current round is 2
     -- - highest QC seen is round 1 and epoch 0
     -- - a qc for round 1 epoch 0 has been checked (witnessed)
-    execute timeoutMessage expect = runTestMonad @'P6 noBaker time myGenesisData $ do
+    execute :: PartiallyVerifiedTimeoutMessage pv -> ExecuteTimeoutMessageResult -> Assertion
+    execute timeoutMessage expect = runTestMonad @pv noBaker time myGenesisData $ do
         -- Set the highest qc to round 1 epoch 0.
         roundStatus . rsHighestCertifiedBlock
             .= CertifiedBlock
                 { cbQuorumCertificate = someQC (Round 1) 0,
-                  cbQuorumBlock = someBlockPointer (BlockHash $ Hash.hash "quorum block hash") 0 1
+                  cbQuorumBlock =
+                    Common.someBlockPointer
+                        sProtocolVersion
+                        (BlockHash $ Hash.hash "quorum block hash")
+                        0
+                        1
                 }
         -- Set the current round to round 2.
         roundStatus . rsCurrentRound .= Round 2
@@ -537,7 +587,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- the finalizer with the provided finalizer index.
     -- Note that all finalizers use the same keys.
     fi :: Word32 -> FinalizerInfo
-    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
+    fi fIdx = FinalizerInfo (FinalizerIndex fIdx) 1 Common.sigPublicKey (VRF.publicKey someVRFKeyPair) (Bls.derivePublicKey $ blsSk fIdx) (BakerId $ AccountIndex $ fromIntegral fIdx)
     -- a qc has already been checked for the round and the @pvtmBlock@ is absent
     validMessageAbsentQCPointer = PartiallyVerifiedTimeoutMessage (validTimeoutMessage 1 1 0) finalizers True Absent
     -- The bls signature will be rejected.
@@ -554,7 +604,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
             { pvtmTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 2 0 (someInvalidQC 2 0),
               pvtmQuorumFinalizers = finalizers,
               pvtmAggregateSignatureValid = True,
-              pvtmBlock = Present $ myBlockPointer 1 0
+              pvtmBlock = Present $ Common.myBlockPointer sProtocolVersion 1 0
             }
     -- wrong epoch
     wrongEpochMessage =
@@ -562,7 +612,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
             { pvtmTimeoutMessage = mkTimeoutMessage $! mkTimeoutMessageBody 2 0 0 (someInvalidQC 0 0),
               pvtmQuorumFinalizers = finalizers,
               pvtmAggregateSignatureValid = True,
-              pvtmBlock = Present $ myBlockPointer 1 0
+              pvtmBlock = Present $ Common.myBlockPointer sProtocolVersion 1 0
             }
     -- the finalization committee.
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2]) 3
@@ -595,7 +645,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- a qc with the empty signature.
     someInvalidQC r e = QuorumCertificate someBlockHash r e (QuorumSignature Bls.emptySignature) $ finalizerSet [FinalizerIndex 1, FinalizerIndex 2, FinalizerIndex 3]
     -- a signed timeout message with the provided body.
-    mkTimeoutMessage body = signTimeoutMessage body genesisBlkHash sigKeyPair
+    mkTimeoutMessage body = signTimeoutMessage body genesisBlkHash Common.sigKeyPair
     -- the foundation account for the genesis data.
     foundationAcct =
         Dummy.createCustomAccount
@@ -605,7 +655,7 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
     -- the genesis data for composing the monad that the computations are run within.
     -- it consists of 3 finalizers with indices 0,1,2
     (myGenesisData, _, _) =
-        makeGenesisDataV1 @'P6
+        makeGenesisDataV1 @pv
             (Timestamp 0)
             3
             3_600_000
@@ -614,12 +664,17 @@ testExecuteTimeoutMessages = describe "execute timeout messages" $ do
             Dummy.dummyArs
             [ foundationAcct
             ]
-            Dummy.dummyKeyCollection
+            (withIsAuthorizationsVersionForPV sProtocolVersion Dummy.dummyKeyCollection)
             Dummy.dummyChainParameters
 
 -- | Tests the 'checkTimeoutCertificate' function.
-testCheckTimeoutCertificate :: Spec
-testCheckTimeoutCertificate = describe "check timeout certificate" $ do
+testCheckTimeoutCertificate ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testCheckTimeoutCertificate sProtocolVersion =
+    describe "check timeout certificate" $ do
     it "accepts timeout certificate" checkOkTC
     it "rejects with wrong genesis" wrongGenesis
     it "rejects when there is not enough weight" insufficientWeight
@@ -644,18 +699,25 @@ testCheckTimeoutCertificate = describe "check timeout certificate" $ do
         checkNotOk $ checkTimeoutCertificate okGenesisHash sigThreshold finComm finComm finComm $ invalidSignatureInTC qc
     checkOk = liftIO . assertBool "Check failed"
     checkNotOk b = liftIO . assertBool "Check failed" $ not b
-    runTest = runTestMonad (BakerContext Nothing) (timestampToUTCTime 1_000) TestBlocks.genesisData
-    okGenesisHash = TestBlocks.genesisHash
-    invalidGenesisHash = genesisHash
-    validTCFor qc = TestBlocks.validTimeoutFor qc (Round 1)
+    runTest = runTestMonad (BakerContext Nothing) (timestampToUTCTime 1_000) (TestBlocks.genesisData sProtocolVersion)
+    okGenesisHash = TestBlocks.genesisHash sProtocolVersion
+    invalidGenesisHash = genesisHash sProtocolVersion
+    validTCFor qc = TestBlocks.validTimeoutFor sProtocolVersion qc (Round 1)
     invalidSignatureInTC qc =
         let tc = validTCFor qc
         in  tc{tcAggregateSignature = TimeoutSignature Bls.emptySignature}
 
 tests :: Spec
 tests = describe "KonsensusV1.Timeout" $ do
-    testReceiveTimeoutMessage
-    testExecuteTimeoutMessages
+    Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
+        describe pvString $ do
+            testReceiveTimeoutMessage spv
+            testExecuteTimeoutMessages spv
+            testProcessTimeout spv
+            testUponTimeoutEvent spv
+            testUpdateTimeoutMessages spv
+            testCheckTimeoutCertificate spv
+
     it "Test updateCurrentTimeout" $ do
         testUpdateCurrentTimeout 10_000 (3 % 2) 15_000
         testUpdateCurrentTimeout 10_000 (4 % 3) 13_333
@@ -663,7 +725,3 @@ tests = describe "KonsensusV1.Timeout" $ do
         testUpdateCurrentTimeout 3_000 (4 % 3) 4_000
         testUpdateCurrentTimeout 80_000 (10 % 9) 88_888
         testUpdateCurrentTimeout 8_000 (8 % 7) 9_142
-    it "Test processTimeout" testProcessTimeout
-    it "Test uponTimeoutEvent" testUponTimeoutEvent
-    testUpdateTimeoutMessages
-    testCheckTimeoutCertificate

@@ -408,6 +408,7 @@ blobBSFileLength BlobStoreAccess{..} = mask $ \restore -> do
 readBlobBS :: BlobStoreAccess -> BlobRef a -> IO BS.ByteString
 readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
     let ioffset = fromIntegral offset
+    when (ioffset < 0) $ throwIO $ userError "Attempted to read an invalid BlobRef"
     let dataOffset = ioffset + 8
     mmap0 <- readIORef blobStoreMMap
     mmap <-
