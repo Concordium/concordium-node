@@ -383,14 +383,46 @@ makeSuccessorProof (BlockQuasiHash hsh) = SuccessorProof hsh
 
 -- | Compute the 'BlockHash' of a block that is the successor of another block.
 successorBlockHash ::
+    -- | Protocol version in effect
+    SProtocolVersion pv ->
     -- | Block header
     BlockHeader ->
     -- | Successor proof
     SuccessorProof ->
     BlockHash
-successorBlockHash bh = computeBlockHash' bhh . theSuccessorProof
+successorBlockHash spv bh = computeBlockHash' spv bhh . theSuccessorProof
   where
     bhh = getHash bh
+
+-- | A 'ProtoFinalizationEntry' consists of the components of a finalization entry that are
+--  necessary and cannot be derived from invariants. In particular, the successor quorum certificate
+--  is just reduced to the aggregate signature and set of signatories. The successor round, epoch
+--  and block hash can be derived (knowing the protocol version).
+data ProtoFinalizationEntry = ProtoFinalizationEntry
+    { -- | Quorum certificate for the finalized block.
+      pfeFinalizedQuorumCertificate :: !QuorumCertificate,
+      -- | Aggregate signature from the quorum certificate on the successor block.
+      pfeSuccessorAggregateSignature :: !QuorumSignature,
+      -- | Set of finalizers that signed the aggregate signature on the successor block.
+      pfeSuccessorSignatories :: !FinalizerSet,
+      -- | Proof that establishes the successor block is the immediate successor of the finalized
+      --  block (without further knowledge of the successor block beyond its hash).
+      pfeSuccessorProof :: !SuccessorProof
+    }
+    deriving (Eq, Show)
+
+instance Serialize ProtoFinalizationEntry where
+    put ProtoFinalizationEntry{..} = do
+        put pfeFinalizedQuorumCertificate
+        put pfeSuccessorAggregateSignature
+        put pfeSuccessorSignatories
+        put pfeSuccessorProof
+    get = do
+        pfeFinalizedQuorumCertificate <- get
+        pfeSuccessorAggregateSignature <- get
+        pfeSuccessorSignatories <- get
+        pfeSuccessorProof <- get
+        return ProtoFinalizationEntry{..}
 
 -- | A finalization entry that witnesses that a block has been finalized with quorum certificates
 --  for two consecutive rounds. The finalization entry includes a proof that the blocks are in
@@ -401,7 +433,7 @@ successorBlockHash bh = computeBlockHash' bhh . theSuccessorProof
 --  - @qcRound feSuccessorQuorumCertificate == qcRound feFinalizedQuorumCertificate + 1@
 --  - @qcEpoch feSuccessorQuorumCertificate == qcEpoch feFinalizedQuorumCertificate@
 --  - @qcBlock feSuccessorQuorumCertificate == successorBlockHash (BlockHeader (qcRound feSuccessorQuorumCertificate) (qcEpoch feSuccessorQuorumCertificate) (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof@
-data FinalizationEntry = FinalizationEntry
+data FinalizationEntry (pv :: ProtocolVersion) = FinalizationEntry
     { -- | Quorum certificate for the finalized block.
       feFinalizedQuorumCertificate :: !QuorumCertificate,
       -- | Quorum certificate for the successor block.
@@ -412,45 +444,73 @@ data FinalizationEntry = FinalizationEntry
     }
     deriving (Eq, Show)
 
-instance Serialize FinalizationEntry where
-    put FinalizationEntry{..} = do
-        put feFinalizedQuorumCertificate
-        let QuorumCertificate{..} = feSuccessorQuorumCertificate
-        put qcAggregateSignature
-        put qcSignatories
-        put feSuccessorProof
-    get = do
-        feFinalizedQuorumCertificate <- get
-        qcAggregateSignature <- get
-        qcSignatories <- get
-        feSuccessorProof <- get
-        let sqcRound = qcRound feFinalizedQuorumCertificate + 1
-        let sqcEpoch = qcEpoch feFinalizedQuorumCertificate
-        let feSuccessorQuorumCertificate =
-                QuorumCertificate
-                    { qcRound = sqcRound,
-                      qcEpoch = sqcEpoch,
-                      qcBlock =
-                        successorBlockHash
-                            ( BlockHeader
-                                sqcRound
-                                sqcEpoch
-                                (qcBlock feFinalizedQuorumCertificate)
-                            )
-                            feSuccessorProof,
-                      ..
-                    }
-        return FinalizationEntry{..}
+-- | Convert a 'FinalizationEntry' to a 'ProtoFinalizationEntry'. This loses redundant information
+--  that can be recovered knowing the protocol version (if the finalization entry is well formed).
+toProtoFinalizationEntry :: FinalizationEntry pv -> ProtoFinalizationEntry
+toProtoFinalizationEntry FinalizationEntry{..} =
+    ProtoFinalizationEntry
+        { pfeFinalizedQuorumCertificate = feFinalizedQuorumCertificate,
+          pfeSuccessorAggregateSignature = qcAggregateSignature feSuccessorQuorumCertificate,
+          pfeSuccessorSignatories = qcSignatories feSuccessorQuorumCertificate,
+          pfeSuccessorProof = feSuccessorProof
+        }
 
-instance HashableTo Hash.Hash (Option FinalizationEntry) where
+-- | Serialize a 'FinalizationEntry'. This is provided separately from the 'Serialize' instance
+--  since it does not depend on the @IsProtocolVersion pv@ constraint.
+putFinalizationEntry :: FinalizationEntry pv -> Put
+putFinalizationEntry = put . toProtoFinalizationEntry
+
+-- | Convert a 'ProtoFinalizationEntry' to a 'FinalizationEntry'. This depends on the protocol
+--  version for deriving the hash of the successor block from the 'ProtoFinalizationEntry' data.
+toFinalizationEntry' :: forall pv. SProtocolVersion pv -> ProtoFinalizationEntry -> FinalizationEntry pv
+toFinalizationEntry' spv ProtoFinalizationEntry{..} =
+    FinalizationEntry
+        { feFinalizedQuorumCertificate = pfeFinalizedQuorumCertificate,
+          feSuccessorQuorumCertificate =
+            QuorumCertificate
+                { qcRound = sqcRound,
+                  qcEpoch = sqcEpoch,
+                  qcBlock =
+                    successorBlockHash
+                        spv
+                        ( BlockHeader
+                            sqcRound
+                            sqcEpoch
+                            (qcBlock pfeFinalizedQuorumCertificate)
+                        )
+                        pfeSuccessorProof,
+                  qcAggregateSignature = pfeSuccessorAggregateSignature,
+                  qcSignatories = pfeSuccessorSignatories
+                },
+          feSuccessorProof = pfeSuccessorProof
+        }
+  where
+    sqcRound = qcRound pfeFinalizedQuorumCertificate + 1
+    sqcEpoch = qcEpoch pfeFinalizedQuorumCertificate
+
+-- | Convert a 'ProtoFinalizationEntry' to a 'FinalizationEntry'. This depends on the protocol
+--  version for deriving the hash of the successor block from the 'ProtoFinalizationEntry' data.
+toFinalizationEntry :: forall pv. (IsProtocolVersion pv) => ProtoFinalizationEntry -> FinalizationEntry pv
+toFinalizationEntry = toFinalizationEntry' protocolVersion
+
+-- | Deserialize a 'FinalizationEntry'. This is provided separately from the 'Serialize' instance
+--  since it takes an 'SProtocolVersion' argument instead of the @IsProtocolVersion pv@ constraint.
+getFinalizationEntry :: SProtocolVersion pv -> Get (FinalizationEntry pv)
+getFinalizationEntry spv = toFinalizationEntry' spv <$> get
+
+instance (IsProtocolVersion pv) => Serialize (FinalizationEntry pv) where
+    put = putFinalizationEntry
+    get = toFinalizationEntry <$> get
+
+instance HashableTo Hash.Hash (Option (FinalizationEntry pv)) where
     getHash Absent = Hash.hash $ encode (0 :: Word8)
     getHash (Present fe) = Hash.hash $ runPut $ do
         putWord8 1
-        put fe
+        putFinalizationEntry fe
 
-instance (Monad m) => Merkle.MerkleProvable m (Option FinalizationEntry) where
+instance (Monad m) => Merkle.MerkleProvable m (Option (FinalizationEntry pv)) where
     buildMerkleProof _ Absent = return [Merkle.RawData (encode (0 :: Word8))]
-    buildMerkleProof _ (Present fe) = return [Merkle.RawData . runPut $ putWord8 1 >> put fe]
+    buildMerkleProof _ (Present fe) = return [Merkle.RawData . runPut $ putWord8 1 >> putFinalizationEntry fe]
 
 -- | Check that a finalization entry is valid. This checks the validity of the two quorum
 --  certificates. Note that the structural invariants on 'FinalizationEntry' enforce the other
@@ -463,7 +523,7 @@ checkFinalizationEntry ::
     -- | Finalization committee
     FinalizationCommittee ->
     -- | Finalization entry to check
-    FinalizationEntry ->
+    FinalizationEntry pv ->
     Bool
 checkFinalizationEntry genHash sigThreshold finCom FinalizationEntry{..} =
     checkQuorumCertificate genHash sigThreshold finCom feFinalizedQuorumCertificate
@@ -858,7 +918,7 @@ class BakedBlockData d where
 
     -- | If this block begins a new epoch, this is the finalization entry that finalizes the
     --  trigger block.
-    blockEpochFinalizationEntry :: d -> Option FinalizationEntry
+    blockEpochFinalizationEntry :: d -> Option (FinalizationEntry (BlockProtocolVersion d))
 
     -- | The 'BlockNonce' generated by the baker's VRF.
     blockNonce :: d -> BlockNonce
@@ -910,7 +970,7 @@ data BakedBlock (pv :: ProtocolVersion) = BakedBlock
       -- | Timeout certificate if the previous round timed-out.
       bbTimeoutCertificate :: !(Option TimeoutCertificate),
       -- | Epoch finalization entry if this is the first block in a new epoch.
-      bbEpochFinalizationEntry :: !(Option FinalizationEntry),
+      bbEpochFinalizationEntry :: !(Option (FinalizationEntry pv)),
       -- | Block nonce generated from the baker's VRF.
       bbNonce :: !BlockNonce,
       -- | Transactions in the block.
@@ -1006,20 +1066,20 @@ putBakedBlock bb@BakedBlock{..} = do
     put bbQuorumCertificate
     put (bakedBlockFlags bb)
     mapM_ put bbTimeoutCertificate
-    mapM_ put bbEpochFinalizationEntry
+    mapM_ putFinalizationEntry bbEpochFinalizationEntry
     putWord64be (fromIntegral (Vector.length bbTransactions))
     mapM_ putBlockItemV0 bbTransactions
 
 -- | Deserialize a 'BakedBlock'. The protocol version is used to determine which transaction
 --  types are allowed in the block.
-getBakedBlock :: SProtocolVersion pv -> TransactionTime -> Get (BakedBlock pv)
-getBakedBlock spv tt = label "BakedBlock" $ do
+getBakedBlock :: forall pv. (IsProtocolVersion pv) => TransactionTime -> Get (BakedBlock pv)
+getBakedBlock tt = label "BakedBlock" $ do
     bbRound <- get
     bbEpoch <- get
     bbTimestamp <- get
     bbBaker <- get
     bbNonce <- get
-    bbDerivableHashes <- getDerivableBlockHashes spv
+    bbDerivableHashes <- getDerivableBlockHashes (protocolVersion @pv)
     bbQuorumCertificate <- get
     BakedBlockFlags{..} <- get
     bbTimeoutCertificate <-
@@ -1044,7 +1104,7 @@ getBakedBlock spv tt = label "BakedBlock" $ do
                 ++ " transactions, but only "
                 ++ show remBytes
                 ++ " bytes remain"
-    bbTransactions <- Vector.replicateM (fromIntegral numTrans) (getBlockItemV0 spv tt)
+    bbTransactions <- Vector.replicateM (fromIntegral numTrans) (getBlockItemV0 (protocolVersion @pv) tt)
     return BakedBlock{..}
 
 -- | A baked block, together with the block hash and block signature.
@@ -1096,7 +1156,7 @@ putSignedBlock SignedBlock{..} = do
 --  are permitted.
 getSignedBlock :: forall pv. (IsProtocolVersion pv) => TransactionTime -> Get (SignedBlock pv)
 getSignedBlock tt = do
-    sbBlock <- getBakedBlock (protocolVersion @pv) tt
+    sbBlock <- getBakedBlock tt
     let sbHash = getHash sbBlock
     sbSignature <- get
     return SignedBlock{..}
@@ -1262,20 +1322,25 @@ instance (IsProtocolVersion pv) => HashableTo SuccessorProof (BakedBlock pv) whe
     getHash = makeSuccessorProof @(BlockHashVersionFor pv) . getHash
 
 -- | Compute the block hash from the header hash and quasi-hash.
-computeBlockHash' :: BlockHeaderHash -> Hash.Hash -> BlockHash
+computeBlockHash' :: SProtocolVersion pv -> BlockHeaderHash -> Hash.Hash -> BlockHash
 {-# INLINE computeBlockHash' #-}
-computeBlockHash' bhh bqh =
-    BlockHash $
+computeBlockHash' spv bhh bqh = BlockHash theHash
+  where
+    preHash =
         Hash.hashOfHashes
             (theBlockHeaderHash bhh)
             bqh
+    pv = demoteProtocolVersion spv
+    theHash
+        | pv < P7 = preHash
+        | otherwise = Hash.hashLazy (runPutLazy $ put pv >> put preHash)
 
 -- | Compute the block hash from the header hash and quasi-hash.
-computeBlockHash :: BlockHeaderHash -> BlockQuasiHash' bhv -> BlockHash
-computeBlockHash bhh bqh = computeBlockHash' bhh (theBlockQuasiHash bqh)
+computeBlockHash :: SProtocolVersion pv -> BlockHeaderHash -> BlockQuasiHash pv -> BlockHash
+computeBlockHash spv bhh bqh = computeBlockHash' spv bhh (theBlockQuasiHash bqh)
 
 instance (IsProtocolVersion pv) => HashableTo BlockHash (BakedBlock pv) where
-    getHash bb = computeBlockHash @(BlockHashVersionFor pv) (getHash bb) (getHash bb)
+    getHash bb = computeBlockHash (protocolVersion @pv) (getHash bb) (getHash bb)
 
 instance (Monad m, BlockHashVersionFor pv ~ 'BlockHashVersion1) => Merkle.MerkleProvable m (BakedBlock pv) where
     buildMerkleProof open BakedBlock{..} = do
@@ -1441,7 +1506,7 @@ unsafeGetBlockKnownHash ts sbHash = do
             (_ :: Round) <- get
             GenesisBlock <$> get
         _ -> do
-            sbBlock <- getBakedBlock (protocolVersion @pv) ts
+            sbBlock <- getBakedBlock ts
             sbSignature <- get
             return $ NormalBlock SignedBlock{..}
 

@@ -61,7 +61,7 @@ class MonadConsensusEvent m where
     --  of all the blocks that are newly finalized.
     onFinalize ::
         -- | Finalization entry that establishes finalization.
-        FinalizationEntry ->
+        FinalizationEntry (MPV m) ->
         -- | List of the newly-finalized blocks by increasing height.
         [BlockPointer (MPV m)] ->
         m ()

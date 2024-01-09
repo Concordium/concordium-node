@@ -315,7 +315,7 @@ handleCatchUpRequest CatchUpStatus{..} skovData = do
     endCatchUp = do
         let cutdLatestFinalizationEntry
                 | cusLastFinalizedRound < skovData ^. lastFinalized . to blockRound =
-                    skovData ^. latestFinalizationEntry
+                    toProtoFinalizationEntry <$> skovData ^. latestFinalizationEntry
                 | otherwise = Absent
         let (cutdHighestQuorumCertificate, cutdTimeoutCertificate)
                 | cusCurrentRound >= ourCurrentRound =
@@ -459,8 +459,8 @@ processCatchUpTerminalData CatchUpTerminalData{..} = flip runContT return $ do
         logEvent Skov LLDebug $ "Rejecting catch-up response: " ++ reason
         return (TerminalDataResultInvalid progress)
     processFE currentProgress Absent = return currentProgress
-    processFE currentProgress (Present latestFinEntry) =
-        lift (catchupFinalizationEntry latestFinEntry) >>= \case
+    processFE currentProgress (Present latestProtoFinEntry) =
+        lift (catchupFinalizationEntry (toFinalizationEntry latestProtoFinEntry)) >>= \case
             CFERSuccess -> return True
             CFERInconsistent -> escape currentProgress "finalization entry is inconsistent with the block it finalizes."
             CFERInvalid -> escape currentProgress "finalization entry is invalid."

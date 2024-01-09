@@ -1623,7 +1623,7 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
                   tcFinalizerQCRoundsSecondEpoch = finalizerRound committee $ SkovV1.tcFinalizerQCRoundsSecondEpoch tc,
                   tcAggregateSignature = QueriesKonsensusV1.TimeoutCertificateSignature . (SkovV1.theTimeoutSignature . SkovV1.tcAggregateSignature) $ tc
                 }
-    mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> Option SkovV1.FinalizationEntry -> Maybe QueriesKonsensusV1.EpochFinalizationEntry
+    mkEpochFinalizationEntryOut :: SkovV1.FinalizationCommittee -> Option (SkovV1.FinalizationEntry pv) -> Maybe QueriesKonsensusV1.EpochFinalizationEntry
     mkEpochFinalizationEntryOut _ Absent = Nothing
     mkEpochFinalizationEntryOut committee (Present SkovV1.FinalizationEntry{..}) =
         Just $

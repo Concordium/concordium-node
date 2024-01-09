@@ -36,7 +36,7 @@ data LowLevelDB pv = LowLevelDB
       -- | Table of finalized transactions by hash.
       lldbTransactions :: !(HM.HashMap TransactionHash FinalizedTransactionStatus),
       -- | The last finalization entry (if any).
-      lldbLatestFinalizationEntry :: !(Maybe FinalizationEntry),
+      lldbLatestFinalizationEntry :: !(Maybe (FinalizationEntry pv)),
       -- | Table of quorum certificates for non-finalized blocks.
       lldbNonFinalizedQuorumCertificates :: !(Map.Map Round QuorumCertificate),
       -- | The current round status.
@@ -74,7 +74,7 @@ doWriteFinalizedBlocks ::
     -- | Newly-finalized blocks in order.
     [StoredBlock pv] ->
     -- | Finalization entry for the last of the finalized blocks.
-    FinalizationEntry ->
+    FinalizationEntry pv ->
     LowLevelDB pv ->
     LowLevelDB pv
 doWriteFinalizedBlocks finBlocks finEntry =

@@ -130,7 +130,7 @@ catchupFinalizationEntry ::
       IsConsensusV1 (MPV m)
     ) =>
     -- | The finalization entry received.
-    FinalizationEntry ->
+    FinalizationEntry (MPV m) ->
     -- | Whether the finalization entry was successfully processed.
     m CatchupFinalizationEntryResult
 catchupFinalizationEntry finEntry = do
@@ -186,7 +186,7 @@ processFinalizationEntry ::
     -- | Pointer to the block that is finalized.
     BlockPointer (MPV m) ->
     -- | Finalization entry for the block.
-    FinalizationEntry ->
+    FinalizationEntry (MPV m) ->
     m ()
 processFinalizationEntry newFinalizedPtr newFinalizationEntry =
     processFinalizationHelper newFinalizedPtr newFinalizationEntry Nothing
@@ -238,7 +238,7 @@ processFinalizationHelper ::
     -- | The newly finalized block.
     BlockPointer (MPV m) ->
     -- | Finalization entry for the block.
-    FinalizationEntry ->
+    FinalizationEntry (MPV m) ->
     -- | Optional newly-certified block to write to the low-level store.
     Maybe (CertifiedBlock (MPV m)) ->
     m ()
@@ -367,7 +367,7 @@ checkedAdvanceEpoch ::
       BlockStateQuery m
     ) =>
     -- | Finalization entry.
-    FinalizationEntry ->
+    FinalizationEntry (MPV m) ->
     -- | The block that becomes finalized.
     BlockPointer (MPV m) ->
     m ()

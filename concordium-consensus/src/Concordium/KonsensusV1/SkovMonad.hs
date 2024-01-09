@@ -156,7 +156,7 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
       --  finalization entry, and the list of all blocks finalized by the entry
       --  in increasing order of block height. It returns a `SkovV1T pv m ()` in order to have
       --  access to the state, in particular whether consensus has shutdown.
-      _onFinalizeHandler :: FinalizationEntry -> [BlockPointer pv] -> SkovV1T pv m (),
+      _onFinalizeHandler :: FinalizationEntry pv -> [BlockPointer pv] -> SkovV1T pv m (),
       -- | An event handler called when a pending block becomes live. This is intended to trigger
       --  sending a catch-up status message to peers, as pending blocks are not relayed when they
       --  are first received.
