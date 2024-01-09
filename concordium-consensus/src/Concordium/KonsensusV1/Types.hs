@@ -1283,15 +1283,17 @@ instance (Monad m, BlockHashVersionFor pv ~ 'BlockHashVersion1) => Merkle.Merkle
                 put bbRound
                 put bbEpoch
                 put (qcBlock bbQuorumCertificate)
-        let timestampBaker = optProof ["quasi", "meta", "bakerInfo", "timestampBaker"] . rawMerkle . runPut $ do
+        let biPath = ["quasi", "meta", "bakerInfo"]
+        let timestampBaker = optProof (biPath ++ ["timestampBaker"]) . rawMerkle . runPut $ do
                 put bbTimestamp
                 put bbBaker
-        let nonce = optProof ["quasi", "meta", "bakerInfo", "nonce"] . rawMerkle . encode $ bbNonce
-        let bakerInfo = optProof ["quasi", "meta", "bakerInfo"] [timestampBaker, nonce]
-        let qcPath = ["quasi", "meta", "certificatesHash", "quorumCertificate"]
+        let nonce = optProof (biPath ++ ["nonce"]) . rawMerkle . encode $ bbNonce
+        let bakerInfo = optProof biPath [timestampBaker, nonce]
+        let chPath = ["quasi", "meta", "certificatesHash"]
+        let qcPath = chPath ++ ["quorumCertificate"]
         qcMerkleProof <- Merkle.buildMerkleProof (open . (qcPath ++)) bbQuorumCertificate
         let qcHash = optProof qcPath qcMerkleProof
-        let tfPath = ["quasi", "meta", "certificatesHash", "timeoutFinalization"]
+        let tfPath = chPath ++ ["timeoutFinalization"]
         let tcPath = tfPath ++ ["timeoutCertificate"]
         tcMerkleProof <- Merkle.buildMerkleProof (open . (tcPath ++)) bbTimeoutCertificate
         let tcHash = optProof tcPath tcMerkleProof
@@ -1299,7 +1301,7 @@ instance (Monad m, BlockHashVersionFor pv ~ 'BlockHashVersion1) => Merkle.Merkle
         efeMerkleProof <- Merkle.buildMerkleProof (open . (efePath ++)) bbEpochFinalizationEntry
         let efeHash = optProof efePath efeMerkleProof
         let tfHash = optProof tfPath [tcHash, efeHash]
-        let certificatesHash = optProof ["quasi", "meta", "certificatesHash"] [qcHash, tfHash]
+        let certificatesHash = optProof chPath [qcHash, tfHash]
         let blockMeta = optProof ["quasi", "meta"] [bakerInfo, certificatesHash]
         let blockData = case bbDerivableHashes of
                 DerivableBlockHashesV1{..} ->
