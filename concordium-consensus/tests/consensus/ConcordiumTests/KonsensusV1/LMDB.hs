@@ -212,7 +212,7 @@ dummyStoredBlocks =
     ]
 
 -- | A FinalizationEntry. Both used by 'writeBlocks' and used when testing 'lookupLatestFinalizationEntry'.
-dummyFinalizationEntry :: FinalizationEntry
+dummyFinalizationEntry :: forall pv. (IsProtocolVersion pv) => FinalizationEntry pv
 dummyFinalizationEntry =
     let feSuccessorProof = SuccessorProof dummyHash
         feFinalizedQuorumCertificate = dummyQC
@@ -220,7 +220,11 @@ dummyFinalizationEntry =
         feSuccessorQuorumCertificate =
             dummyQC
                 { qcRound = succRound,
-                  qcBlock = successorBlockHash (BlockHeader succRound (qcEpoch dummyQC) (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof
+                  qcBlock =
+                    successorBlockHash
+                        (protocolVersion @pv)
+                        (BlockHeader succRound (qcEpoch dummyQC) (qcBlock feFinalizedQuorumCertificate))
+                        feSuccessorProof
                 }
     in  FinalizationEntry{..}
 

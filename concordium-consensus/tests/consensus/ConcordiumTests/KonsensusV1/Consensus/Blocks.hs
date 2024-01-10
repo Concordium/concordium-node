@@ -546,7 +546,7 @@ testBB3EX =
     sProtocolVersion = protocolVersion @pv
 
 -- | Epoch finalization entry based on QCs for 'testBB1E' and 'testBB2E'.
-testEpochFinEntry :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => SProtocolVersion pv -> FinalizationEntry
+testEpochFinEntry :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => SProtocolVersion pv -> FinalizationEntry pv
 testEpochFinEntry _ =
     FinalizationEntry
         { feFinalizedQuorumCertificate = validQCFor @pv testBB1E,

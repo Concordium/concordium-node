@@ -103,8 +103,8 @@ genQuorumMessage = do
 
 -- | Generate a 'FinalizationEntry' suitable for testing serialization.
 --  The result satisfies the invariants.
-genFinalizationEntry :: Gen FinalizationEntry
-genFinalizationEntry = do
+genFinalizationEntry :: SProtocolVersion pv -> Gen (FinalizationEntry pv)
+genFinalizationEntry spv = do
     feFinalizedQuorumCertificate <- genQuorumCertificate
     preQC <- genQuorumCertificate
     feSuccessorProof <- SuccessorProof . Hash.Hash . FBS.pack <$> vector 32
@@ -114,7 +114,11 @@ genFinalizationEntry = do
             preQC
                 { qcRound = succRound,
                   qcEpoch = sqcEpoch,
-                  qcBlock = successorBlockHash (BlockHeader succRound sqcEpoch (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof
+                  qcBlock =
+                    successorBlockHash
+                        spv
+                        (BlockHeader succRound sqcEpoch (qcBlock feFinalizedQuorumCertificate))
+                        feSuccessorProof
                 }
     return FinalizationEntry{..}
 
@@ -290,8 +294,8 @@ propSerializationQuorumMessage :: Property
 propSerializationQuorumMessage = forAll genQuorumMessage serCheck
 
 -- | Test that serializing then deserializing a finalization entry is the identity.
-propSerializeFinalizationEntry :: Property
-propSerializeFinalizationEntry = forAll genFinalizationEntry serCheck
+propSerializeFinalizationEntry :: (IsProtocolVersion pv) => SProtocolVersion pv -> Property
+propSerializeFinalizationEntry spv = forAll (genFinalizationEntry spv) serCheck
 
 -- | Test that serializing then deserializing a timeout certificate is the identity.
 propSerializeTimeoutCertificate :: Property
@@ -306,10 +310,10 @@ propSerializeTimeoutMessage :: Property
 propSerializeTimeoutMessage = forAll genTimeoutMessage serCheck
 
 -- | Test that serializing then deserializing a baked block is the identity.
-propSerializeBakedBlock :: SProtocolVersion pv -> Property
+propSerializeBakedBlock :: (IsProtocolVersion pv) => SProtocolVersion pv -> Property
 propSerializeBakedBlock sProtocolVersion =
     forAll (genBakedBlock sProtocolVersion) $ \bb ->
-        case runGet (getBakedBlock sProtocolVersion (TransactionTime 42)) $! runPut (putBakedBlock bb) of
+        case runGet (getBakedBlock (TransactionTime 42)) $! runPut (putBakedBlock bb) of
             Left _ -> False
             Right bb' -> bb == bb'
 
@@ -436,7 +440,6 @@ tests = describe "KonsensusV1.Types" $ do
     it "FinalizerSet serialization" propSerializeFinalizerSet
     it "QuorumMessage serialization" propSerializationQuorumMessage
     it "QuorumCertificate serialization" propSerializeQuorumCertificate
-    it "FinalizationEntry serialization" propSerializeFinalizationEntry
     it "TimeoutCertificate serialization" propSerializeTimeoutCertificate
     it "TimeoutMessageBody serialization" propSerializeTimeoutMessageBody
     it "TimeoutMessage serialization" propSerializeTimeoutMessage
@@ -453,6 +456,7 @@ tests = describe "KonsensusV1.Types" $ do
     it "Conversion to and from FinalizerSet" propFinalizerListIsInverseOfFinalizerSet
     Common.forEveryProtocolVersionConsensusV1 $ \spv pvString -> do
         describe pvString $ do
+            it "FinalizationEntry serialization" $ propSerializeFinalizationEntry spv
             it "SignedBlock serialization" $ propSerializeSignedBlock spv
             it "BakedBlock serialization" $ propSerializeBakedBlock spv
             it "SignedBlock signature fails with different key" $ propSignBakedBlockDiffKey spv

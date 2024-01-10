@@ -74,6 +74,8 @@ import Concordium.Types.ProtocolVersion
 
 -- | The hash that identifies a update from P6 to P7 protocol.
 --  This is the hash of the published specification document.
+--  Currently, this it the dummy value:
+--  4a875d7b7457b0f077dddeb384a059635d183e198112421e4be884e4cccec3b1
 updateHash :: SHA256.Hash
 updateHash = SHA256.hash "P6.ProtocolP7-placeholder-until-spec-hash-is-known"
 
