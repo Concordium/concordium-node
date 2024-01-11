@@ -12,7 +12,7 @@
 
 -- | This module exposes an account map backed by a LMDB database.
 --  The account map is a simple key/value store where the keys consists of the
---  canonical 'AccountAddress' and the values are the assoicated 'AccountIndex'.
+--  canonical 'AccountAddress' and the values are the associated 'AccountIndex'.
 --
 --  The LMDB account map only stores accounts that are finalized.
 --  Non finalized accounts are being kept in a 'DifferenceMap' which
@@ -34,6 +34,7 @@
 module Concordium.GlobalState.AccountMap.LMDB where
 
 import Control.Concurrent
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.Identity

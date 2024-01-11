@@ -5,6 +5,7 @@
 --  verifying quorum signatures that is used for the consensus v1 protocol.
 module Concordium.KonsensusV1.Consensus.Quorum where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State
 import qualified Data.Map.Strict as Map

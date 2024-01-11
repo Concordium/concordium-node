@@ -596,7 +596,7 @@ testBB3E =
 --  round of the parent block.
 testBB3E' :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
 testBB3E' =
-    testBB3E
+    (testBB3E @pv)
         { bbQuorumCertificate = validQCFor @pv testBB1E,
           bbTimeoutCertificate = Present (validTimeoutFor (protocolVersion @pv) (validQCFor @pv testBB1E) 2)
         }
@@ -1149,8 +1149,8 @@ testReceiveBadFutureEpoch ::
 testReceiveBadFutureEpoch sProtocolVersion =
     it "receive a block in a bad future epoch" $
         runTestMonad @pv noBaker testTime (genesisData sProtocolVersion) $ do
-            invalidReceiveBlock $ signedPB (testBB1{bbEpoch = 500})
-            invalidReceiveBlock $ signedPB (testBB1{bbEpoch = 2})
+            invalidReceiveBlock $ signedPB ((testBB1 @pv){bbEpoch = 500})
+            invalidReceiveBlock $ signedPB ((testBB1 @pv){bbEpoch = 2})
 
 -- | Test receiving a block from a past epoch.
 testReceiveBadPastEpoch ::
@@ -1162,7 +1162,7 @@ testReceiveBadPastEpoch sProtocolVersion =
     it "receive a block in a bad past epoch" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB3E]
-            invalidReceiveBlock $ signedPB testBB4'{bbQuorumCertificate = bbQuorumCertificate (testBB4E @pv)}
+            invalidReceiveBlock $ signedPB (testBB4' @pv){bbQuorumCertificate = bbQuorumCertificate (testBB4E @pv)}
 
 -- | Test receiving a block from future epochs.
 testReceiveBadEpochTransition ::
@@ -1173,7 +1173,7 @@ testReceiveBadEpochTransition ::
 testReceiveBadEpochTransition sProtocolVersion =
     it "receive a block in the next epoch where the transition is not allowed" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
-            invalidReceiveBlock $ signedPB (testBB1{bbEpoch = 1})
+            invalidReceiveBlock $ signedPB ((testBB1 @pv){bbEpoch = 1})
 
 -- | Test receiving a block with an incorrect signature, followed by the same block with the
 --  correct signature.
@@ -1205,7 +1205,7 @@ testReceiveWrongBaker sProtocolVersion =
             let claimedBakerId = 0
             invalidReceiveBlock $
                 signedPB
-                    testBB1
+                    (testBB1 @pv)
                         { bbBaker = claimedBakerId,
                           bbNonce =
                             computeBlockNonce
@@ -1254,7 +1254,7 @@ testReceiveFutureEpochUnknownParent ::
 testReceiveFutureEpochUnknownParent sProtocolVersion =
     it "receive a block with an unknown parent and epoch" $
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
-            pendingReceiveBlock $ signedPB testBB2{bbEpoch = 30}
+            pendingReceiveBlock $ signedPB (testBB2 @pv){bbEpoch = 30}
 
 -- | Test receiving a block where the QC is not consistent with the round of the parent block.
 testReceiveInconsistentQCRound ::
@@ -1268,7 +1268,7 @@ testReceiveInconsistentQCRound sProtocolVersion =
             succeedReceiveBlock $ signedPB testBB1
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB2
+                    (testBB2 @pv)
                         { bbQuorumCertificate = (bbQuorumCertificate (testBB2 @pv)){qcRound = 0}
                         }
 
@@ -1284,7 +1284,7 @@ testReceiveInconsistentQCEpoch sProtocolVersion =
             succeedReceiveBlock $ signedPB testBB1
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB2{bbQuorumCertificate = (bbQuorumCertificate (testBB2 @pv)){qcEpoch = 1}}
+                    (testBB2 @pv){bbQuorumCertificate = (bbQuorumCertificate (testBB2 @pv)){qcEpoch = 1}}
 
 -- | Test receiving a block where the round is earlier than or equal to the round of the parent
 --  block.
@@ -1300,9 +1300,9 @@ testReceiveRoundInconsistent sProtocolVersion =
             -- Earlier round
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB1{bbQuorumCertificate = validQCFor @pv testBB2'}
+                    (testBB1 @pv){bbQuorumCertificate = validQCFor @pv testBB2'}
             -- Equal round
-            duplicateReceiveBlockFailExecute $ signedPB testBB2{bbQuorumCertificate = validQCFor @pv testBB2'}
+            duplicateReceiveBlockFailExecute $ signedPB (testBB2 @pv){bbQuorumCertificate = validQCFor @pv testBB2'}
 
 -- | Test processing a block where the epoch is inconsistent with the parent block's epoch.
 testProcessEpochInconsistent ::
@@ -1316,7 +1316,7 @@ testProcessEpochInconsistent sProtocolVersion =
             mapM_ (succeedReceiveBlock . signedPB) [testBB1E, testBB2E, testBB3E]
             -- We skip 'uponReceivingBlock' and go straight to processing, because the condition would be
             -- caught in 'uponReceivingBlock'.
-            let pb = signedPB testBB4'{bbQuorumCertificate = bbQuorumCertificate (testBB4E @pv)}
+            let pb = signedPB (testBB4' @pv){bbQuorumCertificate = bbQuorumCertificate (testBB4E @pv)}
             bf <- use $ epochBakers . currentEpochBakers
             executeBlock $
                 VerifiedBlock
@@ -1342,7 +1342,7 @@ testReceiveIncorrectNonce sProtocolVersion =
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB1{bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 0 (bakerVRFKey sProtocolVersion (0 :: Int))}
+                    (testBB1 @pv){bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 0 (bakerVRFKey sProtocolVersion (0 :: Int))}
 
 -- | Test receiving a block where the block nonce is incorrect.
 testReceiveTooFast ::
@@ -1355,7 +1355,7 @@ testReceiveTooFast sProtocolVersion =
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB1{bbTimestamp = 10}
+                    (testBB1 @pv){bbTimestamp = 10}
 
 -- | Test receiving a block that should have a timeout certificate, but doesn't.
 testReceiveMissingTC ::
@@ -1368,7 +1368,7 @@ testReceiveMissingTC sProtocolVersion =
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB2'{bbTimeoutCertificate = Absent}
+                    (testBB2' @pv){bbTimeoutCertificate = Absent}
 
 -- | Test receiving a block with a timeout certificate for an incorrect round.
 testReceiveTCIncorrectRound ::
@@ -1381,7 +1381,7 @@ testReceiveTCIncorrectRound sProtocolVersion =
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB2'{bbTimeoutCertificate = Present (validTimeoutFor sProtocolVersion genQC 2)}
+                    (testBB2' @pv){bbTimeoutCertificate = Present (validTimeoutFor sProtocolVersion genQC 2)}
   where
     genQC = genesisQuorumCertificate (genesisHash sProtocolVersion)
 
@@ -1396,7 +1396,7 @@ testReceiveTCUnexpected sProtocolVersion =
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB1{bbTimeoutCertificate = Present (validTimeoutFor sProtocolVersion genQC 0)}
+                    (testBB1 @pv){bbTimeoutCertificate = Present (validTimeoutFor sProtocolVersion genQC 0)}
   where
     genQC = genesisQuorumCertificate (genesisHash sProtocolVersion)
 
@@ -1412,7 +1412,7 @@ testReceiveTCInconsistent1 sProtocolVersion =
         runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB2'{bbTimeoutCertificate = Present (validTimeoutFor sProtocolVersion (validQCFor @pv testBB1) 1)}
+                    (testBB2' @pv){bbTimeoutCertificate = Present (validTimeoutFor sProtocolVersion (validQCFor @pv testBB1) 1)}
 
 -- | Test receiving a block that is the start of a new epoch, but with the previous round
 --  timing out.
@@ -1485,7 +1485,7 @@ testReceiveInvalidQC sProtocolVersion =
             succeedReceiveBlock $ signedPB testBB1
             succeedReceiveBlockFailExecute $
                 signedPB
-                    testBB2
+                    (testBB2 @pv)
                         { bbQuorumCertificate = (bbQuorumCertificate (testBB2 @pv)){qcAggregateSignature = mempty}
                         }
 
@@ -1517,7 +1517,7 @@ testMakeFirstBlock sProtocolVersion =
     it "make a block as baker 2" $
         runTestMonad (baker sProtocolVersion bakerId) testTime (genesisData sProtocolVersion) $ do
             ((), r) <- listen makeBlock
-            let expectBlock = validSignBlock testBB1{bbTimestamp = utcTimeToTimestamp testTime}
+            let expectBlock = validSignBlock (testBB1 @pv){bbTimestamp = utcTimeToTimestamp testTime}
             let qsm =
                     QuorumSignatureMessage
                         { qsmGenesis = genesisHash sProtocolVersion,
@@ -1567,7 +1567,7 @@ testMakeFirstBlockEarly sProtocolVersion =
     it "make a block as baker 2 early" $
         runTestMonad (baker sProtocolVersion bakerId) curTime (genesisData sProtocolVersion) $ do
             ((), r) <- listen makeBlock
-            let expectBlock = validSignBlock testBB1{bbTimestamp = utcTimeToTimestamp blkTime}
+            let expectBlock = validSignBlock @pv (testBB1 @pv){bbTimestamp = utcTimeToTimestamp blkTime}
             let qsm =
                     QuorumSignatureMessage
                         { qsmGenesis = genesisHash sProtocolVersion,
@@ -1643,7 +1643,7 @@ testTimeoutMakeBlock sProtocolVersion =
             ((), r) <- listen $ mapM_ processTimeout $ timeoutMessagesFor sProtocolVersion genQC 1 0
             let expectBlock =
                     validSignBlock
-                        testBB2'
+                        (testBB2' @pv)
                             { bbTimestamp = utcTimeToTimestamp testTime,
                               bbTimeoutCertificate =
                                 Present $

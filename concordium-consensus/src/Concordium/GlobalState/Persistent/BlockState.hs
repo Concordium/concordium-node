@@ -90,6 +90,7 @@ import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
 import Control.Exception
+import Control.Monad
 import qualified Control.Monad.Catch as MonadCatch
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader

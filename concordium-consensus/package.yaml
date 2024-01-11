@@ -70,6 +70,7 @@ default-extensions:
 - MultiParamTypeClasses
 - RecordWildCards
 - TupleSections
+- TypeOperators
 
 flags:
   dynamic:
@@ -79,7 +80,6 @@ flags:
 library:
   source-dirs: src
   ghc-options:
-      - -fPIC
       - -Wall
       - -Wcompat
       - -Werror=missing-fields
@@ -95,6 +95,9 @@ library:
       then:
         ghc-options: -threaded -static -shared lib.def -L../concordium-base/smart-contracts/lib -lconcordium_smart_contract_engine
       else:
+        # -fPIC casues issues on Windows: https://gitlab.haskell.org/ghc/ghc/-/issues/24016
+        # However, it should not do anything on Windows anyway, so it's fine not to enable it there.
+        ghc-options: -fPIC
         when:
           - condition: flag(dynamic)
             then:

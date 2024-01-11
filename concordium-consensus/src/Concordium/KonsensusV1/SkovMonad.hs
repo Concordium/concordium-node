@@ -17,6 +17,7 @@
 --  It also provides functionality for initialising the state for the consensus.
 module Concordium.KonsensusV1.SkovMonad where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Reader hiding (ask)

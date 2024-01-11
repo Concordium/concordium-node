@@ -18,6 +18,7 @@ module ConcordiumTests.ReceiveTransactionsTest (test) where
 
 import Test.Hspec
 
+import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.Aeson as AE
