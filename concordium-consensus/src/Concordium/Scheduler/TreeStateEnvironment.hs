@@ -8,9 +8,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -Wall #-}
--- FIXME: This is to suppress compiler warnings for derived instances of SchedulerMonad.
--- This may be fixed in GHC 9.0.1.
+-- We suppress redundant constraints because a number of functions defined here have deliberate
+-- redundant constraints as part of their interfaces (e.g. constraining protocol versions).
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.Scheduler.TreeStateEnvironment where

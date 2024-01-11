@@ -10,8 +10,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
--- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
--- This may be fixed in GHC 9.0.1.
+-- Some interfaces in this module have deliberate redundant constraints (e.g. to constrain
+-- protocol versions). As such, we suppress the redundant constraints warning.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.Skov.MonadImplementations where
