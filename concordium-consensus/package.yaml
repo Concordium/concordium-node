@@ -116,12 +116,13 @@ library:
 verbatim: |
   foreign-library concordium-consensus
     type: native-shared
+    ghc-options: -Wall -Wcompat -Werror=missing-fields -Werror=missing-methods -Wredundant-constraints -O2 -fno-ignore-asserts
     if os(Windows)
       options: standalone
       mod-def-file: lib.def
-      ghc-options: -threaded
+      ghc-options: -threaded -fno-PIC
     else
-      ghc-options; -fPIC
+      ghc-options: -fPIC
     
     other-modules:
       Concordium.External
