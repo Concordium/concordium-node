@@ -108,13 +108,13 @@ library:
   when:
     - condition: "!(os(windows)) && !(flag(dynamic))"
       ghc-options: -fPIC -static
-      src-dirs: src-lib
+      source-dirs: src-lib
 
 # Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
 # Possibly this depends on the platform
 
 verbatim: |
-  foreign-library concordium-consensus-lib
+  foreign-library concordium-consensus
     type: native-shared
     if os(Windows)
       options: standalone

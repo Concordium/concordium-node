@@ -44,8 +44,19 @@ fn main() -> std::io::Result<()> {
                 println!("cargo:rustc-link-search=native={}", extra_library_dir);
             }
 
-            println!("cargo:rustc-link-search=native=../concordium-consensus");
-            println!("cargo:rustc-link-lib=dylib=HSdll");
+            // We assume that the consensus library was built using the stack.yaml file in
+            // the root of the repository. (This is what the Windows build script does.)
+            let stack_install_root_command = command_output(Command::new("stack").args([
+                "--stack-yaml",
+                "../stack.yaml",
+                "path",
+                "--local-install-root",
+            ]));
+            let stack_install_root = Path::new(&stack_install_root_command);
+            let dll_location = stack_install_root.join("lib");
+
+            println!("cargo:rustc-link-search=native={}", dll_location.to_string_lossy());
+            println!("cargo:rustc-link-lib=dylib=concordium-consensus");
         }
         #[cfg(not(windows))]
         {
@@ -58,6 +69,7 @@ fn main() -> std::io::Result<()> {
                     return Err(e);
                 }
                 println!("cargo:rustc-link-search=native={}", root);
+                println!("cargo:rustc-link-lib=dylib=concordium-consensus");
                 println!("cargo:rustc-link-lib=dylib=HSconcordium-consensus-0.1.0.0");
                 println!("cargo:rustc-link-lib=dylib=HSconcordium-base-0.1.0.0");
                 println!("cargo:rustc-link-lib=dylib=HSlmdb-0.2.5");
@@ -70,6 +82,10 @@ fn main() -> std::io::Result<()> {
                     "--local-install-root",
                 ]));
                 let stack_install_root = Path::new(&stack_install_root_command);
+                let stack_install_lib = stack_install_root.join("lib");
+                
+                println!("cargo:rustc-link-search={}", stack_install_lib.to_string_lossy());
+                println!("cargo:rustc-link-lib=dylib=concordium-consensus");
 
                 let local_package = stack_install_root.join("lib").join(GHC_VARIANT);
                 let dir = std::fs::read_dir(&local_package)?;
