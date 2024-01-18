@@ -719,11 +719,11 @@ const DYLIB_EXTENSION: &str = "dylib";
 
 #[cfg(all(not(feature = "static"), not(windows)))]
 /// Link with Haskell runtime libraries.
-/// The RTS version defaults to the threaded one, but can be overridded by the
+/// The RTS version defaults to the threaded one, but can be overridden by the
 /// HASKELL_RTS_VARIANT environment variable
 fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
     let rts_variant =
-        env::var("HASKELL_RTS_VARIANT").unwrap_or_else(|_| "libHSrts_thr-".to_owned());
+        env::var("HASKELL_RTS_VARIANT").unwrap_or_else(|_| "libHSrts-1.0.2_thr-".to_owned());
     let ghc_lib_dir = env::var("HASKELL_GHC_LIBDIR").unwrap_or_else(|_| {
         command_output(Command::new("stack").args([
             "--stack-yaml",
@@ -733,9 +733,6 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
             "--print-libdir",
         ]))
     });
-    #[cfg(all(not(feature = "static"), target_os = "linux"))]
-    let rts_dir = Path::new(&ghc_lib_dir).join("rts");
-    #[cfg(all(not(feature = "static"), target_os = "macos"))]
     let rts_dir = Path::new(&ghc_lib_dir).join(GHC_VARIANT);
     println!("cargo:rustc-link-search=native={}", rts_dir.to_string_lossy());
     for item in std::fs::read_dir(&rts_dir)?.filter_map(Result::ok) {
