@@ -1230,12 +1230,12 @@ pub mod server {
         ) -> tonic::Result<R> {
             let consensus = self.consensus.clone();
             let fut = tokio::task::spawn_blocking(move || f(&consensus));
-            let r = fut.await.map_err(|e| {
+
+            fut.await.map_err(|e| {
                 let msg = format!("Unable to join blocking task: {e}");
                 error!("{}", msg);
                 tonic::Status::internal(&msg)
-            })?;
-            r
+            })?
         }
     }
 
