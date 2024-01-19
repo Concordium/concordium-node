@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -15,8 +16,10 @@ import Test.Hspec
 
 import qualified Data.Map.Strict as Map
 
+import Concordium.Birk.Bake (BakerIdentity)
 import qualified Concordium.Crypto.DummyData as Dummy
 import Concordium.Genesis.Data
+import Concordium.GlobalState.BakerInfo (FullBakerInfo)
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.TestMonad
@@ -27,11 +30,17 @@ import Concordium.Startup
 import Concordium.Types
 import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Option
+import Concordium.Types.Parameters
+import qualified ConcordiumTests.KonsensusV1.Common as Common
 import ConcordiumTests.KonsensusV1.TreeStateTest (dummyBlock)
 
-genesisData :: GenesisData 'P6
-(genesisData, _, _) =
-    makeGenesisDataV1 @'P6
+genesisDataV1 ::
+    forall pv.
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    SProtocolVersion pv ->
+    (GenesisData pv, [(BakerIdentity, FullBakerInfo)], Amount)
+genesisDataV1 sProtocolVersion =
+    makeGenesisDataV1 @pv
         0
         10
         3_600_000
@@ -40,7 +49,7 @@ genesisData :: GenesisData 'P6
         Dummy.dummyArs
         [ foundationAcct
         ]
-        Dummy.dummyKeyCollection
+        (withIsAuthorizationsVersionForPV sProtocolVersion Dummy.dummyKeyCollection)
         Dummy.dummyChainParameters
   where
     foundationAcct =
@@ -49,12 +58,19 @@ genesisData :: GenesisData 'P6
             (Dummy.deterministicKP 0)
             (Dummy.accountAddressFrom 0)
 
+genesisData ::
+    forall pv.
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    SProtocolVersion pv ->
+    GenesisData pv
+genesisData sProtocolVersion = let (genData, _, _) = genesisDataV1 sProtocolVersion in genData
+
 -- | A dummy certified block for the provided round.
-dummyCertifiedBlock :: Round -> CertifiedBlock 'P6
+dummyCertifiedBlock :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => Round -> CertifiedBlock pv
 dummyCertifiedBlock r =
     CertifiedBlock
         { cbQuorumCertificate = qc,
-          cbQuorumBlock = dummyBlock 0
+          cbQuorumBlock = dummyBlock @pv 0
         }
   where
     -- A quorum certificate for a provided round.
@@ -70,10 +86,14 @@ dummyCertifiedBlock r =
 
 -- | Checking that advancing rounds via a quorum certificate results
 --  in the expected state.
-testAdvanceByQuorum :: Spec
-testAdvanceByQuorum = describe "Advance by QuorumCertificate" $ do
+testAdvanceByQuorum ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testAdvanceByQuorum sProtocolVersion = describe "Advance by QuorumCertificate" $ do
     it "A new quorum certificate advances the round" $ do
-        runTestMonad @'P6 noBaker theTime genesisData $ do
+        runTestMonad @pv noBaker theTime (genesisData sProtocolVersion) $ do
             currentRound <- use $ roundStatus . rsCurrentRound
             advanceRoundWithQuorum $ dummyCertifiedBlock 41
             newRound <- use $ roundStatus . rsCurrentRound
@@ -110,10 +130,14 @@ testAdvanceByQuorum = describe "Advance by QuorumCertificate" $ do
 
 -- | Checking that advancing a round via a timeout results
 --  in the expected state.
-testAdvanceByTimeout :: Spec
-testAdvanceByTimeout = describe "Advance round by TimeoutCertificate." $ do
+testAdvanceByTimeout ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testAdvanceByTimeout sProtocolVersion = describe "Advance round by TimeoutCertificate." $ do
     it "Advancing by TimeoutCertificate makes the consensus eligible for baking (tc and certified block is new)" $ do
-        runTestMonad @'P6 noBaker theTime genesisData $ do
+        runTestMonad @pv noBaker theTime (genesisData sProtocolVersion) $ do
             currentRound <- use $ roundStatus . rsCurrentRound
             advanceRoundWithTimeout $ roundTimeout 41 1
             newRound <- use $ roundStatus . rsCurrentRound
@@ -145,7 +169,7 @@ testAdvanceByTimeout = describe "Advance round by TimeoutCertificate." $ do
                     (Present $ roundTimeout 41 1)
                     previousRoundTimeout
     it "Advancing by TimeoutCertificate makes the consensus eligible for baking (certified block is not new)" $ do
-        runTestMonad @'P6 noBaker theTime genesisData $ do
+        runTestMonad @pv noBaker theTime (genesisData sProtocolVersion) $ do
             oldHighestCertifiedBlock <- use $ roundStatus . rsHighestCertifiedBlock
             advanceRoundWithTimeout $ roundTimeout 41 0
             newHighestCertifiedBlock <- use $ roundStatus . rsHighestCertifiedBlock
@@ -176,6 +200,8 @@ testAdvanceByTimeout = describe "Advance round by TimeoutCertificate." $ do
             }
 
 tests :: Spec
-tests = describe "KonsensusV1.Consensus" $ do
-    testAdvanceByQuorum
-    testAdvanceByTimeout
+tests = describe "KonsensusV1.Consensus" $
+    Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
+        describe pvString $ do
+            testAdvanceByQuorum spv
+            testAdvanceByTimeout spv

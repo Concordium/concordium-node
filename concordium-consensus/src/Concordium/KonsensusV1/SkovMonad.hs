@@ -149,7 +149,7 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
       -- | Handler to broadcast a quorum message.
       _sendQuorumHandler :: QuorumMessage -> m (),
       -- | Handler to broadcast a block.
-      _sendBlockHandler :: SignedBlock -> m (),
+      _sendBlockHandler :: SignedBlock pv -> m (),
       -- | An event handler called when a block becomes live.
       _onBlockHandler :: BlockPointer pv -> m (),
       -- | An event handler called per finalization. It is called with the
@@ -491,12 +491,13 @@ instance LMDBAccountMap.HasDatabaseHandlers (LMDBDatabases pv) where
 initialiseExistingSkovV1 ::
     forall pv m.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    GenesisBlockHeightInfo ->
     BakerContext ->
     HandlerContext pv m ->
     (forall a. SkovV1T pv m a -> IO a) ->
     GlobalStateConfig ->
     LogIO (Maybe (ExistingSkov pv m))
-initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov gsc@GlobalStateConfig{..} = do
+initialiseExistingSkovV1 genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov gsc@GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Attempting to use existing global state."
     existingDB <- checkExistingDatabase gscTreeStateDirectory gscBlockStateFile
     if existingDB
@@ -517,7 +518,7 @@ initialiseExistingSkovV1 bakerCtx handlerCtx unliftSkov gsc@GlobalStateConfig{..
                     let initContext = InitContext pbsc skovLldb
                     (initialSkovData, effectiveProtocolUpdate) <-
                         runInitMonad
-                            (loadSkovData gscRuntimeParameters (rbrCount > 0))
+                            (loadSkovData genesisBlockHeightInfo gscRuntimeParameters (rbrCount > 0))
                             initContext
                     let !es =
                             ExistingSkov
@@ -554,12 +555,13 @@ initialiseNewSkovV1 ::
     forall pv m.
     (IsProtocolVersion pv, IsConsensusV1 pv) =>
     GenesisData pv ->
+    GenesisBlockHeightInfo ->
     BakerContext ->
     HandlerContext pv m ->
     (forall a. SkovV1T pv m a -> IO a) ->
     GlobalStateConfig ->
     LogIO (SkovV1Context pv m, SkovV1State pv)
-initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateConfig{..} = do
+initialiseNewSkovV1 genData genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateConfig{..} = do
     logEvent Skov LLDebug "Creating new global state."
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext True gsConfig
     let
@@ -587,7 +589,7 @@ initialiseNewSkovV1 genData bakerCtx handlerCtx unliftSkov gsConfig@GlobalStateC
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             genEpochBakers <- genesisEpochBakers pbs
             let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta pbs genTimeoutDuration genEpochBakers genTT emptyPendingTransactionTable
+                    mkInitialSkovData gscRuntimeParameters genMeta genesisBlockHeightInfo pbs genTimeoutDuration genEpochBakers genTT emptyPendingTransactionTable
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,
@@ -673,6 +675,8 @@ migrateSkovV1 ::
       IsProtocolVersion pv,
       IsProtocolVersion lastpv
     ) =>
+    -- | Block height information for the genesis block.
+    GenesisBlockHeightInfo ->
     -- | The genesis for the protocol after the protocol update.
     Regenesis pv ->
     -- | The migration.
@@ -696,7 +700,7 @@ migrateSkovV1 ::
     PendingTransactionTable ->
     -- | Return back the 'SkovV1Context' and the migrated 'SkovV1State'
     LogIO (SkovV1Context pv m, SkovV1State pv)
-migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
+migrateSkovV1 genesisBlockHeightInfo regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBlockState bakerCtx handlerCtx unliftSkov migrateTT migratePTT = do
     pbsc@PersistentBlockStateContext{..} <- newPersistentBlockStateContext True gsConfig
     logEvent GlobalState LLDebug "Migrating existing global state."
     let newInitialBlockState :: InitMonad pv (HashedPersistentBlockState pv)
@@ -714,7 +718,7 @@ migrateSkovV1 regenesis migration gsConfig@GlobalStateConfig{..} oldPbsc oldBloc
             let genTimeoutDuration =
                     chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
             let !initSkovData =
-                    mkInitialSkovData gscRuntimeParameters genMeta newState genTimeoutDuration genEpochBakers migrateTT migratePTT
+                    mkInitialSkovData gscRuntimeParameters genMeta genesisBlockHeightInfo newState genTimeoutDuration genEpochBakers migrateTT migratePTT
             let storedGenesis =
                     LowLevel.StoredBlock
                         { stbStatePointer = stateRef,

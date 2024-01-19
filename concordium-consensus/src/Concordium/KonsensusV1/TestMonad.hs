@@ -101,7 +101,7 @@ data TestEvent (pv :: ProtocolVersion)
     | -- | Implements 'sendQuorumMessage' of 'MonadBroadcast'.
       SendQuorumMessage !QuorumMessage
     | -- | Implements 'sendBlock' of 'MonadBroadcast'.
-      SendBlock !SignedBlock
+      SendBlock !(SignedBlock pv)
     | -- | Implements 'onBlock' of 'MonadConsensusEvent'.
       OnBlock !(Block pv)
     | -- | Implements 'onFinalize' of 'MonadConsensusEvent'.
@@ -183,10 +183,16 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                       gmFirstGenesisHash = genesisBlockHash genData,
                       gmStateHash = getHash genState
                     }
+        let genesisBlockHeightInfo =
+                GenesisBlockHeightInfo
+                    { gbhiAbsoluteHeight = 0,
+                      gbhiGenesisIndex = 0
+                    }
         let _tsSkovData =
                 mkInitialSkovData
                     defaultRuntimeParameters
                     genMetadata
+                    genesisBlockHeightInfo
                     genState
                     genTimeoutBase
                     genEpochBakers

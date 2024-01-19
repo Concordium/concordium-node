@@ -49,7 +49,7 @@ class MonadBroadcast m where
     sendQuorumMessage :: QuorumMessage -> m ()
 
     -- | Broadcast a 'SignedBlock'.
-    sendBlock :: SignedBlock -> m ()
+    sendBlock :: SignedBlock (MPV m) -> m ()
 
 -- | This class provides event handlers for consensus events. A runner should implement this to
 --  handle these events.
@@ -225,14 +225,17 @@ computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} 
     committeeFinalizers = Vec.fromList $ zipWith mkFinalizer [FinalizerIndex 0 ..] sortedFinalizers
     committeeTotalWeight = sum $ finalizerWeight <$> committeeFinalizers
 
--- | Compute the finalization committee given the bakers and the finalization committee parameters,
---  returning a 'BakersAndFinalizers'.
+-- | Compute the finalization committee and finalization committee hash given the bakers and the
+-- finalization committee parameters, returning a 'BakersAndFinalizers'.
 computeBakersAndFinalizers :: FullBakers -> FinalizationCommitteeParameters -> BakersAndFinalizers
 computeBakersAndFinalizers bakers fcp =
     BakersAndFinalizers
         { _bfBakers = bakers,
-          _bfFinalizers = computeFinalizationCommittee bakers fcp
+          _bfFinalizers = finalizers,
+          _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
         }
+  where
+    finalizers = computeFinalizationCommittee bakers fcp
 
 -- | Get the baker identity and finalizer info if we are a finalizer in the specified epoch.
 --  This checks that the signing key and aggregate signing key match those for the finalizer,

@@ -18,58 +18,61 @@ data FlaggableOffense (pv :: ProtocolVersion)
       DuplicateBlock !BlockSignatureWitness !BlockSignatureWitness
     | -- | The 'Round' of the 'QuorumCertificate' is not consistent with the
       --  'Round' of the parent block. Witnessed by the block received.
-      BlockQCRoundInconsistent !SignedBlock
+      BlockQCRoundInconsistent !(SignedBlock pv)
     | -- | The 'Epoch' of the 'QuorumCertificate' is not consistent with the
       --  'Epoch' of the parent block. Witnessed by the block received.
-      BlockQCEpochInconsistent !SignedBlock
+      BlockQCEpochInconsistent !(SignedBlock pv)
     | -- | The round is not greater than the parent block. Witnessed by
       --  the block received.
-      BlockRoundInconsistent !SignedBlock
+      BlockRoundInconsistent !(SignedBlock pv)
     | -- | The epoch is not the current or current + 1 epoch. Witnessed
       --  by the block received.
-      BlockEpochInconsistent !SignedBlock
+      BlockEpochInconsistent !(SignedBlock pv)
     | -- | The block received contains an invalid 'QuorumCertificate'.
       --  Witnessed by the block received.
-      BlockInvalidQC !SignedBlock
+      BlockInvalidQC !(SignedBlock pv)
     | -- | The 'TimeoutCertificate' is missing and the 'Round' of the block is
       --  not sequentially the next 'Round'. Witnessed by the block received.
-      BlockTCMissing !SignedBlock
+      BlockTCMissing !(SignedBlock pv)
     | -- | The 'Round' of the 'TimeoutCertificate' is inconsistent.
       --  Witnessed by the block received.
-      BlockTCRoundInconsistent !SignedBlock
+      BlockTCRoundInconsistent !(SignedBlock pv)
     | -- | The 'QuorumCertificate' is inconsistent
       --  with the 'TimeoutCertificate' of the block.
       --  Witnessed by the block received.
-      BlockQCInconsistentWithTC !SignedBlock
+      BlockQCInconsistentWithTC !(SignedBlock pv)
     | -- | The previous round did not timeout, but there is a
       --  'TimeoutCertificate' present in the block.
       --  Witnessed by the block received.
-      BlockUnexpectedTC !SignedBlock
+      BlockUnexpectedTC !(SignedBlock pv)
     | -- | The 'TimeoutCertificate' is invalid.
       --  Witnessed by the block received.
-      BlockInvalidTC !SignedBlock
+      BlockInvalidTC !(SignedBlock pv)
     | -- | The 'SignedBlock' is too close to its parent @Block pv@.
-      BlockTooFast !SignedBlock !(Block pv)
+      BlockTooFast !(SignedBlock pv) !(Block pv)
     | -- | The block nonce is invalid. Witnessed by the block received.
-      BlockNonceIncorrect !SignedBlock
+      BlockNonceIncorrect !(SignedBlock pv)
     | -- | The block is in a new 'Epoch', but it is missing the finalization entry.
       --  Witnessed by the block received.
-      BlockEpochFinalizationMissing !SignedBlock
+      BlockEpochFinalizationMissing !(SignedBlock pv)
     | -- | The block was not in a new 'Epoch', but a finalization entry is presnet.
       --  Witnessed by the block received.
-      BlockUnexpectedEpochFinalization !SignedBlock
+      BlockUnexpectedEpochFinalization !(SignedBlock pv)
     | -- | The block is in a new 'Epoch' but the finalization entry is deemed invalid.
       --  Witnessed by the block received.
-      BlockInvalidEpochFinalization !SignedBlock
+      BlockInvalidEpochFinalization !(SignedBlock pv)
     | -- | Execution of the block failed.
       --  Witnessed by the block received.
-      BlockExecutionFailure !SignedBlock
+      BlockExecutionFailure !(SignedBlock pv)
     | -- | Execution of the block resulted in an unexpected outcome.
       --  Witnessed by the block received and the parent block.
-      BlockInvalidTransactionOutcomesHash !SignedBlock !(Block pv)
+      BlockInvalidTransactionOutcomesHash !(SignedBlock pv) !(Block pv)
     | -- | Execution of the block resulted in an unexpected state.
       --  Witnessed by the block received and the parent block.
-      BlockInvalidStateHash !SignedBlock !(Block pv)
+      BlockInvalidStateHash !(SignedBlock pv) !(Block pv)
+    | -- | Execution of the block resulted in an unexpected result.
+      --  Witnessed by the block received and the parent block.
+      BlockInvalidResultHash !(SignedBlock pv) !(Block pv)
     | -- | An invalid block was signed by the 'QuorumMessage'.
       --  Witnessed by the 'QuorumMessage' received.
       SignedInvalidBlock !QuorumMessage
