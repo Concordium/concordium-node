@@ -65,6 +65,7 @@ apart from system libraries.
 Environment variables only apply to the default build. This links with shared Haskell libraries.
 
 - `CONCORDIUM_HASKELL_ROOT` should, if present, be a directory containing
+  - libconcordium-consensus.so
   - libHSconcordium-consensus-0.1.0.0.so
   - libHSconcordium-base-0.1.0.0.so
   - libHSlmdb-0.2.5.so
@@ -76,7 +77,7 @@ Environment variables only apply to the default build. This links with shared Ha
    If this flag is not present the build script will try to automatically discover all the Haskell libraries by using `stack path`.
 
 - `HASKELL_RTS_VARIANT` applies to all platforms and is the prefix of the GHC runtime library that should be linked.
-   This defaults to `libHSrts_thr-` for the threaded version.
+   This defaults to `libHSrts-1.0.2_thr-` for the threaded version.
 
 - `HASKELL_GHC_LIBDIR` applies to all platforms and should be the location of
    the GHC libraries directory (by GHC libraries we mean the base runtime system

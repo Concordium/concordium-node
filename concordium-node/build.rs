@@ -87,7 +87,7 @@ fn main() -> std::io::Result<()> {
                 println!("cargo:rustc-link-search={}", stack_install_lib.to_string_lossy());
                 println!("cargo:rustc-link-lib=dylib=concordium-consensus");
 
-                let local_package = stack_install_root.join("lib").join(GHC_VARIANT);
+                let local_package = stack_install_lib.join(GHC_VARIANT);
                 let dir = std::fs::read_dir(&local_package)?;
 
                 println!("cargo:rustc-link-search={}", local_package.to_string_lossy());
@@ -123,7 +123,7 @@ fn main() -> std::io::Result<()> {
                     "cargo:rustc-env={}={}:{}",
                     lib_path,
                     ghc_lib_dir.as_path().to_string_lossy(),
-                    local_package.as_path().to_string_lossy()
+                    stack_install_lib.as_path().to_string_lossy()
                 );
             }
         }

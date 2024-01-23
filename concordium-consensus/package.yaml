@@ -90,28 +90,23 @@ library:
 
   extra-libraries: concordium_smart_contract_engine
 
-  # when:
-  #   - condition: os(windows)
-  #     then:
-  #       #ghc-options: -threaded -static -shared lib.def -L../concordium-base/smart-contracts/lib -lconcordium_smart_contract_engine
-  #       ghc-options: -threaded
-  #     else:
-  #       # -fPIC casues issues on Windows: https://gitlab.haskell.org/ghc/ghc/-/issues/24016
-  #       # However, it should not do anything on Windows anyway, so it's fine not to enable it there.
-  #       ghc-options: -fPIC
-  #       when:
-  #         - condition: flag(dynamic)
-  #           then:
-  #             ghc-options: -shared -dynamic
-  #           else:
-  #             ghc-options: -static
   when:
     - condition: "!(os(windows)) && !(flag(dynamic))"
-      ghc-options: -fPIC -static
+      # When we are building a statically linked node, we include the ffi interface in the
+      # library, and will not build the foreign-library.
+      ghc-options: -fPIC -static -fno-link-rts
       source-dirs: src-lib
 
-# Other options might be needed, such has -dynamic -lHSrts or -lHSrts-ghc8.4.3
-# Possibly this depends on the platform
+# We use a foreign-library stanza to build the consensus library for dynamic linking.
+# This is more robust than the previous approach where the library as a whole was built as a
+# DLL or shared object with specific ghc-options. At the time of writing, stack does not support
+# the foreign-library stanza, so we include it in a verbatim block as it will be output in the
+# cabal file.
+
+# On Windows, the previous build setup produced HSdll.dll in the `concordium-consensus` directory.
+# The new approach builds a `concordium-consensus.dll` under `.stack-work\install\...\lib`.
+# Since the mod-def-file is specified in its own field (rather than under ghc-options), it does not
+# interfere with building the haddock documentation on Windows.
 
 verbatim: |
   foreign-library concordium-consensus
@@ -120,9 +115,18 @@ verbatim: |
     if os(Windows)
       options: standalone
       mod-def-file: lib.def
+      -- We specify -threaded so that GHC will (statically) link the threaded runtime in the DLL.
+      -- -fPIC casues issues on Windows: https://gitlab.haskell.org/ghc/ghc/-/issues/24016
+      -- However, it should not do anything on Windows anyway, so we disable it.
+      -- (Otherwise, cabal enables it.)
       ghc-options: -threaded -fno-PIC
     else
-      ghc-options: -fPIC
+      if flag(dynamic)
+        -- The runtime is not statically linked with the library, so we do not specify -threaded.
+        ghc-options: -fPIC
+      else
+        -- The foreign library should not be built when doing a static build of the node.
+        buildable: False
     
     other-modules:
       Concordium.External
@@ -130,7 +134,21 @@ verbatim: |
       Concordium.External.Helpers
       Concordium.External.GRPC2
     hs-source-dirs: src-lib
-    build-depends: aeson, proto-lens, cereal, containers, transformers, vector, microlens-platform, directory, filepath, base, text, bytestring, concordium-consensus, concordium-base
+    build-depends: 
+        aeson
+      , bytestring
+      , cereal
+      , containers
+      , directory
+      , filepath
+      , microlens-platform
+      , proto-lens
+      , transformers
+      , vector
+      , base
+      , text
+      , concordium-base
+      , concordium-consensus
     default-language: Haskell2010
     default-extensions:
       FlexibleContexts

@@ -15,7 +15,7 @@
                     <Directory Id="INSTALLDIR" Name="Node $(env._NodeVersion)">
                         <!-- The installation directory. Here, we install:
                             * concordium-node.exe
-                            * HSdll.dll
+                            * concordium-consensus.dll
                             * node-collector.exe
                             * node-runner-service.exe
                             * third-party-licenses.html
@@ -23,7 +23,7 @@
                         -->
                         <Component Id="NodeExecutable" Guid="90257d98-bcb9-4570-881a-aa7b6404b315">
                             <File Id="ConcordiumNode" Name="concordium-node.exe" Source="!(bindpath.node)concordium-node.exe" Checksum="yes" KeyPath="yes" />
-                            <File Id="HSdll" Name="HSdll.dll" Source="!(bindpath.consensus)HSdll.dll" Checksum="yes" />
+                            <File Id="ConcordiumConsensusDLL" Name="concordium-consensus.dll" Source="!(bindpath.consensus)concordium-consensus.dll" Checksum="yes" />
                         </Component>
                         <Component Id="NodeCollector" Guid="95747611-1415-483c-9f0a-6f9b78fb22af">
                             <File Id="NodeCollector" Name="node-collector.exe" Source="!(bindpath.collector)node-collector.exe" Checksum="yes" KeyPath="yes" />
@@ -111,6 +111,9 @@
         <ComponentGroup Id="ThirdPartyDLLs" Directory="INSTALLDIR">
             <Component>
                 <File Name="liblmdb.dll" Source="!(bindpath.lib)liblmdb.dll" KeyPath="yes" />
+            </Component>
+            <Component>
+                <File Name="libunwind.dll" Source="!(bindpath.lib)libunwind.dll" KeyPath="yes" />
             </Component>
         </ComponentGroup>
 
