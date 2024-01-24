@@ -83,7 +83,7 @@ fn main() -> std::io::Result<()> {
                 ]));
                 let stack_install_root = Path::new(&stack_install_root_command);
                 let stack_install_lib = stack_install_root.join("lib");
-                
+
                 println!("cargo:rustc-link-search={}", stack_install_lib.to_string_lossy());
                 println!("cargo:rustc-link-lib=dylib=concordium-consensus");
 
@@ -781,7 +781,11 @@ fn link_static_libs() -> std::io::Result<()> {
         for item in walker {
             match item.file_name().to_str() {
                 Some(lib_file) => {
-                    if lib_file.starts_with("lib") && lib_file.ends_with(".a") {
+                    // We link with all the libraries, but exclude the non-threaded Haskell RTS.
+                    if lib_file.starts_with("lib")
+                        && lib_file.ends_with(".a")
+                        && (!lib_file.starts_with("libHSrts") || lib_file.contains("_thr"))
+                    {
                         println!(
                             "cargo:rustc-link-lib=static={}",
                             &lib_file[3..lib_file.len() - 2]
