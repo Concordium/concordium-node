@@ -28,7 +28,7 @@ concordium-smart-contract-engine = { path = "../concordium-base/smart-contracts/
 
 # External dependencies
 structopt = "0.3"
-rand = "0.7"
+rand = "0.8"
 mio = { version = "0.7", features = ["os-poll", "tcp"] }
 log = "0.4"
 env_logger = "0.8.3"
