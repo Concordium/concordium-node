@@ -111,18 +111,16 @@ library:
 verbatim: |
   foreign-library concordium-consensus
     type: native-shared
-    ghc-options: -Wall -Wcompat -Werror=missing-fields -Werror=missing-methods -Wredundant-constraints -O2 -fno-ignore-asserts
+    ghc-options: -Wall -Wcompat -Werror=missing-fields -Werror=missing-methods -Wredundant-constraints -O2 -fno-ignore-asserts -threaded
     if os(Windows)
       options: standalone
       mod-def-file: lib.def
-      -- We specify -threaded so that GHC will (statically) link the threaded runtime in the DLL.
       -- -fPIC casues issues on Windows: https://gitlab.haskell.org/ghc/ghc/-/issues/24016
       -- However, it should not do anything on Windows anyway, so we disable it.
       -- (Otherwise, cabal enables it.)
-      ghc-options: -threaded -fno-PIC
+      ghc-options: -fno-PIC
     else
       if flag(dynamic)
-        -- The runtime is not statically linked with the library, so we do not specify -threaded.
         ghc-options: -fPIC
       else
         -- The foreign library should not be built when doing a static build of the node.
