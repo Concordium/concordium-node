@@ -1621,6 +1621,8 @@ migrateHashedBufferedRefKeepHash hb = do
 -- | Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
 --  already. The input reference is uncached, and the new references is flushed
 --  to disk, as well as cached in memory.
+--  The hash for the new reference is computed afresh, allowing for a change of
+--  hashing scheme and/or a modification of the underlying data.
 migrateHashedBufferedRef ::
     (MonadTrans t, MHashableTo (t m) h2 b, BlobStorable m a, BlobStorable (t m) b) =>
     (a -> t m b) ->
