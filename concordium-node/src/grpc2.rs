@@ -918,6 +918,28 @@ pub mod server {
         dry_run_timeout: tokio::time::Duration,
         /// Semaphore limiting the concurrent dry run sessions allowed.
         dry_run_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+        /// A thread pool where all queries are processed. We have a dedicated
+        /// thread pool since the queries are not async in the sense that they
+        /// call into Haskell code which can block indefinitely due to
+        /// locking, or take a long time. The guidelines for tokio
+        /// are that there should be no more than 100us between two await
+        /// points, and most queries that go into Haskell are much above
+        /// that. In cases of high load this means that even the operations of
+        /// the gRPC server, such as accepting new connections, are interrupted
+        /// because all tasks are occupied.
+        ///
+        /// To alleviate the load on the async runtime we instead spawn a thread
+        /// pool with a limited number of threads. All computation that
+        /// goes into Haskell code is running in a thread spawned in
+        /// this thread pool so that the async task which is spawned by tonic to
+        /// handle the request is instead blocked at an `await` point,
+        /// which means the server can make progress scheduling other
+        /// tasks.
+        ///
+        /// An added benefit of using a thread pool compared to using `tokio`'s
+        /// blocking threads is that we have precise control on how many
+        /// resources we use for queries compared to other operations of
+        /// consensus.
         thread_pool: rayon::ThreadPool,
     }
 
