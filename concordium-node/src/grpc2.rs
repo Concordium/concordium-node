@@ -2720,7 +2720,7 @@ pub mod server {
             };
 
             let energy_quota = self.dry_run_max_energy;
-            let dry_run = self.consensus.dry_run(energy_quota); // TODO: In principle this is not strictly necessary
+            let dry_run = self.consensus.dry_run(energy_quota);
             let input = request.into_inner();
             let timeout = self.dry_run_timeout;
             let output = DryRunStream::new(dry_run, input, timeout, permit);
