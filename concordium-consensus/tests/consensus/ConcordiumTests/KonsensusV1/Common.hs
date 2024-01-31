@@ -166,3 +166,16 @@ forEveryProtocolVersionConsensusV1 check =
     forEveryProtocolVersion $ \spv pvString -> case consensusVersionFor spv of
         ConsensusV0 -> return ()
         ConsensusV1 -> check spv pvString
+
+forEveryProtocolVersionBHV1 ::
+    ( forall pv.
+      (IsProtocolVersion pv, IsConsensusV1 pv, BlockHashVersionFor pv ~ 'BlockHashVersion1) =>
+      SProtocolVersion pv ->
+      String ->
+      Spec
+    ) ->
+    Spec
+forEveryProtocolVersionBHV1 check =
+    forEveryProtocolVersionConsensusV1 $ \spv pvString -> case sBlockHashVersionFor spv of
+        SBlockHashVersion1 -> check spv pvString
+        _ -> return ()
