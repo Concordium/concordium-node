@@ -918,6 +918,7 @@ pub mod server {
         dry_run_timeout: tokio::time::Duration,
         /// Semaphore limiting the concurrent dry run sessions allowed.
         dry_run_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+        thread_pool: rayon::ThreadPool,
     }
 
     /// An administrative structure that collects objects needed to manage the
@@ -980,19 +981,25 @@ pub mod server {
                         Some(identity)
                     }
                 };
-                let server = RpcServerImpl {
-                    service_config,
-                    invoke_max_energy: config.invoke_max_energy,
-                    node: Arc::clone(node),
-                    consensus: consensus.clone(),
-                    blocks_channels: Arc::new(Mutex::new(Vec::new())),
-                    finalized_blocks_channels: Arc::new(Mutex::new(Vec::new())),
-                    dry_run_max_energy: config.invoke_max_energy,
-                    dry_run_timeout: tokio::time::Duration::from_secs(config.dry_run_timeout),
-                    dry_run_semaphore: config
-                        .dry_run_concurrency
-                        .map(|n| Arc::new(tokio::sync::Semaphore::new(n))),
-                };
+                let num_threads = config.max_threads.unwrap_or_else(num_cpus::get);
+                let server =
+                    RpcServerImpl {
+                        service_config,
+                        invoke_max_energy: config.invoke_max_energy,
+                        node: Arc::clone(node),
+                        consensus: consensus.clone(),
+                        blocks_channels: Arc::new(Mutex::new(Vec::new())),
+                        finalized_blocks_channels: Arc::new(Mutex::new(Vec::new())),
+                        dry_run_max_energy: config.invoke_max_energy,
+                        dry_run_timeout: tokio::time::Duration::from_secs(config.dry_run_timeout),
+                        dry_run_semaphore: config
+                            .dry_run_concurrency
+                            .map(|n| Arc::new(tokio::sync::Semaphore::new(n))),
+                        thread_pool: rayon::ThreadPoolBuilder::new()
+                            .num_threads(num_threads)
+                            .build()
+                            .context("Unable to create thread pool for handling gRPC requests.")?,
+                    };
 
                 let NotificationHandlers {
                     mut blocks,
@@ -1229,9 +1236,17 @@ pub mod server {
             f: impl FnOnce(&ConsensusContainer) -> tonic::Result<R> + Send + 'static,
         ) -> tonic::Result<R> {
             let consensus = self.consensus.clone();
-            let fut = tokio::task::spawn_blocking(move || f(&consensus));
-
-            fut.await.map_err(|e| {
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            self.thread_pool.spawn(move || {
+                if sender.send(f(&consensus)).is_err() {
+                    // This error only happens if the `receiver` was dropped. And the receiver is
+                    // only dropped if the async task is dropped at the await
+                    // point, which can happen if the client kills the connection or request while
+                    // waiting for the response.
+                    trace!("Request was cancelled by the client.");
+                }
+            });
+            receiver.await.map_err(|e| {
                 let msg = format!("Unable to join blocking task: {e}");
                 error!("{}", msg);
                 tonic::Status::internal(&msg)

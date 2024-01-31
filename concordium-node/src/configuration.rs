@@ -504,10 +504,12 @@ pub struct GRPC2Config {
     pub max_concurrent_requests_per_connection: usize,
     #[structopt(
         long = "grpc2-max-concurrent-streams",
-        help = "Maximum number of concurrently open streams.",
+        help = "Maximum number of concurrently open streams. Note that this setting applies per \
+                client.",
+        default_value = "200",
         env = "CONCORDIUM_NODE_GRPC2_MAX_CONCURRENT_STREAMS"
     )]
-    pub max_concurrent_streams: Option<u32>,
+    pub max_concurrent_streams: u32,
     #[structopt(
         long = "grpc2-max-concurrent-requests",
         help = "Maximum number of concurrent requests allowed for the grpc2 server.",
@@ -515,6 +517,13 @@ pub struct GRPC2Config {
         default_value = "100"
     )]
     pub max_concurrent_requests: usize,
+    #[structopt(
+        long = "grpc2-max-threads",
+        help = "Maximum number threads to use when processing requests. If not set defaults to \
+                the number of CPUs.",
+        env = "CONCORDIUM_NODE_GRPC2_MAX_THREADS"
+    )]
+    pub max_threads: Option<usize>,
     #[structopt(
         long = "grpc2-request-timeout",
         help = "Maximum amout of time to allow for processing a request (in seconds).",
@@ -538,13 +547,6 @@ pub struct GRPC2Config {
         default_value = "20"
     )]
     pub keepalive_timeout: u64,
-    #[structopt(
-        long = "grpc2-num-threads",
-        help = "Maximum number of threads to use for handling grpc2 queries. If not set defaults \
-                to number of (logical) CPUs",
-        env = "CONCORDIUM_NODE_GRPC2_NUM_THREADS"
-    )]
-    pub num_threads: Option<usize>,
 }
 
 impl GRPC2Config {
