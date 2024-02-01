@@ -519,7 +519,7 @@ pub struct GRPC2Config {
     pub max_concurrent_requests: usize,
     #[structopt(
         long = "grpc2-max-threads",
-        help = "Maximum number threads to use when processing requests. If not set defaults to \
+        help = "Maximum number of threads to use when processing requests. If not set defaults to \
                 the number of CPUs.",
         env = "CONCORDIUM_NODE_GRPC2_MAX_THREADS"
     )]
