@@ -34,16 +34,6 @@ fn main() -> std::io::Result<()> {
         // Traverse the directory to link all of the libs in ghc.
         #[cfg(windows)]
         {
-            let extra_library_dirs = command_output(Command::new("stack").args([
-                "--stack-yaml",
-                "../concordium-consensus/stack.yaml",
-                "path",
-                "--extra-library-dirs",
-            ]));
-            for extra_library_dir in extra_library_dirs.split(", ") {
-                println!("cargo:rustc-link-search=native={}", extra_library_dir);
-            }
-
             // We assume that the consensus library was built using the stack.yaml file in
             // the root of the repository. (This is what the Windows build script does.)
             let stack_install_root_command = command_output(Command::new("stack").args([

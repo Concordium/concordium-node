@@ -29,7 +29,8 @@ try {
     # the search path for the linker.
     $ExtDLLs = @("liblmdb.dll", "libunwind.dll")
     Foreach ($ExtDLL in $ExtDLLs) {
-        $DLLLoc = stack exec -- where $ExtDLL
+        # Get the first instance on the path.
+        $DLLLoc = ((stack exec -- where $ExtDLL) -split '\n')[0]
         $Binds += "-b", ("lib=" + (Get-Item $DLLLoc).Directory)
     }
 

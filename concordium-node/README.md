@@ -153,6 +153,7 @@ Before building the node, you should install the following dependencies:
 - [Rust](https://www.rust-lang.org/tools/install)
   - For building the node, the toolchain `1.68.2-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.68.2-x86_64-pc-windows-gnu`.
   - For building the node runner service (optional), the toolchain `1.68.2-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.68.2-x86_64-pc-windows-msvc`.
+- GCC is required for building some library dependencies. [WinLibs](https://winlibs.com/) provides a standalone build of GCC with MinGW-w64. Download the latest release version (Win64, without LLVM) and extract it (e.g. to `C:\mingw64`) and ensure that the `bin` directory is on the path. (Installing `gcc` under `stack`'s `msys2` installation does not seem to work when building the node.)
 - [flatc](https://github.com/google/flatbuffers/releases/tag/v22.12.06) 22.12.06 (should be in the path)
 - [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.15
 - LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:
