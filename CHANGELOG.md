@@ -4,7 +4,7 @@
 
 - Fix a bug where `GetBlockPendingUpdates` fails to report pending updates to the finalization
   committee parameters.
-- Update GHC version to 9.6.3 (lts-22.5).
+- Update GHC version to 9.6.4 (lts-22.9).
 
 ## 6.2.3
 
