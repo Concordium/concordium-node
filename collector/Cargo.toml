@@ -13,18 +13,18 @@ futures = "0.3"
 hex = "0.4"
 http = { version = "0.2" }
 log = "0.4"
-prost = "0.11"
+prost = "0.12"
 reqwest = { version = "0.11", features = ["native-tls-vendored"] }
 rmp-serde = "1.1.1"
 structopt = "0.3"
 tokio = { version = "1.20", features = ["macros", "rt-multi-thread"] }
-tonic = { version = "0.8", features = ["tls", "tls-roots"] } # Use system trust roots
+tonic = { version = "0.10", features = ["tls", "tls-roots"] } # Use system trust roots
 
 [target.'cfg(target_os = "macos")'.dependencies]
 macos_logger_wrapper = { version = "*", path = "../macos_logger_wrapper/"}
 
 [build-dependencies]
-tonic-build = { version = "0.8", default-features = false, features = ["transport", "prost"] }
+tonic-build = { version = "0.10", default-features = false, features = ["transport", "prost"] }
 
 [[bin]]
 name = "node-collector"
