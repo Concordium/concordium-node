@@ -918,6 +918,29 @@ pub mod server {
         dry_run_timeout: tokio::time::Duration,
         /// Semaphore limiting the concurrent dry run sessions allowed.
         dry_run_semaphore: Option<Arc<tokio::sync::Semaphore>>,
+        /// A thread pool where all queries are processed. We have a dedicated
+        /// thread pool since the queries are not async in the sense that they
+        /// call into Haskell code which can block indefinitely due to
+        /// locking, or take a long time. The guidelines for tokio
+        /// are that there should be no more than 100us between two await
+        /// points, and most queries that go into Haskell are much above
+        /// that. In cases of high load this means that even the operations of
+        /// the gRPC server, such as accepting new connections, are interrupted
+        /// because all tasks are occupied.
+        ///
+        /// To alleviate the load on the async runtime we instead spawn a thread
+        /// pool with a limited number of threads. All computation that
+        /// goes into Haskell code is running in a thread spawned in
+        /// this thread pool so that the async task which is spawned by tonic to
+        /// handle the request is instead blocked at an `await` point,
+        /// which means the server can make progress scheduling other
+        /// tasks.
+        ///
+        /// An added benefit of using a thread pool compared to using `tokio`'s
+        /// blocking threads is that we have precise control on how many
+        /// resources we use for queries compared to other operations of
+        /// consensus.
+        thread_pool: rayon::ThreadPool,
     }
 
     /// An administrative structure that collects objects needed to manage the
@@ -980,19 +1003,25 @@ pub mod server {
                         Some(identity)
                     }
                 };
-                let server = RpcServerImpl {
-                    service_config,
-                    invoke_max_energy: config.invoke_max_energy,
-                    node: Arc::clone(node),
-                    consensus: consensus.clone(),
-                    blocks_channels: Arc::new(Mutex::new(Vec::new())),
-                    finalized_blocks_channels: Arc::new(Mutex::new(Vec::new())),
-                    dry_run_max_energy: config.invoke_max_energy,
-                    dry_run_timeout: tokio::time::Duration::from_secs(config.dry_run_timeout),
-                    dry_run_semaphore: config
-                        .dry_run_concurrency
-                        .map(|n| Arc::new(tokio::sync::Semaphore::new(n))),
-                };
+                let num_threads = config.max_threads.unwrap_or_else(num_cpus::get);
+                let server =
+                    RpcServerImpl {
+                        service_config,
+                        invoke_max_energy: config.invoke_max_energy,
+                        node: Arc::clone(node),
+                        consensus: consensus.clone(),
+                        blocks_channels: Arc::new(Mutex::new(Vec::new())),
+                        finalized_blocks_channels: Arc::new(Mutex::new(Vec::new())),
+                        dry_run_max_energy: config.invoke_max_energy,
+                        dry_run_timeout: tokio::time::Duration::from_secs(config.dry_run_timeout),
+                        dry_run_semaphore: config
+                            .dry_run_concurrency
+                            .map(|n| Arc::new(tokio::sync::Semaphore::new(n))),
+                        thread_pool: rayon::ThreadPoolBuilder::new()
+                            .num_threads(num_threads)
+                            .build()
+                            .context("Unable to create thread pool for handling gRPC requests.")?,
+                    };
 
                 let NotificationHandlers {
                     mut blocks,
@@ -1223,6 +1252,45 @@ pub mod server {
         }
     }
 
+    impl RpcServerImpl {
+        /// Run a computation in thread pool dedicated for running
+        /// long-running computations. The gRPC server uses tokio tasks
+        /// for handling requests, and these tasks must be lightweight in the
+        /// sense that they should only do a small amount of work between
+        /// `await` points, since task scheduling is cooperative.
+        ///
+        /// Consensus queries are not like that, a lot of them potentially block
+        /// on the global lock, or take more time even when they don't block due
+        /// to heavy computation. This interfers badly with the tonic server's
+        /// handling of other tasks.
+        ///
+        /// This method takes such a computation and schedules it to run on one
+        /// of the dedicated threads. in the background. It then
+        /// `await`s the result so that tokio's async scheduler can schedule
+        /// other tasks on its own workers.
+        async fn run_blocking<R: Send + Sync + 'static>(
+            &self,
+            f: impl FnOnce(&ConsensusContainer) -> tonic::Result<R> + Send + 'static,
+        ) -> tonic::Result<R> {
+            let consensus = self.consensus.clone();
+            let (sender, receiver) = tokio::sync::oneshot::channel();
+            self.thread_pool.spawn(move || {
+                if sender.send(f(&consensus)).is_err() {
+                    // This error only happens if the `receiver` was dropped. And the receiver is
+                    // only dropped if the async task is dropped at the await point.
+                    // This can happen if the client kills the connection or request while
+                    // waiting for the response.
+                    trace!("Request was cancelled by the client.");
+                }
+            });
+            receiver.await.map_err(|e| {
+                let msg = format!("Unable to join blocking task: {e}");
+                error!("{}", msg);
+                tonic::Status::internal(msg)
+            })?
+        }
+    }
+
     #[async_trait]
     impl service::queries_server::Queries for RpcServerImpl {
         /// Return type for the 'DryRun' method.
@@ -1335,11 +1403,15 @@ pub mod server {
             if !self.service_config.get_account_info {
                 return Err(tonic::Status::unimplemented("`GetAccountInfo` is not enabled."));
             }
-            let request = request.get_ref();
-            let block_hash = request.block_hash.as_ref().require()?;
-            let account_identifier = request.account_identifier.as_ref().require()?;
-            let (hash, response) =
-                self.consensus.get_account_info_v2(block_hash, account_identifier)?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    let block_hash = request.block_hash.as_ref().require()?;
+                    let account_identifier = request.account_identifier.as_ref().require()?;
+                    consensus.get_account_info_v2(block_hash, account_identifier)
+                })
+                .await?;
+
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1353,7 +1425,11 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetAccountList` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            let hash = self.consensus.get_account_list_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_account_list_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1367,7 +1443,11 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetModuleList` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            let hash = self.consensus.get_module_list_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_module_list_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1380,10 +1460,14 @@ pub mod server {
             if !self.service_config.get_module_source {
                 return Err(tonic::Status::unimplemented("`GetModuleSource` is not enabled."));
             }
-            let request = request.get_ref();
-            let block_hash = request.block_hash.as_ref().require()?;
-            let module_ref = request.module_ref.as_ref().require()?;
-            let (hash, response) = self.consensus.get_module_source_v2(block_hash, module_ref)?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    let block_hash = request.block_hash.as_ref().require()?;
+                    let module_ref = request.module_ref.as_ref().require()?;
+                    consensus.get_module_source_v2(block_hash, module_ref)
+                })
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1397,7 +1481,11 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetInstanceList` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            let hash = self.consensus.get_instance_list_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_instance_list_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1410,11 +1498,14 @@ pub mod server {
             if !self.service_config.get_instance_info {
                 return Err(tonic::Status::unimplemented("`GetInstanceInfo` is not enabled."));
             }
-            let request = request.get_ref();
-            let block_hash = request.block_hash.as_ref().require()?;
-            let contract_address = request.address.as_ref().require()?;
-            let (hash, response) =
-                self.consensus.get_instance_info_v2(block_hash, contract_address)?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    let block_hash = request.block_hash.as_ref().require()?;
+                    let contract_address = request.address.as_ref().require()?;
+                    consensus.get_instance_info_v2(block_hash, contract_address)
+                })
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1427,11 +1518,14 @@ pub mod server {
             if !self.service_config.get_instance_state {
                 return Err(tonic::Status::unimplemented("`GetInstanceState` is not enabled."));
             }
-            let request = request.get_ref();
-            let block_hash = request.block_hash.as_ref().require()?;
-            let contract_address = request.address.as_ref().require()?;
-            let (hash, response) =
-                self.consensus.get_instance_state_v2(block_hash, contract_address)?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    let block_hash = request.block_hash.as_ref().require()?;
+                    let contract_address = request.address.as_ref().require()?;
+                    consensus.get_instance_state_v2(block_hash, contract_address)
+                })
+                .await?;
             match response {
                 ContractStateResponse::V0 {
                     state,
@@ -1492,13 +1586,16 @@ pub mod server {
             if !self.service_config.instance_state_lookup {
                 return Err(tonic::Status::unimplemented("`InstanceStateLookup` is not enabled."));
             }
-            let request = request.get_ref();
-            let block_hash = request.block_hash.as_ref().require()?;
-            let contract_address = request.address.as_ref().require()?;
             // this is cheap since we only lookup the tree root in the V1 case, and V0
             // lookup always involves the entire state anyhow.
-            let (hash, response) =
-                self.consensus.get_instance_state_v2(block_hash, contract_address)?;
+            let request = request.into_inner();
+            let block_hash = request.block_hash.require()?;
+            let contract_address = request.address.require()?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    consensus.get_instance_state_v2(&block_hash, &contract_address)
+                })
+                .await?;
             match response {
                 ContractStateResponse::V0 {
                     state,
@@ -1536,7 +1633,11 @@ pub mod server {
                     "`GetNextAccountSequenceNumber` is not enabled.",
                 ));
             }
-            let response = self.consensus.get_next_account_sequence_number_v2(request.get_ref())?;
+            let response = self
+                .run_blocking(move |consensus| {
+                    consensus.get_next_account_sequence_number_v2(request.get_ref())
+                })
+                .await?;
             Ok(tonic::Response::new(response))
         }
 
@@ -1547,7 +1648,8 @@ pub mod server {
             if !self.service_config.get_consensus_info {
                 return Err(tonic::Status::unimplemented("`GetConsensusInfo` is not enabled."));
             }
-            let response = self.consensus.get_consensus_info_v2()?;
+            let response =
+                self.run_blocking(move |consensus| consensus.get_consensus_info_v2()).await?;
             Ok(tonic::Response::new(response))
         }
 
@@ -1559,10 +1661,14 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetAncestors` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            let request = request.get_ref();
-            let block_hash = request.block_hash.as_ref().require()?;
-            let amount = request.amount;
-            let hash = self.consensus.get_ancestors_v2(block_hash, amount, sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    let block_hash = request.block_hash.as_ref().require()?;
+                    let amount = request.amount;
+                    consensus.get_ancestors_v2(block_hash, amount, sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1575,7 +1681,11 @@ pub mod server {
             if !self.service_config.get_block_item_status {
                 return Err(tonic::Status::unimplemented("`GetBlockItemStatus` is not enabled."));
             }
-            let response = self.consensus.get_block_item_status_v2(request.get_ref())?;
+            let response = self
+                .run_blocking(move |consensus| {
+                    consensus.get_block_item_status_v2(request.get_ref())
+                })
+                .await?;
             Ok(tonic::Response::new(response))
         }
 
@@ -1593,7 +1703,9 @@ pub mod server {
             request.get_mut().energy = Some(crate::grpc2::types::Energy {
                 value: max_energy,
             });
-            let (hash, response) = self.consensus.invoke_instance_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| consensus.invoke_instance_v2(request.get_ref()))
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1609,8 +1721,11 @@ pub mod server {
                     "`GetCryptographicParameters` is not enabled.",
                 ));
             }
-            let (hash, response) =
-                self.consensus.get_cryptographic_parameters_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    consensus.get_cryptographic_parameters_v2(request.get_ref())
+                })
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1623,7 +1738,9 @@ pub mod server {
             if !self.service_config.get_block_info {
                 return Err(tonic::Status::unimplemented("`GetBlockInfo` is not enabled."));
             }
-            let (hash, response) = self.consensus.get_block_info_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| consensus.get_block_info_v2(request.get_ref()))
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1637,7 +1754,11 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetBakerList` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            let hash = self.consensus.get_baker_list_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_baker_list_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1650,7 +1771,9 @@ pub mod server {
             if !self.service_config.get_pool_info {
                 return Err(tonic::Status::unimplemented("`GetPoolInfo` is not enabled."));
             }
-            let (hash, response) = self.consensus.get_pool_info_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| consensus.get_pool_info_v2(request.get_ref()))
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1665,8 +1788,11 @@ pub mod server {
                     "`GetPassiveDelegationInfo` is not enabled.",
                 ));
             }
-            let (hash, response) =
-                self.consensus.get_passive_delegation_info_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    consensus.get_passive_delegation_info_v2(request.get_ref())
+                })
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1679,7 +1805,9 @@ pub mod server {
             if !self.service_config.get_blocks_at_height {
                 return Err(tonic::Status::unimplemented("`GetBlocksAtHeight` is not enabled."));
             }
-            let data = self.consensus.get_blocks_at_height_v2(request.get_ref())?;
+            let data = self
+                .run_blocking(move |consensus| consensus.get_blocks_at_height_v2(request.get_ref()))
+                .await?;
             let response = tonic::Response::new(data);
             Ok(response)
         }
@@ -1691,7 +1819,9 @@ pub mod server {
             if !self.service_config.get_tokenomics_info {
                 return Err(tonic::Status::unimplemented("`GetTokenomicsInfo` is not enabled."));
             }
-            let (hash, response) = self.consensus.get_tokenomics_info_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| consensus.get_tokenomics_info_v2(request.get_ref()))
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1705,7 +1835,11 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetPoolDelegators` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            let hash = self.consensus.get_pool_delegators_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_pool_delegators_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1722,8 +1856,11 @@ pub mod server {
                 ));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            let hash =
-                self.consensus.get_pool_delegators_reward_period_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_pool_delegators_reward_period_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1737,7 +1874,11 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetPassiveDelegators` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            let hash = self.consensus.get_passive_delegators_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_passive_delegators_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1755,8 +1896,10 @@ pub mod server {
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
             let hash = self
-                .consensus
-                .get_passive_delegators_reward_period_v2(request.get_ref(), sender)?;
+                .run_blocking(move |consensus| {
+                    consensus.get_passive_delegators_reward_period_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1769,7 +1912,9 @@ pub mod server {
             if !self.service_config.get_branches {
                 return Err(tonic::Status::unimplemented("`GetBranches` is not enabled."));
             }
-            Ok(tonic::Response::new(self.consensus.get_branches_v2()?))
+            Ok(tonic::Response::new(
+                self.run_blocking(move |consensus| consensus.get_branches_v2()).await?,
+            ))
         }
 
         async fn get_election_info(
@@ -1779,7 +1924,9 @@ pub mod server {
             if !self.service_config.get_election_info {
                 return Err(tonic::Status::unimplemented("`GetElectionInfo` is not enabled."));
             }
-            let (hash, response) = self.consensus.get_election_info_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| consensus.get_election_info_v2(request.get_ref()))
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1793,7 +1940,11 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetIdentityProviders` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
-            let hash = self.consensus.get_identity_providers_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_identity_providers_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1807,7 +1958,11 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetAnonymityRevokers` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
-            let hash = self.consensus.get_anonymity_revokers_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_anonymity_revokers_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1824,7 +1979,10 @@ pub mod server {
                 ));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
-            self.consensus.get_account_non_finalized_transactions_v2(request.get_ref(), sender)?;
+            self.run_blocking(move |consensus| {
+                consensus.get_account_non_finalized_transactions_v2(request.get_ref(), sender)
+            })
+            .await?;
             let response = tonic::Response::new(receiver);
             Ok(response)
         }
@@ -1839,7 +1997,11 @@ pub mod server {
                 ));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
-            let hash = self.consensus.get_block_transaction_events_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_block_transaction_events_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1855,7 +2017,11 @@ pub mod server {
                 ));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
-            let hash = self.consensus.get_block_special_events_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_block_special_events_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1871,7 +2037,11 @@ pub mod server {
                 ));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
-            let hash = self.consensus.get_block_pending_updates_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_block_pending_updates_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1886,8 +2056,11 @@ pub mod server {
                     "`GetNextUpdateSequenceNumber` is not enabled.",
                 ));
             }
-            let (hash, response) =
-                self.consensus.get_next_update_sequence_numbers_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    consensus.get_next_update_sequence_numbers_v2(request.get_ref())
+                })
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1902,8 +2075,11 @@ pub mod server {
                     "`GetBlockChainParameters` is not enabled.",
                 ));
             }
-            let (hash, response) =
-                self.consensus.get_block_chain_parameters_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    consensus.get_block_chain_parameters_v2(request.get_ref())
+                })
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1918,8 +2094,11 @@ pub mod server {
                     "`GetBlockFinalizationSummary` is not enabled.",
                 ));
             }
-            let (hash, response) =
-                self.consensus.get_block_finalization_summary_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    consensus.get_block_finalization_summary_v2(request.get_ref())
+                })
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1935,7 +2114,11 @@ pub mod server {
                 ));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
-            let hash = self.consensus.get_bakers_reward_period_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_bakers_reward_period_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -1950,7 +2133,11 @@ pub mod server {
                     "`GetBakerEarliestWinTime` is not enabled.",
                 ));
             }
-            let response = self.consensus.get_baker_earliest_win_time_v2(request.get_ref())?;
+            let response = self
+                .run_blocking(move |consensus| {
+                    consensus.get_baker_earliest_win_time_v2(request.get_ref())
+                })
+                .await?;
             let response = tonic::Response::new(response);
             Ok(response)
         }
@@ -2366,15 +2553,19 @@ pub mod server {
                 ));
             }
 
-            let transaction_bytes = request.into_inner().get_v0_format()?;
-            if transaction_bytes.len() > crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE {
-                warn!("Received a transaction that exceeds maximum transaction size.");
-                return Err(tonic::Status::invalid_argument(
-                    "Transaction size exceeds maximum allowed size.",
-                ));
-            }
-            let (transaction_hash, consensus_result) =
-                self.consensus.send_transaction(&transaction_bytes);
+            let ((transaction_hash, consensus_result), transaction_bytes) = self
+                .run_blocking(move |consensus| {
+                    let transaction_bytes = request.into_inner().get_v0_format()?;
+                    if transaction_bytes.len() > crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE
+                    {
+                        warn!("Received a transaction that exceeds maximum transaction size.");
+                        return Err(tonic::Status::invalid_argument(
+                            "Transaction size exceeds maximum allowed size.",
+                        ));
+                    }
+                    Ok((consensus.send_transaction(&transaction_bytes), transaction_bytes))
+                })
+                .await?;
 
             let result = if consensus_result == Success {
                 let mut payload = Vec::with_capacity(1 + transaction_bytes.len());
@@ -2463,7 +2654,11 @@ pub mod server {
                 return Err(tonic::Status::unimplemented("`GetBlockItems` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            let hash = self.consensus.get_block_items_v2(request.get_ref(), sender)?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_block_items_v2(request.get_ref(), sender)
+                })
+                .await?;
             let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -2476,7 +2671,11 @@ pub mod server {
             if !self.service_config.get_block_certificates {
                 return Err(tonic::Status::unimplemented("`GetBlockCertificates` is not enabled."));
             }
-            let (hash, response) = self.consensus.get_block_certificates_v2(request.get_ref())?;
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    consensus.get_block_certificates_v2(request.get_ref())
+                })
+                .await?;
             let mut response = tonic::Response::new(response);
             add_hash(&mut response, hash)?;
             Ok(response)
@@ -2489,7 +2688,11 @@ pub mod server {
             if !self.service_config.get_first_block_epoch {
                 return Err(tonic::Status::unimplemented("`GetFirstBlockEpoch` is not enabled."));
             }
-            let hash = self.consensus.get_first_block_epoch_v2(request.get_ref())?;
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_first_block_epoch_v2(request.get_ref())
+                })
+                .await?;
             Ok(tonic::Response::new(types::BlockHash {
                 value: hash.to_vec(),
             }))
@@ -2505,7 +2708,10 @@ pub mod server {
                 ));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
-            self.consensus.get_winning_bakers_epoch_v2(request.get_ref(), sender)?;
+            self.run_blocking(move |consensus| {
+                consensus.get_winning_bakers_epoch_v2(request.get_ref(), sender)
+            })
+            .await?;
             Ok(tonic::Response::new(receiver))
         }
 
