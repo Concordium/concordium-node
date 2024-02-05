@@ -29,7 +29,7 @@ rustup default stable-x86_64-pc-windows-gnu
 ```
 
 ### `user specified .o/.so/.DLL could not be loaded (addDLL: pthread or dependencies not loaded. (Win32 error 5)) whilst trying to load:  (dynamic) pthread`
-Copy `%LOCALAPPDATA%\Programs\stack\x86_64-windows\ghc-9.6.3\mingw\bin\libwinpthread-1.dll` to `%LOCALAPPDATA%\Programs\stack\x86_64-windows\ghc-9.6.3\mingw\bin\pthread.dll`.
+Copy `%LOCALAPPDATA%\Programs\stack\x86_64-windows\ghc-9.6.4\mingw\bin\libwinpthread-1.dll` to `%LOCALAPPDATA%\Programs\stack\x86_64-windows\ghc-9.6.4\mingw\bin\pthread.dll`.
 
 # The library and dependencies
 
@@ -61,9 +61,11 @@ parts
   tree layer with block processing and execution is spread between
   [src/Concordium/Skov](./src/Concordium/Skov) and
   [src/Concordium/Birk/](./src/Concordium/Birk/). The rest are auxiliary modules.
-- [src/Concordium/External.hs](./src/Concordium/External.hs) is the external
-  interface of the library in the form of a number of FFI exports. This is how
-  the library is integrated into the [concordium-node](../concordium-node/).
+
+The foreign function interface (FFI) to the library is defined in [src-lib](./src-lib).
+This is how the library is integrated into the [concordium-node](../concordium-node/).
+Depending on the build configuration, the library may be statically or dynamically linked
+in the node.
 
 # Tests
 
