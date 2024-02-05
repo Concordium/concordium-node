@@ -1253,6 +1253,21 @@ pub mod server {
     }
 
     impl RpcServerImpl {
+        /// Run a computation in thread pool dedicated for running
+        /// long-running computations. The gRPC server uses tokio tasks
+        /// for handling requests, and these tasks must be lightweight in the
+        /// sense that they should only do a small amount of work between
+        /// `await` points, since task scheduling is cooperative.
+        ///
+        /// Consensus queries are not like that, a lot of them potentially block
+        /// on the global lock, or take more time even when they don't block due
+        /// to heavy computation. This interfers badly with the tonic server's
+        /// handling of other tasks.
+        ///
+        /// This method takes such a computation and schedules it to run on one
+        /// of the dedicated threads. in the background. It then
+        /// `await`s the result so that tokio's async scheduler can schedule
+        /// other tasks on its own workers.
         async fn run_blocking<R: Send + Sync + 'static>(
             &self,
             f: impl FnOnce(&ConsensusContainer) -> tonic::Result<R> + Send + 'static,
@@ -1262,8 +1277,8 @@ pub mod server {
             self.thread_pool.spawn(move || {
                 if sender.send(f(&consensus)).is_err() {
                     // This error only happens if the `receiver` was dropped. And the receiver is
-                    // only dropped if the async task is dropped at the await
-                    // point, which can happen if the client kills the connection or request while
+                    // only dropped if the async task is dropped at the await point.
+                    // This can happen if the client kills the connection or request while
                     // waiting for the response.
                     trace!("Request was cancelled by the client.");
                 }
@@ -1271,7 +1286,7 @@ pub mod server {
             receiver.await.map_err(|e| {
                 let msg = format!("Unable to join blocking task: {e}");
                 error!("{}", msg);
-                tonic::Status::internal(&msg)
+                tonic::Status::internal(msg)
             })?
         }
     }
