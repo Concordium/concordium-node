@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 6.3.0
+
 - Fix a bug where `GetBlockPendingUpdates` fails to report pending updates to the finalization
   committee parameters.
 - Run GRPC queries in dedicated threads. This improves node resource management
