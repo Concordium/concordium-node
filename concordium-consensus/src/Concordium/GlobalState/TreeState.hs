@@ -38,6 +38,7 @@ import Concordium.Types.Updates hiding (getUpdateKeysCollection)
 import qualified Concordium.GlobalState.Block as B
 import Concordium.Scheduler.Types (FilteredTransactions)
 import qualified Concordium.TransactionVerification as TVer
+import Concordium.Types.TransactionOutcomes
 
 data BlockStatus bp pb
     = BlockAlive !bp

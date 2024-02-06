@@ -99,6 +99,7 @@ import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
+import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 
 -- konsensus v1 related imports.
@@ -655,7 +656,7 @@ testLookupTransaction _ = describe "lookupTransaction" $ do
 
 -- | Testing 'getNonFinalizedAccountTransactions'
 --  This test ensures that:
---  * An existing non finalized account transction can be looked up
+--  * An existing non finalized account transaction can be looked up
 --  * Looking up with an unknown transaction hash will result in a 'Nothing' result.
 testGetNonFinalizedAccountTransactions ::
     forall pv.

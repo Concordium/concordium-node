@@ -257,7 +257,6 @@ executables:
     - concordium-consensus
     - clock
 
-
   database-exporter:
     main:         Main.hs
     source-dirs:  tools/database-exporter

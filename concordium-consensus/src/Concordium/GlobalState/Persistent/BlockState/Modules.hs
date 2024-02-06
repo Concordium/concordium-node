@@ -17,6 +17,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
     SupportsPersistentModule,
     getModuleInterface,
     PersistentInstrumentedModuleV,
+    makePersistentInstrumentedModuleV,
     loadInstrumentedModuleV,
     emptyModules,
     getInterface,
@@ -33,6 +34,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
 ) where
 
 import Concordium.Crypto.SHA256
+import Concordium.GlobalState.BlockState (ModulesHash (..))
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
@@ -73,6 +75,11 @@ data PersistentInstrumentedModuleV (v :: WasmVersion)
       --  from the blob store.
       PIMVPtr !(BlobPtr (GSWasm.InstrumentedModuleV v))
     deriving (Show)
+
+-- | Make a 'PersistentInstrumentedModuleV' from a 'GSWasm.InstrumentedModuleV', retaining it in
+-- memory only.
+makePersistentInstrumentedModuleV :: GSWasm.InstrumentedModuleV v -> PersistentInstrumentedModuleV v
+makePersistentInstrumentedModuleV = PIMVMem
 
 -- | Load a 'PersistentInstrumentedModuleV', retrieving the artifact.
 --  If the artifact has been persisted to the blob store, the artifact will wrap a pointer into
@@ -282,8 +289,11 @@ data Modules = Modules
 makeLenses ''Modules
 
 -- | The hash of the collection of modules is the hash of the tree.
-instance (SupportsPersistentModule m) => MHashableTo m Hash Modules where
-    getHashM = getHashM . _modulesTable
+instance (SupportsPersistentModule m, IsBlockHashVersion (BlockHashVersionFor pv)) => MHashableTo m (ModulesHash pv) Modules where
+    getHashM =
+        fmap (ModulesHash . LFMB.theLFMBTreeHash @(BlockHashVersionFor pv))
+            . getHashM
+            . _modulesTable
 
 instance (SupportsPersistentModule m) => BlobStorable m Modules where
     load = do

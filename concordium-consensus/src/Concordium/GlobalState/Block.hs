@@ -23,6 +23,7 @@ import Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Parameters
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 
 import Concordium.GlobalState.Finalization
@@ -334,9 +335,9 @@ instance forall pv. (IsProtocolVersion pv) => BlockData (Block pv) where
 
     -- move into gendata?
     blockTransactionOutcomesHash GenesisBlock{} =
-        case transactionOutcomesVersion @(TransactionOutcomesVersionFor pv) of
-            STOV0 -> getHash emptyTransactionOutcomesV0
-            STOV1 -> emptyTransactionOutcomesHashV1
+        toTransactionOutcomesHash $
+            emptyTransactionOutcomesHashV $
+                transactionOutcomesVersion @(TransactionOutcomesVersionFor pv)
     blockTransactionOutcomesHash (NormalBlock bb) = blockTransactionOutcomesHash bb
 
     blockSignature GenesisBlock{} = Nothing

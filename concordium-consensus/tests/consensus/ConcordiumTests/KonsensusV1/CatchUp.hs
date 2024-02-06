@@ -446,12 +446,12 @@ catchupWithTwoBranchesResponse sProtocolVersion =
                               bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
                                 SBlockHashVersion0 ->
                                     DerivableBlockHashesV0
-                                        { dbhv0TransactionOutcomesHash = emptyBlockTOH 3,
+                                        { dbhv0TransactionOutcomesHash = emptyBlockTOHV1 3,
                                           dbhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
                                         }
                                 SBlockHashVersion1 ->
                                     DerivableBlockHashesV1
-                                        { dbhv1BlockResultHash = read "f36a049939054eac3e8662e4ab0310d8e12381ee2ba77a9c16fa19c205ea64b3"
+                                        { dbhv1BlockResultHash = read "15de5c588b1eef119b2c03e7baf124deb0b3a01260ccc43cb7e470922d67c531"
                                         }
                             }
         TestBlocks.succeedReceiveBlock b4
@@ -581,12 +581,12 @@ testMakeCatchupStatus sProtocolVersion =
                               bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
                                 SBlockHashVersion0 ->
                                     DerivableBlockHashesV0
-                                        { dbhv0TransactionOutcomesHash = emptyBlockTOH 3,
+                                        { dbhv0TransactionOutcomesHash = emptyBlockTOHV1 3,
                                           dbhv0BlockStateHash = read "cdf730c1b3fdc6d07f404c6b95a4f3417c19653b1299b92f59fcaffcc9745910"
                                         }
                                 SBlockHashVersion1 ->
                                     DerivableBlockHashesV1
-                                        { dbhv1BlockResultHash = read "f36a049939054eac3e8662e4ab0310d8e12381ee2ba77a9c16fa19c205ea64b3"
+                                        { dbhv1BlockResultHash = read "15de5c588b1eef119b2c03e7baf124deb0b3a01260ccc43cb7e470922d67c531"
                                         }
                             }
         TestBlocks.succeedReceiveBlock b4

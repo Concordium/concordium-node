@@ -1,4 +1,7 @@
--- | This tools provides functionality for exporting a node database for use with the out-of-band
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+
+-- | This tool provides functionality for exporting a node database for use with the out-of-band
 --  catch up mechanism.  It also provides functionality for checking that such an exported set of
 --  blocks is correctly serialized.
 module Main where
@@ -37,7 +40,7 @@ checkDatabase filepath = do
     logm _ lvl s = putStrLn $ show lvl ++ ": " ++ s
     handleImport :: (MonadLogger m) => UTCTime -> ImportData -> m (ImportResult a ())
     handleImport t (ImportBlock pv gi bs) = case promoteProtocolVersion pv of
-        SomeProtocolVersion spv -> case consensusVersionFor spv of
+        SomeProtocolVersion (spv :: SProtocolVersion pv) -> case consensusVersionFor spv of
             ConsensusV0 -> case deserializeExactVersionedPendingBlock spv bs t of
                 Left err -> do
                     logEvent External LLError $ "Deserialization failed for consensus v0 block: " <> err
@@ -45,7 +48,7 @@ checkDatabase filepath = do
                 Right pb -> do
                     logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " block: " ++ show (pbHash pb) ++ " slot: " ++ show (blockSlot pb)
                     return $ Right ()
-            ConsensusV1 -> case SkovV1.deserializeExactVersionedPendingBlock spv bs t of
+            ConsensusV1 -> case SkovV1.deserializeExactVersionedPendingBlock @pv bs t of
                 Left err -> do
                     logEvent External LLError $ "Deserialization failed for consensus v1 block: " <> err
                     return $ Left ImportSerializationFail

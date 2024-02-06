@@ -71,10 +71,10 @@ import Concordium.Utils.Serialization
 import qualified Concordium.Wasm as Wasm
 
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
+import Concordium.GlobalState.Persistent.PoolRewards
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
 import Concordium.Types.Accounts
@@ -94,9 +94,22 @@ import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
 import Concordium.ID.Types (AccountCredential)
 import qualified Concordium.ID.Types as ID
+import Concordium.Types.TransactionOutcomes
 
 -- | Hash associated with birk parameters.
 newtype BirkParametersHash (pv :: ProtocolVersion) = BirkParametersHash {birkParamHash :: H.Hash}
+    deriving newtype (Eq, Ord, Show, Serialize)
+
+-- | Hash associated with the accounts table.
+newtype AccountsHash (pv :: ProtocolVersion) = AccountsHash {theAccountsHash :: H.Hash}
+    deriving newtype (Eq, Ord, Show, Serialize)
+
+-- | Hash associated with the modules table.
+newtype ModulesHash (pv :: ProtocolVersion) = ModulesHash {theModulesHash :: H.Hash}
+    deriving newtype (Eq, Ord, Show, Serialize)
+
+-- | Hash associated with the instances table.
+newtype InstancesHash (pv :: ProtocolVersion) = InstancesHash {theInstancesHash :: H.Hash}
     deriving newtype (Eq, Ord, Show, Serialize)
 
 -- | The hashes of the block state components, which are combined
@@ -106,12 +119,12 @@ data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs
       bshCryptographicParameters :: H.Hash,
       bshIdentityProviders :: H.Hash,
       bshAnonymityRevokers :: H.Hash,
-      bshModules :: H.Hash,
+      bshModules :: ModulesHash pv,
       bshBankStatus :: H.Hash,
-      bshAccounts :: H.Hash,
-      bshInstances :: H.Hash,
+      bshAccounts :: AccountsHash pv,
+      bshInstances :: InstancesHash pv,
       bshUpdates :: H.Hash,
-      bshBlockRewardDetails :: BlockRewardDetailsHash (AccountVersionFor pv)
+      bshBlockRewardDetails :: BlockRewardDetailsHash pv
     }
     deriving (Show)
 
@@ -126,8 +139,8 @@ makeBlockStateHash BlockStateHashInputs{..} =
                     (H.hashOfHashes bshIdentityProviders bshAnonymityRevokers)
                 )
                 ( H.hashOfHashes
-                    (H.hashOfHashes bshModules bshBankStatus)
-                    (H.hashOfHashes bshAccounts bshInstances)
+                    (H.hashOfHashes (theModulesHash bshModules) bshBankStatus)
+                    (H.hashOfHashes (theAccountsHash bshAccounts) (theInstancesHash bshInstances))
                 )
             )
             ( H.hashOfHashes

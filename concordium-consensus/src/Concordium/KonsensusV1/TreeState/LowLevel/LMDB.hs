@@ -880,7 +880,9 @@ rollBackBlocksUntil checkState = do
                                                 { feFinalizedQuorumCertificate =
                                                     blockQuorumCertificate block,
                                                   feSuccessorQuorumCertificate = finQC,
-                                                  feSuccessorProof = getHash (sbBlock block)
+                                                  feSuccessorProof =
+                                                    makeSuccessorProof @(BlockHashVersionFor pv) $
+                                                        getHash (sbBlock block)
                                                 }
                                         return (c + 1, finHash : hashes, parent)
             loadRecord txn (dbh ^. latestFinalizationEntryStore) CSKLatestFinalizationEntry

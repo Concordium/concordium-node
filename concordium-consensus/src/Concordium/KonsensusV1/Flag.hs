@@ -55,7 +55,7 @@ data FlaggableOffense (pv :: ProtocolVersion)
     | -- | The block is in a new 'Epoch', but it is missing the finalization entry.
       --  Witnessed by the block received.
       BlockEpochFinalizationMissing !(SignedBlock pv)
-    | -- | The block was not in a new 'Epoch', but a finalization entry is presnet.
+    | -- | The block was not in a new 'Epoch', but a finalization entry is present.
       --  Witnessed by the block received.
       BlockUnexpectedEpochFinalization !(SignedBlock pv)
     | -- | The block is in a new 'Epoch' but the finalization entry is deemed invalid.

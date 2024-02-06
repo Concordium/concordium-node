@@ -26,12 +26,12 @@ import Data.Word
 import Lens.Micro.Platform
 
 import qualified Concordium.GlobalState.BakerInfo as BI
-import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Persistent.PoolRewards (BakerPoolRewardDetails (..))
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.TreeState
 import Concordium.Kontrol.Bakers

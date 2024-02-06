@@ -28,9 +28,9 @@ import Concordium.Types
 import qualified Concordium.Types.DummyData as Dummy
 import Concordium.Types.Option
 import Concordium.Types.Transactions
-import qualified Concordium.Types.Transactions as Transactions
 import qualified Data.FixedByteString as FBS
 
+import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
 import qualified ConcordiumTests.KonsensusV1.Common as Common
 
 -- | Generate a 'FinalizerSet'. The size parameter determines the size of the committee that
@@ -107,7 +107,7 @@ genFinalizationEntry :: Gen FinalizationEntry
 genFinalizationEntry = do
     feFinalizedQuorumCertificate <- genQuorumCertificate
     preQC <- genQuorumCertificate
-    feSuccessorProof <- BlockQuasiHash . Hash.Hash . FBS.pack <$> vector 32
+    feSuccessorProof <- SuccessorProof . Hash.Hash . FBS.pack <$> vector 32
     let succRound = qcRound feFinalizedQuorumCertificate + 1
     let sqcEpoch = qcEpoch feFinalizedQuorumCertificate
     let feSuccessorQuorumCertificate =
@@ -243,7 +243,9 @@ genBakedBlock sProtocolVersion = do
             bbStateHash <- StateHashV0 . Hash.Hash . FBS.pack <$> vector 32
             return $
                 DerivableBlockHashesV0
-                    { dbhv0TransactionOutcomesHash = Transactions.emptyTransactionOutcomesHashV1,
+                    { dbhv0TransactionOutcomesHash =
+                        TransactionOutcomes.toTransactionOutcomesHash
+                            TransactionOutcomes.emptyTransactionOutcomesHashV1,
                       dbhv0BlockStateHash = bbStateHash
                     }
         SBlockHashVersion1 -> do
@@ -317,9 +319,9 @@ propSerializeSignedBlock ::
     (IsProtocolVersion pv) =>
     SProtocolVersion pv ->
     Property
-propSerializeSignedBlock sProtocolVersion =
+propSerializeSignedBlock _ =
     forAll (genSignedBlock @pv) $ \sb ->
-        case runGet (getSignedBlock sProtocolVersion (TransactionTime 42)) $! runPut (putSignedBlock sb) of
+        case runGet (getSignedBlock (TransactionTime 42)) $! runPut (putSignedBlock sb) of
             Left _ -> False
             Right sb' -> sb == sb'
 
@@ -406,14 +408,14 @@ propSignQuorumSignatureMessageDiffBody =
                     pubKeys = [(Bls.derivePublicKey someBlsSecretKey), (Bls.derivePublicKey (someOtherBlsSecretKey 1))]
                 in  not (checkQuorumSignature qsm1 pubKeys qs')
 
-propSignBakedBlock :: SProtocolVersion pv -> Property
+propSignBakedBlock :: (IsProtocolVersion pv) => SProtocolVersion pv -> Property
 propSignBakedBlock sProtocolVersion =
     forAll (genBakedBlock sProtocolVersion) $ \bb ->
         forAll genBlockHash $ \genesisHash ->
             forAll genBlockKeyPair $ \kp@(Sig.KeyPair _ pk) ->
                 (verifyBlockSignature pk genesisHash (signBlock kp genesisHash bb))
 
-propSignBakedBlockDiffKey :: SProtocolVersion pv -> Property
+propSignBakedBlockDiffKey :: (IsProtocolVersion pv) => SProtocolVersion pv -> Property
 propSignBakedBlockDiffKey sProtocolVersion =
     forAll (genBakedBlock sProtocolVersion) $ \bb ->
         forAll genBlockHash $ \genesisHash ->

@@ -21,7 +21,7 @@ import Concordium.Types
 import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.Option
 import Concordium.Types.Parameters
-import Concordium.Types.Transactions
+import Concordium.Types.TransactionOutcomes
 import GHC.IO (unsafePerformIO)
 import GHC.IORef (newIORef)
 import Test.Hspec (Spec)
@@ -107,7 +107,7 @@ someBlockPointer sProtocolVersion bh r e =
               bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
                 SBlockHashVersion0 ->
                     DerivableBlockHashesV0
-                        { dbhv0TransactionOutcomesHash = emptyTransactionOutcomesHashV1,
+                        { dbhv0TransactionOutcomesHash = toTransactionOutcomesHash emptyTransactionOutcomesHashV1,
                           dbhv0BlockStateHash = stateHash
                         }
                 SBlockHashVersion1 ->
@@ -120,7 +120,7 @@ someBlockPointer sProtocolVersion bh r e =
 myBlockPointer :: SProtocolVersion pv -> Round -> Epoch -> BlockPointer pv
 myBlockPointer sProtocolVersion = someBlockPointer sProtocolVersion myBlockHash
 
--- | A key pair created from the provided seeed.
+-- | A key pair created from the provided seed.
 sigKeyPair' :: Int -> Sig.KeyPair
 sigKeyPair' seed = fst $ Dummy.randomBlockKeyPair $ mkStdGen seed
 
@@ -166,3 +166,16 @@ forEveryProtocolVersionConsensusV1 check =
     forEveryProtocolVersion $ \spv pvString -> case consensusVersionFor spv of
         ConsensusV0 -> return ()
         ConsensusV1 -> check spv pvString
+
+forEveryProtocolVersionBHV1 ::
+    ( forall pv.
+      (IsProtocolVersion pv, IsConsensusV1 pv, BlockHashVersionFor pv ~ 'BlockHashVersion1) =>
+      SProtocolVersion pv ->
+      String ->
+      Spec
+    ) ->
+    Spec
+forEveryProtocolVersionBHV1 check =
+    forEveryProtocolVersionConsensusV1 $ \spv pvString -> case sBlockHashVersionFor spv of
+        SBlockHashVersion1 -> check spv pvString
+        _ -> return ()

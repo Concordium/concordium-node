@@ -1630,7 +1630,7 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
             QueriesKonsensusV1.EpochFinalizationEntry
                 { efeFinalizedQC = mkQuorumCertificateOut committee feFinalizedQuorumCertificate,
                   efeSuccessorQC = mkQuorumCertificateOut committee feSuccessorQuorumCertificate,
-                  efeSuccessorProof = QueriesKonsensusV1.SuccessorProof $ SkovV1.theBlockQuasiHash feSuccessorProof
+                  efeSuccessorProof = QueriesKonsensusV1.SuccessorProof $ SkovV1.theSuccessorProof feSuccessorProof
                 }
 
 -- | Error type for querying 'BakerRewardPeriodInfo' for some block.

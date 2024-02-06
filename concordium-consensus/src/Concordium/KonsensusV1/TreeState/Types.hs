@@ -207,9 +207,13 @@ instance BakedBlockData (PendingBlock pv) where
     blockSignature = blockSignature . pbBlock
     blockDerivableHashes = blockDerivableHashes . pbBlock
 
-deserializeExactVersionedPendingBlock :: SProtocolVersion pv -> BS.ByteString -> UTCTime -> Either String (PendingBlock pv)
-deserializeExactVersionedPendingBlock spv blockBS recTime =
-    case runGet (getSignedBlock spv (utcTimeToTransactionTime recTime)) blockBS of
+deserializeExactVersionedPendingBlock ::
+    (IsProtocolVersion pv) =>
+    BS.ByteString ->
+    UTCTime ->
+    Either String (PendingBlock pv)
+deserializeExactVersionedPendingBlock blockBS recTime =
+    case runGet (getSignedBlock (utcTimeToTransactionTime recTime)) blockBS of
         Left err -> Left $ "Block deserialization failed: " ++ err
         Right signedBlock -> Right $ PendingBlock signedBlock recTime
 

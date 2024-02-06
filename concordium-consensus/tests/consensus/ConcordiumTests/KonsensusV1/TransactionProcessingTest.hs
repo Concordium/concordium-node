@@ -67,6 +67,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Option
 import Concordium.Types.Parameters
+import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 
 import Concordium.GlobalState.Transactions

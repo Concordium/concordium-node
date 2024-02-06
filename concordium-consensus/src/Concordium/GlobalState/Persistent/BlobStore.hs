@@ -157,9 +157,9 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 -- Imports for providing instances
 import Concordium.Common.Time
 import Concordium.GlobalState.Account
-import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.Parameters as Parameters
+import Concordium.GlobalState.PoolRewards
 import Concordium.Logger (MonadLogger)
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -1610,11 +1610,13 @@ migrateHashedBufferedRefKeepHash hb = do
 -- | Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
 --  already. The input reference is uncached, and the new references is flushed
 --  to disk, as well as cached in memory.
+--  The hash for the new reference is computed afresh, allowing for a change of
+--  hashing scheme and/or a modification of the underlying data.
 migrateHashedBufferedRef ::
-    (MonadTrans t, MHashableTo (t m) h b, BlobStorable m a, BlobStorable (t m) b) =>
+    (MonadTrans t, MHashableTo (t m) h2 b, BlobStorable m a, BlobStorable (t m) b) =>
     (a -> t m b) ->
-    HashedBufferedRef' h a ->
-    t m (HashedBufferedRef' h b)
+    HashedBufferedRef' h1 a ->
+    t m (HashedBufferedRef' h2 b)
 migrateHashedBufferedRef f hb = do
     !newRef <- refMake =<< f =<< lift (refLoad (bufferedReference hb))
     -- compute the hash while the data is in memory.
@@ -1629,7 +1631,7 @@ migrateHashedBufferedRef f hb = do
 type HashedBufferedRef = HashedBufferedRef' H.Hash
 
 -- | Created a 'HashedBufferedRef' value from a 'Hashed' value, retaining the hash.
-bufferHashed :: (MonadIO m) => Hashed a -> m (HashedBufferedRef a)
+bufferHashed :: (MonadIO m) => Hashed' h a -> m (HashedBufferedRef' h a)
 bufferHashed (Hashed !val !h) = do
     br <- makeBufferedRef val
     hashRef <- liftIO $ newIORef (Some h)
@@ -1652,7 +1654,7 @@ instance (DirectBlobStorable m a, MHashableTo m h a) => MHashableTo m h (HashedB
                 return h
             Some h -> return h
 
-instance (Show a) => Show (HashedBufferedRef a) where
+instance (Show a) => Show (HashedBufferedRef' h a) where
     show ref = show (bufferedReference ref)
 
 instance (DirectBlobStorable m a) => BlobStorable m (HashedBufferedRef' h a) where

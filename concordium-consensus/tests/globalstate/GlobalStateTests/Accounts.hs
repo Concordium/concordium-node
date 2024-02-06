@@ -5,16 +5,15 @@
 
 module GlobalStateTests.Accounts where
 
-import qualified Basic.AccountTable as BAT
 import qualified Basic.Accounts as B
 import Concordium.Crypto.DummyData
 import Concordium.Crypto.FFIDataTypes
-import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Basic.BlockState.Account as BA
+import Concordium.GlobalState.BlockState (AccountsHash)
 import Concordium.GlobalState.DummyData
 import qualified Concordium.GlobalState.Persistent.Account as PA
 import qualified Concordium.GlobalState.Persistent.Accounts as P
@@ -74,13 +73,13 @@ checkEquivalent :: (P.SupportsPersistentAccount PV m, av ~ AccountVersionFor PV)
 checkEquivalent ba pa = do
     addrsAndIndices <- P.allAccounts pa
     checkBinary (==) (AccountMap.toMapPure (B.accountMap ba)) (Map.fromList addrsAndIndices) "==" "Basic account map" "Persistent account map"
-    let bat = BAT.toList (B.accountTable ba)
+    let bat = B.accountList ba
     pat <- L.toAscPairList (P.accountTable pa)
     bpat <- mapM (_2 PA.toTransientAccount) pat
     checkBinary (==) bat bpat "==" "Basic account table (as list)" "Persistent account table (as list)"
-    let bath = getHash (B.accountTable ba) :: H.Hash
-    path <- getHashM (P.accountTable pa)
-    checkBinary (==) bath path "==" "Basic account table hash" "Persistent account table hash"
+    let bath = getHash ba :: AccountsHash PV
+    path <- getHashM pa
+    checkBinary (==) bath path "==" "Basic accounts hash" "Persistent accounts hash"
     pregids <- P.loadRegIds pa
     checkBinary (==) (B.accountRegIds ba) pregids "==" "Basic registration ids" "Persistent registration ids"
 

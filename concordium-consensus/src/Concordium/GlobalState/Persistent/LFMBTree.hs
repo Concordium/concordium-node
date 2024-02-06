@@ -1,8 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -12,6 +14,12 @@
 --
 --    An implementation of a Left-full Merkle Binary Tree.
 module Concordium.GlobalState.Persistent.LFMBTree (
+    -- * Hash types
+    LFMBTreeHash' (..),
+    LFMBTreeHash,
+    LFMBTreeHashV0,
+    LFMBTreeHashV1,
+
     -- * Tree type
     LFMBTree,
     LFMBTree',
@@ -57,8 +65,16 @@ module Concordium.GlobalState.Persistent.LFMBTree (
 where
 
 import qualified Concordium.Crypto.SHA256 as H
-import Concordium.GlobalState.Basic.BlockState.LFMBTree (setBits)
+import Concordium.GlobalState.Basic.BlockState.LFMBTree (
+    LFMBTreeHash,
+    LFMBTreeHash' (..),
+    LFMBTreeHashV0,
+    LFMBTreeHashV1,
+    emptyTreeHashV0,
+    setBits,
+ )
 import Concordium.GlobalState.Persistent.BlobStore
+import Concordium.Types
 import Concordium.Types.HashableTo
 import Control.Monad
 import Control.Monad.Trans
@@ -66,6 +82,7 @@ import Data.Bits
 import Data.Coerce (Coercible, coerce)
 import Data.Kind
 import Data.Serialize
+import Data.Singletons
 import Data.Word
 import Prelude hiding (lookup)
 
@@ -133,16 +150,38 @@ instance
         hr <- getHashM r
         return $ H.hashOfHashes hl hr
 
--- | The hash of a LFMBTree is defined as the hash of the string "EmptyLFMBTree" if it
--- is empty or the hash of the tree otherwise.
+-- | Compute the version 0 hash of an LFMBTree.
+toHashV0 ::
+    (MHashableTo m H.Hash v, MHashableTo m H.Hash (ref (T ref v))) =>
+    LFMBTree' k ref v ->
+    m LFMBTreeHashV0
+toHashV0 Empty = return emptyTreeHashV0
+toHashV0 (NonEmpty _ v) = LFMBTreeHash <$> getHashM v
+
+-- | Compute the version 1 hash of an LFMBTree.
+toHashV1 ::
+    (MHashableTo m H.Hash v, MHashableTo m H.Hash (ref (T ref v))) =>
+    LFMBTree' k ref v ->
+    m LFMBTreeHashV1
+toHashV1 t = do
+    preHash <- toHashV0 t
+    let sz = case t of
+            Empty -> 0
+            NonEmpty s _ -> s
+    return $ LFMBTreeHash $ H.hashLazy $ runPutLazy $ do
+        putWord64be sz
+        put preHash
+
 instance
     ( MHashableTo m H.Hash v, -- values must be hashable
-      MHashableTo m H.Hash (ref (T ref v)) -- references to nodes must be hashable
+      MHashableTo m H.Hash (ref (T ref v)), -- references to nodes must be hashable
+      IsBlockHashVersion bhv
     ) =>
-    MHashableTo m H.Hash (LFMBTree' k ref v)
+    MHashableTo m (LFMBTreeHash' bhv) (LFMBTree' k ref v)
     where
-    getHashM Empty = return $ H.hash "EmptyLFMBTree"
-    getHashM (NonEmpty _ v) = getHashM v
+    getHashM = case sing @bhv of
+        SBlockHashVersion0 -> toHashV0
+        SBlockHashVersion1 -> toHashV1
 
 -- | Constraints that ensures a monad @m@ can store an LFMBTree (that holds references
 -- of type @ref@ to values of type @v@) in references of type @ref@.

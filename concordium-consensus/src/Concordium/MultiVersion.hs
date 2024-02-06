@@ -1691,7 +1691,7 @@ receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
     (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
         MVR $ \mvr -> do
             now <- currentTime
-            case SkovV1.deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
+            case SkovV1.deserializeExactVersionedPendingBlock @pv blockBS now of
                 Left err -> do
                     mvLog mvr Runner LLDebug err
                     return (Skov.ResultSerializationFail, Nothing)
@@ -2066,7 +2066,7 @@ receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $ \case
             Right block -> runSkovV0Transaction vc (Skov.receiveExecuteBlock block)
     EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv) -> do
         now <- currentTime
-        case SkovV1.deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
+        case SkovV1.deserializeExactVersionedPendingBlock @pv blockBS now of
             Left err -> do
                 logEvent Runner LLDebug err
                 return Skov.ResultSerializationFail
