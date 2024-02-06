@@ -51,7 +51,7 @@ on:
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 15                 # change to force cache invalidation
+  dummy: 16                 # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
   TEST_LEVEL: 1            # for stack tests
 
@@ -126,6 +126,7 @@ jobs:
       matrix:
         plan:
         - rust: 1.68
+          ghc: 9.6.4
 
     steps:
     - name: Remove unnecessary files
@@ -219,7 +220,6 @@ jobs:
     - name: Install GHC (unless it was cached)
       if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
       run: |
-        df -h
         stack setup --install-ghc
     - name: Build haskell dependencies (unless they were cached)
       if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
