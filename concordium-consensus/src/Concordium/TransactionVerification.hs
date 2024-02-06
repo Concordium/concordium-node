@@ -19,7 +19,9 @@ import qualified Concordium.Types.Parameters as Params
 import qualified Concordium.Types.Transactions as Tx
 import Concordium.Types.Updates (UpdateSequenceNumber)
 import qualified Concordium.Types.Updates as Updates
+import Control.Monad
 import Control.Monad.Except
+import Control.Monad.Trans.Class
 
 -- | Type for describing the origin of the transaction.
 --  The transaction can either arrive at the consensus individually,

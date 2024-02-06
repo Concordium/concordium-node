@@ -126,8 +126,13 @@ jobs:
       matrix:
         plan:
         - rust: 1.68
+          ghc: 9.6.4
 
     steps:
+    - name: Remove unnecessary files
+      run: |
+        sudo rm -rf /usr/share/dotnet
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"    
     - name: Checkout
       uses: actions/checkout@v2
       with:

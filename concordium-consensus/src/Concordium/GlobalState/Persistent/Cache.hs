@@ -6,6 +6,7 @@
 module Concordium.GlobalState.Persistent.Cache where
 
 import Control.Concurrent.MVar
+import Control.Monad
 import Control.Monad.Except (ExceptT)
 import Control.Monad.IO.Class
 import Control.Monad.Reader

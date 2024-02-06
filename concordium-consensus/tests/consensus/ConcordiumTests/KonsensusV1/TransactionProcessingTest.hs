@@ -17,6 +17,7 @@
 --  consensus implementations share the same transaction verifier.
 module ConcordiumTests.KonsensusV1.TransactionProcessingTest where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State

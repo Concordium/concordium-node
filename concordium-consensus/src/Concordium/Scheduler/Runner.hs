@@ -8,7 +8,7 @@ import GHC.Generics (Generic)
 import Data.Maybe
 import Data.Text (Text)
 
-import Control.Monad.Except
+import Control.Monad.IO.Class
 
 import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls

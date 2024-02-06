@@ -6,8 +6,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE UndecidableInstances #-}
--- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
--- This may be fixed in GHC 9.0.1.
+-- The instance `GlobalStateTypes (SkovQueryMonadT m)` technically has a redundant constraint,
+-- which we allow by supressing this warning.
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.Skov.Monad (

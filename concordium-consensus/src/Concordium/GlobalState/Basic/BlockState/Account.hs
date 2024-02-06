@@ -8,7 +8,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.GlobalState.Basic.BlockState.Account (
     module Concordium.GlobalState.Account,

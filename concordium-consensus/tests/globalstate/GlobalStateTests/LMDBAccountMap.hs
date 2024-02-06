@@ -10,6 +10,7 @@
 module GlobalStateTests.LMDBAccountMap where
 
 import Control.Exception (bracket)
+import Control.Monad
 import Control.Monad.Reader
 import qualified Data.HashMap.Strict as HM
 import Data.Maybe (isJust, isNothing)

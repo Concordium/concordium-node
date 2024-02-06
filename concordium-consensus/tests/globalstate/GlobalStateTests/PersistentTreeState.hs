@@ -39,6 +39,7 @@ import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import qualified Concordium.Types.Transactions as Trns
 import Control.Exception
+import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.RWS.Strict as RWS hiding (state)
 import qualified Data.FixedByteString as FBS

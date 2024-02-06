@@ -13,6 +13,7 @@
   CPUs.
 - The option `--grpc2-max-concurrent-streams` now defaults to `200` from the
   previous unbounded value. This makes the node defaults safer.
+- Update GHC version to 9.6.4 (lts-22.9).
 
 ## 6.2.3
 

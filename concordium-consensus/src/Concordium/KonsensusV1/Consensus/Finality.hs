@@ -6,6 +6,7 @@
 module Concordium.KonsensusV1.Consensus.Finality where
 
 import Control.Exception
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.State
 import qualified Data.List as List
