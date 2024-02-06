@@ -5,6 +5,7 @@
 
 module Concordium.KonsensusV1.TreeState.StartUp where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict

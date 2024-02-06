@@ -79,7 +79,9 @@ import Concordium.GlobalState.Types
 
 import Concordium.Logger
 import Control.Applicative
+import Control.Monad
 import Control.Monad.Except
+import Control.Monad.Trans.Class
 import Data.Function (on)
 import Data.List (find, foldl')
 import qualified Data.Map.Strict as OrdMap

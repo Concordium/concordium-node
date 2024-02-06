@@ -4,6 +4,7 @@
 
 module ConcordiumTests.Afgjort.Freeze where
 
+import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.RWS
 import Data.Either

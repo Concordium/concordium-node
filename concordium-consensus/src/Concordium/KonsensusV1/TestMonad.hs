@@ -12,6 +12,7 @@
 --  consensus. The implementation provides a bare-bones scaffolding that can be used for testing.
 module Concordium.KonsensusV1.TestMonad where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.RWS.Strict
 import Data.IORef

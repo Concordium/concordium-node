@@ -14,21 +14,24 @@ try {
     Pop-Location
     if ($LASTEXITCODE -ne 0) { throw "Failed building custom-actions.dll" }
 
+    $StackInstallRoot = stack path --local-install-root
+
     # Create path bindings for the various sources.
     $Binds = @(
-        "-b", "consensus=..\..\..\concordium-consensus",
+        "-b", "consensus=$StackInstallRoot\lib",
         "-b", "node=..\..\..\concordium-node\target\release",
         "-b", "collector=..\..\..\collector\target\release",
         "-b", "service=..\target\x86_64-pc-windows-msvc\release"
         "-b", "ca=.\custom-actions\target\x86_64-pc-windows-msvc\release",
         "-b", "res=.\resources")
 
-    # We add stacks extra-library-dirs as bindings so the installer can find
-    # the third-party dll dependencies.
-    $StackLibsStr = stack path --extra-library-dirs
-    $StackLibsArr = $StackLibsStr.Split(",").Trim()
-    Foreach ($LibDir in $StackLibsArr) {
-        $Binds += "-b", ("lib=" + $LibDir)
+    # We look up the location of the dependency DLLs in stack's path, and add them to
+    # the search path for the linker.
+    $ExtDLLs = @("liblmdb.dll", "libunwind.dll")
+    Foreach ($ExtDLL in $ExtDLLs) {
+        # Get the first instance on the path.
+        $DLLLoc = ((stack exec -- where $ExtDLL) -split '\n')[0]
+        $Binds += "-b", ("lib=" + (Get-Item $DLLLoc).Directory)
     }
 
     $env:_NodeProductId = [guid]::NewGuid().ToString();
