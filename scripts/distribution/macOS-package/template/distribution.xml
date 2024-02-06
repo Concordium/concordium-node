@@ -8,7 +8,6 @@
     <options customize="never" allow-external-scripts="no" hostArchitectures="x86_64"/>
     <domains enable_localSystem="true" />
     <installation-check script="installCheck();">
-        <ram min-gb="16.00"/>
     </installation-check>
     <script>
 function installCheck() {
