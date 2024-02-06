@@ -1,8 +1,8 @@
 // Parameters:
 // - VERSION
 // - UBUNTU_VERSION (default: "20.04")
-// - GHC_VERSION (default: "9.2.7")
-// - STATIC_LIBRARIES_IMAGE_TAG (default: "rust-1.68.2_ghc-9.2.7")
+// - GHC_VERSION (default: "9.6.4")
+// - STATIC_LIBRARIES_IMAGE_TAG (default: "rust-1.68.2_ghc-9.6.4")
 
 pipeline {
     agent any

@@ -39,7 +39,9 @@ import qualified Concordium.Types as Types
 import qualified Concordium.Types.Parameters as Types
 import qualified Concordium.Types.SeedState as Types
 
+import qualified Control.Monad as MTL
 import qualified Control.Monad.Except as MTL
+import qualified Control.Monad.IO.Class as MTL
 import Data.IORef (newIORef)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)

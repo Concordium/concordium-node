@@ -12,7 +12,7 @@ module SchedulerTests.SmartContracts.V1.QueriesPersistent (tests) where
 import Test.HUnit (Assertion, assertEqual, assertFailure)
 import Test.Hspec
 
-import Control.Monad.RWS.Strict
+import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import qualified Data.Serialize as S

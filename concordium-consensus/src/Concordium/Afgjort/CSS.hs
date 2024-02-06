@@ -104,11 +104,13 @@ module Concordium.Afgjort.CSS (
     PartySet (..),
 ) where
 
+import Control.Monad
 import Control.Monad.RWS.Strict
 import Data.List (foldl')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
+import Data.Monoid
 import Lens.Micro.Platform
 
 import qualified Concordium.Afgjort.CSS.BitSet as BitSet

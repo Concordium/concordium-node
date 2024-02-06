@@ -24,6 +24,7 @@ module Concordium.MultiVersion where
 
 import Control.Concurrent
 import Control.Exception
+import Control.Monad
 import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow (throwM))
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as State

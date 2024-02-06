@@ -17,7 +17,6 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     lookupBakerCapitalAndRewardDetails,
     migratePoolRewardsP1,
     migratePoolRewards,
-    migratePoolRewardsChangeHash,
 ) where
 
 import Control.Exception (assert)
@@ -68,36 +67,13 @@ data PoolRewards (bhv :: BlockHashVersion) = PoolRewards
 
 -- | Migrate pool rewards from @m@ to the new backing store @t m@.
 --  This takes the new next payday epoch as a parameter, since this should always be updated on
---  a protocol update. This does not allow the hashing scheme to change in the migration, and
---  thus can reuse hashes.
+--  a protocol update. The hashes for the
 migratePoolRewards ::
-    (SupportMigration m t) =>
-    Epoch ->
-    PoolRewards bhv ->
-    t m (PoolRewards bhv)
-migratePoolRewards newNextPayday PoolRewards{..} = do
-    nextCapital' <- migrateHashedBufferedRefKeepHash nextCapital
-    currentCapital' <- migrateHashedBufferedRefKeepHash currentCapital
-    bakerPoolRewardDetails' <- LFMBT.migrateLFMBTree (migrateReference return) bakerPoolRewardDetails
-    return
-        PoolRewards
-            { nextCapital = nextCapital',
-              currentCapital = currentCapital',
-              bakerPoolRewardDetails = bakerPoolRewardDetails',
-              nextPaydayEpoch = newNextPayday,
-              ..
-            }
-
--- | Migrate pool rewards from @m@ to the new backing store @t m@.
---  This takes the new next payday epoch as a parameter, since this should always be updated on
---  a protocol update. Compared to 'migratePoolRewards', this implementation supports
---  changing the hashing scheme used for the pool rewards.
-migratePoolRewardsChangeHash ::
     (SupportMigration m t, IsBlockHashVersion bhv1) =>
     Epoch ->
     PoolRewards bhv0 ->
     t m (PoolRewards bhv1)
-migratePoolRewardsChangeHash newNextPayday PoolRewards{..} = do
+migratePoolRewards newNextPayday PoolRewards{..} = do
     nextCapital' <- migrateHashedBufferedRef return nextCapital
     currentCapital' <- migrateHashedBufferedRef return currentCapital
     bakerPoolRewardDetails' <- LFMBT.migrateLFMBTree (migrateReference return) bakerPoolRewardDetails

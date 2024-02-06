@@ -28,6 +28,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option (Option (..))
 import Control.Exception (bracket)
+import Control.Monad
 import Control.Monad.Reader
 import Data.Either
 import qualified Data.FixedByteString as FBS

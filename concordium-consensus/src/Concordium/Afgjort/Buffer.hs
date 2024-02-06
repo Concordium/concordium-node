@@ -2,6 +2,7 @@
 
 module Concordium.Afgjort.Buffer where
 
+import Control.Monad
 import Control.Monad.State
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map

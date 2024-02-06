@@ -4,6 +4,7 @@
 
 module Concordium.KonsensusV1.Consensus.Timeout where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State

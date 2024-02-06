@@ -32,6 +32,7 @@ module Concordium.KonsensusV1.Consensus.CatchUp (
 )
 where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State

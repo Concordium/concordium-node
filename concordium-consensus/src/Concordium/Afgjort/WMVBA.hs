@@ -113,12 +113,14 @@ module Concordium.Afgjort.WMVBA (
     WMVBAState (WMVBAState),
 ) where
 
+import Control.Monad
 import Control.Monad.RWS.Strict
 import Data.Bits
 import qualified Data.ByteString as BS
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.Monoid
 import qualified Data.Serialize as S
 import Data.Serialize.Get
 import Data.Serialize.Put

@@ -5,6 +5,7 @@
 
 module Concordium.KonsensusV1.Consensus where
 
+import Control.Monad
 import Control.Monad.Reader.Class
 import Control.Monad.State
 import Data.Foldable

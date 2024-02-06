@@ -75,7 +75,8 @@ checkBinary bop x y sbop sx sy =
         fail $
             "Not satisfied: " ++ sx ++ " (" ++ show x ++ ") " ++ sbop ++ " " ++ sy ++ " (" ++ show y ++ ")"
 
--- | Check an invariant on 'Instances.IT'. The return value is a tuple consisting of:
+-- | Check an invariant on 'Instances.IT' (see 'invariantInstances'). The return value is a tuple
+--  consisting of:
 --   * the height of the branch (0 for leaves)
 --   * whether the branch is full (in the tree sense - not in the sense of no vacancies)
 --   * whether the branch has vacancies
@@ -103,7 +104,16 @@ invariantIT offset (Instances.Branch h f v hsh l r) = do
     checkBinary (==) v (vl || vr) "<->" "branch has vacancies" "at least one child has vacancies"
     return (succ h, f, v, offset'', hsh)
 
--- | Check an invariant on 'Instances.Instances'.
+-- | Check the following invariant on 'Instances.Instances':
+--   * At each leaf node, the account index matches the index in the table.
+--   * At each branch node:
+--      * The level of the node is 1+ the level of the left child.
+--      * The left child is a full subtree.
+--      * The recorded hash is the hash of the combined hashes of the left and right subtrees.
+--      * The level of the node is at least 1+ the level of the right child.
+--      * The branch is marked full if and only if the right subtree is full.
+--      * The branch has vacancies exactly when at least one subtree has vacancies.
+--   * The root records the correct size of the table.
 invariantInstances :: (IsProtocolVersion pv) => Instances.Instances pv -> TestMonad ()
 invariantInstances Instances.InstancesEmpty = return ()
 invariantInstances (Instances.InstancesTree size bf) = do

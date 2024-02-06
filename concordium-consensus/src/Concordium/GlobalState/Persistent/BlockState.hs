@@ -92,6 +92,7 @@ import Concordium.Utils.Serialization
 import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
 import Control.Exception
+import Control.Monad
 import qualified Control.Monad.Catch as MonadCatch
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
@@ -617,7 +618,7 @@ migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimePa
 migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
-            <$> migrateHashedBufferedRef (migratePoolRewardsChangeHash (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
 
 instance
     (MonadBlobStore m, IsBlockHashVersion bhv) =>

@@ -45,7 +45,7 @@ The package supports the following features related to linking with the Haskell 
   mkdir out
   docker run -v $(pwd)/out:/out concordium/static-libraries
   mkdir -p concordium-node/deps/static-libs/linux
-  tar -xf out/static-consensus-9.2.7.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
+  tar -xf out/static-consensus-9.6.4.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
   ```
 
   (this is assuming a GNU version of tar)
@@ -65,6 +65,7 @@ apart from system libraries.
 Environment variables only apply to the default build. This links with shared Haskell libraries.
 
 - `CONCORDIUM_HASKELL_ROOT` should, if present, be a directory containing
+  - libconcordium-consensus.so
   - libHSconcordium-consensus-0.1.0.0.so
   - libHSconcordium-base-0.1.0.0.so
   - libHSlmdb-0.2.5.so
@@ -76,7 +77,7 @@ Environment variables only apply to the default build. This links with shared Ha
    If this flag is not present the build script will try to automatically discover all the Haskell libraries by using `stack path`.
 
 - `HASKELL_RTS_VARIANT` applies to all platforms and is the prefix of the GHC runtime library that should be linked.
-   This defaults to `libHSrts_thr-` for the threaded version.
+   This defaults to `libHSrts-1.0.2_thr-` for the threaded version.
 
 - `HASKELL_GHC_LIBDIR` applies to all platforms and should be the location of
    the GHC libraries directory (by GHC libraries we mean the base runtime system
@@ -152,6 +153,7 @@ Before building the node, you should install the following dependencies:
 - [Rust](https://www.rust-lang.org/tools/install)
   - For building the node, the toolchain `1.68.2-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.68.2-x86_64-pc-windows-gnu`.
   - For building the node runner service (optional), the toolchain `1.68.2-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.68.2-x86_64-pc-windows-msvc`.
+- GCC is required for building some library dependencies. [WinLibs](https://winlibs.com/) provides a standalone build of GCC with MinGW-w64. Download the latest release version (Win64, without LLVM) and extract it (e.g. to `C:\mingw64`) and ensure that the `bin` directory is on the path. (Installing `gcc` under `stack`'s `msys2` installation does not seem to work when building the node.)
 - [flatc](https://github.com/google/flatbuffers/releases/tag/v22.12.06) 22.12.06 (should be in the path)
 - [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.15
 - LMDB should be installed under `stack`'s `msys2` installation, which can be done with the following commands:

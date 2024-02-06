@@ -69,6 +69,7 @@ module ConcordiumTests.KonsensusV1.TreeStateTest (
     runTestLLDB,
 ) where
 
+import Control.Monad
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.ByteString.Lazy as BSL

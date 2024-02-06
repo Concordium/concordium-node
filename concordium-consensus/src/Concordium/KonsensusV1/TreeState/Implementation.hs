@@ -25,6 +25,7 @@
 module Concordium.KonsensusV1.TreeState.Implementation where
 
 import Control.Exception
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State

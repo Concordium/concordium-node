@@ -10,6 +10,7 @@
 -- | This module contains the implementation for running the scheduler computations.
 module Concordium.Scheduler.EnvironmentImplementation where
 
+import Control.Monad
 import Control.Monad.RWS.Strict
 import Data.HashMap.Strict as Map
 import qualified Data.Kind as DK

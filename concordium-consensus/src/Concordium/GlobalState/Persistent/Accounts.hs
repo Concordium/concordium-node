@@ -79,6 +79,7 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option (Option (..))
 import Concordium.Utils.Serialization.Put
+import Control.Monad
 import Control.Monad.Reader
 import Data.Foldable (foldlM)
 import Data.IORef

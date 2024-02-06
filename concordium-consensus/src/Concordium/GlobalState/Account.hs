@@ -7,7 +7,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.GlobalState.Account where
 
