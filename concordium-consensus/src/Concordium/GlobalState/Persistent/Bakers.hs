@@ -4,13 +4,12 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE OverloadedStrings #-}
-
 -- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -37,10 +36,10 @@ import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 
 import qualified Concordium.Crypto.SHA256 as H
+import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBTV1)
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
-import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBTV1)
 
 -- | A list of references to 'BakerInfo's, ordered by increasing 'BakerId'.
 --  (This structure is always fully cached in memory, so the 'Cacheable' instance is trivial. See
@@ -77,12 +76,12 @@ instance (IsProtocolVersion pv, MonadBlobStore m) => BlobStorable m (BakerInfos 
 -- | This hashing should match (part of) the hashing for 'Basic.EpochBakers'.
 instance forall pv m. (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m H.Hash (BakerInfos pv) where
     getHashM (BakerInfos infos) = do
-      loadedInfos <- mapM loadPersistentBakerInfoRef infos
-      case sBlockHashVersionFor (protocolVersion @pv) of
-        SBlockHashVersion0 -> do
-          return $ H.hashLazy $ runPutLazy $ mapM_ put loadedInfos
-        SBlockHashVersion1 -> do
-          return $ hashAsLFMBTV1 (H.hash "NoBakerInfos") $ H.hashLazy . runPutLazy . put <$> Vec.toList loadedInfos
+        loadedInfos <- mapM loadPersistentBakerInfoRef infos
+        case sBlockHashVersionFor (protocolVersion @pv) of
+            SBlockHashVersion0 -> do
+                return $ H.hashLazy $ runPutLazy $ mapM_ put loadedInfos
+            SBlockHashVersion1 -> do
+                return $ hashAsLFMBTV1 (H.hash "NoBakerInfos") $ H.hashLazy . runPutLazy . put <$> Vec.toList loadedInfos
 
 instance (Applicative m) => Cacheable m (BakerInfos av)
 
