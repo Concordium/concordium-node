@@ -1048,7 +1048,7 @@ data BakeBlockInputs (pv :: ProtocolVersion) = BakeBlockInputs
       -- | If the block is to be the first in a new epoch (i.e. @bbiEpoch@ is
       --  @blockEpoch bbiParent + 1@) then this is a valid finalization entry for a block after the
       --  trigger time in epoch @blockEpoch bbiParent@.
-      bbiEpochFinalizationEntry :: Option FinalizationEntry,
+      bbiEpochFinalizationEntry :: Option (FinalizationEntry pv),
       -- | The set of bakers for the epoch 'bbiEpoch'.
       bbiEpochBakers :: FullBakers,
       -- | The leadership election nonce used in the election.

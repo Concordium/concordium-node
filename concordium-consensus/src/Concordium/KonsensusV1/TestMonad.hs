@@ -106,7 +106,7 @@ data TestEvent (pv :: ProtocolVersion)
     | -- | Implements 'onBlock' of 'MonadConsensusEvent'.
       OnBlock !(Block pv)
     | -- | Implements 'onFinalize' of 'MonadConsensusEvent'.
-      OnFinalize !FinalizationEntry
+      OnFinalize !(FinalizationEntry pv)
     deriving (Eq, Show)
 
 -- | List of events generated during a test run.

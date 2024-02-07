@@ -150,7 +150,7 @@ testQuorumMessage sProtocolVersion finIndex rnd e ptr =
 
 -- | Create a finalization entry where the @QuorumCertificate@ denotes the block being finalized,
 --  and the @BakedBlock@ is the successor block (which has a QC for the finalized block) and thus finalizing it.
-testFinalizationEntry :: (IsProtocolVersion pv) => BakedBlock pv -> BakedBlock pv -> FinalizationEntry
+testFinalizationEntry :: (IsProtocolVersion pv) => BakedBlock pv -> BakedBlock pv -> FinalizationEntry pv
 testFinalizationEntry finalizedBlock sucBlock =
     FinalizationEntry
         { feFinalizedQuorumCertificate = bbQuorumCertificate finalizedBlock,
@@ -206,7 +206,7 @@ basicCatchupResponse sProtocolVersion =
             expectedTerminalData =
                 CatchUpTerminalData
                     { cutdHighestQuorumCertificate = Present $ bbQuorumCertificate (TestBlocks.testBB3 @pv),
-                      cutdLatestFinalizationEntry = Present finEntry,
+                      cutdLatestFinalizationEntry = Present (toProtoFinalizationEntry finEntry),
                       cutdTimeoutCertificate = Absent,
                       cutdCurrentRoundQuorumMessages = [qmR4],
                       cutdCurrentRoundTimeoutMessages = [tmR4]
@@ -304,7 +304,7 @@ catchupWithTimeoutsResponse sProtocolVersion =
                             blockQuorumCertificate $
                                 pbBlock $
                                     TestBlocks.signedPB @pv TestBlocks.testBB5E',
-                      cutdLatestFinalizationEntry = Present finEntry,
+                      cutdLatestFinalizationEntry = Present (toProtoFinalizationEntry finEntry),
                       cutdTimeoutCertificate =
                         blockTimeoutCertificate $
                             pbBlock $
@@ -361,7 +361,7 @@ catchupWithOneTimeoutAtEndResponse sProtocolVersion =
                                     blockQuorumCertificate $
                                         pbBlock $
                                             TestBlocks.signedPB @pv TestBlocks.testBB3,
-                              cutdLatestFinalizationEntry = Present finEntry,
+                              cutdLatestFinalizationEntry = Present (toProtoFinalizationEntry finEntry),
                               cutdTimeoutCertificate = Present tc,
                               cutdCurrentRoundQuorumMessages = [],
                               cutdCurrentRoundTimeoutMessages = []
@@ -530,7 +530,7 @@ catchupWithEpochTransitionTimeout sProtocolVersion =
         let expectedTerminalData =
                 CatchUpTerminalData
                     { cutdHighestQuorumCertificate = Present $ validQCFor @pv testBB2E,
-                      cutdLatestFinalizationEntry = Present (testEpochFinEntry sProtocolVersion),
+                      cutdLatestFinalizationEntry = Present (toProtoFinalizationEntry $ testEpochFinEntry sProtocolVersion),
                       cutdTimeoutCertificate = Present $ validTimeoutForFinalizers sProtocolVersion [0 .. 3] (validQCFor @pv testBB2E) 3,
                       cutdCurrentRoundQuorumMessages = [],
                       cutdCurrentRoundTimeoutMessages = []

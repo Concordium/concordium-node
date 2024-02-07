@@ -191,7 +191,7 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _lastFinalized :: !(BlockPointer pv),
       -- | A finalization entry that finalizes the last finalized block, unless that is the
       --  genesis block.
-      _latestFinalizationEntry :: !(Option FinalizationEntry),
+      _latestFinalizationEntry :: !(Option (FinalizationEntry pv)),
       -- | Baker and finalizer information with respect to the epoch of the last finalized block.
       --  Note: this is distinct from the current epoch.
       _skovEpochBakers :: !EpochBakers,

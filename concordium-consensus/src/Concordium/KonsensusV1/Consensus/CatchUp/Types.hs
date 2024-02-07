@@ -124,7 +124,7 @@ instance Serialize CatchUpTerminalDataFlags where
 --  it may be necessary to use an earlier quorum certificate in this case.
 data CatchUpTerminalData = CatchUpTerminalData
     { -- | Finalization entry for the latest finalized block.
-      cutdLatestFinalizationEntry :: !(Option FinalizationEntry),
+      cutdLatestFinalizationEntry :: !(Option ProtoFinalizationEntry),
       -- | Quorum certificate for the highest certified block.
       cutdHighestQuorumCertificate :: !(Option QuorumCertificate),
       -- | A timeout certificate for the last round, if available.

@@ -136,7 +136,7 @@ class (Monad m) => MonadTreeStateStore m where
     --    * The list of blocks is non-empty, consists of consecutive non-finalized blocks
     --      that form a chain.
     --    * The finalization entry is for the last of these blocks.
-    writeFinalizedBlocks :: [StoredBlock (MPV m)] -> FinalizationEntry -> m ()
+    writeFinalizedBlocks :: [StoredBlock (MPV m)] -> FinalizationEntry (MPV m) -> m ()
 
     -- | Write a certified block that does not finalize other blocks.
     --  This has the following effects:
@@ -171,11 +171,11 @@ class (Monad m) => MonadTreeStateStore m where
         StoredBlock (MPV m) ->
         -- | A finalization entry that finalizes the last of the finalized blocks, with the successor
         --  quorum certificate being for the newly-certified block.
-        FinalizationEntry ->
+        FinalizationEntry (MPV m) ->
         m ()
 
     -- | Look up the finalization entry for the last finalized block.
-    lookupLatestFinalizationEntry :: m (Maybe FinalizationEntry)
+    lookupLatestFinalizationEntry :: m (Maybe (FinalizationEntry (MPV m)))
 
     -- | Look up all of the certified (non-finalized) blocks, with their quorum certificates.
     --  The list is in order of increasing round number.
