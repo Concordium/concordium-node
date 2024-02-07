@@ -78,6 +78,7 @@ data PersistentInstanceParameters = PersistentInstanceParameters
       -- | Hash of the fixed parameters
       pinstanceParameterHash :: !H.Hash
     }
+    deriving (Eq)
 
 instance Show PersistentInstanceParameters where
     show PersistentInstanceParameters{..} = show pinstanceAddress ++ " :: " ++ show pinstanceContractModule ++ "." ++ show pinstanceInitName
@@ -553,12 +554,12 @@ newContractInstanceIT mk t0 = (\(res, v) -> (res,) <$> membed v) =<< nci 0 t0 =<
     nci offset _ (Branch h f True _ l r) = do
         projl <- mproject l
         projr <- mproject r
-        if branchHasVacancies projl
+        if hasVacancies projl
             then do
                 (res, projl') <- nci offset l projl
                 l' <- membed projl'
                 return (res, makeBranch h f projl' projr l' r)
-            else assert (branchHasVacancies projr) $ do
+            else assert (hasVacancies projr) $ do
                 (res, projr') <- nci (setBit offset (fromIntegral h)) r projr
                 r' <- membed projr'
                 return (res, makeBranch h f projl projr' l r')
@@ -614,7 +615,7 @@ migrateIT modules (BufferedFix bf) = BufferedFix <$> migrateReference go bf
 data Instances pv
     = -- | The empty instance table
       InstancesEmpty
-    | -- | A non-empty instance table (recording the size)
+    | -- | A non-empty instance table, recording the number of leaf nodes, including vacancies
       InstancesTree !Word64 !(BufferedFix (IT pv))
 
 migrateInstances ::
@@ -636,6 +637,10 @@ instance Show (Instances pv) where
     show InstancesEmpty = "Empty"
     show (InstancesTree _ t) = showFix showITString t
 
+-- | Compute an @'InstancesHash' pv@ given the size and root hash of the instances table.
+--  The behaviour is dependent on the block hashing version associated with the protocol version,
+--  namely @BlockHashVersionFor pv@. For @BlockHashVersion0@, only the root hash is used.
+--  for @BlockHashVersion1@, the size is concatenated with the root hash and then hashed.
 makeInstancesHash :: forall pv. (IsProtocolVersion pv) => Word64 -> H.Hash -> InstancesHash pv
 makeInstancesHash size inner = case sBlockHashVersionFor (protocolVersion @pv) of
     SBlockHashVersion0 -> InstancesHash inner
@@ -643,7 +648,10 @@ makeInstancesHash size inner = case sBlockHashVersionFor (protocolVersion @pv) o
         putWord64be size
         put inner
 
-instance (IsProtocolVersion pv, SupportsPersistentModule m) => MHashableTo m (InstancesHash pv) (Instances pv) where
+instance
+    (IsProtocolVersion pv, SupportsPersistentModule m) =>
+    MHashableTo m (InstancesHash pv) (Instances pv)
+    where
     getHashM InstancesEmpty = return $ makeInstancesHash 0 $ H.hash "EmptyInstances"
     getHashM (InstancesTree size t) = makeInstancesHash size . getHash <$> mproject t
 
@@ -676,15 +684,25 @@ emptyInstances :: Instances pv
 emptyInstances = InstancesEmpty
 
 newContractInstance :: forall m pv a. (IsProtocolVersion pv, SupportsPersistentModule m) => (ContractAddress -> m (a, PersistentInstance pv)) -> Instances pv -> m (a, Instances pv)
-newContractInstance fnew InstancesEmpty = do
+newContractInstance createInstanceFn InstancesEmpty = do
     let ca = ContractAddress 0 0
-    (res, newInst) <- fnew ca
+    (res, newInst) <- createInstanceFn ca
     (res,) . InstancesTree 1 <$> membed (Leaf newInst)
-newContractInstance fnew (InstancesTree s it) = (\(res, it') -> (res, InstancesTree (s + 1) it')) <$> newContractInstanceIT fnew it
+newContractInstance createInstanceFn (InstancesTree size tree) = do
+    ((isFreshIndex, !result), !nextTree) <- newContractInstanceIT createFnWithFreshness tree
+    let !nextSize = if isFreshIndex then size + 1 else size
+        nextInstancesTree = InstancesTree nextSize nextTree
+    return (result, nextInstancesTree)
+  where
+    createFnWithFreshness newContractAddress = do
+        (result, createdInstance) <- createInstanceFn newContractAddress
+        -- The size of the tree grows exactly when the new subindex is 0.
+        -- Otherwise, a vacancy is filled, and the size does not grow.
+        return ((contractSubindex newContractAddress == 0, result), createdInstance)
 
 deleteContractInstance :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => ContractAddress -> Instances pv -> m (Instances pv)
 deleteContractInstance _ InstancesEmpty = return InstancesEmpty
-deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree (s - 1)) . membed) (contractIndex addr) =<< mproject it0
+deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree s) . membed) (contractIndex addr) =<< mproject it0
   where
     dci succCont i (Leaf inst)
         | i == 0 = do

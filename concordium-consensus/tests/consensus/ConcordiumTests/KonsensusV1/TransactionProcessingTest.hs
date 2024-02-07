@@ -1,7 +1,9 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UndecidableInstances #-}
@@ -15,6 +17,7 @@
 --  consensus implementations share the same transaction verifier.
 module ConcordiumTests.KonsensusV1.TransactionProcessingTest where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
@@ -44,6 +47,7 @@ import Concordium.Genesis.Data hiding (GenesisConfiguration)
 import qualified Concordium.Genesis.Data.Base as Base
 import Concordium.Genesis.Data.BaseV1
 import Concordium.Genesis.Data.P6
+import Concordium.Genesis.Data.P7
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
@@ -72,6 +76,8 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 
+import qualified ConcordiumTests.KonsensusV1.Common as Common
+
 -- | Dummy epoch bakers. This is only suitable for when the actual value is not meaningfully used.
 dummyEpochBakers :: EpochBakers
 dummyEpochBakers = EpochBakers dummyBakersAndFinalizers dummyBakersAndFinalizers dummyBakersAndFinalizers 1
@@ -82,8 +88,11 @@ dummyBakersAndFinalizers :: BakersAndFinalizers
 dummyBakersAndFinalizers =
     BakersAndFinalizers
         { _bfBakers = FullBakers Vec.empty 0,
-          _bfFinalizers = FinalizationCommittee Vec.empty 0
+          _bfFinalizers = finalizers,
+          _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
         }
+  where
+    finalizers = FinalizationCommittee Vec.empty 0
 
 -- | A valid 'AccountCreation' with expiry 1596409020
 validAccountCreation :: AccountCreation
@@ -142,15 +151,15 @@ instance (Monad m) => MonadLogger (NoLoggerT m) where
 --  as it derives the required capabilities.
 --  I.e. 'BlockStateQuery' is supported via the 'PersistentBlockStateMonad and a 'MonadState' over the 'SkovData pv'.
 --  Further it makes use of the 'FixedTimeT' which has an instance for the 'TimeMonad'.
-type MyTestMonad =
+type MyTestMonad pv =
     AccountNonceQueryT
         ( PersistentBlockStateMonad
-            'P6
-            (PersistentBlockStateContext 'P6)
+            pv
+            (PersistentBlockStateContext pv)
             ( NoLoggerT
                 ( StateT
-                    (SkovData 'P6)
-                    (FixedTimeT (BlobStoreM' (PersistentBlockStateContext 'P6)))
+                    (SkovData pv)
+                    (FixedTimeT (BlobStoreM' (PersistentBlockStateContext pv)))
                 )
             )
         )
@@ -161,7 +170,13 @@ type MyTestMonad =
 --  In particular the @idps@ indicate which identity providers are registered
 --  on the chain and the @time@ indicates the actual time that the action is running within.
 --  The @time@ is used for transaction verification.
-runMyTestMonad :: IdentityProviders -> UTCTime -> MyTestMonad a -> IO (a, SkovData 'P6)
+runMyTestMonad ::
+    forall pv a.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    IdentityProviders ->
+    UTCTime ->
+    MyTestMonad pv a ->
+    IO (a, SkovData pv)
 runMyTestMonad idps time action = do
     runBlobStoreTemp "." $
         withNewAccountCacheAndLMDBAccountMap 1_000 "accountmap" $ do
@@ -174,23 +189,27 @@ runMyTestMonad idps time action = do
   where
     initialData ::
         PersistentBlockStateMonad
-            'P6
-            (PersistentBlockStateContext 'P6)
-            (NoLoggerT (BlobStoreM' (PersistentBlockStateContext 'P6)))
-            (SkovData 'P6)
+            pv
+            (PersistentBlockStateContext pv)
+            (NoLoggerT (BlobStoreM' (PersistentBlockStateContext pv)))
+            (SkovData pv)
     initialData = do
         (bs, _) <-
-            genesisState (makeTestingGenesisDataP6 idps) >>= \case
+            genesisState (makeTestingGenesisData @pv idps) >>= \case
                 Left err -> error $ "Invalid genesis state: " ++ err
                 Right x -> return x
         return $! initialSkovData bs
 
 -- | Initialize a 'SkovData pv' with the provided block state.
-initialSkovData :: HashedPersistentBlockState pv -> SkovData pv
+initialSkovData :: (IsProtocolVersion pv) => HashedPersistentBlockState pv -> SkovData pv
 initialSkovData bs =
     mkInitialSkovData
         defaultRuntimeParameters
         (dummyGenesisMetadata (getHash bs))
+        GenesisBlockHeightInfo
+            { gbhiAbsoluteHeight = 0,
+              gbhiGenesisIndex = 0
+            }
         bs
         10_000
         dummyEpochBakers
@@ -214,24 +233,35 @@ dummyGenesisMetadata stHash =
 coreGenesisParams :: CoreGenesisParametersV1
 coreGenesisParams = CoreGenesisParametersV1{genesisTime = 0, genesisEpochDuration = 3_600_000, genesisSignatureThreshold = 2 % 3}
 
--- | Genesis data for P6 suitable for testing transaction processing.
+-- | Genesis data for a protocol version suitable for testing transaction processing.
 --  The identity providers should be passed in as it makes it easier
 --  to test some scenarios for credential deployments.
 --  See the tests for these scenarios.
-makeTestingGenesisDataP6 :: IdentityProviders -> GenesisData 'P6
-makeTestingGenesisDataP6 idps =
+makeTestingGenesisData :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => IdentityProviders -> GenesisData pv
+makeTestingGenesisData idps =
     let genesisCryptographicParameters = myCryptographicParameters
         genesisIdentityProviders = idps
         genesisAnonymityRevokers = myAnonymityRevokers
-        genesisUpdateKeys = dummyKeyCollection
-        genesisChainParameters = dummyChainParameters
+        genesisUpdateKeys =
+            withIsAuthorizationsVersionForPV
+                (protocolVersion @pv)
+                (dummyKeyCollection @(AuthorizationsVersionForPV pv))
+        genesisChainParameters = dummyChainParameters @(ChainParametersVersionFor pv)
         genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
         genesisAccounts = Vec.fromList $ makeFakeBakers 1
-    in  GDP6
-            GDP6Initial
-                { genesisCore = coreGenesisParams,
-                  genesisInitialState = Base.GenesisState{..}
-                }
+    in  case protocolVersion @pv of
+            SP6 ->
+                GDP6
+                    GDP6Initial
+                        { genesisCore = coreGenesisParams,
+                          genesisInitialState = Base.GenesisState{..}
+                        }
+            SP7 ->
+                GDP7
+                    GDP7Initial
+                        { genesisCore = coreGenesisParams,
+                          genesisInitialState = Base.GenesisState{..}
+                        }
 
 -- | Utility function for parrsing identity providers.
 readIps :: BSL.ByteString -> Maybe IdentityProviders
@@ -308,11 +338,15 @@ dummyTransactionBI :: BlockItem
 dummyTransactionBI = normalTransaction dummyTransaction
 
 -- | Testing various cases for processing a block item individually.
-testProcessBlockItem :: Spec
-testProcessBlockItem = describe "processBlockItem" $ do
+testProcessBlockItem ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testProcessBlockItem _ = describe "processBlockItem" $ do
     -- Test that an 'Ok' transaction is accepted into the state when being received individually.
     it "Ok transaction" $ do
-        (pbiRes, sd') <- runMyTestMonad myIdentityProviders theTime (processBlockItem dummyCredentialDeployment)
+        (pbiRes, sd') <- runMyTestMonad @pv myIdentityProviders theTime (processBlockItem dummyCredentialDeployment)
         -- The credential deployment is valid and so should the result reflect this.
         assertEqual
             "The credential deployment should be accepted"
@@ -336,7 +370,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
     it "MaybeOk transaction" $ do
         -- We use a normal transfer transaction here with an invalid sender as it will yield a
         -- 'MaybeOk' verification result.
-        (pbiRes, sd') <- runMyTestMonad dummyIdentityProviders theTime (processBlockItem dummyTransactionBI)
+        (pbiRes, sd') <- runMyTestMonad @pv dummyIdentityProviders theTime (processBlockItem dummyTransactionBI)
         assertEqual
             "The credential deployment should be rejected (the identity provider has correct id but wrong keys used for the credential deployment)"
             (NotAdded $ TVer.MaybeOk $ TVer.NormalTransactionInvalidSender dummyAccountAddress)
@@ -355,7 +389,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
             (sd' ^. transactionTablePurgeCounter)
     -- Test that a 'NotOk' transaction is rejected when being received individually.
     it "NotOk transaction" $ do
-        (pbiRes, sd') <- runMyTestMonad dummyIdentityProviders theTime (processBlockItem dummyCredentialDeployment)
+        (pbiRes, sd') <- runMyTestMonad @pv dummyIdentityProviders theTime (processBlockItem dummyCredentialDeployment)
         assertEqual
             "The credential deployment should be rejected (the identity provider has correct id but wrong keys used for the credential deployment)"
             (NotAdded $ TVer.NotOk TVer.CredentialDeploymentInvalidSignatures)
@@ -373,7 +407,7 @@ testProcessBlockItem = describe "processBlockItem" $ do
             0
             (sd' ^. transactionTablePurgeCounter)
     it "No duplicates" $ do
-        (pbiRes, sd') <- runMyTestMonad myIdentityProviders theTime (processBlockItem dummyCredentialDeployment >> processBlockItem dummyCredentialDeployment)
+        (pbiRes, sd') <- runMyTestMonad @pv myIdentityProviders theTime (processBlockItem dummyCredentialDeployment >> processBlockItem dummyCredentialDeployment)
         assertEqual
             "We just added the same twice, so the latter one added should be recognized as a duplicate."
             (Duplicate dummyCredentialDeployment $ Just $ TVer.Ok TVer.CredentialDeploymentSuccess)
@@ -397,8 +431,12 @@ testProcessBlockItem = describe "processBlockItem" $ do
     theTime = posixSecondsToUTCTime 1 -- after genesis
 
 -- | Testing cases for processing the transactions of a block received.
-testProcessBlockItems :: Spec
-testProcessBlockItems = describe "processBlockItems" $ do
+testProcessBlockItems ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
     it "A non verifiable transaction first in the block makes it fail and stop processing the rest" $ do
         (processed, sd') <-
             runMyTestMonad dummyIdentityProviders theTime $
@@ -456,7 +494,7 @@ testProcessBlockItems = describe "processBlockItems" $ do
     -- This block is not valid or makes much sense in the context
     -- of a chain. But it does have transactions and that is what we care
     -- about in this test.
-    blockToProcess :: [BlockItem] -> BakedBlock 'P6
+    blockToProcess :: [BlockItem] -> BakedBlock pv
     blockToProcess txs =
         let bbRound = 1
             bbEpoch = 0
@@ -468,8 +506,16 @@ testProcessBlockItems = describe "processBlockItems" $ do
             -- The first transfer is 'MaybeOk'.
             -- But second transaction is not verifiable (i.e. 'NotOk') because of the chosen set of identity providers,
             bbTransactions = Vec.fromList txs
-            bbTransactionOutcomesHash = TransactionOutcomesHash minBound
-            bbStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
+            bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+                SBlockHashVersion0 ->
+                    DerivableBlockHashesV0
+                        { dbhv0TransactionOutcomesHash = TransactionOutcomesHash minBound,
+                          dbhv0BlockStateHash = StateHashV0 $ Hash.hash "DummyStateHash"
+                        }
+                SBlockHashVersion1 ->
+                    DerivableBlockHashesV1
+                        { dbhv1BlockResultHash = BlockResultHash $ Hash.hash "DummyBlockResultHash"
+                        }
         in  BakedBlock
                 { bbQuorumCertificate =
                     QuorumCertificate
@@ -484,7 +530,9 @@ testProcessBlockItems = describe "processBlockItems" $ do
 
 tests :: Spec
 tests = describe "KonsensusV1.TransactionProcessing" $ do
-    describe "Individual transaction processing" $ do
-        testProcessBlockItem
-    describe "Batch transaction processing" $ do
-        testProcessBlockItems
+    Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
+        describe pvString $ do
+            describe "Individual transaction processing" $ do
+                testProcessBlockItem spv
+            describe "Batch transaction processing" $ do
+                testProcessBlockItems spv

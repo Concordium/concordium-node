@@ -11,6 +11,7 @@
 --    from the underlying tree state, in this case the 'SkovData pv'.
 module Concordium.KonsensusV1.Transactions where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State.Strict

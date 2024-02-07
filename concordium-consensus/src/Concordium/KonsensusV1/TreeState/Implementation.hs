@@ -25,6 +25,7 @@
 module Concordium.KonsensusV1.TreeState.Implementation where
 
 import Control.Exception
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
@@ -42,6 +43,7 @@ import qualified Data.Sequence as Seq
 
 import qualified Concordium.Genesis.Data.BaseV1 as Base
 import Concordium.Types
+import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
@@ -183,6 +185,8 @@ data SkovData (pv :: ProtocolVersion) = SkovData
       _roundExistingQCs :: !(Map.Map Round QuorumCertificateCheckedWitness),
       -- | Genesis metadata
       _genesisMetadata :: !GenesisMetadata,
+      -- | Block height information of the (current) genesis block.
+      _genesisBlockHeight :: !GenesisBlockHeightInfo,
       -- | Pointer to the last finalized block.
       _lastFinalized :: !(BlockPointer pv),
       -- | A finalization entry that finalizes the last finalized block, unless that is the
@@ -277,10 +281,14 @@ purgeRoundExistingQCs rnd = roundExistingQCs %=! snd . Map.split (rnd - 1)
 --   * The caller must make sure, that the supplied 'TransactionTable' does NOT contain any @Committed@ transactions
 --     and all transactions have their commit point set to 0.
 mkInitialSkovData ::
+    forall pv.
+    (IsProtocolVersion pv) =>
     -- | The 'RuntimeParameters'
     RuntimeParameters ->
     -- | Genesis metadata. State hash should match the hash of the state.
     GenesisMetadata ->
+    -- | Block height information for the genesis block.
+    GenesisBlockHeightInfo ->
     -- | Genesis state
     PBS.HashedPersistentBlockState pv ->
     -- | The base timeout
@@ -293,7 +301,7 @@ mkInitialSkovData ::
     TT.PendingTransactionTable ->
     -- | The initial 'SkovData'
     SkovData pv
-mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transactionTable' pendingTransactionTable' =
+mkInitialSkovData rp genMeta genesisBlockHeightInfo genState _currentTimeout _skovEpochBakers transactionTable' pendingTransactionTable' =
     let genesisBlock = GenesisBlock genMeta
         genesisTime = timestampToUTCTime $ Base.genesisTime (gmParameters genMeta)
         genesisBlockMetadata =
@@ -302,7 +310,13 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transacti
                   bmReceiveTime = genesisTime,
                   bmArriveTime = genesisTime,
                   bmEnergyCost = 0,
-                  bmTransactionsSize = 0
+                  bmTransactionsSize = 0,
+                  bmBlockStateHash =
+                    Cond.conditionally
+                        ( sBlockStateHashInMetadata
+                            (sBlockHashVersionFor (protocolVersion @pv))
+                        )
+                        (getHash genState)
                 }
         genesisBlockPointer =
             BlockPointer
@@ -325,6 +339,7 @@ mkInitialSkovData rp genMeta genState _currentTimeout _skovEpochBakers transacti
         _roundExistingBlocks = Map.empty
         _roundExistingQCs = Map.empty
         _genesisMetadata = genMeta
+        _genesisBlockHeight = genesisBlockHeightInfo
         _lastFinalized = genesisBlockPointer
         _latestFinalizationEntry = Absent
         _statistics = Stats.initialConsensusStatistics
@@ -375,7 +390,7 @@ mkBlockPointer sb@LowLevel.StoredBlock{..} = do
   where
     mkHashedPersistentBlockState = do
         hpbsPointers <- newIORef $! BlobStore.blobRefToBufferedRef stbStatePointer
-        let hpbsHash = blockStateHash sb
+        let hpbsHash = LowLevel.stbBlockStateHash sb
         return $! PBS.HashedPersistentBlockState{..}
 
 -- | Get the 'BlockStatus' of a block based on the provided 'BlockHash'.
@@ -461,7 +476,8 @@ getFirstFinalizedBlockOfEpoch epochOrBlock sd
 --  The hash of the block state MUST match the block state hash of the block; this is not checked.
 --  [Note: this does not affect the '_branches' of the 'SkovData'.]
 makeLiveBlock ::
-    (MonadState (SkovData pv) m) =>
+    forall m pv.
+    (MonadState (SkovData pv) m, IsProtocolVersion pv) =>
     -- | Pending block to make live
     PendingBlock pv ->
     -- | Block state associated with the block
@@ -480,7 +496,11 @@ makeLiveBlock pb st height arriveTime energyCost = do
                           bmArriveTime = arriveTime,
                           bmHeight = height,
                           bmEnergyCost = energyCost,
-                          bmTransactionsSize = fromIntegral $ sum (biSize <$> blockTransactions pb)
+                          bmTransactionsSize = fromIntegral $ sum (biSize <$> blockTransactions pb),
+                          bmBlockStateHash =
+                            Cond.conditionally
+                                (sBlockStateHashInMetadata (sBlockHashVersionFor (protocolVersion @pv)))
+                                (getHash st)
                         },
                   bpBlock = NormalBlock (pbBlock pb),
                   bpState = st

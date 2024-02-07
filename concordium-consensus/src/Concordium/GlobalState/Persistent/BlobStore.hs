@@ -12,17 +12,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
--- FIXME: GHC 9.2.5 reports that `MonadBlobStore m` is a redundant constraint in a
--- number if instance declarations such as:
---
---   instance (MonadBlobStore m, BlobStorable m a) => DirectBlobStorable m a where
---       ...
---
--- but throws an error complaining it is missing once removed. The following is added
--- to squelch it. Comment it out to reproduce.
---
--- An issue for this exists at https://gitlab.haskell.org/ghc/ghc/-/issues/22151
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |
 --    Module      : Concordium.GlobalState.Persistent.BlobStore
@@ -168,9 +157,9 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 -- Imports for providing instances
 import Concordium.Common.Time
 import Concordium.GlobalState.Account
-import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.Parameters as Parameters
+import Concordium.GlobalState.PoolRewards
 import Concordium.Logger (MonadLogger)
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -408,6 +397,7 @@ blobBSFileLength BlobStoreAccess{..} = mask $ \restore -> do
 readBlobBS :: BlobStoreAccess -> BlobRef a -> IO BS.ByteString
 readBlobBS bs@BlobStoreAccess{..} br@(BlobRef offset) = do
     let ioffset = fromIntegral offset
+    when (ioffset < 0) $ throwIO $ userError "Attempted to read an invalid BlobRef"
     let dataOffset = ioffset + 8
     mmap0 <- readIORef blobStoreMMap
     mmap <-
@@ -1620,6 +1610,8 @@ migrateHashedBufferedRefKeepHash hb = do
 -- | Migrate a 'HashedBufferedRef'. The returned reference has a hash computed
 --  already. The input reference is uncached, and the new references is flushed
 --  to disk, as well as cached in memory.
+--  The hash for the new reference is computed afresh, allowing for a change of
+--  hashing scheme and/or a modification of the underlying data.
 migrateHashedBufferedRef ::
     (MonadTrans t, MHashableTo (t m) h2 b, BlobStorable m a, BlobStorable (t m) b) =>
     (a -> t m b) ->

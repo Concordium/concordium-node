@@ -59,7 +59,7 @@ module Concordium.GlobalState.Basic.BlockState.LFMBTree (
     setBits,
 
     -- * Auxiliary definitions
-    emptyTreeHash,
+    emptyTreeHashV0,
 
     -- * Structure specification
     -- $specification
@@ -127,7 +127,13 @@ data T v
 --    hash of the string "EmptyLFMBTree".
 --
 --  * At 'BlockHashVersion1', the tree hash is defined as the hash of the concatenation of the
---    size (as a 64-bit big-endian) and the 'BlockHashVersion0' hash of the tree.
+--    size (as a 64-bit big-endian) and the 'BlockHashVersion0' hash of the tree. The size of the
+--   tree fully determines its structure. Knowing the structure has two important benefits.
+--   First, it avoids the possibility of a leaf being mis-interpreted as an inner node, in case
+--   it is structurally similar. Second, it allows a verifier of a Merkle proof to know what
+--   index a path corresponds to. (In particular, the first index of a right branch depends on
+--   the size of the left branch, and that cannot be determined from the right branch alone, but
+--   does follow from knowing the size of the tree.)
 newtype LFMBTreeHash' (bhv :: BlockHashVersion) = LFMBTreeHash {theLFMBTreeHash :: H.Hash}
     deriving newtype (Eq, Ord, Show, Read, Hashable, S.Serialize)
 
@@ -152,13 +158,13 @@ instance (HashableTo H.Hash v) => HashableTo H.Hash (T v) where
 
 -- | The hash used to represent an empty LFMBTree. Defined as the hash of the
 -- string "EmptyLFMBTree".
-emptyTreeHash :: LFMBTreeHashV0
-emptyTreeHash = LFMBTreeHash $ H.hash "EmptyLFMBTree"
+emptyTreeHashV0 :: LFMBTreeHashV0
+emptyTreeHashV0 = LFMBTreeHash $ H.hash "EmptyLFMBTree"
 
 -- | The (P1) hash of an LFMBTree is defined as the hash of the string "EmptyLFMBTree" if it
 -- is empty or the hash of the tree otherwise.
 instance (HashableTo H.Hash v) => HashableTo LFMBTreeHashV0 (LFMBTree k v) where
-    getHash Empty = emptyTreeHash
+    getHash Empty = emptyTreeHashV0
     getHash (NonEmpty _ v) = LFMBTreeHash $ getHash v
 
 -- | The P7 hash of an LFMBTree is the hash of concatenation of the size of the tree (Word64,
@@ -349,6 +355,8 @@ hashP1FromFoldable = getHash . fromFoldable @Word64
 
 -- | Hash a list of hashes in the LFMBTree format, using the specified hash for the empty tree.
 --  This avoids building the full tree.
+--  This uses the V0 hashing scheme, where the hash of a node is the hash of the concatenated
+--  hashes of its children.
 hashAsLFMBTV0 ::
     -- | Hash to use for empty list
     H.Hash ->
@@ -374,16 +382,25 @@ lfmbtV0Hash = lfmbtV0Hash' getHash
 --  function to each element.
 lfmbtV0Hash' :: (Foldable f) => (v -> H.Hash) -> f v -> LFMBTreeHashV0
 {-# INLINE lfmbtV0Hash' #-}
-lfmbtV0Hash' hsh = LFMBTreeHash . hashAsLFMBTV0 (theLFMBTreeHash emptyTreeHash) . map hsh . toList
+lfmbtV0Hash' hsh = LFMBTreeHash . hashAsLFMBTV0 (theLFMBTreeHash emptyTreeHashV0) . map hsh . toList
 
-hashAsLFMBTV1 :: H.Hash -> [H.Hash] -> H.Hash
+-- | Hash a list of hashes in the LFMBTree format, using the specified hash for the empty tree.
+--  This avoids building the full tree.
+--  This uses the V1 hashing scheme, where the top level hash is the hash of the concatenation of
+--  the number of leaves in the tree and the V0 hash.
+hashAsLFMBTV1 ::
+    -- | Hash to use for empty list
+    H.Hash ->
+    -- | List of hashes to construct into Merkle tree
+    [H.Hash] ->
+    H.Hash
 hashAsLFMBTV1 e l = H.hashLazy $! S.runPutLazy $ do
     S.putWord64be (fromIntegral $ length l)
     S.put $ hashAsLFMBTV0 e l
 
 -- | Get the hash of an LFMBTree constructed from a 'Foldable'.
 --
--- prop> lfmbtV0Hash l == getHash (fromFoldable @Word64 l)
+-- prop> lfmbtV1Hash l == getHash (fromFoldable @Word64 l)
 lfmbtV1Hash :: (Foldable f, HashableTo H.Hash v) => f v -> LFMBTreeHashV1
 {-# INLINE lfmbtV1Hash #-}
 lfmbtV1Hash = lfmbtV1Hash' getHash
@@ -392,7 +409,7 @@ lfmbtV1Hash = lfmbtV1Hash' getHash
 --  function to each element.
 lfmbtV1Hash' :: (Foldable f) => (v -> H.Hash) -> f v -> LFMBTreeHashV1
 {-# INLINE lfmbtV1Hash' #-}
-lfmbtV1Hash' hsh = LFMBTreeHash . hashAsLFMBTV1 (theLFMBTreeHash emptyTreeHash) . map hsh . toList
+lfmbtV1Hash' hsh = LFMBTreeHash . hashAsLFMBTV1 (theLFMBTreeHash emptyTreeHashV0) . map hsh . toList
 
 -- | Get the hash of an LFMBTree constructed from a 'Foldable'.
 lfmbtHash :: (Foldable f, HashableTo H.Hash v) => SBlockHashVersion bhv -> f v -> LFMBTreeHash' bhv

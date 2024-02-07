@@ -20,6 +20,7 @@ module SchedulerTests.Helpers (
     DummyData.makeTestCredential,
 ) where
 
+import Control.Monad
 import qualified Control.Monad.Except as Except
 import Control.Monad.RWS.Strict
 import qualified Data.ByteString as ByteString

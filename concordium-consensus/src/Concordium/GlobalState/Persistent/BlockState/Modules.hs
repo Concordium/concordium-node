@@ -17,6 +17,7 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
     SupportsPersistentModule,
     getModuleInterface,
     PersistentInstrumentedModuleV,
+    makePersistentInstrumentedModuleV,
     loadInstrumentedModuleV,
     emptyModules,
     getInterface,
@@ -74,6 +75,11 @@ data PersistentInstrumentedModuleV (v :: WasmVersion)
       --  from the blob store.
       PIMVPtr !(BlobPtr (GSWasm.InstrumentedModuleV v))
     deriving (Show)
+
+-- | Make a 'PersistentInstrumentedModuleV' from a 'GSWasm.InstrumentedModuleV', retaining it in
+-- memory only.
+makePersistentInstrumentedModuleV :: GSWasm.InstrumentedModuleV v -> PersistentInstrumentedModuleV v
+makePersistentInstrumentedModuleV = PIMVMem
 
 -- | Load a 'PersistentInstrumentedModuleV', retrieving the artifact.
 --  If the artifact has been persisted to the blob store, the artifact will wrap a pointer into

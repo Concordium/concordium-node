@@ -37,6 +37,7 @@ import Concordium.Types.Transactions as T
 import Concordium.Types.Updates
 import Concordium.Utils
 import Control.Exception hiding (handle)
+import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
@@ -561,9 +562,9 @@ getWeakPointer ::
       MonadIO (PersistentTreeStateMonad state m),
       BlockStateStorage (PersistentTreeStateMonad state m),
       MPV m ~ pv,
-      HasSkovPersistentData pv s,
+      HasSkovPersistentData pv state,
       BlockState (PersistentTreeStateMonad state m) ~ PBS.HashedPersistentBlockState pv,
-      MonadState s (PersistentTreeStateMonad state m),
+      MonadState state (PersistentTreeStateMonad state m),
       MonadProtocolVersion m
     ) =>
     Weak (PersistentBlockPointer (MPV m) (PBS.HashedPersistentBlockState pv)) ->
@@ -629,7 +630,6 @@ constructBlock StoredBlockWithStateHash{sbshStoredBlock = StoredBlock{..}, ..} =
 instance
     ( MonadState state m,
       HasSkovPersistentData pv state,
-      BlockStateQuery m,
       BlockState m ~ PBS.HashedPersistentBlockState pv,
       MonadProtocolVersion m,
       MPV m ~ pv,

@@ -8,9 +8,6 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
--- FIXME: This is to suppress compiler warnings for derived instances of BlockStateOperations.
--- This may be fixed in GHC 9.0.1.
-{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- |
 -- Definition of the API of every BlockState implementation.
@@ -74,10 +71,10 @@ import Concordium.Utils.Serialization
 import qualified Concordium.Wasm as Wasm
 
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Instance
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
+import Concordium.GlobalState.Persistent.PoolRewards
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.Types
 import Concordium.Types.Accounts
@@ -580,7 +577,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the transactionOutcomesHash of a given block.
     getTransactionOutcomesHash :: BlockState m -> m TransactionOutcomesHash
 
-    -- | Get the stateHash of a given block.
+    -- | Get the StateHash of a given block.
     getStateHash :: BlockState m -> m StateHash
 
     -- | Get all transaction outcomes for this block.

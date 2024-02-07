@@ -254,13 +254,14 @@ function collectDylibs() {
         # the results of previous calls to `collectDylibsFor`.
         "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --create-dir \
             -s "$concordiumDylibDir" \
+            -s "$concordiumDylibDir/$ghcVariant" \
             -s "$stackSnapshotDir" \
             $stackLibDirs # Unquoted on purpose to use as arguments correctly
     }
 
     logInfo "Collecting dylibs with dylibbundler (this will take a few minutes)..."
 
-    concordiumDylibDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --local-install-root)"/lib/$ghcVariant"
+    concordiumDylibDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --local-install-root)"/lib"
     stackSnapshotDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --snapshot-install-root)"/lib/$ghcVariant"
     # Use awk to preprend '-s ' to each dylib, to be used as argument for dylibbundler directly.
     stackLibDirs=$(find "$(stack --stack-yaml "$consensusDir/stack.yaml" ghc -- --print-libdir)" -maxdepth 1 -type d | awk '{print "-s "$0}')

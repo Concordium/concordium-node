@@ -112,7 +112,7 @@ emptyTransactionOutcomesHashV1 =
                 <> H.hashToShortByteString (H.hash "EmptyLFMBTree")
             )
 
--- | Hash of the empty V1 transaction outcomes structure. This transaction outcomes
+-- | Hash of the empty V2 transaction outcomes structure. This transaction outcomes
 --  structure is used starting in protocol version 7.
 emptyTransactionOutcomesHashV2 :: TransactionOutcomesHashV 'TOV2
 {-# NOINLINE emptyTransactionOutcomesHashV2 #-}

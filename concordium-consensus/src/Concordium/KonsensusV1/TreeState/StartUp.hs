@@ -5,6 +5,7 @@
 
 module Concordium.KonsensusV1.TreeState.StartUp where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict
@@ -174,13 +175,15 @@ loadSkovData ::
       MPV m ~ pv,
       IsConsensusV1 pv
     ) =>
+    -- | Block height information for the genesis block.
+    GenesisBlockHeightInfo ->
     -- | Runtime parameters to use
     RuntimeParameters ->
     -- | Set to 'True' if a rollback occurred before loading the skov
     Bool ->
     -- | The 'SkovData' and, if the consensus is shutdown, the effective protocol update.
     m (SkovData pv, Maybe ProtocolUpdate)
-loadSkovData _runtimeParameters didRollback = do
+loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
     _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
     mLatestFinEntry <- LowLevel.lookupLatestFinalizationEntry
     genesisBlock <-

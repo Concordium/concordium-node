@@ -22,6 +22,7 @@ import qualified ConcordiumTests.KonsensusV1.TransactionProcessingTest (tests)
 import qualified ConcordiumTests.KonsensusV1.TreeStateTest (tests)
 import qualified ConcordiumTests.KonsensusV1.Types (tests)
 import qualified ConcordiumTests.LeaderElectionTest (tests)
+import qualified ConcordiumTests.MerkleProofs (tests)
 import qualified ConcordiumTests.PassiveFinalization (test)
 import qualified ConcordiumTests.ReceiveTransactionsTest (test)
 import qualified ConcordiumTests.Update (test)
@@ -67,3 +68,4 @@ main = atLevel $ \lvl -> hspec $ do
     ConcordiumTests.KonsensusV1.CatchUp.tests
     ConcordiumTests.EndToEnd.CredentialDeploymentTests.tests lvl
     ConcordiumTests.EndToEnd.TransactionTableIntegrationTest.tests
+    ConcordiumTests.MerkleProofs.tests

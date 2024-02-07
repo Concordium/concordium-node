@@ -16,10 +16,10 @@ import Concordium.Types
 import Concordium.Types.SeedState
 
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Basic.BlockState.PoolRewards (BakerPoolRewardDetails)
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
+import Concordium.GlobalState.PoolRewards (BakerPoolRewardDetails)
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.LeaderElection

@@ -18,7 +18,6 @@ import qualified Concordium.Genesis.Data.P4 as P4
 import qualified Concordium.Genesis.Data.P5 as P5
 import qualified Concordium.Genesis.Data.P6 as P6
 import qualified Concordium.Genesis.Data.P7 as P7
-import qualified Concordium.GlobalState.Basic.BlockState.PoolRewards as Basic
 import qualified Concordium.GlobalState.CapitalDistribution as CapDist
 import qualified Concordium.GlobalState.Persistent.Account as Account
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
@@ -32,6 +31,7 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 import qualified Concordium.GlobalState.Persistent.PoolRewards as Rewards
 import qualified Concordium.GlobalState.Persistent.ReleaseSchedule as ReleaseSchedule
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
+import qualified Concordium.GlobalState.PoolRewards as PoolRewards
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.TransactionTable as TransactionTable
 import qualified Concordium.ID.Types as Types
@@ -39,7 +39,9 @@ import qualified Concordium.Types as Types
 import qualified Concordium.Types.Parameters as Types
 import qualified Concordium.Types.SeedState as Types
 
+import qualified Control.Monad as MTL
 import qualified Control.Monad.Except as MTL
+import qualified Control.Monad.IO.Class as MTL
 import Data.IORef (newIORef)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromMaybe)
@@ -194,7 +196,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                                 }
                     bakerPoolRewardDetails <-
                         LFMBT.fromAscList $
-                            replicate (Vec.length agsBakerCapitals) Basic.emptyBakerPoolRewardDetails
+                            replicate (Vec.length agsBakerCapitals) PoolRewards.emptyBakerPoolRewardDetails
                     BS.BlockRewardDetailsV1
                         <$> Blob.refMakeFlushed
                             Rewards.PoolRewards

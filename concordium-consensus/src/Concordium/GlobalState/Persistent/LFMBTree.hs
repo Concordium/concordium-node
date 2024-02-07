@@ -70,7 +70,7 @@ import Concordium.GlobalState.Basic.BlockState.LFMBTree (
     LFMBTreeHash' (..),
     LFMBTreeHashV0,
     LFMBTreeHashV1,
-    emptyTreeHash,
+    emptyTreeHashV0,
     setBits,
  )
 import Concordium.GlobalState.Persistent.BlobStore
@@ -155,7 +155,7 @@ toHashV0 ::
     (MHashableTo m H.Hash v, MHashableTo m H.Hash (ref (T ref v))) =>
     LFMBTree' k ref v ->
     m LFMBTreeHashV0
-toHashV0 Empty = return emptyTreeHash
+toHashV0 Empty = return emptyTreeHashV0
 toHashV0 (NonEmpty _ v) = LFMBTreeHash <$> getHashM v
 
 -- | Compute the version 1 hash of an LFMBTree.

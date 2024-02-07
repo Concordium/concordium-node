@@ -12,6 +12,7 @@
 --  consensus. The implementation provides a bare-bones scaffolding that can be used for testing.
 module Concordium.KonsensusV1.TestMonad where
 
+import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.RWS.Strict
 import Data.IORef
@@ -183,10 +184,16 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                       gmFirstGenesisHash = genesisBlockHash genData,
                       gmStateHash = getHash genState
                     }
+        let genesisBlockHeightInfo =
+                GenesisBlockHeightInfo
+                    { gbhiAbsoluteHeight = 0,
+                      gbhiGenesisIndex = 0
+                    }
         let _tsSkovData =
                 mkInitialSkovData
                     defaultRuntimeParameters
                     genMetadata
+                    genesisBlockHeightInfo
                     genState
                     genTimeoutBase
                     genEpochBakers

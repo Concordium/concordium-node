@@ -8,9 +8,8 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
-{-# OPTIONS_GHC -Wall #-}
--- FIXME: This is to suppress compiler warnings for derived instances of SchedulerMonad.
--- This may be fixed in GHC 9.0.1.
+-- We suppress redundant constraints because a number of functions defined here have deliberate
+-- redundant constraints as part of their interfaces (e.g. constraining protocol versions).
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 module Concordium.Scheduler.TreeStateEnvironment where
@@ -27,12 +26,12 @@ import Data.Word
 import Lens.Micro.Platform
 
 import qualified Concordium.GlobalState.BakerInfo as BI
-import Concordium.GlobalState.Basic.BlockState.PoolRewards
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Persistent.PoolRewards (BakerPoolRewardDetails (..))
 import Concordium.GlobalState.Rewards
 import Concordium.GlobalState.TreeState
 import Concordium.Kontrol.Bakers
