@@ -390,7 +390,7 @@ successorBlockHash ::
     -- | Successor proof
     SuccessorProof ->
     BlockHash
-successorBlockHash spv bh = computeBlockHash' spv bhh . theSuccessorProof
+successorBlockHash spv bh = computeBlockHashHelper spv bhh . theSuccessorProof
   where
     bhh = getHash bh
 
@@ -432,7 +432,7 @@ instance Serialize ProtoFinalizationEntry where
 --
 --  - @qcRound feSuccessorQuorumCertificate == qcRound feFinalizedQuorumCertificate + 1@
 --  - @qcEpoch feSuccessorQuorumCertificate == qcEpoch feFinalizedQuorumCertificate@
---  - @qcBlock feSuccessorQuorumCertificate == successorBlockHash (BlockHeader (qcRound feSuccessorQuorumCertificate) (qcEpoch feSuccessorQuorumCertificate) (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof@
+--  - @qcBlock feSuccessorQuorumCertificate == successorBlockHash spv (BlockHeader (qcRound feSuccessorQuorumCertificate) (qcEpoch feSuccessorQuorumCertificate) (qcBlock feFinalizedQuorumCertificate)) feSuccessorProof@
 data FinalizationEntry (pv :: ProtocolVersion) = FinalizationEntry
     { -- | Quorum certificate for the finalized block.
       feFinalizedQuorumCertificate :: !QuorumCertificate,
@@ -462,8 +462,8 @@ putFinalizationEntry = put . toProtoFinalizationEntry
 
 -- | Convert a 'ProtoFinalizationEntry' to a 'FinalizationEntry'. This depends on the protocol
 --  version for deriving the hash of the successor block from the 'ProtoFinalizationEntry' data.
-toFinalizationEntry' :: forall pv. SProtocolVersion pv -> ProtoFinalizationEntry -> FinalizationEntry pv
-toFinalizationEntry' spv ProtoFinalizationEntry{..} =
+toFinalizationEntryHelper :: forall pv. SProtocolVersion pv -> ProtoFinalizationEntry -> FinalizationEntry pv
+toFinalizationEntryHelper spv ProtoFinalizationEntry{..} =
     FinalizationEntry
         { feFinalizedQuorumCertificate = pfeFinalizedQuorumCertificate,
           feSuccessorQuorumCertificate =
@@ -491,12 +491,12 @@ toFinalizationEntry' spv ProtoFinalizationEntry{..} =
 -- | Convert a 'ProtoFinalizationEntry' to a 'FinalizationEntry'. This depends on the protocol
 --  version for deriving the hash of the successor block from the 'ProtoFinalizationEntry' data.
 toFinalizationEntry :: forall pv. (IsProtocolVersion pv) => ProtoFinalizationEntry -> FinalizationEntry pv
-toFinalizationEntry = toFinalizationEntry' protocolVersion
+toFinalizationEntry = toFinalizationEntryHelper protocolVersion
 
 -- | Deserialize a 'FinalizationEntry'. This is provided separately from the 'Serialize' instance
 --  since it takes an 'SProtocolVersion' argument instead of the @IsProtocolVersion pv@ constraint.
 getFinalizationEntry :: SProtocolVersion pv -> Get (FinalizationEntry pv)
-getFinalizationEntry spv = toFinalizationEntry' spv <$> get
+getFinalizationEntry spv = toFinalizationEntryHelper spv <$> get
 
 instance (IsProtocolVersion pv) => Serialize (FinalizationEntry pv) where
     put = putFinalizationEntry
@@ -1322,66 +1322,73 @@ instance (IsProtocolVersion pv) => HashableTo SuccessorProof (BakedBlock pv) whe
     getHash = makeSuccessorProof @(BlockHashVersionFor pv) . getHash
 
 -- | Compute the block hash from the header hash and quasi-hash.
-computeBlockHash' :: SProtocolVersion pv -> BlockHeaderHash -> Hash.Hash -> BlockHash
-{-# INLINE computeBlockHash' #-}
-computeBlockHash' spv bhh bqh = BlockHash theHash
+computeBlockHashHelper :: SProtocolVersion pv -> BlockHeaderHash -> Hash.Hash -> BlockHash
+{-# INLINE computeBlockHashHelper #-}
+computeBlockHashHelper spv bhh bqh = BlockHash theHash
   where
     preHash =
         Hash.hashOfHashes
             (theBlockHeaderHash bhh)
             bqh
     pv = demoteProtocolVersion spv
-    theHash
-        | pv < P7 = preHash
-        | otherwise = Hash.hashLazy (runPutLazy $ put pv >> put preHash)
+    theHash = case blockHashVersionFor pv of
+        BlockHashVersion0 -> preHash
+        BlockHashVersion1 -> Hash.hashLazy (runPutLazy $ put pv >> put preHash)
 
 -- | Compute the block hash from the header hash and quasi-hash.
 computeBlockHash :: SProtocolVersion pv -> BlockHeaderHash -> BlockQuasiHash pv -> BlockHash
-computeBlockHash spv bhh bqh = computeBlockHash' spv bhh (theBlockQuasiHash bqh)
+computeBlockHash spv bhh bqh = computeBlockHashHelper spv bhh (theBlockQuasiHash bqh)
 
 instance (IsProtocolVersion pv) => HashableTo BlockHash (BakedBlock pv) where
     getHash bb = computeBlockHash (protocolVersion @pv) (getHash bb) (getHash bb)
 
-instance (Monad m, BlockHashVersionFor pv ~ 'BlockHashVersion1) => Merkle.MerkleProvable m (BakedBlock pv) where
-    buildMerkleProof open BakedBlock{..} = do
-        let blockHeader = optProof ["header"] . rawMerkle . runPut $ do
-                put bbRound
-                put bbEpoch
-                put (qcBlock bbQuorumCertificate)
-        let biPath = ["quasi", "meta", "bakerInfo"]
-        let timestampBaker = optProof (biPath ++ ["timestampBaker"]) . rawMerkle . runPut $ do
-                put bbTimestamp
-                put bbBaker
-        let nonce = optProof (biPath ++ ["nonce"]) . rawMerkle . encode $ bbNonce
-        let bakerInfo = optProof biPath [timestampBaker, nonce]
-        let chPath = ["quasi", "meta", "certificatesHash"]
-        let qcPath = chPath ++ ["quorumCertificate"]
-        qcMerkleProof <- Merkle.buildMerkleProof (open . (qcPath ++)) bbQuorumCertificate
-        let qcHash = optProof qcPath qcMerkleProof
-        let tfPath = chPath ++ ["timeoutFinalization"]
-        let tcPath = tfPath ++ ["timeoutCertificate"]
-        tcMerkleProof <- Merkle.buildMerkleProof (open . (tcPath ++)) bbTimeoutCertificate
-        let tcHash = optProof tcPath tcMerkleProof
-        let efePath = tfPath ++ ["epochFinalizationEntry"]
-        efeMerkleProof <- Merkle.buildMerkleProof (open . (efePath ++)) bbEpochFinalizationEntry
-        let efeHash = optProof efePath efeMerkleProof
-        let tfHash = optProof tfPath [tcHash, efeHash]
-        let certificatesHash = optProof chPath [qcHash, tfHash]
-        let blockMeta = optProof ["quasi", "meta"] [bakerInfo, certificatesHash]
-        let blockData = case bbDerivableHashes of
-                DerivableBlockHashesV1{..} ->
-                    optProof ["quasi", "data"] [transactions, Merkle.RawData (encode dbhv1BlockResultHash)]
-                  where
-                    transactions =
-                        Merkle.RawData . encode . computeTransactionsHash SBlockHashVersion1 $
-                            bbTransactions
-        let blockQuasi = optProof ["quasi"] [blockMeta, blockData]
-        return [blockHeader, blockQuasi]
+instance
+    (Monad m, IsProtocolVersion pv, BlockHashVersionFor pv ~ 'BlockHashVersion1) =>
+    Merkle.MerkleProvable m (BakedBlock pv)
+    where
+    buildMerkleProof open0 BakedBlock{..} = do
+        rootProof <- optProof [] <$> root
+        return [Merkle.RawData (encode (demoteProtocolVersion (protocolVersion @pv))), rootProof]
       where
+        open = open0 . ("root" :)
         rawMerkle = (: []) . Merkle.RawData
         optProof path proof
             | open path = Merkle.SubProof proof
             | otherwise = Merkle.RawData . Hash.hashToByteString . Merkle.toRootHash $ proof
+        root = do
+            let blockHeader = optProof ["header"] . rawMerkle . runPut $ do
+                    put bbRound
+                    put bbEpoch
+                    put (qcBlock bbQuorumCertificate)
+            let biPath = ["quasi", "meta", "bakerInfo"]
+            let timestampBaker = optProof (biPath ++ ["timestampBaker"]) . rawMerkle . runPut $ do
+                    put bbTimestamp
+                    put bbBaker
+            let nonce = optProof (biPath ++ ["nonce"]) . rawMerkle . encode $ bbNonce
+            let bakerInfo = optProof biPath [timestampBaker, nonce]
+            let chPath = ["quasi", "meta", "certificatesHash"]
+            let qcPath = chPath ++ ["quorumCertificate"]
+            qcMerkleProof <- Merkle.buildMerkleProof (open . (qcPath ++)) bbQuorumCertificate
+            let qcHash = optProof qcPath qcMerkleProof
+            let tfPath = chPath ++ ["timeoutFinalization"]
+            let tcPath = tfPath ++ ["timeoutCertificate"]
+            tcMerkleProof <- Merkle.buildMerkleProof (open . (tcPath ++)) bbTimeoutCertificate
+            let tcHash = optProof tcPath tcMerkleProof
+            let efePath = tfPath ++ ["epochFinalizationEntry"]
+            efeMerkleProof <- Merkle.buildMerkleProof (open . (efePath ++)) bbEpochFinalizationEntry
+            let efeHash = optProof efePath efeMerkleProof
+            let tfHash = optProof tfPath [tcHash, efeHash]
+            let certificatesHash = optProof chPath [qcHash, tfHash]
+            let blockMeta = optProof ["quasi", "meta"] [bakerInfo, certificatesHash]
+            let blockData = case bbDerivableHashes of
+                    DerivableBlockHashesV1{..} ->
+                        optProof ["quasi", "data"] [transactions, Merkle.RawData (encode dbhv1BlockResultHash)]
+                  where
+                    transactions =
+                        Merkle.RawData . encode . computeTransactionsHash SBlockHashVersion1 $
+                            bbTransactions
+            let blockQuasi = optProof ["quasi"] [blockMeta, blockData]
+            return [blockHeader, blockQuasi]
 
 -- | Configuration information stored for the genesis block.
 data GenesisMetadata = GenesisMetadata

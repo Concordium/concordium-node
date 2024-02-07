@@ -64,73 +64,74 @@ propBBMerkleProofParse spv =
                 Right (pt, hsh) ->
                     blockHash (getHash bb) === hsh
                         .&&. pt
-                            === HM.fromList
-                                [   ( "header",
-                                      Node
-                                        ( HM.fromList
-                                            [ ("epoch", Leaf (encode bbEpoch)),
-                                              ("parent", Leaf (encode (qcBlock bbQuorumCertificate))),
-                                              ("round", Leaf (encode bbRound))
-                                            ]
-                                        )
-                                    ),
-                                    ( "quasi",
-                                      Node
-                                        ( HM.fromList
-                                            [   ( "data",
-                                                  Node
-                                                    ( HM.fromList
-                                                        [ ("transactions", Leaf (encode (computeTransactionsHash SBlockHashVersion1 bbTransactions))),
-                                                          ("result", Leaf (encode (case bbDerivableHashes of DerivableBlockHashesV1{..} -> dbhv1BlockResultHash)))
-                                                        ]
-                                                    )
-                                                ),
-                                                ( "meta",
-                                                  Node
-                                                    ( HM.fromList
-                                                        [   ( "certificatesHash",
-                                                              Node
-                                                                ( HM.fromList
-                                                                    [   ( "timeoutFinalization",
-                                                                          Node
-                                                                            ( HM.fromList
-                                                                                [ ("epochFinalizationEntry", Node finEntry),
-                                                                                  ("timeoutCertificate", Node timeoutCert)
-                                                                                ]
+                            === ( HM.singleton "root" . Node . HM.fromList $
+                                    [   ( "header",
+                                          Node
+                                            ( HM.fromList
+                                                [ ("epoch", Leaf (encode bbEpoch)),
+                                                  ("parent", Leaf (encode (qcBlock bbQuorumCertificate))),
+                                                  ("round", Leaf (encode bbRound))
+                                                ]
+                                            )
+                                        ),
+                                        ( "quasi",
+                                          Node
+                                            ( HM.fromList
+                                                [   ( "data",
+                                                      Node
+                                                        ( HM.fromList
+                                                            [ ("transactions", Leaf (encode (computeTransactionsHash SBlockHashVersion1 bbTransactions))),
+                                                              ("result", Leaf (encode (case bbDerivableHashes of DerivableBlockHashesV1{..} -> dbhv1BlockResultHash)))
+                                                            ]
+                                                        )
+                                                    ),
+                                                    ( "meta",
+                                                      Node
+                                                        ( HM.fromList
+                                                            [   ( "certificatesHash",
+                                                                  Node
+                                                                    ( HM.fromList
+                                                                        [   ( "timeoutFinalization",
+                                                                              Node
+                                                                                ( HM.fromList
+                                                                                    [ ("epochFinalizationEntry", Node finEntry),
+                                                                                      ("timeoutCertificate", Node timeoutCert)
+                                                                                    ]
+                                                                                )
+                                                                            ),
+                                                                          ("quorumCertificate", Node quorumCert)
+                                                                        ]
+                                                                    )
+                                                                ),
+                                                                ( "bakerInfo",
+                                                                  Node
+                                                                    ( HM.fromList
+                                                                        [   ( "nonce",
+                                                                              Node
+                                                                                ( HM.fromList
+                                                                                    [ ("blockNonce", Leaf (encode bbNonce))
+                                                                                    ]
+                                                                                )
+                                                                            ),
+                                                                            ( "timestampBaker",
+                                                                              Node
+                                                                                ( HM.fromList
+                                                                                    [ ("bakerId", Leaf (encode bbBaker)),
+                                                                                      ("timestamp", Leaf (encode bbTimestamp))
+                                                                                    ]
+                                                                                )
                                                                             )
-                                                                        ),
-                                                                      ("quorumCertificate", Node quorumCert)
-                                                                    ]
+                                                                        ]
+                                                                    )
                                                                 )
-                                                            ),
-                                                            ( "bakerInfo",
-                                                              Node
-                                                                ( HM.fromList
-                                                                    [   ( "nonce",
-                                                                          Node
-                                                                            ( HM.fromList
-                                                                                [ ("blockNonce", Leaf (encode bbNonce))
-                                                                                ]
-                                                                            )
-                                                                        ),
-                                                                        ( "timestampBaker",
-                                                                          Node
-                                                                            ( HM.fromList
-                                                                                [ ("bakerId", Leaf (encode bbBaker)),
-                                                                                  ("timestamp", Leaf (encode bbTimestamp))
-                                                                                ]
-                                                                            )
-                                                                        )
-                                                                    ]
-                                                                )
-                                                            )
-                                                        ]
+                                                            ]
+                                                        )
                                                     )
-                                                )
-                                            ]
+                                                ]
+                                            )
                                         )
-                                    )
-                                ]
+                                    ]
+                                )
                   where
                     finalizerQCRoundsFor rounds =
                         Node . HM.fromList . zip [show n | n <- [0 :: Integer ..]] $
