@@ -424,6 +424,14 @@ data InvokeMethod
       QueryAccountKeys
         { imqakAddress :: !AccountAddress
         }
+    | -- | Query the module reference of a contract.
+      QueryContractModuleReference
+        { imqcmrAddress :: !ContractAddress
+        }
+    | -- | Query the constructor name of a contract.
+      QueryContractName
+        { imqcnAddress :: !ContractAddress
+        }
 
 getInvokeMethod :: Get InvokeMethod
 getInvokeMethod =
@@ -436,6 +444,8 @@ getInvokeMethod =
         5 -> return QueryExchangeRates
         6 -> CheckAccountSignature <$> get <*> getByteStringLen
         7 -> QueryAccountKeys <$> get
+        8 -> QueryContractModuleReference <$> get
+        9 -> QueryContractName <$> get
         n -> fail $ "Unsupported invoke method tag: " ++ show n
 
 -- | Data return from the contract in case of successful initialization.

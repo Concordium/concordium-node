@@ -1563,6 +1563,87 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                                                 WasmV1.SignatureCheckFailed
                                                                                 Nothing
                                                                         )
+                                    WasmV1.QueryContractModuleReference{..} -> do
+                                        -- Charge for querying the balance of a contract.
+                                        tickEnergy Cost.contractInstanceQueryContractBalanceCost
+                                        -- Lookup contract balances.
+                                        maybeInstanceInfo <- getCurrentContractInstance imqcmrAddress
+                                        case maybeInstanceInfo of
+                                            Nothing ->
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingContract imqcmrAddress)
+                                                                Nothing
+                                                        )
+                                            Just instanceInfo -> do
+                                                let modRef = case instanceInfo of
+                                                        InstanceInfoV0 ii -> GSWasm.miModuleRef $ instanceModuleInterface $ iiParameters ii
+                                                        InstanceInfoV1 ii -> GSWasm.miModuleRef $ instanceModuleInterface $ iiParameters ii
+                                                -- Construct the return value.
+                                                let returnValue = WasmV1.byteStringToReturnValue $ S.encode modRef
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                WasmV1.Success
+                                                                (Just returnValue)
+                                                        )
+                                    WasmV1.QueryContractName{..} -> do
+                                        -- Charge for querying the balance of a contract.
+                                        tickEnergy Cost.contractInstanceQueryContractBalanceCost
+                                        -- Lookup contract balances.
+                                        maybeInstanceInfo <- getCurrentContractInstance imqcnAddress
+                                        case maybeInstanceInfo of
+                                            Nothing ->
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                (WasmV1.Error $ WasmV1.EnvFailure $ WasmV1.MissingContract imqcnAddress)
+                                                                Nothing
+                                                        )
+                                            Just instanceInfo -> do
+                                                let name = case instanceInfo of
+                                                        InstanceInfoV0 ii -> instanceInitName $ iiParameters ii
+                                                        InstanceInfoV1 ii -> instanceInitName $ iiParameters ii
+                                                -- Construct the return value.
+                                                let returnValue =
+                                                        WasmV1.byteStringToReturnValue $
+                                                            GSWasm.initNameBytes name
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                WasmV1.Success
+                                                                (Just returnValue)
+                                                        )
+
             -- start contract execution.
             -- transfer the amount from the sender to the contract at the start. This is so that the contract may immediately use it
             -- for, e.g., forwarding.
