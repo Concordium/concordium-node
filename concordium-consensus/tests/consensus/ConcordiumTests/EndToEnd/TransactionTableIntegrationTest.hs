@@ -70,7 +70,7 @@ testBB1 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "49be5d6a7044cbd517973bfba332b88ab00c8762b3f4a550abcf50bf85a40963"
+                    { dbhv1BlockResultHash = read "c61642de9fe839abbf378f8e9e56bfd5a2ed744dae5ce82df8dcb9a7849f9ce2"
                     }
         }
   where
@@ -99,7 +99,7 @@ testBB2 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "ed353b43ea7bfe91106f3588f422493cf3c0ae8843dddabb4b978ee6f7331c0e"
+                    { dbhv1BlockResultHash = read "569e1cb324b05d744c3d3f29146c87252e0062f5654278b2e935e92e92778f49"
                     }
         }
   where
@@ -128,7 +128,7 @@ testBB3 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "cae9e6fb2880e53becd10b47541ceaf6412d0ff96211d7dcc6d7b45d295e7c46"
+                    { dbhv1BlockResultHash = read "ce6d3023e834d92e0ac4cde15ed1f20aacab400d1083c98adca13c9ee1b9c426"
                     }
         }
   where
@@ -156,7 +156,7 @@ testBB4 =
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "fbda331e363078f51313bc7ab4d54ed9f9c542afd48867f67467420b4172e099"
+                    { dbhv1BlockResultHash = read "e40b8cfe9cf6f2f26f1e81783c46dbd4f5de533f9f6a9a789d4849b2ece32b90"
                     }
         }
   where

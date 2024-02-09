@@ -451,7 +451,7 @@ catchupWithTwoBranchesResponse sProtocolVersion =
                                         }
                                 SBlockHashVersion1 ->
                                     DerivableBlockHashesV1
-                                        { dbhv1BlockResultHash = read "15de5c588b1eef119b2c03e7baf124deb0b3a01260ccc43cb7e470922d67c531"
+                                        { dbhv1BlockResultHash = read "58b9be13250f5b498d7590f8cb856a14f547b7028031fb73f3c2018c826a7398"
                                         }
                             }
         TestBlocks.succeedReceiveBlock b4
@@ -586,7 +586,7 @@ testMakeCatchupStatus sProtocolVersion =
                                         }
                                 SBlockHashVersion1 ->
                                     DerivableBlockHashesV1
-                                        { dbhv1BlockResultHash = read "15de5c588b1eef119b2c03e7baf124deb0b3a01260ccc43cb7e470922d67c531"
+                                        { dbhv1BlockResultHash = read "58b9be13250f5b498d7590f8cb856a14f547b7028031fb73f3c2018c826a7398"
                                         }
                             }
         TestBlocks.succeedReceiveBlock b4
