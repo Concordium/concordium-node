@@ -1565,7 +1565,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                                         )
                                     WasmV1.QueryContractModuleReference{..} -> do
                                         -- Charge for querying the balance of a contract.
-                                        tickEnergy Cost.contractInstanceQueryContractBalanceCost
+                                        tickEnergy Cost.contractInstanceQueryContractModuleReferenceCost
                                         -- Lookup contract balances.
                                         maybeInstanceInfo <- getCurrentContractInstance imqcmrAddress
                                         case maybeInstanceInfo of
@@ -1604,7 +1604,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                         )
                                     WasmV1.QueryContractName{..} -> do
                                         -- Charge for querying the balance of a contract.
-                                        tickEnergy Cost.contractInstanceQueryContractBalanceCost
+                                        tickEnergy Cost.contractInstanceQueryContractNameCost
                                         -- Lookup contract balances.
                                         maybeInstanceInfo <- getCurrentContractInstance imqcnAddress
                                         case maybeInstanceInfo of
