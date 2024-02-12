@@ -1659,7 +1659,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
               -- Check whether the number of logs and the size of return values are limited in the current protocol version.
               rcLimitLogsAndRvs = Wasm.limitLogsAndReturnValues $ protocolVersion @(MPV m),
               rcFixRollbacks = demoteProtocolVersion (protocolVersion @(MPV m)) >= P6,
-              rcSupportAccountSignatureChecks = supportsAccountSignatureChecks $ protocolVersion @(MPV m)
+              rcSupportAccountSignatureChecks = supportsAccountSignatureChecks $ protocolVersion @(MPV m),
+              rcSupportContractInspectionQueries = supportsContractInspectionQueries $ protocolVersion @(MPV m)
             }
     transferAccountSync ::
         AccountAddress -> -- The target account address.
