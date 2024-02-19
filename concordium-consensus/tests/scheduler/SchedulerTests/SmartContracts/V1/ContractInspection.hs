@@ -7,25 +7,17 @@
 -- | This module tests the contract inspection functionality of the invoke host function.
 module SchedulerTests.SmartContracts.V1.ContractInspection where
 
-import Control.Monad
 import qualified Data.ByteString.Short as BSS
-import Data.Serialize (Serialize (put), putByteString, putWord64le, runPut)
-import Lens.Micro.Platform
+import Data.Serialize (Serialize (put), encode, putByteString, putWord64le, runPut)
 import Test.Hspec
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
-import Concordium.GlobalState.DummyData
-import qualified Concordium.GlobalState.Persistent.Account as BS
-import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.ID.Types as ID
 import Concordium.Scheduler.DummyData
 import Concordium.Scheduler.Runner
 import qualified Concordium.Scheduler.Types as Types
-import Concordium.Types.Accounts
-import Concordium.Types.DummyData
 import Concordium.Wasm
-import qualified Concordium.Wasm as Wasm
 import SchedulerTests.Helpers ()
 import qualified SchedulerTests.Helpers as Helpers
 import System.IO.Unsafe (unsafePerformIO)
@@ -36,21 +28,14 @@ initialBlockState ::
     Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
 initialBlockState =
     Helpers.createTestBlockStateWithAccountsM
-        [ Helpers.makeTestAccountFromSeed 100_000_000 0,
-          Helpers.makeTestAccountFromSeed 100_000_000 1
+        [ Helpers.makeTestAccountFromSeed 100_000_000 0
         ]
 
 accountAddress0 :: ID.AccountAddress
 accountAddress0 = Helpers.accountAddressFromSeed 0
 
-accountAddress1 :: ID.AccountAddress
-accountAddress1 = Helpers.accountAddressFromSeed 1
-
 keyPair0 :: SigScheme.KeyPair
 keyPair0 = Helpers.keyPairFromSeed 0
-
-keyPair1 :: SigScheme.KeyPair
-keyPair1 = Helpers.keyPairFromSeed 1
 
 -- | Source file for contracts that invoke the contract inspection queries.
 srcQueriesContractInspection :: FilePath
@@ -219,7 +204,137 @@ testModuleRefAndName spv pvString
             putWord64le $ fromIntegral si
             putByteString name
 
+-- | First source file for contract upgrade and query module reference interaction test.
+srcUpgrade0 :: FilePath
+srcUpgrade0 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-inspect-module0.wasm"
+
+-- | Second source file for contract upgrade and query module reference interaction test.
+srcUpgrade1 :: FilePath
+srcUpgrade1 = "../concordium-base/smart-contracts/testdata/contracts/v1/upgrading-inspect-module1.wasm"
+
+-- | Module reference of 'srcUpgrade0'.
+modUpgrade0 :: Types.ModuleRef
+{-# NOINLINE modUpgrade0 #-}
+modUpgrade0 = unsafePerformIO $ modRefOf srcUpgrade0
+
+-- | Module reference of 'srcUpgrade1'.
+modUpgrade1 :: Types.ModuleRef
+{-# NOINLINE modUpgrade1 #-}
+modUpgrade1 = unsafePerformIO $ modRefOf srcUpgrade1
+
+testUpgradeModuleRef :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> [Char] -> SpecWith ()
+testUpgradeModuleRef spv pvString
+    | Types.supportsV1Contracts spv && Types.supportsUpgradableContracts spv =
+        specify (pvString ++ ": upgrade contract and inspect module reference") $
+            Helpers.runSchedulerTestAssertIntermediateStates
+                @pv
+                Helpers.defaultTestConfig
+                initialBlockState
+                transactionsAndAssertions
+    | otherwise = return ()
+  where
+    addr0 = Types.ContractAddress 0 0
+    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions =
+        [ deployModHelper 1 srcUpgrade0,
+          deployModHelper 2 srcUpgrade1,
+          initContractHelper 3 srcUpgrade0 "init_contract",
+          checkModRefHelper 4 addr0 modUpgrade0 Nothing,
+          checkModRefHelper 5 addr0 modUpgrade1 (Just (-1)),
+          upgradeHelper 6 addr0 modUpgrade1 Nothing,
+          checkModRefHelper 7 addr0 modUpgrade0 (Just (-1)),
+          checkModRefHelper 8 addr0 modUpgrade1 Nothing
+        ]
+    deployModHelper nce src =
+        Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = DeployModule V1 src,
+                      metadata = makeDummyHeader accountAddress0 nce 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyDeploymentV1 src result
+            }
+    initContractHelper nce src constructor =
+        Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = InitContract 0 V1 src constructor "",
+                      metadata = makeDummyHeader accountAddress0 nce 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $ do
+                    Helpers.assertSuccess result
+                    Helpers.assertUsedEnergyInitialization
+                        src
+                        (InitName constructor)
+                        (Parameter mempty)
+                        Nothing
+                        result
+            }
+    checkModRefHelper nce scAddr expectModRef mreject =
+        Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload =
+                        Update
+                            0
+                            (Types.ContractAddress 0 0)
+                            "contract.check_module_reference"
+                            (params scAddr expectModRef),
+                      metadata = makeDummyHeader accountAddress0 nce 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $
+                    if Types.supportsContractInspectionQueries spv
+                        then case mreject of
+                            Nothing -> Helpers.assertSuccess result
+                            Just reject ->
+                                Helpers.assertRejectWhere
+                                    ( \case
+                                        Types.RejectedReceive{..}
+                                            | rejectReason == reject -> return ()
+                                        _ -> assertFailure "Rejected for incorrect reason"
+                                    )
+                                    result
+                        else Helpers.assertRejectWithReason Types.RuntimeFailure result
+            }
+      where
+        params (Types.ContractAddress i si) modRef = BSS.toShort $ runPut $ do
+            putWord64le $ fromIntegral i
+            putWord64le $ fromIntegral si
+            put modRef
+    upgradeHelper nce scAddr toModRef mreject =
+        Helpers.TransactionAndAssertion
+            { taaTransaction =
+                TJSON
+                    { payload = Update 0 scAddr "contract.upgrade" (BSS.toShort $ encode toModRef),
+                      metadata = makeDummyHeader accountAddress0 nce 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+              taaAssertion = \result _ ->
+                return $
+                    if Types.supportsContractInspectionQueries spv
+                        then case mreject of
+                            Nothing -> Helpers.assertSuccess result
+                            Just reject ->
+                                Helpers.assertRejectWhere
+                                    ( \case
+                                        Types.RejectedReceive{..}
+                                            | rejectReason == reject -> return ()
+                                        _ -> assertFailure "Rejected for incorrect reason"
+                                    )
+                                    result
+                        else Helpers.assertRejectWithReason Types.RuntimeFailure result
+            }
+
 tests :: Spec
 tests = describe "V1: Contract inspection queries" . sequence_ $
     Helpers.forEveryProtocolVersion $ \spv pvString -> do
         testModuleRefAndName spv pvString
+        testUpgradeModuleRef spv pvString
