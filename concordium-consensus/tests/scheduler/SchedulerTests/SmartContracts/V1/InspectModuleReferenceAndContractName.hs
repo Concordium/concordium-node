@@ -4,11 +4,12 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
--- | This module tests the contract inspection functionality of the invoke host function.
-module SchedulerTests.SmartContracts.V1.ContractInspection where
+-- | This module tests the contract inspection functionality of the invoke host function for
+-- getting the module reference and contract name of an instance.
+module SchedulerTests.SmartContracts.V1.InspectModuleReferenceAndContractName where
 
 import qualified Data.ByteString.Short as BSS
-import Data.Serialize (Serialize (put), encode, putByteString, putWord64le, runPut)
+import Data.Serialize (Serialize (put), encode, putWord64le, runPut)
 import Test.Hspec
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -92,19 +93,29 @@ testModuleRefAndName spv pvString
           initContractHelper 3 srcQueriesContractInspection "init_contract",
           initContractHelper 4 srcQueriesAccountBalance "init_contract",
           initContractHelper 5 srcQueriesContractInspection "init_contract2",
-          checkModRefHelper 6 (Types.ContractAddress 0 0) modRefQueriesContractInspection Nothing,
-          checkModRefHelper 7 (Types.ContractAddress 1 0) modRefQueriesContractInspection (Just (-1)),
-          checkModRefHelper 8 (Types.ContractAddress 2 0) modRefQueriesContractInspection Nothing,
-          checkModRefHelper 9 (Types.ContractAddress 3 0) modRefQueriesContractInspection (Just (-2)),
-          checkModRefHelper 10 (Types.ContractAddress 0 1) modRefQueriesContractInspection (Just (-2)),
-          checkModRefHelper 11 (Types.ContractAddress 1 0) modRefQueriesAccountBalance Nothing,
-          checkNameHelper 12 (Types.ContractAddress 0 0) "init_contract" Nothing,
-          checkNameHelper 13 (Types.ContractAddress 1 0) "init_contract" Nothing,
-          checkNameHelper 14 (Types.ContractAddress 2 0) "init_contract" (Just (-1)),
-          checkNameHelper 15 (Types.ContractAddress 2 0) "init_contract2" Nothing,
-          checkNameHelper 16 (Types.ContractAddress 3 0) "init_contract" (Just (-2)),
-          checkNameHelper 17 (Types.ContractAddress 0 0) "init_contract2" (Just (-1)),
-          checkNameHelper 18 (Types.ContractAddress 0 1) "init_contract2" (Just (-2))
+          getModRefHelper 6 (Types.ContractAddress 0 0) (Just modRefQueriesContractInspection),
+          getModRefHelper 7 (Types.ContractAddress 1 0) (Just modRefQueriesAccountBalance),
+          getModRefHelper 8 (Types.ContractAddress 2 0) (Just modRefQueriesContractInspection),
+          getModRefHelper 9 (Types.ContractAddress 3 0) Nothing,
+          getModRefHelper 10 (Types.ContractAddress 0 1) Nothing,
+          --   checkModRefHelper 6 (Types.ContractAddress 0 0) modRefQueriesContractInspection Nothing,
+          --   checkModRefHelper 7 (Types.ContractAddress 1 0) modRefQueriesContractInspection (Just (-1)),
+          --   checkModRefHelper 8 (Types.ContractAddress 2 0) modRefQueriesContractInspection Nothing,
+          --   checkModRefHelper 9 (Types.ContractAddress 3 0) modRefQueriesContractInspection (Just (-2)),
+          --   checkModRefHelper 10 (Types.ContractAddress 0 1) modRefQueriesContractInspection (Just (-2)),
+          -- checkModRefHelper 11 (Types.ContractAddress 1 0) modRefQueriesAccountBalance Nothing,
+          getNameHelper 11 (Types.ContractAddress 0 0) (Just "init_contract") 755,
+          getNameHelper 12 (Types.ContractAddress 1 0) (Just "init_contract") 755,
+          getNameHelper 13 (Types.ContractAddress 2 0) (Just "init_contract2") 756,
+          getNameHelper 14 (Types.ContractAddress 3 0) Nothing 742,
+          getNameHelper 15 (Types.ContractAddress 0 1) Nothing 742
+          --   checkNameHelper 12 (Types.ContractAddress 0 0) "init_contract" Nothing,
+          --   checkNameHelper 13 (Types.ContractAddress 1 0) "init_contract" Nothing,
+          --   checkNameHelper 14 (Types.ContractAddress 2 0) "init_contract" (Just (-1)),
+          --   checkNameHelper 15 (Types.ContractAddress 2 0) "init_contract2" Nothing,
+          --   checkNameHelper 16 (Types.ContractAddress 3 0) "init_contract" (Just (-2)),
+          --   checkNameHelper 17 (Types.ContractAddress 0 0) "init_contract2" (Just (-1)),
+          --   checkNameHelper 18 (Types.ContractAddress 0 1) "init_contract2" (Just (-2))
         ]
     deployModHelper nce src =
         Helpers.TransactionAndAssertion
@@ -137,72 +148,96 @@ testModuleRefAndName spv pvString
                         Nothing
                         result
             }
-    checkModRefHelper nce scAddr expectModRef mreject =
+    getModRefHelper ::
+        Types.Nonce ->
+        Types.ContractAddress ->
+        Maybe Types.ModuleRef ->
+        Helpers.TransactionAndAssertion pv
+    getModRefHelper nce scAddr mExpectModRef =
         Helpers.TransactionAndAssertion
             { taaTransaction =
                 TJSON
-                    { payload =
-                        Update
-                            0
-                            (Types.ContractAddress 0 0)
-                            "contract.check_module_reference"
-                            (params scAddr expectModRef),
+                    { payload = Update 0 (Types.ContractAddress 0 0) "contract.get_module_reference" params,
                       metadata = makeDummyHeader accountAddress0 nce 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
                 return $
                     if Types.supportsContractInspectionQueries spv
-                        then case mreject of
-                            Nothing -> Helpers.assertSuccess result
-                            Just reject ->
+                        then case mExpectModRef of
+                            Nothing -> do
                                 Helpers.assertRejectWhere
                                     ( \case
-                                        Types.RejectedReceive{..}
-                                            | rejectReason == reject -> return ()
+                                        Types.RejectedReceive{rejectReason = -1} -> return ()
                                         _ -> assertFailure "Rejected for incorrect reason"
                                     )
                                     result
-                        else Helpers.assertRejectWithReason Types.RuntimeFailure result
+                                assertEqual
+                                    "Energy usage (non-existing instance)"
+                                    744
+                                    (Helpers.srUsedEnergy result)
+                            Just modRef -> do
+                                Helpers.assertSuccessWhere (checkEvents modRef) result
+                                assertEqual
+                                    "Energy usage (existing instance)"
+                                    776
+                                    (Helpers.srUsedEnergy result)
+                        else do
+                            Helpers.assertRejectWithReason Types.RuntimeFailure result
+                            assertEqual
+                                "Energy usage (unsupported protocol version)"
+                                544
+                                (Helpers.srUsedEnergy result)
             }
       where
-        params (Types.ContractAddress i si) modRef = BSS.toShort $ runPut $ do
-            putWord64le $ fromIntegral i
-            putWord64le $ fromIntegral si
-            put modRef
-    checkNameHelper nce scAddr expectName mreject =
+        params = case scAddr of
+            (Types.ContractAddress i si) -> BSS.toShort $ runPut $ do
+                putWord64le $ fromIntegral i
+                putWord64le $ fromIntegral si
+        checkEvents modRef [Types.Updated{euEvents = [ContractEvent ce]}] =
+            assertEqual "Module reference" (BSS.toShort $ encode modRef) ce
+        checkEvents _ _ = assertFailure "Expected exactly one event"
+    getNameHelper ::
+        Types.Nonce ->
+        Types.ContractAddress ->
+        Maybe BSS.ShortByteString ->
+        Types.Energy ->
+        Helpers.TransactionAndAssertion pv
+    getNameHelper nce scAddr mExpectName expectEnergy =
         Helpers.TransactionAndAssertion
             { taaTransaction =
                 TJSON
-                    { payload =
-                        Update
-                            0
-                            (Types.ContractAddress 2 0)
-                            "contract2.check_name"
-                            (params scAddr expectName),
+                    { payload = Update 0 (Types.ContractAddress 2 0) "contract2.get_contract_name" params,
                       metadata = makeDummyHeader accountAddress0 nce 100_000,
                       keys = [(0, [(0, keyPair0)])]
                     },
               taaAssertion = \result _ ->
-                return $
+                return $ do
                     if Types.supportsContractInspectionQueries spv
-                        then case mreject of
-                            Nothing -> Helpers.assertSuccess result
-                            Just reject ->
-                                Helpers.assertRejectWhere
-                                    ( \case
-                                        Types.RejectedReceive{..}
-                                            | rejectReason == reject -> return ()
-                                        _ -> assertFailure "Rejected for incorrect reason"
-                                    )
-                                    result
-                        else Helpers.assertRejectWithReason Types.RuntimeFailure result
+                        then do
+                            case mExpectName of
+                                Nothing -> do
+                                    Helpers.assertRejectWhere
+                                        ( \case
+                                            Types.RejectedReceive{rejectReason = -1} -> return ()
+                                            _ -> assertFailure "Rejected for incorrect reason"
+                                        )
+                                        result
+                                Just name -> do
+                                    Helpers.assertSuccessWhere (checkEvents name) result
+                            assertEqual "Energy usage" expectEnergy (Helpers.srUsedEnergy result)
+                        else do
+                            Helpers.assertRejectWithReason Types.RuntimeFailure result
+                            assertEqual "Energy usage" 542 (Helpers.srUsedEnergy result)
             }
       where
-        params (Types.ContractAddress i si) name = BSS.toShort $ runPut $ do
-            putWord64le $ fromIntegral i
-            putWord64le $ fromIntegral si
-            putByteString name
+        params = case scAddr of
+            (Types.ContractAddress i si) -> BSS.toShort $ runPut $ do
+                putWord64le $ fromIntegral i
+                putWord64le $ fromIntegral si
+        checkEvents name [Types.Updated{euEvents = [ContractEvent ce]}] =
+            assertEqual "Contract name" name ce
+        checkEvents _ _ = assertFailure "Expected exactly one event"
 
 -- | First source file for contract upgrade and query module reference interaction test.
 srcUpgrade0 :: FilePath
