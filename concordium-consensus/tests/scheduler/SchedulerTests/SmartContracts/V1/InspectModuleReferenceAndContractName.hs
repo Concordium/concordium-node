@@ -66,15 +66,18 @@ modRefQueriesAccountBalance :: Types.ModuleRef
 modRefQueriesAccountBalance = unsafePerformIO $ modRefOf srcQueriesAccountBalance
 
 -- | This test deploys three different smart contracts, from two different modules.
---  One of these contracts <0,0> has a function for checking if the module reference matches an
---  expected value. Another <2,0> has a function for checking if the contract name matches an
---  expected value. Both functions are invoked for each instance, and for non-existant contract
+--  One of these contracts <0,0> has a function that queries and logs the module reference of a
+--  specified contract address. Another <2,0> queries and logs the contract name of a specified
+--  contract. Both functions are invoked for each instance, and for non-existant contract
 --  addresses, ensuring the values are as expected.
 --
 --  The entrypoints are designed to succeed in the case of a match, fail with code -1 if there is
 --  a mismatch, and fail with code -2 if the contract address does not exist. If the protocol
 --  version does not support the contract inspection functionality, then the call should fail with
 --  a runtime exception.
+--
+--  As well as testing the result of the queries, this also tests that the costs of the operations
+--  are as expected.
 testModuleRefAndName :: forall pv. (Types.IsProtocolVersion pv) => Types.SProtocolVersion pv -> [Char] -> SpecWith ()
 testModuleRefAndName spv pvString
     | Types.supportsV1Contracts spv =
@@ -98,24 +101,11 @@ testModuleRefAndName spv pvString
           getModRefHelper 8 (Types.ContractAddress 2 0) (Just modRefQueriesContractInspection),
           getModRefHelper 9 (Types.ContractAddress 3 0) Nothing,
           getModRefHelper 10 (Types.ContractAddress 0 1) Nothing,
-          --   checkModRefHelper 6 (Types.ContractAddress 0 0) modRefQueriesContractInspection Nothing,
-          --   checkModRefHelper 7 (Types.ContractAddress 1 0) modRefQueriesContractInspection (Just (-1)),
-          --   checkModRefHelper 8 (Types.ContractAddress 2 0) modRefQueriesContractInspection Nothing,
-          --   checkModRefHelper 9 (Types.ContractAddress 3 0) modRefQueriesContractInspection (Just (-2)),
-          --   checkModRefHelper 10 (Types.ContractAddress 0 1) modRefQueriesContractInspection (Just (-2)),
-          -- checkModRefHelper 11 (Types.ContractAddress 1 0) modRefQueriesAccountBalance Nothing,
-          getNameHelper 11 (Types.ContractAddress 0 0) (Just "init_contract") 755,
-          getNameHelper 12 (Types.ContractAddress 1 0) (Just "init_contract") 755,
-          getNameHelper 13 (Types.ContractAddress 2 0) (Just "init_contract2") 756,
-          getNameHelper 14 (Types.ContractAddress 3 0) Nothing 742,
-          getNameHelper 15 (Types.ContractAddress 0 1) Nothing 742
-          --   checkNameHelper 12 (Types.ContractAddress 0 0) "init_contract" Nothing,
-          --   checkNameHelper 13 (Types.ContractAddress 1 0) "init_contract" Nothing,
-          --   checkNameHelper 14 (Types.ContractAddress 2 0) "init_contract" (Just (-1)),
-          --   checkNameHelper 15 (Types.ContractAddress 2 0) "init_contract2" Nothing,
-          --   checkNameHelper 16 (Types.ContractAddress 3 0) "init_contract" (Just (-2)),
-          --   checkNameHelper 17 (Types.ContractAddress 0 0) "init_contract2" (Just (-1)),
-          --   checkNameHelper 18 (Types.ContractAddress 0 1) "init_contract2" (Just (-2))
+          getNameHelper 11 (Types.ContractAddress 0 0) (Just "init_contract") 754,
+          getNameHelper 12 (Types.ContractAddress 1 0) (Just "init_contract") 754,
+          getNameHelper 13 (Types.ContractAddress 2 0) (Just "init_contract2") 755,
+          getNameHelper 14 (Types.ContractAddress 3 0) Nothing 741,
+          getNameHelper 15 (Types.ContractAddress 0 1) Nothing 741
         ]
     deployModHelper nce src =
         Helpers.TransactionAndAssertion
@@ -174,19 +164,19 @@ testModuleRefAndName spv pvString
                                     result
                                 assertEqual
                                     "Energy usage (non-existing instance)"
-                                    744
+                                    743
                                     (Helpers.srUsedEnergy result)
                             Just modRef -> do
                                 Helpers.assertSuccessWhere (checkEvents modRef) result
                                 assertEqual
                                     "Energy usage (existing instance)"
-                                    776
+                                    775
                                     (Helpers.srUsedEnergy result)
                         else do
                             Helpers.assertRejectWithReason Types.RuntimeFailure result
                             assertEqual
                                 "Energy usage (unsupported protocol version)"
-                                544
+                                543
                                 (Helpers.srUsedEnergy result)
             }
       where
@@ -228,7 +218,7 @@ testModuleRefAndName spv pvString
                             assertEqual "Energy usage" expectEnergy (Helpers.srUsedEnergy result)
                         else do
                             Helpers.assertRejectWithReason Types.RuntimeFailure result
-                            assertEqual "Energy usage" 542 (Helpers.srUsedEnergy result)
+                            assertEqual "Energy usage" 541 (Helpers.srUsedEnergy result)
             }
       where
         params = case scAddr of
