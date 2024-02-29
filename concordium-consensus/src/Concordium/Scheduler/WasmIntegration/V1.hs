@@ -287,6 +287,8 @@ foreign import ccall "call_receive_v1"
         Word8 ->
         -- | Non-zero to enable support for account keys query and signature checks.
         Word8 ->
+        -- | Non-zero to enable support for contract module reference and name queries.
+        Word8 ->
         -- | New state, logs, and actions, if applicable, or null, signalling out-of-energy.
         IO (Ptr Word8)
 
@@ -424,6 +426,14 @@ data InvokeMethod
       QueryAccountKeys
         { imqakAddress :: !AccountAddress
         }
+    | -- | Query the module reference of a contract.
+      QueryContractModuleReference
+        { imqcmrAddress :: !ContractAddress
+        }
+    | -- | Query the constructor name of a contract.
+      QueryContractName
+        { imqcnAddress :: !ContractAddress
+        }
 
 getInvokeMethod :: Get InvokeMethod
 getInvokeMethod =
@@ -436,6 +446,8 @@ getInvokeMethod =
         5 -> return QueryExchangeRates
         6 -> CheckAccountSignature <$> get <*> getByteStringLen
         7 -> QueryAccountKeys <$> get
+        8 -> QueryContractModuleReference <$> get
+        9 -> QueryContractName <$> get
         n -> fail $ "Unsupported invoke method tag: " ++ show n
 
 -- | Data return from the contract in case of successful initialization.
@@ -668,7 +680,9 @@ data RuntimeConfig = RuntimeConfig
       rcLimitLogsAndRvs :: Bool,
       -- | Whether to support account key queries and account signature checks.
       --  Supported in P6 onward.
-      rcSupportAccountSignatureChecks :: Bool
+      rcSupportAccountSignatureChecks :: Bool,
+      -- | Whether to support querying smart contract module reference and name.
+      rcSupportContractInspectionQueries :: Bool
     }
 
 -- | Apply a receive function which is assumed to be part of the given module.
@@ -728,6 +742,7 @@ applyReceiveFun miface cm receiveCtx rName useFallback param amnt initialState R
                                     stateWrittenToPtr
                                     (if rcSupportChainQueries then 1 else 0)
                                     (if rcSupportAccountSignatureChecks then 1 else 0)
+                                    (if rcSupportContractInspectionQueries then 1 else 0)
                             if outPtr == nullPtr
                                 then return (Just (Left Trap, 0)) -- this case should not happen
                                 else do

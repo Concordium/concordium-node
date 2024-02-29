@@ -229,6 +229,7 @@ data SchedulerResult = SchedulerResult
       -- | The total execution energy of the block.
       srUsedEnergy :: Types.Energy
     }
+    deriving (Show)
 
 -- | Run the scheduler on transactions in a test environment.
 runScheduler ::

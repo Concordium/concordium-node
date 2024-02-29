@@ -38,6 +38,7 @@ import qualified SchedulerTests.SmartContracts.V1.CrossMessaging (tests)
 import qualified SchedulerTests.SmartContracts.V1.CustomSectionSize (tests)
 import qualified SchedulerTests.SmartContracts.V1.ErrorCodes (tests)
 import qualified SchedulerTests.SmartContracts.V1.Fallback (tests)
+import qualified SchedulerTests.SmartContracts.V1.InspectModuleReferenceAndContractName (tests)
 import qualified SchedulerTests.SmartContracts.V1.Iterator (tests)
 import qualified SchedulerTests.SmartContracts.V1.P6WasmFeatures (tests)
 import qualified SchedulerTests.SmartContracts.V1.Queries (tests)
@@ -103,3 +104,4 @@ main = hspec $ do
     SchedulerTests.SmartContracts.V1.P6WasmFeatures.tests
     SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
     SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests
+    SchedulerTests.SmartContracts.V1.InspectModuleReferenceAndContractName.tests
