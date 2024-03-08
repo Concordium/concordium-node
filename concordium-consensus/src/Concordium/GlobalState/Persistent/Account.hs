@@ -20,7 +20,6 @@ import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
-import Concordium.Utils.Serialization.Put
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Genesis.Data
@@ -505,17 +504,6 @@ makePersistentBakerInfoRef = case accountVersion @av of
     SAccountV2 -> fmap PBIRV2 . V1.makePersistentBakerInfoEx
 
 -- * Migration
-
--- | Serialize an account. The serialization format may depend on the protocol version.
---
---  This format allows accounts to be stored in a reduced format by
---  eliding (some) data that can be inferred from context, or is
---  the default value.  Note that there can be multiple representations
---  of the same account.
-serializeAccount :: (MonadBlobStore m, MonadPut m) => GlobalContext -> PersistentAccount av -> m ()
-serializeAccount gc (PAV0 acc) = V0.serializeAccount gc acc
-serializeAccount gc (PAV1 acc) = V0.serializeAccount gc acc
-serializeAccount gc (PAV2 acc) = V1.serializeAccount gc acc
 
 -- | Migrate a 'PersistentAccount' between protocol versions according to a state migration.
 migratePersistentAccount ::

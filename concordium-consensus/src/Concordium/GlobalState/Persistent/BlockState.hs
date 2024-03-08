@@ -373,13 +373,6 @@ freezeContractState cs = case Wasm.getWasmVersion @v of
         (hsh, persistent) <- liftIO (StateV1.freeze cbk cs)
         return (hsh, Instances.InstanceStateV1 persistent)
 
--- | Serialize 'PersistentBirkParameters' in V0 format.
-putBirkParametersV0 :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m, MonadPut m) => PersistentBirkParameters pv -> m ()
-putBirkParametersV0 PersistentBirkParameters{..} = withIsSeedStateVersionFor (protocolVersion @pv) $ do
-    sPut _birkSeedState
-    putEpochBakers =<< refLoad _birkNextEpochBakers
-    putEpochBakers =<< refLoad _birkCurrentEpochBakers
-
 instance (IsProtocolVersion pv, MonadBlobStore m) => MHashableTo m H.Hash (PersistentBirkParameters pv) where
     getHashM PersistentBirkParameters{..} = withIsSeedStateVersionFor (protocolVersion @pv) $ do
         nextHash <- getHashM _birkNextEpochBakers
@@ -547,19 +540,6 @@ consEpochBlock b hebbs = do
               hebHash = Rewards.epochBlockHash b (hebHash hebbs)
             }
 
--- | Serialize the 'HashedEpochBlocks' structure in V0 format.
-putHashedEpochBlocksV0 :: (MonadBlobStore m, MonadPut m) => HashedEpochBlocks -> m ()
-putHashedEpochBlocksV0 HashedEpochBlocks{..} = do
-    ebs <- loadEB Seq.empty hebBlocks
-    liftPut $ do
-        putLength (Seq.length ebs)
-        mapM_ put ebs
-  where
-    loadEB s Null = return s
-    loadEB s (Some ebref) = do
-        EpochBlock{..} <- refLoad ebref
-        loadEB (s Seq.|> ebBakerId) ebPrevious
-
 data BlockRewardDetails' (av :: AccountVersion) (bhv :: BlockHashVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails' 'AccountV0 bhv
     BlockRewardDetailsV1 :: (AVSupportsDelegation av) => !(HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv)) -> BlockRewardDetails' av bhv
@@ -637,13 +617,6 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BlockRewardD
 instance (MonadBlobStore m, IsBlockHashVersion bhv) => Cacheable m (BlockRewardDetails' av bhv) where
     cache (BlockRewardDetailsV0 heb) = BlockRewardDetailsV0 <$> cache heb
     cache (BlockRewardDetailsV1 hpr) = BlockRewardDetailsV1 <$> cache hpr
-
-putBlockRewardDetails ::
-    (MonadBlobStore m, MonadPut m, IsBlockHashVersion bhv) =>
-    BlockRewardDetails' av bhv ->
-    m ()
-putBlockRewardDetails (BlockRewardDetailsV0 heb) = putHashedEpochBlocksV0 heb
-putBlockRewardDetails (BlockRewardDetailsV1 hpr) = refLoad hpr >>= putPoolRewards
 
 -- | Extend a 'BlockRewardDetails' ''AccountV0' with an additional baker.
 consBlockRewardDetails ::
@@ -998,32 +971,6 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
                   ..
                 }
     liftIO $ newIORef $! bsp
-
--- | Serialize the block state. The format may depend on the protocol version.
-putBlockStateV0 :: (SupportsPersistentState pv m, MonadPut m) => PersistentBlockState pv -> m ()
-putBlockStateV0 pbs = do
-    BlockStatePointers{..} <- loadPBS pbs
-    -- BirkParameters
-    putBirkParametersV0 bspBirkParameters
-    -- CryptographicParameters
-    cryptoParams <- refLoad bspCryptographicParameters
-    sPut cryptoParams
-    -- IdentityProviders
-    sPut =<< refLoad bspIdentityProviders
-    -- AnonymityRevokers
-    sPut =<< refLoad bspAnonymityRevokers
-    -- Modules
-    Modules.putModulesV0 =<< refLoad bspModules
-    -- BankStatus
-    sPut $ _unhashed bspBank
-    -- Accounts
-    Accounts.serializeAccounts cryptoParams bspAccounts
-    -- Instances
-    Instances.putInstancesV0 bspInstances
-    -- Updates
-    putUpdatesV0 =<< refLoad bspUpdates
-    -- Epoch blocks / pool rewards
-    putBlockRewardDetails bspRewardDetails
 
 loadPBS :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (BlockStatePointers pv)
 loadPBS = loadBufferedRef <=< liftIO . readIORef
@@ -3682,10 +3629,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         case hpbsHashM of
             Just hpbsHash -> return HashedPersistentBlockState{..}
             Nothing -> hashBlockState hpbsPointers
-
-    serializeBlockState hpbs = do
-        p <- runPutT (putBlockStateV0 (hpbsPointers hpbs))
-        return $ runPut p
 
     blockStateLoadCallback = asks blobLoadCallback
     {-# INLINE blockStateLoadCallback #-}

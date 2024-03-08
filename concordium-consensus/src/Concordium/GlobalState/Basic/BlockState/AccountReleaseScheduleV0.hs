@@ -37,7 +37,6 @@ module Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 (
     sumOfReleases,
 ) where
 
-import Control.Monad
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.Function
@@ -53,7 +52,6 @@ import Concordium.Crypto.SHA256
 import Concordium.Types
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.HashableTo
-import Concordium.Utils.Serialization
 
 ----------------------------------- Release ------------------------------------
 
@@ -120,46 +118,6 @@ toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
                   ..
                 }
     releaseSchedule = map makeScheduledRelease sortedAndGroupedByTimestamp
-
-instance Serialize AccountReleaseSchedule where
-    get = do
-        vecLength <- getLength
-        _values <-
-            Vector.replicateM
-                vecLength
-                ( getMaybe
-                    ( do
-                        l <- getLength
-                        item <- replicateM l get
-                        txh <- get
-                        return (item, txh)
-                    )
-                )
-        let (_pendingReleases, _totalLockedUpBalance) =
-                Vector.ifoldl'
-                    ( \acc idx -> \case
-                        Nothing -> acc
-                        Just (rel, _) ->
-                            let f (pending, am) Release{..} =
-                                    let pending' = Map.alter (maybe (Just [idx]) (Just . (idx :))) timestamp pending
-                                        am' = am + amount
-                                    in  (pending', am')
-                            in  foldl' f acc rel
-                    )
-                    (Map.empty, 0)
-                    _values
-        return AccountReleaseSchedule{..}
-    put AccountReleaseSchedule{..} = do
-        putLength $ Vector.length _values
-        Vector.mapM_
-            ( putMaybe
-                ( \(rel, txh) -> do
-                    putLength $ length rel
-                    mapM_ put rel
-                    put txh
-                )
-            )
-            _values
 
 -- λ: getHash $ addReleases ([(3,5), (4,10)], th) $ addReleases ([(1,2), (3,4)], th) emptyAccountReleaseSchedule :: Hash
 -- 5473ef105c995db8d8dfe75881d8a2018bb12eaeef32032569edfff6814f1b50

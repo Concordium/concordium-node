@@ -45,8 +45,6 @@ import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSche
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1
 import Concordium.ID.Parameters
 import Concordium.Types.Accounts.Releases
-import Concordium.Utils.Serialization
-import Concordium.Utils.Serialization.Put
 import Control.Monad.Trans
 import qualified Data.Map.Strict as Map
 
@@ -1426,69 +1424,6 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
               accountAmount = _accountAmount,
               ..
             }
-
--- ** Serialization
-
--- | Serialize an account. The serialization format may depend on the protocol version.
---
---  This format allows accounts to be stored in a reduced format by
---  eliding (some) data that can be inferred from context, or is
---  the default value.  Note that there can be multiple representations
---  of the same account.
-serializeAccount :: (MonadBlobStore m, MonadPut m) => GlobalContext -> PersistentAccount 'AccountV2 -> m ()
-serializeAccount cryptoParams acc@PersistentAccount{..} = do
-    let ed = enduringData acc
-    let PersistingAccountData{..} = persistingData acc
-    let initialCredId =
-            credId
-                ( Map.findWithDefault
-                    (error "Account missing initial credential")
-                    initialCredentialIndex
-                    _accountCredentials
-                )
-        asfExplicitAddress = _accountAddress /= addressFromRegIdRaw initialCredId
-        -- There is an opportunity for improvement here. There is no need to go
-        -- through the deserialized key. The way the encryption key is formed is
-        -- that the first half is the generator, the second half is the credId.
-        -- So we could just concatenate them. This requires a bit of scaffolding
-        -- to get the right component out of cryptoParams, so it is not yet
-        -- done.
-        asfExplicitEncryptionKey = _accountEncryptionKey /= toRawEncryptionKey (makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId))
-        (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
-            [(i, cred)] | i == initialCredentialIndex -> (False, put cred)
-            _ -> (True, putSafeMapOf put put _accountCredentials)
-        asfThresholdIsOne = aiThreshold _accountVerificationKeys == 1
-        asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials
-    (asfExplicitEncryptedAmount, putEA) <- do
-        case paedEncryptedAmount ed of
-            Null -> return (False, return ())
-            Some aeaRef -> do
-                aea <- refLoad aeaRef
-                putAccountEncryptedAmountV0 aea <&> \case
-                    Nothing -> (False, return ())
-                    Just p -> (True, p)
-    (asfExplicitReleaseSchedule, putRS) <- do
-        case paedReleaseSchedule ed of
-            Null -> return (False, return ())
-            Some (rsRef, _) -> do
-                rs <- refLoad rsRef
-                if isEmptyAccountReleaseSchedule rs
-                    then return (False, return ())
-                    else (True,) <$> serializeAccountReleaseSchedule rs
-    let asfHasBakerOrDelegation = hasStake acc
-    stake <- getStake acc
-    liftPut $ do
-        put AccountSerializationFlags{..}
-        when asfExplicitAddress $ put _accountAddress
-        when asfExplicitEncryptionKey $ put _accountEncryptionKey
-        unless asfThresholdIsOne $ put (aiThreshold _accountVerificationKeys)
-        putCredentials
-        when asfHasRemovedCredentials $ put (_accountRemovedCredentials ^. unhashed)
-        put accountNonce
-        put accountAmount
-        putEA
-        putRS
-        when asfHasBakerOrDelegation $ serializeAccountStake stake
 
 -- ** Conversion
 

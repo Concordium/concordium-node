@@ -27,9 +27,6 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
     moduleRefList,
     newModuleCache,
     unsafeToModuleV,
-
-    -- * Serialization
-    putModulesV0,
     migrateModules,
 ) where
 
@@ -45,7 +42,6 @@ import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Utils
 import Concordium.Utils.Serialization
-import Concordium.Utils.Serialization.Put
 import Concordium.Wasm
 import Control.Monad.Trans
 import qualified Data.ByteString as BS
@@ -245,12 +241,6 @@ instance (MonadBlobStore m) => DirectBlobStorable m Module where
         mkModule SV0 = ModuleV0
         mkModule SV1 = ModuleV1
 
--- | Serialize a module in V0 format.
---  This only serializes the source.
-putModuleV0 :: (MonadBlobStore m, MonadPut m) => Module -> m ()
-putModuleV0 (ModuleV0 ModuleV{..}) = sPut =<< loadRef moduleVSource
-putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
-
 --------------------------------------------------------------------------------
 
 -- | A cached 'Module' accessed via a cached 'Reference' i.e., a 'Reference'
@@ -384,13 +374,6 @@ moduleRefList :: Modules -> [ModuleRef]
 moduleRefList mods = Map.keys (mods ^. modulesMap)
 
 --------------------------------------------------------------------------------
-
--- | Serialize modules in V0 format.
-putModulesV0 :: (SupportsPersistentModule m, MonadPut m) => Modules -> m ()
-putModulesV0 mods = do
-    let mt = mods ^. modulesTable
-    liftPut $ putWord64be $ LFMB.size mt
-    LFMB.mmap_ putModuleV0 mt
 
 -- | Migrate smart contract modules from context @m@ to the context @t m@.
 migrateModules ::

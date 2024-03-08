@@ -10,7 +10,6 @@
 module Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule where
 
 import Data.Function
-import Data.Serialize
 import Lens.Micro.Platform
 
 import Concordium.Types
@@ -145,39 +144,6 @@ nextReleaseTimestamp = case accountVersion @av of
     SAccountV0 -> ARSV0.nextReleaseTimestamp . theAccountReleaseSchedule
     SAccountV1 -> ARSV0.nextReleaseTimestamp . theAccountReleaseSchedule
     SAccountV2 -> ARSV1.nextReleaseTimestamp . theAccountReleaseSchedule
-
--- | Serialize an account release schedule. The serialization format depends on the account version.
-serializeAccountReleaseSchedule :: forall av. (IsAccountVersion av) => Putter (AccountReleaseSchedule av)
-serializeAccountReleaseSchedule = case accountVersion @av of
-    SAccountV0 -> put . theAccountReleaseSchedule
-    SAccountV1 -> put . theAccountReleaseSchedule
-    SAccountV2 -> put . theAccountReleaseSchedule
-
--- | Deserialize an account release schedule, possibly upgrading the account version.
---
---  Precondition: @av@ is at least @avold@.
-deserializeAccountReleaseSchedule :: forall avold av. (IsAccountVersion av) => SAccountVersion avold -> Get (AccountReleaseSchedule av)
-deserializeAccountReleaseSchedule SAccountV0 = AccountReleaseSchedule . convert <$> get
-  where
-    convert :: ARSV0.AccountReleaseSchedule -> AccountReleaseSchedule' av
-    convert = case accountVersion @av of
-        SAccountV0 -> id
-        SAccountV1 -> id
-        SAccountV2 -> ARSV1.fromAccountReleaseScheduleV0
-deserializeAccountReleaseSchedule SAccountV1 = AccountReleaseSchedule . convert <$> get
-  where
-    convert :: ARSV0.AccountReleaseSchedule -> AccountReleaseSchedule' av
-    convert = case accountVersion @av of
-        SAccountV0 -> id
-        SAccountV1 -> id
-        SAccountV2 -> ARSV1.fromAccountReleaseScheduleV0
-deserializeAccountReleaseSchedule SAccountV2 = AccountReleaseSchedule . convert <$> get
-  where
-    convert :: ARSV1.AccountReleaseSchedule -> AccountReleaseSchedule' av
-    convert = case accountVersion @av of
-        SAccountV0 -> error "deserializeAccountReleaseSchedule: cannot downgrade account version"
-        SAccountV1 -> error "deserializeAccountReleaseSchedule: cannot downgrade account version"
-        SAccountV2 -> id
 
 -- | Get the total locked balance.
 totalLockedUpBalance :: forall av. (IsAccountVersion av) => SimpleGetter (AccountReleaseSchedule av) Amount

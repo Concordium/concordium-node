@@ -25,8 +25,6 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Utils
-import Concordium.Utils.Serialization (putByteStringLen)
-import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
 
 import Concordium.GlobalState.BlockState (
@@ -366,35 +364,6 @@ mkInstanceInfoV PersistentInstanceV{..} = do
               iiBalance = pinstanceAmount,
               ..
             }
-
--- | Serialize a V0 smart contract instance in V0 format.
-putV0InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V0 -> m ()
-putV0InstanceV0 PersistentInstanceV{pinstanceModel = InstanceStateV0 model, ..} = do
-    -- Instance parameters
-    PersistentInstanceParameters{..} <- refLoad pinstanceParameters
-    liftPut $ do
-        -- only put the subindex part of the address
-        put (contractSubindex pinstanceAddress)
-        put pinstanceOwner
-        put pinstanceContractModule
-        put pinstanceInitName
-        put model
-        put pinstanceAmount
-
--- | Serialize a V1 smart contract instance in V0 format.
-putV1InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V1 -> m ()
-putV1InstanceV0 PersistentInstanceV{pinstanceModel = InstanceStateV1 model, ..} = do
-    -- Instance parameters
-    PersistentInstanceParameters{..} <- refLoad pinstanceParameters
-    stateString <- StateV1.toByteString model
-    liftPut $ do
-        -- only put the subindex part of the address
-        put (contractSubindex pinstanceAddress)
-        put pinstanceOwner
-        put pinstanceContractModule
-        put pinstanceInitName
-        putByteStringLen stateString -- serialize with explicit length to enable serialization via FFI.
-        put pinstanceAmount
 
 ----------------------------------------------------------------------------------------------------
 
@@ -781,20 +750,3 @@ allInstances (InstancesTree _ it) = mapReduceIT mfun it
   where
     mfun (Left _) = return mempty
     mfun (Right inst) = (: []) . pinstanceAddress <$> loadInstanceParameters inst
-
--- | Serialize instances in V0 format.
-putInstancesV0 :: (IsProtocolVersion pv, SupportsPersistentModule m, MonadPut m) => Instances pv -> m ()
-putInstancesV0 InstancesEmpty = liftPut $ putWord8 0
-putInstancesV0 (InstancesTree _ it) = do
-    mapReduceIT putOptInstance it
-    liftPut $ putWord8 0
-  where
-    putOptInstance (Left ca) = liftPut $ do
-        putWord8 1
-        put (contractSubindex ca)
-    putOptInstance (Right (PersistentInstanceV0 inst)) = do
-        liftPut $ putWord8 2
-        putV0InstanceV0 inst
-    putOptInstance (Right (PersistentInstanceV1 inst)) = do
-        liftPut $ putWord8 3
-        putV1InstanceV0 inst

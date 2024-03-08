@@ -262,23 +262,6 @@ migrateAccountReleaseScheduleFromV0 schedule = do
                 releases <- lift $ refLoad release >>= ARSV0.listRelease
                 addReleases (releases, transactionHash) schedule'
 
--- | Serialize an 'AccountReleaseSchedule' in the serialization format for
---  'TARSV1.AccountReleaseSchedule'.
-serializeAccountReleaseSchedule :: forall m. (MonadBlobStore m) => AccountReleaseSchedule -> m Put
-serializeAccountReleaseSchedule AccountReleaseSchedule{..} = do
-    foldlM putEntry putLen arsReleases
-  where
-    putLen = putLength (Vector.length arsReleases)
-    putEntry :: Put -> ReleaseScheduleEntry -> m Put
-    putEntry put0 ReleaseScheduleEntry{..} = do
-        Releases{..} <- refLoad rseReleasesRef
-        let start = fromIntegral rseNextReleaseIndex
-        return $ do
-            put0
-            put relTransactionHash
-            putLength (Vector.length relReleases - start)
-            mapM_ put (Vector.drop start relReleases)
-
 -- | Convert a transient account release schedule to the persistent one.
 makePersistentAccountReleaseSchedule :: (MonadBlobStore m) => TARSV1.AccountReleaseSchedule -> m AccountReleaseSchedule
 makePersistentAccountReleaseSchedule tars = do
