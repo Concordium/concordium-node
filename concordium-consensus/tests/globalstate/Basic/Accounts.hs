@@ -7,22 +7,17 @@
 
 module Basic.Accounts where
 
-import Concordium.Genesis.Data
 import qualified Concordium.GlobalState.AccountMap as AccountMap
 import Concordium.GlobalState.Basic.BlockState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBTree
 import Concordium.GlobalState.BlockState (AccountsHash (..))
-import Concordium.ID.Parameters
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
-import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
-import Control.Monad
 import Data.Foldable
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
-import Data.Serialize
 import GHC.Stack (HasCallStack)
 import Lens.Micro.Internal (Index, IxValue, Ixed)
 import Lens.Micro.Platform
@@ -216,45 +211,3 @@ accountList = zip [0 ..] . toList . accountTable
 -- | Fold over the account table in ascending order of account index.
 foldAccounts :: (a -> Account (AccountVersionFor pv) -> a) -> a -> Accounts pv -> a
 foldAccounts f a = foldl' f a . accountTable
-
--- | Serialize 'Accounts' in V0 format.
-serializeAccounts :: (IsProtocolVersion pv) => GlobalContext -> Putter (Accounts pv)
-serializeAccounts cryptoParams Accounts{..} = do
-    putWord64be $ fromIntegral $ Seq.length accountTable
-    forM_ accountTable $ \acct -> serializeAccount cryptoParams acct
-
--- | Deserialize 'Accounts'. The serialization format may depend on the protocol version.
---  The state migration determines how do construct an 'Accounts' at a new protocol version 'pv'
---  from the serialization format of another protocol version 'oldpv'.
---  This validates the following invariants:
---
---   * Every baker account's 'BakerId' must match the account index.
---   * 'CredentialRegistrationID's must not be used on more than one account.
-deserializeAccounts :: (IsProtocolVersion oldpv, IsProtocolVersion pv) => StateMigrationParameters oldpv pv -> GlobalContext -> Get (Accounts pv)
-deserializeAccounts migration cryptoParams = do
-    nAccounts <- getWord64be
-    let loop i accts@Accounts{..}
-            | i < nAccounts = do
-                acct <- deserializeAccount migration cryptoParams
-                let acctId = AccountIndex i
-                case _accountStaking acct of
-                    AccountStakeBaker bkr ->
-                        unless (bkr ^. accountBakerInfo . bakerIdentity == BakerId acctId) $
-                            fail "BakerID does not match account index"
-                    _ -> return ()
-                let addRegId regids cred
-                        | cred `Map.member` regids = fail "Duplicate credential"
-                        | otherwise = return $ Map.insert cred acctId regids
-                newRegIds <-
-                    foldM addRegId accountRegIds $
-                        (ID.credId <$> Map.elems (acct ^. accountCredentials))
-                            ++ removedCredentialsToList (acct ^. accountRemovedCredentials . unhashed)
-                loop
-                    (i + 1)
-                    Accounts
-                        { accountMap = AccountMap.insertPure (acct ^. accountAddress) acctId accountMap,
-                          accountTable = accountTable Seq.|> acct,
-                          accountRegIds = newRegIds
-                        }
-            | otherwise = return accts
-    loop 0 emptyAccounts

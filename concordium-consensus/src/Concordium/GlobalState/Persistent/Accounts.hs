@@ -73,12 +73,10 @@ import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree', LFMBTreeHash, LFMBTreeHash' (..))
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
-import Concordium.ID.Parameters
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option (Option (..))
-import Concordium.Utils.Serialization.Put
 import Control.Monad
 import Control.Monad.Reader
 import Data.Foldable (foldlM)
@@ -448,12 +446,6 @@ allAccounts accounts = do
 --  a concatenation of two lists of account addresses.
 accountAddresses :: (SupportsPersistentAccount pv m) => Accounts pv -> m [AccountAddress]
 accountAddresses accounts = map fst <$> allAccounts accounts
-
--- | Serialize accounts in V0 format.
-serializeAccounts :: (SupportsPersistentAccount pv m, MonadPut m) => GlobalContext -> Accounts pv -> m ()
-serializeAccounts cryptoParams Accounts{..} = do
-    liftPut $ putWord64be $ L.size accountTable
-    L.mmap_ (serializeAccount cryptoParams) accountTable
 
 -- | Fold over the account table in ascending order of account index.
 foldAccounts :: (SupportsPersistentAccount pv m) => (a -> PersistentAccount (AccountVersionFor pv) -> m a) -> a -> Accounts pv -> m a
