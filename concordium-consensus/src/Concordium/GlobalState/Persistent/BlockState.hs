@@ -3687,6 +3687,10 @@ migratePersistentBlockState migration oldState = do
 migrateBlockPointers ::
     forall oldpv pv t m.
     ( SupportMigration m t,
+      MonadProtocolVersion m,
+      MPV m ~ oldpv,
+      MonadProtocolVersion (t m),
+      MPV (t m) ~ pv,
       SupportsPersistentAccount oldpv m,
       SupportsPersistentAccount pv (t m),
       Modules.SupportsPersistentModule m,

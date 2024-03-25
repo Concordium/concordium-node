@@ -599,9 +599,9 @@ checksum = "fd16c4719339c4530435d38e511904438d07cce7950afa3718a84ac36c10e89e"
 
 [[package]]
 name = "chrono"
-version = "0.4.33"
+version = "0.4.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f13690e35a5e4ace198e7beea2895d29f3a9cc55015fcebe6336bd2010af9eb"
+checksum = "8eaf5903dcbc0a39312feb77df2ff4c76387d591b9fc7b04a238dcf8bb62639a"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -667,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common"
-version = "9.0.0"
+version = "9.1.0"
 dependencies = [
  "base64",
  "bs58",
@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common-derive"
-version = "4.0.1"
+version = "4.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-smart-contract-engine"
-version = "4.0.0"
+version = "5.0.0"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -729,7 +729,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base"
-version = "4.0.0"
+version = "5.0.0"
 dependencies = [
  "aes",
  "anyhow",

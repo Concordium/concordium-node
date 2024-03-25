@@ -38,6 +38,8 @@ import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
 import qualified Concordium.GlobalState.Wasm as GSWasm
+import qualified Concordium.Scheduler.WasmIntegration as WasmV0
+import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Utils
@@ -150,7 +152,7 @@ instance (MonadBlobStore m) => Cacheable m Module
 
 -- | This instance is based on and should be compatible with the 'Serialize' instance
 --  for 'BasicModuleInterface'.
-instance (MonadBlobStore m) => DirectBlobStorable m Module where
+instance (MonadBlobStore m, MonadProtocolVersion m) => DirectBlobStorable m Module where
     loadDirect br = do
         bs <- loadRaw br
         let getModule = do
@@ -195,7 +197,27 @@ instance (MonadBlobStore m) => DirectBlobStorable m Module where
                         return $! ModuleV1 (ModuleV{..})
         case runGet getModule bs of
             Left e -> error (e ++ " :: " ++ show bs)
-            Right !mv -> return mv
+            Right mv@(ModuleV0 (ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = PIMVPtr artPtr}, ..})) -> do
+                artBS <- loadBlobPtr artPtr
+                if GSWasm.isLegacyArtifact artBS
+                    then do
+                        source <- loadRef moduleVSource
+                        case WasmV0.processModule source of
+                            Nothing -> error "Stored module that is not valid."
+                            Just iface -> do
+                                return $! ModuleV0 (ModuleV{moduleVInterface = makePersistentInstrumentedModuleV <$> iface, ..})
+                    else return mv
+            Right mv@(ModuleV1 (ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = PIMVPtr artPtr}, ..})) -> do
+                artBS <- loadBlobPtr artPtr
+                if GSWasm.isLegacyArtifact artBS
+                    then do
+                        source <- loadRef moduleVSource
+                        case WasmV1.processModule (protocolVersion @(MPV m)) source of
+                            Nothing -> error "Stored module that is not valid."
+                            Just iface -> do
+                                return $! ModuleV1 (ModuleV{moduleVInterface = makePersistentInstrumentedModuleV <$> iface, ..})
+                    else return mv
+            Right mv -> return mv
 
     storeUpdateDirect mdl = do
         case mdl of
@@ -279,13 +301,13 @@ data Modules = Modules
 makeLenses ''Modules
 
 -- | The hash of the collection of modules is the hash of the tree.
-instance (SupportsPersistentModule m, IsBlockHashVersion (BlockHashVersionFor pv)) => MHashableTo m (ModulesHash pv) Modules where
+instance (MonadProtocolVersion m, SupportsPersistentModule m, IsBlockHashVersion (BlockHashVersionFor pv)) => MHashableTo m (ModulesHash pv) Modules where
     getHashM =
         fmap (ModulesHash . LFMB.theLFMBTreeHash @(BlockHashVersionFor pv))
             . getHashM
             . _modulesTable
 
-instance (SupportsPersistentModule m) => BlobStorable m Modules where
+instance (MonadProtocolVersion m, SupportsPersistentModule m) => BlobStorable m Modules where
     load = do
         table <- load
         return $ do
@@ -302,7 +324,7 @@ instance (SupportsPersistentModule m) => BlobStorable m Modules where
         (pModulesTable, _modulesTable') <- storeUpdate _modulesTable
         return (pModulesTable, m{_modulesTable = _modulesTable'})
 
-instance (SupportsPersistentModule m) => Cacheable m Modules where
+instance (MonadProtocolVersion m, SupportsPersistentModule m) => Cacheable m Modules where
     cache Modules{..} = do
         modulesTable' <- cache _modulesTable
         return Modules{_modulesTable = modulesTable', ..}
@@ -316,7 +338,7 @@ emptyModules = Modules LFMB.empty Map.empty
 -- | Try to add interfaces to the module table. If a module with the given
 --  reference exists returns @Nothing@.
 putInterface ::
-    (IsWasmVersion v, SupportsPersistentModule m) =>
+    (MonadProtocolVersion m, IsWasmVersion v, SupportsPersistentModule m) =>
     (GSWasm.ModuleInterfaceV v, WasmModuleV v) ->
     Modules ->
     m (Maybe Modules)
@@ -334,7 +356,7 @@ putInterface (modul, src) m =
   where
     mref = GSWasm.moduleReference modul
 
-getModule :: (SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe Module)
+getModule :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe Module)
 getModule ref mods =
     let modIdx = Map.lookup ref (mods ^. modulesMap)
     in  case modIdx of
@@ -344,7 +366,7 @@ getModule ref mods =
 -- | Gets the 'HashedCachedRef' to a module as stored in the module table
 --  to be given to instances when associating them with the interface.
 --  The reason we return the reference here is to allow for sharing of the reference.
-getModuleReference :: (SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe CachedModule)
+getModuleReference :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe CachedModule)
 getModuleReference ref mods =
     let modIdx = Map.lookup ref (mods ^. modulesMap)
     in  case modIdx of
@@ -353,14 +375,14 @@ getModuleReference ref mods =
 
 -- | Get an interface by module reference.
 getInterface ::
-    (SupportsPersistentModule m) =>
+    (MonadProtocolVersion m, SupportsPersistentModule m) =>
     ModuleRef ->
     Modules ->
     m (Maybe (GSWasm.ModuleInterface PersistentInstrumentedModuleV))
 getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- | Get the source of a module by module reference.
-getSource :: (SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe WasmModule)
+getSource :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe WasmModule)
 getSource ref mods = do
     m <- getModule ref mods
     case m of
@@ -378,7 +400,12 @@ moduleRefList mods = Map.keys (mods ^. modulesMap)
 -- | Migrate smart contract modules from context @m@ to the context @t m@.
 migrateModules ::
     forall t m.
-    (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t) =>
+    ( MonadProtocolVersion m,
+      MonadProtocolVersion (t m),
+      SupportsPersistentModule m,
+      SupportsPersistentModule (t m),
+      SupportMigration m t
+    ) =>
     Modules ->
     t m Modules
 migrateModules mods = do
@@ -398,6 +425,7 @@ migrateModules mods = do
 
     migrateModuleV :: forall v. (IsWasmVersion v) => ModuleV v -> t m CachedModule
     migrateModuleV ModuleV{..} = do
+        -- TODO: Recompile stuff that needs to be updated
         newModuleVSource <- do
             -- Load the module source from the old context.
             s <- lift (loadRef moduleVSource)
