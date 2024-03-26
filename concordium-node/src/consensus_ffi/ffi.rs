@@ -1643,7 +1643,7 @@ pub fn get_consensus_ptr(
                     regenesis_callback,
                     start_config.maximum_log_level as u8,
                     on_log_emited,
-                    appdata_buf.as_ptr() as *const u8,
+                    appdata_buf.as_ptr(),
                     appdata_buf.len() as i64,
                     runner_ptr_ptr,
                 )
@@ -1677,7 +1677,7 @@ pub fn get_consensus_ptr(
                         regenesis_callback,
                         start_config.maximum_log_level as u8,
                         on_log_emited,
-                        appdata_buf.as_ptr() as *const u8,
+                        appdata_buf.as_ptr(),
                         appdata_buf.len() as i64,
                         runner_ptr_ptr,
                     )
@@ -3305,35 +3305,6 @@ impl TryFrom<u8> for CallbackType {
             3 => Ok(CallbackType::CatchUpStatus),
             _ => Err(anyhow!("Received invalid callback type: {}", byte)),
         }
-    }
-}
-
-pub extern "C" fn on_finalization_message_catchup_out(
-    peer_id: PeerIdFFI,
-    data: *const u8,
-    len: i64,
-) {
-    unsafe {
-        let msg_variant = PacketType::FinalizationMessage;
-        let payload = slice::from_raw_parts(data as *const u8, len as usize);
-        let mut full_payload = Vec::with_capacity(1 + payload.len());
-        (msg_variant as u8).serial(&mut full_payload);
-
-        full_payload.write_all(payload).unwrap(); // infallible
-        let full_payload = Arc::from(full_payload);
-
-        let msg = ConsensusMessage::new(
-            MessageType::Outbound(Some((peer_id as usize).into())),
-            PacketType::FinalizationMessage,
-            full_payload,
-            vec![],
-            None,
-        );
-
-        match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
-            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, len),
-            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
-        };
     }
 }
 

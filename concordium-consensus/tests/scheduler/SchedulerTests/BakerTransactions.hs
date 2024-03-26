@@ -32,7 +32,6 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
-import System.IO.Unsafe
 
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
@@ -266,7 +265,7 @@ transactionsInput =
 
 tests :: Spec
 tests = do
-    let (outcomes, endState) = unsafePerformIO $ do
+    (outcomes, endState) <- runIO $ do
             txs <- processUngroupedTransactions transactionsInput
             Helpers.runSchedulerTestWithIntermediateStates
                 @PV1
