@@ -7,6 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 module GlobalStateTests.Instances where
 
@@ -86,7 +87,7 @@ invariantIT ::
     (IsProtocolVersion pv) =>
     ContractIndex ->
     Instances.IT pv (BufferedFix (Instances.IT pv)) ->
-    TestMonad (Word8, Bool, Bool, ContractIndex, H.Hash)
+    TestMonad pv (Word8, Bool, Bool, ContractIndex, H.Hash)
 invariantIT offset (Instances.Leaf inst) = do
     params <- Instances.loadInstanceParameters inst
     checkBinary (==) (contractIndex $ Instances.pinstanceAddress params) offset "==" "account index" "expected value"
@@ -114,7 +115,7 @@ invariantIT offset (Instances.Branch h f v hsh l r) = do
 --      * The branch is marked full if and only if the right subtree is full.
 --      * The branch has vacancies exactly when at least one subtree has vacancies.
 --   * The root records the correct size of the table.
-invariantInstances :: (IsProtocolVersion pv) => Instances.Instances pv -> TestMonad ()
+invariantInstances :: (IsProtocolVersion pv) => Instances.Instances pv -> TestMonad pv ()
 invariantInstances Instances.InstancesEmpty = return ()
 invariantInstances (Instances.InstancesTree size bf) = do
     (_, _, _, ContractIndex recSize, _) <- invariantIT 0 =<< mproject bf
@@ -162,7 +163,7 @@ mInstanceAddr :: ModelInstance -> ContractAddress
 mInstanceAddr = Instances.pinstanceAddress . mInstanceParameters
 
 -- | Construct a 'Instances.PersistentInstance' from a 'ModelInstance'.
-toPersistentInstance :: ModelInstance -> TestMonad (Instances.PersistentInstance pv)
+toPersistentInstance :: (IsProtocolVersion pv) => ModelInstance -> TestMonad pv (Instances.PersistentInstance pv)
 toPersistentInstance (ModelInstance @v params modSrc iface pinstanceModel _ pinstanceAmount) = do
     pinstanceParameters <- refMake @_ @BufferedRef params
     moduleVSource <- storeRef (Wasm.WasmModuleV modSrc)
@@ -189,7 +190,7 @@ toPersistentInstance (ModelInstance @v params modSrc iface pinstanceModel _ pins
             return $ Instances.PersistentInstanceV1 Instances.PersistentInstanceV{..}
 
 -- | Assert that a 'ModelInstance' matches a 'Instances.PersistentInstance'.
-modelsPersistentInstance :: ModelInstance -> Instances.PersistentInstance pv -> TestMonad Property
+modelsPersistentInstance :: forall pv. (IsProtocolVersion pv) => ModelInstance -> Instances.PersistentInstance pv -> TestMonad pv Property
 modelsPersistentInstance modInst perInst = do
     case (modInst, perInst) of
         (ModelInstance modParams modSrc modIFace modModel@Instances.InstanceStateV0{} _ modAmt, Instances.PersistentInstanceV0 Instances.PersistentInstanceV{..}) -> do
@@ -218,7 +219,7 @@ modelsPersistentInstance modInst perInst = do
                     .&&. counterexample "amount" (pinstanceAmount === modAmt)
         _ -> return $ counterexample "instance version mismatch" False
   where
-    compareStates :: Instances.InstanceStateV v -> Instances.InstanceStateV v -> TestMonad Property
+    compareStates :: Instances.InstanceStateV v -> Instances.InstanceStateV v -> TestMonad pv Property
     compareStates (Instances.InstanceStateV0 cs0) (Instances.InstanceStateV0 cs1) =
         return (cs0 === cs1)
     compareStates (Instances.InstanceStateV1 ps0) (Instances.InstanceStateV1 ps1) = do
@@ -320,7 +321,7 @@ genModelInstance = oneof [genV0, genV1]
                 }
 
 -- | Convert an instance table to a list of the hashes of the leaves.
-instancesToHashList :: (IsProtocolVersion pv) => Instances.Instances pv -> TestMonad [H.Hash]
+instancesToHashList :: (IsProtocolVersion pv) => Instances.Instances pv -> TestMonad pv [H.Hash]
 instancesToHashList Instances.InstancesEmpty = return []
 instancesToHashList (Instances.InstancesTree _ instTab) = go [] =<< mproject instTab
   where
@@ -451,7 +452,7 @@ arbitraryMapElement m = do
 
 -- | A test monad that can be used for performing operations on an instance table.
 --  This uses the in-memory blob store.
-newtype TestMonad a = TestMonad {runTestMonad :: ModuleCache -> MemBlobStore -> IO a}
+newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad :: ModuleCache -> MemBlobStore -> IO a}
     deriving
         (Functor, Applicative, Monad, MonadIO, MonadFail)
         via (ReaderT ModuleCache (ReaderT MemBlobStore IO))
@@ -459,18 +460,21 @@ newtype TestMonad a = TestMonad {runTestMonad :: ModuleCache -> MemBlobStore -> 
         (MonadBlobStore)
         via (ReaderT ModuleCache (MemBlobStoreT IO))
 
-instance MonadCache ModuleCache TestMonad where
+instance MonadCache ModuleCache (TestMonad pv) where
     getCache = TestMonad $ \c _ -> return c
 
+instance (IsProtocolVersion pv) => MonadProtocolVersion (TestMonad pv) where
+    type MPV (TestMonad pv) = pv
+
 -- | Run a 'TestMonad' with a fresh in-memory blob store and an empty 0-sized module cache.
-runTestMonadFresh :: TestMonad a -> IO a
+runTestMonadFresh :: TestMonad pv a -> IO a
 runTestMonadFresh a = bracket newMemBlobStore destroyMemBlobStore $ \mbs -> do
     c <- newModuleCache 0
     runTestMonad a c mbs
 
 -- | Generate a 'TestMonad' action for generating an instance table (by repeated creation and
 --  deletion of instances), and a corresponding model.
-generateFromUpdates :: (IsProtocolVersion pv) => Int -> Gen (TestMonad (Instances.Instances pv), Model)
+generateFromUpdates :: (IsProtocolVersion pv) => Int -> Gen (TestMonad pv (Instances.Instances pv), Model)
 generateFromUpdates n0 = gen n0 (return Instances.emptyInstances) emptyModel
   where
     gen 0 insts model = return (insts, model)
@@ -510,7 +514,7 @@ checkInvariants ::
     (IsProtocolVersion pv) =>
     Model ->
     Instances.Instances pv ->
-    TestMonad ()
+    TestMonad pv ()
 checkInvariants model insts = do
     invariantInstances insts
     hlActual <- instancesToHashList insts
@@ -682,7 +686,7 @@ testUpdates _ n0 = do
 
 -- | Given a 'TestMonad' that generates an instance table and a corresponding model, test that
 --  getting arbitrary contract addresses returns the same result in the instance table and model.
-testGetInstance :: (IsProtocolVersion pv) => TestMonad (Instances.Instances pv) -> Model -> Gen Property
+testGetInstance :: (IsProtocolVersion pv) => TestMonad pv (Instances.Instances pv) -> Model -> Gen Property
 testGetInstance insts model =
     oneof $
         [present | not (null $ modelInstances model)]
