@@ -266,13 +266,13 @@ transactionsInput =
 tests :: Spec
 tests = do
     (outcomes, endState) <- runIO $ do
-            txs <- processUngroupedTransactions transactionsInput
-            Helpers.runSchedulerTestWithIntermediateStates
-                @PV1
-                Helpers.defaultTestConfig
-                initialBlockState
-                (const BS.bsoGetActiveBakers)
-                txs
+        txs <- processUngroupedTransactions transactionsInput
+        Helpers.runSchedulerTestWithIntermediateStates
+            @PV1
+            Helpers.defaultTestConfig
+            initialBlockState
+            (const BS.bsoGetActiveBakers)
+            txs
     let results = first (Helpers.getResults . Sch.ftAdded . Helpers.srTransactions) <$> outcomes
 
     describe "P1: Baker transactions." $ do
