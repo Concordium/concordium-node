@@ -358,15 +358,11 @@ runSchedulerTestWithIntermediateStates ::
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
     (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     Types.GroupedTransactions ->
-    IO (IntermediateResults a, BS.HashedPersistentBlockState pv)
-runSchedulerTestWithIntermediateStates config constructState extractor transactions =
-    runTestBlockState blockStateComputation
+    PersistentBSM pv (IntermediateResults a, BS.HashedPersistentBlockState pv)
+runSchedulerTestWithIntermediateStates config constructState extractor transactions = do
+    blockStateBefore <- constructState
+    foldM transactionRunner ([], blockStateBefore) transactions
   where
-    blockStateComputation :: PersistentBSM pv (IntermediateResults a, BS.HashedPersistentBlockState pv)
-    blockStateComputation = do
-        blockStateBefore <- constructState
-        foldM transactionRunner ([], blockStateBefore) transactions
-
     transactionRunner ::
         (IntermediateResults a, BS.HashedPersistentBlockState pv) ->
         Types.TransactionGroup ->
