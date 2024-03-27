@@ -27,6 +27,7 @@ module Concordium.GlobalState.Wasm (
     BasicModuleInterface,
     HasModuleRef (..),
     HasEntrypoints (..),
+    isLegacyArtifact,
 )
 where
 
@@ -34,11 +35,15 @@ import Concordium.Types
 import Concordium.Utils.Serialization
 import Concordium.Wasm
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Unsafe as BSU
 import Data.Kind
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Set as Set
 import Data.Word
+import Foreign (Ptr, castPtr)
+import Foreign.C.Types (CSize (..))
+import System.IO.Unsafe
 
 -- | A processed module artifact as a 'BS.ByteString', as returned by the @validate_and_process_v*@
 --  Rust functions, and used by the @call_receive_v*@ and @call_init_v*@ functions.
@@ -212,3 +217,17 @@ instance Serialize BasicModuleInterface where
         putSafeMapOf put (putSafeSetOf put) miExposedReceive
         put miModule
         putWord64be miModuleSize
+
+foreign import ccall "is_legacy_artifact"
+    is_legacy_artifact ::
+        -- | Pointer to the Wasm artifact.
+        Ptr Word8 ->
+        -- | Length of the artifact.
+        CSize ->
+        -- | 1 for true, 0 for false
+        IO Word8
+
+isLegacyArtifact :: BS.ByteString -> Bool
+isLegacyArtifact artifactBS = unsafePerformIO $
+    BSU.unsafeUseAsCStringLen artifactBS $ \(wasmArtifactPtr, wasmArtifactLen) ->
+        (== 1) <$> is_legacy_artifact (castPtr wasmArtifactPtr) (fromIntegral wasmArtifactLen)

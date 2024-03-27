@@ -5,6 +5,7 @@ macro_rules! wrap_send_data_to_c {
         let consensus = $self.consensus.load(Ordering::SeqCst);
         let len = $data.len();
 
+        #[allow(clippy::redundant_closure_call)] // allowed
         let result = unsafe { $c_call(consensus, $genesis_index, $data.as_ptr(), len as i64) };
 
         ConsensusFfiResponse::try_from(result)
@@ -15,6 +16,7 @@ macro_rules! wrap_send_data_to_c {
 macro_rules! wrap_c_call {
     ($self:ident, $c_call:expr) => {{
         let consensus = $self.consensus.load(Ordering::SeqCst);
+        #[allow(clippy::redundant_closure_call)] // allowed
         let result = unsafe { $c_call(consensus) };
 
         ConsensusFfiResponse::try_from(result)
@@ -25,6 +27,7 @@ macro_rules! wrap_c_call {
 macro_rules! wrap_c_bool_call {
     ($self:ident, $c_call:expr) => {{
         let consensus = $self.consensus.load(Ordering::SeqCst);
+        #[allow(clippy::redundant_closure_call)] // allowed
         match unsafe { $c_call(consensus) } {
             0u8 => false,
             1u8 => true,
