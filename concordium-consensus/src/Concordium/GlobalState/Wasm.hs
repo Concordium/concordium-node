@@ -27,7 +27,7 @@ module Concordium.GlobalState.Wasm (
     BasicModuleInterface,
     HasModuleRef (..),
     HasEntrypoints (..),
-    isLegacyArtifact,
+    isV0LegacyArtifact,
 )
 where
 
@@ -227,7 +227,13 @@ foreign import ccall "is_legacy_artifact"
         -- | 1 for true, 0 for false
         IO Word8
 
-isLegacyArtifact :: BS.ByteString -> Bool
-isLegacyArtifact artifactBS = unsafePerformIO $
+-- | Return whether the bytestring is a serialization of a legacy "V0" artifact.
+--  These were artifact that only exist for P1-P6 for Wasm modules deployed
+--  before node version 7.
+--
+-- This assumes that the bytestring is a valid serialization of a V0 or V1
+-- artifact and will not validate this.
+isV0LegacyArtifact :: BS.ByteString -> Bool
+isV0LegacyArtifact artifactBS = unsafePerformIO $
     BSU.unsafeUseAsCStringLen artifactBS $ \(wasmArtifactPtr, wasmArtifactLen) ->
         (== 1) <$> is_legacy_artifact (castPtr wasmArtifactPtr) (fromIntegral wasmArtifactLen)

@@ -55,7 +55,7 @@ validContractArtifactsV0 = mapMaybe packModule contractSourcesV0
   where
     packModule (_, sourceBytes) =
         let source = Wasm.ModuleSource sourceBytes
-        in  (source,) <$> WasmV0.processModule (Wasm.WasmModuleV source)
+        in  (source,) <$> WasmV0.processModule SP1 (Wasm.WasmModuleV source)
 
 contractSourcesV1 :: [(FilePath, BS.ByteString)]
 contractSourcesV1 = $(makeRelativeToProject "../concordium-base/smart-contracts/testdata/contracts/v1" >>= embedDir)

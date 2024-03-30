@@ -257,8 +257,9 @@ applyReceiveFun miface cm receiveCtx rName param maxParamLen limitLogsAndRvs amn
 --  compilation or instrumentation) that is needed to apply the exported
 --  functions from it in an efficient way.
 {-# NOINLINE processModule #-}
-processModule :: WasmModuleV V0 -> Maybe (ModuleInterfaceV V0)
-processModule modl = do
+processModule :: SProtocolVersion spv -> WasmModuleV V0 -> Maybe (ModuleInterfaceV V0)
+-- TODO: The unused spv argument will be used when new cost semantics are introduced.
+processModule _spv modl = do
     (bs, miModule) <- ffiResult
     case getExports bs of
         Left _ -> Nothing
