@@ -1703,7 +1703,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
                         return $ setAccountStake capital
-    updateCapital STrue oldBkr cp = undefined
+    updateCapital STrue _ _ = undefined
 
 doConstrainBakerCommission ::
     (SupportsPersistentState pv m, PVSupportsDelegation pv) =>
@@ -1931,7 +1931,7 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                         modifyAccount $ setAccountStake capital
                         MTL.tell [DelegationConfigureStakeIncreased capital]
         return $ BaseAccounts._delegationStakedAmount ad
-    updateCapital STrue cp = undefined
+    updateCapital STrue _ = undefined
     addTotalsInActiveBakers ab0 ad delta = do
         let ab1 = ab0 & totalActiveCapital %~ addActiveCapital delta
         case ad ^. BaseAccounts.delegationTarget of
