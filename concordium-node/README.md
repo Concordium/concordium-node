@@ -2,7 +2,7 @@
 
 ## Dependencies to build the project
 
-- Rust (stable 1.68 for using static libraries)
+- Rust (stable 1.73 for using static libraries)
 - binutils >= 2.22
   - For macOS one should use the binutils provided by Xcode.
 - cmake >= 3.8.0
@@ -151,8 +151,8 @@ Before building the node, you should install the following dependencies:
 
 - Haskell [stack](https://docs.haskellstack.org/en/stable/install_and_upgrade/)
 - [Rust](https://www.rust-lang.org/tools/install)
-  - For building the node, the toolchain `1.68.2-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.68.2-x86_64-pc-windows-gnu`.
-  - For building the node runner service (optional), the toolchain `1.68.2-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.68.2-x86_64-pc-windows-msvc`.
+  - For building the node, the toolchain `1.73-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.73-x86_64-pc-windows-gnu`.
+  - For building the node runner service (optional), the toolchain `1.73-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.73-x86_64-pc-windows-msvc`.
 - GCC is required for building some library dependencies. [WinLibs](https://winlibs.com/) provides a standalone build of GCC with MinGW-w64. Download the latest release version (Win64, without LLVM) and extract it (e.g. to `C:\mingw64`) and ensure that the `bin` directory is on the path. (Installing `gcc` under `stack`'s `msys2` installation does not seem to work when building the node.)
 - [flatc](https://github.com/google/flatbuffers/releases/tag/v22.12.06) 22.12.06 (should be in the path)
 - [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.15
@@ -163,7 +163,7 @@ stack exec -- pacman -Syuq --noconfirm
 stack exec -- pacman -Syq mingw-w64-x86_64-lmdb --noconfirm
 ```
 
-- If building the installer, the [Wix Toolset](https://wixtoolset.org/releases/) is required, and should be in the path.
+- If building the installer, the [WiX Toolset (v3)](https://wixtoolset.org/docs/wix3/) is required, and should be in the path.
 
 ### Building and Running
 
@@ -173,9 +173,10 @@ or `X.Y.Z[.B]` where `X.Y.Z` should be the node binary version and the optional 
 to be the build version. `X.Y.Z[.B]` is used as the product version in the installer.
 
 The node binary will be built at `.\target\release\concordium-node.exe`.
-However, running the node requires the consensus DLL, which is compiled to `..\concordium-consensus\HSdll.dll`.
-If you wish to run the node directly, you should copy `HSdll.dll` to the location of `concordium-node.exe`.
-The node also depends on a number of DLLs that are part of `stack`'s `msys2` installation.
+However, running the node requires the consensus DLL, which is compiled to `"$(stack path --local-install-root)\lib\concordium-consensus.dll"`.
+If you wish to run the node directly, you should copy `concordium-consensus.dll` to the location of `concordium-node.exe`.
+The node also depends on a `liblmdb.dll`, which is part of `stack`'s `msys2` installation.
+It also depends on the DLLs `concordium_base.dll`, `sha_2.dll` and `concordium_smart_contract_engine.dll` that are built as part of the build process.
 To run the node with these DLLs in the path, you can use `stack exec`, as in:
 
 ```console
