@@ -49,6 +49,7 @@ import Concordium.GlobalState.Persistent.Account.EncryptedAmount
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.Persistent.CachedRef
+import Concordium.Types.Accounts.CooldownQueue
 
 -- * A note on 'Cacheable' instances for persistent accounts
 
@@ -1205,4 +1206,5 @@ toTransientAccount PersistentAccount{..} = do
         PersistentAccountStakeNone -> return AccountStakeNone
         PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
         PersistentAccountStakeDelegate dlg -> AccountStakeDelegate <$> refLoad dlg
+    let _accountStakeCooldown = emptyCooldownQueue
     return $ Transient.Account{..}

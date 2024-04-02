@@ -27,9 +27,16 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV
 import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Accounts.CooldownQueue
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
+
+newtype CooldownQueueHash (av :: AccountVersion) = CooldownQueueHash {theCooldownQueueHash :: Hash.Hash}
+    deriving (Eq, Ord, Show, Serialize)
+
+instance HashableTo (CooldownQueueHash av) (CooldownQueue av) where
+    getHash _ = undefined
 
 -- | A list of credential IDs that have been removed from an account.
 data RemovedCredentials
@@ -256,6 +263,19 @@ data AccountMerkleHashInputs (av :: AccountVersion) where
           amhi2AccountReleaseScheduleHash :: !ARSV1.AccountReleaseScheduleHashV1
         } ->
         AccountMerkleHashInputs 'AccountV2
+    AccountMerkleHashInputsV3 ::
+        { -- | Hash of the persisting account data.
+          amhi3PersistingAccountDataHash :: !PersistingAccountDataHash,
+          -- | Hash of the account stake.
+          amhi3AccountStakeHash :: !(AccountStakeHash av),
+          -- | Hash of the account's encrypted amount.
+          amhi3EncryptedAmountHash :: !EncryptedAmountHash,
+          -- | Hash of the account's release schedule.
+          amhi3AccountReleaseScheduleHash :: !ARSV1.AccountReleaseScheduleHashV1,
+          -- | The cooldown.
+          amhi3Cooldown :: !(CooldownQueueHash av)
+        } ->
+        AccountMerkleHashInputs 'AccountV3
 
 -- | The Merkle hash derived from the seldom-updated parts of an account, namely the persisting
 --  account data, account stake, encrypted amount, and account release schedule.
@@ -275,6 +295,20 @@ instance HashableTo (AccountMerkleHash av) (AccountMerkleHashInputs av) where
                     (theEncryptedAmountHash amhi2EncryptedAmountHash)
                     (ARSV1.theAccountReleaseScheduleHashV1 amhi2AccountReleaseScheduleHash)
                 )
+    getHash AccountMerkleHashInputsV3{..} =
+        AccountMerkleHash $
+            Hash.hashOfHashes
+                ( Hash.hashOfHashes
+                    (thePersistingAccountDataHash amhi3PersistingAccountDataHash)
+                    (theAccountStakeHash amhi3AccountStakeHash)
+                )
+                ( Hash.hashOfHashes
+                    (theEncryptedAmountHash amhi3EncryptedAmountHash)
+                    ( Hash.hashOfHashes
+                        (ARSV1.theAccountReleaseScheduleHashV1 amhi3AccountReleaseScheduleHash)
+                        (theCooldownQueueHash amhi3Cooldown)
+                    )
+                )
 
 data AccountHashInputsV2 (av :: AccountVersion) = AccountHashInputsV2
     { ahi2NextNonce :: !Nonce,
@@ -293,17 +327,27 @@ makeAccountHashV2 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
     put ahi2StakedBalance
     put ahi2MerkleHash
 
+makeAccountHashV3 :: AccountHashInputsV2 av -> Hash.Hash
+makeAccountHashV3 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
+    putShortByteString "AC03"
+    put ahi2NextNonce
+    put ahi2AccountBalance
+    put ahi2StakedBalance
+    put ahi2MerkleHash
+
 -- | Inputs for computing the 'AccountHash' for an account.
 data AccountHashInputs (av :: AccountVersion) where
     AHIV0 :: AccountHashInputsV0 'AccountV0 -> AccountHashInputs 'AccountV0
     AHIV1 :: AccountHashInputsV0 'AccountV1 -> AccountHashInputs 'AccountV1
     AHIV2 :: AccountHashInputsV2 'AccountV2 -> AccountHashInputs 'AccountV2
+    AHIV3 :: AccountHashInputsV2 'AccountV3 -> AccountHashInputs 'AccountV3
 
 makeAccountHash :: AccountHashInputs av -> AccountHash av
 {-# INLINE makeAccountHash #-}
 makeAccountHash (AHIV0 ahi) = AccountHash $ makeAccountHashV0 ahi
 makeAccountHash (AHIV1 ahi) = AccountHash $ makeAccountHashV0 ahi
 makeAccountHash (AHIV2 ahi) = AccountHash $ makeAccountHashV2 ahi
+makeAccountHash (AHIV3 ahi) = AccountHash $ makeAccountHashV3 ahi
 
 data EncryptedAmountUpdate
     = -- | Replace encrypted amounts less than the given index,

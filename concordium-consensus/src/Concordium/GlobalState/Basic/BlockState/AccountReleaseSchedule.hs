@@ -25,6 +25,7 @@ type family AccountReleaseSchedule' (av :: AccountVersion) where
     AccountReleaseSchedule' 'AccountV0 = ARSV0.AccountReleaseSchedule
     AccountReleaseSchedule' 'AccountV1 = ARSV0.AccountReleaseSchedule
     AccountReleaseSchedule' 'AccountV2 = ARSV1.AccountReleaseSchedule
+    AccountReleaseSchedule' 'AccountV3 = ARSV1.AccountReleaseSchedule
 
 -- | Release schedule on an account, parametrized by the account version.
 newtype AccountReleaseSchedule (av :: AccountVersion) = AccountReleaseSchedule
