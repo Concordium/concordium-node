@@ -40,6 +40,7 @@ import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import qualified Concordium.GlobalState.Wasm as GSWasm
+import Concordium.Logger (MonadLogger)
 
 ----------------------------------------------------------------------------------------------------
 
@@ -464,7 +465,7 @@ conditionalSetBit :: (Bits a) => Int -> Bool -> a -> a
 conditionalSetBit _ False x = x
 conditionalSetBit b True x = setBit x b
 
-instance (MonadProtocolVersion m, IsProtocolVersion pv, MPV m ~ pv, BlobStorable m r, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
+instance (MonadLogger m, MonadProtocolVersion m, IsProtocolVersion pv, MPV m ~ pv, BlobStorable m r, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
     storeUpdate (Branch{..}) = do
         (pl, l') <- storeUpdate branchLeft
         (pr, r') <- storeUpdate branchRight

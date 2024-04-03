@@ -40,6 +40,7 @@ import Concordium.GlobalState.Persistent.Cache
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import Concordium.ID.Types (accountAddressSize)
+import Concordium.Logger
 import Control.Exception
 import Control.Monad.Reader
 import Test.Hspec
@@ -465,6 +466,10 @@ instance MonadCache ModuleCache (TestMonad pv) where
 
 instance (IsProtocolVersion pv) => MonadProtocolVersion (TestMonad pv) where
     type MPV (TestMonad pv) = pv
+
+-- Do not log anything.
+instance MonadLogger (TestMonad pv) where
+    logEvent _ _ _ = return ()
 
 -- | Run a 'TestMonad' with a fresh in-memory blob store and an empty 0-sized module cache.
 runTestMonadFresh :: TestMonad pv a -> IO a
