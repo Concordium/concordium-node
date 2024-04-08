@@ -1643,7 +1643,7 @@ pub fn get_consensus_ptr(
                     regenesis_callback,
                     start_config.maximum_log_level as u8,
                     on_log_emited,
-                    appdata_buf.as_ptr() as *const u8,
+                    appdata_buf.as_ptr(),
                     appdata_buf.len() as i64,
                     runner_ptr_ptr,
                 )
@@ -1677,7 +1677,7 @@ pub fn get_consensus_ptr(
                         regenesis_callback,
                         start_config.maximum_log_level as u8,
                         on_log_emited,
-                        appdata_buf.as_ptr() as *const u8,
+                        appdata_buf.as_ptr(),
                         appdata_buf.len() as i64,
                         runner_ptr_ptr,
                     )
@@ -2039,15 +2039,21 @@ impl ConsensusContainer {
         peer_id: RemotePeerId,
         object_limit: i64,
     ) -> ConsensusFfiResponse {
-        wrap_c_call!(self, |consensus| receiveCatchUpStatus(
-            consensus,
-            peer_id.into(),
-            genesis_index,
-            request.as_ptr(),
-            request.len() as i64,
-            object_limit,
-            direct_callback
-        ))
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let result = unsafe {
+            receiveCatchUpStatus(
+                consensus,
+                peer_id.into(),
+                genesis_index,
+                request.as_ptr(),
+                request.len() as i64,
+                object_limit,
+                direct_callback,
+            )
+        };
+
+        ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
 
     /// Gets baker status of the node along with the baker ID
@@ -2080,14 +2086,12 @@ impl ConsensusContainer {
     }
 
     pub fn in_finalization_committee(&self) -> bool {
-        wrap_c_bool_call!(self, |consensus| checkIfWeAreFinalizer(consensus))
+        wrap_c_bool_call!(self, checkIfWeAreFinalizer)
     }
 
     /// Checks if consensus is running, i.e. if consensus has been shut down,
     /// this will return false.
-    pub fn is_consensus_running(&self) -> bool {
-        wrap_c_bool_call!(self, |consensus| checkIfRunning(consensus))
-    }
+    pub fn is_consensus_running(&self) -> bool { wrap_c_bool_call!(self, checkIfRunning) }
 
     /// Import blocks from the given file path. If the file exists and the node
     /// could import all blocks from the file `Ok(())` is returned. Otherwise an
@@ -3305,35 +3309,6 @@ impl TryFrom<u8> for CallbackType {
             3 => Ok(CallbackType::CatchUpStatus),
             _ => Err(anyhow!("Received invalid callback type: {}", byte)),
         }
-    }
-}
-
-pub extern "C" fn on_finalization_message_catchup_out(
-    peer_id: PeerIdFFI,
-    data: *const u8,
-    len: i64,
-) {
-    unsafe {
-        let msg_variant = PacketType::FinalizationMessage;
-        let payload = slice::from_raw_parts(data as *const u8, len as usize);
-        let mut full_payload = Vec::with_capacity(1 + payload.len());
-        (msg_variant as u8).serial(&mut full_payload);
-
-        full_payload.write_all(payload).unwrap(); // infallible
-        let full_payload = Arc::from(full_payload);
-
-        let msg = ConsensusMessage::new(
-            MessageType::Outbound(Some((peer_id as usize).into())),
-            PacketType::FinalizationMessage,
-            full_payload,
-            vec![],
-            None,
-        );
-
-        match CALLBACK_QUEUE.send_out_blocking_msg(msg) {
-            Ok(_) => trace!("Queueing a {} of {} bytes", msg_variant, len),
-            Err(e) => error!("Couldn't queue a {} properly: {}", msg_variant, e),
-        };
     }
 }
 

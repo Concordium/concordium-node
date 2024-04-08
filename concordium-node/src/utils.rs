@@ -10,7 +10,11 @@ use std::{
 };
 
 pub fn to_hex_string(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+    use std::fmt::Write;
+    bytes.iter().fold(String::new(), |mut output, b| {
+        let _ = write!(output, "{:02x}", b);
+        output
+    })
 }
 
 /// Setup a log4rs logger based on the given configuration file.
