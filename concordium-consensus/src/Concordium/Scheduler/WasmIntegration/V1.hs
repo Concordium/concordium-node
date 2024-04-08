@@ -944,6 +944,4 @@ compileModule ValidationConfig{..} modl =
                                         (rs_free_array_len artifactPtr (fromIntegral artifactLen))
                                 return (Just (bs, instrumentedModuleFromBytes SV1 moduleArtifact))
   where
-    meteringVersion = case vcCostSemantics of
-        CSV0 -> 0
-        CSV1 -> 1
+    meteringVersion = costSemanticsVersionToWord8 vcCostSemantics

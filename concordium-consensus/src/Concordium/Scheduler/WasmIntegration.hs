@@ -314,6 +314,4 @@ compileModule csv modl = unsafePerformIO $ do
                                     (rs_free_array_len artifactPtr (fromIntegral artifactLen))
                             return (Just (bs, instrumentedModuleFromBytes SV0 moduleArtifact))
    
-    where meteringVersion = case csv of
-            CSV0 -> 0
-            CSV1 -> 1
+    where meteringVersion = costSemanticsVersionToWord8 csv
