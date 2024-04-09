@@ -811,7 +811,7 @@ handleInitContract wtc initAmount modref initName param =
         case viface of
             GSWasm.ModuleInterfaceV0 iface -> do
                 let iSize = GSWasm.miModuleSize iface
-                tickEnergy $ Cost.lookupModule iSize
+                tickEnergy $ Cost.lookupModule (protocolVersion @(MPV m)) iSize
 
                 -- Then get the particular contract interface (in particular the type of the init method).
                 unless (Set.member initName (GSWasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
@@ -842,7 +842,7 @@ handleInitContract wtc initAmount modref initName param =
                 return (Left (iface, result))
             GSWasm.ModuleInterfaceV1 iface -> do
                 let iSize = GSWasm.miModuleSize iface
-                tickEnergy $ Cost.lookupModule iSize
+                tickEnergy $ Cost.lookupModule (protocolVersion @(MPV m)) iSize
 
                 -- Then get the particular contract interface (in particular the type of the init method).
                 unless (Set.member initName (GSWasm.miExposedInit iface)) $ rejectTransaction $ InvalidInitMethod modref initName
@@ -1009,6 +1009,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
             InstanceInfoV0 ins ->
                 -- Now invoke the general handler for contract messages.
                 handleContractUpdateV0
+                    0
                     senderAddress
                     ins
                     checkAndGetBalanceV0
@@ -1016,7 +1017,7 @@ handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
                     uReceiveName
                     uMessage
             InstanceInfoV1 ins -> do
-                handleContractUpdateV1 senderAddress ins checkAndGetBalanceV1 uAmount uReceiveName uMessage >>= \case
+                handleContractUpdateV1 0 senderAddress ins checkAndGetBalanceV1 uAmount uReceiveName uMessage >>= \case
                     Left cer -> do
                         transactionReturnValue .= WasmV1.ccfToReturnValue cer
                         rejectTransaction (WasmV1.cerToRejectReasonReceive uAddress uReceiveName uMessage cer)
@@ -1102,6 +1103,7 @@ checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
 handleContractUpdateV1 ::
     forall r m.
     (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m) =>
+    Word ->
     -- | The address that was used to send the top-level transaction.
     AccountAddress ->
     -- | The current state of the target contract of the transaction, which must exist.
@@ -1122,7 +1124,9 @@ handleContractUpdateV1 ::
     -- | The events resulting from processing the message and all recursively processed messages. For efficiency
     --  reasons the events are in **reverse order** of the actual effects.
     LocalT r m (Either WasmV1.ContractCallFailure (WasmV1.ReturnValue, [Event]))
-handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
+handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount receiveName parameter = do
+    unless (Cost.allowedContractCallDepth (protocolVersion @(MPV m)) depth) $
+        rejectTransaction RuntimeFailure
     -- Cover administrative costs.
     tickEnergy Cost.updateContractInstanceBaseCost
     let model = iiState istance
@@ -1163,7 +1167,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
             -- Now run the receive function on the message. This ticks energy during execution, failing when running out of energy.
 
             -- Charge for looking up the module.
-            tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize moduleInterface)
+            tickEnergy $ Cost.lookupModule (protocolVersion @(MPV m)) (GSWasm.miModuleSize moduleInterface)
 
             -- we've covered basic administrative costs now.
             -- The @go@ function iterates until the end of execution, handling any interrupts by dispatching
@@ -1259,7 +1263,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                 -- in this case we essentially treat this as a top-level transaction invoking that contract.
                                                 -- That is, we execute the entire tree that is potentially generated.
                                                 let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
-                                                    runSuccess = handleContractUpdateV0 originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
+                                                    runSuccess = handleContractUpdateV0 (depth + 1) originAddr targetInstance (checkAndGetBalanceInstanceV0 ownerAccount istance) imcAmount rName imcParam
                                                 -- If execution of the contract succeeds resume.
                                                 -- Otherwise rollback the state and report that to the caller.
                                                 runInnerTransaction runSuccess >>= \case
@@ -1283,7 +1287,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                 -- to the caller.
                                                 -- Otherwise we roll back all the changes and return the return value, and the error code to the caller.
                                                 let rName = Wasm.uncheckedMakeReceiveName (instanceInitName (iiParameters targetInstance)) imcName
-                                                withRollback (handleContractUpdateV1 originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
+                                                withRollback (handleContractUpdateV1 (depth + 1) originAddr targetInstance (checkAndGetBalanceInstanceV1 ownerAccount istance) imcAmount rName imcParam) >>= \case
                                                     Left cer ->
                                                         go (resumeEvent False : interruptEvent : events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error cer) (WasmV1.ccfToReturnValue cer))
                                                     Right (rVal, callEvents) -> do
@@ -1308,7 +1312,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                 GSWasm.ModuleInterfaceV0 _ -> go (resumeEvent False : interruptEvent : events) =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.UpgradeInvalidVersion imuModRef GSWasm.V0) Nothing)
                                                 GSWasm.ModuleInterfaceV1 newModuleInterfaceAV1 -> do
                                                     -- Charge for the lookup of the new module.
-                                                    tickEnergy $ Cost.lookupModule $ GSWasm.miModuleSize newModuleInterfaceAV1
+                                                    tickEnergy $ Cost.lookupModule (protocolVersion @(MPV m)) $ GSWasm.miModuleSize newModuleInterfaceAV1
                                                     -- The contract must exist in the new module.
                                                     -- I.e. It must be the case that there exists an init function for the new module that matches the caller.
                                                     if Set.notMember (instanceInitName iParams) (GSWasm.miExposedInit newModuleInterfaceAV1)
@@ -1693,6 +1697,8 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
 handleContractUpdateV0 ::
     forall r m.
     (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m) =>
+    -- | Current call depth.
+    Word ->
     -- | The address that was used to send the top-level transaction.
     AccountAddress ->
     -- | The current state of the target contract of the transaction, which must exist.
@@ -1710,7 +1716,9 @@ handleContractUpdateV0 ::
     Wasm.Parameter ->
     -- | The events resulting from processing the message and all recursively processed messages.
     LocalT r m [Event]
-handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount receiveName parameter = do
+handleContractUpdateV0 depth originAddr istance checkAndGetSender transferAmount receiveName parameter = do
+    unless (Cost.allowedContractCallDepth (protocolVersion @(MPV m)) depth) $
+        rejectTransaction RuntimeFailure
     -- Cover administrative costs.
     tickEnergy Cost.updateContractInstanceBaseCost
 
@@ -1749,7 +1757,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
     -- FIXME: Once errors can be caught in smart contracts update this to not terminate the transaction.
     let iface = instanceModuleInterface iParams
     -- charge for looking up the module
-    tickEnergy $ Cost.lookupModule (GSWasm.miModuleSize iface)
+    tickEnergy $ Cost.lookupModule (protocolVersion @(MPV m)) (GSWasm.miModuleSize iface)
 
     model <- getRuntimeReprV0 (iiState istance)
     artifact <- liftLocal $ getModuleArtifact (GSWasm.miModule iface)
@@ -1784,7 +1792,7 @@ handleContractUpdateV0 originAddr istance checkAndGetSender transferAmount recei
                           euContractVersion = Wasm.V0,
                           euEvents = Wasm.logs result
                         }
-            foldEvents originAddr (ownerAccount, istance) initEvent txOut
+            foldEvents depth originAddr (ownerAccount, istance) initEvent txOut
 
 -- Cost of a step in the traversal of the actions tree. We need to charge for
 -- this separately to prevent problems with exponentially sized trees
@@ -1799,6 +1807,8 @@ traversalStepCost = 10
 
 foldEvents ::
     (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m) =>
+    -- | Current call depth.
+    Word ->
     -- | Address that was used in the top-level transaction.
     AccountAddress ->
     -- | Instance that generated the events.
@@ -1809,12 +1819,13 @@ foldEvents ::
     Wasm.ActionsTree ->
     -- | List of events in order that transactions were traversed.
     LocalT r m [Event]
-foldEvents originAddr istance initEvent = fmap (initEvent :) . go
+foldEvents depth originAddr istance initEvent = fmap (initEvent :) . go
   where
     go Wasm.TSend{..} = do
         getCurrentContractInstanceTicking erAddr >>= \case
             InstanceInfoV0 cinstance ->
                 handleContractUpdateV0
+                    depth
                     originAddr
                     cinstance
                     (uncurry checkAndGetBalanceInstanceV0 istance)
@@ -1824,6 +1835,7 @@ foldEvents originAddr istance initEvent = fmap (initEvent :) . go
             InstanceInfoV1 cinstance ->
                 let c =
                         handleContractUpdateV1
+                            depth
                             originAddr
                             cinstance
                             (uncurry checkAndGetBalanceInstanceV1 istance)

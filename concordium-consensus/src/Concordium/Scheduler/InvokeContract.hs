@@ -166,8 +166,8 @@ invokeContract ContractContext{..} cm bs
                     Left err -> return (Left err, ccEnergy)
                     Right (invoker, addr, ai) -> do
                         let comp = do
-                                let onV0 i = handleContractUpdateV0 addr i invoker ccAmount ccMethod ccParameter
-                                let onV1 i = handleContractUpdateV1 addr i (fmap Right . invoker) ccAmount ccMethod ccParameter
+                                let onV0 i = handleContractUpdateV0 0 addr i invoker ccAmount ccMethod ccParameter
+                                let onV1 i = handleContractUpdateV1 0 addr i (fmap Right . invoker) ccAmount ccMethod ccParameter
                                 istance <- getCurrentContractInstanceTicking ccContract
                                 result <- case istance of
                                     BS.InstanceInfoV0 i -> Left <$> onV0 i

@@ -83,6 +83,7 @@ test1 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         iteratorSourceFile
                         (InitName "init_iterator")
                         (Parameter "")

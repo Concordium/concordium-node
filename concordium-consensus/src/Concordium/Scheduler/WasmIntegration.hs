@@ -30,7 +30,7 @@ foreign import ccall "validate_and_process_v0"
         Ptr Word8 ->
         -- | Length of the module source.
         CSize ->
-        -- |Metering (cost assignment) version.
+        -- | Metering (cost assignment) version.
         Word8 ->
         -- | Total length of the output.
         Ptr CSize ->
@@ -313,5 +313,5 @@ compileModule csv modl = unsafePerformIO $ do
                                     (fromIntegral artifactLen)
                                     (rs_free_array_len artifactPtr (fromIntegral artifactLen))
                             return (Just (bs, instrumentedModuleFromBytes SV0 moduleArtifact))
-   
-    where meteringVersion = costSemanticsVersionToWord8 csv
+  where
+    meteringVersion = costSemanticsVersionToWord8 csv

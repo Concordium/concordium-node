@@ -126,6 +126,7 @@ accountBalanceTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         accountBalanceSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -200,6 +201,7 @@ accountBalanceInvokerTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         accountBalanceSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -269,6 +271,7 @@ accountBalanceTransferTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         accountBalanceTransferSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -339,6 +342,7 @@ accountBalanceMissingAccountTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         accountBalanceMissingAccountSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -404,6 +408,7 @@ contractBalanceTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         contractBalanceSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -479,6 +484,7 @@ contractBalanceSelfTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         contractBalanceSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -548,6 +554,7 @@ contractBalanceTransferTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         contractBalanceTransferSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -622,6 +629,7 @@ contractBalanceMissingContractTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         contractBalanceMissingContractSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -688,6 +696,7 @@ exchangeRatesTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         exchangeRatesSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -758,6 +767,7 @@ allTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         allSourceFile
                         (InitName "init_contract")
                         (Parameter "")
