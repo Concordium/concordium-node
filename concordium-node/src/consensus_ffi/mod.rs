@@ -13,29 +13,6 @@ macro_rules! wrap_send_data_to_c {
     }};
 }
 
-macro_rules! wrap_c_call {
-    ($self:ident, $c_call:expr) => {{
-        let consensus = $self.consensus.load(Ordering::SeqCst);
-        #[allow(clippy::redundant_closure_call)] // allowed
-        let result = unsafe { $c_call(consensus) };
-
-        ConsensusFfiResponse::try_from(result)
-            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
-    }};
-}
-
-macro_rules! wrap_c_bool_call {
-    ($self:ident, $c_call:expr) => {{
-        let consensus = $self.consensus.load(Ordering::SeqCst);
-        #[allow(clippy::redundant_closure_call)] // allowed
-        match unsafe { $c_call(consensus) } {
-            0u8 => false,
-            1u8 => true,
-            code => panic!("FFI call didn't return 0 or 1 but {}", code),
-        }
-    }};
-}
-
 pub mod catch_up;
 pub mod consensus;
 pub mod ffi;

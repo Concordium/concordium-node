@@ -2039,15 +2039,21 @@ impl ConsensusContainer {
         peer_id: RemotePeerId,
         object_limit: i64,
     ) -> ConsensusFfiResponse {
-        wrap_c_call!(self, |consensus| receiveCatchUpStatus(
-            consensus,
-            peer_id.into(),
-            genesis_index,
-            request.as_ptr(),
-            request.len() as i64,
-            object_limit,
-            direct_callback
-        ))
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let result = unsafe {
+            receiveCatchUpStatus(
+                consensus,
+                peer_id.into(),
+                genesis_index,
+                request.as_ptr(),
+                request.len() as i64,
+                object_limit,
+                direct_callback,
+            )
+        };
+
+        ConsensusFfiResponse::try_from(result)
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
     }
 
     /// Gets baker status of the node along with the baker ID
@@ -2080,14 +2086,12 @@ impl ConsensusContainer {
     }
 
     pub fn in_finalization_committee(&self) -> bool {
-        wrap_c_bool_call!(self, |consensus| checkIfWeAreFinalizer(consensus))
+        wrap_c_bool_call!(self, checkIfWeAreFinalizer)
     }
 
     /// Checks if consensus is running, i.e. if consensus has been shut down,
     /// this will return false.
-    pub fn is_consensus_running(&self) -> bool {
-        wrap_c_bool_call!(self, |consensus| checkIfRunning(consensus))
-    }
+    pub fn is_consensus_running(&self) -> bool { wrap_c_bool_call!(self, checkIfRunning) }
 
     /// Import blocks from the given file path. If the file exists and the node
     /// could import all blocks from the file `Ok(())` is returned. Otherwise an

@@ -29,7 +29,7 @@ concordium-smart-contract-engine = { path = "../concordium-base/smart-contracts/
 # External dependencies
 structopt = "0.3"
 rand = "0.8"
-mio = { version = "0.7", features = ["os-poll", "tcp"] }
+mio = { version = "0.8", features = ["os-poll"] }
 log = "0.4"
 env_logger = "0.8.3"
 log4rs = { version = "1.2", features = ["all_components", "config_parsing", "toml_format", "yaml_format", "gzip"] }
@@ -52,7 +52,7 @@ semver = { version = "1", features = ["serde"] }
 flatbuffers = { version = "22.10.26" }
 flatc-rust = { version = "0.2" }
 sha2 = "0.10"
-lazy_static = "^1.2"
+lazy_static = "^1.4"
 serde = { version = "1.0" }
 hex = "0.4"
 rpassword = "5.0"
