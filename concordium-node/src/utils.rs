@@ -9,14 +9,6 @@ use std::{
     path::Path,
 };
 
-pub fn to_hex_string(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    bytes.iter().fold(String::new(), |mut output, b| {
-        let _ = write!(output, "{:02x}", b);
-        output
-    })
-}
-
 /// Setup a log4rs logger based on the given configuration file.
 pub fn setup_logger_config(config_file: &Path) {
     log4rs::init_file(config_file, Default::default()).unwrap();
