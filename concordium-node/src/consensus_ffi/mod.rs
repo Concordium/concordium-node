@@ -12,16 +12,6 @@ macro_rules! wrap_send_data_to_c {
     }};
 }
 
-macro_rules! wrap_c_call {
-    ($self:ident, $c_call:expr) => {{
-        let consensus = $self.consensus.load(Ordering::SeqCst);
-        let result = unsafe { $c_call(consensus) };
-
-        ConsensusFfiResponse::try_from(result)
-            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
-    }};
-}
-
 macro_rules! wrap_c_bool_call {
     ($self:ident, $c_call:expr) => {{
         let consensus = $self.consensus.load(Ordering::SeqCst);

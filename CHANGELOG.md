@@ -5,6 +5,7 @@
 - Add support for new `invoke` calls from smart contracts in protocol version 7:
   - query the contract module reference for a given contract address
   - query the contract name for a given contract address
+- Update Rust version to 1.73.
 
 ## 6.3.0
 
