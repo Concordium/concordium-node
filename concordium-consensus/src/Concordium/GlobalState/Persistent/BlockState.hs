@@ -57,6 +57,7 @@ import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
+import Concordium.GlobalState.Persistent.Cooldown
 import Concordium.GlobalState.Persistent.Instances (PersistentInstance (..), PersistentInstanceParameters (..), PersistentInstanceV (..))
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
@@ -770,6 +771,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
       bspUpdates :: !(BufferedRef (Updates pv)),
       bspReleaseSchedule :: !(ReleaseSchedule pv),
+      bspAccountsInCooldown :: !(AccountsInCooldownForPV pv),
       bspTransactionOutcomes :: !(PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)),
       -- | Details of bakers that baked blocks in the current epoch. This is
       --  used for rewarding bakers at the end of epochs.
