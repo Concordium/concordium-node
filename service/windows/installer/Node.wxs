@@ -24,6 +24,9 @@
                         <Component Id="NodeExecutable" Guid="90257d98-bcb9-4570-881a-aa7b6404b315">
                             <File Id="ConcordiumNode" Name="concordium-node.exe" Source="!(bindpath.node)concordium-node.exe" Checksum="yes" KeyPath="yes" />
                             <File Id="ConcordiumConsensusDLL" Name="concordium-consensus.dll" Source="!(bindpath.consensus)concordium-consensus.dll" Checksum="yes" />
+                            <File Id="ConcordiumBaseDLL" Name="concordium_base.dll" Source="!(bindpath.baselib)concordium_base.dll" Checksum="yes" />
+                            <File Id="Sha2DLL" Name="sha_2.dll" Source="!(bindpath.baselib)sha_2.dll" Checksum="yes" />
+                            <File Id="ConcordiumSmartContractEngineDLL" Name="concordium_smart_contract_engine.dll" Source="!(bindpath.contractlib)concordium_smart_contract_engine.dll" Checksum="yes" />
                         </Component>
                         <Component Id="NodeCollector" Guid="95747611-1415-483c-9f0a-6f9b78fb22af">
                             <File Id="NodeCollector" Name="node-collector.exe" Source="!(bindpath.collector)node-collector.exe" Checksum="yes" KeyPath="yes" />
@@ -111,9 +114,6 @@
         <ComponentGroup Id="ThirdPartyDLLs" Directory="INSTALLDIR">
             <Component>
                 <File Name="liblmdb.dll" Source="!(bindpath.lib)liblmdb.dll" KeyPath="yes" />
-            </Component>
-            <Component>
-                <File Name="libunwind.dll" Source="!(bindpath.lib)libunwind.dll" KeyPath="yes" />
             </Component>
         </ComponentGroup>
 
