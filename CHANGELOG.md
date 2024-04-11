@@ -6,6 +6,10 @@
   - query the contract module reference for a given contract address
   - query the contract name for a given contract address
 - Update Rust version to 1.73.
+- Integrate new Wasm execution engine. Migration of old execution artifacts in
+  the node's database to the new format is done on-demand, which means node
+  startup can be a bit slower when a lot of modules exist. All Wasm modules will
+  be migrated to the new format when the protocol is updated to P7.
 
 ## 6.3.0
 
