@@ -16,7 +16,6 @@ macro_rules! wrap_send_data_to_c {
 macro_rules! wrap_c_bool_call {
     ($self:ident, $c_call:expr) => {{
         let consensus = $self.consensus.load(Ordering::SeqCst);
-        #[allow(clippy::redundant_closure_call)] // allowed
         match unsafe { $c_call(consensus) } {
             0u8 => false,
             1u8 => true,
