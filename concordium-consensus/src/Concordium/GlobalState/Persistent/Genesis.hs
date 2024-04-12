@@ -26,6 +26,7 @@ import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.BlockState.Updates as Updates
+import qualified Concordium.GlobalState.Persistent.Cooldown as Cooldown
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 import qualified Concordium.GlobalState.Persistent.PoolRewards as Rewards
@@ -243,6 +244,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                   bspTransactionOutcomes = BS.emptyPersistentTransactionOutcomes,
                   bspUpdates = updates,
                   bspReleaseSchedule = releaseSchedule,
+                  bspAccountsInCooldown = Cooldown.emptyAccountsInCooldownForPV,
                   bspRewardDetails = rewardDetails
                 }
     bps <- MTL.liftIO $ newIORef $! bsp

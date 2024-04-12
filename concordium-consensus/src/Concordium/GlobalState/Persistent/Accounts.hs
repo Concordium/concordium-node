@@ -67,6 +67,7 @@ import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState (AccountsHash (..))
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
+import Concordium.GlobalState.Persistent.Account.MigrationState
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
@@ -77,6 +78,7 @@ import qualified Concordium.ID.Types as ID
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option (Option (..))
+import Concordium.Utils
 import Control.Monad
 import Control.Monad.Reader
 import Data.Foldable (foldlM)
@@ -494,15 +496,23 @@ migrateAccounts ::
     ) =>
     StateMigrationParameters oldpv pv ->
     Accounts oldpv ->
-    t m (Accounts pv)
+    t m (Accounts pv, AccountMigrationState oldpv pv)
 migrateAccounts migration Accounts{..} = do
-    newAccountTable <- L.migrateLFMBTree (migrateHashedCachedRef' (migratePersistentAccount migration)) accountTable
+    (newAccountTable, migrationState) <-
+        runAccountMigrationStateTT
+            ( L.migrateLFMBTree
+                (migrateHashedCachedRef' (migratePersistentAccount migration))
+                accountTable
+            )
+            initialAccountMigrationState
     -- The account registration IDs are not cached. There is a separate cache
     -- that is purely in-memory and just copied over.
     newAccountRegIds <- Trie.migrateUnbufferedTrieN return accountRegIdHistory
-    return $!
-        Accounts
+    return $!!
+        ( Accounts
             { accountTable = newAccountTable,
               accountRegIdHistory = newAccountRegIds,
               accountDiffMapRef = accountDiffMapRef
-            }
+            },
+          migrationState
+        )

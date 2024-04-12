@@ -224,6 +224,24 @@ instance (MonadBlobStore m) => ReleaseScheduleOperations m NewReleaseSchedule wh
                         newMap <- Trie.delete minTS m
                         go (accum ++ Set.toList (theAccountSet accs)) newMap
 
+-- | A release schedule with no entries.
+emptyNewReleaseSchedule :: NewReleaseSchedule
+emptyNewReleaseSchedule =
+    NewReleaseSchedule
+        { nrsFirstTimestamp = Timestamp maxBound,
+          nrsMap = Trie.empty
+        }
+
+-- | Migrate a 'NewReleaseSchedule' from one 'BlobStore' to another.
+migrateNewReleaseSchedule :: (SupportMigration m t) => NewReleaseSchedule -> t m NewReleaseSchedule
+migrateNewReleaseSchedule rs = do
+    newMap <- Trie.migrateTrieN True return (nrsMap rs)
+    return $!
+        NewReleaseSchedule
+            { nrsFirstTimestamp = nrsFirstTimestamp rs,
+              nrsMap = newMap
+            }
+
 -- | A reference to an account used in the top-level release schedule.
 --  For protocol version prior to 'P5', this is 'AccountAddress', and for 'P5' onward this is
 --  'AccountIndex'. This type determines the implementation of the release schedule use for the
@@ -310,10 +328,7 @@ emptyReleaseSchedule = case protocolVersion @pv of
     rsP1 = do
         return $!
             ReleaseScheduleP5
-                NewReleaseSchedule
-                    { nrsFirstTimestamp = Timestamp maxBound,
-                      nrsMap = Trie.empty
-                    }
+                emptyNewReleaseSchedule
 
 -- | Migration information for a release schedule.
 data ReleaseScheduleMigration m oldpv pv where
@@ -372,13 +387,7 @@ migrateReleaseSchedule (RSMLegacyToNew resolveAcc) (ReleaseScheduleP0 rsRef) = d
                   nrsMap = newMap'
                 }
 migrateReleaseSchedule RSMNewToNew (ReleaseScheduleP5 rs) = do
-    newMap <- Trie.migrateTrieN True return (nrsMap rs)
-    return $!
-        ReleaseScheduleP5
-            NewReleaseSchedule
-                { nrsFirstTimestamp = nrsFirstTimestamp rs,
-                  nrsMap = newMap
-                }
+    ReleaseScheduleP5 <$> migrateNewReleaseSchedule rs
 
 -- | (For testing purposes) get the map of the earliest scheduled releases of each account.
 releasesMap ::

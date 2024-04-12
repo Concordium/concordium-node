@@ -832,6 +832,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         (poutcomes, bspTransactionOutcomes') <- storeUpdate bspTransactionOutcomes
         (pupdates, bspUpdates') <- storeUpdate bspUpdates
         (preleases, bspReleaseSchedule') <- storeUpdate bspReleaseSchedule
+        (pAccountsInCooldown, bspAccountInCooldown') <- storeUpdate bspAccountsInCooldown
         (pRewardDetails, bspRewardDetails') <- storeUpdate bspRewardDetails
         let putBSP = do
                 paccts
@@ -845,6 +846,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                 poutcomes
                 pupdates
                 preleases
+                pAccountsInCooldown
                 pRewardDetails
         return
             ( putBSP,
@@ -859,6 +861,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                   bspTransactionOutcomes = bspTransactionOutcomes',
                   bspUpdates = bspUpdates',
                   bspReleaseSchedule = bspReleaseSchedule',
+                  bspAccountsInCooldown = bspAccountInCooldown',
                   bspRewardDetails = bspRewardDetails'
                 }
             )
@@ -874,6 +877,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         moutcomes <- label "Transaction outcomes" load
         mUpdates <- label "Updates" load
         mReleases <- label "Release schedule" load
+        mAccountsInCooldown <- label "Accounts in cooldown" load
         mRewardDetails <- label "Epoch blocks" load
         return $! do
             bspAccounts <- maccts
@@ -886,6 +890,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
             bspTransactionOutcomes <- moutcomes
             bspUpdates <- mUpdates
             bspReleaseSchedule <- mReleases
+            bspAccountsInCooldown <- mAccountsInCooldown
             bspRewardDetails <- mRewardDetails
             return $! BlockStatePointers{..}
 
@@ -898,6 +903,7 @@ bspPoolRewards bsp = case bspRewardDetails bsp of
     BlockRewardDetailsV1 pr -> pr
 
 -- | An initial 'HashedPersistentBlockState', which may be used for testing purposes.
+-- This assumes that among the initial accounts, none are in (pre)*cooldown.
 {-# WARNING initialPersistentState "should only be used for testing" #-}
 initialPersistentState ::
     forall pv m.
@@ -935,6 +941,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
                   bspTransactionOutcomes = emptyPersistentTransactionOutcomes,
                   bspUpdates = updates,
                   bspReleaseSchedule = releaseSchedule,
+                  bspAccountsInCooldown = emptyAccountsInCooldownForPV,
                   bspRewardDetails = red
                 }
     bps <- liftIO $ newIORef $! bsp
@@ -970,6 +977,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
                   bspIdentityProviders = identityProviders,
                   bspAnonymityRevokers = anonymityRevokers,
                   bspCryptographicParameters = cryptographicParameters,
+                  bspAccountsInCooldown = emptyAccountsInCooldownForPV,
                   bspTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv),
                   ..
                 }
@@ -1478,60 +1486,60 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
             let capitalMin = poolParams ^. ppMinimumEquityCapital
             let ranges = poolParams ^. ppCommissionBounds
             if
-                    | bcaCapital < capitalMin -> return (BCStakeUnderThreshold, pbs)
-                    | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) ->
-                        return (BCTransactionFeeCommissionNotInRange, pbs)
-                    | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) ->
-                        return (BCBakingRewardCommissionNotInRange, pbs)
-                    | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
-                        return (BCFinalizationRewardCommissionNotInRange, pbs)
-                    | otherwise -> do
-                        let bid = BakerId ai
-                        pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
-                        let updAgg Nothing = return (True, Trie.Insert ())
-                            updAgg (Just ()) = return (False, Trie.NoChange)
-                        Trie.adjust updAgg (bkuAggregationKey bcaKeys) (_aggregationKeys pab) >>= \case
-                            -- Aggregation key is a duplicate
-                            (False, _) -> return (BCDuplicateAggregationKey (bkuAggregationKey bcaKeys), pbs)
-                            (True, newAggregationKeys) -> do
-                                newActiveBakers <- Trie.insert bid emptyPersistentActiveDelegators (_activeBakers pab)
-                                newpabref <-
-                                    refMake
-                                        PersistentActiveBakers
-                                            { _aggregationKeys = newAggregationKeys,
-                                              _activeBakers = newActiveBakers,
-                                              _passiveDelegators = pab ^. passiveDelegators,
-                                              _totalActiveCapital = addActiveCapital bcaCapital (_totalActiveCapital pab)
-                                            }
-                                let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpabref
-                                let cr =
-                                        CommissionRates
-                                            { _finalizationCommission = bcaFinalizationRewardCommission,
-                                              _bakingCommission = bcaBakingRewardCommission,
-                                              _transactionCommission = bcaTransactionFeeCommission
-                                            }
-                                    poolInfo =
-                                        BaseAccounts.BakerPoolInfo
-                                            { _poolOpenStatus = bcaOpenForDelegation,
-                                              _poolMetadataUrl = bcaMetadataURL,
-                                              _poolCommissionRates = cr
-                                            }
-                                    bakerInfo = bakerKeyUpdateToInfo bid bcaKeys
-                                    bakerInfoEx =
-                                        BaseAccounts.BakerInfoExV1
-                                            { _bieBakerPoolInfo = poolInfo,
-                                              _bieBakerInfo = bakerInfo
-                                            }
-                                    updAcc = addAccountBakerV1 bakerInfoEx bcaCapital bcaRestakeEarnings
-                                -- This cannot fail to update the account, since we already looked up the account.
-                                newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
-                                (BCSuccess [] bid,)
-                                    <$> storePBS
-                                        pbs
-                                        bsp
-                                            { bspBirkParameters = newBirkParams,
-                                              bspAccounts = newAccounts
-                                            }
+                | bcaCapital < capitalMin -> return (BCStakeUnderThreshold, pbs)
+                | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) ->
+                    return (BCTransactionFeeCommissionNotInRange, pbs)
+                | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) ->
+                    return (BCBakingRewardCommissionNotInRange, pbs)
+                | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
+                    return (BCFinalizationRewardCommissionNotInRange, pbs)
+                | otherwise -> do
+                    let bid = BakerId ai
+                    pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
+                    let updAgg Nothing = return (True, Trie.Insert ())
+                        updAgg (Just ()) = return (False, Trie.NoChange)
+                    Trie.adjust updAgg (bkuAggregationKey bcaKeys) (_aggregationKeys pab) >>= \case
+                        -- Aggregation key is a duplicate
+                        (False, _) -> return (BCDuplicateAggregationKey (bkuAggregationKey bcaKeys), pbs)
+                        (True, newAggregationKeys) -> do
+                            newActiveBakers <- Trie.insert bid emptyPersistentActiveDelegators (_activeBakers pab)
+                            newpabref <-
+                                refMake
+                                    PersistentActiveBakers
+                                        { _aggregationKeys = newAggregationKeys,
+                                          _activeBakers = newActiveBakers,
+                                          _passiveDelegators = pab ^. passiveDelegators,
+                                          _totalActiveCapital = addActiveCapital bcaCapital (_totalActiveCapital pab)
+                                        }
+                            let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpabref
+                            let cr =
+                                    CommissionRates
+                                        { _finalizationCommission = bcaFinalizationRewardCommission,
+                                          _bakingCommission = bcaBakingRewardCommission,
+                                          _transactionCommission = bcaTransactionFeeCommission
+                                        }
+                                poolInfo =
+                                    BaseAccounts.BakerPoolInfo
+                                        { _poolOpenStatus = bcaOpenForDelegation,
+                                          _poolMetadataUrl = bcaMetadataURL,
+                                          _poolCommissionRates = cr
+                                        }
+                                bakerInfo = bakerKeyUpdateToInfo bid bcaKeys
+                                bakerInfoEx =
+                                    BaseAccounts.BakerInfoExV1
+                                        { _bieBakerPoolInfo = poolInfo,
+                                          _bieBakerInfo = bakerInfo
+                                        }
+                                updAcc = addAccountBakerV1 bakerInfoEx bcaCapital bcaRestakeEarnings
+                            -- This cannot fail to update the account, since we already looked up the account.
+                            newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
+                            (BCSuccess [] bid,)
+                                <$> storePBS
+                                    pbs
+                                    bsp
+                                        { bspBirkParameters = newBirkParams,
+                                          bspAccounts = newAccounts
+                                        }
 doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
     origBSP <- loadPBS pbs
     cp <- lookupCurrentParameters (bspUpdates origBSP)
@@ -2219,8 +2227,8 @@ doMint pbs mint = do
             bspBank bsp
                 & unhashed
                     %~ (Rewards.totalGTU +~ mintTotal mint)
-                    . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
-                    . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
+                        . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
+                        . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
     let updAcc = addAccountAmount $ mintDevelopmentCharge mint
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)
@@ -3739,6 +3747,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     newAccounts <- Accounts.migrateAccounts migration bspAccounts
+    newAccountsInCooldown <- migrateAccountsInCooldownForPV undefined bspAccountsInCooldown
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
     modules <- refLoad newModules
     newInstances <- Instances.migrateInstances modules bspInstances
@@ -3770,6 +3779,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
               bspCryptographicParameters = newCryptographicParameters,
               bspUpdates = newUpdates,
               bspReleaseSchedule = newReleaseSchedule,
+              bspAccountsInCooldown = newAccountsInCooldown,
               bspTransactionOutcomes = newTransactionOutcomes,
               bspRewardDetails = newRewardDetails
             }
@@ -3812,6 +3822,7 @@ cacheState hpbs = do
     cryptoParams <- cache bspCryptographicParameters
     upds <- cache bspUpdates
     rels <- cache bspReleaseSchedule
+    cdowns <- cache bspAccountsInCooldown
     red <- cache bspRewardDetails
     _ <-
         storePBS (hpbsPointers hpbs) $!
@@ -3826,6 +3837,7 @@ cacheState hpbs = do
                   bspCryptographicParameters = cryptoParams,
                   bspUpdates = upds,
                   bspReleaseSchedule = rels,
+                  bspAccountsInCooldown = cdowns,
                   bspTransactionOutcomes = bspTransactionOutcomes,
                   bspRewardDetails = red
                 }
@@ -3865,6 +3877,7 @@ cacheStateAndGetTransactionTable hpbs = do
                 else return tt
     tt <- foldM updInTT TransactionTable.emptyTransactionTable [minBound ..]
     rels <- cache bspReleaseSchedule
+    cdowns <- cache bspAccountsInCooldown
     red <- cache bspRewardDetails
     _ <-
         storePBS
@@ -3880,6 +3893,7 @@ cacheStateAndGetTransactionTable hpbs = do
                   bspCryptographicParameters = cryptoParams,
                   bspUpdates = upds,
                   bspReleaseSchedule = rels,
+                  bspAccountsInCooldown = cdowns,
                   bspTransactionOutcomes = bspTransactionOutcomes,
                   bspRewardDetails = red
                 }

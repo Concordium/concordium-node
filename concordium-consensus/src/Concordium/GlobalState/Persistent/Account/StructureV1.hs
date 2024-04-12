@@ -39,6 +39,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule 
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
 import Concordium.GlobalState.BlockState (AccountAllowance (..))
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
+import Concordium.GlobalState.Persistent.Account.MigrationState
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
@@ -1573,7 +1574,7 @@ migratePersistentAccount ::
     ) =>
     StateMigrationParameters oldpv pv ->
     PersistentAccount (AccountVersionFor oldpv) ->
-    t m (PersistentAccount (AccountVersionFor pv))
+    AccountMigrationStateTT oldpv pv t m (PersistentAccount (AccountVersionFor pv))
 migratePersistentAccount StateMigrationParametersTrivial acc = case accountVersion @(AccountVersionFor oldpv) of
     SAccountV2 -> migrateV2ToV2 acc
     SAccountV3 -> migrateV3ToV3 acc
