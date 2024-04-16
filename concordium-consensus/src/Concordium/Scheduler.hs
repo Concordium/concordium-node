@@ -1103,6 +1103,7 @@ checkAndGetBalanceInstanceV0 ownerAccount istance transferAmount = do
 handleContractUpdateV1 ::
     forall r m.
     (StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadProtocolVersion m) =>
+    -- | Current call depth. This call is being made in the context of this many interrupted contracts.
     Word ->
     -- | The address that was used to send the top-level transaction.
     AccountAddress ->
