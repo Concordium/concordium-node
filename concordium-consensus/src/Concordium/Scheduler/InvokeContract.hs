@@ -81,6 +81,8 @@ instance (BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) whe
     {-# INLINE getChainMetadata #-}
     getChainMetadata = view (_1 . chainMetadata)
 
+    getCryptographicParameters = lift . BS.getCryptographicParameters =<< view _2
+
     {-# INLINE getModuleInterfaces #-}
     getModuleInterfaces mref = do
         s <- view _2
@@ -94,6 +96,9 @@ instance (BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) whe
 
     {-# INLINE getStateAccount #-}
     getStateAccount !addr = lift . flip BS.getAccount addr =<< view _2
+
+    {-# INLINE getStateAccountByCredId #-}
+    getStateAccountByCredId !addr = lift . flip BS.getAccountByCredId addr =<< view _2
 
     {-# INLINE getExchangeRates #-}
     getExchangeRates = lift . BS.getExchangeRates =<< view _2

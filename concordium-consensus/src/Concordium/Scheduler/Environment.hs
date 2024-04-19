@@ -48,6 +48,7 @@ import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
+import Concordium.ID.Parameters
 
 -- | An account index together with the canonical address. Sometimes it is
 --  difficult to pass an IndexedAccount and we only need the addresses. That is
@@ -79,8 +80,13 @@ class (Monad m) => StaticInformation m where
     -- | Get the amount of funds at the particular account address at the start of a transaction.
     getStateAccount :: AccountAddress -> m (Maybe (IndexedAccount m))
 
+    -- | Get the amount of funds at the particular account address at the start of a transaction.
+    getStateAccountByCredId :: ID.RawCredentialRegistrationID -> m (Maybe (IndexedAccount m))
+
     -- | Get the current exchange rates, that is the Euro per NRG, micro CCD per Euro and the energy rate.
     getExchangeRates :: m ExchangeRates
+
+    getCryptographicParameters :: m GlobalContext
 
 -- | Information needed to execute transactions in the form that is easy to use.
 class
@@ -976,6 +982,8 @@ instance (StaticInformation m) => StaticInformation (LocalT r m) where
     {-# INLINE getChainMetadata #-}
     getChainMetadata = liftLocal getChainMetadata
 
+    getCryptographicParameters = liftLocal getCryptographicParameters
+
     {-# INLINE getModuleInterfaces #-}
     getModuleInterfaces = liftLocal . getModuleInterfaces
 
@@ -987,6 +995,9 @@ instance (StaticInformation m) => StaticInformation (LocalT r m) where
 
     {-# INLINE getStateAccount #-}
     getStateAccount = liftLocal . getStateAccount
+
+    {-# INLINE getStateAccountByCredId #-}
+    getStateAccountByCredId = liftLocal . getStateAccountByCredId
 
     {-# INLINE getExchangeRates #-}
     getExchangeRates = liftLocal getExchangeRates

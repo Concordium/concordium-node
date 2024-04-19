@@ -109,8 +109,15 @@ instance (BS.BlockStateOperations m) => StaticInformation (SchedulerT m) where
     {-# INLINE getStateAccount #-}
     getStateAccount !addr = lift . flip BS.bsoGetAccount addr =<< use ssBlockState
 
+    {-# INLINE getStateAccountByCredId #-}
+    getStateAccountByCredId !cid = lift . flip BS.bsoGetAccountByCredId cid =<< use ssBlockState
+
     {-# INLINE getExchangeRates #-}
     getExchangeRates = lift . BS.bsoGetExchangeRates =<< use ssBlockState
+
+    {-# INLINE getCryptographicParameters #-}
+    getCryptographicParameters = lift . BS.bsoGetCryptoParams =<< use ssBlockState
+
 
 deriving via
     (MGSTrans (InternalSchedulerT m) m)

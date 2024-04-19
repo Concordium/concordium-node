@@ -743,6 +743,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- | Get an account by its address.
     bsoGetAccount :: UpdatableBlockState m -> AccountAddress -> m (Maybe (IndexedAccount m))
 
+    -- | Get an account by its address.
+    bsoGetAccountByCredId :: UpdatableBlockState m -> ID.RawCredentialRegistrationID -> m (Maybe (IndexedAccount m))
+
     -- | Get the index of an account.
     bsoGetAccountIndex :: UpdatableBlockState m -> AccountAddress -> m (Maybe AccountIndex)
 
@@ -1586,6 +1589,7 @@ instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractState
 instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperations (MGSTrans t m) where
     bsoGetModule s = lift . bsoGetModule s
     bsoGetAccount s = lift . bsoGetAccount s
+    bsoGetAccountByCredId s = lift . bsoGetAccountByCredId s
     bsoGetAccountIndex s = lift . bsoGetAccountIndex s
     bsoGetAccountByIndex s = lift . bsoGetAccountByIndex s
     bsoGetInstance s = lift . bsoGetInstance s

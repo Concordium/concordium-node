@@ -3516,6 +3516,7 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
     bsoGetAccount bs = doGetAccount bs
+    bsoGetAccountByCredId bs = doGetAccountByCredId bs
     bsoGetAccountIndex = doGetAccountIndex
     bsoGetAccountByIndex = doGetAccountByIndex
     bsoGetInstance = doGetInstance

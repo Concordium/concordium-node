@@ -32,6 +32,7 @@ module Concordium.Scheduler.WasmIntegration.V1 (
     RuntimeConfig (..),
     validationConfigAllowP1P6,
     processingConfigRecompileForP7,
+    verifyPresentation
 ) where
 
 import Control.Monad
@@ -65,6 +66,8 @@ import qualified Concordium.Types.Execution as Exec
 import Concordium.Utils.Serialization
 import Concordium.Wasm
 import qualified Concordium.Wasm as Wasm
+import Concordium.ID.Types
+import Concordium.ID.Parameters (GlobalContext, withGlobalContext)
 
 foreign import ccall unsafe "return_value_to_byte_array" return_value_to_byte_array :: Ptr ReturnValue -> Ptr CSize -> IO (Ptr Word8)
 foreign import ccall unsafe "&box_vec_u8_free" freeReturnValue :: FunPtr (Ptr ReturnValue -> IO ())
@@ -95,6 +98,30 @@ foreign import ccall "validate_and_process_v1"
         Ptr (Ptr Word8) ->
         -- | Null, or exports.
         IO (Ptr Word8)
+
+foreign import ccall "verify_presentation"
+    verify_presentation ::
+        Ptr GlobalContext ->
+        Ptr Word8 ->
+        CSize ->
+        Ptr Word8 ->
+        CSize ->
+        -- | Total length of the output.
+        Ptr CSize ->
+        IO (Ptr Word8)
+
+{-# NOINLINE verifyPresentation #-}
+verifyPresentation :: GlobalContext -> [(AccountAddress, CredentialDeploymentCommitments)] -> BS.ByteString -> BS.ByteString
+verifyPresentation gc creds presentation = unsafePerformIO $ 
+  withGlobalContext gc $ \gcPtr ->
+    BSU.unsafeUseAsCStringLen credsBytes $ \(credsPtr, credsLen) ->
+      BSU.unsafeUseAsCStringLen presentation $ \(presentationPtr, presentationLen) -> alloca $ \outputLenPtr -> do
+        rp <- verify_presentation gcPtr (castPtr credsPtr) (fromIntegral credsLen) (castPtr presentationPtr) (fromIntegral presentationLen) outputLenPtr
+        len <- peek outputLenPtr
+        BSU.unsafePackCStringFinalizer rp (fromIntegral len) (rs_free_array_len rp (fromIntegral len))
+
+  where credsBytes = runPut $ Concordium.Utils.Serialization.putListOf put credsComms
+        credsComms = map (\(addr, c) -> (addr, cmmAttributes c)) creds
 
 -- | Return value of a V1 contract call. This is deliberately opaque so that we avoid redundant data copying
 --  for return values for inner contract calls.
@@ -440,6 +467,10 @@ data InvokeMethod
       QueryContractName
         { imqcnAddress :: !ContractAddress
         }
+    | VerifyPresentation {
+        imvpPresentation :: !BS.ByteString,
+        imvpAddresses :: !(Maybe [(IdentityProviderIdentity, RawCredentialRegistrationID)])
+        }
 
 getInvokeMethod :: Get InvokeMethod
 getInvokeMethod =
@@ -454,6 +485,7 @@ getInvokeMethod =
         7 -> QueryAccountKeys <$> get
         8 -> QueryContractModuleReference <$> get
         9 -> QueryContractName <$> get
+        10 -> VerifyPresentation <$> getByteStringLen <*> getMaybe (Concordium.Utils.Serialization.getListOf get)
         n -> fail $ "Unsupported invoke method tag: " ++ show n
 
 -- | Data return from the contract in case of successful initialization.

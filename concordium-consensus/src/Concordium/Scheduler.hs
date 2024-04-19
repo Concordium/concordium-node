@@ -47,6 +47,8 @@ module Concordium.Scheduler (
     FilteredTransactions (..),
 ) where
 
+import Debug.Trace
+
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Scheduler.Environment
 import Concordium.Scheduler.Types
@@ -1647,6 +1649,70 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
                                                                 entryBalance
                                                                 WasmV1.Success
                                                                 (Just returnValue)
+                                                        )
+                                    WasmV1.VerifyPresentation{..} -> do
+                                        -- Lookup account.
+                                        case imvpAddresses of
+                                            Nothing -> do
+                                                traceM "NO ADDRESSES"
+                                                -- The Wasm execution does not reset contract events for queries, hence we do not have to
+                                                -- add them here via an interrupt. They will be retained until the next interrupt.
+                                                go events
+                                                    =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                WasmV1.Success
+                                                                (Just (WasmV1.byteStringToReturnValue $ S.encode (Nothing :: Maybe ())))
+                                                        )
+                                            Just addresses -> do
+                                                traceM $ "GOT ADDRESSES" ++ show addresses
+                                                mcreds <- fmap sequence . forM addresses $ \(ipId, cId) -> do
+                                                  getStateAccountByCredId cId >>=
+                                                      \case Nothing -> return Nothing
+                                                            Just (_, a) -> do
+                                                              creds <- getAccountCredentials a
+                                                              addr <- getAccountCanonicalAddress a
+                                                              let commitments = mapMaybe (\(_, rac) ->
+                                                                                          case rac of
+                                                                                           ID.NormalAC c comms ->
+                                                                                             if ID.cdvCredId c == cId && ID.cdvIpId c == ipId then
+                                                                                               Just comms
+                                                                                             else Nothing
+                                                                                           _ -> Nothing
+                                                                                    ) (OrdMap.toList creds)
+                                                              traceM $ "COMMITMENTS" ++ show commitments
+                                                              case commitments of
+                                                                [comms] -> return . Just $ (addr, comms)
+                                                                _ -> return Nothing
+                                                traceM $ "MCREDS = " ++ show mcreds
+                                                case mcreds of
+                                                  Nothing -> go events =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                WasmV1.Success
+                                                                (Just (WasmV1.byteStringToReturnValue $ S.encode (Nothing :: Maybe ())))
+                                                        )
+                                                  Just creds -> do
+                                                    gc <- getCryptographicParameters
+                                                    let returnValueBS = WasmV1.verifyPresentation gc creds imvpPresentation
+                                                    traceM $ "RETURN VALUE = " ++ show (BS.unpack returnValueBS)
+                                                    go events =<< runInterpreter
+                                                        ( return
+                                                            . WasmV1.resumeReceiveFun
+                                                                rrdInterruptedConfig
+                                                                rrdCurrentState
+                                                                False
+                                                                entryBalance
+                                                                WasmV1.Success
+                                                                (Just (WasmV1.byteStringToReturnValue $ returnValueBS))
                                                         )
 
             -- start contract execution.

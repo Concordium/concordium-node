@@ -684,7 +684,7 @@ dependencies = [
  "num-traits 0.2.18",
  "rust_decimal",
  "serde 1.0.197",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
  "thiserror",
 ]
 
@@ -705,6 +705,7 @@ dependencies = [
  "byteorder",
  "concordium-contracts-common",
  "concordium-wasm",
+ "concordium_base",
  "derive_more",
  "ed25519-zebra",
  "libc",
@@ -712,6 +713,7 @@ dependencies = [
  "rand 0.8.5",
  "secp256k1",
  "serde 1.0.197",
+ "serde_json 1.0.116",
  "sha2",
  "sha3",
  "slab",
@@ -767,7 +769,7 @@ dependencies = [
  "rayon",
  "rust_decimal",
  "serde 1.0.197",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
  "serde_with",
  "sha2",
  "sha3",
@@ -836,7 +838,7 @@ dependencies = [
  "rpassword",
  "semver 1.0.22",
  "serde 1.0.197",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
  "sha2",
  "structopt",
  "tempfile",
@@ -945,7 +947,7 @@ dependencies = [
  "serde 1.0.197",
  "serde_cbor",
  "serde_derive",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
  "tinytemplate",
  "walkdir",
 ]
@@ -2066,7 +2068,7 @@ dependencies = [
  "rand 0.8.5",
  "serde 1.0.197",
  "serde-value",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
  "serde_yaml",
  "thiserror",
  "thread-id",
@@ -3028,7 +3030,7 @@ dependencies = [
  "pin-project-lite",
  "rustls-pemfile",
  "serde 1.0.197",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
  "serde_urlencoded",
  "sync_wrapper",
  "system-configuration",
@@ -3134,7 +3136,7 @@ dependencies = [
  "rand 0.8.5",
  "rkyv",
  "serde 1.0.197",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
 ]
 
 [[package]]
@@ -3382,9 +3384,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.115"
+version = "1.0.116"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12dc5c46daa8e9fdf4f5e71b6cf9a53f2487da0e86e55808e2d35539666497dd"
+checksum = "3e17db7126d17feb94eb3fad46bf1a96b034e8aacbc2e775fe81505f8b0b2813"
 dependencies = [
  "itoa 1.0.11",
  "ryu",
@@ -3425,7 +3427,7 @@ dependencies = [
  "indexmap 2.2.6",
  "serde 1.0.197",
  "serde_derive",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
  "serde_with_macros",
  "time 0.3.34",
 ]
@@ -3630,7 +3632,7 @@ dependencies = [
  "quote",
  "serde 1.0.197",
  "serde_derive",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
  "sha1",
  "syn 1.0.109",
 ]
@@ -3886,7 +3888,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be4d6b5f19ff7664e8c98d03e2139cb510db9b0a60b55f8e8709b689d939b6bc"
 dependencies = [
  "serde 1.0.197",
- "serde_json 1.0.115",
+ "serde_json 1.0.116",
 ]
 
 [[package]]
