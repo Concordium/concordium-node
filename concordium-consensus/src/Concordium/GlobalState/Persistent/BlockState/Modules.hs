@@ -501,6 +501,6 @@ migrateModules migration mods = do
                         return $! makePersistentInstrumentedModuleV <$> iface
             SV1 ->
                 case WasmV1.processModuleConfig WasmV1.processingConfigRecompileForP7 wasmMod of
-                    Nothing -> error "Stored V0 module that is not valid."
+                    Nothing -> error "Stored V1 module that is not valid."
                     Just iface -> do
                         return $! makePersistentInstrumentedModuleV <$> iface
