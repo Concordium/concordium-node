@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Concordium.Scheduler.WasmIntegration (applyInitFun, applyReceiveFun, processModule) where
+module Concordium.Scheduler.WasmIntegration (applyInitFun, applyReceiveFun, processModule, compileModule) where
 
 import Control.Monad
 import qualified Data.ByteString as BS
@@ -257,35 +257,15 @@ applyReceiveFun miface cm receiveCtx rName param maxParamLen limitLogsAndRvs amn
 --  compilation or instrumentation) that is needed to apply the exported
 --  functions from it in an efficient way.
 {-# NOINLINE processModule #-}
-processModule :: WasmModuleV V0 -> Maybe (ModuleInterfaceV V0)
-processModule modl = do
-    (bs, miModule) <- ffiResult
+processModule :: SProtocolVersion spv -> WasmModuleV V0 -> Maybe (ModuleInterfaceV V0)
+processModule spv modl = do
+    (bs, miModule) <- compileModule (pvCostSemanticsVersion spv) modl
     case getExports bs of
         Left _ -> Nothing
         Right (miExposedInit, miExposedReceive) ->
             let miModuleRef = getModuleRef modl
             in  Just ModuleInterface{miModuleSize = moduleSourceLength (wmvSource modl), ..}
   where
-    ffiResult = unsafePerformIO $ do
-        unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
-            alloca $ \outputLenPtr ->
-                alloca $ \artifactLenPtr ->
-                    alloca $ \outputModuleArtifactPtr -> do
-                        outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
-                        if outPtr == nullPtr
-                            then return Nothing
-                            else do
-                                len <- peek outputLenPtr
-                                bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
-                                artifactLen <- peek artifactLenPtr
-                                artifactPtr <- peek outputModuleArtifactPtr
-                                moduleArtifact <-
-                                    BSU.unsafePackCStringFinalizer
-                                        artifactPtr
-                                        (fromIntegral artifactLen)
-                                        (rs_free_array_len artifactPtr (fromIntegral artifactLen))
-                                return (Just (bs, instrumentedModuleFromBytes SV0 moduleArtifact))
-
     getExports bs =
         flip runGet bs $ do
             len <- fromIntegral <$> getWord16be
@@ -308,3 +288,27 @@ processModule modl = do
                 Nothing -> fail "Incorrect response from FFI call."
                 Just x@(exposedInits, exposedReceives) ->
                     if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return x else fail "Receive functions that do not correspond to any contract."
+
+-- | Validate and compile a module. If successful return the artifact and serialization of module exports.
+{-# NOINLINE compileModule #-}
+compileModule :: CostSemanticsVersion -> WasmModuleV V0 -> Maybe (BS.ByteString, InstrumentedModuleV V0)
+-- TODO: The unused spv argument will be used when new cost semantics are introduced.
+compileModule _spv modl = unsafePerformIO $ do
+    unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
+        alloca $ \outputLenPtr ->
+            alloca $ \artifactLenPtr ->
+                alloca $ \outputModuleArtifactPtr -> do
+                    outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                    if outPtr == nullPtr
+                        then return Nothing
+                        else do
+                            len <- peek outputLenPtr
+                            bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
+                            artifactLen <- peek artifactLenPtr
+                            artifactPtr <- peek outputModuleArtifactPtr
+                            moduleArtifact <-
+                                BSU.unsafePackCStringFinalizer
+                                    artifactPtr
+                                    (fromIntegral artifactLen)
+                                    (rs_free_array_len artifactPtr (fromIntegral artifactLen))
+                            return (Just (bs, instrumentedModuleFromBytes SV0 moduleArtifact))

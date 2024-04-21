@@ -700,7 +700,7 @@ handleDeployModule wtc mod =
         case mod of
             Wasm.WasmModuleV0 moduleV0 -> do
                 tickEnergy (Cost.deployModuleCost (Wasm.moduleSourceLength (Wasm.wmvSource moduleV0)))
-                case WasmV0.processModule moduleV0 of
+                case WasmV0.processModule (protocolVersion @(MPV m)) moduleV0 of
                     Nothing -> rejectTransaction ModuleNotWF
                     Just iface -> do
                         let mhash = GSWasm.moduleReference iface

@@ -16,6 +16,7 @@ import Data.Maybe
 import Concordium.GlobalState.Wasm
 import Concordium.ID.Types
 import Concordium.Scheduler.WasmIntegration
+import Concordium.Types (SProtocolVersion (..))
 import Concordium.Wasm
 
 import Concordium.Scheduler.DummyData
@@ -26,7 +27,7 @@ setup :: String -> IO (ModuleInterfaceV V0)
 setup errString = do
     source <- BS.readFile "../concordium-base/smart-contracts/testdata/contracts/context_test.wasm"
     let wasmMod = WasmModuleV (ModuleSource source)
-    let miface = processModule wasmMod
+    let miface = processModule SP1 wasmMod
     assertBool ("Module not valid " ++ errString) (isJust miface)
     return (fromJust miface)
 
