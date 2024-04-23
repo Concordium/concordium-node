@@ -30,6 +30,8 @@ foreign import ccall "validate_and_process_v0"
         Ptr Word8 ->
         -- | Length of the module source.
         CSize ->
+        -- | Metering (cost assignment) version.
+        Word8 ->
         -- | Total length of the output.
         Ptr CSize ->
         -- | Length of the artifact.
@@ -292,13 +294,12 @@ processModule spv modl = do
 -- | Validate and compile a module. If successful return the artifact and serialization of module exports.
 {-# NOINLINE compileModule #-}
 compileModule :: CostSemanticsVersion -> WasmModuleV V0 -> Maybe (BS.ByteString, InstrumentedModuleV V0)
--- TODO: The unused spv argument will be used when new cost semantics are introduced.
-compileModule _spv modl = unsafePerformIO $ do
+compileModule csv modl = unsafePerformIO $ do
     unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
         alloca $ \outputLenPtr ->
             alloca $ \artifactLenPtr ->
                 alloca $ \outputModuleArtifactPtr -> do
-                    outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                    outPtr <- validate_and_process (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) meteringVersion outputLenPtr artifactLenPtr outputModuleArtifactPtr
                     if outPtr == nullPtr
                         then return Nothing
                         else do
@@ -312,3 +313,5 @@ compileModule _spv modl = unsafePerformIO $ do
                                     (fromIntegral artifactLen)
                                     (rs_free_array_len artifactPtr (fromIntegral artifactLen))
                             return (Just (bs, instrumentedModuleFromBytes SV0 moduleArtifact))
+  where
+    meteringVersion = costSemanticsVersionToWord8 csv

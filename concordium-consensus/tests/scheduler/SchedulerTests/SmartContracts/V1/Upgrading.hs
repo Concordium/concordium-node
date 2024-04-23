@@ -116,6 +116,7 @@ upgradingTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         upgrading0SourceFile
                         (InitName "init_a")
                         (Parameter "")
@@ -234,6 +235,7 @@ selfInvokeTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         selfInvokeSourceFile0
                         (InitName "init_contract")
                         (Parameter "")
@@ -331,6 +333,7 @@ missingModuleTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         missingModuleSourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -404,6 +407,7 @@ missingContractTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         missingContractSourceFile0
                         (InitName "init_contract")
                         (Parameter "")
@@ -490,6 +494,7 @@ unsupportedVersionTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         unsupportedVersionSourceFile0
                         (InitName "init_contract")
                         (Parameter "")
@@ -578,6 +583,7 @@ twiceTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         upgrading0SourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -683,6 +689,7 @@ chainedTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         chainedSourceFile0
                         (InitName "init_contract")
                         (Parameter "")
@@ -766,6 +773,7 @@ rejectTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         upgrading0SourceFile
                         (InitName "init_contract")
                         (Parameter "")
@@ -862,6 +870,7 @@ changingEntrypointsTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         changingEntrypointsSourceFile0
                         (InitName "init_contract")
                         (Parameter "")
@@ -1003,6 +1012,7 @@ persistingStateTestCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         persistingStateSourceFile0
                         (InitName "init_contract")
                         (Parameter "")

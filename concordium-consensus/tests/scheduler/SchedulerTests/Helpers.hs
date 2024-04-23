@@ -57,6 +57,7 @@ import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import qualified Concordium.Scheduler.Runner as SchedTest
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.TimeMonad
+import Concordium.Types (SProtocolVersion)
 
 getResults :: [(a, Types.TransactionSummary)] -> [(a, Types.ValidResult)]
 getResults = map (\(x, r) -> (x, Types.tsResult r))
@@ -822,13 +823,14 @@ assertUsedEnergyDeploymentV1 sourceFile result = do
 --  It is not practical to check the exact cost because the execution cost of the init function is hard to
 --  have an independent number for, other than executing.
 assertUsedEnergyInitialization ::
+    SProtocolVersion pv ->
     FilePath ->
     Wasm.InitName ->
     Wasm.Parameter ->
     Maybe Wasm.ByteSize ->
     SchedulerResult ->
     Assertion
-assertUsedEnergyInitialization sourceFile initName parameter initialStateSize result = do
+assertUsedEnergyInitialization spv sourceFile initName parameter initialStateSize result = do
     moduleSource <- ByteString.readFile sourceFile
     let modLen = fromIntegral $ ByteString.length moduleSource
         modRef = Types.ModuleRef (Hash.hash moduleSource)
@@ -839,7 +841,7 @@ assertUsedEnergyInitialization sourceFile initName parameter initialStateSize re
         -- transaction is signed with 1 signature
         baseTxCost = Cost.baseCost txSize 1
         -- lower bound on the cost of the transaction, assuming no interpreter energy
-        costLowerBound = baseTxCost + Cost.initializeContractInstanceCost 0 modLen initialStateSize
+        costLowerBound = baseTxCost + Cost.initializeContractInstanceCost spv 0 modLen initialStateSize
     unless (srUsedEnergy result >= costLowerBound) $
         assertFailure $
             "Actual initialization cost "

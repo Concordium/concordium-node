@@ -65,6 +65,13 @@ modRefQueriesAccountBalance :: Types.ModuleRef
 {-# NOINLINE modRefQueriesAccountBalance #-}
 modRefQueriesAccountBalance = unsafePerformIO $ modRefOf srcQueriesAccountBalance
 
+-- | If lower module loading costs are in effect for the given protocol version
+--  return the second Energy argument, otherwise the first.
+ifLowerModuleCost :: Types.SProtocolVersion pv -> Types.Energy -> Types.Energy -> Types.Energy
+ifLowerModuleCost spv old new
+    | Types.demoteProtocolVersion spv <= Types.P6 = old
+    | otherwise = new
+
 -- | This test deploys three different smart contracts, from two different modules.
 --  One of these contracts <0,0> has a function that queries and logs the module reference of a
 --  specified contract address. Another <2,0> queries and logs the contract name of a specified
@@ -101,11 +108,11 @@ testModuleRefAndName spv pvString
           getModRefHelper 8 (Types.ContractAddress 2 0) (Just modRefQueriesContractInspection),
           getModRefHelper 9 (Types.ContractAddress 3 0) Nothing,
           getModRefHelper 10 (Types.ContractAddress 0 1) Nothing,
-          getNameHelper 11 (Types.ContractAddress 0 0) (Just "init_contract") 754,
-          getNameHelper 12 (Types.ContractAddress 1 0) (Just "init_contract") 754,
-          getNameHelper 13 (Types.ContractAddress 2 0) (Just "init_contract2") 755,
-          getNameHelper 14 (Types.ContractAddress 3 0) Nothing 741,
-          getNameHelper 15 (Types.ContractAddress 0 1) Nothing 741
+          getNameHelper 11 (Types.ContractAddress 0 0) (Just "init_contract") (ifLowerModuleCost spv 754 745),
+          getNameHelper 12 (Types.ContractAddress 1 0) (Just "init_contract") (ifLowerModuleCost spv 754 745),
+          getNameHelper 13 (Types.ContractAddress 2 0) (Just "init_contract2") (ifLowerModuleCost spv 754 746),
+          getNameHelper 14 (Types.ContractAddress 3 0) Nothing (ifLowerModuleCost spv 741 732),
+          getNameHelper 15 (Types.ContractAddress 0 1) Nothing (ifLowerModuleCost spv 741 732)
         ]
     deployModHelper nce src =
         Helpers.TransactionAndAssertion
@@ -132,6 +139,7 @@ testModuleRefAndName spv pvString
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         src
                         (InitName constructor)
                         (Parameter mempty)
@@ -164,13 +172,13 @@ testModuleRefAndName spv pvString
                                     result
                                 assertEqual
                                     "Energy usage (non-existing instance)"
-                                    743
+                                    (ifLowerModuleCost spv 743 734)
                                     (Helpers.srUsedEnergy result)
                             Just modRef -> do
                                 Helpers.assertSuccessWhere (checkEvents modRef) result
                                 assertEqual
                                     "Energy usage (existing instance)"
-                                    775
+                                    (ifLowerModuleCost spv 775 766)
                                     (Helpers.srUsedEnergy result)
                         else do
                             Helpers.assertRejectWithReason Types.RuntimeFailure result
@@ -295,6 +303,7 @@ testUpgradeModuleRef spv pvString
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         src
                         (InitName constructor)
                         (Parameter mempty)

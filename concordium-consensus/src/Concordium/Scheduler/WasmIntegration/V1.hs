@@ -85,6 +85,8 @@ foreign import ccall "validate_and_process_v1"
         Ptr Word8 ->
         -- | Length of the module source.
         CSize ->
+        -- | Metering (cost semantics) version.
+        Word8 ->
         -- | Total length of the output.
         Ptr CSize ->
         -- | Length of the artifact.
@@ -927,7 +929,7 @@ compileModule ValidationConfig{..} modl =
             alloca $ \outputLenPtr ->
                 alloca $ \artifactLenPtr ->
                     alloca $ \outputModuleArtifactPtr -> do
-                        outPtr <- validate_and_process (if vcSupportUpgrade then 1 else 0) (if vcAllowGlobals then 1 else 0) (if vcAllowSignExtensionInstr then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                        outPtr <- validate_and_process (if vcSupportUpgrade then 1 else 0) (if vcAllowGlobals then 1 else 0) (if vcAllowSignExtensionInstr then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) meteringVersion outputLenPtr artifactLenPtr outputModuleArtifactPtr
                         if outPtr == nullPtr
                             then return Nothing
                             else do
@@ -941,3 +943,5 @@ compileModule ValidationConfig{..} modl =
                                         (fromIntegral artifactLen)
                                         (rs_free_array_len artifactPtr (fromIntegral artifactLen))
                                 return (Just (bs, instrumentedModuleFromBytes SV1 moduleArtifact))
+  where
+    meteringVersion = costSemanticsVersionToWord8 vcCostSemantics
