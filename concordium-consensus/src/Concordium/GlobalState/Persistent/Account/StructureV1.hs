@@ -26,6 +26,7 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types hiding (values)
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
@@ -38,6 +39,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TARS
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
 import Concordium.GlobalState.BlockState (AccountAllowance (..))
+import Concordium.GlobalState.Persistent.Account.CooldownQueue
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
 import Concordium.GlobalState.Persistent.Account.MigrationState
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
@@ -45,8 +47,6 @@ import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1
 import Concordium.ID.Parameters
-import Concordium.Types.Accounts.CooldownQueue
-import Concordium.Types.Accounts.Releases
 import Control.Monad.Trans
 import qualified Data.Map.Strict as Map
 
@@ -185,7 +185,8 @@ persistentToAccountStake PersistentAccountStakeEnduringDelegator{..} _delegation
                   ..
                 }
 
--- | Migrate a 'PersistentAccountStakeEnduring' from one blob store to another.
+-- | Migrate a 'PersistentAccountStakeEnduring' from one blob store to another, where the account
+--  version is unchanged.
 migratePersistentAccountStakeEnduring ::
     (SupportMigration m t, IsAccountVersion av) =>
     PersistentAccountStakeEnduring av ->
@@ -202,22 +203,30 @@ migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringBaker{..} = 
 migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringDelegator{..} =
     return $! PersistentAccountStakeEnduringDelegator{..}
 
+-- | Migrate a 'PersistentAccountStakeEnduring' from 'AccountV2' to 'AccountV3'.
+--  If a cooldown is in effect on the account, then the pending change is removed and returned.
+--  The idea is that the target stake will become the pre-pre-cooldown target on migration.
 migratePersistentAccountStakeEnduringV2toV3 ::
     (SupportMigration m t) =>
     PersistentAccountStakeEnduring 'AccountV2 ->
-    t m (PersistentAccountStakeEnduring 'AccountV3)
+    t m (PersistentAccountStakeEnduring 'AccountV3, StakePendingChange 'AccountV2)
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringNone =
-    return PersistentAccountStakeEnduringNone
+    return (PersistentAccountStakeEnduringNone, NoChange)
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{..} = do
-    newBakerInfo <- migrateReference (return . coerceBakerInfoEx) paseBakerInfo
-    return $!
-        PersistentAccountStakeEnduringBaker
+    newBakerInfo <- migrateReference (return . coerceBakerInfoExV1) paseBakerInfo
+    return $!!
+        ( PersistentAccountStakeEnduringBaker
             { paseBakerInfo = newBakerInfo,
               paseBakerPendingChange = NoChange,
               ..
-            }
+            },
+          paseBakerPendingChange
+        )
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringDelegator{..} =
-    return $! PersistentAccountStakeEnduringDelegator{paseDelegatorPendingChange = NoChange, ..}
+    return $!!
+        ( PersistentAccountStakeEnduringDelegator{paseDelegatorPendingChange = NoChange, ..},
+          paseDelegatorPendingChange
+        )
 
 -- | This relies on the fact that the 'AccountV2' hashing of 'AccountStake' is independent of the
 --  staked amount.
@@ -263,7 +272,7 @@ data PersistentAccountEnduringData (av :: AccountVersion) = PersistentAccountEnd
       -- | The staking details associated with the account.
       paedStake :: !(PersistentAccountStakeEnduring av),
       -- | The cooldown.
-      paedStakeCooldown :: !(CooldownQueue av) -- FIXME: Figure out whether this should be a ref.
+      paedStakeCooldown :: !(CooldownQueue av)
     }
 
 -- | Get the locked amount from a 'PersistingAccountEnduringData'.
@@ -1350,6 +1359,7 @@ makePersistentAccount Transient.Account{..} = do
                 rsRef <- refMake $! rs
                 let !lockedBal = _accountReleaseSchedule ^. TARS.totalLockedUpBalance
                 return (Some (rsRef, lockedBal))
+    paedStakeCooldown <- makePersistentCooldownQueue _accountStakeCooldown
     accountEnduringData <-
         refMake
             =<< case accountVersion @av of
@@ -1365,7 +1375,7 @@ makePersistentAccount Transient.Account{..} = do
                         paedEncryptedAmount
                         paedReleaseSchedule
                         paedStake
-                        _accountStakeCooldown
+                        paedStakeCooldown
     return $!
         PersistentAccount
             { accountNonce = _accountNonce,
@@ -1463,12 +1473,11 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
 
 -- ** Migration
 
--- | Migration for 'PersistentAccountEnduringData'. Only supports 'AccountV2'.
-migrateEnduringData ::
+migrateEnduringDataV2 ::
     (SupportMigration m t) =>
     PersistentAccountEnduringData 'AccountV2 ->
     t m (PersistentAccountEnduringData 'AccountV2)
-migrateEnduringData ed = do
+migrateEnduringDataV2 ed = do
     paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
     paedEncryptedAmount <- forM (paedEncryptedAmount ed) $ migrateReference migratePersistentEncryptedAmount
     paedReleaseSchedule <- forM (paedReleaseSchedule ed) $ \(oldRSRef, lockedAmt) -> do
@@ -1482,20 +1491,28 @@ migrateEnduringData ed = do
               ..
             }
 
+-- | Migrate enduring data from 'AccountV2' to 'AccountV3'. If there was a stake cooldown in effect,
+--  that is migrated to a pre-pre-cooldown in the new state.
 migrateEnduringDataV2toV3 ::
     (SupportMigration m t) =>
     PersistentAccountEnduringData 'AccountV2 ->
-    t m (PersistentAccountEnduringData 'AccountV3)
+    AccountMigrationStateTT oldpv pv t m (PersistentAccountEnduringData 'AccountV3)
 migrateEnduringDataV2toV3 ed = do
     paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
     paedEncryptedAmount <- forM (paedEncryptedAmount ed) $ migrateReference migratePersistentEncryptedAmount
     paedReleaseSchedule <- forM (paedReleaseSchedule ed) $ \(oldRSRef, lockedAmt) -> do
         newRSRef <- migrateReference migrateAccountReleaseSchedule oldRSRef
         return (newRSRef, lockedAmt)
-    paedStake <- migratePersistentAccountStakeEnduringV2toV3 (paedStake ed)
-    let paedStakeCooldown = undefined -- FIXME: fix
+    (paedStake, oldPendingChange) <- migratePersistentAccountStakeEnduringV2toV3 (paedStake ed)
+    -- On migration, anything that is currently in cooldown we move to pre-pre-cooldown.
+    paedStakeCooldown <- case oldPendingChange of
+        NoChange -> return emptyCooldownQueue
+        ReduceStake target _ -> addAccountInPrePreCooldown >> initialPrePreCooldownQueue target
+        RemoveStake _ -> addAccountInPrePreCooldown >> initialPrePreCooldownQueue 0
     makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSchedule paedStake paedStakeCooldown
 
+-- | Migration for 'PersistentAccountEnduringData'. Only supports 'AccountV3'.
+--  The data is unchanged in the migration.
 migrateEnduringDataV3toV3 ::
     (SupportMigration m t) =>
     PersistentAccountEnduringData 'AccountV3 ->
@@ -1507,13 +1524,11 @@ migrateEnduringDataV3toV3 ed = do
         newRSRef <- migrateReference migrateAccountReleaseSchedule oldRSRef
         return (newRSRef, lockedAmt)
     paedStake <- migratePersistentAccountStakeEnduring (paedStake ed)
-    -- FIXME: migrate the stake cooldown correctly if the type of 'paedStakeCooldown' changes.
-    makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSchedule paedStake (paedStakeCooldown ed :: CooldownQueue 'AccountV3)
+    paedStakeCooldown <- migrateCooldownQueue (paedStakeCooldown ed)
+    makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSchedule paedStake paedStakeCooldown
 
--- | A trivial migration from account version 2 to
---  account version 2.
---  In particular this function only migrates the underlying reference to
---  the 'PersistentAccountEnduringData'.
+-- | A trivial migration from account version 2 to account version 2.
+--  In particular the data is retained as-is.
 migrateV2ToV2 ::
     ( MonadBlobStore m,
       MonadBlobStore (t m),
@@ -1522,7 +1537,7 @@ migrateV2ToV2 ::
     PersistentAccount 'AccountV2 ->
     t m (PersistentAccount 'AccountV2)
 migrateV2ToV2 acc = do
-    accountEnduringData <- migrateEagerBufferedRef migrateEnduringData (accountEnduringData acc)
+    accountEnduringData <- migrateEagerBufferedRef migrateEnduringDataV2 (accountEnduringData acc)
     return $!
         PersistentAccount
             { accountNonce = accountNonce acc,
@@ -1531,15 +1546,21 @@ migrateV2ToV2 acc = do
               ..
             }
 
+-- | Migrate from account version 2 to account version 3.
+--  Stake cooldowns are migrated to being in pre-pre-cooldown.
+--  Otherwise, the state is unchanged on migration.
 migrateV2ToV3 ::
     ( MonadBlobStore m,
       MonadBlobStore (t m),
       MonadTrans t
     ) =>
     PersistentAccount 'AccountV2 ->
-    t m (PersistentAccount 'AccountV3)
+    AccountMigrationStateTT oldpv pv t m (PersistentAccount 'AccountV3)
 migrateV2ToV3 acc = do
-    accountEnduringData <- migrateEagerBufferedRef migrateEnduringDataV2toV3 (accountEnduringData acc)
+    accountEnduringData <-
+        migrateEagerBufferedRef
+            migrateEnduringDataV2toV3
+            (accountEnduringData acc)
     return $!
         PersistentAccount
             { accountNonce = accountNonce acc,
@@ -1548,6 +1569,8 @@ migrateV2ToV3 acc = do
               ..
             }
 
+-- | A trivial migration from account version 3 to account version 3.
+--  In particular the data is retained as-is.
 migrateV3ToV3 ::
     ( MonadBlobStore m,
       MonadBlobStore (t m),
@@ -1668,7 +1691,7 @@ toTransientAccount acc = do
     _accountEncryptedAmount <- getEncryptedAmount acc
     _accountReleaseSchedule <- getReleaseSchedule acc
     _accountStaking <- getStake acc
-    _accountStakeCooldown <- getStakeCooldown acc
+    _accountStakeCooldown <- toTransientCooldownQueue <$> getStakeCooldown acc
     return $
         Transient.Account
             { _accountNonce = accountNonce acc,

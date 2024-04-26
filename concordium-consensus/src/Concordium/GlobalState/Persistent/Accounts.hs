@@ -498,10 +498,15 @@ migrateAccounts ::
     Accounts oldpv ->
     t m (Accounts pv, AccountMigrationState oldpv pv)
 migrateAccounts migration Accounts{..} = do
+    let migrateAccount acct = do
+            newAcct <- migrateHashedCachedRef' (migratePersistentAccount migration) acct
+            -- Increment the account index counter.
+            nextAccount
+            return newAcct
     (newAccountTable, migrationState) <-
         runAccountMigrationStateTT
             ( L.migrateLFMBTree
-                (migrateHashedCachedRef' (migratePersistentAccount migration))
+                migrateAccount
                 accountTable
             )
             initialAccountMigrationState

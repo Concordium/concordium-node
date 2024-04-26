@@ -49,6 +49,7 @@ import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
+import qualified Concordium.GlobalState.Persistent.Account.MigrationState as MigrationState
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
@@ -3746,8 +3747,11 @@ migrateBlockPointers migration BlockStatePointers{..} = do
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
-    newAccounts <- Accounts.migrateAccounts migration bspAccounts
-    newAccountsInCooldown <- migrateAccountsInCooldownForPV undefined bspAccountsInCooldown
+    (newAccounts, migrationState) <- Accounts.migrateAccounts migration bspAccounts
+    newAccountsInCooldown <-
+        migrateAccountsInCooldownForPV
+            (MigrationState._migrationPrePreCooldown migrationState)
+            bspAccountsInCooldown
     newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
     modules <- refLoad newModules
     newInstances <- Instances.migrateInstances modules bspInstances

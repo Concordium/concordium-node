@@ -22,13 +22,13 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Basic.BlockState.CooldownQueue
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types.HashableTo
 
 import Concordium.Types
 import Concordium.Types.Accounts
-import Concordium.Types.Accounts.CooldownQueue
 
 -- | Type for how a 'PersistingAccountData' value is stored as part of
 --  an account. This is stored with its hash.

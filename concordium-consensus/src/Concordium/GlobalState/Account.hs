@@ -27,16 +27,12 @@ import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV
 import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.Accounts
-import Concordium.Types.Accounts.CooldownQueue
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
 
 newtype CooldownQueueHash (av :: AccountVersion) = CooldownQueueHash {theCooldownQueueHash :: Hash.Hash}
     deriving (Eq, Ord, Show, Serialize)
-
-instance HashableTo (CooldownQueueHash av) (CooldownQueue av) where
-    getHash _ = undefined
 
 -- | A list of credential IDs that have been removed from an account.
 data RemovedCredentials

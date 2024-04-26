@@ -21,17 +21,21 @@ import Concordium.Types.Conditionally
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.Cooldown
+import Concordium.Utils
 import Control.Monad.State.Class
 
-newtype AccountMigrationState (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = AccountMigrationState
+data AccountMigrationState (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = AccountMigrationState
     { -- | In the P6 -> P7 protocol update, this records the accounts that previously were in
       --  cooldown, and now will be in pre-pre-cooldown.
       _migrationPrePreCooldown ::
-        Conditionally
+        !( Conditionally
             ( Not (SupportsFlexibleCooldown (AccountVersionFor oldpv))
                 && SupportsFlexibleCooldown (AccountVersionFor pv)
             )
             AccountList
+         ),
+      -- | A counter to track the index of the current account as we traverse the account table.
+      _currentAccountIndex :: !AccountIndex
     }
 makeLenses ''AccountMigrationState
 
@@ -44,6 +48,7 @@ initialAccountMigrationState = AccountMigrationState{..}
             SFalse -> CFalse
             STrue -> CTrue Null
         STrue -> CFalse
+    _currentAccountIndex = 0
 
 newtype
     AccountMigrationStateTT
@@ -92,9 +97,9 @@ instance (MonadTrans t) => MonadTrans (AccountMigrationStateTT oldpv pv t) where
 --  support flexible cooldown to one that does.
 addAccountInPrePreCooldown ::
     (MonadBlobStore (t m)) =>
-    AccountIndex ->
     AccountMigrationStateTT oldpv pv t m ()
-addAccountInPrePreCooldown ai = do
+addAccountInPrePreCooldown = do
+    ai <- use currentAccountIndex
     mmpc <- use migrationPrePreCooldown
     case mmpc of
         CTrue mpc -> do
@@ -106,3 +111,7 @@ addAccountInPrePreCooldown ai = do
                         }
             migrationPrePreCooldown .= CTrue (Some newHead)
         CFalse -> return ()
+
+-- | Increment the current account index.
+nextAccount :: (Monad (t m)) => AccountMigrationStateTT oldpv pv t m ()
+nextAccount = currentAccountIndex %=! (+ 1)
