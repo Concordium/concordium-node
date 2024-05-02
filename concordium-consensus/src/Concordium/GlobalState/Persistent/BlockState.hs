@@ -189,6 +189,45 @@ migrateSeedStateV1Trivial SeedStateV1{..} =
     newNonce = H.hash $ "Regenesis" <> encode ss1UpdatedNonce
 
 -- | See documentation of @migratePersistentBlockState@.
+migratePersistentActiveBakers ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion oldpv,
+      IsProtocolVersion pv,
+      SupportMigration m t,
+      SupportsPersistentAccount pv (t m)
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    -- | Already migrated accounts.
+    Accounts.Accounts pv ->
+    PersistentActiveBakers (AccountVersionFor oldpv) ->
+    t m (PersistentActiveBakers (AccountVersionFor pv))
+migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
+    newActiveBakers <- Trie.migrateTrieN True (migratePersistentActiveDelegators migration) _activeBakers
+    newAggregationKeys <- Trie.migrateTrieN True return _aggregationKeys
+    newPassiveDelegators <- migratePersistentActiveDelegators migration _passiveDelegators
+    bakerIds <- Trie.keysAsc newActiveBakers
+    totalStakedAmount <-
+        foldM
+            ( \acc (BakerId aid) ->
+                Accounts.indexedAccount aid accounts >>= \case
+                    Nothing -> error "Baker account does not exist."
+                    Just pa ->
+                        accountBakerStakeAmount pa >>= \case
+                            Nothing -> error "Baker account not a baker."
+                            Just amt -> return $! (acc + amt)
+            )
+            0
+            bakerIds
+    let newTotalActiveCapital = migrateTotalActiveCapital migration totalStakedAmount _totalActiveCapital
+    return
+        PersistentActiveBakers
+            { _activeBakers = newActiveBakers,
+              _aggregationKeys = newAggregationKeys,
+              _passiveDelegators = newPassiveDelegators,
+              _totalActiveCapital = newTotalActiveCapital
+            }
+
+-- | See documentation of @migratePersistentBlockState@.
 --
 --  Migrate the birk parameters assuming accounts have already been migrated.
 migratePersistentBirkParameters ::
@@ -1476,6 +1515,7 @@ doConfigureBaker ::
     BakerConfigure ->
     m (BakerConfigureResult, PersistentBlockState pv)
 doConfigureBaker pbs ai BakerConfigureAdd{..} = do
+    -- FIXME: Support using stake that is in cooldown.
     -- It is assumed here that this account is NOT a baker and NOT a delegator.
     bsp <- loadPBS pbs
     Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
@@ -1714,7 +1754,8 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
                         return $ setAccountStake capital
-    updateCapital STrue _ _ = undefined
+    updateCapital STrue oldBkr cp = ifPresent bcuCapital $ \capital -> do
+        undefined
 
 doConstrainBakerCommission ::
     (SupportsPersistentState pv m, PVSupportsDelegation pv) =>
@@ -3747,7 +3788,8 @@ migrateBlockPointers migration BlockStatePointers{..} = do
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
-    (newAccounts, migrationState) <- Accounts.migrateAccounts migration bspAccounts
+    pab <- refLoad $ bspBirkParameters ^. birkActiveBakers
+    (newAccounts, migrationState) <- Accounts.migrateAccounts migration pab bspAccounts
     newAccountsInCooldown <-
         migrateAccountsInCooldownForPV
             (MigrationState._migrationPrePreCooldown migrationState)
@@ -3876,7 +3918,8 @@ cacheStateAndGetTransactionTable hpbs = do
                 then
                     return $!
                         tt
-                            & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                            & TransactionTable.ttNonFinalizedChainUpdates
+                                . at' uty
                                 ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
                 else return tt
     tt <- foldM updInTT TransactionTable.emptyTransactionTable [minBound ..]

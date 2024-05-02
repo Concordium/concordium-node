@@ -27,7 +27,7 @@ import Concordium.GlobalState.Account
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import Concordium.GlobalState.BlockState (AccountAllowance)
-import Concordium.GlobalState.Persistent.Account.MigrationState
+import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as V1
 import Concordium.GlobalState.Persistent.BlobStore
@@ -567,11 +567,12 @@ migratePersistentAccount ::
     forall oldpv pv t m.
     ( IsProtocolVersion oldpv,
       IsProtocolVersion pv,
-      SupportMigration m t
+      SupportMigration m t,
+      AccountMigration (AccountVersionFor pv) (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
     PersistentAccount (AccountVersionFor oldpv) ->
-    AccountMigrationStateTT oldpv pv t m (PersistentAccount (AccountVersionFor pv))
+    t m (PersistentAccount (AccountVersionFor pv))
 migratePersistentAccount m@StateMigrationParametersTrivial (PAV0 acc) = PAV0 <$> V0.migratePersistentAccount m acc
 migratePersistentAccount m@StateMigrationParametersTrivial (PAV1 acc) = PAV1 <$> V0.migratePersistentAccount m acc
 migratePersistentAccount m@StateMigrationParametersTrivial (PAV2 acc) = PAV2 <$> V1.migratePersistentAccount m acc

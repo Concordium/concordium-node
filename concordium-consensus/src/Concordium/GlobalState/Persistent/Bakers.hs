@@ -27,7 +27,6 @@ import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
-import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
 import qualified Concordium.Types.Accounts as BaseAccounts
@@ -383,53 +382,38 @@ tacAmount f (TotalActiveCapitalV1 amt) = TotalActiveCapitalV1 <$> f amt
 
 type AggregationKeySet = Trie.TrieN BufferedFix BakerAggregationVerifyKey ()
 
+-- | Persistent representation of the state of the active bakers and delegators.
 data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers
-    { _activeBakers :: !(BakerIdTrieMap av),
+    { -- | For each active baker, this records the set of delegators and their total stake.
+      --  (This does not include the baker's own stake.)
+      _activeBakers :: !(BakerIdTrieMap av),
+      -- | The set of aggregation keys of all active bakers.
+      -- This is used to prevent duplicate aggregation keys from being deployed.
       _aggregationKeys :: !AggregationKeySet,
+      -- | The set of delegators to the passive pool, with their total stake.
       _passiveDelegators :: !(PersistentActiveDelegators av),
+      -- | The total capital staked by all bakers and delegators.
       _totalActiveCapital :: !(TotalActiveCapital av)
     }
     deriving (Show)
 
 makeLenses ''PersistentActiveBakers
 
--- | See documentation of @migratePersistentBlockState@.
-migratePersistentActiveBakers ::
-    forall oldpv pv t m.
-    ( IsProtocolVersion oldpv,
-      IsProtocolVersion pv,
-      SupportMigration m t,
-      Accounts.SupportsPersistentAccount pv (t m)
-    ) =>
-    StateMigrationParameters oldpv pv ->
-    -- | Already migrated accounts.
-    Accounts.Accounts pv ->
-    PersistentActiveBakers (AccountVersionFor oldpv) ->
-    t m (PersistentActiveBakers (AccountVersionFor pv))
-migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
-    newActiveBakers <- Trie.migrateTrieN True (migratePersistentActiveDelegators migration) _activeBakers
-    newAggregationKeys <- Trie.migrateTrieN True return _aggregationKeys
-    newPassiveDelegators <- migratePersistentActiveDelegators migration _passiveDelegators
-    bakerIds <- Trie.keysAsc newActiveBakers
-    totalStakedAmount <-
-        foldM
-            ( \acc (BakerId aid) ->
-                Accounts.indexedAccount aid accounts >>= \case
-                    Nothing -> error "Baker account does not exist."
-                    Just pa ->
-                        accountBakerStakeAmount pa >>= \case
-                            Nothing -> error "Baker account not a baker."
-                            Just amt -> return $! (acc + amt)
-            )
-            0
-            bakerIds
-    let newTotalActiveCapital = migrateTotalActiveCapital migration totalStakedAmount _totalActiveCapital
-    return
+emptyPersistentActiveBakers :: forall av. (IsAccountVersion av) => PersistentActiveBakers av
+emptyPersistentActiveBakers = case delegationSupport @av of
+    SAVDelegationSupported ->
         PersistentActiveBakers
-            { _activeBakers = newActiveBakers,
-              _aggregationKeys = newAggregationKeys,
-              _passiveDelegators = newPassiveDelegators,
-              _totalActiveCapital = newTotalActiveCapital
+            { _activeBakers = Trie.empty,
+              _aggregationKeys = Trie.empty,
+              _passiveDelegators = PersistentActiveDelegatorsV1 Trie.empty 0,
+              _totalActiveCapital = TotalActiveCapitalV1 0
+            }
+    SAVDelegationNotSupported ->
+        PersistentActiveBakers
+            { _activeBakers = Trie.empty,
+              _aggregationKeys = Trie.empty,
+              _passiveDelegators = PersistentActiveDelegatorsV0,
+              _totalActiveCapital = TotalActiveCapitalV0
             }
 
 totalActiveCapitalV1 :: (AVSupportsDelegation av) => Lens' (PersistentActiveBakers av) Amount

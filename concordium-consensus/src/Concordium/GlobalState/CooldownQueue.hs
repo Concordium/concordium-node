@@ -23,12 +23,15 @@ data Cooldowns = Cooldowns
     { -- | Amounts currently in cooldown.
       -- (Must have fewer than 2^62 entries.)
       inCooldown :: !(Map.Map Timestamp Amount),
-      -- | The target staked balance after the next payday.
-      --  If 'Nothing', there is no change.
-      preCooldownTargetStake :: !(Option Amount),
-      -- | The target staked balance after the next payday after the next epoch transition.
-      --  If 'Nothing', there is no change.
-      prePreCooldownTargetStake :: !(Option Amount)
+      -- | The amount in pre-cooldown.
+      --  This will enter cooldown at the next payday.
+      --  If 'Nothing', there is no pre-cooldown.
+      preCooldown :: !(Option Amount),
+      -- | The amount in pre-pre-cooldown.
+      --  This will enter pre-cooldown at the next epoch transition that is one epoch before a
+      --  payday.
+      --  If 'Nothing', there is no pre-pre-cooldown.
+      prePreCooldown :: !(Option Amount)
     }
     deriving (Eq, Show)
 
@@ -36,24 +39,24 @@ instance Serialize Cooldowns where
     put Cooldowns{..} = do
         putWord64be tag
         putSafeSizedMapOf put put inCooldown
-        mapM_ put preCooldownTargetStake
-        mapM_ put prePreCooldownTargetStake
+        mapM_ put preCooldown
+        mapM_ put prePreCooldown
       where
-        -- The two highest order bits encode whether there is a preCooldownTargetStake and a
-        -- prePreCooldownTargetStake
+        -- The two highest order bits encode whether there is a preCooldown and a
+        -- prePreCooldown
         tag = fromIntegral (Map.size inCooldown) Bits..|. preCooldownBit Bits..|. prePreCooldownBit
         preCooldownBit
-            | isPresent preCooldownTargetStake = Bits.bit 62
+            | isPresent preCooldown = Bits.bit 62
             | otherwise = 0
         prePreCooldownBit
-            | isPresent prePreCooldownTargetStake = Bits.bit 63
+            | isPresent prePreCooldown = Bits.bit 63
             | otherwise = 0
     get :: Get Cooldowns
     get = do
         tag <- getWord64be
         inCooldown <- getSafeSizedMapOf (tag Bits..&. sizeMask) get get
-        preCooldownTargetStake <- if Bits.testBit tag 62 then Present <$> get else return Absent
-        prePreCooldownTargetStake <- if Bits.testBit tag 63 then Present <$> get else return Absent
+        preCooldown <- if Bits.testBit tag 62 then Present <$> get else return Absent
+        prePreCooldown <- if Bits.testBit tag 63 then Present <$> get else return Absent
         return Cooldowns{..}
       where
         sizeMask = Bits.bit 62 - 1
@@ -65,5 +68,5 @@ instance (MonadBlobStore m) => BlobStorable m Cooldowns
 isEmptyCooldowns :: Cooldowns -> Bool
 isEmptyCooldowns Cooldowns{..} =
     Map.null inCooldown
-        && null preCooldownTargetStake
-        && null prePreCooldownTargetStake
+        && null preCooldown
+        && null prePreCooldown

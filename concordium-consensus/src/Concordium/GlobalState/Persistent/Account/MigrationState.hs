@@ -5,24 +5,29 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.GlobalState.Persistent.Account.MigrationState where
 
 import Control.Monad.IO.Class
+import Control.Monad.State.Class
 import Control.Monad.Trans
 import Control.Monad.Trans.State.Strict
 import Data.Bool.Singletons
 import Data.Kind
+import Data.Maybe
 import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.Conditionally
+import Concordium.Utils
 
+import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
+import Concordium.GlobalState.Persistent.Bakers as Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.Cooldown
-import Concordium.Utils
-import Control.Monad.State.Class
+import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
 data AccountMigrationState (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = AccountMigrationState
     { -- | In the P6 -> P7 protocol update, this records the accounts that previously were in
@@ -34,14 +39,29 @@ data AccountMigrationState (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = 
             )
             AccountList
          ),
+      -- | When migrating to P7 (and onwards), we will build up the 'PersistentActiveBakers' while
+      --  traversing the account table. This should be initialised with the active bakers (that
+      --  survive migration) but no delegators.
+      _persistentActiveBakers ::
+        !( Conditionally
+            (SupportsFlexibleCooldown (AccountVersionFor pv))
+            (PersistentActiveBakers (AccountVersionFor pv))
+         ),
       -- | A counter to track the index of the current account as we traverse the account table.
       _currentAccountIndex :: !AccountIndex
     }
 makeLenses ''AccountMigrationState
 
 -- | An 'AccountMigrationState' in an initial state.
-initialAccountMigrationState :: forall oldpv pv. (IsProtocolVersion oldpv, IsProtocolVersion pv) => AccountMigrationState oldpv pv
-initialAccountMigrationState = AccountMigrationState{..}
+initialAccountMigrationState ::
+    forall oldpv pv.
+    (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
+    -- | The active bakers without the delegators.
+    Conditionally
+        (SupportsFlexibleCooldown (AccountVersionFor pv))
+        (PersistentActiveBakers (AccountVersionFor pv)) ->
+    AccountMigrationState oldpv pv
+initialAccountMigrationState _removedBakers = AccountMigrationState{..}
   where
     _migrationPrePreCooldown = case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor oldpv)) of
         SFalse -> case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
@@ -49,6 +69,10 @@ initialAccountMigrationState = AccountMigrationState{..}
             STrue -> CTrue Null
         STrue -> CFalse
     _currentAccountIndex = 0
+    _persistentActiveBakers =
+        conditionally
+            (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)))
+            emptyPersistentActiveBakers
 
 newtype
     AccountMigrationStateTT
@@ -92,26 +116,31 @@ deriving via
 instance (MonadTrans t) => MonadTrans (AccountMigrationStateTT oldpv pv t) where
     lift = AccountMigrationStateTT . lift . lift
 
--- | Add an account to the set of accounts that should be considered in pre-pre-cooldown as part
---  of migration. This only has an effect when transitioning from a protocol version that does not
---  support flexible cooldown to one that does.
-addAccountInPrePreCooldown ::
-    (MonadBlobStore (t m)) =>
-    AccountMigrationStateTT oldpv pv t m ()
-addAccountInPrePreCooldown = do
-    ai <- use currentAccountIndex
-    mmpc <- use migrationPrePreCooldown
-    case mmpc of
-        CTrue mpc -> do
-            newHead <-
-                makeUnbufferedRef
-                    AccountListItem
-                        { accountListEntry = ai,
-                          accountListTail = mpc
-                        }
-            migrationPrePreCooldown .= CTrue (Some newHead)
-        CFalse -> return ()
+instance
+    (MonadBlobStore (t m), IsProtocolVersion pv, av ~ AccountVersionFor pv) =>
+    AccountMigration av (AccountMigrationStateTT oldpv pv t m)
+    where
+    addAccountInPrePreCooldown = do
+        ai <- use currentAccountIndex
+        mmpc <- use migrationPrePreCooldown
+        case mmpc of
+            CTrue mpc -> do
+                newHead <-
+                    makeUnbufferedRef
+                        AccountListItem
+                            { accountListEntry = ai,
+                              accountListTail = mpc
+                            }
+                migrationPrePreCooldown .= CTrue (Some newHead)
+            CFalse -> return ()
 
--- | Increment the current account index.
-nextAccount :: (Monad (t m)) => AccountMigrationStateTT oldpv pv t m ()
-nextAccount = currentAccountIndex %=! (+ 1)
+    nextAccount = currentAccountIndex %=! (+ 1)
+
+    isBakerRemoved bakerId =
+        use persistentActiveBakers >>= \case
+            CFalse -> return False
+            CTrue pab ->
+                isNothing <$> Trie.lookup bakerId (pab ^. activeBakers)
+
+    addDelegator delId delAmt delTarget = do
+        undefined

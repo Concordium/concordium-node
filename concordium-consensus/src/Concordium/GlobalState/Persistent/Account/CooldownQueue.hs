@@ -82,15 +82,19 @@ toTransientCooldownQueue EmptyCooldownQueue = Transient.EmptyCooldownQueue
 toTransientCooldownQueue (CooldownQueue queueRef) =
     Transient.CooldownQueue (eagerBufferedDeref queueRef)
 
--- | Create an initial 'CooldownQueue' with only the given target amount set for pre-pre-cooldown.
-initialPrePreCooldownQueue :: (MonadBlobStore m, SupportsFlexibleCooldown av ~ True) => Amount -> m (CooldownQueue av)
+-- | Create an initial 'CooldownQueue' with only the given amount set in pre-pre-cooldown.
+initialPrePreCooldownQueue ::
+    (MonadBlobStore m, SupportsFlexibleCooldown av ~ True) =>
+    -- | Initial amount in pre-pre-cooldown.
+    Amount ->
+    m (CooldownQueue av)
 initialPrePreCooldownQueue target =
     CooldownQueue
         <$> refMake
             Cooldowns
                 { inCooldown = Map.empty,
-                  preCooldownTargetStake = Absent,
-                  prePreCooldownTargetStake = Present target
+                  preCooldown = Absent,
+                  prePreCooldown = Present target
                 }
 
 -- | Migrate a cooldown queue unchanged.

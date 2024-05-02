@@ -2105,6 +2105,7 @@ handleConfigureBaker
             accountStake <- getAccountStake (snd senderAccount)
             arg <- case accountStake of
                 AccountStakeNone -> configureAddBakerArg
+                -- FIXME: in new consensus, allow direct switch between baker and delegator.
                 AccountStakeDelegate _ -> rejectTransaction AlreadyADelegator
                 AccountStakeBaker _ ->
                     configureUpdateBakerArg

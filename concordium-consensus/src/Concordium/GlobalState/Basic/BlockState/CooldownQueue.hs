@@ -76,8 +76,8 @@ initialPrePreCooldownQueue target =
     CooldownQueue $
         Cooldowns
             { inCooldown = Map.empty,
-              preCooldownTargetStake = Absent,
-              prePreCooldownTargetStake = Present target
+              preCooldown = Absent,
+              prePreCooldown = Present target
             }
 
 -- | Process all cooldowns that expire at or before the given timestamp.
@@ -93,31 +93,24 @@ processCooldowns ts (CooldownQueue queue)
     (free, bonus, keep) = Map.splitLookup ts (inCooldown queue)
     remainder = fromCooldowns (queue{inCooldown = keep})
 
--- | Process the pre-cooldown (if any). The active stake is reduced to the new target stake, and
--- the remaining stake is added to the cooldown queue.
+-- | Process the pre-cooldown (if any). Any pre-cooldown amount is added to the cooldown queue
+--  with the specified expiry time.
 processPreCooldown ::
     -- | Timestamp at which the cooldown should expire.
     Timestamp ->
-    -- | Current active stake.
-    Amount ->
     -- | Current cooldown queue.
     CooldownQueue av ->
-    -- | If a change is required, the new active stake and cooldown queue.
-    Maybe (Amount, CooldownQueue av)
-processPreCooldown _ _ EmptyCooldownQueue = Nothing
-processPreCooldown ts stake (CooldownQueue cooldowns@Cooldowns{..}) =
-    ofOption Nothing (Just . cooldownWithTarget) preCooldownTargetStake
-  where
-    cooldownsNoPre = cooldowns{preCooldownTargetStake = Absent}
-    cooldownWithTarget targetStake
-        | stake == 0 || targetStake >= stake = (stake, fromCooldowns cooldownsNoPre)
-        | otherwise =
-            ( targetStake,
-              fromCooldowns
-                cooldownsNoPre
-                    { inCooldown = Map.alter (Just . (+ (stake - targetStake)) . fromMaybe 0) ts inCooldown
-                    }
-            )
+    -- | If a change is required, the new cooldown queue.
+    Maybe (CooldownQueue av)
+processPreCooldown _ EmptyCooldownQueue = Nothing
+processPreCooldown _ (CooldownQueue Cooldowns{preCooldown = Absent}) = Nothing
+processPreCooldown ts (CooldownQueue cdns@Cooldowns{preCooldown = Present newCooldownAmt, ..}) =
+    Just $
+        CooldownQueue $
+            cdns
+                { preCooldown = Absent,
+                  inCooldown = Map.alter (Just . (newCooldownAmt +) . fromMaybe 0) ts inCooldown
+                }
 
 {-}
 -- | Move all pre-cooldowns into cooldown state. Where the pre-cooldown has a timestamp set, that

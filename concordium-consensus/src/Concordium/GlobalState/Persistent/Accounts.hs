@@ -68,6 +68,8 @@ import Concordium.GlobalState.BlockState (AccountsHash (..))
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.Account.MigrationState
+import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
+import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
@@ -76,16 +78,19 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import qualified Concordium.ID.Types as ID
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Types.Option (Option (..))
 import Concordium.Utils
 import Control.Monad
 import Control.Monad.Reader
+import Data.Bool.Singletons
 import Data.Foldable (foldlM)
 import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Serialize
+import Lens.Micro.Platform
 
 -- | Representation of the set of accounts on the chain.
 --  Each account has an 'AccountIndex' which is the order
@@ -313,7 +318,7 @@ getAccountByCredId cid accs@Accounts{..} =
 --  First try lookup in the in-memory difference map associated with the the provided 'Accounts pv',
 --  if no account could be looked up, then we fall back to the lmdb backed account map.
 --
--- If account alises are supported then the equivalence class 'AccountAddressEq' is used for determining
+-- If account aliases are supported then the equivalence class 'AccountAddressEq' is used for determining
 -- whether the provided @AccountAddress@ is in the map, otherwise we check for exactness.
 getAccountIndex :: forall pv m. (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
 getAccountIndex addr Accounts{..} = do
@@ -485,6 +490,53 @@ tryPopulateLMDBStore accts = do
                 ([], 0)
                 accts
 
+-- | Construct an initial 'PersistentActiveBakers' that records all of the bakers that are still
+-- active after migration, but does not include any delegators. This only applies when migrating
+-- to a protocol version from P7 onwards.
+--
+-- The idea is that with the P6->P7 migration, bakers that are in cooldown to be removed will
+-- actually be removed as bakers.
+initialPersistentActiveBakersForMigration ::
+    forall oldpv av t m.
+    ( IsProtocolVersion oldpv,
+      IsAccountVersion av,
+      SupportMigration m t,
+      SupportsPersistentAccount oldpv m
+    ) =>
+    Accounts oldpv ->
+    PersistentActiveBakers (AccountVersionFor oldpv) ->
+    t m (Conditionally (SupportsFlexibleCooldown av) (PersistentActiveBakers av))
+initialPersistentActiveBakersForMigration oldAccounts oldActiveBakers = case sSupportsFlexibleCooldown (accountVersion @av) of
+    SFalse -> return CFalse
+    STrue -> do
+        bakers <- lift $ Trie.keysAsc (oldActiveBakers ^. activeBakers)
+        CTrue <$> foldM accumBakers emptyPersistentActiveBakers bakers
+      where
+        accumBakers :: PersistentActiveBakers av -> BakerId -> t m (PersistentActiveBakers av)
+        accumBakers pab bakerId =
+            lift (indexedAccount (bakerAccountIndex bakerId) oldAccounts) >>= \case
+                Nothing -> error "Baker account does not exist"
+                Just account -> do
+                    lift (accountBaker account) >>= \case
+                        Nothing -> error "Baker account is not a baker."
+                        Just bkr
+                            | RemoveStake{} <- _bakerPendingChange bkr -> do
+                                -- The baker is pending removal, so it will be removed from
+                                -- the account in this update.
+                                return pab
+                            | otherwise -> do
+                                -- The baker is still active, so add it to the persistent active
+                                -- bakers.
+                                newActiveBakers <- Trie.insert bakerId emptyPersistentActiveDelegators (pab ^. activeBakers)
+                                newAggregationKeys <- Trie.insert (bkr ^. bakerAggregationVerifyKey) () (pab ^. aggregationKeys)
+                                let newTotalActiveCapital = addActiveCapital (bkr ^. stakedAmount) (pab ^. totalActiveCapital)
+                                return
+                                    pab
+                                        { _activeBakers = newActiveBakers,
+                                          _aggregationKeys = newAggregationKeys,
+                                          _totalActiveCapital = newTotalActiveCapital
+                                        }
+
 -- | See documentation of @migratePersistentBlockState@.
 migrateAccounts ::
     forall oldpv pv t m.
@@ -495,9 +547,11 @@ migrateAccounts ::
       SupportsPersistentAccount pv (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
+    PersistentActiveBakers (AccountVersionFor oldpv) ->
     Accounts oldpv ->
     t m (Accounts pv, AccountMigrationState oldpv pv)
-migrateAccounts migration Accounts{..} = do
+migrateAccounts migration pab accts@Accounts{..} = do
+    initialPAB' <- initialPersistentActiveBakersForMigration accts pab
     let migrateAccount acct = do
             newAcct <- migrateHashedCachedRef' (migratePersistentAccount migration) acct
             -- Increment the account index counter.
@@ -509,7 +563,7 @@ migrateAccounts migration Accounts{..} = do
                 migrateAccount
                 accountTable
             )
-            initialAccountMigrationState
+            (initialAccountMigrationState initialPAB')
     -- The account registration IDs are not cached. There is a separate cache
     -- that is purely in-memory and just copied over.
     newAccountRegIds <- Trie.migrateUnbufferedTrieN return accountRegIdHistory
