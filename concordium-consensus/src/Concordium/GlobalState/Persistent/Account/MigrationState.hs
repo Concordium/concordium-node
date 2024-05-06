@@ -59,7 +59,9 @@ makeLenses ''AccountMigrationState
 
 -- | Construct an initial 'PersistentActiveBakers' that records all of the bakers that are still
 -- active after migration, but does not include any delegators. This only applies when migrating
--- to a protocol version from P7 onwards.
+-- to a protocol version from P7 onwards. The total active capital constitutes the stake of all
+-- bakers that remain active, with their capital reduced corresponding to any pending reduction
+-- in their stakes.
 --
 -- The idea is that with the P6->P7 migration, bakers that are in cooldown to be removed will
 -- actually be removed as bakers.
@@ -85,17 +87,24 @@ initialPersistentActiveBakersForMigration oldAccounts oldActiveBakers = case sSu
                 Just account -> do
                     lift (accountBaker account) >>= \case
                         Nothing -> error "Baker account is not a baker."
-                        Just bkr
-                            | RemoveStake{} <- _bakerPendingChange bkr -> do
+                        Just bkr -> case _bakerPendingChange bkr of
+                            RemoveStake{} -> do
                                 -- The baker is pending removal, so it will be removed from
                                 -- the account in this update.
                                 return pab
-                            | otherwise -> do
+                            ReduceStake newStake _ -> do
+                                -- The baker's stake is reduced, so retain it with the new stake.
+                                retainBaker newStake
+                            NoChange -> do
+                                -- Retain the baker with the existing stake.
+                                retainBaker (bkr ^. stakedAmount)
+                          where
+                            retainBaker newStake = do
                                 -- The baker is still active, so add it to the persistent active
                                 -- bakers.
                                 newActiveBakers <- Trie.insert bakerId emptyPersistentActiveDelegators (pab ^. activeBakers)
                                 newAggregationKeys <- Trie.insert (bkr ^. bakerAggregationVerifyKey) () (pab ^. aggregationKeys)
-                                let newTotalActiveCapital = addActiveCapital (bkr ^. stakedAmount) (pab ^. totalActiveCapital)
+                                let newTotalActiveCapital = addActiveCapital newStake (pab ^. totalActiveCapital)
                                 return
                                     pab
                                         { _activeBakers = newActiveBakers,
@@ -121,7 +130,8 @@ initialAccountMigrationState _persistentActiveBakers = AccountMigrationState{..}
         STrue -> CFalse
     _currentAccountIndex = 0
 
--- | Construct an initial account migration state that
+-- | Construct an initial account migration state that records all of the active bakers that
+--  remain active after the migration. This is then used
 makeInitialAccountMigrationState ::
     ( IsProtocolVersion pv,
       SupportMigration m t,

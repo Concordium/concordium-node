@@ -231,7 +231,7 @@ migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
 --
 --  Migrate the birk parameters assuming accounts have already been migrated.
 migratePersistentBirkParameters ::
-    forall oldpv pv t m.
+    forall c oldpv pv t m.
     ( IsProtocolVersion pv,
       IsProtocolVersion oldpv,
       SupportMigration m t,
@@ -239,10 +239,13 @@ migratePersistentBirkParameters ::
     ) =>
     StateMigrationParameters oldpv pv ->
     Accounts.Accounts pv ->
+    Conditionally c (PersistentActiveBakers (AccountVersionFor pv)) ->
     PersistentBirkParameters oldpv ->
     t m (PersistentBirkParameters pv)
-migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} = do
-    newActiveBakers <- migrateReference (migratePersistentActiveBakers migration accounts) _birkActiveBakers
+migratePersistentBirkParameters migration accounts mActiveBakers PersistentBirkParameters{..} = do
+    newActiveBakers <- case mActiveBakers of
+        CTrue ab -> refMake ab
+        CFalse -> migrateReference (migratePersistentActiveBakers migration accounts) _birkActiveBakers
     newNextEpochBakers <- migrateHashedBufferedRef (migratePersistentEpochBakers migration) _birkNextEpochBakers
     newCurrentEpochBakers <- migrateHashedBufferedRef (migratePersistentEpochBakers migration) _birkCurrentEpochBakers
     return
@@ -3789,7 +3792,8 @@ migrateBlockPointers migration BlockStatePointers{..} = do
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     pab <- lift . refLoad $ bspBirkParameters ^. birkActiveBakers
-    initMigrationState :: MigrationState.AccountMigrationState oldpv pv <- MigrationState.makeInitialAccountMigrationState bspAccounts pab
+    initMigrationState :: MigrationState.AccountMigrationState oldpv pv <-
+        MigrationState.makeInitialAccountMigrationState bspAccounts pab
     (newAccounts, migrationState) <-
         MigrationState.runAccountMigrationStateTT
             (Accounts.migrateAccounts migration bspAccounts)
@@ -3805,7 +3809,12 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     newIdentityProviders <- migrateHashedBufferedRefKeepHash bspIdentityProviders
     newAnonymityRevokers <- migrateHashedBufferedRefKeepHash bspAnonymityRevokers
     let oldEpoch = bspBirkParameters ^. birkSeedState . epoch
-    newBirkParameters <- migratePersistentBirkParameters migration newAccounts bspBirkParameters
+    newBirkParameters <-
+        migratePersistentBirkParameters
+            migration
+            newAccounts
+            (MigrationState._persistentActiveBakers migrationState)
+            bspBirkParameters
     newCryptographicParameters <- migrateHashedBufferedRefKeepHash bspCryptographicParameters
     newUpdates <- migrateReference (migrateUpdates migration) bspUpdates
     curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
