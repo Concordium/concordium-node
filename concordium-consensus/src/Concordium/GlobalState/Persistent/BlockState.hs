@@ -3788,8 +3788,12 @@ migrateBlockPointers migration BlockStatePointers{..} = do
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
-    pab <- refLoad $ bspBirkParameters ^. birkActiveBakers
-    (newAccounts, migrationState) <- Accounts.migrateAccounts migration pab bspAccounts
+    pab <- lift . refLoad $ bspBirkParameters ^. birkActiveBakers
+    initMigrationState :: MigrationState.AccountMigrationState oldpv pv <- MigrationState.makeInitialAccountMigrationState bspAccounts pab
+    (newAccounts, migrationState) <-
+        MigrationState.runAccountMigrationStateTT
+            (Accounts.migrateAccounts migration bspAccounts)
+            initMigrationState
     newAccountsInCooldown <-
         migrateAccountsInCooldownForPV
             (MigrationState._migrationPrePreCooldown migrationState)

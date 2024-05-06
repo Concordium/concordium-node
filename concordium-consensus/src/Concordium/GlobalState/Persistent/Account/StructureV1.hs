@@ -205,23 +205,41 @@ migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringDelegator{..
     return $! PersistentAccountStakeEnduringDelegator{..}
 
 -- | Migrate a 'PersistentAccountStakeEnduring' from 'AccountV2' to 'AccountV3'.
---  If a cooldown is in effect on the account, then the pending change is removed and returned.
---  The idea is that the target stake will become the pre-pre-cooldown target on migration.
+--  If a cooldown is in effect on the account, then the pending change is removed and the amount
+--  of stake entering cooldown is returned.
+--  If the account is a delegator, then this checks if it was delegating to a baker
+--  that has been removed as a result of the migration, and if so, delegates to passive instead.
+--  Either way, 'retainDelegator' is called with the delegator ID and updated delegated amount and
+--  target.
+--  If the account is not in cooldown, 'Nothing' is returned.
+-- The 'Amount' in the 'State.StateT' represents the current active stake on the account.
 migratePersistentAccountStakeEnduringV2toV3 ::
-    (SupportMigration m t) =>
+    (SupportMigration m t, AccountMigration 'AccountV3 (t m)) =>
     PersistentAccountStakeEnduring 'AccountV2 ->
-    -- | Returns the new 'PersistentAccountStakeEnduring' and the new stake if it changes as a
-    -- result of entering cooldown.
-    t m (PersistentAccountStakeEnduring 'AccountV3, Maybe Amount)
+    -- | Returns the new 'PersistentAccountStakeEnduring' and the amount entering cooldown (if any).
+    State.StateT Amount (t m) (PersistentAccountStakeEnduring 'AccountV3, CooldownQueue 'AccountV3)
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringNone =
-    return (PersistentAccountStakeEnduringNone, Nothing)
+    return (PersistentAccountStakeEnduringNone, emptyCooldownQueue)
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{..} =
     case paseBakerPendingChange of
         RemoveStake _ -> do
             -- The baker is being removed, so we don't migrate it.
-            return (PersistentAccountStakeEnduringNone, Just 0)
-        ReduceStake amt _ -> (,Just amt) <$> keepBakerInfo
-        NoChange -> (,Nothing) <$> keepBakerInfo
+            cooldownAmount <- id <<.= 0 -- Get the old stake, updating it to 0.
+            cooldown <- initialPrePreCooldownQueue cooldownAmount
+            return (PersistentAccountStakeEnduringNone, cooldown)
+        ReduceStake newStake _ -> do
+            oldStake <- State.get
+            unless (newStake <= oldStake) $
+                error $
+                    "Stake on baker 'reduced' from "
+                        ++ show oldStake
+                        ++ " to "
+                        ++ show newStake
+            State.put newStake
+            cooldown <- initialPrePreCooldownQueue (oldStake - newStake)
+            newPASE <- keepBakerInfo
+            return (newPASE, cooldown)
+        NoChange -> (,emptyCooldownQueue) <$> keepBakerInfo
   where
     keepBakerInfo = do
         newBakerInfo <- migrateReference (return . coerceBakerInfoExV1) paseBakerInfo
@@ -233,15 +251,40 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{
                 }
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringDelegator{..} =
     case paseDelegatorPendingChange of
-        RemoveStake _ -> return (PersistentAccountStakeEnduringNone, Just 0)
-        ReduceStake amt _ -> return $!! (newDelegatorInfo, Just amt)
-        NoChange -> return $!! (newDelegatorInfo, Nothing)
-  where
-    newDelegatorInfo =
-        PersistentAccountStakeEnduringDelegator
-            { paseDelegatorPendingChange = NoChange,
-              ..
-            }
+        RemoveStake _ -> do
+            cooldownAmount <- id <<.= 0 -- Get the old stake, updating it to 0.
+            cooldown <- initialPrePreCooldownQueue cooldownAmount
+            return (PersistentAccountStakeEnduringNone, cooldown)
+        _ -> do
+            newTarget <- case paseDelegatorTarget of
+                DelegatePassive -> return DelegatePassive
+                DelegateToBaker bid -> do
+                    removed <- lift $ isBakerRemoved bid
+                    return $ if removed then DelegatePassive else paseDelegatorTarget
+            let newDelegatorInfo =
+                    PersistentAccountStakeEnduringDelegator
+                        { paseDelegatorPendingChange = NoChange,
+                          paseDelegatorTarget = newTarget,
+                          ..
+                        }
+            oldStake <- State.get
+            case paseDelegatorPendingChange of
+                ReduceStake newStake _ -> do
+                    unless (newStake <= oldStake) $
+                        error $
+                            "Stake on delegator "
+                                ++ show paseDelegatorId
+                                ++ " 'reduced' from "
+                                ++ show oldStake
+                                ++ " to "
+                                ++ show newStake
+                    State.put newStake
+                    cooldown <- initialPrePreCooldownQueue (oldStake - newStake)
+                    lift $ retainDelegator paseDelegatorId newStake newTarget
+                    return $!! (newDelegatorInfo, cooldown)
+                NoChange -> do
+                    lift $ retainDelegator paseDelegatorId oldStake newTarget
+                    return $!! (newDelegatorInfo, emptyCooldownQueue)
 
 -- | This relies on the fact that the 'AccountV2' hashing of 'AccountStake' is independent of the
 --  staked amount.
@@ -605,6 +648,7 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
         (pea, newEncryptedAmount) <- storeUpdate paedEncryptedAmount
         (prs, newReleaseSchedule) <- storeUpdate paedReleaseSchedule
         (ps, newStake) <- suStake paedStake
+        (psc, newStakeCooldown) <- storeUpdate paedStakeCooldown
         let p = do
                 put paedHash
                 put flags
@@ -612,12 +656,14 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
                 when (edHasEncryptedAmount flags) pea
                 when (edHasReleaseSchedule flags) prs
                 ps
+                psc
             newpaed =
                 paed
                     { paedPersistingData = newPersistingData,
                       paedEncryptedAmount = newEncryptedAmount,
                       paedReleaseSchedule = newReleaseSchedule,
-                      paedStake = newStake
+                      paedStake = newStake,
+                      paedStakeCooldown = newStakeCooldown
                     }
         return $!! (p, newpaed)
       where
@@ -664,12 +710,13 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
                 paseDelegatorTarget <- if sfPassive then return DelegatePassive else DelegateToBaker <$> get
                 paseDelegatorPendingChange <- getPC sfChangeType
                 return . return $! PersistentAccountStakeEnduringDelegator{..}
+        mStakeCooldown <- load
         return $! do
             paedPersistingData <- mPersistingData
             paedEncryptedAmount <- mEncryptedAmount
             paedReleaseSchedule <- mReleaseSchedule
             paedStake <- mStake
-            let paedStakeCooldown = undefined
+            paedStakeCooldown <- mStakeCooldown
             return PersistentAccountEnduringData{..}
 
 -- * Persistent account
@@ -1507,12 +1554,13 @@ migrateEnduringDataV2 ed = do
             }
 
 -- | Migrate enduring data from 'AccountV2' to 'AccountV3'. If there was a stake cooldown in effect,
---  that is migrated to a pre-pre-cooldown in the new state.
+--  that is migrated to a pre-pre-cooldown in the new state. The 'Amount' in the 'State.StateT'
+--  represents the current active stake on the account.
 migrateEnduringDataV2toV3 ::
     (SupportMigration m t, AccountMigration 'AccountV3 (t m)) =>
     -- | Current enduring data
     PersistentAccountEnduringData 'AccountV2 ->
-    -- | New amount and enduring data.
+    -- | New enduring data.
     State.StateT Amount (t m) (PersistentAccountEnduringData 'AccountV3)
 migrateEnduringDataV2toV3 ed = do
     paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
@@ -1520,14 +1568,7 @@ migrateEnduringDataV2toV3 ed = do
     paedReleaseSchedule <- forM (paedReleaseSchedule ed) $ \(oldRSRef, lockedAmt) -> do
         newRSRef <- migrateReference migrateAccountReleaseSchedule oldRSRef
         return (newRSRef, lockedAmt)
-    (paedStake, newTargetStake) <- migratePersistentAccountStakeEnduringV2toV3 (paedStake ed)
-    paedStakeCooldown <- case newTargetStake of
-        Nothing -> return emptyCooldownQueue
-        Just targetAmount -> do
-            lift addAccountInPrePreCooldown
-            stakeAmount <- State.get
-            State.put targetAmount
-            initialPrePreCooldownQueue (stakeAmount - targetAmount)
+    (paedStake, paedStakeCooldown) <- migratePersistentAccountStakeEnduringV2toV3 (paedStake ed)
     makeAccountEnduringDataAV3
         paedPersistingData
         paedEncryptedAmount

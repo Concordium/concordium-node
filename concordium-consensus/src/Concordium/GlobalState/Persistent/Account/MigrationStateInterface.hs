@@ -16,6 +16,6 @@ class AccountMigration (av :: AccountVersion) m | m -> av where
     --  (The result is unspecified if the 'BakerId' was not a baker prior to migration.)
     isBakerRemoved :: BakerId -> m Bool
 
-    -- | Add a delegator, delegating a specified amount to a delegation target.
-    --  The delegator must not already have been added.
-    addDelegator :: (AVSupportsDelegation av) => DelegatorId -> Amount -> DelegationTarget -> m ()
+    -- | Record that a delegator is retained, delegating a specified amount to a delegation target.
+    --  The delegator must not already have been retained.
+    retainDelegator :: (AVSupportsDelegation av) => DelegatorId -> Amount -> DelegationTarget -> m ()
