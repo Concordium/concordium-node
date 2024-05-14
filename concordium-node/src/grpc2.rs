@@ -1086,7 +1086,22 @@ pub mod server {
                     }
                 });
                 let service = service::queries_server::QueriesServer::new(server);
-                let log_layer = tower_http::trace::TraceLayer::new_for_grpc();
+                let log_layer = {
+                    use tower_http::classify::GrpcCode as Code;
+                    // Change the trace level for gRPC status codes
+                    let classifier = tower_http::classify::GrpcErrorsAsFailures::new()
+                        .with_success(Code::Cancelled)
+                        .with_success(Code::InvalidArgument)
+                        .with_success(Code::NotFound)
+                        .with_success(Code::AlreadyExists)
+                        .with_success(Code::PermissionDenied)
+                        .with_success(Code::Unimplemented)
+                        .with_success(Code::Unavailable)
+                        .with_success(Code::Unauthenticated);
+                    tower_http::trace::TraceLayer::new(tower_http::classify::SharedClassifier::new(
+                        classifier,
+                    ))
+                };
                 let stats_layer = StatsLayer {
                     stats: node.stats.clone(),
                 };
