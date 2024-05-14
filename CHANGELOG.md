@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Change the logs for gRPC API to only consider the following [gRPC status codes](https://github.com/grpc/grpc/blob/master/doc/statuscodes.md#status-codes-and-their-use-in-grpc) as errors:
+  UNKNOWN, DEADLINE_EXCEEDED, RESOURCE_EXHAUSTED, FAILED_PRECONDITION, ABORTED, OUT_OF_RANGE, INTERNAL and DATA_LOSS.
+  The remaining status codes are now logged at DEBUG level.
 - Add support for new `invoke` calls from smart contracts in protocol version 7:
   - query the contract module reference for a given contract address
   - query the contract name for a given contract address
