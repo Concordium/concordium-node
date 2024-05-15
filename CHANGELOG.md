@@ -10,6 +10,12 @@
   the node's database to the new format is done on-demand, which means node
   startup can be a bit slower when a lot of modules exist. All Wasm modules will
   be migrated to the new format when the protocol is updated to P7.
+- Remove support for encrypted transfers in protocol version 7. Transactions with
+  payload types `TransferToEncrypted`, `EncryptedAmountTransfer` and
+  `EncryptedAmountTransferWithMemo` are disabled in this protocol version, which
+  prevents encrypting further CCDs or transferring encrypted CCDs.
+  `TransferToPublic` remains enabled, allowing existing encrypted balances to be
+  decrypted.
 
 ## 6.3.0
 
