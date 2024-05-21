@@ -1087,20 +1087,19 @@ pub mod server {
                 });
                 let service = service::queries_server::QueriesServer::new(server);
                 let log_layer = {
-                    use tower_http::classify::GrpcCode as Code;
-                    // Change the trace level for gRPC status codes
-                    let classifier = tower_http::classify::GrpcErrorsAsFailures::new()
-                        .with_success(Code::Cancelled)
-                        .with_success(Code::InvalidArgument)
-                        .with_success(Code::NotFound)
-                        .with_success(Code::AlreadyExists)
-                        .with_success(Code::PermissionDenied)
-                        .with_success(Code::Unimplemented)
-                        .with_success(Code::Unavailable)
-                        .with_success(Code::Unauthenticated);
-                    tower_http::trace::TraceLayer::new(tower_http::classify::SharedClassifier::new(
-                        classifier,
-                    ))
+                    #[derive(Default, Copy, Clone)]
+                    struct OnFailure;
+                    impl tower_http::trace::OnFailure<tower_http::classify::GrpcFailureClass> for OnFailure {
+                        fn on_failure(
+                            &mut self,
+                            failure: tower_http::classify::GrpcFailureClass,
+                            _latency: std::time::Duration,
+                            _span: &tracing::Span,
+                        ) {
+                            debug!("gRPC request failed {}", failure);
+                        }
+                    }
+                    tower_http::trace::TraceLayer::new_for_grpc().on_failure(OnFailure)
                 };
                 let stats_layer = StatsLayer {
                     stats: node.stats.clone(),
