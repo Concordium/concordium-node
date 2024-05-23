@@ -20,6 +20,7 @@ actually combined and the amounts are right.
 For now `numberOfTransactions == maxNumIncoming + 2`.
 -}
 
+import Control.Monad
 import Data.Foldable
 import Data.Maybe (fromJust)
 import qualified Data.Sequence as Seq
@@ -51,8 +52,9 @@ testCase0 ::
     Types.SProtocolVersion pv ->
     String ->
     Spec
-testCase0 _ pvString = specify
-    (pvString ++ ": Makes a chain of encrypted transfers testing maxNumIncoming")
+testCase0 spv pvString = when (supportsEncryptedTransfers spv)
+    $ specify
+        (pvString ++ ": Makes a chain of encrypted transfers testing maxNumIncoming")
     $ do
         transactionsAndAssertions <- makeTransactionsAndAssertions
         Helpers.runSchedulerTestAssertIntermediateStates

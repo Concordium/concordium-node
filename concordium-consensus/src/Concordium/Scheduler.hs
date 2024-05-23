@@ -268,12 +268,10 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
     -- Hence we can increase the account nonce of the sender account.
     increaseAccountNonce senderAccount
 
-    let psize = payloadSize (transactionPayload msg)
-
     tsIndex <- bumpTransactionIndex
     -- Payload is not parametrised by the protocol version, but decodePayload only returns
     -- payloads appropriate to the protocol version.
-    case decodePayload (protocolVersion @(MPV m)) psize (transactionPayload msg) of
+    case decodePayload (protocolVersion @(MPV m)) (transactionPayload msg) of
         Left _ -> do
             -- In case of serialization failure we charge the sender for checking
             -- the header and reject the transaction; we have checked that the amount
