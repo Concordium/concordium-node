@@ -27,6 +27,7 @@ import Concordium.GlobalState.Account
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import Concordium.GlobalState.BlockState (AccountAllowance)
+import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as V1
@@ -119,18 +120,28 @@ accountAmount (PAV2 acc) = V1.getAmount acc
 accountAmount (PAV3 acc) = V1.getAmount acc
 
 -- | Gets the amount of a baker's stake, or 'Nothing' if the account is not a baker.
+--  This consists only of the active stake, and does not include any inactive stake.
 accountBakerStakeAmount :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe Amount)
 accountBakerStakeAmount (PAV0 acc) = V0.getBakerStakeAmount acc
 accountBakerStakeAmount (PAV1 acc) = V0.getBakerStakeAmount acc
 accountBakerStakeAmount (PAV2 acc) = V1.getBakerStakeAmount acc
 accountBakerStakeAmount (PAV3 acc) = V1.getBakerStakeAmount acc
 
--- | Get the amount that is staked on the account.
-accountStakedAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
-accountStakedAmount (PAV0 acc) = V0.getStakedAmount acc
-accountStakedAmount (PAV1 acc) = V0.getStakedAmount acc
-accountStakedAmount (PAV2 acc) = V1.getStakedAmount acc
-accountStakedAmount (PAV3 acc) = V1.getStakedAmount acc
+-- | Get the amount that is actively staked on an account as a baker or delegator.
+accountActiveStakedAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
+accountActiveStakedAmount (PAV0 acc) = V0.getStakedAmount acc
+accountActiveStakedAmount (PAV1 acc) = V0.getStakedAmount acc
+accountActiveStakedAmount (PAV2 acc) = V1.getActiveStakedAmount acc
+accountActiveStakedAmount (PAV3 acc) = V1.getActiveStakedAmount acc
+
+-- | Get the amount that is staked on the account (both active and inactive).
+accountTotalStakedAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
+accountTotalStakedAmount (PAV0 acc) = V0.getStakedAmount acc
+accountTotalStakedAmount (PAV1 acc) = V0.getStakedAmount acc
+accountTotalStakedAmount (PAV2 acc) =
+    -- This is the same as the total staked amount in account version 2.
+    V1.getActiveStakedAmount acc
+accountTotalStakedAmount (PAV3 acc) = V1.getTotalStakedAmount acc
 
 -- | Get the amount that is locked in scheduled releases on the account.
 accountLockedAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
@@ -245,11 +256,11 @@ accountStake (PAV2 acc) = V1.getStake acc
 accountStake (PAV3 acc) = V1.getStake acc
 
 -- | Determine if an account has stake as a baker or delegator.
-accountHasStake :: PersistentAccount av -> Bool
-accountHasStake (PAV0 acc) = V0.hasStake acc
-accountHasStake (PAV1 acc) = V0.hasStake acc
-accountHasStake (PAV2 acc) = V1.hasStake acc
-accountHasStake (PAV3 acc) = V1.hasStake acc
+accountHasActiveStake :: PersistentAccount av -> Bool
+accountHasActiveStake (PAV0 acc) = V0.hasActiveStake acc
+accountHasActiveStake (PAV1 acc) = V0.hasActiveStake acc
+accountHasActiveStake (PAV2 acc) = V1.hasActiveStake acc
+accountHasActiveStake (PAV3 acc) = V1.hasActiveStake acc
 
 -- | Get details about an account's stake.
 accountStakeDetails :: (MonadBlobStore m) => PersistentAccount av -> m (StakeDetails av)
@@ -257,6 +268,14 @@ accountStakeDetails (PAV0 acc) = V0.getStakeDetails acc
 accountStakeDetails (PAV1 acc) = V0.getStakeDetails acc
 accountStakeDetails (PAV2 acc) = V1.getStakeDetails acc
 accountStakeDetails (PAV3 acc) = V1.getStakeDetails acc
+
+-- | Get the 'Cooldowns' for an account, if any. This is only available at account versions that
+-- support flexible cooldowns.
+accountCooldowns ::
+    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+    PersistentAccount av ->
+    m (Maybe Cooldowns)
+accountCooldowns (PAV3 acc) = V1.getCooldowns acc
 
 -- | Get the 'AccountHash' for the account.
 accountHash :: (MonadBlobStore m) => PersistentAccount av -> m (AccountHash av)

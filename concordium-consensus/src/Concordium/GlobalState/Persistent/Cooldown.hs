@@ -35,6 +35,13 @@ instance (MonadBlobStore m) => BlobStorable m AccountListItem where
 -- | A possibly empty list of 'AccountIndex'es, stored under 'UnbufferedRef's.
 type AccountList = Nullable (UnbufferedRef AccountListItem)
 
+-- | Load an entire account list. This is intended for testing purposes.
+loadAccountList :: (MonadBlobStore m) => AccountList -> m [AccountIndex]
+loadAccountList Null = return []
+loadAccountList (Some ref) = do
+    AccountListItem{..} <- refLoad ref
+    (accountListEntry :) <$> loadAccountList accountListTail
+
 -- | Migrate an 'AccountList' from one context to another.
 migrateAccountList :: (SupportMigration m t) => AccountList -> t m AccountList
 migrateAccountList Null = return Null

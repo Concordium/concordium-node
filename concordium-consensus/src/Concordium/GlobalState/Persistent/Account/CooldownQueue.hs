@@ -58,8 +58,14 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
         ofNullable Null = EmptyCooldownQueue
         ofNullable (Some queue) = CooldownQueue queue
 
-instance HashableTo (CooldownQueueHash av) (CooldownQueue av) where
-    getHash _ = undefined -- FIXME: Define
+-- | The has of 'EmptyCooldownQueue'.
+emptyCooldownQueueHash :: CooldownQueueHash av
+{-# NOINLINE emptyCooldownQueueHash #-}
+emptyCooldownQueueHash = CooldownQueueHash (getHash emptyCooldowns)
+
+instance (MonadBlobStore m) => MHashableTo m (CooldownQueueHash av) (CooldownQueue av) where
+    getHashM EmptyCooldownQueue = return emptyCooldownQueueHash
+    getHashM (CooldownQueue ref) = CooldownQueueHash . getHash <$> refLoad ref
 
 -- | The empty 'CooldownQueue'.
 emptyCooldownQueue :: CooldownQueue av
@@ -102,6 +108,11 @@ migrateCooldownQueue :: forall m t av. (SupportMigration m t) => CooldownQueue a
 migrateCooldownQueue EmptyCooldownQueue = return EmptyCooldownQueue
 migrateCooldownQueue (CooldownQueue queueRef) =
     CooldownQueue <$> migrateEagerBufferedRef return queueRef
+
+-- | Get the total stake in cooldown, pre-cooldown and pre-pre-cooldown.
+cooldownStake :: CooldownQueue av -> Amount
+cooldownStake EmptyCooldownQueue = 0
+cooldownStake (CooldownQueue queueRef) = cooldownTotal $ eagerBufferedDeref queueRef
 
 {-
 -- | Convert a 'Cooldowns' to a 'CooldownQueue', using 'EmptyCooldownQueue' for the case where

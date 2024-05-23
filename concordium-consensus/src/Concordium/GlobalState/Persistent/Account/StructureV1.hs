@@ -42,6 +42,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TARS
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
 import Concordium.GlobalState.BlockState (AccountAllowance (..))
+import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.Persistent.Account.CooldownQueue
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
 import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
@@ -226,6 +227,7 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{
             -- The baker is being removed, so we don't migrate it.
             cooldownAmount <- id <<.= 0 -- Get the old stake, updating it to 0.
             cooldown <- initialPrePreCooldownQueue cooldownAmount
+            lift addAccountInPrePreCooldown
             return (PersistentAccountStakeEnduringNone, cooldown)
         ReduceStake newStake _ -> do
             oldStake <- State.get
@@ -237,6 +239,7 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{
                         ++ show newStake
             State.put newStake
             cooldown <- initialPrePreCooldownQueue (oldStake - newStake)
+            lift addAccountInPrePreCooldown
             newPASE <- keepBakerInfo
             return (newPASE, cooldown)
         NoChange -> (,emptyCooldownQueue) <$> keepBakerInfo
@@ -254,6 +257,7 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringDelega
         RemoveStake _ -> do
             cooldownAmount <- id <<.= 0 -- Get the old stake, updating it to 0.
             cooldown <- initialPrePreCooldownQueue cooldownAmount
+            lift addAccountInPrePreCooldown
             return (PersistentAccountStakeEnduringNone, cooldown)
         _ -> do
             newTarget <- case paseDelegatorTarget of
@@ -280,7 +284,9 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringDelega
                                 ++ show newStake
                     State.put newStake
                     cooldown <- initialPrePreCooldownQueue (oldStake - newStake)
-                    lift $ retainDelegator paseDelegatorId newStake newTarget
+                    lift $ do
+                        addAccountInPrePreCooldown
+                        retainDelegator paseDelegatorId newStake newTarget
                     return $!! (newDelegatorInfo, cooldown)
                 NoChange -> do
                     lift $ retainDelegator paseDelegatorId oldStake newTarget
@@ -390,7 +396,7 @@ makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSch
     amhi3AccountReleaseScheduleHash <- case paedReleaseSchedule of
         Null -> return TARSV1.emptyAccountReleaseScheduleHashV1
         Some (rs, _) -> getHashM rs
-    let amhi3Cooldown = getHash paedStakeCooldown
+    amhi3Cooldown <- getHashM paedStakeCooldown
     let hashInputs :: AccountMerkleHashInputs 'AccountV3
         hashInputs = AccountMerkleHashInputsV3{..}
         !paedHash = getHash hashInputs
@@ -421,7 +427,7 @@ rehashAccountEnduringDataAV3 ed = do
     amhi3AccountReleaseScheduleHash <- case paedReleaseSchedule ed of
         Null -> return TARSV1.emptyAccountReleaseScheduleHashV1
         Some (rs, _) -> getHashM rs
-    let amhi3Cooldown = getHash $ paedStakeCooldown ed
+    amhi3Cooldown <- getHashM $ paedStakeCooldown ed
     let hashInputs :: AccountMerkleHashInputs 'AccountV3
         hashInputs = AccountMerkleHashInputsV3{..}
     return $! ed{paedHash = getHash hashInputs}
@@ -489,7 +495,8 @@ pendingChangeFlagsFromBits _ = Left "Invalid pending change type"
 --
 --  - Bits 5 and 4 indicate the staking status of the account:
 --
---    - If bits 5 and 4 are unset, there is no staking. The remaining bit are also unset.
+--    - If bits 5 and 4 are unset, there is no staking. Bit 0 is set if there is stake in cooldown.
+--      All other bits are unset.
 --
 --    - If bit 5 is unset and bit 4 is set, the account is a baker. In this case
 --
@@ -820,9 +827,18 @@ getBakerStakeAmount acc = do
         PersistentAccountStakeEnduringBaker{} -> Just $! accountStakedAmount acc
         _ -> Nothing
 
--- | Get the amount that is staked on the account.
-getStakedAmount :: (Monad m) => PersistentAccount av -> m Amount
-getStakedAmount acc = return $! accountStakedAmount acc
+-- | Get the amount that is actively staked on the account.
+getActiveStakedAmount :: (Monad m) => PersistentAccount av -> m Amount
+getActiveStakedAmount acc = return $! accountStakedAmount acc
+
+-- | Get the total amount that is staked on the account including the active stake (for a validator
+-- or delegator) and the inactive stake (in cooldown).
+-- For account versions prior to 'AccountV3', this is the same as 'getActiveStakedAmount'.
+getTotalStakedAmount :: (Monad m) => PersistentAccount av -> m Amount
+getTotalStakedAmount acc = return $! activeStake + inactiveStake
+  where
+    activeStake = accountStakedAmount acc
+    inactiveStake = cooldownStake $ paedStakeCooldown (enduringData acc)
 
 -- | Get the amount that is locked in scheduled releases on the account.
 getLockedAmount :: (Monad m) => PersistentAccount av -> m Amount
@@ -832,11 +848,15 @@ getLockedAmount acc = do
 
 -- | Get the current public account available balance.
 -- This accounts for lock-up and staked amounts.
--- @available = total - max locked staked@
+-- @available = total - max locked staked@ where
+-- @staked = active + inactive@.
 getAvailableAmount :: (Monad m) => PersistentAccount av -> m Amount
 getAvailableAmount acc = do
     let ed = enduringData acc
-    return $! accountAmount acc - max (accountStakedAmount acc) (paedLockedAmount ed)
+        activeStake = accountStakedAmount acc
+        inactiveStake = cooldownStake $ paedStakeCooldown ed
+        stake = activeStake + inactiveStake
+    return $! accountAmount acc - max stake (paedLockedAmount ed)
 
 -- | Get the next account nonce for transactions from this account.
 getNonce :: (Monad m) => PersistentAccount av -> m Nonce
@@ -984,8 +1004,8 @@ getStake acc = do
     persistentToAccountStake (paedStake ed) (accountStakedAmount acc)
 
 -- | Determine if an account has stake as a baker or delegator.
-hasStake :: PersistentAccount av -> Bool
-hasStake acc = case paedStake (enduringData acc) of
+hasActiveStake :: PersistentAccount av -> Bool
+hasActiveStake acc = case paedStake (enduringData acc) of
     PersistentAccountStakeEnduringNone -> False
     _ -> True
 
@@ -1016,6 +1036,15 @@ getStakeCooldown ::
 getStakeCooldown acc = do
     let ed = enduringData acc
     return $ paedStakeCooldown ed
+
+getCooldowns ::
+    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+    PersistentAccount av ->
+    m (Maybe Cooldowns)
+getCooldowns =
+    getStakeCooldown >=> \case
+        EmptyCooldownQueue -> return Nothing
+        CooldownQueue ref -> Just <$> refLoad ref
 
 -- ** Updates
 

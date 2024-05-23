@@ -13,7 +13,7 @@ genPendingChangeFlags = elements [PendingChangeNone, PendingChangeReduce, Pendin
 genStakeFlags :: Gen StakeFlags
 genStakeFlags =
     oneof
-        [ pure StakeFlagsNone,
+        [ StakeFlagsNone <$> arbitrary,
           StakeFlagsBaker <$> arbitrary <*> genPendingChangeFlags,
           StakeFlagsDelegator <$> arbitrary <*> arbitrary <*> genPendingChangeFlags
         ]

@@ -234,5 +234,9 @@ instance
                                 ++ " (delegated to by "
                                 ++ show delId
                                 ++ ") is not a baker."
-                    Right newPAB -> persistentActiveBakers .= CTrue newPAB
+                    Right newPAB -> do
+                        -- Note that addDelegator does not change the total active capital, so
+                        -- we do it here.
+                        persistentActiveBakers
+                            .= CTrue (newPAB & totalActiveCapital %~ addActiveCapital delAmt)
             CFalse -> return ()

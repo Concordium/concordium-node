@@ -46,7 +46,7 @@ import Test.Hspec
 import Test.QuickCheck
 import Prelude hiding (fail)
 
-type PV = 'P5
+type PV = 'P6
 
 newtype NoLoggerT m a = NoLoggerT {runNoLoggerT :: m a}
     deriving (Functor, Applicative, Monad, MonadIO, MonadReader r, MonadFail)
@@ -278,7 +278,10 @@ tests lvl = describe "GlobalStateTests.Accounts"
                         pbscAccountMap <- LMDBAccountMap.openDatabase (dir </> "accountmap")
                         return PersistentBlockStateContext{..}
                     )
-                    (closeBlobStore . pbscBlobStore)
+                    ( \PersistentBlockStateContext{..} -> do
+                        closeBlobStore pbscBlobStore
+                        LMDBAccountMap.closeDatabase pbscAccountMap
+                    )
                     kont
         )
     $ do

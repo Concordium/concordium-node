@@ -11,7 +11,9 @@ import qualified Data.Bits as Bits
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 
+import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
+import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
 
 import Concordium.GlobalState.Persistent.BlobStore
@@ -70,3 +72,23 @@ isEmptyCooldowns Cooldowns{..} =
     Map.null inCooldown
         && null preCooldown
         && null prePreCooldown
+
+-- | A 'Cooldowns' with no stake in cooldown, pre-cooldown or pre-pre-cooldown.
+emptyCooldowns :: Cooldowns
+emptyCooldowns =
+    Cooldowns
+        { inCooldown = Map.empty,
+          preCooldown = Absent,
+          prePreCooldown = Absent
+        }
+
+-- | The total amount in cooldown, pre-cooldown and pre-pre-cooldown.
+cooldownTotal :: Cooldowns -> Amount
+cooldownTotal Cooldowns{..} =
+    sum (Map.elems inCooldown)
+        + fromOption 0 preCooldown
+        + fromOption 0 prePreCooldown
+
+-- FIXME: Decide if we want to use the serialization for hashing.
+instance HashableTo Hash.Hash Cooldowns where
+    getHash = getHash . encode

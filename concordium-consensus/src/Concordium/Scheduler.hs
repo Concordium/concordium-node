@@ -1357,7 +1357,7 @@ handleContractUpdateV1 originAddr istance checkAndGetSender transferAmount recei
                                                 balance <- getCurrentAccountTotalAmount indexedAccount
                                                 -- During this transaction the staked and locked amount could not have been affected.
                                                 -- Hence we can simply take the relevant balance from the "state account".
-                                                stake <- getAccountStakedAmount account
+                                                stake <- getAccountTotalStakedAmount account
                                                 lockedAmount <- getAccountLockedAmount account
                                                 -- Construct the return value.
                                                 let returnValue = WasmV1.byteStringToReturnValue $ S.runPut $ do

@@ -167,9 +167,9 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- | Check whether an account is allowed to perform the given action.
     checkAccountIsAllowed :: Account m -> AccountAllowance -> m Bool
 
-    -- | Get the amount that is staked on the account.
+    -- | Get the amount that is staked on the account, both active and inactive (P7 onwards).
     --  This is 0 if the account is not staking or delegating.
-    getAccountStakedAmount :: Account m -> m Amount
+    getAccountTotalStakedAmount :: Account m -> m Amount
 
     -- | Get the amount that is locked in scheduled releases on the account.
     --  This is 0 if there are no pending releases on the account.
@@ -179,11 +179,6 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- This accounts for lock-up and staked amounts.
     -- @available = total - max locked staked@
     getAccountAvailableAmount :: Account m -> m Amount
-    getAccountAvailableAmount acc = do
-        total <- getAccountAmount acc
-        lockedUp <- getAccountLockedAmount acc
-        staked <- getAccountStakedAmount acc
-        return $ total - max lockedUp staked
 
     -- | Get the next available nonce for this account
     getAccountNonce :: Account m -> m Nonce
@@ -1541,7 +1536,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
     getAccountAmount = lift . getAccountAmount
     checkAccountIsAllowed acc = lift . checkAccountIsAllowed acc
-    getAccountStakedAmount = lift . getAccountStakedAmount
+    getAccountTotalStakedAmount = lift . getAccountTotalStakedAmount
     getAccountLockedAmount = lift . getAccountLockedAmount
     getAccountAvailableAmount = lift . getAccountAvailableAmount
     getAccountNonce = lift . getAccountNonce
