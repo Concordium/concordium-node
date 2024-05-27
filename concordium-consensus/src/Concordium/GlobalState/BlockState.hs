@@ -81,7 +81,7 @@ import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.IdentityProviders
-import Concordium.Types.Queries (PoolStatus, RewardStatus')
+import Concordium.Types.Queries (BakerPoolStatus, PassiveDelegationStatus, RewardStatus')
 import Concordium.Types.SeedState (SeedState, SeedStateVersion (..), SeedStateVersionFor)
 import Concordium.Types.Transactions hiding (BareBlockItem (..))
 import qualified Concordium.Types.UpdateQueues as UQ
@@ -641,14 +641,19 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (PVSupportsDelegation (MPV m)) => BlockState m -> m Epoch
 
-    -- | Get a 'PoolStatus' record describing the status of a baker pool (when the 'BakerId' is
-    --  provided) or the passive delegators (when 'Nothing' is provided). The result is 'Nothing'
-    --  if the 'BakerId' is not currently a baker.
+    -- | Get a 'BakerPoolStatus' record describing the status of a baker pool. The result is
+    -- 'Nothing' if the 'BakerId' is not an active or current-epoch baker.
     getPoolStatus ::
         (PVSupportsDelegation (MPV m)) =>
         BlockState m ->
-        Maybe BakerId ->
-        m (Maybe PoolStatus)
+        BakerId ->
+        m (Maybe BakerPoolStatus)
+
+    -- | Get the status of passive delegation.
+    getPassiveDelegationStatus ::
+        (PVSupportsDelegation (MPV m)) =>
+        BlockState m ->
+        m PassiveDelegationStatus
 
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
@@ -1497,6 +1502,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getChainParameters = lift . getChainParameters
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
+    getPassiveDelegationStatus = lift . getPassiveDelegationStatus
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE accountExists #-}
