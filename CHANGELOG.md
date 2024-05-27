@@ -2,6 +2,7 @@
 
 ## Unreleased changes
 
+- Change the severity of logs for failed gRPC API requests to DEBUG level.
 - Add support for new `invoke` calls from smart contracts in protocol version 7:
   - query the contract module reference for a given contract address
   - query the contract name for a given contract address

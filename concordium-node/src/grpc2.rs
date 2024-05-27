@@ -1086,7 +1086,21 @@ pub mod server {
                     }
                 });
                 let service = service::queries_server::QueriesServer::new(server);
-                let log_layer = tower_http::trace::TraceLayer::new_for_grpc();
+                let log_layer = {
+                    #[derive(Default, Copy, Clone)]
+                    struct OnFailure;
+                    impl tower_http::trace::OnFailure<tower_http::classify::GrpcFailureClass> for OnFailure {
+                        fn on_failure(
+                            &mut self,
+                            failure: tower_http::classify::GrpcFailureClass,
+                            _latency: std::time::Duration,
+                            _span: &tracing::Span,
+                        ) {
+                            debug!("gRPC request failed {}", failure);
+                        }
+                    }
+                    tower_http::trace::TraceLayer::new_for_grpc().on_failure(OnFailure)
+                };
                 let stats_layer = StatsLayer {
                     stats: node.stats.clone(),
                 };

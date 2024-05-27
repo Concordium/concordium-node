@@ -851,6 +851,7 @@ dependencies = [
  "tonic-web",
  "tower",
  "tower-http",
+ "tracing",
  "twox-hash",
  "url",
  "walkdir",
