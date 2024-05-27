@@ -1125,7 +1125,7 @@ getModuleSource bhi modRef = do
         bhi
 
 -- | Get the status of a particular delegation pool.
-getPoolStatus :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BHIQueryResponse (Maybe PoolStatus))
+getPoolStatus :: forall finconf. BlockHashInput -> BakerId -> MVR finconf (BHIQueryResponse (Maybe BakerPoolStatus))
 getPoolStatus blockHashInput mbid = do
     liftSkovQueryStateBHI poolStatus blockHashInput
   where
@@ -1133,10 +1133,24 @@ getPoolStatus blockHashInput mbid = do
         forall m.
         (BS.BlockStateQuery m, MonadProtocolVersion m) =>
         BlockState m ->
-        m (Maybe PoolStatus)
+        m (Maybe BakerPoolStatus)
     poolStatus bs = case delegationSupport @(AccountVersionFor (MPV m)) of
         SAVDelegationNotSupported -> return Nothing
         SAVDelegationSupported -> BS.getPoolStatus bs mbid
+
+-- | Get the status of passive delegation.
+getPassiveDelegationStatus :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Maybe PassiveDelegationStatus))
+getPassiveDelegationStatus blockHashInput = do
+    liftSkovQueryStateBHI poolStatus blockHashInput
+  where
+    poolStatus ::
+        forall m.
+        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        BlockState m ->
+        m (Maybe PassiveDelegationStatus)
+    poolStatus bs = case delegationSupport @(AccountVersionFor (MPV m)) of
+        SAVDelegationNotSupported -> return Nothing
+        SAVDelegationSupported -> Just <$> BS.getPassiveDelegationStatus bs
 
 -- | Get a list of all registered baker IDs in the specified block.
 getRegisteredBakers :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse [BakerId])
@@ -1679,7 +1693,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
         let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
         mapBakersToInfos bs (Vec.toList $ fullBakerInfos bakers) (SkovV1.finalizerBakerId <$> Vec.toList (SkovV1.committeeFinalizers finalizationCommittee))
-    -- Map bakers to their assoicated 'BakerRewardPeriodInfo'.
+    -- Map bakers to their associated 'BakerRewardPeriodInfo'.
     -- The supplied bakers and list of baker ids (of the finalization committee) MUST
     -- be sorted in ascending order of their baker id.
     -- Returns a list of BakerRewardPeriodInfo's in ascending order of the baker id.
@@ -1720,19 +1734,21 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         m BakerRewardPeriodInfo
     toBakerRewardPeriodInfo isFinalizer bs FullBakerInfo{..} = do
         let bakerId = _bakerIdentity _theBakerInfo
-        BS.getPoolStatus bs (Just bakerId) >>= \case
+        BS.getPoolStatus bs bakerId >>= \case
             Nothing -> error "A pool for a known baker could not be looked up."
-            Just PassiveDelegationStatus{} -> error "A passive delegation status was returned when querying with a bakerid."
-            Just BakerPoolStatus{..} -> do
-                return
-                    BakerRewardPeriodInfo
-                        { brpiBaker = _theBakerInfo,
-                          brpiEffectiveStake = _bakerStake,
-                          brpiCommissionRates = psPoolInfo ^. poolCommissionRates,
-                          brpiEquityCapital = psBakerEquityCapital,
-                          brpiDelegatedCapital = psDelegatedCapital,
-                          brpiIsFinalizer = isFinalizer
-                        }
+            Just bps
+                | Just CurrentPaydayBakerPoolStatus{..} <- psCurrentPaydayStatus bps -> do
+                    return
+                        BakerRewardPeriodInfo
+                            { brpiBaker = _theBakerInfo,
+                              brpiEffectiveStake = _bakerStake,
+                              brpiCommissionRates = bpsCommissionRates,
+                              brpiEquityCapital = bpsBakerEquityCapital,
+                              brpiDelegatedCapital = bpsDelegatedCapital,
+                              brpiIsFinalizer = isFinalizer
+                            }
+                | otherwise ->
+                    error "The current payday status for a known baker could not be looked up."
 
 -- | Get the earliest time at which a baker is projected to win the lottery.
 --  Returns 'Nothing' for consensus version 0.
