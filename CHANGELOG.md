@@ -3,6 +3,7 @@
 ## Unreleased changes
 
 - Fix a bug where `GetBakersRewardPeriod` returns incorrect data (#1176).
+- Fix a bug where `GetPoolInfo` returns incorrect data (#1177).
 - Change the severity of logs for failed gRPC API requests to DEBUG level.
 - Add support for new `invoke` calls from smart contracts in protocol version 7:
   - query the contract module reference for a given contract address
