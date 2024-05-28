@@ -83,6 +83,7 @@ import qualified Concordium.Types.Execution as Transactions
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.IdentityProviders as IPS
 import Concordium.Types.Queries (
+    ActiveBakerPoolStatus (..),
     BakerPoolStatus (..),
     CurrentPaydayBakerPoolStatus (..),
     PassiveDelegationStatus (..),
@@ -2753,8 +2754,8 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                             delegatedCapitalCap
                                 poolParameters
                                 psAllPoolTotalCapital
-                                psBakerEquityCapital
-                                psDelegatedCapital
+                                abpsBakerEquityCapital
+                                abpsDelegatedCapital
                     let abpsPoolInfo = baker ^. BaseAccounts.bakerPoolInfo
                     let abpsBakerStakePendingChange =
                             makePoolPendingChange $ BaseAccounts.pendingChangeEffectiveTimestamp <$> (baker ^. BaseAccounts.bakerPendingChange)
@@ -2763,7 +2764,7 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                 mepochBaker <- epochBaker psBakerId epochBakers
                 psCurrentPaydayStatus <- case mepochBaker of
                     Nothing -> return Nothing
-                    Just (_, effectiveStake) -> do
+                    Just (currentEpochBaker, effectiveStake) -> do
                         poolRewards <- refLoad (bspPoolRewards bsp)
                         mbcr <- lookupBakerCapitalAndRewardDetails psBakerId poolRewards
                         case mbcr of
@@ -2781,7 +2782,10 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                                                     / fromIntegral (_bakerTotalStake epochBakers),
                                               bpsBakerEquityCapital = bcBakerEquityCapital bc,
                                               bpsDelegatedCapital = bcTotalDelegatorCapital bc,
-                                              bpsCommissionRates = psPoolInfo ^. BaseAccounts.poolCommissionRates
+                                              bpsCommissionRates =
+                                                currentEpochBaker
+                                                    ^. BaseAccounts.bieBakerPoolInfo
+                                                        . BaseAccounts.poolCommissionRates
                                             }
                 if isJust psActiveStatus || isJust psCurrentPaydayStatus
                     then return $ Just BakerPoolStatus{..}

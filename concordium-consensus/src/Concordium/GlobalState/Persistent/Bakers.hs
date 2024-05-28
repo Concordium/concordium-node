@@ -162,10 +162,15 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
             }
 
 -- | Look up a baker and its stake in a 'PersistentEpochBakers'.
-epochBaker :: forall m pv. (IsProtocolVersion pv, MonadBlobStore m) => BakerId -> PersistentEpochBakers pv -> m (Maybe (BaseAccounts.BakerInfo, Amount))
+epochBaker ::
+    forall m pv.
+    (IsProtocolVersion pv, MonadBlobStore m) =>
+    BakerId ->
+    PersistentEpochBakers pv ->
+    m (Maybe (BaseAccounts.BakerInfoEx (AccountVersionFor pv), Amount))
 epochBaker bid PersistentEpochBakers{..} = do
     (BakerInfos infoVec) <- refLoad _bakerInfos
-    minfo <- binarySearchIM loadBakerInfo BaseAccounts._bakerIdentity infoVec bid
+    minfo <- binarySearchIM loadPersistentBakerInfoRef (^. BaseAccounts.bakerIdentity) infoVec bid
     forM minfo $ \(idx, binfo) -> do
         (BakerStakes stakeVec) <- refLoad _bakerStakes
         return (binfo, stakeVec Vec.! idx)
