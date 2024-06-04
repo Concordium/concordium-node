@@ -89,6 +89,7 @@ import qualified Concordium.Types.UpdateQueues as UQ
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.CooldownQueue (Cooldowns)
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
@@ -244,6 +245,13 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- | Get the hash of an account.
     --  Note: this may not be implemented efficiently, and is principally intended for testing purposes.
     getAccountHash :: Account m -> m (AccountHash (AccountVersionFor (MPV m)))
+
+    -- | Get the 'Cooldowns' for an account, if any. This is only available at account versions that
+    -- support flexible cooldowns.
+    getAccountCooldowns ::
+        (SupportsFlexibleCooldown (AccountVersionFor (MPV m)) ~ True) =>
+        Account m ->
+        m (Maybe Cooldowns)
 
 -- * Active, current and next bakers/delegators
 
@@ -1557,6 +1565,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountBakerInfoRef = lift . getAccountBakerInfoRef
     derefBakerInfo = lift . derefBakerInfo
     getAccountHash = lift . getAccountHash
+    getAccountCooldowns = lift . getAccountCooldowns
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1571,6 +1580,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE getAccountBakerInfoRef #-}
     {-# INLINE derefBakerInfo #-}
     {-# INLINE getAccountHash #-}
+    {-# INLINE getAccountCooldowns #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState
