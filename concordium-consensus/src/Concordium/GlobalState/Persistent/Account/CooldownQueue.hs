@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
@@ -18,7 +19,7 @@ import Concordium.Utils
 
 import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.CooldownQueue as Transient
-import Concordium.GlobalState.CooldownQueue
+import Concordium.GlobalState.CooldownQueue as Cooldowns
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types.Option
 
@@ -31,7 +32,7 @@ data CooldownQueue (av :: AccountVersion) where
     -- | A non-empty cooldown queue.
     --  INVARIANT: The 'Cooldowns' must not satisfy 'isEmptyCooldowns'.
     CooldownQueue ::
-        (SupportsFlexibleCooldown av ~ 'True) =>
+        (AVSupportsFlexibleCooldown av) =>
         !(EagerBufferedRef Cooldowns) ->
         CooldownQueue av
 
@@ -76,6 +77,15 @@ isCooldownQueueEmpty :: CooldownQueue av -> Bool
 isCooldownQueueEmpty EmptyCooldownQueue = True
 isCooldownQueueEmpty _ = False
 
+-- | Construct a 'CooldownQueue' from a 'Cooldowns', which may be empty.
+makeCooldownQueue ::
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
+    Cooldowns ->
+    m (CooldownQueue av)
+makeCooldownQueue cooldowns
+    | isEmptyCooldowns cooldowns = return EmptyCooldownQueue
+    | otherwise = CooldownQueue <$> refMake cooldowns
+
 makePersistentCooldownQueue ::
     (MonadBlobStore m) =>
     Transient.CooldownQueue av ->
@@ -90,7 +100,7 @@ toTransientCooldownQueue (CooldownQueue queueRef) =
 
 -- | Create an initial 'CooldownQueue' with only the given amount set in pre-pre-cooldown.
 initialPrePreCooldownQueue ::
-    (MonadBlobStore m, SupportsFlexibleCooldown av ~ True) =>
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     -- | Initial amount in pre-pre-cooldown.
     Amount ->
     m (CooldownQueue av)
@@ -114,96 +124,56 @@ cooldownStake :: CooldownQueue av -> Amount
 cooldownStake EmptyCooldownQueue = 0
 cooldownStake (CooldownQueue queueRef) = cooldownTotal $ eagerBufferedDeref queueRef
 
-{-
--- | Convert a 'Cooldowns' to a 'CooldownQueue', using 'EmptyCooldownQueue' for the case where
---  there are no cooldowns.
-fromCooldowns :: (SupportsFlexibleCooldown av ~ True) => Cooldowns -> CooldownQueue av
-fromCooldowns cooldowns
-    | isEmptyCooldowns cooldowns = emptyCooldownQueue
-    | otherwise = CooldownQueue cooldowns
-
 -- | Process all cooldowns that expire at or before the given timestamp.
---  If there are no such cooldowns, then 'Nothing' is returned.
---  Otherwise, the total amount exiting cooldown and the remaining queue are returned.
-processCooldowns :: Timestamp -> CooldownQueue av -> Maybe (Amount, CooldownQueue av)
-processCooldowns _ EmptyCooldownQueue = Nothing
-processCooldowns ts (CooldownQueue queue)
-    | freeAmount == 0 = Nothing
-    | otherwise = Just (freeAmount, remainder)
-  where
-    freeAmount = sum free + sum bonus
-    (free, bonus, keep) = Map.splitLookup ts (inCooldown queue)
-    remainder = fromCooldowns (queue{inCooldown = keep})
-
--- | Process the pre-cooldown (if any). The active stake is reduced to the new target stake, and
--- the remaining stake is added to the cooldown queue.
-processPreCooldown ::
-    -- | Timestamp at which the cooldown should expire.
+--   This returns the next timestamp at which a cooldown expires, if any.
+processCooldownsUntil ::
+    (MonadBlobStore m) =>
+    -- | Release all cooldowns up to and including this timestamp.
     Timestamp ->
-    -- | Current active stake.
-    Amount ->
-    -- | Current cooldown queue.
     CooldownQueue av ->
-    -- | If a change is required, the new active stake and cooldown queue.
-    Maybe (Amount, CooldownQueue av)
-processPreCooldown _ _ EmptyCooldownQueue = Nothing
-processPreCooldown ts stake (CooldownQueue cooldowns@Cooldowns{..}) =
-    ofOption Nothing (Just . cooldownWithTarget) preCooldownTargetStake
-  where
-    cooldownsNoPre = cooldowns{preCooldownTargetStake = Absent}
-    cooldownWithTarget targetStake
-        | stake == 0 || targetStake >= stake = (stake, fromCooldowns cooldownsNoPre)
-        | otherwise =
-            ( targetStake,
-              fromCooldowns
-                cooldownsNoPre
-                    { inCooldown = Map.alter (Just . (+ (stake - targetStake)) . fromMaybe 0) ts inCooldown
-                    }
-            )
+    m (Maybe Timestamp, CooldownQueue av)
+processCooldownsUntil _ EmptyCooldownQueue = return (Nothing, EmptyCooldownQueue)
+processCooldownsUntil ts (CooldownQueue queueRef) = do
+    let !newCooldowns = processCooldowns ts $ eagerBufferedDeref queueRef
+    let !nextTimestamp = firstCooldownTimestamp newCooldowns
+    newQueue <- makeCooldownQueue newCooldowns
+    return (nextTimestamp, newQueue)
 
--- | Move all pre-cooldowns into cooldown state. Where the pre-cooldown has a timestamp set, that
--- is used. Otherwise, the timestamp is used. This returns 'Nothing' if the queue would not be
--- changed, i.e. there are no pre-cooldowns.
--- Note, this will predominantly be used when there is at most one pre-cooldown, and it has no
--- timestamp set. Thus, this is not particularly optimized for other cases.
-processPreCooldown :: Timestamp -> Amount -> CooldownQueue av -> Maybe (Amount, CooldownQueue av)
-processPreCooldown _ _ EmptyCooldownQueue = Nothing
-processPreCooldown ts stake (CooldownQueue queue)
-    | null precooldowns = Nothing
-    | tsMillis ts > theCooldownTimeCode maxCooldownTimestampCode = error "Timestamp out of bounds"
-    | otherwise = Just (newStake, newQueue)
-  where
-    newQueue = CooldownQueue $ Map.unionsWith (+) [newCooldowns, preprecooldowns]
-    (cooldowns, rest) = Map.spanAntitone (<= maxCooldownTimestampCode) queue
-    (precooldowns, preprecooldowns) = Map.spanAntitone (<= encodeCooldownTime PreCooldown) rest
-    (newStake, newCooldowns) = Map.foldlWithKey' ff (stake, cooldowns) precooldowns
-    ff (staked, accCooldowns) tc amt
-        | staked == 0 = (staked, accCooldowns)
-        | staked < amt = (staked, accCooldowns)
-        | otherwise = (amt, Map.alter (Just . (+ (staked - amt)) . fromMaybe 0) (f tc) accCooldowns)
-    f c@(CooldownTimeCode code)
-        | c == encodeCooldownTime PreCooldown = CooldownTimeCode $ tsMillis ts
-        | otherwise = CooldownTimeCode (Bits.clearBit code 63)
+-- | Move the pre-cooldown amount on into cooldown with the specified release time.
+--  This returns @Just (Just ts)@ if the previous next cooldown time was @ts@, but the new next
+--  cooldown (i.e. the supplied timestamp) time is earlier. It returns @Just Nothing@ if there was
+--  no cooldown but now there is. Otherwise, it returns @Nothing@.
+processPreCooldown ::
+    (MonadBlobStore m) =>
+    -- | The timestamp at which the pre-cooldown should be released.
+    Timestamp ->
+    CooldownQueue av ->
+    m (Maybe (Maybe Timestamp), CooldownQueue av)
+processPreCooldown _ EmptyCooldownQueue = return (Nothing, EmptyCooldownQueue)
+processPreCooldown ts (CooldownQueue queueRef) = do
+    let oldCooldowns = eagerBufferedDeref queueRef
+    let !newCooldowns = Cooldowns.processPreCooldown ts oldCooldowns
+    let oldNextTimestamp = firstCooldownTimestamp oldCooldowns
+    let nextTimestamp = firstCooldownTimestamp newCooldowns
+    let !res
+            | Just oldTS <- oldNextTimestamp,
+              Just nextTS <- nextTimestamp,
+              nextTS < oldTS =
+                Just (Just oldTS)
+            | Nothing <- oldNextTimestamp,
+              Just _ <- nextTimestamp =
+                Just Nothing
+            | otherwise = Nothing
+    newQueue <- makeCooldownQueue newCooldowns
+    return (res, newQueue)
 
--- | Get the next timestamp (if any) at which a cooldown is scheduled to elapse.
-nextCooldownTime :: CooldownQueue av -> Maybe Timestamp
-nextCooldownTime EmptyCooldownQueue = Nothing
-nextCooldownTime (CooldownQueue queue) = case decodeCooldownTime minEntry of
-    CooldownTimestamp ts -> Just ts
-    _ -> Nothing
-  where
-    -- This is safe because 'CooldownQueue' requires @queue@ to be non-empty.
-    (minEntry, _) = Map.findMin queue
-
--- | Check if a 'CooldownQueue' has any pre-cooldown entries.
-hasPreCooldown :: CooldownQueue av -> Bool
-hasPreCooldown EmptyCooldownQueue = False
-hasPreCooldown (CooldownQueue queue) = case Map.lookupGT maxCooldownTimestampCode queue of
-    Just (x, _) -> x <= encodeCooldownTime PreCooldown
-    Nothing -> False
-
--- | Check if a 'CooldownQueue' has any pre-pre-cooldown entries.
-hasPrePreCooldown :: CooldownQueue av -> Bool
-hasPrePreCooldown EmptyCooldownQueue = False
-hasPrePreCooldown (CooldownQueue queue) = isJust $ Map.lookupGT (encodeCooldownTime PreCooldown) queue
--}
+-- | Move the pre-pre-cooldown amount on into pre-cooldown.
+--  It should be the case that there is a pre-pre-cooldown amount and no pre-cooldown amount.
+--  However, if there is no pre-pre-cooldown amount, this will do nothing, and if there is already
+--  a pre-cooldown amount, the pre-pre-cooldown amount will be added to it.
+processPrePreCooldown :: (MonadBlobStore m) => CooldownQueue av -> m (CooldownQueue av)
+processPrePreCooldown EmptyCooldownQueue = return EmptyCooldownQueue
+processPrePreCooldown (CooldownQueue queueRef) = do
+    let oldCooldowns = eagerBufferedDeref queueRef
+    let !newCooldowns = Cooldowns.processPrePreCooldown oldCooldowns
+    makeCooldownQueue newCooldowns

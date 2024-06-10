@@ -1087,7 +1087,8 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
     updateCPV1AccountV1 ::
         ( PVSupportsDelegation (MPV m),
           ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-          SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
+          SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0,
+          SupportsFlexibleCooldown (AccountVersionFor (MPV m)) ~ 'False
         ) =>
         m (MintRewardParams 'ChainParametersV1, UpdatableBlockState m)
     updateCPV1AccountV1 = do

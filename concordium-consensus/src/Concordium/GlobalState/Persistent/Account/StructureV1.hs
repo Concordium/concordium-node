@@ -42,8 +42,8 @@ import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as TARS
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as TARSV1
 import Concordium.GlobalState.BlockState (AccountAllowance (..))
-import Concordium.GlobalState.CooldownQueue
-import Concordium.GlobalState.Persistent.Account.CooldownQueue
+import Concordium.GlobalState.CooldownQueue (Cooldowns)
+import Concordium.GlobalState.Persistent.Account.CooldownQueue as CooldownQueue
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
 import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
@@ -1038,7 +1038,7 @@ getStakeCooldown acc = do
     return $ paedStakeCooldown ed
 
 getCooldowns ::
-    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     PersistentAccount av ->
     m (Maybe Cooldowns)
 getCooldowns =
@@ -1401,6 +1401,70 @@ unlockReleases ts acc = do
             newEnduring <- refMake =<< rehashAccountEnduringData ed{paedReleaseSchedule = newLocked}
             let !newAcc = acc{accountEnduringData = newEnduring}
             return (nextTimestamp, newAcc)
+
+-- | Process the cooldowns on an account up to and including the given timestamp.
+--  This returns the next timestamp at which a cooldown expires, if any.
+--
+--  Note: this should only be called if the account has cooldowns which expire at or before the
+--  given timestamp, as otherwise the account will be updated unnecessarily.
+processCooldownsUntil ::
+    ( MonadBlobStore m,
+      AVSupportsFlexibleCooldown av,
+      IsAccountVersion av,
+      AccountStructureVersionFor av ~ 'AccountStructureV1
+    ) =>
+    -- | Release all cooldowns up to and including this timestamp.
+    Timestamp ->
+    PersistentAccount av ->
+    m (Maybe Timestamp, PersistentAccount av)
+processCooldownsUntil ts acc = do
+    let ed = enduringData acc
+    (nextTimestamp, newQueue) <- CooldownQueue.processCooldownsUntil ts (paedStakeCooldown ed)
+    newEnduring <- refMake =<< rehashAccountEnduringData ed{paedStakeCooldown = newQueue}
+    return (nextTimestamp, acc{accountEnduringData = newEnduring})
+
+-- | Move the pre-cooldown amount on an account into cooldown with the specified release time.
+--  This returns @Just (Just ts)@ if the previous next cooldown time was @ts@, but the new next
+--  cooldown (i.e. the supplied timestamp) time is earlier. It returns @Just Nothing@ if the account
+--  did not have a cooldown but now does. Otherwise, it returns @Nothing@.
+--
+--  Note: this should only be called if the account has a pre-cooldown, as otherwise the account
+--  will be updated unnecessarily.
+processPreCooldown ::
+    ( MonadBlobStore m,
+      AVSupportsFlexibleCooldown av,
+      IsAccountVersion av,
+      AccountStructureVersionFor av ~ 'AccountStructureV1
+    ) =>
+    Timestamp ->
+    PersistentAccount av ->
+    m (Maybe (Maybe Timestamp), PersistentAccount av)
+processPreCooldown ts acc = do
+    let ed = enduringData acc
+    (res, newQueue) <- CooldownQueue.processPreCooldown ts (paedStakeCooldown ed)
+    newEnduring <- refMake =<< rehashAccountEnduringData ed{paedStakeCooldown = newQueue}
+    return (res, acc{accountEnduringData = newEnduring})
+
+-- | Move the pre-pre-cooldown amount on an account into pre-cooldown.
+--  It should be the case that the account has a pre-pre-cooldown amount and no pre-cooldown amount.
+--  However, if there is no pre-pre-cooldown amount, this will do nothing, and if there is already
+--  a pre-cooldown amount, the pre-pre-cooldown amount will be added to it.
+--
+--  Note: this should only be called if the account has a pre-pre-cooldown, as otherwise the account
+--  will be updated unnecessarily.
+processPrePreCooldown ::
+    ( MonadBlobStore m,
+      AVSupportsFlexibleCooldown av,
+      IsAccountVersion av,
+      AccountStructureVersionFor av ~ 'AccountStructureV1
+    ) =>
+    PersistentAccount av ->
+    m (PersistentAccount av)
+processPrePreCooldown acc = do
+    let ed = enduringData acc
+    newQueue <- CooldownQueue.processPrePreCooldown (paedStakeCooldown ed)
+    newEnduring <- refMake =<< rehashAccountEnduringData ed{paedStakeCooldown = newQueue}
+    return acc{accountEnduringData = newEnduring}
 
 -- ** Creation
 

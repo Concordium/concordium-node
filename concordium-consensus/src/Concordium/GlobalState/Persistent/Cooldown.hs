@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -8,6 +9,7 @@ module Concordium.GlobalState.Persistent.Cooldown where
 
 import Data.Bool.Singletons
 import Data.Serialize
+import Lens.Micro.Platform
 
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.ReleaseSchedule
@@ -54,36 +56,36 @@ migrateAccountList (Some ubRef) = do
 
 -- | This is an indexing structure and therefore does not need to be hashed. FIXME: add more docs
 data AccountsInCooldown = AccountsInCooldown
-    { cooldown :: !NewReleaseSchedule,
-      preCooldown :: !AccountList,
-      prePreCooldown :: !AccountList
+    { _cooldown :: !NewReleaseSchedule,
+      _preCooldown :: !AccountList,
+      _prePreCooldown :: !AccountList
     }
+
+makeLenses ''AccountsInCooldown
 
 -- | The cacheable instance only caches the 'cooldown' field, since the
 --  'preCooldown' and 'prePreCooldown' are implemented using 'UnbufferedRef's (and so
 --  would have no benefit from caching).
 instance (MonadBlobStore m) => Cacheable m AccountsInCooldown where
-    cache aic = do
-        newCooldown <- cache (cooldown aic)
-        return aic{cooldown = newCooldown}
+    cache = cooldown cache
 
 instance (MonadBlobStore m) => BlobStorable m AccountsInCooldown where
     load = do
-        cooldown <- load
-        preCooldown <- load
-        prePreCooldown <- load
-        return (AccountsInCooldown <$> cooldown <*> preCooldown <*> prePreCooldown)
+        mCooldown <- load
+        mPreCooldown <- load
+        mPrePreCooldown <- load
+        return (AccountsInCooldown <$> mCooldown <*> mPreCooldown <*> mPrePreCooldown)
     storeUpdate aic = do
-        (pCooldown, newCooldown) <- storeUpdate (cooldown aic)
-        (pPreCooldown, newPreCooldown) <- storeUpdate (preCooldown aic)
-        (pPrePreCooldown, newPrePreCooldown) <- storeUpdate (prePreCooldown aic)
+        (pCooldown, newCooldown) <- storeUpdate (_cooldown aic)
+        (pPreCooldown, newPreCooldown) <- storeUpdate (_preCooldown aic)
+        (pPrePreCooldown, newPrePreCooldown) <- storeUpdate (_prePreCooldown aic)
         let putAIC = pCooldown >> pPreCooldown >> pPrePreCooldown
         return
             ( putAIC,
               AccountsInCooldown
-                { cooldown = newCooldown,
-                  preCooldown = newPreCooldown,
-                  prePreCooldown = newPrePreCooldown
+                { _cooldown = newCooldown,
+                  _preCooldown = newPreCooldown,
+                  _prePreCooldown = newPrePreCooldown
                 }
             )
 
@@ -91,9 +93,9 @@ instance (MonadBlobStore m) => BlobStorable m AccountsInCooldown where
 emptyAccountsInCooldown :: AccountsInCooldown
 emptyAccountsInCooldown =
     AccountsInCooldown
-        { cooldown = emptyNewReleaseSchedule,
-          preCooldown = Null,
-          prePreCooldown = Null
+        { _cooldown = emptyNewReleaseSchedule,
+          _preCooldown = Null,
+          _prePreCooldown = Null
         }
 
 -- | Migrate 'AccountsInCooldown' from one 'BlobStore' to another.
@@ -102,14 +104,14 @@ migrateAccountsInCooldown ::
     AccountsInCooldown ->
     t m AccountsInCooldown
 migrateAccountsInCooldown aic = do
-    newCooldown <- migrateNewReleaseSchedule (cooldown aic)
-    newPreCooldown <- migrateAccountList (preCooldown aic)
-    newPrePreCooldown <- migrateAccountList (prePreCooldown aic)
+    newCooldown <- migrateNewReleaseSchedule (_cooldown aic)
+    newPreCooldown <- migrateAccountList (_preCooldown aic)
+    newPrePreCooldown <- migrateAccountList (_prePreCooldown aic)
     return $!
         AccountsInCooldown
-            { cooldown = newCooldown,
-              preCooldown = newPreCooldown,
-              prePreCooldown = newPrePreCooldown
+            { _cooldown = newCooldown,
+              _preCooldown = newPreCooldown,
+              _prePreCooldown = newPrePreCooldown
             }
 
 newtype AccountsInCooldownForPV pv = AccountsInCooldownForPV
@@ -126,6 +128,16 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (AccountsInC
     storeUpdate (AccountsInCooldownForPV (CTrue aic)) = do
         (paic, aic') <- storeUpdate aic
         return (paic, AccountsInCooldownForPV (CTrue aic'))
+
+-- | A lens for accessing the 'AccountsInCooldown' in an 'AccountsInCooldownForPV' when the
+--  protocol version supports flexible cooldown.
+accountsInCooldown ::
+    (PVSupportsFlexibleCooldown pv) =>
+    Lens' (AccountsInCooldownForPV pv) AccountsInCooldown
+accountsInCooldown =
+    lens
+        (uncond . theAccountsInCooldownForPV)
+        (\_ aic -> AccountsInCooldownForPV (CTrue aic))
 
 -- | An 'AccountsInCooldownForPV' with no accounts in (pre)*cooldown.
 emptyAccountsInCooldownForPV ::
@@ -168,7 +180,7 @@ migrateAccountsInCooldownForPV =
             SFalse -> \(CTrue prePreCooldownAccts) _ ->
                 return
                     ( AccountsInCooldownForPV
-                        (CTrue (emptyAccountsInCooldown{prePreCooldown = prePreCooldownAccts}))
+                        (CTrue (emptyAccountsInCooldown{_prePreCooldown = prePreCooldownAccts}))
                     )
             STrue -> \_ (AccountsInCooldownForPV (CTrue oldAIC)) ->
                 AccountsInCooldownForPV . CTrue <$> migrateAccountsInCooldown oldAIC

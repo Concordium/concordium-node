@@ -95,6 +95,46 @@ cooldownTotal Cooldowns{..} =
 instance HashableTo Hash.Hash Cooldowns where
     getHash = getHash . encode
 
+-- | Remove any amounts in cooldown with timestamp before or equal to the given timestamp.
+processCooldowns :: Timestamp -> Cooldowns -> Cooldowns
+processCooldowns ts Cooldowns{..} =
+    Cooldowns
+        { inCooldown = snd $ Map.split ts inCooldown,
+          ..
+        }
+
+-- | Transfer the pre-cooldown to cooldown with the specified expiry timestamp.
+processPreCooldown :: Timestamp -> Cooldowns -> Cooldowns
+processPreCooldown _ c@Cooldowns{preCooldown = Absent} = c
+processPreCooldown expiry Cooldowns{preCooldown = Present preAmt, ..} =
+    Cooldowns
+        { inCooldown = Map.insert expiry preAmt inCooldown,
+          preCooldown = Absent,
+          ..
+        }
+
+-- | Transfer the pre-pre-cooldown to pre-cooldown.
+-- If there is already an amount in pre-cooldown, the two amounts are combined.
+processPrePreCooldown :: Cooldowns -> Cooldowns
+processPrePreCooldown c@Cooldowns{prePreCooldown = Absent} = c
+processPrePreCooldown Cooldowns{preCooldown = Absent, ..} =
+    Cooldowns
+        { preCooldown = prePreCooldown,
+          prePreCooldown = Absent,
+          ..
+        }
+processPrePreCooldown Cooldowns{preCooldown = Present preAmt, prePreCooldown = Present prePreAmt, ..} =
+    Cooldowns
+        { preCooldown = Present (preAmt + prePreAmt),
+          prePreCooldown = Absent,
+          ..
+        }
+
+-- | Get the timestamp of the first cooldown that will expire, if any.
+-- (This ignores pre-cooldown and pre-pre-cooldown.)
+firstCooldownTimestamp :: Cooldowns -> Maybe Timestamp
+firstCooldownTimestamp Cooldowns{..} = fst <$> Map.lookupMin inCooldown
+
 data CooldownCalculationParameters = CooldownCalculationParameters
     { ccpEpochDuration :: Duration,
       ccpCurrentEpoch :: Epoch,
