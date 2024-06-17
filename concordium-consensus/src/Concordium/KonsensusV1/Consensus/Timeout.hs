@@ -9,9 +9,9 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Foldable
-import Data.List (union)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
+import qualified Data.Set as Set
 import Lens.Micro.Platform
 
 import Concordium.Genesis.Data.BaseV1
@@ -511,44 +511,16 @@ processTimeout tm = do
         -- should either be the current epoch or the previous one.
         let maybeFinComm = getFinalizersForEpoch (cbEpoch highestCB)
         forM_ maybeFinComm $ \finCommQC -> do
-            -- The baker IDs of the finalizers who have signed in the first epoch.
-            let firstBakerIds
-                    | Just firstFinComm <- getFinalizersForEpoch tmFirstEpoch =
-                        bakerIdsFor firstFinComm tmFirstEpochTimeouts
-                    | otherwise = []
-            -- The baker IDs of the finalizers who have signed in the second epoch.
-            let secondBakerIds
-                    | not (null tmSecondEpochTimeouts),
-                      Just secondFinComm <- getFinalizersForEpoch (tmFirstEpoch + 1) =
-                        bakerIdsFor secondFinComm tmSecondEpochTimeouts
-                    | otherwise = []
-            -- Compute the accumulated voting power by folding over the finalization committee.
-            -- We are here making use of the fact that the finalization committee is ordered
-            -- by ascending baker ids and that the list of bakerids are also ordered by ascending baker id.
-            -- Moreover there MUST be no duplicates in either @firstBakerIds@ or @secondBakerIds@.
-            let voterPowerSum =
-                    fst $
-                        foldl'
-                            ( \(!accum, bids) finalizer ->
-                                -- We are done accumulating.
-                                if null bids
-                                    then (accum, [])
-                                    else
-                                        if head bids == finalizerBakerId finalizer
-                                            then -- If we have a match we add the weight to the
-                                            -- accumulator and proceed to the next baker id
-                                            -- and finalizer.
-                                                (accum + finalizerWeight finalizer, tail bids)
-                                            else -- If we did not have a match we continue
-                                            -- checking with a new finalizer.
-                                                (accum, bids)
-                            )
-                            (0, firstBakerIds `union` secondBakerIds)
-                            (committeeFinalizers finCommQC)
-            let totalWeightRational = toRational $ committeeTotalWeight finCommQC
+            -- Determine the fractional weight of the finalizers that have signed timeout messages.
+            let voterPowerFrac =
+                    voterPowerFraction
+                        finCommQC
+                        (getFinalizersForEpoch tmFirstEpoch)
+                        (getFinalizersForEpoch (tmFirstEpoch + 1))
+                        (Map.keys tmFirstEpochTimeouts)
+                        (Map.keys tmSecondEpochTimeouts)
             genesisSigThreshold <- toRational . genesisSignatureThreshold . gmParameters <$> use genesisMetadata
-            let voterPowerSumRational = toRational voterPowerSum
-            when (voterPowerSumRational / totalWeightRational >= genesisSigThreshold) $ do
+            when (voterPowerFrac >= genesisSigThreshold) $ do
                 let currentRound = _rsCurrentRound currentRoundStatus
                 let tc = makeTimeoutCertificate currentRound newTimeoutMessages
                 advanceRoundWithTimeout
@@ -557,14 +529,49 @@ processTimeout tm = do
                           rtTimeoutCertificate = tc
                         }
                 makeBlock
+
+-- | Compute the fraction of the total weight of the finalizers that have signed timeout messages.
+--  This is used to determine whether a timeout certificate should be formed.
+--  The weight of a finalizer is considered to be its weight in the first finalization committee.
+--  The baker identities are determined by the finalization committees for the first and second
+--  epoch. If either of these is not provided, the corresponding set of baker identities is empty.
+--  (Generally, if the finalization committee is not provided, then the timeout messages for that
+--  epoch should also be empty.)
+voterPowerFraction ::
+    -- | The finalization committee used for weighting the finalizers.
+    FinalizationCommittee ->
+    -- | The finalization committee for the first epoch.
+    Maybe FinalizationCommittee ->
+    -- | The finalization committee for the second epoch.
+    Maybe FinalizationCommittee ->
+    -- | The finalizer indexes that have signed in the first epoch.
+    [FinalizerIndex] ->
+    -- | The finalizer indexes that have signed in the second epoch.
+    [FinalizerIndex] ->
+    -- | The fraction of the total weight of the finalizers that have signed.
+    Rational
+voterPowerFraction finCommQC mFirstFinComm mSecondFinComm firstEpochTimeouts secondEpochTimeouts =
+    toRational voterPowerSum / toRational (committeeTotalWeight finCommQC)
   where
-    -- baker ids for the finalizers who have signed off the message.
-    -- Note that the finalization committee is sorted by ascending baker ids.
-    bakerIdsFor finComm timeouts =
+    -- The sum of the voter power of the finalizers who have signed.
+    voterPowerSum = sum $ voterPower <$> committeeFinalizers finCommQC
+    -- The weight that a finalizer contributes to the timeout certificate.
+    -- A finalizer only contributes if they have signed (in either epoch), otherwise
+    -- it contributes weight 0.
+    voterPower finalizer
+        | finalizerBakerId finalizer `Set.member` allBakerIds = finalizerWeight finalizer
+        | otherwise = 0
+    allBakerIds = Set.fromList $ firstBakerIds ++ secondBakerIds
+    -- The baker IDs of the finalizers who have signed in the first epoch.
+    firstBakerIds = bakerIdsFor mFirstFinComm firstEpochTimeouts
+    -- The baker IDs of the finalizers who have signed in the second epoch.
+    secondBakerIds = bakerIdsFor mSecondFinComm secondEpochTimeouts
+    -- The baker IDs of the finalizers who have signed in the given epoch.
+    bakerIdsFor (Just finComm) timeouts =
         mapMaybe
             (fmap finalizerBakerId . finalizerByIndex finComm)
-            -- Note that @Map.keys@ returns the keys in ascending order.
-            (Map.keys timeouts)
+            timeouts
+    bakerIdsFor Nothing _ = []
 
 -- | Make a 'TimeoutCertificate' from a 'TimeoutMessages'.
 --
