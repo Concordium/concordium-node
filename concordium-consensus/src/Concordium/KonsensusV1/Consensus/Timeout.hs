@@ -531,8 +531,8 @@ processTimeout tm = do
                 makeBlock
 
 -- | Compute the fraction of the total weight of the finalizers that have signed timeout messages.
---  This is used to determine whether a timeout certificate should be formed.
---  The weight of a finalizer is considered to be its weight in the first finalization committee.
+--  This is used to determine whether a timeout certificate should be formed. The weight of a
+--  finalizer is its weight in the finalization committee passed as the first argument.
 --  The baker identities are determined by the finalization committees for the first and second
 --  epoch. If either of these is not provided, the corresponding set of baker identities is empty.
 --  (Generally, if the finalization committee is not provided, then the timeout messages for that
