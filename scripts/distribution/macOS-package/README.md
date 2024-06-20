@@ -42,6 +42,18 @@ environment variables:
 
 For the APPLEIDPASS, setting up an [app-specific password](https://support.apple.com/en-us/HT204397) for the Apple ID is recommended.
 
+## How to confirm that the installer is signed and totarized
+
+When running the installer on a different machine that where you built it, you should get the following image:
+
+![image](https://github.com/Concordium/concordium-node/assets/141136997/91d6db77-cf0c-4f25-ba29-20de81b348fc)
+
+
+If the signing process didn't complete successfully, you will get the following message instead:
+
+![image](https://github.com/Concordium/concordium-node/assets/141136997/251fad6c-4a13-420a-bb9b-d242767001e0)
+
+When running the unsigned installer, you should see the same image as above.
 
 ## How the installer works
 
