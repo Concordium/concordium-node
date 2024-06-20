@@ -44,7 +44,7 @@ For the APPLEIDPASS, setting up an [app-specific password](https://support.apple
 
 ## How to confirm that the installer is signed and notarized
 
-When running the installer on a different machine that where you built it, you should get the following image:
+When running the installer on a different machine than where you built it, you should get the following message:
 
 ![image](https://github.com/Concordium/concordium-node/assets/141136997/91d6db77-cf0c-4f25-ba29-20de81b348fc)
 
