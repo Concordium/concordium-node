@@ -42,7 +42,7 @@ environment variables:
 
 For the APPLEIDPASS, setting up an [app-specific password](https://support.apple.com/en-us/HT204397) for the Apple ID is recommended.
 
-## How to confirm that the installer is signed and totarized
+## How to confirm that the installer is signed and notarized
 
 When running the installer on a different machine that where you built it, you should get the following image:
 
