@@ -272,7 +272,7 @@ accountStakeDetails (PAV3 acc) = V1.getStakeDetails acc
 -- | Get the 'Cooldowns' for an account, if any. This is only available at account versions that
 -- support flexible cooldowns.
 accountCooldowns ::
-    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     PersistentAccount av ->
     m (Maybe Cooldowns)
 accountCooldowns (PAV3 acc) = V1.getCooldowns acc
@@ -530,6 +530,37 @@ unlockAccountReleases ts (PAV0 acc) = second PAV0 <$> V0.unlockReleases ts acc
 unlockAccountReleases ts (PAV1 acc) = second PAV1 <$> V0.unlockReleases ts acc
 unlockAccountReleases ts (PAV2 acc) = second PAV2 <$> V1.unlockReleases ts acc
 unlockAccountReleases ts (PAV3 acc) = second PAV3 <$> V1.unlockReleases ts acc
+
+-- | Process the cooldowns on an account up to and including the given timestamp.
+--  This returns the next timestamp at which a cooldown expires, if any.
+processAccountCooldownsUntil ::
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
+    Timestamp ->
+    PersistentAccount av ->
+    m (Maybe Timestamp, PersistentAccount av)
+processAccountCooldownsUntil ts (PAV3 acc) =
+    second PAV3 <$> V1.processCooldownsUntil ts acc
+
+-- | Move the pre-cooldown amount on an account into cooldown with the specified release time.
+--  This returns @Just (Just ts)@ if the previous next cooldown time was @ts@, but the new next
+--  cooldown (i.e. the supplied timestamp) time is earlier. It returns @Just Nothing@ if the account
+--  did not have a cooldown but now does. Otherwise, it returns @Nothing@.
+processAccountPreCooldown ::
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
+    Timestamp ->
+    PersistentAccount av ->
+    m (Maybe (Maybe Timestamp), PersistentAccount av)
+processAccountPreCooldown ts (PAV3 acc) = second PAV3 <$> V1.processPreCooldown ts acc
+
+-- | Move the pre-pre-cooldown amount on an account into pre-cooldown.
+--  It should be the case that the account has a pre-pre-cooldown amount and no pre-cooldown amount.
+--  However, if there is no pre-pre-cooldown amount, this will do nothing, and if there is already
+--  a pre-cooldown amount, the pre-pre-cooldown amount will be added to it.
+processAccountPrePreCooldown ::
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
+    PersistentAccount av ->
+    m (PersistentAccount av)
+processAccountPrePreCooldown (PAV3 acc) = PAV3 <$> V1.processPrePreCooldown acc
 
 -- * Creation
 

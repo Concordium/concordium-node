@@ -29,7 +29,7 @@ data CooldownQueue (av :: AccountVersion) where
     -- | A non-empty cooldown queue.
     --  INVARIANT: The 'Cooldowns' must not satisfy 'isEmptyCooldowns'.
     CooldownQueue ::
-        (SupportsFlexibleCooldown av ~ 'True) =>
+        (AVSupportsFlexibleCooldown av) =>
         !Cooldowns ->
         CooldownQueue av
 
@@ -65,13 +65,13 @@ isCooldownQueueEmpty _ = False
 
 -- | Convert a 'Cooldowns' to a 'CooldownQueue', using 'EmptyCooldownQueue' for the case where
 --  there are no cooldowns.
-fromCooldowns :: (SupportsFlexibleCooldown av ~ True) => Cooldowns -> CooldownQueue av
+fromCooldowns :: (AVSupportsFlexibleCooldown av) => Cooldowns -> CooldownQueue av
 fromCooldowns cooldowns
     | isEmptyCooldowns cooldowns = emptyCooldownQueue
     | otherwise = CooldownQueue cooldowns
 
 -- | Create an initial 'CooldownQueue' with only the given target amount set for pre-pre-cooldown.
-initialPrePreCooldownQueue :: (SupportsFlexibleCooldown av ~ True) => Amount -> CooldownQueue av
+initialPrePreCooldownQueue :: (AVSupportsFlexibleCooldown av) => Amount -> CooldownQueue av
 initialPrePreCooldownQueue target =
     CooldownQueue $
         Cooldowns
