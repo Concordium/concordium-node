@@ -399,6 +399,14 @@ addAccountBakerV1 binfo amt restake (PAV1 acc) = PAV1 <$> V0.addBakerV1 binfo am
 addAccountBakerV1 binfo amt restake (PAV2 acc) = PAV2 <$> V1.addBakerV1 binfo amt restake acc
 addAccountBakerV1 binfo amt restake (PAV3 acc) = PAV3 <$> V1.addBakerV1 binfo amt restake acc
 
+-- | Add a baker to an account for account version 1.
+--  This will replace any existing staking information on the account.
+removeAccountStake ::
+    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+    PersistentAccount av ->
+    m (PersistentAccount av)
+removeAccountStake (PAV3 acc) = PAV3 <$> V1.removeStake acc
+
 -- | Add a delegator to an account.
 --  This will replace any existing staking information on the account.
 addAccountDelegator ::
@@ -445,6 +453,13 @@ setAccountStake newStake (PAV0 acc) = PAV0 <$> V0.setStake newStake acc
 setAccountStake newStake (PAV1 acc) = PAV1 <$> V0.setStake newStake acc
 setAccountStake newStake (PAV2 acc) = PAV2 <$> V1.setStake newStake acc
 setAccountStake newStake (PAV3 acc) = PAV3 <$> V1.setStake newStake acc
+
+addAccountPrePreCooldown ::
+    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+    Amount ->
+    PersistentAccount av ->
+    m (PersistentAccount av)
+addAccountPrePreCooldown amt (PAV3 acc) = PAV3 <$> V1.addPrePreCooldown amt acc
 
 -- | Set whether a baker or delegator account restakes its earnings.
 --  This MUST only be called with an account that is either a baker or delegator.

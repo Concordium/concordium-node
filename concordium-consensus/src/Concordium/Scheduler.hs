@@ -2032,6 +2032,7 @@ data ConfigureDelegationCont
     | ConfigureUpdateDelegationCont
 
 handleConfigureBaker ::
+    forall m.
     ( PVSupportsDelegation (MPV m),
       SchedulerMonad m
     ) =>
@@ -2106,7 +2107,9 @@ handleConfigureBaker
             arg <- case accountStake of
                 AccountStakeNone -> configureAddBakerArg
                 -- FIXME: in new consensus, allow direct switch between baker and delegator.
-                AccountStakeDelegate _ -> rejectTransaction AlreadyADelegator
+                AccountStakeDelegate _ -> case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor (MPV m))) of
+                    SFalse -> rejectTransaction AlreadyADelegator
+                    STrue -> undefined
                 AccountStakeBaker _ ->
                     configureUpdateBakerArg
             (arg,) <$> getCurrentAccountTotalAmount senderAccount

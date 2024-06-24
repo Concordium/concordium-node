@@ -32,6 +32,7 @@ import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Utils
 
@@ -1214,6 +1215,23 @@ addBakerV1 binfo stake restake acc = do
               accountEnduringData = newEnduring
             }
 
+-- | Remove a baker/delegator from an account for account version 1.
+--  This will replace any existing staking information on the account.
+removeStake ::
+    (MonadBlobStore m, IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1) =>
+    -- | Account to add baker to
+    PersistentAccount av ->
+    m (PersistentAccount av)
+removeStake acc = do
+    let ed = enduringData acc
+    let baker = PersistentAccountStakeEnduringNone
+    newEnduring <- refMake =<< rehashAccountEnduringData ed{paedStake = baker}
+    return $!
+        acc
+            { accountStakedAmount = 0,
+              accountEnduringData = newEnduring
+            }
+
 -- | Add a delegator to an account.
 --  This will replace any existing staking information on the account.
 addDelegator ::
@@ -1296,6 +1314,28 @@ setStake ::
     PersistentAccount av ->
     m (PersistentAccount av)
 setStake newStake acc = return $! acc{accountStakedAmount = newStake}
+
+addPrePreCooldown ::
+    forall m av.
+    ( MonadBlobStore m,
+      IsAccountVersion av,
+      AccountStructureVersionFor av ~ 'AccountStructureV1,
+      SupportsFlexibleCooldown av ~ 'True
+    ) =>
+    Amount ->
+    PersistentAccount av ->
+    m (PersistentAccount av)
+addPrePreCooldown amt = updateEnduringData $ \ed -> do
+    let oldCooldown = paedStakeCooldown ed
+    let newCooldowns = case oldCooldown of
+            EmptyCooldownQueue -> emptyCooldowns{prePreCooldown = Present amt}
+            CooldownQueue ref ->
+                let old = eagerBufferedDeref ref
+                    oldPrePreCooldown = prePreCooldown old
+                    newPrePreCooldown = Present $ ofOption amt (+ amt) oldPrePreCooldown
+                in  old{prePreCooldown = newPrePreCooldown}
+    newRef <- refMake $! newCooldowns
+    return $! ed{paedStakeCooldown = CooldownQueue newRef}
 
 -- | Set whether a baker or delegator account restakes its earnings.
 --  This MUST only be called with an account that is either a baker or delegator.
