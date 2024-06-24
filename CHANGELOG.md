@@ -18,6 +18,12 @@
   `TransferToPublic` remains enabled, allowing existing encrypted balances to be
   decrypted.
 
+## 6.3.1
+
+- Fix a bug where a node may fail to produce a timeout certificate due to
+  incorrectly computing the total weight of finalizers that have signed
+  timeout messages.
+
 ## 6.3.0
 
 - Fix a bug where `GetBlockPendingUpdates` fails to report pending updates to the finalization
