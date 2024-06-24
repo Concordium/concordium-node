@@ -1790,13 +1790,13 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                         accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
                         let accountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
                                 CTrue accounts -> accounts
-                            oldPrePreCooldowns = prePreCooldown accountsInCooldown
+                            oldPrePreCooldowns = _prePreCooldown accountsInCooldown
                         ppRef <- liftBSO $ refMake $ AccountListItem ai oldPrePreCooldowns
                         let newPrePreCooldowns = Some ppRef
                             newAccountsInCooldown =
                                 AccountsInCooldownForPV $
                                     CTrue
-                                        accountsInCooldown{prePreCooldown = newPrePreCooldowns}
+                                        accountsInCooldown{_prePreCooldown = newPrePreCooldowns}
                         MTL.modify' $ \bsp ->
                             bsp
                                 { bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrsRef,
@@ -1833,13 +1833,13 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                                 accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
                                 let accountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
                                         CTrue accounts -> accounts
-                                    oldPrePreCooldowns = prePreCooldown accountsInCooldown
+                                    oldPrePreCooldowns = _prePreCooldown accountsInCooldown
                                 ppRef <- liftBSO $ refMake $ AccountListItem ai oldPrePreCooldowns
                                 let newPrePreCooldowns = Some ppRef
                                     newAccountsInCooldown =
                                         AccountsInCooldownForPV $
                                             CTrue
-                                                accountsInCooldown{prePreCooldown = newPrePreCooldowns}
+                                                accountsInCooldown{_prePreCooldown = newPrePreCooldowns}
                                 MTL.modify' $ \bsp ->
                                     bsp
                                         { bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs,
@@ -2115,13 +2115,13 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                             accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
                             let accountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
                                     CTrue accounts -> accounts
-                                oldPrePreCooldowns = prePreCooldown accountsInCooldown
+                                oldPrePreCooldowns = _prePreCooldown accountsInCooldown
                             ppRef <- refMake $ AccountListItem ai oldPrePreCooldowns -- FIXME: why no lift?
                             let newPrePreCooldowns = Some ppRef
                                 newAccountsInCooldown =
                                     AccountsInCooldownForPV $
                                         CTrue
-                                            accountsInCooldown{prePreCooldown = newPrePreCooldowns}
+                                            accountsInCooldown{_prePreCooldown = newPrePreCooldowns}
                             MTL.modify' $ \bsp ->
                                 bsp
                                     { bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers,
@@ -2150,13 +2150,13 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                                 accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
                                 let accountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
                                         CTrue accounts -> accounts
-                                    oldPrePreCooldowns = prePreCooldown accountsInCooldown
+                                    oldPrePreCooldowns = _prePreCooldown accountsInCooldown
                                 ppRef <- refMake $ AccountListItem ai oldPrePreCooldowns
                                 let newPrePreCooldowns = Some ppRef
                                     newAccountsInCooldown =
                                         AccountsInCooldownForPV $
                                             CTrue
-                                                accountsInCooldown{prePreCooldown = newPrePreCooldowns}
+                                                accountsInCooldown{_prePreCooldown = newPrePreCooldowns}
                                 MTL.modify' $ \bsp ->
                                     bsp
                                         { bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers,
