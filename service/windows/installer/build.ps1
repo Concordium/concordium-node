@@ -20,6 +20,8 @@ try {
     $Binds = @(
         "-b", "consensus=$StackInstallRoot\lib",
         "-b", "node=..\..\..\concordium-node\target\release",
+        "-b", "baselib=..\..\..\concordium-base\lib",
+        "-b", "contractlib=..\..\..\concordium-base\smart-contracts\lib",
         "-b", "collector=..\..\..\collector\target\release",
         "-b", "service=..\target\x86_64-pc-windows-msvc\release"
         "-b", "ca=.\custom-actions\target\x86_64-pc-windows-msvc\release",

@@ -82,7 +82,7 @@ The general strategy for building the package is as follows.
 
    For example use the [../../static-binaries/build-static-binaries.sh](../../static-binaries/build-static-binaries.sh).
    ```console
-   $ UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG=rust-1.68.2_ghc-9.6.4
+   $ UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG=rust-1.73.0_ghc-9.6.4
         STATIC_BINARIES_IMAGE_TAG=latest GHC_VERSION=9.6.4 EXTRA_FEATURES=collector ./scripts/static-binaries/build-static-binaries.sh
    ```
 

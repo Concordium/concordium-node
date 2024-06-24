@@ -104,6 +104,7 @@ checkpointingTest1 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_a")
                         (Parameter "")
@@ -121,6 +122,7 @@ checkpointingTest1 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_b")
                         (Parameter "")
@@ -208,6 +210,7 @@ checkpointingTest2 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_a")
                         (Parameter "")
@@ -225,6 +228,7 @@ checkpointingTest2 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_b")
                         (Parameter "")
@@ -310,6 +314,7 @@ checkpointingTest3 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_a")
                         (Parameter "")
@@ -327,6 +332,7 @@ checkpointingTest3 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_b")
                         (Parameter "")
@@ -397,6 +403,7 @@ checkpointingTest4 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_a")
                         (Parameter "")
@@ -414,6 +421,7 @@ checkpointingTest4 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_b")
                         (Parameter "")
@@ -515,6 +523,7 @@ checkpointingTest5 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_a")
                         (Parameter "")
@@ -532,6 +541,7 @@ checkpointingTest5 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_b")
                         (Parameter "")
@@ -549,6 +559,7 @@ checkpointingTest5 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         v0ProxySourceFile
                         (InitName "init_proxy")
                         (Parameter "")
@@ -659,6 +670,7 @@ checkpointingTest6 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_a")
                         (Parameter "")
@@ -676,6 +688,7 @@ checkpointingTest6 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointingSourceFile
                         (InitName "init_b")
                         (Parameter "")
@@ -693,6 +706,7 @@ checkpointingTest6 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         v0ProxySourceFile
                         (InitName "init_proxy")
                         (Parameter "")
@@ -794,6 +808,7 @@ checkpointingTest7 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointing2SourceFile
                         (InitName "init_test")
                         (Parameter "")
@@ -871,6 +886,7 @@ checkpointingTest8 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointing2SourceFile
                         (InitName "init_test")
                         (Parameter "")
@@ -945,6 +961,7 @@ checkpointingTest9 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         checkpointing2SourceFile
                         (InitName "init_test")
                         (Parameter "")

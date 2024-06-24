@@ -8,7 +8,7 @@ module Main where
 
 import Control.Monad
 import Data.Functor.Identity
-import Data.Serialize (get, runGet)
+import Data.Serialize (runGet)
 import Data.Time
 import Options.Applicative
 import System.Exit
@@ -64,7 +64,7 @@ checkDatabase filepath = do
                 Right fr -> do
                     logEvent External LLInfo $ "GenesisIndex: " ++ show gi ++ " finrec for: " ++ show (finalizationBlockPointer fr)
                     return $ Right ()
-            ConsensusV1 -> case runGet get bs of
+            ConsensusV1 -> case runGet (KonsensusV1.getFinalizationEntry spv) bs of
                 Left err -> do
                     logEvent External LLError $ "Deserialization failed for finalization entry: " <> err
                     return $ Left ImportSerializationFail

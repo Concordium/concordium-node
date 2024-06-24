@@ -35,8 +35,8 @@ data Update
 updates :: HM.HashMap SHA256.Hash (Get Update)
 updates =
     HM.fromList
-        [ (Reboot.updateHash, return Reboot)
-        -- (ProtocolP7.updateHash, return ProtocolP7) Comment out to enable updating to P7.
+        [ (Reboot.updateHash, return Reboot),
+          (ProtocolP7.updateHash, return ProtocolP7)
         ]
 
 -- | Determine if a 'ProtocolUpdate' corresponds to a supported update type.

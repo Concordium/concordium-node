@@ -144,11 +144,11 @@ instance S.Serialize LatestFinalizationEntryKey where
             _ -> fail "Expected CSKLatestFinalizationEntry"
 
 -- | Latest finalization status store table.
-newtype LatestFinalizationEntryStore = LatestFinalizationEntryStore MDB_dbi'
+newtype LatestFinalizationEntryStore (pv :: ProtocolVersion) = LatestFinalizationEntryStore MDB_dbi'
 
-instance MDBDatabase LatestFinalizationEntryStore where
-    type DBKey LatestFinalizationEntryStore = LatestFinalizationEntryKey
-    type DBValue LatestFinalizationEntryStore = FinalizationEntry
+instance (IsProtocolVersion pv) => MDBDatabase (LatestFinalizationEntryStore pv) where
+    type DBKey (LatestFinalizationEntryStore pv) = LatestFinalizationEntryKey
+    type DBValue (LatestFinalizationEntryStore pv) = FinalizationEntry pv
 
 -- ** Metadata store
 
@@ -212,7 +212,7 @@ data DatabaseHandlers (pv :: ProtocolVersion) = DatabaseHandlers
       -- | Storage for the 'RoundStatus'.
       _roundStatusStore :: !RoundStatusStore,
       -- | Storage for the latest 'FinalizationEntry'.
-      _latestFinalizationEntryStore :: !LatestFinalizationEntryStore,
+      _latestFinalizationEntryStore :: !(LatestFinalizationEntryStore pv),
       -- | Metadata storage (i.e. version information).
       _metadataStore :: !MetadataStore
     }
@@ -437,7 +437,7 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (DiskLLDBM pv m) where
 writeFinalizedBlocksHelper ::
     (HasDatabaseHandlers dbh pv, IsProtocolVersion pv) =>
     [StoredBlock pv] ->
-    FinalizationEntry ->
+    FinalizationEntry pv ->
     dbh ->
     MDB_txn ->
     IO [BlockHash]

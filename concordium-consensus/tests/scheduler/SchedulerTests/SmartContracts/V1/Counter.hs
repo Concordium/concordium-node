@@ -88,6 +88,7 @@ test1 spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         counterSourceFile
                         (InitName "init_counter")
                         (Parameter "")

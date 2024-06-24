@@ -61,7 +61,7 @@ deployModuleV0 ::
 deployModuleV0 sourceFile bs = do
     ws <- liftIO $ BS.readFile sourceFile
     let wm = WasmModuleV (ModuleSource ws)
-    case WasmV0.processModule wm of
+    case WasmV0.processModule Types.SP4 wm of
         Nothing -> liftIO $ assertFailure "Invalid module."
         Just miv -> do
             (_, modState) <- BS.bsoPutNewModule bs (miv, wm)

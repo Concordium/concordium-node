@@ -89,6 +89,7 @@ testCase1 _ pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         fibSourceFile
                         (InitName "init_fib")
                         (Parameter "")
@@ -138,7 +139,7 @@ testCase1 _ pvString =
                         -- lower bound on the cost of the transaction, assuming no interpreter energy and the instance is not created.
                         -- the number of invocations of the smart contract is fibOne 10, see below for the definition of fibOne
                         -- the size of the contract state is 8 bytes (one u64)
-                        costLowerBound = baseTxCost + (fibOne 10) * Cost.updateContractInstanceCost 0 modLen 8 (Just 8)
+                        costLowerBound = baseTxCost + (fibOne 10) * Cost.updateContractInstanceCost (Types.protocolVersion @pv) 0 modLen 8 (Just 8)
                     unless (srUsedEnergy >= costLowerBound) $
                         assertFailure $
                             "Actual update cost " ++ show srUsedEnergy ++ " not more than lower bound " ++ show costLowerBound

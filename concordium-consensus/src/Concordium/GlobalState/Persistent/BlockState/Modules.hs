@@ -27,13 +27,11 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
     moduleRefList,
     newModuleCache,
     unsafeToModuleV,
-
-    -- * Serialization
-    putModulesV0,
     migrateModules,
 ) where
 
 import Concordium.Crypto.SHA256
+import Concordium.Genesis.Data (StateMigrationParameters (..))
 import Concordium.GlobalState.BlockState (ModulesHash (..))
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
@@ -41,11 +39,13 @@ import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree')
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMB
 import qualified Concordium.GlobalState.Wasm as GSWasm
+import Concordium.Logger (LogLevel (..), LogSource (..), MonadLogger (..))
+import qualified Concordium.Scheduler.WasmIntegration as WasmV0
+import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Utils
 import Concordium.Utils.Serialization
-import Concordium.Utils.Serialization.Put
 import Concordium.Wasm
 import Control.Monad.Trans
 import qualified Data.ByteString as BS
@@ -154,7 +154,7 @@ instance (MonadBlobStore m) => Cacheable m Module
 
 -- | This instance is based on and should be compatible with the 'Serialize' instance
 --  for 'BasicModuleInterface'.
-instance (MonadBlobStore m) => DirectBlobStorable m Module where
+instance (MonadLogger m, MonadBlobStore m, MonadProtocolVersion m) => DirectBlobStorable m Module where
     loadDirect br = do
         bs <- loadRaw br
         let getModule = do
@@ -199,7 +199,33 @@ instance (MonadBlobStore m) => DirectBlobStorable m Module where
                         return $! ModuleV1 (ModuleV{..})
         case runGet getModule bs of
             Left e -> error (e ++ " :: " ++ show bs)
-            Right !mv -> return mv
+            Right mv@(ModuleV0 mv0@(ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = PIMVPtr artPtr, ..}, ..})) | potentialLegacyArtifacts -> do
+                artBS <- loadBlobPtr artPtr
+                if GSWasm.isV0LegacyArtifact artBS
+                    then do
+                        logEvent GlobalState LLTrace $ "Recompiling V0 module " ++ show miModuleRef
+                        source <- loadRef moduleVSource
+                        case WasmV0.compileModule CSV0 source of
+                            Nothing -> error "Stored module that is not valid."
+                            Just (_, compiled) -> do
+                                return $! ModuleV0 mv0{moduleVInterface = (moduleVInterface mv0){GSWasm.miModule = PIMVMem compiled}}
+                    else return mv
+            Right mv@(ModuleV1 mv1@(ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = PIMVPtr artPtr, ..}, ..})) | potentialLegacyArtifacts -> do
+                artBS <- loadBlobPtr artPtr
+                if GSWasm.isV0LegacyArtifact artBS
+                    then do
+                        logEvent GlobalState LLTrace $ "Recompiling V1 module " ++ show miModuleRef
+                        source <- loadRef moduleVSource
+                        case WasmV1.compileModule (WasmV1.validationConfigAllowP1P6 CSV0) source of
+                            Nothing -> error "Stored module that is not valid."
+                            Just (_, compiled) -> do
+                                return $! ModuleV1 mv1{moduleVInterface = (moduleVInterface mv1){GSWasm.miModule = PIMVMem compiled}}
+                    else return mv
+            Right mv -> return mv
+      where
+        -- When a node is running protocol 6 or lower it might have been started prior to the new notion of Wasm
+        -- artifacts, which needs to be recompiled on load.
+        potentialLegacyArtifacts = demoteProtocolVersion (protocolVersion @(MPV m)) <= P6
 
     storeUpdateDirect mdl = do
         case mdl of
@@ -245,12 +271,6 @@ instance (MonadBlobStore m) => DirectBlobStorable m Module where
         mkModule SV0 = ModuleV0
         mkModule SV1 = ModuleV1
 
--- | Serialize a module in V0 format.
---  This only serializes the source.
-putModuleV0 :: (MonadBlobStore m, MonadPut m) => Module -> m ()
-putModuleV0 (ModuleV0 ModuleV{..}) = sPut =<< loadRef moduleVSource
-putModuleV0 (ModuleV1 ModuleV{..}) = sPut =<< loadRef moduleVSource
-
 --------------------------------------------------------------------------------
 
 -- | A cached 'Module' accessed via a cached 'Reference' i.e., a 'Reference'
@@ -271,7 +291,7 @@ newModuleCache = newCache
 
 -- | Make sure that a monad supports the `MonadBlobStore` and `MonadCache`
 --  for the modules cache.
-type SupportsPersistentModule m = (MonadBlobStore m, MonadCache ModuleCache m)
+type SupportsPersistentModule m = (MonadLogger m, MonadBlobStore m, MonadCache ModuleCache m)
 
 -- | The collection of modules stored in a block state.
 data Modules = Modules
@@ -289,13 +309,13 @@ data Modules = Modules
 makeLenses ''Modules
 
 -- | The hash of the collection of modules is the hash of the tree.
-instance (SupportsPersistentModule m, IsBlockHashVersion (BlockHashVersionFor pv)) => MHashableTo m (ModulesHash pv) Modules where
+instance (MonadProtocolVersion m, SupportsPersistentModule m, IsBlockHashVersion (BlockHashVersionFor pv)) => MHashableTo m (ModulesHash pv) Modules where
     getHashM =
         fmap (ModulesHash . LFMB.theLFMBTreeHash @(BlockHashVersionFor pv))
             . getHashM
             . _modulesTable
 
-instance (SupportsPersistentModule m) => BlobStorable m Modules where
+instance (MonadProtocolVersion m, SupportsPersistentModule m) => BlobStorable m Modules where
     load = do
         table <- load
         return $ do
@@ -312,7 +332,7 @@ instance (SupportsPersistentModule m) => BlobStorable m Modules where
         (pModulesTable, _modulesTable') <- storeUpdate _modulesTable
         return (pModulesTable, m{_modulesTable = _modulesTable'})
 
-instance (SupportsPersistentModule m) => Cacheable m Modules where
+instance (MonadProtocolVersion m, SupportsPersistentModule m) => Cacheable m Modules where
     cache Modules{..} = do
         modulesTable' <- cache _modulesTable
         return Modules{_modulesTable = modulesTable', ..}
@@ -326,7 +346,7 @@ emptyModules = Modules LFMB.empty Map.empty
 -- | Try to add interfaces to the module table. If a module with the given
 --  reference exists returns @Nothing@.
 putInterface ::
-    (IsWasmVersion v, SupportsPersistentModule m) =>
+    (MonadProtocolVersion m, IsWasmVersion v, SupportsPersistentModule m) =>
     (GSWasm.ModuleInterfaceV v, WasmModuleV v) ->
     Modules ->
     m (Maybe Modules)
@@ -344,7 +364,7 @@ putInterface (modul, src) m =
   where
     mref = GSWasm.moduleReference modul
 
-getModule :: (SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe Module)
+getModule :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe Module)
 getModule ref mods =
     let modIdx = Map.lookup ref (mods ^. modulesMap)
     in  case modIdx of
@@ -354,7 +374,7 @@ getModule ref mods =
 -- | Gets the 'HashedCachedRef' to a module as stored in the module table
 --  to be given to instances when associating them with the interface.
 --  The reason we return the reference here is to allow for sharing of the reference.
-getModuleReference :: (SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe CachedModule)
+getModuleReference :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe CachedModule)
 getModuleReference ref mods =
     let modIdx = Map.lookup ref (mods ^. modulesMap)
     in  case modIdx of
@@ -363,14 +383,14 @@ getModuleReference ref mods =
 
 -- | Get an interface by module reference.
 getInterface ::
-    (SupportsPersistentModule m) =>
+    (MonadProtocolVersion m, SupportsPersistentModule m) =>
     ModuleRef ->
     Modules ->
     m (Maybe (GSWasm.ModuleInterface PersistentInstrumentedModuleV))
 getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- | Get the source of a module by module reference.
-getSource :: (SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe WasmModule)
+getSource :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe WasmModule)
 getSource ref mods = do
     m <- getModule ref mods
     case m of
@@ -385,20 +405,19 @@ moduleRefList mods = Map.keys (mods ^. modulesMap)
 
 --------------------------------------------------------------------------------
 
--- | Serialize modules in V0 format.
-putModulesV0 :: (SupportsPersistentModule m, MonadPut m) => Modules -> m ()
-putModulesV0 mods = do
-    let mt = mods ^. modulesTable
-    liftPut $ putWord64be $ LFMB.size mt
-    LFMB.mmap_ putModuleV0 mt
-
 -- | Migrate smart contract modules from context @m@ to the context @t m@.
 migrateModules ::
     forall t m.
-    (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t) =>
+    ( MonadProtocolVersion m,
+      MonadProtocolVersion (t m),
+      SupportsPersistentModule m,
+      SupportsPersistentModule (t m),
+      SupportMigration m t
+    ) =>
+    StateMigrationParameters (MPV m) (MPV (t m)) ->
     Modules ->
     t m Modules
-migrateModules mods = do
+migrateModules migration mods = do
     newModulesTable <- LFMB.migrateLFMBTree migrateCachedModule (_modulesTable mods)
     return
         Modules
@@ -415,18 +434,33 @@ migrateModules mods = do
 
     migrateModuleV :: forall v. (IsWasmVersion v) => ModuleV v -> t m CachedModule
     migrateModuleV ModuleV{..} = do
-        newModuleVSource <- do
+        (newModuleVSource, wasmMod) <- do
             -- Load the module source from the old context.
             s <- lift (loadRef moduleVSource)
             -- and store it in the new context, returning a reference to it.
-            storeRef s
+            (,s) <$> storeRef s
         -- load the module artifact into memory from the old state. This is
         -- cheap since the artifact, which is the big part, is neither copied,
         -- nor deserialized.
-        newArtifact <- lift (loadInstrumentedModuleV (GSWasm.miModule moduleVInterface))
-        -- construct the new module interface by loading the artifact. The
-        -- remaining fields have no blob references, so are just copied over.
-        let newModuleVInterface = moduleVInterface{GSWasm.miModule = PIMVMem newArtifact}
+
+        artifact <- lift (loadInstrumentedModuleV (GSWasm.miModule moduleVInterface))
+        newModuleVInterface <-
+            -- If it is a legacy artifact then we want to migrate it over to the new
+            -- version by recompiling since execution no longer supports the old format.
+            if GSWasm.isV0LegacyArtifact (GSWasm.imWasmArtifactBytes artifact)
+                then recompileArtifact @v wasmMod moduleVInterface
+                else -- If it is not a legacy module then we don't have to recompile
+                -- unless we're migrating from P6 to P7 where the new reduced
+                -- execution costs were introduced.
+                case migration of
+                    StateMigrationParametersTrivial -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP1P2 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP2P3 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP3ToP4{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP4ToP5{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP5ToP6{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP6ToP7{} -> migrateToP7 @v wasmMod -- always recompile to lower transaction costs.
+
         -- store the module into the new state, and remove it from memory
         makeFlushedHashedCachedRef $!
             mkModule (getWasmVersion @v) $!
@@ -438,3 +472,35 @@ migrateModules mods = do
     mkModule :: SWasmVersion v -> ModuleV v -> Module
     mkModule SV0 = ModuleV0
     mkModule SV1 = ModuleV1
+
+    -- Recompile a wasm module from the given source for protocols 1-6.
+    -- This does not change the semantics, but does convert the artifact into the new format.
+    recompileArtifact :: forall v iface. (IsWasmVersion v) => WasmModuleV v -> GSWasm.ModuleInterfaceA iface -> t m (GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v))
+    recompileArtifact wasmMod oldIface = do
+        case getWasmVersion @v of
+            SV0 ->
+                case WasmV0.compileModule CSV0 wasmMod of
+                    Nothing -> error "Stored V0 module that is not valid."
+                    Just (_, compiled) -> do
+                        return $! oldIface{GSWasm.miModule = PIMVMem compiled}
+            SV1 ->
+                case WasmV1.compileModule (WasmV1.validationConfigAllowP1P6 CSV0) wasmMod of
+                    Nothing -> error "Stored V1 module that is not valid."
+                    Just (_, compiled) -> do
+                        return $! oldIface{GSWasm.miModule = PIMVMem compiled}
+
+    -- Recompile a wasm module from the given source for protocol 7
+    -- cost semantics (i.e., the protocol version of @t m@).
+    migrateToP7 :: forall v. (MPV (t m) ~ P7, IsWasmVersion v) => WasmModuleV v -> t m (GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v))
+    migrateToP7 wasmMod = do
+        case getWasmVersion @v of
+            SV0 ->
+                case WasmV0.processModule (protocolVersion @(MPV (t m))) wasmMod of
+                    Nothing -> error "Stored V0 module that is not valid."
+                    Just iface -> do
+                        return $! makePersistentInstrumentedModuleV <$> iface
+            SV1 ->
+                case WasmV1.processModuleConfig WasmV1.processingConfigRecompileForP7 wasmMod of
+                    Nothing -> error "Stored V1 module that is not valid."
+                    Just iface -> do
+                        return $! makePersistentInstrumentedModuleV <$> iface

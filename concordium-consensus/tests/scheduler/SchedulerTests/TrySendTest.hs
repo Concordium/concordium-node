@@ -86,6 +86,7 @@ errorHandlingTest _ pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         contractSourceFile
                         (InitName "init_try")
                         (Parameter "")

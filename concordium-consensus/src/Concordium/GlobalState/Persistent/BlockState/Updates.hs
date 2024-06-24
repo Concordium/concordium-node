@@ -627,33 +627,6 @@ instance
       where
         cpv = chainParametersVersion @cpv
 
--- | Serialize the pending updates.
-putPendingUpdatesV0 ::
-    forall m cpv.
-    (MonadBlobStore m, MonadPut m, IsChainParametersVersion cpv) =>
-    PendingUpdates cpv ->
-    m ()
-putPendingUpdatesV0 PendingUpdates{..} = withCPVConstraints (chainParametersVersion @cpv) $ do
-    putUpdateQueueV0 =<< refLoad pRootKeysUpdateQueue
-    putUpdateQueueV0 =<< refLoad pLevel1KeysUpdateQueue
-    putUpdateQueueV0 =<< refLoad pLevel2KeysUpdateQueue
-    putUpdateQueueV0 =<< refLoad pProtocolQueue
-    mapM_ (putUpdateQueueV0 <=< refLoad) pElectionDifficultyQueue
-    putUpdateQueueV0 =<< refLoad pEuroPerEnergyQueue
-    putUpdateQueueV0 =<< refLoad pMicroGTUPerEuroQueue
-    putUpdateQueueV0 =<< refLoad pFoundationAccountQueue
-    putUpdateQueueV0 =<< refLoad pMintDistributionQueue
-    putUpdateQueueV0 =<< refLoad pTransactionFeeDistributionQueue
-    putUpdateQueueV0 =<< refLoad pGASRewardsQueue
-    putUpdateQueueV0 =<< refLoad pPoolParametersQueue
-    putUpdateQueueV0 =<< refLoad pAddAnonymityRevokerQueue
-    putUpdateQueueV0 =<< refLoad pAddIdentityProviderQueue
-    mapM_ (putUpdateQueueV0 <=< refLoad) pCooldownParametersQueue
-    mapM_ (putUpdateQueueV0 <=< refLoad) pTimeParametersQueue
-    mapM_ (putUpdateQueueV0 <=< refLoad) pTimeoutParametersQueue
-    mapM_ (putUpdateQueueV0 <=< refLoad) pMinBlockTimeQueue
-    mapM_ (putUpdateQueueV0 <=< refLoad) pBlockEnergyLimitQueue
-
 -- | Initial pending updates with empty queues.
 emptyPendingUpdates ::
     forall m cpv.
@@ -1693,23 +1666,6 @@ lookupCurrentParameters ::
 lookupCurrentParameters uref = do
     Updates{..} <- refLoad uref
     unStoreSerialized <$> refLoad currentParameters
-
--- | Serialize updates in V0 format.
-putUpdatesV0 ::
-    forall m cpv.
-    (MonadBlobStore m, MonadPut m, IsChainParametersVersion cpv) =>
-    Updates' cpv ->
-    m ()
-putUpdatesV0 Updates{..} = do
-    withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
-        sPut . unStoreSerialized =<< refLoad currentKeyCollection
-    case currentProtocolUpdate of
-        Null -> liftPut $ putWord8 0
-        Some pu -> do
-            liftPut $ putWord8 1
-            sPut . unStoreSerialized =<< refLoad pu
-    sPut . unStoreSerialized =<< refLoad currentParameters
-    putPendingUpdatesV0 pendingUpdates
 
 -- | Look up the pending changes to the time parameters.
 lookupPendingTimeParameters ::

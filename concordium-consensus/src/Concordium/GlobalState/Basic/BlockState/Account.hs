@@ -14,11 +14,8 @@ module Concordium.GlobalState.Basic.BlockState.Account (
     module Concordium.GlobalState.Basic.BlockState.Account,
 ) where
 
-import Control.Monad
 import Data.Coerce
 import qualified Data.Map.Strict as Map
-import Data.Maybe
-import qualified Data.Serialize as S
 import GHC.Stack (HasCallStack)
 import Lens.Micro.Platform
 
@@ -28,12 +25,9 @@ import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types.HashableTo
-import Concordium.Utils.Serialization
 
-import Concordium.Genesis.Data
 import Concordium.Types
 import Concordium.Types.Accounts
-import Concordium.Types.Migration
 
 -- | Type for how a 'PersistingAccountData' value is stored as part of
 --  an account. This is stored with its hash.
@@ -96,100 +90,6 @@ unsafeAccountDelegator = singular accountDelegator
 
 instance HasPersistingAccountData (Account av) where
     persistingAccountData = accountPersisting . unhashed
-
--- | Serialize an account. The serialization format may depend on the protocol version.
---
---  This format allows accounts to be stored in a reduced format by
---  eliding (some) data that can be inferred from context, or is
---  the default value.  Note that there can be multiple representations
---  of the same account.
-serializeAccount :: (IsAccountVersion av) => GlobalContext -> S.Putter (Account av)
-serializeAccount cryptoParams acct@Account{..} = do
-    S.put flags
-    when asfExplicitAddress $ S.put _accountAddress
-    when asfExplicitEncryptionKey $ S.put _accountEncryptionKey
-    unless asfThresholdIsOne $ S.put (aiThreshold _accountVerificationKeys)
-    putCredentials
-    when asfHasRemovedCredentials $ S.put (_accountRemovedCredentials ^. unhashed)
-    S.put _accountNonce
-    S.put _accountAmount
-    when asfExplicitEncryptedAmount $ S.put _accountEncryptedAmount
-    when asfExplicitReleaseSchedule $ serializeAccountReleaseSchedule _accountReleaseSchedule
-    when asfHasBakerOrDelegation $ serializeAccountStake _accountStaking
-  where
-    PersistingAccountData{..} = acct ^. persistingAccountData
-    flags = AccountSerializationFlags{..}
-    initialCredId =
-        credId
-            ( Map.findWithDefault
-                (error "Account missing initial credential")
-                initialCredentialIndex
-                _accountCredentials
-            )
-    asfExplicitAddress = _accountAddress /= addressFromRegIdRaw initialCredId
-    -- There is an opportunity for improvement here. We do not have to convert
-    -- the raw key to a structured one. We can check the equality directly on
-    -- the byte representation (in fact equality is defined on those). However
-    -- that requires a bit of work to expose the right raw values from
-    -- cryptographic parameters.
-    asfExplicitEncryptionKey = unsafeEncryptionKeyFromRaw _accountEncryptionKey /= makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId)
-    (asfMultipleCredentials, putCredentials) = case Map.toList _accountCredentials of
-        [(i, cred)] | i == initialCredentialIndex -> (False, S.put cred)
-        _ -> (True, putSafeMapOf S.put S.put _accountCredentials)
-    asfExplicitEncryptedAmount = _accountEncryptedAmount /= initialAccountEncryptedAmount
-    asfExplicitReleaseSchedule = _accountReleaseSchedule /= emptyAccountReleaseSchedule
-    asfHasBakerOrDelegation = _accountStaking /= AccountStakeNone
-    asfThresholdIsOne = aiThreshold _accountVerificationKeys == 1
-    asfHasRemovedCredentials = _accountRemovedCredentials ^. unhashed /= EmptyRemovedCredentials
-
--- | Deserialize an account.
---  The serialization format may depend on the protocol version, and maybe migrated from one version
---  to another, using the 'StateMigrationParameters' provided.
-deserializeAccount ::
-    forall oldpv pv.
-    (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
-    StateMigrationParameters oldpv pv ->
-    GlobalContext ->
-    S.Get (Account (AccountVersionFor pv))
-deserializeAccount migration cryptoParams = do
-    AccountSerializationFlags{..} <- S.get
-    preAddress <- if asfExplicitAddress then Just <$> S.get else return Nothing
-    preEncryptionKey <- if asfExplicitEncryptionKey then Just <$> S.get else return Nothing
-    threshold <- if asfThresholdIsOne then return 1 else S.get
-    let getCredentials
-            | asfMultipleCredentials = do
-                creds <- getSafeMapOf S.get S.get
-                case Map.lookup initialCredentialIndex creds of
-                    Nothing -> fail $ "Account has no credential with index " ++ show initialCredentialIndex
-                    Just cred -> return (creds, credId cred)
-            | otherwise = do
-                cred <- S.get
-                return (Map.singleton initialCredentialIndex cred, credId cred)
-    (_accountCredentials, initialCredId) <- getCredentials
-    _accountRemovedCredentials <- if asfHasRemovedCredentials then makeHashed <$> S.get else return emptyHashedRemovedCredentials
-    let _accountVerificationKeys = getAccountInformation threshold _accountCredentials
-    let _accountAddress = fromMaybe (addressFromRegIdRaw initialCredId) preAddress
-        -- There is an opportunity for improvement here. We do not have to convert
-        -- the raw credId to a structured one. We can directly construct the
-        -- However that requires a bit of work to expose the right raw values from
-        -- cryptographic parameters.
-        _accountEncryptionKey = fromMaybe (toRawEncryptionKey (makeEncryptionKey cryptoParams (unsafeCredIdFromRaw initialCredId))) preEncryptionKey
-    _accountNonce <- S.get
-    _accountAmount <- S.get
-    _accountEncryptedAmount <-
-        if asfExplicitEncryptedAmount
-            then S.get
-            else return initialAccountEncryptedAmount
-    _accountReleaseSchedule <-
-        if asfExplicitReleaseSchedule
-            then deserializeAccountReleaseSchedule (accountVersion @(AccountVersionFor oldpv))
-            else return emptyAccountReleaseSchedule
-    _accountStaking <-
-        if asfHasBakerOrDelegation
-            then migrateAccountStake migration <$> deserializeAccountStake
-            else return AccountStakeNone
-    let _accountPersisting = makeAccountPersisting PersistingAccountData{..}
-    return Account{..}
 
 -- | Generate hash inputs from an account for 'AccountV0' and 'AccountV1'.
 accountHashInputsV0 :: (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV0) => Account av -> AccountHashInputsV0 av

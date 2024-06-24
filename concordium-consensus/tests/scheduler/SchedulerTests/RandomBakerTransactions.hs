@@ -258,7 +258,7 @@ testTransactions spv = forAll makeTransactions (ioProperty . tt)
         let Sch.FilteredTransactions{..} = Helpers.srTransactions result
 
         let rejs =
-                [ (z, decodePayload spv (thPayloadSize . atrHeader $ z) (atrPayload z), rr)
+                [ (z, decodePayload spv (atrPayload z), rr)
                   | ((WithMetadata{wmdData = NormalTransaction z}, _), TxReject rr) <-
                         Helpers.getResults ftAdded
                 ]

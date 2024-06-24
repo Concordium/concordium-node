@@ -29,7 +29,7 @@ testModule1 = do
             let expectedReceive = Map.singleton (InitName "init_contract") (Set.singleton (ReceiveName "contract.call"))
             assertEqual "Only valid receive functions should be exposed" expectedReceive miExposedReceive
     let wm0 = WasmModuleV (ModuleSource ws)
-    case WasmV0.processModule wm0 of
+    case WasmV0.processModule Types.SP1 wm0 of
         Nothing -> return ()
         Just _ -> assertFailure "Extra exports are not allowed for V0 modules."
 

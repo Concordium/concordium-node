@@ -25,8 +25,6 @@ import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Utils
-import Concordium.Utils.Serialization (putByteStringLen)
-import Concordium.Utils.Serialization.Put
 import qualified Concordium.Wasm as Wasm
 
 import Concordium.GlobalState.BlockState (
@@ -42,6 +40,7 @@ import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.GlobalState.Persistent.MonadicRecursive
 import qualified Concordium.GlobalState.Wasm as GSWasm
+import Concordium.Logger (MonadLogger)
 
 ----------------------------------------------------------------------------------------------------
 
@@ -130,6 +129,7 @@ data PersistentInstanceV (v :: Wasm.WasmVersion) = PersistentInstanceV
 migratePersistentInstanceV ::
     forall v t m.
     ( Wasm.IsWasmVersion v,
+      MonadProtocolVersion (t m),
       SupportsPersistentModule m,
       SupportsPersistentModule (t m),
       MonadTrans t
@@ -181,7 +181,7 @@ data PersistentInstance (pv :: ProtocolVersion) where
 -- | Migrate persistent instances from the old to the new protocol version.
 migratePersistentInstance ::
     forall oldpv pv t m.
-    (SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t) =>
+    (MonadProtocolVersion (t m), SupportsPersistentModule m, SupportsPersistentModule (t m), SupportMigration m t) =>
     -- | The __already migrated__ modules. The modules were already migrated by the
     --  module migration, so we want to insert references to the existing modules
     --  in the instances so that we don't end up with duplicates both in-memory
@@ -204,7 +204,7 @@ cacheInstanceParameters :: (MonadBlobStore m) => PersistentInstance pv -> m (Per
 cacheInstanceParameters (PersistentInstanceV0 PersistentInstanceV{..}) = cacheBufferedRef pinstanceParameters
 cacheInstanceParameters (PersistentInstanceV1 PersistentInstanceV{..}) = cacheBufferedRef pinstanceParameters
 
-loadInstanceModule :: (SupportsPersistentModule m) => PersistentInstance pv -> m Module
+loadInstanceModule :: (MonadProtocolVersion m, SupportsPersistentModule m) => PersistentInstance pv -> m Module
 loadInstanceModule (PersistentInstanceV0 PersistentInstanceV{..}) = refLoad pinstanceModuleInterface
 loadInstanceModule (PersistentInstanceV1 PersistentInstanceV{..}) = refLoad pinstanceModuleInterface
 
@@ -217,7 +217,7 @@ instance HashableTo H.Hash (PersistentInstance pv) where
 -- decide whether we are loading instance V0 or instance V1, we essentially have
 -- two implementations of BlobStorable. One for protocol versions <= P3, and
 -- another one for later protocol versions. The latter ones add versioning information.
-instance (IsProtocolVersion pv, SupportsPersistentModule m) => BlobStorable m (PersistentInstance pv) where
+instance (IsProtocolVersion pv, MonadProtocolVersion m, SupportsPersistentModule m, MPV m ~ pv) => BlobStorable m (PersistentInstance pv) where
     storeUpdate inst = do
         if demoteProtocolVersion (protocolVersion @pv) <= P3
             then case inst of
@@ -309,7 +309,7 @@ instance (MonadBlobStore m) => Cacheable m (InstanceStateV GSWasm.V1) where
 
 -- This cacheable instance is a bit unusual. Caching instances requires us to have access
 -- to the modules so that we can share the module interfaces from different instances.
-instance (SupportsPersistentModule m) => Cacheable (ReaderT Modules m) (PersistentInstance pv) where
+instance (MonadProtocolVersion m, SupportsPersistentModule m) => Cacheable (ReaderT Modules m) (PersistentInstance pv) where
     cache (PersistentInstanceV0 p@PersistentInstanceV{..}) = do
         modules <- ask
         lift $! do
@@ -344,11 +344,11 @@ instance (SupportsPersistentModule m) => Cacheable (ReaderT Modules m) (Persiste
 
 -- | Construct instance information from a persistent instance, loading as much
 --  data as necessary from persistent storage.
-mkInstanceInfo :: (SupportsPersistentModule m) => PersistentInstance pv -> m (InstanceInfoType PersistentInstrumentedModuleV InstanceStateV)
+mkInstanceInfo :: (MonadProtocolVersion m, SupportsPersistentModule m) => PersistentInstance pv -> m (InstanceInfoType PersistentInstrumentedModuleV InstanceStateV)
 mkInstanceInfo (PersistentInstanceV0 inst) = InstanceInfoV0 <$> mkInstanceInfoV inst
 mkInstanceInfo (PersistentInstanceV1 inst) = InstanceInfoV1 <$> mkInstanceInfoV inst
 
-mkInstanceInfoV :: (SupportsPersistentModule m, Wasm.IsWasmVersion v) => PersistentInstanceV v -> m (InstanceInfoTypeV PersistentInstrumentedModuleV InstanceStateV v)
+mkInstanceInfoV :: (MonadProtocolVersion m, SupportsPersistentModule m, Wasm.IsWasmVersion v) => PersistentInstanceV v -> m (InstanceInfoTypeV PersistentInstrumentedModuleV InstanceStateV v)
 mkInstanceInfoV PersistentInstanceV{..} = do
     PersistentInstanceParameters{..} <- loadBufferedRef pinstanceParameters
     instanceModuleInterface <- moduleVInterface . unsafeToModuleV <$> refLoad pinstanceModuleInterface
@@ -366,35 +366,6 @@ mkInstanceInfoV PersistentInstanceV{..} = do
               iiBalance = pinstanceAmount,
               ..
             }
-
--- | Serialize a V0 smart contract instance in V0 format.
-putV0InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V0 -> m ()
-putV0InstanceV0 PersistentInstanceV{pinstanceModel = InstanceStateV0 model, ..} = do
-    -- Instance parameters
-    PersistentInstanceParameters{..} <- refLoad pinstanceParameters
-    liftPut $ do
-        -- only put the subindex part of the address
-        put (contractSubindex pinstanceAddress)
-        put pinstanceOwner
-        put pinstanceContractModule
-        put pinstanceInitName
-        put model
-        put pinstanceAmount
-
--- | Serialize a V1 smart contract instance in V0 format.
-putV1InstanceV0 :: (MonadBlobStore m, MonadPut m) => PersistentInstanceV GSWasm.V1 -> m ()
-putV1InstanceV0 PersistentInstanceV{pinstanceModel = InstanceStateV1 model, ..} = do
-    -- Instance parameters
-    PersistentInstanceParameters{..} <- refLoad pinstanceParameters
-    stateString <- StateV1.toByteString model
-    liftPut $ do
-        -- only put the subindex part of the address
-        put (contractSubindex pinstanceAddress)
-        put pinstanceOwner
-        put pinstanceContractModule
-        put pinstanceInitName
-        putByteStringLen stateString -- serialize with explicit length to enable serialization via FFI.
-        put pinstanceAmount
 
 ----------------------------------------------------------------------------------------------------
 
@@ -494,7 +465,7 @@ conditionalSetBit :: (Bits a) => Int -> Bool -> a -> a
 conditionalSetBit _ False x = x
 conditionalSetBit b True x = setBit x b
 
-instance (IsProtocolVersion pv, BlobStorable m r, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
+instance (MonadLogger m, MonadProtocolVersion m, IsProtocolVersion pv, MPV m ~ pv, BlobStorable m r, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
     storeUpdate (Branch{..}) = do
         (pl, l') <- storeUpdate branchLeft
         (pr, r') <- storeUpdate branchRight
@@ -589,6 +560,10 @@ newContractInstanceIT mk t0 = (\(res, v) -> (res,) <$> membed v) =<< nci 0 t0 =<
 migrateIT ::
     forall oldpv pv t m.
     ( SupportMigration m t,
+      MonadProtocolVersion m,
+      MPV m ~ oldpv,
+      MonadProtocolVersion (t m),
+      MPV (t m) ~ pv,
       SupportsPersistentModule m,
       SupportsPersistentModule (t m),
       IsProtocolVersion oldpv,
@@ -620,6 +595,10 @@ data Instances pv
 
 migrateInstances ::
     ( SupportMigration m t,
+      MonadProtocolVersion m,
+      MPV m ~ oldpv,
+      MonadProtocolVersion (t m),
+      MPV (t m) ~ pv,
       SupportsPersistentModule m,
       SupportsPersistentModule (t m),
       IsProtocolVersion oldpv,
@@ -649,13 +628,13 @@ makeInstancesHash size inner = case sBlockHashVersionFor (protocolVersion @pv) o
         put inner
 
 instance
-    (IsProtocolVersion pv, SupportsPersistentModule m) =>
+    (IsProtocolVersion pv, MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentModule m) =>
     MHashableTo m (InstancesHash pv) (Instances pv)
     where
     getHashM InstancesEmpty = return $ makeInstancesHash 0 $ H.hash "EmptyInstances"
     getHashM (InstancesTree size t) = makeInstancesHash size . getHash <$> mproject t
 
-instance (IsProtocolVersion pv, SupportsPersistentModule m) => BlobStorable m (Instances pv) where
+instance (IsProtocolVersion pv, MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentModule m) => BlobStorable m (Instances pv) where
     storeUpdate i@InstancesEmpty = return (putWord8 0, i)
     storeUpdate (InstancesTree s t) = do
         (pt, t') <- storeUpdate t
@@ -676,14 +655,14 @@ instance (MonadBlobStore m, Cacheable m r, Cacheable m (PersistentInstance pv)) 
     cache (Leaf l) = Leaf <$> cache l
     cache vacant = return vacant
 
-instance (IsProtocolVersion pv, SupportsPersistentModule m) => Cacheable (ReaderT Modules m) (Instances pv) where
+instance (IsProtocolVersion pv, MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentModule m) => Cacheable (ReaderT Modules m) (Instances pv) where
     cache i@InstancesEmpty = return i
     cache (InstancesTree s r) = InstancesTree s <$> cache r
 
 emptyInstances :: Instances pv
 emptyInstances = InstancesEmpty
 
-newContractInstance :: forall m pv a. (IsProtocolVersion pv, SupportsPersistentModule m) => (ContractAddress -> m (a, PersistentInstance pv)) -> Instances pv -> m (a, Instances pv)
+newContractInstance :: forall m pv a. (IsProtocolVersion pv, MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentModule m) => (ContractAddress -> m (a, PersistentInstance pv)) -> Instances pv -> m (a, Instances pv)
 newContractInstance createInstanceFn InstancesEmpty = do
     let ca = ContractAddress 0 0
     (res, newInst) <- createInstanceFn ca
@@ -700,7 +679,7 @@ newContractInstance createInstanceFn (InstancesTree size tree) = do
         -- Otherwise, a vacancy is filled, and the size does not grow.
         return ((contractSubindex newContractAddress == 0, result), createdInstance)
 
-deleteContractInstance :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => ContractAddress -> Instances pv -> m (Instances pv)
+deleteContractInstance :: forall m pv. (IsProtocolVersion pv, MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentModule m) => ContractAddress -> Instances pv -> m (Instances pv)
 deleteContractInstance _ InstancesEmpty = return InstancesEmpty
 deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree s) . membed) (contractIndex addr) =<< mproject it0
   where
@@ -727,7 +706,7 @@ deleteContractInstance addr t0@(InstancesTree s it0) = dci (fmap (InstancesTree 
             in  dci newCont (i - 2 ^ h) =<< mproject r
         | otherwise = return t0
 
-lookupContractInstance :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => ContractAddress -> Instances pv -> m (Maybe (PersistentInstance pv))
+lookupContractInstance :: forall m pv. (IsProtocolVersion pv, MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentModule m) => ContractAddress -> Instances pv -> m (Maybe (PersistentInstance pv))
 lookupContractInstance _ InstancesEmpty = return Nothing
 lookupContractInstance addr (InstancesTree _ it0) = lu (contractIndex addr) =<< mproject it0
   where
@@ -742,7 +721,7 @@ lookupContractInstance addr (InstancesTree _ it0) = lu (contractIndex addr) =<< 
         | i < 2 ^ (h + 1) = lu (i - 2 ^ h) =<< mproject r
         | otherwise = return Nothing
 
-updateContractInstance :: forall m pv a. (IsProtocolVersion pv, SupportsPersistentModule m) => (PersistentInstance pv -> m (a, PersistentInstance pv)) -> ContractAddress -> Instances pv -> m (Maybe (a, Instances pv))
+updateContractInstance :: forall m pv a. (IsProtocolVersion pv, MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentModule m) => (PersistentInstance pv -> m (a, PersistentInstance pv)) -> ContractAddress -> Instances pv -> m (Maybe (a, Instances pv))
 updateContractInstance _ _ InstancesEmpty = return Nothing
 updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contractIndex addr) =<< mproject it0
   where
@@ -775,26 +754,9 @@ updateContractInstance fupd addr (InstancesTree s it0) = upd baseSuccess (contra
         | otherwise = return Nothing
 
 -- | Retrieve the list of all instance addresses. The addresses are returned in increasing order.
-allInstances :: forall m pv. (IsProtocolVersion pv, SupportsPersistentModule m) => Instances pv -> m [ContractAddress]
+allInstances :: forall m pv. (IsProtocolVersion pv, MonadProtocolVersion m, MPV m ~ pv, SupportsPersistentModule m) => Instances pv -> m [ContractAddress]
 allInstances InstancesEmpty = return []
 allInstances (InstancesTree _ it) = mapReduceIT mfun it
   where
     mfun (Left _) = return mempty
     mfun (Right inst) = (: []) . pinstanceAddress <$> loadInstanceParameters inst
-
--- | Serialize instances in V0 format.
-putInstancesV0 :: (IsProtocolVersion pv, SupportsPersistentModule m, MonadPut m) => Instances pv -> m ()
-putInstancesV0 InstancesEmpty = liftPut $ putWord8 0
-putInstancesV0 (InstancesTree _ it) = do
-    mapReduceIT putOptInstance it
-    liftPut $ putWord8 0
-  where
-    putOptInstance (Left ca) = liftPut $ do
-        putWord8 1
-        put (contractSubindex ca)
-    putOptInstance (Right (PersistentInstanceV0 inst)) = do
-        liftPut $ putWord8 2
-        putV0InstanceV0 inst
-    putOptInstance (Right (PersistentInstanceV1 inst)) = do
-        liftPut $ putWord8 3
-        putV1InstanceV0 inst

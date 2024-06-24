@@ -7,7 +7,7 @@
 
 module SchedulerTests.BakerTransactions (tests) where
 
-import Control.Monad
+import Control.Monad.IO.Class
 import Data.Bifunctor (first)
 import qualified Data.List as List
 import Lens.Micro.Platform
@@ -32,7 +32,6 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
-import System.IO.Unsafe
 
 import qualified SchedulerTests.Helpers as Helpers
 import SchedulerTests.TestUtils
@@ -266,20 +265,21 @@ transactionsInput =
 
 tests :: Spec
 tests = do
-    let (outcomes, endState) = unsafePerformIO $ do
-            txs <- processUngroupedTransactions transactionsInput
+    outcomes <- runIO . Helpers.runTestBlockState $ do
+        txs <- liftIO (processUngroupedTransactions transactionsInput)
+        (outcomes, endState) <-
             Helpers.runSchedulerTestWithIntermediateStates
                 @PV1
                 Helpers.defaultTestConfig
                 initialBlockState
                 (const BS.bsoGetActiveBakers)
                 txs
+        let feeTotal = sum $ Helpers.srExecutionCosts . fst <$> outcomes
+        liftIO =<< Helpers.assertBlockStateInvariants endState feeTotal
+        return outcomes
     let results = first (Helpers.getResults . Sch.ftAdded . Helpers.srTransactions) <$> outcomes
 
     describe "P1: Baker transactions." $ do
-        specify "Result state satisfies invariant" $ do
-            let feeTotal = sum $ Helpers.srExecutionCosts . fst <$> outcomes
-            join $ Helpers.runTestBlockState $ Helpers.assertBlockStateInvariants endState feeTotal
         specify "Correct number of transactions" $
             length results `shouldBe` length transactionsInput
         specify "No failed transactions" $ do

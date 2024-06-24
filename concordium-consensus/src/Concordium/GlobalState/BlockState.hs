@@ -1431,10 +1431,6 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --  In particular the 'StateHash' should be supplied if loading a non-genesis block state.
     loadBlockState :: Maybe StateHash -> BlockStateRef m -> m (BlockState m)
 
-    -- | Serialize the block state to a byte string.
-    --  This serialization does not include transaction outcomes.
-    serializeBlockState :: BlockState m -> m BS.ByteString
-
     -- | Retrieve the callback that is needed to read state that is not in
     --  memory. This is needed for using V1 contract state.
     blockStateLoadCallback :: m LoadCallback
@@ -1721,7 +1717,6 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     saveAccounts = lift . saveAccounts
     reconstructAccountDifferenceMap bs parentMap = lift . reconstructAccountDifferenceMap bs parentMap
     loadBlockState hsh = lift . loadBlockState hsh
-    serializeBlockState = lift . serializeBlockState
     blockStateLoadCallback = lift blockStateLoadCallback
     collapseCaches = lift collapseCaches
     cacheBlockState = lift . cacheBlockState
@@ -1735,7 +1730,6 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE saveBlockState #-}
     {-# INLINE reconstructAccountDifferenceMap #-}
     {-# INLINE loadBlockState #-}
-    {-# INLINE serializeBlockState #-}
     {-# INLINE blockStateLoadCallback #-}
     {-# INLINE collapseCaches #-}
     {-# INLINE cacheBlockState #-}
