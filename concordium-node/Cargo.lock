@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common"
-version = "9.0.0"
+version = "9.1.0"
 dependencies = [
  "base64 0.21.7",
  "bs58",
@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-contracts-common-derive"
-version = "4.0.1"
+version = "4.1.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -699,7 +699,7 @@ dependencies = [
 
 [[package]]
 name = "concordium-smart-contract-engine"
-version = "4.0.0"
+version = "5.0.0"
 dependencies = [
  "anyhow",
  "byteorder",
@@ -732,7 +732,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base"
-version = "4.0.0"
+version = "5.0.0"
 dependencies = [
  "aes",
  "anyhow",
