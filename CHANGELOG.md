@@ -17,6 +17,7 @@
   prevents encrypting further CCDs or transferring encrypted CCDs.
   `TransferToPublic` remains enabled, allowing existing encrypted balances to be
   decrypted.
+- Improve logging around protocol update events.
 
 ## 6.3.1
 
