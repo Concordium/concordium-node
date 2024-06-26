@@ -31,6 +31,7 @@ import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
 
+-- | The hash derived from an account's cooldown queue.
 newtype CooldownQueueHash (av :: AccountVersion) = CooldownQueueHash {theCooldownQueueHash :: Hash.Hash}
     deriving (Eq, Ord, Show, Serialize)
 
@@ -252,7 +253,7 @@ data AccountMerkleHashInputs (av :: AccountVersion) where
         { -- | Hash of the persisting account data.
           amhi2PersistingAccountDataHash :: !PersistingAccountDataHash,
           -- | Hash of the account stake.
-          amhi2AccountStakeHash :: !(AccountStakeHash av),
+          amhi2AccountStakeHash :: !(AccountStakeHash 'AccountV2),
           -- | Hash of the account's encrypted amount.
           amhi2EncryptedAmountHash :: !EncryptedAmountHash,
           -- | Hash of the account's release schedule.
@@ -263,13 +264,13 @@ data AccountMerkleHashInputs (av :: AccountVersion) where
         { -- | Hash of the persisting account data.
           amhi3PersistingAccountDataHash :: !PersistingAccountDataHash,
           -- | Hash of the account stake.
-          amhi3AccountStakeHash :: !(AccountStakeHash av),
+          amhi3AccountStakeHash :: !(AccountStakeHash 'AccountV3),
           -- | Hash of the account's encrypted amount.
           amhi3EncryptedAmountHash :: !EncryptedAmountHash,
           -- | Hash of the account's release schedule.
           amhi3AccountReleaseScheduleHash :: !ARSV1.AccountReleaseScheduleHashV1,
-          -- | The cooldown.
-          amhi3Cooldown :: !(CooldownQueueHash av)
+          -- | Hash of the account's cooldown queue.
+          amhi3Cooldown :: !(CooldownQueueHash 'AccountV3)
         } ->
         AccountMerkleHashInputs 'AccountV3
 
@@ -323,6 +324,8 @@ makeAccountHashV2 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
     put ahi2StakedBalance
     put ahi2MerkleHash
 
+-- | Generate the hash for an account (for 'AccountV3'), given the
+--  'AccountHashInputsV2'. 'makeAccountHash' should be used in preference to this function.
 makeAccountHashV3 :: AccountHashInputsV2 av -> Hash.Hash
 makeAccountHashV3 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
     putShortByteString "AC03"
@@ -338,6 +341,7 @@ data AccountHashInputs (av :: AccountVersion) where
     AHIV2 :: AccountHashInputsV2 'AccountV2 -> AccountHashInputs 'AccountV2
     AHIV3 :: AccountHashInputsV2 'AccountV3 -> AccountHashInputs 'AccountV3
 
+-- | Generate the hash for an account, given the 'AccountHashInputs'.
 makeAccountHash :: AccountHashInputs av -> AccountHash av
 {-# INLINE makeAccountHash #-}
 makeAccountHash (AHIV0 ahi) = AccountHash $ makeAccountHashV0 ahi
