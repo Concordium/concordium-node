@@ -87,6 +87,7 @@ testCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         recorderSourceFile
                         (InitName "init_recorder")
                         (Parameter "")

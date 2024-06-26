@@ -3866,6 +3866,10 @@ migratePersistentBlockState migration oldState = do
 migrateBlockPointers ::
     forall oldpv pv t m.
     ( SupportMigration m t,
+      MonadProtocolVersion m,
+      MPV m ~ oldpv,
+      MonadProtocolVersion (t m),
+      MPV (t m) ~ pv,
       SupportsPersistentAccount oldpv m,
       SupportsPersistentAccount pv (t m),
       Modules.SupportsPersistentModule m,
@@ -3901,7 +3905,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
         migrateAccountsInCooldownForPV
             (MigrationState._migrationPrePreCooldown migrationState)
             bspAccountsInCooldown
-    newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
+    newModules <- migrateHashedBufferedRef (Modules.migrateModules migration) bspModules
     modules <- refLoad newModules
     newInstances <- Instances.migrateInstances modules bspInstances
     let newBank = bspBank

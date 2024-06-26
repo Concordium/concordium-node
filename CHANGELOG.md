@@ -4,10 +4,27 @@
 
 - Fix a bug where `GetBakersRewardPeriod` returns incorrect data (#1176).
 - Fix a bug where `GetPoolInfo` returns incorrect data (#1177).
+- Change the severity of logs for failed gRPC API requests to DEBUG level.
 - Add support for new `invoke` calls from smart contracts in protocol version 7:
   - query the contract module reference for a given contract address
   - query the contract name for a given contract address
 - Update Rust version to 1.73.
+- Integrate new Wasm execution engine. Migration of old execution artifacts in
+  the node's database to the new format is done on-demand, which means node
+  startup can be a bit slower when a lot of modules exist. All Wasm modules will
+  be migrated to the new format when the protocol is updated to P7.
+- Remove support for encrypted transfers in protocol version 7. Transactions with
+  payload types `TransferToEncrypted`, `EncryptedAmountTransfer` and
+  `EncryptedAmountTransferWithMemo` are disabled in this protocol version, which
+  prevents encrypting further CCDs or transferring encrypted CCDs.
+  `TransferToPublic` remains enabled, allowing existing encrypted balances to be
+  decrypted.
+
+## 6.3.1
+
+- Fix a bug where a node may fail to produce a timeout certificate due to
+  incorrectly computing the total weight of finalizers that have signed
+  timeout messages.
 
 ## 6.3.0
 

@@ -88,6 +88,7 @@ runInitTestsFromFile _ testCaseDescription testFile testCases =
                       taaAssertion = \result _ ->
                         return $ do
                             Helpers.assertUsedEnergyInitialization
+                                (Types.protocolVersion @pv)
                                 testFile
                                 (InitName testName)
                                 (Parameter initParam)
@@ -142,6 +143,7 @@ runReceiveTestsFromFile _ testCaseDescription testFile testCases =
                         return $ do
                             Helpers.assertSuccess result
                             Helpers.assertUsedEnergyInitialization
+                                (Types.protocolVersion @pv)
                                 testFile
                                 (InitName "init_test")
                                 (Parameter "")

@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "6.3.0" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "6.3.1" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -84,6 +84,7 @@ prost = "0.12"
 tokio = { version = "1.35", features = ["macros", "rt-multi-thread", "signal", "io-util", "time"] }
 tokio-stream = "0.1"
 num_cpus = "1.16"
+tracing = "0.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 macos_logger_wrapper = { version = "*", path = "../macos_logger_wrapper/"}

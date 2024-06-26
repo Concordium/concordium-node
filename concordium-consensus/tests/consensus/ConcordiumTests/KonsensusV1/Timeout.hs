@@ -707,6 +707,44 @@ testCheckTimeoutCertificate sProtocolVersion =
         let tc = validTCFor qc
         in  tc{tcAggregateSignature = TimeoutSignature Bls.emptySignature}
 
+-- | Tests the 'voterPowerFraction' function.
+testVoterPowerFraction :: Spec
+testVoterPowerFraction = describe "voterPowerFraction" $ do
+    it "no finalizers have signed" $
+        assertEqual "voterPowerFraction fc1 (Just fc1) Nothing [] []" 0 $
+            voterPowerFraction fc1 (Just fc1) Nothing [] []
+    it "all finalizers have signed" $
+        assertEqual "voterPowerFraction fc1 (Just fc1) Nothing [0, 1, 2, 3] []" 1 $
+            voterPowerFraction fc1 (Just fc1) Nothing (FinalizerIndex <$> [0, 1, 2, 3]) []
+    it "all finalizers have signed over two epochs" $ do
+        assertEqual "voterPowerFraction fc1 (Just fc1) (Just fc2) [1, 2, 3] [0, 1]" 1 $
+            voterPowerFraction fc1 (Just fc1) (Just fc2) (FinalizerIndex <$> [1, 2, 3]) (FinalizerIndex <$> [0, 1])
+        assertEqual "voterPowerFraction fc2 (Just fc1) (Just fc2) [1, 2, 3] [0, 1]" 1 $
+            voterPowerFraction fc2 (Just fc1) (Just fc2) (FinalizerIndex <$> [1, 2, 3]) (FinalizerIndex <$> [0, 1])
+    it "some finalizers have signed" $ do
+        assertEqual "voterPowerFraction fc1 (Just fc1) Nothing [0, 1] []" (11 % 31) $
+            voterPowerFraction fc1 (Just fc1) Nothing (FinalizerIndex <$> [0, 1]) []
+        assertEqual "voterPowerFraction fc1 (Just fc1) (Just fc2) [0, 1] [0, 1]" (11 % 31) $
+            voterPowerFraction fc1 (Just fc1) (Just fc2) (FinalizerIndex <$> [0, 1]) (FinalizerIndex <$> [0, 1])
+        assertEqual "voterPowerFraction fc2 (Just fc1) (Just fc2) [0, 1] [0, 1]" (12 % 31) $
+            voterPowerFraction fc2 (Just fc1) (Just fc2) (FinalizerIndex <$> [0, 1]) (FinalizerIndex <$> [0, 1])
+  where
+    makeFC :: [(BakerId, VoterPower)] -> FinalizationCommittee
+    makeFC finalizers =
+        FinalizationCommittee
+            (Vec.fromList $ makeFinalizerInfo <$> zip [FinalizerIndex 0 ..] finalizers)
+            (sum $ snd <$> finalizers)
+    makeFinalizerInfo (finIndex, (bId, vPower)) =
+        FinalizerInfo
+            finIndex
+            vPower
+            Common.sigPublicKey
+            (VRF.publicKey Common.dummyVRFKeys)
+            (Bls.derivePublicKey $ Dummy.generateBlsSecretKeyFromSeed 0)
+            bId
+    fc1 = makeFC [(0, 10), (1, 1), (3, 10), (7, 10)]
+    fc2 = makeFC [(0, 10), (2, 2), (3, 10), (7, 9)]
+
 tests :: Spec
 tests = describe "KonsensusV1.Timeout" $ do
     Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
@@ -725,3 +763,4 @@ tests = describe "KonsensusV1.Timeout" $ do
         testUpdateCurrentTimeout 3_000 (4 % 3) 4_000
         testUpdateCurrentTimeout 80_000 (10 % 9) 88_888
         testUpdateCurrentTimeout 8_000 (8 % 7) 9_142
+    testVoterPowerFraction

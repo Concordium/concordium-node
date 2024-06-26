@@ -275,7 +275,7 @@ tests = do
                 (const BS.bsoGetActiveBakers)
                 txs
         let feeTotal = sum $ Helpers.srExecutionCosts . fst <$> outcomes
-        _ <- liftIO =<< Helpers.assertBlockStateInvariants endState feeTotal
+        liftIO =<< Helpers.assertBlockStateInvariants endState feeTotal
         return outcomes
     let results = first (Helpers.getResults . Sch.ftAdded . Helpers.srTransactions) <$> outcomes
 

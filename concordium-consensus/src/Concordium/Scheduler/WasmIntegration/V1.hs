@@ -18,6 +18,8 @@ module Concordium.Scheduler.WasmIntegration.V1 (
     applyReceiveFun,
     resumeReceiveFun,
     processModule,
+    processModuleConfig,
+    compileModule,
     ReturnValue,
     ReceiveInterruptedState,
     InvokeResponseCode (..),
@@ -28,6 +30,8 @@ module Concordium.Scheduler.WasmIntegration.V1 (
     returnValueToByteString,
     byteStringToReturnValue,
     RuntimeConfig (..),
+    validationConfigAllowP1P6,
+    processingConfigRecompileForP7,
 ) where
 
 import Control.Monad
@@ -81,6 +85,8 @@ foreign import ccall "validate_and_process_v1"
         Ptr Word8 ->
         -- | Length of the module source.
         CSize ->
+        -- | Metering (cost semantics) version.
+        Word8 ->
         -- | Total length of the output.
         Ptr CSize ->
         -- | Length of the artifact.
@@ -818,7 +824,9 @@ data ValidationConfig = ValidationConfig
       -- | Allow globals in data and element segments.
       vcAllowGlobals :: Bool,
       -- | Allow sign extension instructions.
-      vcAllowSignExtensionInstr :: Bool
+      vcAllowSignExtensionInstr :: Bool,
+      -- | Version of the cost semantics to use.
+      vcCostSemantics :: CostSemanticsVersion
     }
 
 -- | Construct a 'ValidationConfig' valid for the given protocol version.
@@ -827,48 +835,65 @@ validationConfig spv =
     ValidationConfig
         { vcSupportUpgrade = supportsUpgradableContracts spv,
           vcAllowGlobals = supportsGlobalsInInitSections spv,
-          vcAllowSignExtensionInstr = supportsSignExtensionInstructions spv
+          vcAllowSignExtensionInstr = supportsSignExtensionInstructions spv,
+          vcCostSemantics = pvCostSemanticsVersion spv
+        }
+
+-- | Validation configuration that will accept all modules that are valid in
+--  any of the protocol version 1-6, and use the given cost assignment.
+validationConfigAllowP1P6 :: CostSemanticsVersion -> ValidationConfig
+validationConfigAllowP1P6 vcCostSemantics =
+    ValidationConfig
+        { vcSupportUpgrade = True,
+          vcAllowGlobals = True,
+          vcAllowSignExtensionInstr = True,
+          ..
+        }
+
+-- | Configuration for module processing dependent on which features are allowed
+--  in a specific protocol version.
+data ProcessingConfig = ProcessingConfig
+    { pcValidationConfig :: ValidationConfig,
+      -- | Whether to omit custom section size from module size when cost accounting.
+      pcOmitCustomSectionSize :: Bool
+    }
+
+processingConfig :: SProtocolVersion pv -> ProcessingConfig
+processingConfig spv =
+    ProcessingConfig
+        { pcValidationConfig = validationConfig spv,
+          pcOmitCustomSectionSize = omitCustomSectionFromSize spv
+        }
+
+-- | Processing configuration that will accept all modules that are valid in
+--  any of the protocol version 1-6, and compile with cost semantics defined by P7.
+processingConfigRecompileForP7 :: ProcessingConfig
+processingConfigRecompileForP7 =
+    ProcessingConfig
+        { pcValidationConfig = validationConfigAllowP1P6 CSV1,
+          pcOmitCustomSectionSize = True
         }
 
 -- | Process a module as received and make a module interface.
 --  This
 --  - checks the module is well-formed, and has the right imports and exports for a V1 module.
 --  - makes a module artifact and allocates it on the Rust side, returning a pointer and a finalizer.
-{-# NOINLINE processModule #-}
 processModule :: SProtocolVersion spv -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
-processModule spv modl = do
-    (bs, miModule) <- ffiResult
+processModule spv = processModuleConfig (processingConfig spv)
+
+processModuleConfig :: ProcessingConfig -> WasmModuleV V1 -> Maybe (ModuleInterfaceV V1)
+processModuleConfig config modl = do
+    (bs, miModule) <- compileModule (pcValidationConfig config) modl
     case getExports bs of
         Left _ -> Nothing
         Right ((miExposedInit, miExposedReceive), customSectionsSize) ->
             let miModuleRef = getModuleRef modl
                 miModuleSize =
-                    if omitCustomSectionFromSize spv
+                    if pcOmitCustomSectionSize config
                         then moduleSourceLength (wmvSource modl) - customSectionsSize
                         else moduleSourceLength (wmvSource modl)
             in  Just ModuleInterface{..}
   where
-    ValidationConfig{..} = validationConfig spv
-    ffiResult = unsafePerformIO $ do
-        unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
-            alloca $ \outputLenPtr ->
-                alloca $ \artifactLenPtr ->
-                    alloca $ \outputModuleArtifactPtr -> do
-                        outPtr <- validate_and_process (if vcSupportUpgrade then 1 else 0) (if vcAllowGlobals then 1 else 0) (if vcAllowSignExtensionInstr then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) outputLenPtr artifactLenPtr outputModuleArtifactPtr
-                        if outPtr == nullPtr
-                            then return Nothing
-                            else do
-                                len <- peek outputLenPtr
-                                bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
-                                artifactLen <- peek artifactLenPtr
-                                artifactPtr <- peek outputModuleArtifactPtr
-                                moduleArtifact <-
-                                    BSU.unsafePackCStringFinalizer
-                                        artifactPtr
-                                        (fromIntegral artifactLen)
-                                        (rs_free_array_len artifactPtr (fromIntegral artifactLen))
-                                return (Just (bs, instrumentedModuleFromBytes SV1 moduleArtifact))
-
     getExports bs =
         flip runGet bs $ do
             len <- fromIntegral <$> getWord16be
@@ -894,3 +919,29 @@ processModule spv modl = do
                 Nothing -> fail "Incorrect response from FFI call."
                 Just x@(exposedInits, exposedReceives) ->
                     if Map.keysSet exposedReceives `Set.isSubsetOf` exposedInits then return (x, customSectionsSize) else fail "Receive functions that do not correspond to any contract."
+
+-- | Compile a module into an artifact using the provided configuration for validation.
+{-# NOINLINE compileModule #-}
+compileModule :: ValidationConfig -> WasmModuleV V1 -> Maybe (BS.ByteString, InstrumentedModuleV V1)
+compileModule ValidationConfig{..} modl =
+    unsafePerformIO $ do
+        unsafeUseModuleSourceAsCStringLen (wmvSource modl) $ \(wasmBytesPtr, wasmBytesLen) ->
+            alloca $ \outputLenPtr ->
+                alloca $ \artifactLenPtr ->
+                    alloca $ \outputModuleArtifactPtr -> do
+                        outPtr <- validate_and_process (if vcSupportUpgrade then 1 else 0) (if vcAllowGlobals then 1 else 0) (if vcAllowSignExtensionInstr then 1 else 0) (castPtr wasmBytesPtr) (fromIntegral wasmBytesLen) meteringVersion outputLenPtr artifactLenPtr outputModuleArtifactPtr
+                        if outPtr == nullPtr
+                            then return Nothing
+                            else do
+                                len <- peek outputLenPtr
+                                bs <- BSU.unsafePackCStringFinalizer outPtr (fromIntegral len) (rs_free_array_len outPtr (fromIntegral len))
+                                artifactLen <- peek artifactLenPtr
+                                artifactPtr <- peek outputModuleArtifactPtr
+                                moduleArtifact <-
+                                    BSU.unsafePackCStringFinalizer
+                                        artifactPtr
+                                        (fromIntegral artifactLen)
+                                        (rs_free_array_len artifactPtr (fromIntegral artifactLen))
+                                return (Just (bs, instrumentedModuleFromBytes SV1 moduleArtifact))
+  where
+    meteringVersion = costSemanticsVersionToWord8 vcCostSemantics
