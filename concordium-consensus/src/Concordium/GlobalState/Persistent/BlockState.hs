@@ -1788,15 +1788,15 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                 newActiveBkrsRef <- refMake newActiveBkrs2
                 let notAlreadyInPrePreCooldown = do
                         accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
-                        let accountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                        let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
                                 CTrue accounts -> accounts
-                            oldPrePreCooldowns = _prePreCooldown accountsInCooldown
+                            oldPrePreCooldowns = _prePreCooldown oldAccountsInCooldown
                         ppRef <- liftBSO $ refMake $ AccountListItem ai oldPrePreCooldowns
                         let newPrePreCooldowns = Some ppRef
                             newAccountsInCooldown =
                                 AccountsInCooldownForPV $
                                     CTrue
-                                        accountsInCooldown{_prePreCooldown = newPrePreCooldowns}
+                                        oldAccountsInCooldown{_prePreCooldown = newPrePreCooldowns}
                         MTL.modify' $ \bsp ->
                             bsp
                                 { bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrsRef,
@@ -1831,15 +1831,15 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                                             %~ subtractActiveCapital (_stakedAmount oldBkr - capital)
                         let notAlreadyInPrePreCooldown = do
                                 accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
-                                let accountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                                let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
                                         CTrue accounts -> accounts
-                                    oldPrePreCooldowns = _prePreCooldown accountsInCooldown
+                                    oldPrePreCooldowns = _prePreCooldown oldAccountsInCooldown
                                 ppRef <- liftBSO $ refMake $ AccountListItem ai oldPrePreCooldowns
                                 let newPrePreCooldowns = Some ppRef
                                     newAccountsInCooldown =
                                         AccountsInCooldownForPV $
                                             CTrue
-                                                accountsInCooldown{_prePreCooldown = newPrePreCooldowns}
+                                                oldAccountsInCooldown{_prePreCooldown = newPrePreCooldowns}
                                 MTL.modify' $ \bsp ->
                                     bsp
                                         { bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs,
@@ -1871,7 +1871,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                                             %~ addActiveCapital (capital - _stakedAmount oldBkr)
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
-                        return $ setAccountStake capital
+                        return $ setAccountStake capital >=> releaseCooldownAmount (capital - _stakedAmount oldBkr)
 
 doConstrainBakerCommission ::
     (SupportsPersistentState pv m, PVSupportsDelegation pv) =>
@@ -2106,22 +2106,20 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
             -- Cooldown time, used when the change reduces or removes the stake.
             if capital == 0
                 then do
-                    -- let dpc = BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
-                    -- modifyAccount $ setAccountStakePendingChange dpc
                     bsp1 <- MTL.get
                     ab <- refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)
                     newActiveBakers <- removeDelegatorFromActiveBakers ab ad (BaseAccounts._delegationStakedAmount ad - capital)
                     let notAlreadyInPrePreCooldown = do
                             accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
-                            let accountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                            let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
                                     CTrue accounts -> accounts
-                                oldPrePreCooldowns = _prePreCooldown accountsInCooldown
+                                oldPrePreCooldowns = _prePreCooldown oldAccountsInCooldown
                             ppRef <- refMake $ AccountListItem ai oldPrePreCooldowns -- FIXME: why no lift?
                             let newPrePreCooldowns = Some ppRef
                                 newAccountsInCooldown =
                                     AccountsInCooldownForPV $
                                         CTrue
-                                            accountsInCooldown{_prePreCooldown = newPrePreCooldowns}
+                                            oldAccountsInCooldown{_prePreCooldown = newPrePreCooldowns}
                             MTL.modify' $ \bsp ->
                                 bsp
                                     { bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers,
@@ -2141,22 +2139,20 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                     MTL.tell [DelegationConfigureStakeReduced 0]
                 else case compare capital (BaseAccounts._delegationStakedAmount ad) of
                     LT -> do
-                        -- let dpc = BaseAccounts.ReduceStake capital (BaseAccounts.PendingChangeEffectiveV1 cooldownElapsed)
-                        -- modifyAccount $ setAccountStakePendingChange dpc
                         bsp1 <- MTL.get
                         ab <- refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)
                         newActiveBakers <- subtractTotalsInActiveBakers ab ad (BaseAccounts._delegationStakedAmount ad - capital)
                         let notAlreadyInPrePreCooldown = do
                                 accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
-                                let accountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                                let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
                                         CTrue accounts -> accounts
-                                    oldPrePreCooldowns = _prePreCooldown accountsInCooldown
+                                    oldPrePreCooldowns = _prePreCooldown oldAccountsInCooldown
                                 ppRef <- refMake $ AccountListItem ai oldPrePreCooldowns
                                 let newPrePreCooldowns = Some ppRef
                                     newAccountsInCooldown =
                                         AccountsInCooldownForPV $
                                             CTrue
-                                                accountsInCooldown{_prePreCooldown = newPrePreCooldowns}
+                                                oldAccountsInCooldown{_prePreCooldown = newPrePreCooldowns}
                                 MTL.modify' $ \bsp ->
                                     bsp
                                         { bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers,
@@ -2180,8 +2176,13 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                         bsp1 <- MTL.get
                         ab <- refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)
                         newActiveBakers <- addTotalsInActiveBakers ab ad (capital - BaseAccounts._delegationStakedAmount ad)
-                        MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers}
-                        modifyAccount $ setAccountStake capital
+                        maybeCooldownsBefore <- accountCooldowns acc
+                        modifyAccount $ setAccountStake capital >=> releaseCooldownAmount capital
+                        maybeCooldownsAfter <- accountCooldowns acc
+                        case (maybeCooldownsBefore, maybeCooldownsAfter) of
+                            (Just _, Nothing) -> do
+                                MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers} -- FIXME: remove cooldown globally here
+                            _ -> MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers}
                         MTL.tell [DelegationConfigureStakeIncreased capital]
         return $ BaseAccounts._delegationStakedAmount ad
     addTotalsInActiveBakers ab0 ad delta = do

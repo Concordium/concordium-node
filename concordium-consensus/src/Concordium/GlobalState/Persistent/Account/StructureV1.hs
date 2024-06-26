@@ -1337,6 +1337,56 @@ addPrePreCooldown amt = updateEnduringData $ \ed -> do
     newRef <- refMake $! newCooldowns
     return $! ed{paedStakeCooldown = CooldownQueue newRef}
 
+releaseCooldownAmount ::
+    forall m av.
+    ( MonadBlobStore m,
+      IsAccountVersion av,
+      AccountStructureVersionFor av ~ 'AccountStructureV1,
+      SupportsFlexibleCooldown av ~ 'True
+    ) =>
+    Amount ->
+    PersistentAccount av ->
+    m (PersistentAccount av)
+releaseCooldownAmount amt = updateEnduringData $ \ed -> do
+    let newCooldowns = case paedStakeCooldown ed of
+            EmptyCooldownQueue -> emptyCooldowns
+            CooldownQueue ref ->
+                let old = eagerBufferedDeref ref
+                    oldPrePreCooldown = prePreCooldown old
+                    (newPrePreCooldown, leftover1) = preHelper amt oldPrePreCooldown
+                    new = old{prePreCooldown = newPrePreCooldown}
+                    oldPreCooldown = preCooldown old
+                    (new2, leftover2) =
+                        if leftover1 > 0
+                            then
+                                let (newPreCooldown, leftover) = preHelper leftover1 oldPreCooldown
+                                in  (new{prePreCooldown = newPreCooldown}, leftover)
+                            else (new, 0)
+                    oldCooldown = inCooldown old
+                    new3 =
+                        if leftover2 > 0
+                            then
+                                let newMap = Map.fromAscList $ releaseHelper leftover2 $ Map.toAscList oldCooldown
+                                in  new2{inCooldown = newMap}
+                            else new2
+                in  new3
+    newRef <- refMake $! newCooldowns
+    return $! ed{paedStakeCooldown = CooldownQueue newRef}
+  where
+    releaseHelper :: Amount -> [(Timestamp, Amount)] -> [(Timestamp, Amount)]
+    releaseHelper left orig@((ts, amount) : cooldowns)
+        | left == 0 = orig
+        | left >= amt = releaseHelper (left - amount) cooldowns
+        | otherwise = (ts, amount - left) : cooldowns
+    releaseHelper _ [] = []
+    preHelper :: Amount -> Option Amount -> (Option Amount, Amount)
+    preHelper left optAmt = case optAmt of
+        Absent -> (Absent, left)
+        Present amount ->
+            if left >= amount
+                then (Absent, left - amount)
+                else (Present (amount - left), 0)
+
 -- | Set whether a baker or delegator account restakes its earnings.
 --  This MUST only be called with an account that is either a baker or delegator.
 setRestakeEarnings ::
@@ -1764,7 +1814,7 @@ migrateV2ToV3 acc = do
         PersistentAccount
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
-              accountStakedAmount = newStakedAmount, -- FIXME!
+              accountStakedAmount = newStakedAmount,
               ..
             }
 

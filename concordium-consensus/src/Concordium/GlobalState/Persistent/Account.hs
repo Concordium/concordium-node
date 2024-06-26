@@ -461,6 +461,13 @@ addAccountPrePreCooldown ::
     m (PersistentAccount av)
 addAccountPrePreCooldown amt (PAV3 acc) = PAV3 <$> V1.addPrePreCooldown amt acc
 
+releaseCooldownAmount ::
+    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+    Amount ->
+    PersistentAccount av ->
+    m (PersistentAccount av)
+releaseCooldownAmount amt (PAV3 acc) = PAV3 <$> V1.releaseCooldownAmount amt acc
+
 -- | Set whether a baker or delegator account restakes its earnings.
 --  This MUST only be called with an account that is either a baker or delegator.
 setAccountRestakeEarnings ::
