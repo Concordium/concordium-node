@@ -81,7 +81,7 @@ import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.IdentityProviders
-import Concordium.Types.Queries (PoolStatus, RewardStatus')
+import Concordium.Types.Queries (BakerPoolStatus, PassiveDelegationStatus, RewardStatus')
 import Concordium.Types.SeedState (SeedState, SeedStateVersion (..), SeedStateVersionFor)
 import Concordium.Types.Transactions hiding (BareBlockItem (..))
 import qualified Concordium.Types.UpdateQueues as UQ
@@ -89,6 +89,7 @@ import qualified Concordium.Types.UpdateQueues as UQ
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.CooldownQueue (Cooldowns)
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
@@ -167,9 +168,9 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- | Check whether an account is allowed to perform the given action.
     checkAccountIsAllowed :: Account m -> AccountAllowance -> m Bool
 
-    -- | Get the amount that is staked on the account.
+    -- | Get the amount that is staked on the account, both active and inactive (P7 onwards).
     --  This is 0 if the account is not staking or delegating.
-    getAccountStakedAmount :: Account m -> m Amount
+    getAccountTotalStakedAmount :: Account m -> m Amount
 
     -- | Get the amount that is locked in scheduled releases on the account.
     --  This is 0 if there are no pending releases on the account.
@@ -179,11 +180,6 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- This accounts for lock-up and staked amounts.
     -- @available = total - max locked staked@
     getAccountAvailableAmount :: Account m -> m Amount
-    getAccountAvailableAmount acc = do
-        total <- getAccountAmount acc
-        lockedUp <- getAccountLockedAmount acc
-        staked <- getAccountStakedAmount acc
-        return $ total - max lockedUp staked
 
     -- | Get the next available nonce for this account
     getAccountNonce :: Account m -> m Nonce
@@ -249,6 +245,13 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- | Get the hash of an account.
     --  Note: this may not be implemented efficiently, and is principally intended for testing purposes.
     getAccountHash :: Account m -> m (AccountHash (AccountVersionFor (MPV m)))
+
+    -- | Get the 'Cooldowns' for an account, if any. This is only available at account versions that
+    -- support flexible cooldowns.
+    getAccountCooldowns ::
+        (PVSupportsFlexibleCooldown (MPV m)) =>
+        Account m ->
+        m (Maybe Cooldowns)
 
 -- * Active, current and next bakers/delegators
 
@@ -646,14 +649,19 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (PVSupportsDelegation (MPV m)) => BlockState m -> m Epoch
 
-    -- | Get a 'PoolStatus' record describing the status of a baker pool (when the 'BakerId' is
-    --  provided) or the passive delegators (when 'Nothing' is provided). The result is 'Nothing'
-    --  if the 'BakerId' is not currently a baker.
+    -- | Get a 'BakerPoolStatus' record describing the status of a baker pool. The result is
+    -- 'Nothing' if the 'BakerId' is not an active or current-epoch baker.
     getPoolStatus ::
         (PVSupportsDelegation (MPV m)) =>
         BlockState m ->
-        Maybe BakerId ->
-        m (Maybe PoolStatus)
+        BakerId ->
+        m (Maybe BakerPoolStatus)
+
+    -- | Get the status of passive delegation.
+    getPassiveDelegationStatus ::
+        (PVSupportsDelegation (MPV m)) =>
+        BlockState m ->
+        m PassiveDelegationStatus
 
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
@@ -891,10 +899,34 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  the delegation from the active bakers index.
     --  For delegators pending stake reduction, this reduces the stake.
     bsoProcessPendingChanges ::
-        (PVSupportsDelegation (MPV m)) =>
+        ( PVSupportsDelegation (MPV m),
+          SupportsFlexibleCooldown (AccountVersionFor (MPV m)) ~ 'False
+        ) =>
         UpdatableBlockState m ->
         -- | Guard determining if a change is effective
         (Timestamp -> Bool) ->
+        m (UpdatableBlockState m)
+
+    -- | Process cooldowns on accounts that have expired, and move pre-cooldowns into cooldown.
+    --  All cooldowns that expire at or before the given expiry time will be removed from accounts.
+    --  After this, all pre-cooldowns on accounts are moved into cooldown.
+    bsoProcessCooldowns ::
+        (PVSupportsFlexibleCooldown (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | Timestamp for expiring cooldowns.
+        Timestamp ->
+        -- | Timestamp for pre-cooldowns entering cooldown.
+        Timestamp ->
+        m (UpdatableBlockState m)
+
+    -- | Move all pre-pre-cooldowns into pre-cooldown.
+    --  It is assumed that there are currently no pre-cooldowns. This should be ensured by
+    --  calling 'bsoProcessCooldowns' between successive calls to 'bsoProcessPrePreCooldowns', as
+    --  that moves all pre-cooldowns into cooldown, and only 'bsoProcessPrePreCooldowns' moves
+    --  anything into pre-cooldown.
+    bsoProcessPrePreCooldowns ::
+        (PVSupportsFlexibleCooldown (MPV m)) =>
+        UpdatableBlockState m ->
         m (UpdatableBlockState m)
 
     -- | Get the list of all active bakers in ascending order.
@@ -1502,6 +1534,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getChainParameters = lift . getChainParameters
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
+    getPassiveDelegationStatus = lift . getPassiveDelegationStatus
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE accountExists #-}
@@ -1541,7 +1574,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
     getAccountAmount = lift . getAccountAmount
     checkAccountIsAllowed acc = lift . checkAccountIsAllowed acc
-    getAccountStakedAmount = lift . getAccountStakedAmount
+    getAccountTotalStakedAmount = lift . getAccountTotalStakedAmount
     getAccountLockedAmount = lift . getAccountLockedAmount
     getAccountAvailableAmount = lift . getAccountAvailableAmount
     getAccountNonce = lift . getAccountNonce
@@ -1556,6 +1589,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountBakerInfoRef = lift . getAccountBakerInfoRef
     derefBakerInfo = lift . derefBakerInfo
     getAccountHash = lift . getAccountHash
+    getAccountCooldowns = lift . getAccountCooldowns
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1570,6 +1604,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE getAccountBakerInfoRef #-}
     {-# INLINE derefBakerInfo #-}
     {-# INLINE getAccountHash #-}
+    {-# INLINE getAccountCooldowns #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState
@@ -1603,6 +1638,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
     bsoRotateCurrentEpochBakers = lift . bsoRotateCurrentEpochBakers
     bsoProcessPendingChanges s g = lift $ bsoProcessPendingChanges s g
+    bsoProcessCooldowns s expiry cooldown = lift $ bsoProcessCooldowns s expiry cooldown
+    bsoProcessPrePreCooldowns = lift . bsoProcessPrePreCooldowns
     bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
     bsoGetActiveBakers = lift . bsoGetActiveBakers
     bsoGetActiveBakersAndDelegators = lift . bsoGetActiveBakersAndDelegators

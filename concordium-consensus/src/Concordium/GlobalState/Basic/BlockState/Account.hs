@@ -22,6 +22,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Basic.BlockState.CooldownQueue
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types.HashableTo
@@ -54,7 +55,9 @@ data Account (av :: AccountVersion) = Account
       -- | Locked-up amounts and their release schedule.
       _accountReleaseSchedule :: !(AccountReleaseSchedule av),
       -- | The baker or delegation associated with the account (if any).
-      _accountStaking :: !(AccountStake av)
+      _accountStaking :: !(AccountStake av),
+      -- | The cooldown on the account.
+      _accountStakeCooldown :: !(CooldownQueue av)
     }
     deriving (Eq, Show)
 
@@ -126,11 +129,36 @@ accountHashInputsV2 Account{..} =
               amhi2AccountReleaseScheduleHash = getHash _accountReleaseSchedule
             }
 
+-- | Generate hash inputs from an account for 'AccountV2'.
+accountHashInputsV3 :: Account 'AccountV3 -> AccountHashInputsV2 'AccountV3
+accountHashInputsV3 Account{..} =
+    AccountHashInputsV2
+        { ahi2NextNonce = _accountNonce,
+          ahi2AccountBalance = _accountAmount,
+          ahi2StakedBalance = stakedBalance,
+          ahi2MerkleHash = getHash merkleInputs
+        }
+  where
+    stakedBalance = case _accountStaking of
+        AccountStakeNone -> 0
+        AccountStakeBaker AccountBaker{..} -> _stakedAmount
+        AccountStakeDelegate AccountDelegationV1{..} -> _delegationStakedAmount
+    merkleInputs :: AccountMerkleHashInputs 'AccountV3
+    merkleInputs =
+        AccountMerkleHashInputsV3
+            { amhi3PersistingAccountDataHash = getHash _accountPersisting,
+              amhi3AccountStakeHash = getHash _accountStaking :: AccountStakeHash 'AccountV3,
+              amhi3EncryptedAmountHash = getHash _accountEncryptedAmount,
+              amhi3AccountReleaseScheduleHash = getHash _accountReleaseSchedule,
+              amhi3Cooldown = getHash _accountStakeCooldown
+            }
+
 instance (IsAccountVersion av) => HashableTo (AccountHash av) (Account av) where
     getHash acc = makeAccountHash $ case accountVersion @av of
         SAccountV0 -> AHIV0 (accountHashInputsV0 acc)
         SAccountV1 -> AHIV1 (accountHashInputsV0 acc)
         SAccountV2 -> AHIV2 (accountHashInputsV2 acc)
+        SAccountV3 -> AHIV3 (accountHashInputsV3 acc)
 
 instance forall av. (IsAccountVersion av) => HashableTo Hash.Hash (Account av) where
     getHash = coerce @(AccountHash av) . getHash
@@ -163,7 +191,8 @@ newAccountMultiCredential cryptoParams threshold _accountAddress cs =
           _accountAmount = 0,
           _accountEncryptedAmount = initialAccountEncryptedAmount,
           _accountReleaseSchedule = emptyAccountReleaseSchedule,
-          _accountStaking = AccountStakeNone
+          _accountStaking = AccountStakeNone,
+          _accountStakeCooldown = emptyCooldownQueue
         }
 
 -- | Create an empty account with the given public key, address and credential.

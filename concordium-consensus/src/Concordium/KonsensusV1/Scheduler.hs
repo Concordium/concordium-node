@@ -1,11 +1,13 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyDataDeriving #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.KonsensusV1.Scheduler where
 
 import Control.Monad
+import Data.Bool.Singletons
 import qualified Data.Map as Map
 import Data.Time
 import Lens.Micro.Platform
@@ -114,6 +116,31 @@ data PrologueResult m = PrologueResult
 
 -- * Block prologue
 
+-- | Handle cooldown events for a payday. Prior to protocol version 7, the cooldowns are processed
+--  with 'bsoProcessPendingChanges': bakers and delegators that have a cooldown that elapses by the
+--  trigger time of the previous epoch are processed, with their funds being released and their
+--  baker/delegator status being updated as appropriate. From protocol version 7 onwards, the
+--  cooldowns are processed with 'bsoProcessCooldowns': bakers and delegators that have a cooldown
+--  that elapses by the trigger time of the previous epoch are processed, with their funds being
+--  released (their status is not updated, as it was already updated before entering cooldown);
+--  moreover, accounts that have a pre-cooldown set will enter cooldown, which expires at
+--  @triggerTime + cooldownDuration@.
+paydayHandleCooldowns ::
+    forall m.
+    (BlockStateOperations m, MonadProtocolVersion m, IsConsensusV1 (MPV m)) =>
+    -- | The trigger time of the previous epoch.
+    Timestamp ->
+    -- | The current cooldown parameters.
+    CooldownParameters (ChainParametersVersionFor (MPV m)) ->
+    UpdatableBlockState m ->
+    m (UpdatableBlockState m)
+paydayHandleCooldowns = case sSupportsFlexibleCooldown (sAccountVersionFor (protocolVersion @(MPV m))) of
+    SFalse -> \triggerTime _ theState0 -> do
+        bsoProcessPendingChanges theState0 (<= triggerTime)
+    STrue -> \triggerTime cooldownParams theState0 -> do
+        let cooldownTime = triggerTime `addDurationSeconds` (cooldownParams ^. cpUnifiedCooldown)
+        bsoProcessCooldowns theState0 triggerTime cooldownTime
+
 -- | Update the state to reflect an epoch transition.  If the block is not the first in a new epoch
 --  then this does nothing.  Otherwise, it makes the following changes:
 --
@@ -142,7 +169,7 @@ data PrologueResult m = PrologueResult
 --  a catastrophic invariant violation.
 doEpochTransition ::
     forall m.
-    (BlockStateOperations m, IsConsensusV1 (MPV m)) =>
+    (BlockStateOperations m, MonadProtocolVersion m, IsConsensusV1 (MPV m)) =>
     -- | Whether the block is the first in a new epoch
     Bool ->
     -- | The epoch duration
@@ -175,9 +202,13 @@ doEpochTransition True epochDuration theState0 = do
                 theState3 <- bsoSetPaydayMintRate theState2 (timeParams ^. tpMintPerPayday)
                 let newPayday = nextPayday + rewardPeriodEpochs (timeParams ^. tpRewardPeriodLength)
                 theState4 <- bsoSetPaydayEpoch theState3 newPayday
-                -- Process bakers and delegators where the cooldown elapsed by the trigger block
-                -- time of the previous epoch.
-                theState5 <- bsoProcessPendingChanges theState4 (<= oldSeedState ^. triggerBlockTime)
+                -- Process accounts with cooldowns that elapse by the trigger block time of the
+                -- previous epoch, and (in P7 onwards) move pre-cooldowns on accounts into cooldown.
+                theState5 <-
+                    paydayHandleCooldowns
+                        (oldSeedState ^. triggerBlockTime)
+                        (chainParams ^. cpCooldownParameters)
+                        theState4
                 return (theState5, Just paydayParams, newPayday)
             else return (theState0, Nothing, nextPayday)
     -- Update the seed state.
@@ -189,8 +220,9 @@ doEpochTransition True epochDuration theState0 = do
             then do
                 -- This is the start of the last epoch of a payday, so take a baker snapshot.
                 let epochEnd = newSeedState ^. triggerBlockTime
+                let av = accountVersionFor (demoteProtocolVersion (protocolVersion @(MPV m)))
                 (activeBakers, passiveDelegators) <-
-                    applyPendingChanges (<= epochEnd)
+                    applyPendingChanges av (<= epochEnd)
                         <$> bsoGetActiveBakersAndDelegators theState7
                 let BakerStakesAndCapital{..} =
                         computeBakerStakesAndCapital
@@ -203,7 +235,12 @@ doEpochTransition True epochDuration theState0 = do
                         bakerStakes
                         (chainParams ^. cpFinalizationCommitteeParameters)
                 capDist <- capitalDistributionM
-                bsoSetNextCapitalDistribution theState8 capDist
+                theState9 <- bsoSetNextCapitalDistribution theState8 capDist
+                -- From P7 onwards, we transition pre-pre-cooldowns into pre-cooldowns, so that
+                -- at the next payday they will enter cooldown.
+                case sSupportsFlexibleCooldown (sAccountVersionFor (protocolVersion @(MPV m))) of
+                    STrue -> bsoProcessPrePreCooldowns theState9
+                    SFalse -> return theState9
             else return theState7
     return (mPaydayParams, theState9)
 
@@ -237,6 +274,7 @@ executeBlockPrologue ::
     ( pv ~ MPV m,
       BlockStateStorage m,
       BlockState m ~ PBS.HashedPersistentBlockState pv,
+      MonadProtocolVersion m,
       IsConsensusV1 pv
     ) =>
     BlockExecutionData pv ->

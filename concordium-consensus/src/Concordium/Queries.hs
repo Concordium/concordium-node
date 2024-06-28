@@ -12,6 +12,7 @@ module Concordium.Queries where
 import Control.Monad
 import Control.Monad.Reader
 import Data.Bifunctor (second)
+import Data.Bool.Singletons
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
@@ -54,6 +55,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
+import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.BlockState
@@ -1012,7 +1014,7 @@ getAccountInfo blockHashInput acct = do
 
 -- | Get the details of an account, for the V0 consensus.
 getAccountInfoV0 :: (SkovQueryMonad m) => AccountIdentifier -> BlockState m -> m (Maybe AccountInfo)
-getAccountInfoV0 = getAccountInfoHelper getASIv0
+getAccountInfoV0 = getAccountInfoHelper getASIv0 getCooldownsV0
   where
     getASIv0 acc = do
         gd <- getGenesisData
@@ -1022,29 +1024,56 @@ getAccountInfoV0 = getAccountInfoHelper getASIv0
                         (gdGenesisTime gd)
                         (fromIntegral e * fromIntegral (gdEpochLength gd) * gdSlotDuration gd)
         toAccountStakingInfo convEpoch <$> BS.getAccountStake acc
+    -- Flexible cooldown is not supported in consensus version 0.
+    getCooldownsV0 _ = return []
 
 -- | Get the details of an account, for the V1 consensus.
 getAccountInfoV1 ::
+    forall m.
     ( BS.BlockStateQuery m,
       MonadProtocolVersion m,
+      MonadState (SkovV1.SkovData (MPV m)) m,
       IsConsensusV1 (MPV m)
     ) =>
     AccountIdentifier ->
     BlockState m ->
     m (Maybe AccountInfo)
-getAccountInfoV1 = getAccountInfoHelper getASIv1
+getAccountInfoV1 ai bs = getAccountInfoHelper getASIv1 getCooldownsV1 ai bs
   where
     getASIv1 acc = toAccountStakingInfoP4 <$> BS.getAccountStake acc
+    getCooldownsV1 acc = case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor (MPV m))) of
+        STrue ->
+            BS.getAccountCooldowns acc >>= \case
+                Nothing -> return []
+                Just cooldowns -> do
+                    ccpEpochDuration <-
+                        BaseV1.genesisEpochDuration . SkovV1.gmParameters
+                            <$> use SkovV1.genesisMetadata
+                    seedState <- BS.getSeedState bs
+                    let SeedStateV1
+                            { ss1TriggerBlockTime = ccpTriggerTime,
+                              ss1Epoch = ccpCurrentEpoch
+                            } =
+                                seedState
+                    ccpNextPayday <- BS.getPaydayEpoch bs
+                    chainParams <- BS.getChainParameters bs
+                    let ccpRewardPeriodLength =
+                            chainParams ^. cpTimeParameters . supportedOParam . tpRewardPeriodLength
+                    let ccpCooldownDuration =
+                            chainParams ^. cpCooldownParameters . cpUnifiedCooldown
+                    return $! toCooldownList CooldownCalculationParameters{..} cooldowns
+        SFalse -> return []
 
 -- | Helper for getting the details of an account, given a function for getting the staking
 --  information.
 getAccountInfoHelper ::
     (BS.BlockStateQuery m) =>
     (Account m -> m AccountStakingInfo) ->
+    (Account m -> m [Cooldown]) ->
     AccountIdentifier ->
     BlockState m ->
     m (Maybe AccountInfo)
-getAccountInfoHelper getASI acct bs = do
+getAccountInfoHelper getASI getCooldowns acct bs = do
     macc <- case acct of
         AccAddress addr -> BS.getAccount bs addr
         AccIndex idx -> BS.getAccountByIndex bs idx
@@ -1059,6 +1088,8 @@ getAccountInfoHelper getASI acct bs = do
         aiAccountEncryptionKey <- BS.getAccountEncryptionKey acc
         aiStakingInfo <- getASI acc
         aiAccountAddress <- BS.getAccountCanonicalAddress acc
+        aiAccountCooldowns <- getCooldowns acc
+        aiAccountAvailableAmount <- BS.getAccountAvailableAmount acc
         return AccountInfo{..}
 
 -- | Get the details of a smart contract instance in the block state.
@@ -1125,7 +1156,7 @@ getModuleSource bhi modRef = do
         bhi
 
 -- | Get the status of a particular delegation pool.
-getPoolStatus :: forall finconf. BlockHashInput -> Maybe BakerId -> MVR finconf (BHIQueryResponse (Maybe PoolStatus))
+getPoolStatus :: forall finconf. BlockHashInput -> BakerId -> MVR finconf (BHIQueryResponse (Maybe BakerPoolStatus))
 getPoolStatus blockHashInput mbid = do
     liftSkovQueryStateBHI poolStatus blockHashInput
   where
@@ -1133,10 +1164,24 @@ getPoolStatus blockHashInput mbid = do
         forall m.
         (BS.BlockStateQuery m, MonadProtocolVersion m) =>
         BlockState m ->
-        m (Maybe PoolStatus)
+        m (Maybe BakerPoolStatus)
     poolStatus bs = case delegationSupport @(AccountVersionFor (MPV m)) of
         SAVDelegationNotSupported -> return Nothing
         SAVDelegationSupported -> BS.getPoolStatus bs mbid
+
+-- | Get the status of passive delegation.
+getPassiveDelegationStatus :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Maybe PassiveDelegationStatus))
+getPassiveDelegationStatus blockHashInput = do
+    liftSkovQueryStateBHI poolStatus blockHashInput
+  where
+    poolStatus ::
+        forall m.
+        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        BlockState m ->
+        m (Maybe PassiveDelegationStatus)
+    poolStatus bs = case delegationSupport @(AccountVersionFor (MPV m)) of
+        SAVDelegationNotSupported -> return Nothing
+        SAVDelegationSupported -> Just <$> BS.getPassiveDelegationStatus bs
 
 -- | Get a list of all registered baker IDs in the specified block.
 getRegisteredBakers :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse [BakerId])
@@ -1679,7 +1724,7 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
         let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
         mapBakersToInfos bs (Vec.toList $ fullBakerInfos bakers) (SkovV1.finalizerBakerId <$> Vec.toList (SkovV1.committeeFinalizers finalizationCommittee))
-    -- Map bakers to their assoicated 'BakerRewardPeriodInfo'.
+    -- Map bakers to their associated 'BakerRewardPeriodInfo'.
     -- The supplied bakers and list of baker ids (of the finalization committee) MUST
     -- be sorted in ascending order of their baker id.
     -- Returns a list of BakerRewardPeriodInfo's in ascending order of the baker id.
@@ -1720,19 +1765,21 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
         m BakerRewardPeriodInfo
     toBakerRewardPeriodInfo isFinalizer bs FullBakerInfo{..} = do
         let bakerId = _bakerIdentity _theBakerInfo
-        BS.getPoolStatus bs (Just bakerId) >>= \case
+        BS.getPoolStatus bs bakerId >>= \case
             Nothing -> error "A pool for a known baker could not be looked up."
-            Just PassiveDelegationStatus{} -> error "A passive delegation status was returned when querying with a bakerid."
-            Just BakerPoolStatus{..} -> do
-                return
-                    BakerRewardPeriodInfo
-                        { brpiBaker = _theBakerInfo,
-                          brpiEffectiveStake = _bakerStake,
-                          brpiCommissionRates = psPoolInfo ^. poolCommissionRates,
-                          brpiEquityCapital = psBakerEquityCapital,
-                          brpiDelegatedCapital = psDelegatedCapital,
-                          brpiIsFinalizer = isFinalizer
-                        }
+            Just bps
+                | Just CurrentPaydayBakerPoolStatus{..} <- psCurrentPaydayStatus bps -> do
+                    return
+                        BakerRewardPeriodInfo
+                            { brpiBaker = _theBakerInfo,
+                              brpiEffectiveStake = _bakerStake,
+                              brpiCommissionRates = bpsCommissionRates,
+                              brpiEquityCapital = bpsBakerEquityCapital,
+                              brpiDelegatedCapital = bpsDelegatedCapital,
+                              brpiIsFinalizer = isFinalizer
+                            }
+                | otherwise ->
+                    error "The current payday status for a known baker could not be looked up."
 
 -- | Get the earliest time at which a baker is projected to win the lottery.
 --  Returns 'Nothing' for consensus version 0.

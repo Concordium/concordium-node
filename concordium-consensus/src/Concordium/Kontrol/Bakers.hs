@@ -81,11 +81,11 @@ delegatedCapitalCap poolParams totalCap bakerCap delCap = min leverageCap boundC
     PoolCaps{..} = delegatedCapitalCaps poolParams totalCap bakerCap delCap
 
 -- | Process a set of bakers and delegators to apply pending changes that are effective.
-applyPendingChanges ::
+applyPendingChangesP4 ::
     (Timestamp -> Bool) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo]) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo])
-applyPendingChanges isEffective (bakers0, passive0) =
+applyPendingChangesP4 isEffective (bakers0, passive0) =
     foldr
         processBaker
         ([], processDelegators passive0)
@@ -123,6 +123,15 @@ applyPendingChanges isEffective (bakers0, passive0) =
         _ -> (baker{activeBakerDelegators = pDelegators} : bakers, passive)
       where
         pDelegators = processDelegators activeBakerDelegators
+
+applyPendingChanges ::
+    AccountVersion ->
+    (Timestamp -> Bool) ->
+    ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo]) ->
+    ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo])
+applyPendingChanges av
+    | supportsFlexibleCooldown av = \_ infos -> infos
+    | otherwise = applyPendingChangesP4
 
 -- | Compute the timestamp of the start of an epoch based on the genesis data.
 epochTimestamp :: GenesisConfiguration -> Epoch -> Timestamp
@@ -200,9 +209,11 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
 
 -- | Generate and set the next epoch bakers and next capital based on the current active bakers.
 generateNextBakers ::
+    forall m.
     ( TreeStateMonad m,
       PVSupportsDelegation (MPV m),
-      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1
+      ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
+      SupportsFlexibleCooldown (AccountVersionFor (MPV m)) ~ 'False
     ) =>
     -- | The payday epoch
     Epoch ->
@@ -214,7 +225,7 @@ generateNextBakers paydayEpoch bs0 = do
     -- stake reductions that are currently pending on active bakers with effective time at
     -- or before the next payday.
     (activeBakers, passiveDelegators) <-
-        applyPendingChanges isEffective
+        applyPendingChangesP4 isEffective
             <$> bsoGetActiveBakersAndDelegators bs0
     -- Note that we use the current value of the pool parameters as of this block.
     -- This should account for any updates that are effective at or before this block.
@@ -311,9 +322,11 @@ timeParametersAtSlot targetSlot tp0 upds =
 getSlotBakersP4 ::
     forall m.
     ( BlockStateQuery m,
+      MonadProtocolVersion m,
       PVSupportsDelegation (MPV m),
       ChainParametersVersionFor (MPV m) ~ 'ChainParametersV1,
-      SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0
+      SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0,
+      SupportsFlexibleCooldown (AccountVersionFor (MPV m)) ~ 'False
     ) =>
     GenesisConfiguration ->
     BlockState m ->
@@ -364,7 +377,7 @@ getSlotBakersP4 genData bs slot =
                             -- stake reductions that are currently pending on active bakers with effective time at
                             -- or before the next payday.
                             (activeBakers, passiveDelegators) <-
-                                applyPendingChanges isEffective
+                                applyPendingChangesP4 isEffective
                                     <$> getActiveBakersAndDelegators bs
                             -- Determine the pool parameters that would be effective the epoch before the payday
                             pendingPoolParams <- getPendingPoolParameters bs
@@ -391,7 +404,7 @@ getSlotBakersP4 genData bs slot =
 --  The given slot should never be earlier than the slot of the given block.
 getSlotBakers ::
     forall m.
-    ( IsProtocolVersion (MPV m),
+    ( MonadProtocolVersion m,
       BlockStateQuery m,
       ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
     ) =>

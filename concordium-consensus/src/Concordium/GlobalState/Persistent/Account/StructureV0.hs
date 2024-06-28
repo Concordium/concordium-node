@@ -43,6 +43,7 @@ import Concordium.GlobalState.BakerInfo (BakerAdd (..), BakerKeyUpdate (..), bak
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as ARSV0
+import qualified Concordium.GlobalState.Basic.BlockState.CooldownQueue as Transient
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
@@ -743,8 +744,8 @@ getStake :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => Persist
 getStake acc = loadAccountStake (acc ^. accountStake)
 
 -- | Determine if an account has stake as a baker or delegator.
-hasStake :: PersistentAccount av -> Bool
-hasStake acc = case acc ^. accountStake of
+hasActiveStake :: PersistentAccount av -> Bool
+hasActiveStake acc = case acc ^. accountStake of
     PersistentAccountStakeNone -> False
     _ -> True
 
@@ -1205,4 +1206,5 @@ toTransientAccount PersistentAccount{..} = do
         PersistentAccountStakeNone -> return AccountStakeNone
         PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
         PersistentAccountStakeDelegate dlg -> AccountStakeDelegate <$> refLoad dlg
+    let _accountStakeCooldown = Transient.emptyCooldownQueue
     return $ Transient.Account{..}
