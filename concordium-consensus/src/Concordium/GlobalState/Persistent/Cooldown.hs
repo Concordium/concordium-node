@@ -54,6 +54,25 @@ migrateAccountList (Some ubRef) = do
         newTail <- migrateAccountList (accountListTail ali)
         return $! ali{accountListTail = newTail}
 
+removeAccountFromAccountListItem :: (MonadBlobStore m) => AccountIndex -> AccountListItem -> m AccountList
+removeAccountFromAccountListItem ai alist =
+    if accountListEntry alist == ai
+        then return $ accountListTail alist
+        else case accountListTail alist of
+            Null -> Some <$> refMake alist
+            Some ref -> do
+                alistItem <- refLoad ref
+                newList <- removeAccountFromAccountListItem ai alistItem
+                newRef <- refMake $ AccountListItem (accountListEntry alist) newList
+                return $ Some newRef
+
+removeAccountFromAccountList :: (MonadBlobStore m) => AccountIndex -> AccountList -> m AccountList
+removeAccountFromAccountList ai alist = case alist of
+    Null -> return Null
+    Some ref -> do
+        item <- refLoad ref
+        removeAccountFromAccountListItem ai item
+
 -- | This is an indexing structure and therefore does not need to be hashed. FIXME: add more docs
 data AccountsInCooldown = AccountsInCooldown
     { _cooldown :: !NewReleaseSchedule,

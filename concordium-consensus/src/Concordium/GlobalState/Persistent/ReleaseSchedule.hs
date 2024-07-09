@@ -242,6 +242,23 @@ migrateNewReleaseSchedule rs = do
               nrsMap = newMap
             }
 
+removeAccountFromReleaseSchedule :: (MonadBlobStore m) => Timestamp -> AccountIndex -> NewReleaseSchedule -> m NewReleaseSchedule
+removeAccountFromReleaseSchedule ts ai rs = do
+    (_, nrsMap) <- Trie.adjust remAcc ts (nrsMap rs)
+    newMin <- Trie.findMin nrsMap
+    case newMin of
+        Nothing -> return $! emptyNewReleaseSchedule
+        Just (nrsFirstTimestamp, _) -> return $! NewReleaseSchedule{..}
+  where
+    remAcc Nothing = error "removeAccountFromReleaseSchedule: no entry at expected release time"
+    remAcc (Just (AccountSet accs)) =
+        return $!
+            let accs' = Set.delete ai accs
+            in  if Set.null accs' then ((), Trie.Remove) else ((), Trie.Insert (AccountSet accs'))
+
+updateAccountFromReleaseSchedule :: (MonadBlobStore m) => Timestamp -> Timestamp -> AccountIndex -> NewReleaseSchedule -> m NewReleaseSchedule
+updateAccountFromReleaseSchedule = updateAccountRelease
+
 -- | A reference to an account used in the top-level release schedule.
 --  For protocol version prior to 'P5', this is 'AccountAddress', and for 'P5' onward this is
 --  'AccountIndex'. This type determines the implementation of the release schedule use for the

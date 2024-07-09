@@ -1360,7 +1360,7 @@ releaseCooldownAmount amt = updateEnduringData $ \ed -> do
                         if leftover1 > 0
                             then
                                 let (newPreCooldown, leftover) = preHelper leftover1 oldPreCooldown
-                                in  (new{prePreCooldown = newPreCooldown}, leftover)
+                                in  (new{preCooldown = newPreCooldown}, leftover)
                             else (new, 0)
                     oldCooldown = inCooldown old
                     new3 =
@@ -1376,7 +1376,7 @@ releaseCooldownAmount amt = updateEnduringData $ \ed -> do
     releaseHelper :: Amount -> [(Timestamp, Amount)] -> [(Timestamp, Amount)]
     releaseHelper left orig@((ts, amount) : cooldowns)
         | left == 0 = orig
-        | left >= amt = releaseHelper (left - amount) cooldowns
+        | left >= amount = releaseHelper (left - amount) cooldowns
         | otherwise = (ts, amount - left) : cooldowns
     releaseHelper _ [] = []
     preHelper :: Amount -> Option Amount -> (Option Amount, Amount)
