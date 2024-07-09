@@ -156,17 +156,21 @@ paydayHandleCooldowns = case sSupportsFlexibleCooldown (sAccountVersionFor (prot
 --       - Process pending cooldowns on bakers and delegators that were set to elapse by the
 --         trigger block time for the previous epoch.
 --
+--       - (>=P7) Process pre-cooldowns on accounts, moving them into cooldown.
+--
 --   * The seed state is updated to reflect the epoch transition.
 --
 --   * If the new epoch is the epoch before the next payday, take a snapshot of bakers and
---     delegators, allowing for cooldowns that are set to elapse at by the trigger block time for
---     this epoch.
+--     delegators. Prior to protocol version 7, this accounts for cooldowns that are set to elapse
+--     by the trigger block time for this epoch. From protocol version 7, accounts in
+--     pre-pre-cooldown are moved to pre-cooldown.
 --
 --  Note: If the baker or delegator cooldown period is ever less than the duration of an epoch, then
 --  it would be possible to have a baker not in cooldown when the baker snapshot is taken, but be
 --  removed when the cooldowns are processed at the payday. This is bad, because the baker/delegator
 --  would not have their stake locked while they are baking/delegating. However, this should not be
---  a catastrophic invariant violation.
+--  a catastrophic invariant violation. (This does not apply from protocol version 7 onwards, as
+--  cooldowns are processed differently.)
 doEpochTransition ::
     forall m.
     (BlockStateOperations m, MonadProtocolVersion m, IsConsensusV1 (MPV m)) =>

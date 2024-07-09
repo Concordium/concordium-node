@@ -7,14 +7,19 @@
 
 module Concordium.GlobalState.Persistent.Cooldown where
 
+import Control.Monad
 import Data.Bool.Singletons
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Lens.Micro.Platform
 
+import qualified Concordium.GlobalState.CooldownQueue as CooldownQueue
+import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.ReleaseSchedule
 import Concordium.Types
 import Concordium.Types.Conditionally
+import Concordium.Types.Option
 
 -- | An 'AccountIndex' and the (possibly empty) tail of the list.
 data AccountListItem = AccountListItem
@@ -36,6 +41,12 @@ instance (MonadBlobStore m) => BlobStorable m AccountListItem where
 
 -- | A possibly empty list of 'AccountIndex'es, stored under 'UnbufferedRef's.
 type AccountList = Nullable (UnbufferedRef AccountListItem)
+
+-- | Prepend an 'AccountIndex' to an 'AccountList'.
+consAccountList :: (MonadBlobStore m) => AccountIndex -> AccountList -> m AccountList
+consAccountList accountIndex accountList = do
+    ref <- refMake (AccountListItem accountIndex accountList)
+    return (Some ref)
 
 -- | Load an entire account list. This is intended for testing purposes.
 loadAccountList :: (MonadBlobStore m) => AccountList -> m [AccountIndex]
@@ -151,6 +162,38 @@ emptyAccountsInCooldownForPV =
 
 instance (MonadBlobStore m) => Cacheable m (AccountsInCooldownForPV pv) where
     cache = fmap AccountsInCooldownForPV . mapM cache . theAccountsInCooldownForPV
+
+-- | Generate the initial 'AccountsInCooldownForPV' structure from the initial accounts.
+initialAccountsInCooldown ::
+    forall pv m.
+    (MonadBlobStore m, IsProtocolVersion pv) =>
+    [PersistentAccount (AccountVersionFor pv)] ->
+    m (AccountsInCooldownForPV pv)
+initialAccountsInCooldown accounts = case sSupportsFlexibleCooldown sAV of
+    SFalse -> return emptyAccountsInCooldownForPV
+    STrue -> do
+        AccountsInCooldownForPV . CTrue
+            <$> foldM checkAccount emptyAccountsInCooldown (zip [0 ..] accounts)
+  where
+    sAV = accountVersion @(AccountVersionFor pv)
+    checkAccount aic (aid, acct) = do
+        accountCooldowns acct >>= \case
+            Nothing -> return aic
+            Just accCooldowns -> do
+                newCooldown <- case Map.lookupMin (CooldownQueue.inCooldown accCooldowns) of
+                    Nothing -> return $ aic ^. cooldown
+                    Just (ts, _) -> addAccountRelease ts aid (aic ^. cooldown)
+                newPreCooldown <- case CooldownQueue.preCooldown accCooldowns of
+                    Absent -> return $ aic ^. preCooldown
+                    Present _ -> consAccountList aid (aic ^. preCooldown)
+                newPrePreCooldown <- case CooldownQueue.prePreCooldown accCooldowns of
+                    Absent -> return $ aic ^. prePreCooldown
+                    Present _ -> consAccountList aid (aic ^. prePreCooldown)
+                return $
+                    aic
+                        & cooldown .~ newCooldown
+                        & preCooldown .~ newPreCooldown
+                        & prePreCooldown .~ newPrePreCooldown
 
 -- | Migrate an 'AccountsInCooldownForPV'.
 --

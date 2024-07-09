@@ -37,6 +37,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     cacheStateAndGetTransactionTable,
     migratePersistentBlockState,
     SupportsPersistentState,
+    loadPBS,
 ) where
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -976,6 +977,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     initialAmount <- foldM (\sumSoFar account -> (+ sumSoFar) <$> accountAmount account) 0 accounts
     updates <- refMake =<< initialUpdates keysCollection chainParams
     releaseSchedule <- emptyReleaseSchedule
+    acctsInCooldown <- initialAccountsInCooldown accounts
     red <- emptyBlockRewardDetails
     bsp <-
         makeBufferedRef $
@@ -991,7 +993,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
                   bspTransactionOutcomes = emptyPersistentTransactionOutcomes,
                   bspUpdates = updates,
                   bspReleaseSchedule = releaseSchedule,
-                  bspAccountsInCooldown = emptyAccountsInCooldownForPV,
+                  bspAccountsInCooldown = acctsInCooldown,
                   bspRewardDetails = red
                 }
     bps <- liftIO $ newIORef $! bsp
@@ -1033,6 +1035,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
                 }
     liftIO $ newIORef $! bsp
 
+-- | Load 'BlockStatePointers' from a 'PersistentBlockState'.
 loadPBS :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (BlockStatePointers pv)
 loadPBS = loadBufferedRef <=< liftIO . readIORef
 {-# INLINE loadPBS #-}
