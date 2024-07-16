@@ -420,6 +420,12 @@ updateAccountsAtIndex fupd ai a0@Accounts{..} =
         Nothing -> return (Nothing, a0)
         Just (res, act') -> return (Just res, a0{accountTable = act'})
 
+setAccountAtIndex :: (SupportsPersistentAccount pv m) => AccountIndex -> PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Accounts pv)
+setAccountAtIndex ai newAcct a0@Accounts{..} =
+    L.update (const (return ((), newAcct))) ai accountTable >>= \case
+        Nothing -> return a0
+        Just (_, act') -> return (a0{accountTable = act'})
+
 -- | Perform an update to an account with the given index.
 --  Does nothing if the account does not exist.
 --  This should not be used to alter the address of an account (which is

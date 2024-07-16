@@ -1533,7 +1533,7 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
     Accounts.indexedAccount ai (bspAccounts bsp) >>= \case
         -- Cannot resolve the account
         Nothing -> return (BCInvalidAccount, pbs)
-        Just _ -> do
+        Just acc -> do
             chainParams <- lookupCurrentParameters (bspUpdates bsp)
             let poolParams = chainParams ^. cpPoolParameters
             let capitalMin = poolParams ^. ppMinimumEquityCapital
@@ -1585,15 +1585,34 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                                             }
                                     updAcc = addAccountBakerV1 bakerInfoEx bcaCapital bcaRestakeEarnings
                                 -- This cannot fail to update the account, since we already looked up the account.
-                                newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
-                                -- FIXME: Here we should release cooldown amounts on the account and globally
+                                newBSP <- updateAccountsAndMaybeCooldown (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))) acc updAcc bcaCapital bsp{bspBirkParameters = newBirkParams}
                                 (BCSuccess [] bid,)
                                     <$> storePBS
                                         pbs
-                                        bsp
-                                            { bspBirkParameters = newBirkParams,
-                                              bspAccounts = newAccounts
-                                            }
+                                        newBSP
+  where
+    updateAccountsAndMaybeCooldown ::
+        SBool (SupportsFlexibleCooldown (AccountVersionFor pv)) ->
+        PersistentAccount (AccountVersionFor pv) ->
+        (PersistentAccount (AccountVersionFor pv) -> m (PersistentAccount (AccountVersionFor pv))) ->
+        Amount ->
+        BlockStatePointers pv ->
+        m (BlockStatePointers pv)
+    updateAccountsAndMaybeCooldown SFalse _ updAcc _ bsp = do
+        newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
+        return bsp{bspAccounts = newAccounts}
+    updateAccountsAndMaybeCooldown STrue acc updAcc capital bsp = do
+        maybeCooldownsBefore <- accountCooldowns acc
+        newAcc <- (updAcc >=> releaseCooldownAmount capital) acc
+        newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
+        maybeCooldownsAfter <- accountCooldowns newAcc
+        let accountsInCooldownForPV = bspAccountsInCooldown bsp
+        let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                CTrue accounts -> accounts
+        maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
+        case maybeCooldowns of
+            Nothing -> return bsp{bspAccounts = newAccounts}
+            Just newCooldowns -> return bsp{bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
 doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
     origBSP <- loadPBS pbs
     cp <- lookupCurrentParameters (bspUpdates origBSP)
@@ -1633,6 +1652,13 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
         bsp <- MTL.get
         newAccounts <- liftBSO $ Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
         MTL.put bsp{bspAccounts = newAccounts}
+    setAccount acc = do
+        bsp <- MTL.get
+        newAccounts <- liftBSO $ Accounts.setAccountAtIndex ai acc (bspAccounts bsp)
+        MTL.put
+            bsp
+                { bspAccounts = newAccounts
+                }
     ifPresent Nothing _ = return return
     ifPresent (Just v) k = k v
     updateKeys oldBkr = ifPresent bcuKeys $ \keys -> do
@@ -1888,63 +1914,18 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
     maybeReleaseCooldownGlobally SFalse _ _ = return ()
     maybeReleaseCooldownGlobally STrue upd acc = do
         maybeCooldownsBefore <- accountCooldowns acc
-        modifyAccount' upd
-        maybeCooldownsAfter <- accountCooldowns acc -- FIXME: We should pass in the updated account heree
-        let (shouldRemovePrePre, shouldRemovePre, shouldRemoveCooldown, shouldUpdateCooldown) =
-                case (maybeCooldownsBefore, maybeCooldownsAfter) of
-                    (Just cd, Nothing) ->
-                        ( isPresent $ CooldownQueue.prePreCooldown cd,
-                          isPresent $ CooldownQueue.preCooldown cd,
-                          Map.lookupMin (CooldownQueue.inCooldown cd),
-                          Nothing
-                        )
-                    (Just cd1, Just cd2) ->
-                        ( isPresent (CooldownQueue.prePreCooldown cd1) && isAbsent (CooldownQueue.prePreCooldown cd2),
-                          isPresent (CooldownQueue.preCooldown cd1) && isPresent (CooldownQueue.preCooldown cd2),
-                          if Map.null (CooldownQueue.inCooldown cd2) then Map.lookupMin (CooldownQueue.inCooldown cd1) else Nothing,
-                          case (Map.lookupMin (CooldownQueue.inCooldown cd1), Map.lookupMin (CooldownQueue.inCooldown cd2)) of
-                            (Just (ts1, _), Just (ts2, _)) -> if ts1 /= ts2 then Just (ts1, ts2) else Nothing
-                            _ -> Nothing
-                        )
-                    _ -> (False, False, Nothing, Nothing)
-        let shouldDo = (shouldRemovePrePre, shouldRemovePre, shouldRemoveCooldown, shouldUpdateCooldown) /= (False, False, Nothing, Nothing)
-        when shouldDo $ do
-            accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
-            let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
-                    CTrue accounts -> accounts
-            newAccountsInCooldown1 <-
-                if shouldRemovePrePre
-                    then do
-                        newPrePreCooldown <- removeAccountFromAccountList ai $ _prePreCooldown oldAccountsInCooldown
-                        return oldAccountsInCooldown{_prePreCooldown = newPrePreCooldown}
-                    else return oldAccountsInCooldown
-            newAccountsInCooldown2 <-
-                if shouldRemovePre
-                    then do
-                        newPreCooldown <- removeAccountFromAccountList ai $ _preCooldown oldAccountsInCooldown
-                        return newAccountsInCooldown1{_preCooldown = newPreCooldown}
-                    else return newAccountsInCooldown1
-            newAccountsInCooldown3 <-
-                case shouldRemoveCooldown of
-                    Just (ts, _) -> do
-                        newCooldown <- removeAccountFromReleaseSchedule ts ai $ _cooldown oldAccountsInCooldown
-                        return newAccountsInCooldown2{_cooldown = newCooldown}
-                    Nothing -> return newAccountsInCooldown2
-            newAccountsInCooldown4 <-
-                case shouldUpdateCooldown of
-                    Just (ts1, ts2) -> do
-                        newCooldown <- updateAccountRelease ts1 ts2 ai $ _cooldown oldAccountsInCooldown
-                        return newAccountsInCooldown3{_cooldown = newCooldown}
-                    Nothing -> return newAccountsInCooldown3
-            let newAccountsInCooldownForPV =
-                    AccountsInCooldownForPV $
-                        CTrue newAccountsInCooldown4
+        newAcc <- liftBSO $ upd acc
+        setAccount newAcc
+        maybeCooldownsAfter <- accountCooldowns newAcc
+        accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
+        let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                CTrue accounts -> accounts
+        maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
+        forM_ maybeCooldowns $ \newCooldowns ->
             MTL.modify' $ \bsp ->
                 bsp
-                    { bspAccountsInCooldown = newAccountsInCooldownForPV
+                    { bspAccountsInCooldown = newCooldowns
                     }
-
--- MTL.modify' $ \bsp -> bsp -- FIXME: FIX
 
 doConstrainBakerCommission ::
     (SupportsPersistentState pv m, PVSupportsDelegation pv) =>
@@ -2032,7 +2013,7 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
     bsp <- loadPBS pbs
     poolParams <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
     result <- MTL.runExceptT $ do
-        newBSP <- updateBlockState bsp
+        newBSP <- updateBlockState (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))) bsp
         delegationConfigureDisallowOverdelegation newBSP poolParams dcaDelegationTarget
         return newBSP
     case result of
@@ -2040,7 +2021,11 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
         Right newBirkParams -> (DCSuccess [] did,) <$> storePBS pbs newBirkParams
   where
     did = DelegatorId ai
-    updateBlockState bsp =
+    updateBlockState ::
+        SBool (SupportsFlexibleCooldown (AccountVersionFor pv)) ->
+        BlockStatePointers pv ->
+        MTL.ExceptT DelegationConfigureResult m (BlockStatePointers pv)
+    updateBlockState SFalse bsp =
         lift (Accounts.indexedAccount ai (bspAccounts bsp)) >>= \case
             Nothing -> MTL.throwError DCInvalidAccount
             Just _ -> do
@@ -2057,6 +2042,39 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
                 -- This cannot fail to update the accounts, since we already looked up the accounts:
                 newAccounts <- lift $ Accounts.updateAccountsAtIndex' (addAccountDelegator dlg) ai (bspAccounts bsp)
                 return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts}
+    updateBlockState STrue bsp =
+        lift (Accounts.indexedAccount ai (bspAccounts bsp)) >>= \case
+            Nothing -> MTL.throwError DCInvalidAccount
+            Just acc -> do
+                delegationCheckTargetOpen bsp dcaDelegationTarget
+                newBirkParams <- updateBirk bsp dcaDelegationTarget
+                let dlg =
+                        BaseAccounts.AccountDelegationV1
+                            { BaseAccounts._delegationIdentity = did,
+                              BaseAccounts._delegationStakedAmount = dcaCapital,
+                              BaseAccounts._delegationStakeEarnings = dcaRestakeEarnings,
+                              BaseAccounts._delegationTarget = dcaDelegationTarget,
+                              BaseAccounts._delegationPendingChange = BaseAccounts.NoChange
+                            }
+                maybeCooldownsBefore <- accountCooldowns acc
+                newAcc <- (addAccountDelegator dlg >=> releaseCooldownAmount dcaCapital) acc
+                maybeCooldownsAfter <- accountCooldowns newAcc
+                -- This cannot fail to update the accounts, since we already looked up the accounts:
+                newAccounts <- lift $ Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
+                let accountsInCooldownForPV = bspAccountsInCooldown bsp
+                let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                        CTrue accounts -> accounts
+                maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
+                case maybeCooldowns of
+                    Nothing -> return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts}
+                    Just newCooldowns -> return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
+    updateBirk ::
+        BlockStatePointers pv ->
+        DelegationTarget ->
+        MTL.ExceptT
+            DelegationConfigureResult
+            m
+            (PersistentBirkParameters pv)
     updateBirk bsp Transactions.DelegatePassive = lift $ do
         ab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
         let PersistentActiveDelegatorsV1 dset tot = ab ^. passiveDelegators
@@ -2102,6 +2120,22 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
     modifyAccount updAcc = do
         bsp <- MTL.get
         newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
+        MTL.put
+            bsp
+                { bspAccounts = newAccounts
+                }
+    setAccount ::
+        PersistentAccount (AccountVersionFor pv) ->
+        MTL.StateT
+            (BlockStatePointers pv)
+            ( MTL.WriterT
+                [DelegationConfigureUpdateChange]
+                (MTL.ExceptT DelegationConfigureResult m)
+            )
+            ()
+    setAccount acc = do
+        bsp <- MTL.get
+        newAccounts <- Accounts.setAccountAtIndex ai acc (bspAccounts bsp)
         MTL.put
             bsp
                 { bspAccounts = newAccounts
@@ -2187,7 +2221,7 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                             let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
                                     CTrue accounts -> accounts
                                 oldPrePreCooldowns = _prePreCooldown oldAccountsInCooldown
-                            ppRef <- refMake $ AccountListItem ai oldPrePreCooldowns -- FIXME: why no lift?
+                            ppRef <- refMake $ AccountListItem ai oldPrePreCooldowns
                             let newPrePreCooldowns = Some ppRef
                                 newAccountsInCooldown =
                                     AccountsInCooldownForPV $
@@ -2250,62 +2284,21 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                         ab <- refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)
                         newActiveBakers <- addTotalsInActiveBakers ab ad (capital - BaseAccounts._delegationStakedAmount ad)
                         maybeCooldownsBefore <- accountCooldowns acc
-                        modifyAccount $ setAccountStake capital >=> releaseCooldownAmount (capital - BaseAccounts._delegationStakedAmount ad)
-                        maybeCooldownsAfter <- accountCooldowns acc -- FIXME: We should pass in the updated account here
-                        let (shouldRemovePrePre, shouldRemovePre, shouldRemoveCooldown, shouldUpdateCooldown) = case (maybeCooldownsBefore, maybeCooldownsAfter) of
-                                (Just cd, Nothing) ->
-                                    ( isPresent $ CooldownQueue.prePreCooldown cd,
-                                      isPresent $ CooldownQueue.preCooldown cd,
-                                      Map.lookupMin (CooldownQueue.inCooldown cd),
-                                      Nothing
-                                    )
-                                (Just cd1, Just cd2) ->
-                                    ( isPresent (CooldownQueue.prePreCooldown cd1) && isAbsent (CooldownQueue.prePreCooldown cd2),
-                                      isPresent (CooldownQueue.preCooldown cd1) && isPresent (CooldownQueue.preCooldown cd2),
-                                      if Map.null (CooldownQueue.inCooldown cd2) then Map.lookupMin (CooldownQueue.inCooldown cd1) else Nothing,
-                                      case (Map.lookupMin (CooldownQueue.inCooldown cd1), Map.lookupMin (CooldownQueue.inCooldown cd2)) of
-                                        (Just (ts1, _), Just (ts2, _)) -> if ts1 /= ts2 then Just (ts1, ts2) else Nothing
-                                        _ -> Nothing
-                                    ) -- FIXME: refactor this with the stuff in configure baker
-                                _ -> (False, False, Nothing, Nothing)
-                        if (shouldRemovePrePre, shouldRemovePre, shouldRemoveCooldown, shouldUpdateCooldown) == (False, False, Nothing, Nothing)
-                            then MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers}
-                            else do
-                                accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
-                                let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
-                                        CTrue accounts -> accounts
-                                newAccountsInCooldown1 <-
-                                    if shouldRemovePrePre
-                                        then do
-                                            newPrePreCooldown <- removeAccountFromAccountList ai $ _prePreCooldown oldAccountsInCooldown
-                                            return oldAccountsInCooldown{_prePreCooldown = newPrePreCooldown}
-                                        else return oldAccountsInCooldown
-                                newAccountsInCooldown2 <-
-                                    if shouldRemovePre
-                                        then do
-                                            newPreCooldown <- removeAccountFromAccountList ai $ _preCooldown oldAccountsInCooldown
-                                            return newAccountsInCooldown1{_preCooldown = newPreCooldown}
-                                        else return newAccountsInCooldown1
-                                newAccountsInCooldown3 <-
-                                    case shouldRemoveCooldown of
-                                        Just (ts, _) -> do
-                                            newCooldown <- removeAccountFromReleaseSchedule ts ai $ _cooldown oldAccountsInCooldown
-                                            return newAccountsInCooldown2{_cooldown = newCooldown}
-                                        Nothing -> return newAccountsInCooldown2
-                                newAccountsInCooldown4 <-
-                                    case shouldUpdateCooldown of
-                                        Just (ts1, ts2) -> do
-                                            newCooldown <- updateAccountRelease ts1 ts2 ai $ _cooldown oldAccountsInCooldown
-                                            return newAccountsInCooldown3{_cooldown = newCooldown}
-                                        Nothing -> return newAccountsInCooldown3
-                                let newAccountsInCooldownForPV =
-                                        AccountsInCooldownForPV $
-                                            CTrue newAccountsInCooldown4
-                                MTL.modify' $ \bsp ->
-                                    bsp
-                                        { bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers,
-                                          bspAccountsInCooldown = newAccountsInCooldownForPV
-                                        }
+                        let accUpd = setAccountStake capital >=> releaseCooldownAmount (capital - BaseAccounts._delegationStakedAmount ad)
+                        newAcc <- accUpd acc
+                        setAccount newAcc
+                        maybeCooldownsAfter <- accountCooldowns newAcc
+                        accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
+                        let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                                CTrue accounts -> accounts
+                        maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
+                        case maybeCooldowns of
+                            Nothing -> MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers}
+                            Just newCooldowns -> MTL.modify' $ \bsp ->
+                                bsp
+                                    { bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers,
+                                      bspAccountsInCooldown = newCooldowns
+                                    }
                         MTL.tell [DelegationConfigureStakeIncreased capital]
         return $ BaseAccounts._delegationStakedAmount ad
     addTotalsInActiveBakers ab0 ad delta = do
@@ -2358,6 +2351,60 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
             (Just newCapital, Nothing) -> unless (newCapital <= oldCapital) doCheckOverDelegation
             (Nothing, Just newTarget) -> unless (newTarget == oldTarget) doCheckOverDelegation
             _ -> return ()
+
+releaseCooldownGlobally ::
+    (MonadBlobStore m, SupportsFlexibleCooldown (AccountVersionFor pv) ~ 'True) =>
+    AccountIndex ->
+    AccountsInCooldown ->
+    Maybe CooldownQueue.Cooldowns ->
+    Maybe CooldownQueue.Cooldowns ->
+    m (Maybe (AccountsInCooldownForPV pv))
+releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter = do
+    let (shouldRemovePrePre, shouldRemovePre, shouldRemoveCooldown, shouldUpdateCooldown) =
+            case (maybeCooldownsBefore, maybeCooldownsAfter) of
+                (Just cd, Nothing) ->
+                    ( isPresent $ CooldownQueue.prePreCooldown cd,
+                      isPresent $ CooldownQueue.preCooldown cd,
+                      Map.lookupMin (CooldownQueue.inCooldown cd),
+                      Nothing
+                    )
+                (Just cd1, Just cd2) ->
+                    ( isPresent (CooldownQueue.prePreCooldown cd1) && isAbsent (CooldownQueue.prePreCooldown cd2),
+                      isPresent (CooldownQueue.preCooldown cd1) && isAbsent (CooldownQueue.preCooldown cd2),
+                      if Map.null (CooldownQueue.inCooldown cd2) then Map.lookupMin (CooldownQueue.inCooldown cd1) else Nothing,
+                      case (Map.lookupMin (CooldownQueue.inCooldown cd1), Map.lookupMin (CooldownQueue.inCooldown cd2)) of
+                        (Just (ts1, _), Just (ts2, _)) -> if ts1 /= ts2 then Just (ts1, ts2) else Nothing
+                        _ -> Nothing
+                    ) -- FIXME: refactor this with the stuff in configure baker
+                _ -> (False, False, Nothing, Nothing)
+    if (shouldRemovePrePre, shouldRemovePre, shouldRemoveCooldown, shouldUpdateCooldown) == (False, False, Nothing, Nothing)
+        then return Nothing
+        else do
+            newAccountsInCooldown1 <-
+                if shouldRemovePrePre
+                    then do
+                        newPrePreCooldown <- removeAccountFromAccountList ai $ _prePreCooldown oldAccountsInCooldown
+                        return oldAccountsInCooldown{_prePreCooldown = newPrePreCooldown}
+                    else return oldAccountsInCooldown
+            newAccountsInCooldown2 <-
+                if shouldRemovePre
+                    then do
+                        newPreCooldown <- removeAccountFromAccountList ai $ _preCooldown oldAccountsInCooldown
+                        return newAccountsInCooldown1{_preCooldown = newPreCooldown}
+                    else return newAccountsInCooldown1
+            newAccountsInCooldown3 <-
+                case shouldRemoveCooldown of
+                    Just (ts, _) -> do
+                        newCooldown <- removeAccountFromReleaseSchedule ts ai $ _cooldown oldAccountsInCooldown
+                        return newAccountsInCooldown2{_cooldown = newCooldown}
+                    Nothing -> return newAccountsInCooldown2
+            newAccountsInCooldown4 <-
+                case shouldUpdateCooldown of
+                    Just (ts1, ts2) -> do
+                        newCooldown <- updateAccountRelease ts1 ts2 ai $ _cooldown oldAccountsInCooldown
+                        return newAccountsInCooldown3{_cooldown = newCooldown}
+                    Nothing -> return newAccountsInCooldown3
+            return $ Just $ AccountsInCooldownForPV $ CTrue newAccountsInCooldown4
 
 doUpdateBakerKeys ::
     (SupportsPersistentState pv m, AccountVersionFor pv ~ 'AccountV0) =>
