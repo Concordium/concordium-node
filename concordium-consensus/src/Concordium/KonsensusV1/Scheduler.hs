@@ -50,6 +50,7 @@ data PaydayParameters = PaydayParameters
       -- | The mint rate for the payday.
       paydayMintRate :: MintRate
     }
+    deriving (Show, Eq)
 
 -- | The bakers that participated in the block. Used for determining rewards.
 --

@@ -23,6 +23,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     HashedPersistentBlockState (..),
     hashBlockState,
     PersistentBirkParameters (..),
+    initialBirkParameters,
     initialPersistentState,
     emptyBlockState,
     emptyHashedEpochBlocks,
@@ -38,6 +39,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     migratePersistentBlockState,
     SupportsPersistentState,
     loadPBS,
+    storePBS,
 ) where
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -1040,6 +1042,7 @@ loadPBS :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (Block
 loadPBS = loadBufferedRef <=< liftIO . readIORef
 {-# INLINE loadPBS #-}
 
+-- | Update the 'BlockStatePointers' stored in a 'PersistentBlockState'.
 storePBS :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> BlockStatePointers pv -> m (PersistentBlockState pv)
 storePBS pbs bsp = liftIO $ do
     pbsp <- makeBufferedRef bsp
