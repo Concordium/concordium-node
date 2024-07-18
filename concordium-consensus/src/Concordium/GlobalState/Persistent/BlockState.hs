@@ -1548,7 +1548,9 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                         return (BCFinalizationRewardCommissionNotInRange, pbs)
                     | otherwise -> do
                         let bid = BakerId ai
-                        pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
+                        oldPAB <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
+                        maybeDel <- accountDelegator acc
+                        pab <- maybeRemoveDelegator (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))) maybeDel oldPAB
                         let updAgg Nothing = return (True, Trie.Insert ())
                             updAgg (Just ()) = return (False, Trie.NoChange)
                         Trie.adjust updAgg (bkuAggregationKey bcaKeys) (_aggregationKeys pab) >>= \case
@@ -1584,35 +1586,117 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                                               _bieBakerInfo = bakerInfo
                                             }
                                     updAcc = addAccountBakerV1 bakerInfoEx bcaCapital bcaRestakeEarnings
-                                -- This cannot fail to update the account, since we already looked up the account.
-                                newBSP <- updateAccountsAndMaybeCooldown (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))) acc updAcc bcaCapital bsp{bspBirkParameters = newBirkParams}
+                                newBSP <-
+                                    updateAccountsAndMaybeCooldown
+                                        (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)))
+                                        acc
+                                        maybeDel
+                                        updAcc
+                                        bcaCapital
+                                        bsp{bspBirkParameters = newBirkParams}
                                 (BCSuccess [] bid,)
                                     <$> storePBS
                                         pbs
                                         newBSP
   where
+    maybeRemoveDelegator ::
+        SBool (SupportsFlexibleCooldown (AccountVersionFor pv)) ->
+        Maybe (BaseAccounts.AccountDelegation (AccountVersionFor pv)) ->
+        PersistentActiveBakers (AccountVersionFor pv) ->
+        m (PersistentActiveBakers (AccountVersionFor pv))
+    maybeRemoveDelegator SFalse _ pab = return pab
+    maybeRemoveDelegator STrue Nothing pab = return pab
+    maybeRemoveDelegator STrue (Just del) pab = do
+        let delStake = BaseAccounts._delegationStakedAmount del
+            pab1 = pab & totalActiveCapital %~ subtractActiveCapital delStake
+        case del ^. BaseAccounts.delegationTarget of
+            Transactions.DelegatePassive -> do
+                let PersistentActiveDelegatorsV1 dset dtot = pab1 ^. passiveDelegators
+                newDelegatorSet <- Trie.delete (del ^. BaseAccounts.delegationIdentity) dset
+                return $ pab1 & passiveDelegators .~ PersistentActiveDelegatorsV1 newDelegatorSet (dtot - delStake)
+            Transactions.DelegateToBaker bid -> do
+                Trie.lookup bid (pab ^. activeBakers) >>= \case
+                    Nothing -> error "Invariant violation: delegation target is not an active baker"
+                    Just (PersistentActiveDelegatorsV1 dset dtot) -> do
+                        newDelegatorSet <- Trie.delete (del ^. BaseAccounts.delegationIdentity) dset
+                        newActiveMap <- Trie.insert bid (PersistentActiveDelegatorsV1 newDelegatorSet (dtot - delStake)) (pab1 ^. activeBakers)
+                        return $ pab1 & activeBakers .~ newActiveMap
     updateAccountsAndMaybeCooldown ::
         SBool (SupportsFlexibleCooldown (AccountVersionFor pv)) ->
         PersistentAccount (AccountVersionFor pv) ->
+        Maybe (BaseAccounts.AccountDelegation (AccountVersionFor pv)) ->
         (PersistentAccount (AccountVersionFor pv) -> m (PersistentAccount (AccountVersionFor pv))) ->
         Amount ->
         BlockStatePointers pv ->
         m (BlockStatePointers pv)
-    updateAccountsAndMaybeCooldown SFalse _ updAcc _ bsp = do
+    updateAccountsAndMaybeCooldown SFalse _ _ updAcc _ bsp = do
+        -- This cannot fail to update the account, since we already looked up the account.
         newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
         return bsp{bspAccounts = newAccounts}
-    updateAccountsAndMaybeCooldown STrue acc updAcc capital bsp = do
-        maybeCooldownsBefore <- accountCooldowns acc
-        newAcc <- (updAcc >=> releaseCooldownAmount capital) acc
-        newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
-        maybeCooldownsAfter <- accountCooldowns newAcc
-        let accountsInCooldownForPV = bspAccountsInCooldown bsp
-        let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
-                CTrue accounts -> accounts
-        maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
-        case maybeCooldowns of
-            Nothing -> return bsp{bspAccounts = newAccounts}
-            Just newCooldowns -> return bsp{bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
+    updateAccountsAndMaybeCooldown STrue acc maybeDel updAcc capital bsp = do
+        case maybeDel of
+            Nothing -> do
+                maybeCooldownsBefore <- accountCooldowns acc
+                newAcc <- (updAcc >=> releaseCooldownAmount capital) acc
+                -- This cannot fail to update the account, since we already looked up the account.
+                newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
+                maybeCooldownsAfter <- accountCooldowns newAcc
+                let accountsInCooldownForPV = bspAccountsInCooldown bsp
+                let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                        CTrue accounts -> accounts
+                maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
+                case maybeCooldowns of
+                    Nothing -> return bsp{bspAccounts = newAccounts}
+                    Just newCooldowns -> return bsp{bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
+            Just del -> do
+                case compare capital (BaseAccounts._delegationStakedAmount del) of
+                    LT -> do
+                        -- This cannot fail to update the account, since we already looked up the account.
+                        newAccounts <-
+                            Accounts.updateAccountsAtIndex'
+                                (updAcc >=> addAccountPrePreCooldown (BaseAccounts._delegationStakedAmount del - capital))
+                                ai
+                                (bspAccounts bsp)
+                        let notAlreadyInPrePreCooldown = do
+                                let accountsInCooldownForPV = bspAccountsInCooldown bsp
+                                let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                                        CTrue accounts -> accounts
+                                    oldPrePreCooldowns = _prePreCooldown oldAccountsInCooldown
+                                ppRef <- refMake $ AccountListItem ai oldPrePreCooldowns
+                                let newPrePreCooldowns = Some ppRef
+                                    newAccountsInCooldown =
+                                        AccountsInCooldownForPV $
+                                            CTrue
+                                                oldAccountsInCooldown{_prePreCooldown = newPrePreCooldowns}
+                                return
+                                    bsp
+                                        { bspAccounts = newAccounts,
+                                          bspAccountsInCooldown = newAccountsInCooldown
+                                        }
+                        maybeCooldowns <- accountCooldowns acc
+                        case maybeCooldowns of
+                            Nothing -> notAlreadyInPrePreCooldown
+                            Just cooldowns -> case CooldownQueue.prePreCooldown cooldowns of
+                                Absent -> notAlreadyInPrePreCooldown
+                                Present _ ->
+                                    return bsp{bspAccounts = newAccounts}
+                    EQ -> do
+                        -- This cannot fail to update the account, since we already looked up the account.
+                        newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
+                        return bsp{bspAccounts = newAccounts}
+                    GT -> do
+                        maybeCooldownsBefore <- accountCooldowns acc
+                        -- This cannot fail to update the account, since we already looked up the account.
+                        newAcc <- (updAcc >=> releaseCooldownAmount (capital - BaseAccounts._delegationStakedAmount del)) acc
+                        newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
+                        maybeCooldownsAfter <- accountCooldowns newAcc
+                        let accountsInCooldownForPV = bspAccountsInCooldown bsp
+                        let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
+                                CTrue accounts -> accounts
+                        maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
+                        case maybeCooldowns of
+                            Nothing -> return bsp{bspAccounts = newAccounts}
+                            Just newCooldowns -> return bsp{bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
 doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
     origBSP <- loadPBS pbs
     cp <- lookupCurrentParameters (bspUpdates origBSP)

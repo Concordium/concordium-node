@@ -2022,6 +2022,17 @@ data ConfigureBakerCont
         }
     | ConfigureUpdateBakerCont
 
+-- \| SwitchToBakerCont
+--     { stbcCapital :: !(Maybe Amount),
+--       stbcRestakeEarnings :: !(Maybe Bool),
+--       stbcOpenForDelegation :: !OpenStatus,
+--       stbcKeysWithProofs :: !BakerKeysWithProofs,
+--       stbcMetadataURL :: !UrlText,
+--       stbcTransactionFeeCommission :: !AmountFraction,
+--       stbcBakingRewardCommission :: !AmountFraction,
+--       stbcFinalizationRewardCommission :: !AmountFraction
+--     }
+
 -- | Argument to configure delegation 'withDeposit' continuation.
 data ConfigureDelegationCont
     = ConfigureAddDelegationCont
@@ -2090,6 +2101,27 @@ handleConfigureBaker
                         return ConfigureAddBakerCont{..}
                 _ ->
                     rejectTransaction MissingBakerAddParameters
+        switchToBakerArg :: Amount -> Bool -> LocalT (ConfigureBakerCont, Amount) m ConfigureBakerCont
+        switchToBakerArg amt restake =
+            let cbcCapital = fromMaybe amt cbCapital
+                cbcRestakeEarnings = fromMaybe restake cbRestakeEarnings
+            in  case ( cbOpenForDelegation,
+                       cbKeysWithProofs,
+                       cbMetadataURL,
+                       cbTransactionFeeCommission,
+                       cbBakingRewardCommission,
+                       cbFinalizationRewardCommission
+                     ) of
+                    ( Just cbcOpenForDelegation,
+                      Just cbcKeysWithProofs,
+                      Just cbcMetadataURL,
+                      Just cbcTransactionFeeCommission,
+                      Just cbcBakingRewardCommission,
+                      Just cbcFinalizationRewardCommission
+                        ) ->
+                            return ConfigureAddBakerCont{..}
+                    _ ->
+                        rejectTransaction MissingBakerAddParameters
         configureUpdateBakerArg =
             return ConfigureUpdateBakerCont
         areKeysOK BakerKeysWithProofs{..} =
@@ -2106,10 +2138,9 @@ handleConfigureBaker
             accountStake <- getAccountStake (snd senderAccount)
             arg <- case accountStake of
                 AccountStakeNone -> configureAddBakerArg
-                -- FIXME: in new consensus, allow direct switch between baker and delegator.
-                AccountStakeDelegate _ -> case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor (MPV m))) of
+                AccountStakeDelegate del -> case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor (MPV m))) of
                     SFalse -> rejectTransaction AlreadyADelegator
-                    STrue -> undefined
+                    STrue -> switchToBakerArg (_delegationStakedAmount del) (_delegationStakeEarnings del)
                 AccountStakeBaker _ ->
                     configureUpdateBakerArg
             (arg,) <$> getCurrentAccountTotalAmount senderAccount
