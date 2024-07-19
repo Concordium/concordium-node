@@ -4,6 +4,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -1519,6 +1520,170 @@ redelegatePassive accounts (DelegatorId accId) =
         (setAccountDelegationTarget Transactions.DelegatePassive)
         accId
         accounts
+
+data BakerConfigureFailure
+    = BCFStakeUnderThreshold
+    | BCFTransactionFeeCommissionNotInRange
+    | BCFBakingRewardCommissionNotInRange
+    | BCFFinalizationRewardCommissionNotInRange
+    | BCFDuplicateAggregationKey !BakerAggregationVerifyKey
+    | BCFChangePending
+
+configureBakerChecks ::
+    forall pv m.
+    ( SupportsPersistentState pv m,
+      PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1
+    ) =>
+    BlockStatePointers pv ->
+    ChainParameters pv ->
+    PersistentAccount (AccountVersionFor pv) ->
+    BakerConfigure ->
+    MTL.ExceptT BakerConfigureFailure m ()
+configureBakerChecks bsp chainParams _ BakerConfigureAdd{..}
+    -- Check if the equity capital is below the minimum threshold.
+    | bcaCapital < capitalMin = MTL.throwError BCFStakeUnderThreshold
+    -- Check if the transaction fee commission rate is in the acceptable range.
+    | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) =
+        MTL.throwError BCFTransactionFeeCommissionNotInRange
+    -- Check if the baking reward commission rate is in the acceptable range.
+    | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) =
+        MTL.throwError BCFBakingRewardCommissionNotInRange
+    -- Check if the finalization reward commission rate is in the acceptable range.
+    | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) =
+        MTL.throwError BCFFinalizationRewardCommissionNotInRange
+    | otherwise = do
+        -- Check if the aggregation key is fresh.
+        pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
+        existingAggKey <- isJust <$> Trie.lookup (bkuAggregationKey bcaKeys) (_aggregationKeys pab)
+        when existingAggKey $
+            MTL.throwError (BCFDuplicateAggregationKey (bkuAggregationKey bcaKeys))
+  where
+    poolParams = chainParams ^. cpPoolParameters
+    capitalMin = poolParams ^. ppMinimumEquityCapital
+    ranges = poolParams ^. ppCommissionBounds
+configureBakerChecks bsp chainParams acc BakerConfigureUpdate{..} = do
+    -- The account must have a baker in the case of BakerConfigureUpdate.
+    baker <- fromJust <$> accountBaker acc
+    -- Check if the aggregation key is fresh (or the same as the baker's existing one).
+    forM_ bcuKeys $ \BakerKeyUpdate{..} ->
+        when (baker ^. BaseAccounts.bakerAggregationVerifyKey /= bkuAggregationKey) $ do
+            pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
+            existingAggKey <- isJust <$> Trie.lookup bkuAggregationKey (_aggregationKeys pab)
+            when existingAggKey $
+                MTL.throwError (BCFDuplicateAggregationKey bkuAggregationKey)
+    -- Check if the transaction fee commission rate is in the acceptable range.
+    forM_ bcuTransactionFeeCommission $ \tfc ->
+        unless (isInRange tfc (ranges ^. transactionCommissionRange)) $
+            MTL.throwError BCFTransactionFeeCommissionNotInRange
+    -- Check if the baking reward commission rate is in the acceptable range.
+    forM_ bcuBakingRewardCommission $ \brc ->
+        unless (isInRange brc (ranges ^. bakingCommissionRange)) $
+            MTL.throwError BCFBakingRewardCommissionNotInRange
+    -- Check if the finalization reward commission rate is in the acceptable range.
+    forM_ bcuFinalizationRewardCommission $ \frc ->
+        unless (isInRange frc (ranges ^. finalizationCommissionRange)) $
+            MTL.throwError BCFFinalizationRewardCommissionNotInRange
+    forM_ bcuCapital $ \capital -> do
+        -- Check that there is no pending change on the account already.
+        case baker ^. BaseAccounts.bakerPendingChange of
+            BaseAccounts.NoChange -> return ()
+            _ -> MTL.throwError BCFChangePending
+        -- Check that the baker's equity capital is above the minimum threshold.
+        when (capital < capitalMin) $
+            MTL.throwError BCFStakeUnderThreshold
+  where
+    poolParams = chainParams ^. cpPoolParameters
+    capitalMin = poolParams ^. ppMinimumEquityCapital
+    ranges = poolParams ^. ppCommissionBounds
+
+addValidatorChecks ::
+    forall pv m.
+    ( SupportsPersistentState pv m,
+      PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1
+    ) =>
+    BlockStatePointers pv ->
+    ChainParameters pv ->
+    ValidatorAdd ->
+    MTL.ExceptT BakerConfigureFailure m ()
+addValidatorChecks bsp chainParams ValidatorAdd{..}
+    -- Check if the equity capital is below the minimum threshold.
+    | vaCapital < capitalMin = MTL.throwError BCFStakeUnderThreshold
+    -- Check if the transaction fee commission rate is in the acceptable range.
+    | not (isInRange (vaCommissionRates ^. transactionCommission) (ranges ^. transactionCommissionRange)) =
+        MTL.throwError BCFTransactionFeeCommissionNotInRange
+    -- Check if the baking reward commission rate is in the acceptable range.
+    | not (isInRange (vaCommissionRates ^. bakingCommission) (ranges ^. bakingCommissionRange)) =
+        MTL.throwError BCFBakingRewardCommissionNotInRange
+    -- Check if the finalization reward commission rate is in the acceptable range.
+    | not (isInRange (vaCommissionRates ^. finalizationCommission) (ranges ^. finalizationCommissionRange)) =
+        MTL.throwError BCFFinalizationRewardCommissionNotInRange
+    | otherwise = do
+        -- Check if the aggregation key is fresh.
+        pab <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
+        existingAggKey <- isJust <$> Trie.lookup (bkuAggregationKey vaKeys) (_aggregationKeys pab)
+        when existingAggKey $
+            MTL.throwError (BCFDuplicateAggregationKey (bkuAggregationKey vaKeys))
+  where
+    poolParams = chainParams ^. cpPoolParameters
+    capitalMin = poolParams ^. ppMinimumEquityCapital
+    ranges = poolParams ^. ppCommissionBounds
+
+newConfigureValidatorAdd ::
+    forall pv m.
+    ( SupportsPersistentState pv m,
+      PVSupportsDelegation pv,
+      IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
+      PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
+      CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1
+    ) =>
+    PersistentBlockState (MPV m) ->
+    AccountIndex ->
+    ValidatorAdd ->
+    MTL.ExceptT BakerConfigureFailure m (PersistentBlockState (MPV m))
+newConfigureValidatorAdd pbs ai va@ValidatorAdd{..} = do
+    -- Precondition: the account exists and is not already a baker or a delegator.
+    -- (Before protocol version 7, the account should not be a delegator.)
+    bsp <- loadPBS pbs
+    chainParams <- lookupCurrentParameters (bspUpdates bsp)
+    addValidatorChecks bsp chainParams va
+    pab <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
+    newAggregationKeys <- Trie.insert (bkuAggregationKey vaKeys) () (pab ^. aggregationKeys)
+    newActiveBakers <- Trie.insert bid emptyPersistentActiveDelegators (pab ^. activeBakers)
+    newPABref <-
+        refMake $
+            pab
+                & aggregationKeys .~ newAggregationKeys
+                & activeBakers .~ newActiveBakers
+                & totalActiveCapital %~ addActiveCapital vaCapital
+    let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newPABref
+    let poolInfo =
+            BaseAccounts.BakerPoolInfo
+                { _poolOpenStatus = vaOpenForDelegation,
+                  _poolMetadataUrl = vaMetadataURL,
+                  _poolCommissionRates = vaCommissionRates
+                }
+    let bakerInfo = bakerKeyUpdateToInfo bid vaKeys
+    let bakerInfoEx = BaseAccounts.BakerInfoExV1 bakerInfo poolInfo
+    acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
+    accWithBaker <- addAccountBakerV1 bakerInfoEx vaCapital vaRestakeEarnings acc
+    (accUpdated, newAIC) <- case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
+        SFalse -> return (accWithBaker, bspAccountsInCooldown bsp)
+        STrue -> do
+            oldCooldowns <- accountCooldowns accWithBaker
+            accUpdated <- reactivateCooldownAmount vaCapital accWithBaker
+            newCooldowns <- accountCooldowns accUpdated
+            let removals = cooldownRemovals oldCooldowns newCooldowns
+            newAIC <- applyCooldownRemovalsGlobally ai removals (bspAccountsInCooldown bsp)
+            return (accUpdated, newAIC)
+    newAccounts <- Accounts.setAccountAtIndex ai accUpdated (bspAccounts bsp)
+    storePBS pbs $
+        bsp
+            { bspBirkParameters = newBirkParams,
+              bspAccounts = newAccounts,
+              bspAccountsInCooldown = newAIC
+            }
+  where
+    bid = BakerId ai
 
 doConfigureBaker ::
     forall pv m.

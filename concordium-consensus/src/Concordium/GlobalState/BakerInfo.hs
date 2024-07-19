@@ -174,6 +174,23 @@ data BakerAddResult
       BAStakeUnderThreshold
     deriving (Eq, Ord, Show)
 
+-- | Parameters for adding a validator.
+data ValidatorAdd = ValidatorAdd
+    { -- | The keys for the baker.
+      vaKeys :: !BakerKeyUpdate,
+      -- | The initial stake.
+      vaCapital :: !Amount,
+      -- | Whether to restake earned rewards
+      vaRestakeEarnings :: !Bool,
+      -- | Whether the validator pool is open for delegation.
+      vaOpenForDelegation :: !OpenStatus,
+      -- | The metadata URL for the validator.
+      vaMetadataURL :: !UrlText,
+      -- | The commission rates for the validator.
+      vaCommissionRates :: !CommissionRates
+    }
+    deriving (Eq, Show)
+
 -- | Data structure used to add/remove/update baker.
 data BakerConfigure
     = -- | Add a baker, all fields are required.
