@@ -19,6 +19,7 @@ import Control.Monad
 import Control.Monad.Trans
 import qualified Control.Monad.Trans.State.Strict as State
 import Data.Bits
+import Data.Bool.Singletons
 import Data.Foldable
 import qualified Data.Map.Strict as Map
 import Data.Serialize
@@ -26,6 +27,7 @@ import Data.Word
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.Genesis.Data
 import Concordium.ID.Types hiding (values)
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -36,7 +38,6 @@ import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Utils
 
-import Concordium.Genesis.Data
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, replaceUpTo)
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
@@ -52,7 +53,6 @@ import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1
 import Concordium.ID.Parameters
-import Data.Bool.Singletons
 
 -- * Terminology
 
@@ -776,7 +776,7 @@ data PersistentAccount av = PersistentAccount
       accountNonce :: !Nonce,
       -- | The total balance of the account.
       accountAmount :: !Amount,
-      -- | The staked balance of the account.
+      -- | The actively staked balance of the account.
       --  INVARIANT: This is 0 if the account is not a baker or delegator.
       accountStakedAmount :: !Amount,
       -- | The enduring account data.
@@ -1252,17 +1252,22 @@ addBakerV1 binfo stake restake acc = do
               accountEnduringData = newEnduring
             }
 
--- | Remove a baker/delegator from an account for account version 1.
---  This will replace any existing staking information on the account.
+-- | Remove a baker/delegator from an account.
+--  This removes any baker or delegator record and sets the active stake to 0.
+--  This does not affect the stake in cooldown, which should be updated separately.
 removeStake ::
-    (MonadBlobStore m, IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1) =>
-    -- | Account to add baker to
+    ( MonadBlobStore m,
+      IsAccountVersion av,
+      AccountStructureVersionFor av ~ 'AccountStructureV1,
+      AVSupportsFlexibleCooldown av
+    ) =>
+    -- | Account remove staking from.
     PersistentAccount av ->
     m (PersistentAccount av)
 removeStake acc = do
     let ed = enduringData acc
-    let baker = PersistentAccountStakeEnduringNone
-    newEnduring <- refMake =<< rehashAccountEnduringData ed{paedStake = baker}
+    let newStake = PersistentAccountStakeEnduringNone
+    newEnduring <- refMake =<< rehashAccountEnduringData ed{paedStake = newStake}
     return $!
         acc
             { accountStakedAmount = 0,
@@ -1352,77 +1357,39 @@ setStake ::
     m (PersistentAccount av)
 setStake newStake acc = return $! acc{accountStakedAmount = newStake}
 
+-- | Add a specified amount to the pre-pre-cooldown inactive stake.
 addPrePreCooldown ::
     forall m av.
     ( MonadBlobStore m,
       IsAccountVersion av,
       AccountStructureVersionFor av ~ 'AccountStructureV1,
-      SupportsFlexibleCooldown av ~ 'True
+      AVSupportsFlexibleCooldown av
     ) =>
     Amount ->
     PersistentAccount av ->
     m (PersistentAccount av)
 addPrePreCooldown amt = updateEnduringData $ \ed -> do
-    let oldCooldown = paedStakeCooldown ed
-    let newCooldowns = case oldCooldown of
-            EmptyCooldownQueue -> emptyCooldowns{prePreCooldown = Present amt}
-            CooldownQueue ref ->
-                let old = eagerBufferedDeref ref
-                    oldPrePreCooldown = prePreCooldown old
-                    newPrePreCooldown = Present $ ofOption amt (+ amt) oldPrePreCooldown
-                in  old{prePreCooldown = newPrePreCooldown}
-    newRef <- refMake $! newCooldowns
-    return $! ed{paedStakeCooldown = CooldownQueue newRef}
+    newStakeCooldown <- CooldownQueue.addPrePreCooldown amt (paedStakeCooldown ed)
+    return $! ed{paedStakeCooldown = newStakeCooldown}
 
-releaseCooldownAmount ::
-    forall m av.
+-- | Remove up to the given amount from the cooldowns, starting with pre-pre-cooldown, then
+--  pre-cooldown, and finally from the amounts in cooldown, in decreasing order of timestamp.
+reactivateCooldownAmount ::
     ( MonadBlobStore m,
       IsAccountVersion av,
       AccountStructureVersionFor av ~ 'AccountStructureV1,
-      SupportsFlexibleCooldown av ~ 'True
+      AVSupportsFlexibleCooldown av
     ) =>
     Amount ->
     PersistentAccount av ->
     m (PersistentAccount av)
-releaseCooldownAmount amt = updateEnduringData $ \ed -> do
-    let newCooldowns = case paedStakeCooldown ed of
-            EmptyCooldownQueue -> emptyCooldowns
-            CooldownQueue ref ->
-                let old = eagerBufferedDeref ref
-                    oldPrePreCooldown = prePreCooldown old
-                    (newPrePreCooldown, leftover1) = preHelper amt oldPrePreCooldown
-                    new = old{prePreCooldown = newPrePreCooldown}
-                    oldPreCooldown = preCooldown old
-                    (new2, leftover2) =
-                        if leftover1 > 0
-                            then
-                                let (newPreCooldown, leftover) = preHelper leftover1 oldPreCooldown
-                                in  (new{preCooldown = newPreCooldown}, leftover)
-                            else (new, 0)
-                    oldCooldown = inCooldown old
-                    new3 =
-                        if leftover2 > 0
-                            then
-                                let newMap = Map.fromAscList $ releaseHelper leftover2 $ Map.toAscList oldCooldown
-                                in  new2{inCooldown = newMap}
-                            else new2
-                in  new3
-    newRef <- refMake $! newCooldowns
-    return $! ed{paedStakeCooldown = CooldownQueue newRef}
+reactivateCooldownAmount amt acc = case paedStakeCooldown (enduringData acc) of
+    EmptyCooldownQueue -> return acc
+    _ -> updateEnduringData reactivate acc
   where
-    releaseHelper :: Amount -> [(Timestamp, Amount)] -> [(Timestamp, Amount)]
-    releaseHelper left orig@((ts, amount) : cooldowns)
-        | left == 0 = orig
-        | left >= amount = releaseHelper (left - amount) cooldowns
-        | otherwise = (ts, amount - left) : cooldowns
-    releaseHelper _ [] = []
-    preHelper :: Amount -> Option Amount -> (Option Amount, Amount)
-    preHelper left optAmt = case optAmt of
-        Absent -> (Absent, left)
-        Present amount ->
-            if left >= amount
-                then (Absent, left - amount)
-                else (Present (amount - left), 0)
+    reactivate ed = do
+        newStakeCooldown <- CooldownQueue.reactivateCooldownAmount amt (paedStakeCooldown ed)
+        return $! ed{paedStakeCooldown = newStakeCooldown}
 
 -- | Set whether a baker or delegator account restakes its earnings.
 --  This MUST only be called with an account that is either a baker or delegator.

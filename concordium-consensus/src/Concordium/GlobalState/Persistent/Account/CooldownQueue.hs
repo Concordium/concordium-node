@@ -124,6 +124,33 @@ cooldownStake :: CooldownQueue av -> Amount
 cooldownStake EmptyCooldownQueue = 0
 cooldownStake (CooldownQueue queueRef) = cooldownTotal $ eagerBufferedDeref queueRef
 
+-- | Add the given amount to the pre-pre-cooldown.
+addPrePreCooldown ::
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
+    -- | The amount to add to the pre-pre-cooldown.
+    Amount ->
+    CooldownQueue av ->
+    m (CooldownQueue av)
+addPrePreCooldown amount EmptyCooldownQueue = initialPrePreCooldownQueue amount
+addPrePreCooldown amount (CooldownQueue queueRef) = do
+    let oldCooldowns = eagerBufferedDeref queueRef
+    let !newCooldowns = Cooldowns.addPrePreCooldown amount oldCooldowns
+    makeCooldownQueue newCooldowns
+
+-- | Remove up to the given amount from the cooldowns, starting with pre-pre-cooldown, then
+--  pre-cooldown, and finally from the amounts in cooldown, in decreasing order of timestamp.
+reactivateCooldownAmount ::
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
+    -- | The amount to reactivate.
+    Amount ->
+    CooldownQueue av ->
+    m (CooldownQueue av)
+reactivateCooldownAmount _ EmptyCooldownQueue = return EmptyCooldownQueue
+reactivateCooldownAmount amount (CooldownQueue queueRef) = do
+    let oldCooldowns = eagerBufferedDeref queueRef
+    let !newCooldowns = Cooldowns.reactivateCooldownAmount amount oldCooldowns
+    makeCooldownQueue newCooldowns
+
 -- | Process all cooldowns that expire at or before the given timestamp.
 --   This returns the next timestamp at which a cooldown expires, if any.
 processCooldownsUntil ::

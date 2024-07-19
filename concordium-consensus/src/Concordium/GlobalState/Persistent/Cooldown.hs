@@ -86,8 +86,11 @@ removeAccountFromAccountList ai alist = case alist of
 
 -- | This is an indexing structure and therefore does not need to be hashed. FIXME: add more docs
 data AccountsInCooldown = AccountsInCooldown
-    { _cooldown :: !NewReleaseSchedule,
+    { -- | The accounts that are in cooldown with their earliest release times.
+      _cooldown :: !NewReleaseSchedule,
+      -- | The accounts that are in pre-cooldown.
       _preCooldown :: !AccountList,
+      -- | The accounts that are in pre-pre-cooldown.
       _prePreCooldown :: !AccountList
     }
 

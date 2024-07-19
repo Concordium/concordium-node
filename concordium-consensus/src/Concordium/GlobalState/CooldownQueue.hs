@@ -24,8 +24,8 @@ import Data.Foldable
 -- | The amounts that are currently in cooldown and any pre-cooldown and pre-pre-cooldown target
 -- balances.
 data Cooldowns = Cooldowns
-    { -- | Amounts currently in cooldown.
-      -- (Must have fewer than 2^62 entries.)
+    { -- | Amounts currently in cooldown, indexed by their expiry timestamp.
+      --  (Must have fewer than 2^62 entries.)
       inCooldown :: !(Map.Map Timestamp Amount),
       -- | The amount in pre-cooldown.
       --  This will enter cooldown at the next payday.
@@ -94,6 +94,37 @@ cooldownTotal Cooldowns{..} =
 -- FIXME: Decide if we want to use the serialization for hashing.
 instance HashableTo Hash.Hash Cooldowns where
     getHash = getHash . encode
+
+-- | Add the given amount to the pre-pre-cooldown.
+addPrePreCooldown :: Amount -> Cooldowns -> Cooldowns
+addPrePreCooldown amt Cooldowns{..} =
+    Cooldowns
+        { prePreCooldown = Present (ofOption amt (+ amt) prePreCooldown),
+          ..
+        }
+
+-- | Remove up to the given amount from the cooldowns, starting with pre-pre-cooldown, then
+--  pre-cooldown, and finally from the amounts in cooldown, in decreasing order of timestamp.
+reactivateCooldownAmount :: Amount -> Cooldowns -> Cooldowns
+reactivateCooldownAmount = reactivatePrePre
+  where
+    reactivateHelper more update available amt cd = case available of
+        Absent -> more amt cd
+        Present availableAmt -> case availableAmt `compare` amt of
+            LT -> more (amt - availableAmt) $ update Absent
+            EQ -> update Absent
+            GT -> update (Present (availableAmt - amt))
+    reactivatePrePre amt cd =
+        reactivateHelper reactivatePre (\pp -> cd{prePreCooldown = pp}) (prePreCooldown cd) amt cd
+    reactivatePre amt cd =
+        reactivateHelper reactivateInCooldown (\p -> cd{preCooldown = p}) (preCooldown cd) amt cd
+    reactivateInCooldown amt cd = reactivateCooldown (Map.toDescList $ inCooldown cd) amt cd
+    reactivateCooldown [] _ cd = cd
+    reactivateCooldown ((ts, availableAmount) : rest) amt cd =
+        case availableAmount `compare` amt of
+            LT -> reactivateCooldown rest (amt - availableAmount) cd{inCooldown = Map.delete ts (inCooldown cd)}
+            EQ -> cd{inCooldown = Map.delete ts (inCooldown cd)}
+            GT -> cd{inCooldown = Map.insert ts (availableAmount - amt) (inCooldown cd)}
 
 -- | Remove any amounts in cooldown with timestamp before or equal to the given timestamp.
 processCooldowns :: Timestamp -> Cooldowns -> Cooldowns

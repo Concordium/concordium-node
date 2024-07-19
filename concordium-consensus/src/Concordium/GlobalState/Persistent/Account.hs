@@ -399,10 +399,11 @@ addAccountBakerV1 binfo amt restake (PAV1 acc) = PAV1 <$> V0.addBakerV1 binfo am
 addAccountBakerV1 binfo amt restake (PAV2 acc) = PAV2 <$> V1.addBakerV1 binfo amt restake acc
 addAccountBakerV1 binfo amt restake (PAV3 acc) = PAV3 <$> V1.addBakerV1 binfo amt restake acc
 
--- | Add a baker to an account for account version 1.
---  This will replace any existing staking information on the account.
+-- | Remove a baker/delegator from an account.
+--  This removes any baker or delegator record and sets the active stake to 0.
+--  This does not affect the stake in cooldown, which should be updated separately.
 removeAccountStake ::
-    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     PersistentAccount av ->
     m (PersistentAccount av)
 removeAccountStake (PAV3 acc) = PAV3 <$> V1.removeStake acc
@@ -454,19 +455,22 @@ setAccountStake newStake (PAV1 acc) = PAV1 <$> V0.setStake newStake acc
 setAccountStake newStake (PAV2 acc) = PAV2 <$> V1.setStake newStake acc
 setAccountStake newStake (PAV3 acc) = PAV3 <$> V1.setStake newStake acc
 
+-- | Add a specified amount to the pre-pre-cooldown inactive stake.
 addAccountPrePreCooldown ::
-    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     Amount ->
     PersistentAccount av ->
     m (PersistentAccount av)
 addAccountPrePreCooldown amt (PAV3 acc) = PAV3 <$> V1.addPrePreCooldown amt acc
 
-releaseCooldownAmount ::
-    (MonadBlobStore m, SupportsFlexibleCooldown av ~ 'True) =>
+-- | Remove up to the given amount from the cooldowns, starting with pre-pre-cooldown, then
+--  pre-cooldown, and finally from the amounts in cooldown, in decreasing order of timestamp.
+reactivateCooldownAmount ::
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     Amount ->
     PersistentAccount av ->
     m (PersistentAccount av)
-releaseCooldownAmount amt (PAV3 acc) = PAV3 <$> V1.releaseCooldownAmount amt acc
+reactivateCooldownAmount amt (PAV3 acc) = PAV3 <$> V1.reactivateCooldownAmount amt acc
 
 -- | Set whether a baker or delegator account restakes its earnings.
 --  This MUST only be called with an account that is either a baker or delegator.

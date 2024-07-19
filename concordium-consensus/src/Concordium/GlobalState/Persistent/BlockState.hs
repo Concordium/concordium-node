@@ -1545,65 +1545,65 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
             let capitalMin = poolParams ^. ppMinimumEquityCapital
             let ranges = poolParams ^. ppCommissionBounds
             if
-                    | bcaCapital < capitalMin -> return (BCStakeUnderThreshold, pbs)
-                    | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) ->
-                        return (BCTransactionFeeCommissionNotInRange, pbs)
-                    | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) ->
-                        return (BCBakingRewardCommissionNotInRange, pbs)
-                    | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
-                        return (BCFinalizationRewardCommissionNotInRange, pbs)
-                    | otherwise -> do
-                        let bid = BakerId ai
-                        oldPAB <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
-                        maybeDel <- accountDelegator acc
-                        pab <- maybeRemoveDelegator (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))) maybeDel oldPAB
-                        let updAgg Nothing = return (True, Trie.Insert ())
-                            updAgg (Just ()) = return (False, Trie.NoChange)
-                        Trie.adjust updAgg (bkuAggregationKey bcaKeys) (_aggregationKeys pab) >>= \case
-                            -- Aggregation key is a duplicate
-                            (False, _) -> return (BCDuplicateAggregationKey (bkuAggregationKey bcaKeys), pbs)
-                            (True, newAggregationKeys) -> do
-                                newActiveBakers <- Trie.insert bid emptyPersistentActiveDelegators (_activeBakers pab)
-                                newpabref <-
-                                    refMake
-                                        PersistentActiveBakers
-                                            { _aggregationKeys = newAggregationKeys,
-                                              _activeBakers = newActiveBakers,
-                                              _passiveDelegators = pab ^. passiveDelegators,
-                                              _totalActiveCapital = addActiveCapital bcaCapital (_totalActiveCapital pab)
-                                            }
-                                let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpabref
-                                let cr =
-                                        CommissionRates
-                                            { _finalizationCommission = bcaFinalizationRewardCommission,
-                                              _bakingCommission = bcaBakingRewardCommission,
-                                              _transactionCommission = bcaTransactionFeeCommission
-                                            }
-                                    poolInfo =
-                                        BaseAccounts.BakerPoolInfo
-                                            { _poolOpenStatus = bcaOpenForDelegation,
-                                              _poolMetadataUrl = bcaMetadataURL,
-                                              _poolCommissionRates = cr
-                                            }
-                                    bakerInfo = bakerKeyUpdateToInfo bid bcaKeys
-                                    bakerInfoEx =
-                                        BaseAccounts.BakerInfoExV1
-                                            { _bieBakerPoolInfo = poolInfo,
-                                              _bieBakerInfo = bakerInfo
-                                            }
-                                    updAcc = addAccountBakerV1 bakerInfoEx bcaCapital bcaRestakeEarnings
-                                newBSP <-
-                                    updateAccountsAndMaybeCooldown
-                                        (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)))
-                                        acc
-                                        maybeDel
-                                        updAcc
-                                        bcaCapital
-                                        bsp{bspBirkParameters = newBirkParams}
-                                (BCSuccess [] bid,)
-                                    <$> storePBS
-                                        pbs
-                                        newBSP
+                | bcaCapital < capitalMin -> return (BCStakeUnderThreshold, pbs)
+                | not (isInRange bcaTransactionFeeCommission (ranges ^. transactionCommissionRange)) ->
+                    return (BCTransactionFeeCommissionNotInRange, pbs)
+                | not (isInRange bcaBakingRewardCommission (ranges ^. bakingCommissionRange)) ->
+                    return (BCBakingRewardCommissionNotInRange, pbs)
+                | not (isInRange bcaFinalizationRewardCommission (ranges ^. finalizationCommissionRange)) ->
+                    return (BCFinalizationRewardCommissionNotInRange, pbs)
+                | otherwise -> do
+                    let bid = BakerId ai
+                    oldPAB <- refLoad (_birkActiveBakers (bspBirkParameters bsp))
+                    maybeDel <- accountDelegator acc
+                    pab <- maybeRemoveDelegator (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))) maybeDel oldPAB
+                    let updAgg Nothing = return (True, Trie.Insert ())
+                        updAgg (Just ()) = return (False, Trie.NoChange)
+                    Trie.adjust updAgg (bkuAggregationKey bcaKeys) (_aggregationKeys pab) >>= \case
+                        -- Aggregation key is a duplicate
+                        (False, _) -> return (BCDuplicateAggregationKey (bkuAggregationKey bcaKeys), pbs)
+                        (True, newAggregationKeys) -> do
+                            newActiveBakers <- Trie.insert bid emptyPersistentActiveDelegators (_activeBakers pab)
+                            newpabref <-
+                                refMake
+                                    PersistentActiveBakers
+                                        { _aggregationKeys = newAggregationKeys,
+                                          _activeBakers = newActiveBakers,
+                                          _passiveDelegators = pab ^. passiveDelegators,
+                                          _totalActiveCapital = addActiveCapital bcaCapital (_totalActiveCapital pab)
+                                        }
+                            let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newpabref
+                            let cr =
+                                    CommissionRates
+                                        { _finalizationCommission = bcaFinalizationRewardCommission,
+                                          _bakingCommission = bcaBakingRewardCommission,
+                                          _transactionCommission = bcaTransactionFeeCommission
+                                        }
+                                poolInfo =
+                                    BaseAccounts.BakerPoolInfo
+                                        { _poolOpenStatus = bcaOpenForDelegation,
+                                          _poolMetadataUrl = bcaMetadataURL,
+                                          _poolCommissionRates = cr
+                                        }
+                                bakerInfo = bakerKeyUpdateToInfo bid bcaKeys
+                                bakerInfoEx =
+                                    BaseAccounts.BakerInfoExV1
+                                        { _bieBakerPoolInfo = poolInfo,
+                                          _bieBakerInfo = bakerInfo
+                                        }
+                                updAcc = addAccountBakerV1 bakerInfoEx bcaCapital bcaRestakeEarnings
+                            newBSP <-
+                                updateAccountsAndMaybeCooldown
+                                    (sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)))
+                                    acc
+                                    maybeDel
+                                    updAcc
+                                    bcaCapital
+                                    bsp{bspBirkParameters = newBirkParams}
+                            (BCSuccess [] bid,)
+                                <$> storePBS
+                                    pbs
+                                    newBSP
   where
     maybeRemoveDelegator ::
         SBool (SupportsFlexibleCooldown (AccountVersionFor pv)) ->
@@ -1643,17 +1643,13 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
         case maybeDel of
             Nothing -> do
                 maybeCooldownsBefore <- accountCooldowns acc
-                newAcc <- (updAcc >=> releaseCooldownAmount capital) acc
+                newAcc <- (updAcc >=> reactivateCooldownAmount capital) acc
                 -- This cannot fail to update the account, since we already looked up the account.
                 newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
                 maybeCooldownsAfter <- accountCooldowns newAcc
-                let accountsInCooldownForPV = bspAccountsInCooldown bsp
-                let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
-                        CTrue accounts -> accounts
-                maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
-                case maybeCooldowns of
-                    Nothing -> return bsp{bspAccounts = newAccounts}
-                    Just newCooldowns -> return bsp{bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
+                let removals = cooldownRemovals maybeCooldownsBefore maybeCooldownsAfter
+                newCooldowns <- applyCooldownRemovalsGlobally ai removals (bspAccountsInCooldown bsp)
+                return bsp{bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
             Just del -> do
                 case compare capital (BaseAccounts._delegationStakedAmount del) of
                     LT -> do
@@ -1693,16 +1689,12 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                     GT -> do
                         maybeCooldownsBefore <- accountCooldowns acc
                         -- This cannot fail to update the account, since we already looked up the account.
-                        newAcc <- (updAcc >=> releaseCooldownAmount (capital - BaseAccounts._delegationStakedAmount del)) acc
+                        newAcc <- (updAcc >=> reactivateCooldownAmount (capital - BaseAccounts._delegationStakedAmount del)) acc
                         newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
                         maybeCooldownsAfter <- accountCooldowns newAcc
-                        let accountsInCooldownForPV = bspAccountsInCooldown bsp
-                        let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
-                                CTrue accounts -> accounts
-                        maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
-                        case maybeCooldowns of
-                            Nothing -> return bsp{bspAccounts = newAccounts}
-                            Just newCooldowns -> return bsp{bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
+                        let removals = cooldownRemovals maybeCooldownsBefore maybeCooldownsAfter
+                        newCooldowns <- applyCooldownRemovalsGlobally ai removals (bspAccountsInCooldown bsp)
+                        return bsp{bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
 doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
     origBSP <- loadPBS pbs
     cp <- lookupCurrentParameters (bspUpdates origBSP)
@@ -1989,7 +1981,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                                             %~ addActiveCapital (capital - _stakedAmount oldBkr)
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
-                        return $ setAccountStake capital >=> releaseCooldownAmount (capital - _stakedAmount oldBkr)
+                        return $ setAccountStake capital >=> reactivateCooldownAmount (capital - _stakedAmount oldBkr)
     maybeReleaseCooldownGlobally ::
         SBool (SupportsFlexibleCooldown (AccountVersionFor pv)) ->
         (PersistentAccount (AccountVersionFor pv) -> m (PersistentAccount (AccountVersionFor pv))) ->
@@ -2007,15 +1999,12 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
         newAcc <- liftBSO $ upd acc
         setAccount newAcc
         maybeCooldownsAfter <- accountCooldowns newAcc
-        accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
-        let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
-                CTrue accounts -> accounts
-        maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
-        forM_ maybeCooldowns $ \newCooldowns ->
-            MTL.modify' $ \bsp ->
-                bsp
-                    { bspAccountsInCooldown = newCooldowns
-                    }
+        let removals = cooldownRemovals maybeCooldownsBefore maybeCooldownsAfter
+        newCooldowns <- applyCooldownRemovalsGlobally ai removals =<< MTL.gets bspAccountsInCooldown
+        MTL.modify' $ \bsp ->
+            bsp
+                { bspAccountsInCooldown = newCooldowns
+                }
 
 doConstrainBakerCommission ::
     (SupportsPersistentState pv m, PVSupportsDelegation pv) =>
@@ -2147,17 +2136,13 @@ doConfigureDelegation pbs ai DelegationConfigureAdd{..} = do
                               BaseAccounts._delegationPendingChange = BaseAccounts.NoChange
                             }
                 maybeCooldownsBefore <- accountCooldowns acc
-                newAcc <- (addAccountDelegator dlg >=> releaseCooldownAmount dcaCapital) acc
+                newAcc <- (addAccountDelegator dlg >=> reactivateCooldownAmount dcaCapital) acc
                 maybeCooldownsAfter <- accountCooldowns newAcc
                 -- This cannot fail to update the accounts, since we already looked up the accounts:
                 newAccounts <- lift $ Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
-                let accountsInCooldownForPV = bspAccountsInCooldown bsp
-                let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
-                        CTrue accounts -> accounts
-                maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
-                case maybeCooldowns of
-                    Nothing -> return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts}
-                    Just newCooldowns -> return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
+                let removals = cooldownRemovals maybeCooldownsBefore maybeCooldownsAfter
+                newCooldowns <- applyCooldownRemovalsGlobally ai removals (bspAccountsInCooldown bsp)
+                return bsp{bspBirkParameters = newBirkParams, bspAccounts = newAccounts, bspAccountsInCooldown = newCooldowns}
     updateBirk ::
         BlockStatePointers pv ->
         DelegationTarget ->
@@ -2374,21 +2359,17 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
                         ab <- refLoad (bspBirkParameters bsp1 ^. birkActiveBakers)
                         newActiveBakers <- addTotalsInActiveBakers ab ad (capital - BaseAccounts._delegationStakedAmount ad)
                         maybeCooldownsBefore <- accountCooldowns acc
-                        let accUpd = setAccountStake capital >=> releaseCooldownAmount (capital - BaseAccounts._delegationStakedAmount ad)
+                        let accUpd = setAccountStake capital >=> reactivateCooldownAmount (capital - BaseAccounts._delegationStakedAmount ad)
                         newAcc <- accUpd acc
                         setAccount newAcc
                         maybeCooldownsAfter <- accountCooldowns newAcc
-                        accountsInCooldownForPV <- MTL.gets bspAccountsInCooldown
-                        let oldAccountsInCooldown = case theAccountsInCooldownForPV accountsInCooldownForPV of
-                                CTrue accounts -> accounts
-                        maybeCooldowns <- releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter
-                        case maybeCooldowns of
-                            Nothing -> MTL.modify' $ \bsp -> bsp{bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers}
-                            Just newCooldowns -> MTL.modify' $ \bsp ->
-                                bsp
-                                    { bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers,
-                                      bspAccountsInCooldown = newCooldowns
-                                    }
+                        let removals = cooldownRemovals maybeCooldownsBefore maybeCooldownsAfter
+                        newCooldowns <- applyCooldownRemovalsGlobally ai removals (bspAccountsInCooldown bsp1)
+                        MTL.modify' $ \bsp ->
+                            bsp
+                                { bspBirkParameters = bspBirkParameters bsp1 & birkActiveBakers .~ newActiveBakers,
+                                  bspAccountsInCooldown = newCooldowns
+                                }
                         MTL.tell [DelegationConfigureStakeIncreased capital]
         return $ BaseAccounts._delegationStakedAmount ad
     addTotalsInActiveBakers ab0 ad delta = do
@@ -2442,59 +2423,51 @@ doConfigureDelegation pbs ai DelegationConfigureUpdate{..} = do
             (Nothing, Just newTarget) -> unless (newTarget == oldTarget) doCheckOverDelegation
             _ -> return ()
 
-releaseCooldownGlobally ::
-    (MonadBlobStore m, SupportsFlexibleCooldown (AccountVersionFor pv) ~ 'True) =>
+data CooldownRemovals = CooldownRemovals
+    { -- | Whether the pre-pre cooldown was removed.
+      crPrePreCooldown :: Bool,
+      -- | Whether the pre cooldown was removed.
+      crPreCooldown :: Bool,
+      -- | If all cooldowns were removed, this is the previous timestamp of the earliest cooldown.
+      crCooldown :: Maybe Timestamp
+    }
+
+-- | Determine if a change in cooldowns requires global updates to the indexes.
+--  The change should arise from (possibly) reactivating stake from cooldown.
+cooldownRemovals ::
+    Maybe CooldownQueue.Cooldowns -> Maybe CooldownQueue.Cooldowns -> CooldownRemovals
+cooldownRemovals Nothing _ = CooldownRemovals False False Nothing
+cooldownRemovals (Just cd1) Nothing =
+    CooldownRemovals
+        { crPrePreCooldown = isPresent (CooldownQueue.prePreCooldown cd1),
+          crPreCooldown = isPresent (CooldownQueue.preCooldown cd1),
+          crCooldown = fst <$> Map.lookupMin (CooldownQueue.inCooldown cd1)
+        }
+cooldownRemovals (Just cd1) (Just cd2) =
+    CooldownRemovals
+        { crPrePreCooldown = isPresent (CooldownQueue.prePreCooldown cd1) && isAbsent (CooldownQueue.prePreCooldown cd2),
+          crPreCooldown = isPresent (CooldownQueue.preCooldown cd1) && isAbsent (CooldownQueue.preCooldown cd2),
+          crCooldown = do
+            guard (Map.null (CooldownQueue.inCooldown cd2))
+            fst <$> Map.lookupMin (CooldownQueue.inCooldown cd1)
+        }
+
+-- | Apply cooldown removals for an account to the global indexes.
+applyCooldownRemovalsGlobally ::
+    (MonadBlobStore m, PVSupportsFlexibleCooldown pv) =>
     AccountIndex ->
-    AccountsInCooldown ->
-    Maybe CooldownQueue.Cooldowns ->
-    Maybe CooldownQueue.Cooldowns ->
-    m (Maybe (AccountsInCooldownForPV pv))
-releaseCooldownGlobally ai oldAccountsInCooldown maybeCooldownsBefore maybeCooldownsAfter = do
-    let (shouldRemovePrePre, shouldRemovePre, shouldRemoveCooldown, shouldUpdateCooldown) =
-            case (maybeCooldownsBefore, maybeCooldownsAfter) of
-                (Just cd, Nothing) ->
-                    ( isPresent $ CooldownQueue.prePreCooldown cd,
-                      isPresent $ CooldownQueue.preCooldown cd,
-                      Map.lookupMin (CooldownQueue.inCooldown cd),
-                      Nothing
-                    )
-                (Just cd1, Just cd2) ->
-                    ( isPresent (CooldownQueue.prePreCooldown cd1) && isAbsent (CooldownQueue.prePreCooldown cd2),
-                      isPresent (CooldownQueue.preCooldown cd1) && isAbsent (CooldownQueue.preCooldown cd2),
-                      if Map.null (CooldownQueue.inCooldown cd2) then Map.lookupMin (CooldownQueue.inCooldown cd1) else Nothing,
-                      case (Map.lookupMin (CooldownQueue.inCooldown cd1), Map.lookupMin (CooldownQueue.inCooldown cd2)) of
-                        (Just (ts1, _), Just (ts2, _)) -> if ts1 /= ts2 then Just (ts1, ts2) else Nothing
-                        _ -> Nothing
-                    ) -- FIXME: refactor this with the stuff in configure baker
-                _ -> (False, False, Nothing, Nothing)
-    if (shouldRemovePrePre, shouldRemovePre, shouldRemoveCooldown, shouldUpdateCooldown) == (False, False, Nothing, Nothing)
-        then return Nothing
-        else do
-            newAccountsInCooldown1 <-
-                if shouldRemovePrePre
-                    then do
-                        newPrePreCooldown <- removeAccountFromAccountList ai $ _prePreCooldown oldAccountsInCooldown
-                        return oldAccountsInCooldown{_prePreCooldown = newPrePreCooldown}
-                    else return oldAccountsInCooldown
-            newAccountsInCooldown2 <-
-                if shouldRemovePre
-                    then do
-                        newPreCooldown <- removeAccountFromAccountList ai $ _preCooldown oldAccountsInCooldown
-                        return newAccountsInCooldown1{_preCooldown = newPreCooldown}
-                    else return newAccountsInCooldown1
-            newAccountsInCooldown3 <-
-                case shouldRemoveCooldown of
-                    Just (ts, _) -> do
-                        newCooldown <- removeAccountFromReleaseSchedule ts ai $ _cooldown oldAccountsInCooldown
-                        return newAccountsInCooldown2{_cooldown = newCooldown}
-                    Nothing -> return newAccountsInCooldown2
-            newAccountsInCooldown4 <-
-                case shouldUpdateCooldown of
-                    Just (ts1, ts2) -> do
-                        newCooldown <- updateAccountRelease ts1 ts2 ai $ _cooldown oldAccountsInCooldown
-                        return newAccountsInCooldown3{_cooldown = newCooldown}
-                    Nothing -> return newAccountsInCooldown3
-            return $ Just $ AccountsInCooldownForPV $ CTrue newAccountsInCooldown4
+    CooldownRemovals ->
+    AccountsInCooldownForPV pv ->
+    m (AccountsInCooldownForPV pv)
+applyCooldownRemovalsGlobally ai CooldownRemovals{..} =
+    doIf crPrePreCooldown ((accountsInCooldown . prePreCooldown) (removeAccountFromAccountList ai))
+        >=> doIf crPreCooldown ((accountsInCooldown . preCooldown) (removeAccountFromAccountList ai))
+        >=> case crCooldown of
+            Just ts -> (accountsInCooldown . cooldown) (removeAccountFromReleaseSchedule ts ai)
+            Nothing -> return
+  where
+    doIf True f = f
+    doIf False _ = return
 
 doUpdateBakerKeys ::
     (SupportsPersistentState pv m, AccountVersionFor pv ~ 'AccountV0) =>
@@ -2763,8 +2736,8 @@ doMint pbs mint = do
             bspBank bsp
                 & unhashed
                     %~ (Rewards.totalGTU +~ mintTotal mint)
-                    . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
-                    . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
+                        . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
+                        . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
     let updAcc = addAccountAmount $ mintDevelopmentCharge mint
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)

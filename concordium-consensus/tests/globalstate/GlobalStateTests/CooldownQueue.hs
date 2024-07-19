@@ -60,6 +60,58 @@ cooldown2 = cooldown1{preCooldown = Absent}
 cooldown3 :: Cooldowns
 cooldown3 = cooldown2{prePreCooldown = Absent}
 
+testReactivateCooldownAmount :: Assertion
+testReactivateCooldownAmount = do
+    assertEqual "reactivate 0" cooldown1 (reactivateCooldownAmount 0 cooldown1)
+    assertEqual
+        "reactivate 10"
+        cooldown1{prePreCooldown = Present 1990}
+        (reactivateCooldownAmount 10 cooldown1)
+    assertEqual
+        "reactivate 2000"
+        cooldown1{prePreCooldown = Absent}
+        (reactivateCooldownAmount 2000 cooldown1)
+    assertEqual
+        "reactivate 2010"
+        cooldown1{prePreCooldown = Absent, preCooldown = Present 140}
+        (reactivateCooldownAmount 2010 cooldown1)
+    assertEqual
+        "reactivate 2150"
+        cooldown3
+        (reactivateCooldownAmount 2150 cooldown1)
+    assertEqual
+        "reactivate 2200"
+        cooldown3{inCooldown = Map.fromList [(Timestamp 10, 1), (Timestamp 20, 15), (Timestamp 30, 50)]}
+        (reactivateCooldownAmount 2200 cooldown1)
+    assertEqual
+        "reactivate 2250"
+        cooldown3{inCooldown = Map.fromList [(Timestamp 10, 1), (Timestamp 20, 15)]}
+        (reactivateCooldownAmount 2250 cooldown1)
+    assertEqual
+        "reactivate 2255"
+        cooldown3{inCooldown = Map.fromList [(Timestamp 10, 1), (Timestamp 20, 10)]}
+        (reactivateCooldownAmount 2255 cooldown1)
+    assertEqual
+        "reactivate 2265"
+        cooldown3{inCooldown = Map.fromList [(Timestamp 10, 1)]}
+        (reactivateCooldownAmount 2265 cooldown1)
+    assertEqual
+        "reactivate 2266"
+        emptyCooldowns
+        (reactivateCooldownAmount 2266 cooldown1)
+    assertEqual
+        "reactivate 5000"
+        emptyCooldowns
+        (reactivateCooldownAmount 5000 cooldown1)
+    assertEqual
+        "reactivate 2050 (cooldown2)"
+        cooldown3{inCooldown = Map.fromList [(Timestamp 10, 1), (Timestamp 20, 15), (Timestamp 30, 50)]}
+        (reactivateCooldownAmount 2050 cooldown2)
+    assertEqual
+        "reactivate 50 (cooldown 3)"
+        cooldown3{inCooldown = Map.fromList [(Timestamp 10, 1), (Timestamp 20, 15), (Timestamp 30, 50)]}
+        (reactivateCooldownAmount 50 cooldown3)
+
 -- | Unit test for 'processCooldowns'.
 testProcessCooldowns :: Assertion
 testProcessCooldowns = do
@@ -187,6 +239,22 @@ testToCooldownList = do
         ]
         (toCooldownList ccp2 cooldown1)
 
+testAddPrePreCooldownEmpty :: Assertion
+testAddPrePreCooldownEmpty = do
+    let amount = 100
+    let newCooldowns = addPrePreCooldown amount emptyCooldowns
+    assertEqual "pre-pre-cooldown" (Present amount) (prePreCooldown newCooldowns)
+    assertEqual "pre-cooldown" Absent (preCooldown newCooldowns)
+    assertEqual "in-cooldown" Map.empty (inCooldown newCooldowns)
+
+testAddPrePreCooldownNonEmpty :: Assertion
+testAddPrePreCooldownNonEmpty = do
+    let amount = 100
+    let newCooldowns = addPrePreCooldown amount cooldown1
+    assertEqual "pre-pre-cooldown" (Present $ 2000 + amount) (prePreCooldown newCooldowns)
+    assertEqual "pre-cooldown" (preCooldown cooldown1) (preCooldown newCooldowns)
+    assertEqual "in-cooldown" (inCooldown cooldown1) (inCooldown newCooldowns)
+
 tests :: Spec
 tests = describe "GlobalStateTests.CooldownQueue" $ parallel $ do
     it "Cooldowns serialization" $ withMaxSuccess 1000 testSerialize
@@ -200,3 +268,6 @@ tests = describe "GlobalStateTests.CooldownQueue" $ parallel $ do
     it "preCooldownTimestamp" testPreCooldownTimestamp
     it "prePreCooldownTimestamp" testPrePreCooldownTimestamp
     it "toCooldownList" testToCooldownList
+    it "addPrePreCooldown empty" testAddPrePreCooldownEmpty
+    it "addPrePreCooldown non-empty" testAddPrePreCooldownNonEmpty
+    it "reactivateCooldownAmount" testReactivateCooldownAmount
