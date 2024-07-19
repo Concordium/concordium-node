@@ -108,7 +108,7 @@ processPreCooldown :: Timestamp -> Cooldowns -> Cooldowns
 processPreCooldown _ c@Cooldowns{preCooldown = Absent} = c
 processPreCooldown expiry Cooldowns{preCooldown = Present preAmt, ..} =
     Cooldowns
-        { inCooldown = Map.insert expiry preAmt inCooldown,
+        { inCooldown = Map.insertWith (+) expiry preAmt inCooldown,
           preCooldown = Absent,
           ..
         }
@@ -135,12 +135,20 @@ processPrePreCooldown Cooldowns{preCooldown = Present preAmt, prePreCooldown = P
 firstCooldownTimestamp :: Cooldowns -> Maybe Timestamp
 firstCooldownTimestamp Cooldowns{..} = fst <$> Map.lookupMin inCooldown
 
+-- | Parameters that are used to calculate the timestamps at which stake in pre-cooldown and
+--  pre-pre-cooldown is expected to be released from cooldown.
 data CooldownCalculationParameters = CooldownCalculationParameters
-    { ccpEpochDuration :: Duration,
+    { -- | The duration of an epoch.
+      ccpEpochDuration :: Duration,
+      -- | The current epoch number.
       ccpCurrentEpoch :: Epoch,
+      -- | The time of the next epoch transition (i.e. trigger block time).
       ccpTriggerTime :: Timestamp,
+      -- | The epoch number of the next payday. (Must be after the current epoch.)
       ccpNextPayday :: Epoch,
+      -- | The length of a reward period in epochs.
       ccpRewardPeriodLength :: RewardPeriodLength,
+      -- | The current duration to for cooldowns.
       ccpCooldownDuration :: DurationSeconds
     }
 

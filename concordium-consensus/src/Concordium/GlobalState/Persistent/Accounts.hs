@@ -518,9 +518,8 @@ migrateAccounts migration Accounts{..} = do
     -- that is purely in-memory and just copied over.
     newAccountRegIds <- Trie.migrateUnbufferedTrieN return accountRegIdHistory
     return $!
-        ( Accounts
+        Accounts
             { accountTable = newAccountTable,
               accountRegIdHistory = newAccountRegIds,
               accountDiffMapRef = accountDiffMapRef
             }
-        )

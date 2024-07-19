@@ -1389,7 +1389,8 @@ tests :: Spec
 tests =
     describe "Encrypted transfers:" $
         sequence_ $
-            Helpers.forEveryProtocolVersion $ \spv pvString -> do
-                testCase0 spv pvString
-                testCase1 spv pvString
-                testCase2 spv pvString
+            Helpers.forEveryProtocolVersion $ \spv pvString ->
+                when (Types.supportsEncryptedTransfers spv) $ do
+                    testCase0 spv pvString
+                    testCase1 spv pvString
+                    testCase2 spv pvString

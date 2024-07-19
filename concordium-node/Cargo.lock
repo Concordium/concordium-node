@@ -787,7 +787,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_node"
-version = "6.3.0"
+version = "6.3.1"
 dependencies = [
  "anyhow",
  "app_dirs2",
@@ -851,6 +851,7 @@ dependencies = [
  "tonic-web",
  "tower",
  "tower-http",
+ "tracing",
  "twox-hash",
  "url",
  "walkdir",

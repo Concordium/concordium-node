@@ -52,6 +52,7 @@ import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1
 import Concordium.ID.Parameters
+import Data.Bool.Singletons
 
 -- * Terminology
 
@@ -442,12 +443,20 @@ rehashAccountEnduringData = case accountVersion @av of
     SAccountV2 -> rehashAccountEnduringDataAV2
     SAccountV3 -> rehashAccountEnduringDataAV3
 
-enduringDataFlags :: PersistentAccountEnduringData av -> EnduringDataFlags
+enduringDataFlags ::
+    forall av.
+    (IsAccountVersion av) =>
+    PersistentAccountEnduringData av ->
+    EnduringDataFlags av
 enduringDataFlags PersistentAccountEnduringData{..} =
     EnduringDataFlags
         { edHasEncryptedAmount = isNotNull paedEncryptedAmount,
           edHasReleaseSchedule = isNotNull paedReleaseSchedule,
-          edStakeFlags = stakeFlags paedStake paedStakeCooldown
+          edStakeFlags = stakeFlags paedStake,
+          edHasCooldown =
+            conditionally
+                (sSupportsFlexibleCooldown (accountVersion @av))
+                (not $ isCooldownQueueEmpty paedStakeCooldown)
         }
 
 -- * Enduring account data storage helper definitions
@@ -471,10 +480,10 @@ data PendingChangeFlags
     deriving (Eq, Ord, Show)
 
 -- | Get the 'PendingChangeFlags' for a 'StakePendingChange''.
-stakePendingChangeFlags :: StakePendingChange av -> CooldownQueue av -> PendingChangeFlags
-stakePendingChangeFlags NoChange queue = if isCooldownQueueEmpty queue then PendingChangeNone else PendingChangeReduce
-stakePendingChangeFlags ReduceStake{} _ = PendingChangeReduce
-stakePendingChangeFlags RemoveStake{} _ = PendingChangeRemove
+stakePendingChangeFlags :: StakePendingChange av -> PendingChangeFlags
+stakePendingChangeFlags NoChange = PendingChangeNone
+stakePendingChangeFlags ReduceStake{} = PendingChangeReduce
+stakePendingChangeFlags RemoveStake{} = PendingChangeRemove
 
 -- | Store a 'PendingChangeFlags' as the low-order 2 bits of a 'Word8'.
 pendingChangeFlagsToBits :: PendingChangeFlags -> Word8
@@ -496,7 +505,7 @@ pendingChangeFlagsFromBits _ = Left "Invalid pending change type"
 --
 --  - Bits 5 and 4 indicate the staking status of the account:
 --
---    - If bits 5 and 4 are unset, there is no staking. Bit 0 is set if there is stake in cooldown.
+--    - If bits 5 and 4 are unset, there is no staking.
 --      All other bits are unset.
 --
 --    - If bit 5 is unset and bit 4 is set, the account is a baker. In this case
@@ -514,12 +523,11 @@ pendingChangeFlagsFromBits _ = Left "Invalid pending change type"
 --      - Bit 2 is set if earnings are restaked.
 --
 --      - Bits 1 and 0 indicate the pending change as described in 'PendingChangeFlags'.
+--
+--  - If the account version supports flexible cooldown, then bits 1 and 0 are always unset.
 data StakeFlags
     = -- | The account is not staking
       StakeFlagsNone
-        { -- | Whether the stake is in cooldown
-          sfInCooldown :: !Bool
-        }
     | -- | The account is a baker
       StakeFlagsBaker
         { -- | Whether earnings are restaked
@@ -539,26 +547,24 @@ data StakeFlags
     deriving (Eq, Ord, Show)
 
 -- | Get the 'StakeFlags' from a 'PersistentAccountStakeEnduring'.
-stakeFlags :: PersistentAccountStakeEnduring av -> CooldownQueue av -> StakeFlags
-stakeFlags PersistentAccountStakeEnduringNone queue = StakeFlagsNone{sfInCooldown = isCooldownQueueEmpty queue}
-stakeFlags PersistentAccountStakeEnduringBaker{..} queue =
+stakeFlags :: PersistentAccountStakeEnduring av -> StakeFlags
+stakeFlags PersistentAccountStakeEnduringNone = StakeFlagsNone
+stakeFlags PersistentAccountStakeEnduringBaker{..} =
     StakeFlagsBaker
         { sfRestake = paseBakerRestakeEarnings,
-          sfChangeType = stakePendingChangeFlags paseBakerPendingChange queue
+          sfChangeType = stakePendingChangeFlags paseBakerPendingChange
         }
-stakeFlags PersistentAccountStakeEnduringDelegator{..} queue =
+stakeFlags PersistentAccountStakeEnduringDelegator{..} =
     StakeFlagsDelegator
         { sfPassive = DelegatePassive == paseDelegatorTarget,
           sfRestake = paseDelegatorRestakeEarnings,
-          sfChangeType = stakePendingChangeFlags paseDelegatorPendingChange queue
+          sfChangeType = stakePendingChangeFlags paseDelegatorPendingChange
         }
 
 -- | Store a 'StakeFlags' as the low-order 6 bits of a 'Word8'.
 stakeFlagsToBits :: StakeFlags -> Word8
-stakeFlagsToBits StakeFlagsNone{sfInCooldown = False} =
+stakeFlagsToBits StakeFlagsNone =
     0b00_0000
-stakeFlagsToBits StakeFlagsNone{sfInCooldown = True} =
-    0b00_0001
 stakeFlagsToBits StakeFlagsBaker{..} =
     0b01_0000
         .|. (if sfRestake then 0b00_0100 else 0b00_0000)
@@ -572,8 +578,7 @@ stakeFlagsToBits StakeFlagsDelegator{..} =
 -- | Load a 'StakeFlags' from the low-order 6 bits of a 'Word8'.
 --  All other bits must be 0.
 stakeFlagsFromBits :: Word8 -> Either String StakeFlags
-stakeFlagsFromBits 0b00_0000 = return StakeFlagsNone{sfInCooldown = False}
-stakeFlagsFromBits 0b00_0001 = return StakeFlagsNone{sfInCooldown = True}
+stakeFlagsFromBits 0b00_0000 = return StakeFlagsNone
 stakeFlagsFromBits bs = case bs .&. 0b11_0000 of
     0b01_0000 -> do
         when sfPassive $ Left "Passive bit cannot be set for baker"
@@ -594,33 +599,56 @@ stakeFlagsFromBits bs = case bs .&. 0b11_0000 of
 --
 --  - Bit 6 is set if the account has a (non-empty) release schedule.
 --
---  - The remaining bits indicate the staking status of the account, in accordance with 'StakeFlags'.
-data EnduringDataFlags = EnduringDataFlags
+--  - If the account version supports flexible cooldowns, then bit 0 is set if the account has
+--    a cooldown.
+--
+--  - The remaining bits indicate the staking status of the account, in accordance with
+--    'StakeFlags' (where bit 0 is cleared in the case of flexible cooldowns).
+data EnduringDataFlags (av :: AccountVersion) = EnduringDataFlags
     { -- | Whether the enduring data includes a (non-initial) encrypted amount.
       edHasEncryptedAmount :: !Bool,
       -- | Whether the enduring data includes a (non-empty) release schedule.
       edHasReleaseSchedule :: !Bool,
       -- | Flags describing the stake (if any).
-      edStakeFlags :: !StakeFlags
+      edStakeFlags :: !StakeFlags,
+      -- | If supported by the account version, whether the account has a cooldown.
+      edHasCooldown :: !(Conditionally (SupportsFlexibleCooldown av) Bool)
     }
     deriving (Eq, Ord, Show)
 
 -- | Encode an 'EnduringDataFlags' as a 'Word8'.
-enduringDataFlagsToBits :: EnduringDataFlags -> Word8
+enduringDataFlagsToBits :: EnduringDataFlags av -> Word8
 enduringDataFlagsToBits EnduringDataFlags{..} =
     (if edHasEncryptedAmount then 0b1000_0000 else 0b0000_0000)
         .|. (if edHasReleaseSchedule then 0b0100_0000 else 0b0000_0000)
         .|. stakeFlagsToBits edStakeFlags
+        .|. cooldownBits
+  where
+    cooldownBits = case edHasCooldown of
+        CTrue True -> 0b0000_0001
+        _ -> 0b0000_0000
 
 -- | Decode an 'EnduringDataFlags' from a 'Word8'.
-enduringDataFlagsFromBits :: Word8 -> Either String EnduringDataFlags
+enduringDataFlagsFromBits ::
+    forall av.
+    (IsAccountVersion av) =>
+    Word8 ->
+    Either String (EnduringDataFlags av)
 enduringDataFlagsFromBits bs = do
     let edHasEncryptedAmount = testBit bs 7
     let edHasReleaseSchedule = testBit bs 6
-    edStakeFlags <- stakeFlagsFromBits (bs .&. 0b0011_1111)
-    return EnduringDataFlags{..}
+    case sSupportsFlexibleCooldown (accountVersion @av) of
+        STrue -> do
+            let edHasCooldown = CTrue (testBit bs 0)
+            when (testBit bs 1) $ Left "Bit 1 must be unset for flexible cooldown"
+            edStakeFlags <- stakeFlagsFromBits (bs .&. 0b0011_1100)
+            return EnduringDataFlags{..}
+        SFalse -> do
+            let edHasCooldown = CFalse
+            edStakeFlags <- stakeFlagsFromBits (bs .&. 0b0011_1111)
+            return EnduringDataFlags{..}
 
-instance Serialize EnduringDataFlags where
+instance (IsAccountVersion av) => Serialize (EnduringDataFlags av) where
     put = putWord8 . enduringDataFlagsToBits
     get = label "EnduringDataFlags" $ do
         bs <- getWord8
@@ -650,13 +678,20 @@ instance Serialize EnduringDataFlags where
 --         - If it is 'PendingChangeNone' then nothing else.
 --         - If it is 'PendingChangeReduce' then the target amount and effective time.
 --         - If it is 'PendingChangeRemove' then the effective time.
+--  7. Depending on 'edHasCooldown':
+--     - If flexible cooldown is supported and the value is @True@, a reference to the
+--       'CooldownQueue'.
+--     - Otherwise, nothing.
 instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccountEnduringData av) where
     storeUpdate paed@PersistentAccountEnduringData{..} = do
         (ppd, newPersistingData) <- storeUpdate paedPersistingData
         (pea, newEncryptedAmount) <- storeUpdate paedEncryptedAmount
         (prs, newReleaseSchedule) <- storeUpdate paedReleaseSchedule
         (ps, newStake) <- suStake paedStake
-        (psc, newStakeCooldown) <- storeUpdate paedStakeCooldown
+        (psc, newStakeCooldown) <-
+            if isCooldownQueueEmpty paedStakeCooldown
+                then return (return (), paedStakeCooldown)
+                else storeUpdate paedStakeCooldown
         let p = do
                 put paedHash
                 put flags
@@ -693,7 +728,7 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
             return $!! (put paseDelegatorId >> ptarget >> ppc, s)
     load = do
         paedHash <- get
-        EnduringDataFlags{..} <- get
+        EnduringDataFlags{..} <- get @(EnduringDataFlags av)
         mPersistingData <- load
         mEncryptedAmount <-
             if edHasEncryptedAmount
@@ -718,7 +753,9 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
                 paseDelegatorTarget <- if sfPassive then return DelegatePassive else DelegateToBaker <$> get
                 paseDelegatorPendingChange <- getPC sfChangeType
                 return . return $! PersistentAccountStakeEnduringDelegator{..}
-        mStakeCooldown <- load
+        mStakeCooldown <- case edHasCooldown of
+            CTrue True -> load
+            _ -> return (return emptyCooldownQueue)
         return $! do
             paedPersistingData <- mPersistingData
             paedEncryptedAmount <- mEncryptedAmount

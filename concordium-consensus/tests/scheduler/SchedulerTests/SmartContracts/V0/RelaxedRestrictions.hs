@@ -221,7 +221,7 @@ newLogLimitTest spv pvString =
                ]
 
 -- | Transactions and assertions for deploying and initializing the "relax" contract.
-deployAndInitTransactions :: [Helpers.TransactionAndAssertion pv]
+deployAndInitTransactions :: forall pv. (Types.IsProtocolVersion pv) => [Helpers.TransactionAndAssertion pv]
 deployAndInitTransactions =
     [ Helpers.TransactionAndAssertion
         { taaTransaction =
@@ -246,6 +246,7 @@ deployAndInitTransactions =
             return $ do
                 Helpers.assertSuccess result
                 Helpers.assertUsedEnergyInitialization
+                    (Types.protocolVersion @pv)
                     sourceFile
                     (InitName "init_relax")
                     (Parameter "")

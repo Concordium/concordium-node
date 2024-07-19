@@ -84,6 +84,7 @@ testCase spv pvString =
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
+                        (Types.protocolVersion @pv)
                         transferSourceFile
                         (InitName "init_transfer")
                         (Parameter "")

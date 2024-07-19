@@ -23,6 +23,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     HashedPersistentBlockState (..),
     hashBlockState,
     PersistentBirkParameters (..),
+    initialBirkParameters,
     initialPersistentState,
     emptyBlockState,
     emptyHashedEpochBlocks,
@@ -37,6 +38,8 @@ module Concordium.GlobalState.Persistent.BlockState (
     cacheStateAndGetTransactionTable,
     migratePersistentBlockState,
     SupportsPersistentState,
+    loadPBS,
+    storePBS,
 ) where
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -978,6 +981,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     initialAmount <- foldM (\sumSoFar account -> (+ sumSoFar) <$> accountAmount account) 0 accounts
     updates <- refMake =<< initialUpdates keysCollection chainParams
     releaseSchedule <- emptyReleaseSchedule
+    acctsInCooldown <- initialAccountsInCooldown accounts
     red <- emptyBlockRewardDetails
     bsp <-
         makeBufferedRef $
@@ -993,7 +997,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
                   bspTransactionOutcomes = emptyPersistentTransactionOutcomes,
                   bspUpdates = updates,
                   bspReleaseSchedule = releaseSchedule,
-                  bspAccountsInCooldown = emptyAccountsInCooldownForPV,
+                  bspAccountsInCooldown = acctsInCooldown,
                   bspRewardDetails = red
                 }
     bps <- liftIO $ newIORef $! bsp
@@ -1035,10 +1039,12 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
                 }
     liftIO $ newIORef $! bsp
 
+-- | Load 'BlockStatePointers' from a 'PersistentBlockState'.
 loadPBS :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (BlockStatePointers pv)
 loadPBS = loadBufferedRef <=< liftIO . readIORef
 {-# INLINE loadPBS #-}
 
+-- | Update the 'BlockStatePointers' stored in a 'PersistentBlockState'.
 storePBS :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> BlockStatePointers pv -> m (PersistentBlockState pv)
 storePBS pbs bsp = liftIO $ do
     pbsp <- makeBufferedRef bsp
@@ -4337,6 +4343,10 @@ migratePersistentBlockState migration oldState = do
 migrateBlockPointers ::
     forall oldpv pv t m.
     ( SupportMigration m t,
+      MonadProtocolVersion m,
+      MPV m ~ oldpv,
+      MonadProtocolVersion (t m),
+      MPV (t m) ~ pv,
       SupportsPersistentAccount oldpv m,
       SupportsPersistentAccount pv (t m),
       Modules.SupportsPersistentModule m,
@@ -4372,7 +4382,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
         migrateAccountsInCooldownForPV
             (MigrationState._migrationPrePreCooldown migrationState)
             bspAccountsInCooldown
-    newModules <- migrateHashedBufferedRef Modules.migrateModules bspModules
+    newModules <- migrateHashedBufferedRef (Modules.migrateModules migration) bspModules
     modules <- refLoad newModules
     newInstances <- Instances.migrateInstances modules bspInstances
     let newBank = bspBank
