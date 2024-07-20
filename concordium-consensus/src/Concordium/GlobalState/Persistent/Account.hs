@@ -277,6 +277,15 @@ accountCooldowns ::
     m (Maybe Cooldowns)
 accountCooldowns (PAV3 acc) = V1.getCooldowns acc
 
+-- | Determine if an account has a pre-pre-cooldown.
+accountHasPrePreCooldown ::
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
+    PersistentAccount av ->
+    m Bool
+accountHasPrePreCooldown = fmap check . accountCooldowns
+  where
+    check = maybe False (not . null . prePreCooldown)
+
 -- | Get the 'AccountHash' for the account.
 accountHash :: (MonadBlobStore m) => PersistentAccount av -> m (AccountHash av)
 accountHash (PAV0 acc) = getHashM acc

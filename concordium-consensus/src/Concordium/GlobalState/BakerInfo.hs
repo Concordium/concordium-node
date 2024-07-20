@@ -176,7 +176,7 @@ data BakerAddResult
 
 -- | Parameters for adding a validator.
 data ValidatorAdd = ValidatorAdd
-    { -- | The keys for the baker.
+    { -- | The keys for the validator.
       vaKeys :: !BakerKeyUpdate,
       -- | The initial stake.
       vaCapital :: !Amount,
@@ -188,6 +188,28 @@ data ValidatorAdd = ValidatorAdd
       vaMetadataURL :: !UrlText,
       -- | The commission rates for the validator.
       vaCommissionRates :: !CommissionRates
+    }
+    deriving (Eq, Show)
+
+-- | Parameters for updating an existing validator. Where a field is 'Nothing', the field is not
+--  updated.
+data ValidatorUpdate = ValidatorUpdate
+    { -- | The new keys for the validator.
+      vuKeys :: !(Maybe BakerKeyUpdate),
+      -- | The new capital for the validator.
+      vuCapital :: !(Maybe Amount),
+      -- | Whether to restake earned rewards.
+      vuRestakeEarnings :: !(Maybe Bool),
+      -- | Whether the validator pool is open for delegation.
+      vuOpenForDelegation :: !(Maybe OpenStatus),
+      -- | The new metadata URL for the validator.
+      vuMetadataURL :: !(Maybe UrlText),
+      -- | The new transaction fee commission for the validator.
+      vuTransactionFeeCommission :: !(Maybe AmountFraction),
+      -- | The new baking reward commission for the validator.
+      vuBakingRewardCommission :: !(Maybe AmountFraction),
+      -- | The new finalization reward commission for the validator.
+      vuFinalizationRewardCommission :: !(Maybe AmountFraction)
     }
     deriving (Eq, Show)
 
