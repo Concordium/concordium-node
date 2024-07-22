@@ -196,7 +196,7 @@ data ValidatorAdd = ValidatorAdd
 data ValidatorUpdate = ValidatorUpdate
     { -- | The new keys for the validator.
       vuKeys :: !(Maybe BakerKeyUpdate),
-      -- | The new capital for the validator.
+      -- | The new capital for the validator. If this is @Just 0@, the validator is removed.
       vuCapital :: !(Maybe Amount),
       -- | Whether to restake earned rewards.
       vuRestakeEarnings :: !(Maybe Bool),
@@ -286,6 +286,29 @@ data BakerRemoveResult
     | -- | A change is already pending on this baker.
       BRChangePending !BakerId
     deriving (Eq, Ord, Show)
+
+-- | Parameters for adding a delegator.
+data DelegatorAdd = DelegatorAdd
+    { -- | The initial staked capital for the delegator.
+      daCapital :: !Amount,
+      -- | Whether to restake earnings.
+      daRestakeEarnings :: !Bool,
+      -- | The delegation target for the delegator.
+      daDelegationTarget :: !DelegationTarget
+    }
+    deriving (Eq, Show)
+
+-- | Parameters for updating an existing delegator. Where a field is 'Nothing', the field is not
+--  updated.
+data DelegatorUpdate = DelegatorUpdate
+    { -- | The new capital for the delegator. If this is @Just 0@, the delegator is removed.
+      duCapital :: !(Maybe Amount),
+      -- | Whether to restake earnings.
+      duRestakeEarnings :: !(Maybe Bool),
+      -- | The new delegation target for the delegator.
+      duDelegationTarget :: !(Maybe DelegationTarget)
+    }
+    deriving (Eq, Show)
 
 -- | Data structure used to add/remove/update delegator.
 data DelegationConfigure

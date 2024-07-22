@@ -2492,6 +2492,119 @@ delegationCheckTargetOpen bsp (Transactions.DelegateToBaker bid@(BakerId baid)) 
                 _ -> MTL.throwError DCPoolClosed
         _ -> MTL.throwError (DCInvalidDelegationTarget bid)
 
+data DelegatorConfigureFailure
+    = DCFInvalidDelegationTarget !BakerId
+    | DCFPoolClosed
+    | DCFPoolStakeOverThreshold
+    | DCFPoolOverDelegated
+
+addDelegatorChecks ::
+    ( IsProtocolVersion pv,
+      PVSupportsDelegation pv,
+      MTL.MonadError DelegatorConfigureFailure m,
+      SupportsPersistentAccount pv m,
+      PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1
+    ) =>
+    BlockStatePointers pv ->
+    DelegatorAdd ->
+    m ()
+addDelegatorChecks _ DelegatorAdd{daDelegationTarget = Transactions.DelegatePassive} = return ()
+addDelegatorChecks bsp DelegatorAdd{daDelegationTarget = Transactions.DelegateToBaker bid, ..} = do
+    onAccount baid bsp accountBaker >>= \case
+        Just baker -> do
+            unless (baker ^. BaseAccounts.poolOpenStatus == Transactions.OpenForAll) $
+                MTL.throwError DCFPoolClosed
+            poolParams <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
+            let bakerEquityCapital = baker ^. BaseAccounts.stakedAmount
+            bakerDelegatedCapital <- (daCapital +) <$> poolDelegatorCapital bsp bid
+            capitalTotal <- (daCapital +) <$> totalCapital bsp
+            let PoolCaps{..} = delegatedCapitalCaps poolParams capitalTotal bakerEquityCapital bakerDelegatedCapital
+            when (bakerDelegatedCapital > leverageCap) $ MTL.throwError DCFPoolStakeOverThreshold
+            when (bakerDelegatedCapital > boundCap) $ MTL.throwError DCFPoolOverDelegated
+        Nothing -> MTL.throwError (DCFInvalidDelegationTarget bid)
+  where
+    BakerId baid = bid
+
+newAddDelegator ::
+    forall pv m.
+    ( SupportsPersistentState pv m,
+      PVSupportsDelegation pv,
+      IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
+      PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
+      CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1
+    ) =>
+    PersistentBlockState (MPV m) ->
+    AccountIndex ->
+    DelegatorAdd ->
+    MTL.ExceptT DelegatorConfigureFailure m (PersistentBlockState (MPV m))
+newAddDelegator pbs ai da@DelegatorAdd{..} = do
+    bsp <- loadPBS pbs
+    addDelegatorChecks bsp da
+    pab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
+    newActiveBakers <- case daDelegationTarget of
+        Transactions.DelegatePassive -> do
+
+updateDelegatorChecks ::
+    forall pv m.
+    ( IsProtocolVersion pv,
+      PVSupportsDelegation pv,
+      MTL.MonadError DelegationConfigureResult m,
+      SupportsPersistentAccount pv m,
+      ChainParametersVersionFor pv ~ 'ChainParametersV1
+    ) =>
+    BlockStatePointers pv ->
+    PersistentAccount (AccountVersionFor pv) ->
+    DelegatorUpdate ->
+    m ()
+updateDelegatorChecks bsp acc DelegatorUpdate{..} = do
+    -- Cannot fail: the account must already be a delegator.
+    oldDelegator <- fromJust <$> accountDelegator acc
+    let oldStake = oldDelegator ^. BaseAccounts.delegationStakedAmount
+    let newEffectiveStake = case duCapital of
+            Nothing -> oldStake
+            Just newStake -> case flexibleCooldown of
+                SFalse | newStake <= oldStake -> oldStake
+                _ -> newStake
+    let delta = newEffectiveStake `amountDiff` oldStake
+    let checkChangePending
+            | isJust duCapital,
+              oldDelegator ^. BaseAccounts.delegationPendingChange /= BaseAccounts.NoChange =
+                MTL.throwError DCChangePending
+            | otherwise = return ()
+    case duDelegationTarget of
+        Nothing -> do
+            checkChangePending
+            case oldDelegator ^. BaseAccounts.delegationTarget of
+                Transactions.DelegatePassive -> return ()
+                Transactions.DelegateToBaker bid@(BakerId baid) -> do
+                    -- Cannot fail: the account must delegate to a valid baker.
+                    baker <- fromJust <$> onAccount baid bsp accountBaker
+                    checkBounds bid baker delta delta
+        Just Transactions.DelegatePassive -> do
+            checkChangePending
+        Just (Transactions.DelegateToBaker bid@(BakerId baid)) ->
+            onAccount baid bsp accountBaker >>= \case
+                Just baker -> do
+                    unless (baker ^. BaseAccounts.poolOpenStatus == Transactions.OpenForAll) $
+                        MTL.throwError DCPoolClosed
+                    checkChangePending
+                    let sameBaker =
+                            Transactions.DelegateToBaker bid
+                                == oldDelegator ^. BaseAccounts.delegationTarget
+                    let poolDelta = if sameBaker then delta else amountToDelta newEffectiveStake
+                    checkBounds bid baker delta poolDelta
+                Nothing -> MTL.throwError (DCInvalidDelegationTarget bid)
+  where
+    flexibleCooldown = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
+    checkBounds bid baker delta poolDelta = do
+        poolParams <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
+        let bakerEquityCapital = baker ^. BaseAccounts.stakedAmount
+        bakerDelegatedCapital <- applyAmountDelta poolDelta <$> poolDelegatorCapital bsp bid
+        capitalTotal <- applyAmountDelta delta <$> totalCapital bsp
+        let PoolCaps{..} = delegatedCapitalCaps poolParams capitalTotal bakerEquityCapital bakerDelegatedCapital
+        when (bakerDelegatedCapital > leverageCap) $ MTL.throwError DCPoolStakeOverThreshold
+        when (bakerDelegatedCapital > boundCap) $ MTL.throwError DCPoolOverDelegated
+
 doConfigureDelegation ::
     forall pv m.
     ( SupportsPersistentState pv m,
