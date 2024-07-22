@@ -463,6 +463,24 @@ addDelegator (DelegateToBaker bid) did amt pab =
             newActiveBakers <- Trie.insert bid pad' (pab ^. activeBakers)
             return $ Right $ pab & activeBakers .~ newActiveBakers
 
+-- | Add a delegator to the persistent active bakers at a particular target.
+--  It is assumed that the delegator is not already delegated to this target.
+--  If the target is a baker, then the baker MUST be in the active bakers.
+--
+--  IMPORTANT: This does not update the total active capital!
+addDelegatorUnsafe ::
+    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
+    DelegationTarget ->
+    DelegatorId ->
+    Amount ->
+    PersistentActiveBakers av ->
+    m (PersistentActiveBakers av)
+addDelegatorUnsafe dt did amt pab = do
+    res <- addDelegator dt did amt pab
+    case res of
+        Left bid -> error $ "addDelegatorUnsafe: Invalid baker id: " ++ show bid
+        Right pab' -> return pab'
+
 -- | A helper function that removes a delegator from a 'PersistentActiveDelegators'.
 --  It is assumed that the delegator is in the delegators with the specified amount.
 removeDelegatorHelper ::
