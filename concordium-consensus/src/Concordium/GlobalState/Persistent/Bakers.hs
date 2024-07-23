@@ -279,6 +279,10 @@ data PersistentActiveDelegators (av :: AccountVersion) where
         } ->
         PersistentActiveDelegators av
 
+delegatorTotalCapital :: (AVSupportsDelegation av) => Lens' (PersistentActiveDelegators av) Amount
+delegatorTotalCapital f (PersistentActiveDelegatorsV1{..}) =
+    (\newDTC -> PersistentActiveDelegatorsV1{adDelegatorTotalCapital = newDTC, ..}) <$> f adDelegatorTotalCapital
+
 -- | See documentation of @migratePersistentBlockState@.
 migratePersistentActiveDelegators ::
     (BlobStorable m (), BlobStorable (t m) (), MonadTrans t) =>
@@ -475,11 +479,11 @@ addDelegatorUnsafe ::
     Amount ->
     PersistentActiveBakers av ->
     m (PersistentActiveBakers av)
-addDelegatorUnsafe dt did amt pab = do
-    res <- addDelegator dt did amt pab
-    case res of
-        Left bid -> error $ "addDelegatorUnsafe: Invalid baker id: " ++ show bid
-        Right pab' -> return pab'
+addDelegatorUnsafe DelegatePassive did amt = passiveDelegators (addDelegatorHelper did amt)
+addDelegatorUnsafe (DelegateToBaker bid) did amt = activeBakers (fmap snd . Trie.adjust upd bid)
+  where
+    upd Nothing = error "addDelegatorUnsafe: Baker not found"
+    upd (Just pad) = ((),) . Trie.Insert <$> addDelegatorHelper did amt pad
 
 -- | A helper function that removes a delegator from a 'PersistentActiveDelegators'.
 --  It is assumed that the delegator is in the delegators with the specified amount.
@@ -512,6 +516,23 @@ removeDelegator (DelegateToBaker bid) did amt pab = do
             return ((), Trie.Insert pad')
     newActiveBakers <- snd <$> Trie.adjust rdh bid (pab ^. activeBakers)
     return $ pab & activeBakers .~ newActiveBakers
+
+-- | Modify the total capital of a pool. The pool MUST already exist.
+--
+--  IMPORTANT: This does not update the total active capital!
+modifyPoolCapitalUnsafe ::
+    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
+    DelegationTarget ->
+    (Amount -> Amount) ->
+    PersistentActiveBakers av ->
+    m (PersistentActiveBakers av)
+modifyPoolCapitalUnsafe DelegatePassive change =
+    pure . (passiveDelegators . delegatorTotalCapital %~ change)
+modifyPoolCapitalUnsafe (DelegateToBaker bid) change =
+    activeBakers (fmap snd . Trie.adjust upd bid)
+  where
+    upd Nothing = error "modifyPoolCapitalUnsafe: Baker not found"
+    upd (Just pad) = pure . ((),) . Trie.Insert $ pad & delegatorTotalCapital %~ change
 
 -- | Transfer all delegators from a baker to passive delegation in the 'PersistentActiveBakers'. This does
 --  not affect the total stake, and does not remove the baker itself. This returns the list of
