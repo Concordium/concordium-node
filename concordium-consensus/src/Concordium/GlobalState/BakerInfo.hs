@@ -111,6 +111,15 @@ data BakerKeyUpdate = BakerKeyUpdate
     }
     deriving (Eq, Ord, Show)
 
+-- | Extract the 'BakerKeyUpdate' from a 'BakerKeysWithProofs'.
+bakerKeysWithoutProofs :: BakerKeysWithProofs -> BakerKeyUpdate
+bakerKeysWithoutProofs BakerKeysWithProofs{..} =
+    BakerKeyUpdate
+        { bkuSignKey = bkwpSignatureVerifyKey,
+          bkuAggregationKey = bkwpAggregationVerifyKey,
+          bkuElectionKey = bkwpElectionVerifyKey
+        }
+
 data BakerKeyUpdateResult
     = -- | The keys were updated successfully
       BKUSuccess !BakerId
@@ -211,6 +220,22 @@ data ValidatorUpdate = ValidatorUpdate
       -- | The new finalization reward commission for the validator.
       vuFinalizationRewardCommission :: !(Maybe AmountFraction)
     }
+    deriving (Eq, Show)
+
+-- | Failure modes when configuring a validator.
+data ValidatorConfigureFailure
+    = -- | The stake is below the required threshold dictated by current chain parameters.
+      VCFStakeUnderThreshold
+    | -- | The transaction fee commission is not in the allowed range.
+      VCFTransactionFeeCommissionNotInRange
+    | -- | The baking reward commission is not in the allowed range.
+      VCFBakingRewardCommissionNotInRange
+    | -- | The finalization reward commission is not in the allowed range.
+      VCFFinalizationRewardCommissionNotInRange
+    | -- | The aggregation key is already in use by another validator.
+      VCFDuplicateAggregationKey !BakerAggregationVerifyKey
+    | -- | A change is already pending on this validator.
+      VCFChangePending
     deriving (Eq, Show)
 
 -- | Data structure used to add/remove/update baker.
@@ -335,6 +360,21 @@ data DelegationConfigureUpdateChange
     | DelegationConfigureStakeReduced !Amount
     | DelegationConfigureRestakeEarnings !Bool
     | DelegationConfigureDelegationTarget !DelegationTarget
+    deriving (Eq, Show)
+
+-- | Failure modes for configuring a delegator.
+data DelegatorConfigureFailure
+    = -- | The delegation target is not a valid baker.
+      DCFInvalidDelegationTarget !BakerId
+    | -- | The pool is not open for delegators.
+      DCFPoolClosed
+    | -- | The pool's total capital would become too large.
+      DCFPoolStakeOverThreshold
+    | -- | The delegated capital would become too large in comparison with pool owner's equity
+      -- capital.
+      DCFPoolOverDelegated
+    | -- | A change is already pending on this delegator.
+      DCFChangePending
     deriving (Eq, Show)
 
 -- | Result of configure delegator.

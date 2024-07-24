@@ -293,19 +293,41 @@ instance
         ssBlockState .= s'
         return ret
 
-    {-# INLINE configureBaker #-}
-    configureBaker ai bconfig = do
+    {-# INLINE addValidator #-}
+    addValidator ai vadd = do
         s <- use ssBlockState
-        (ret, s') <- lift (BS.bsoConfigureBaker s ai bconfig)
-        ssBlockState .= s'
-        return ret
+        lift (BS.bsoAddValidator s ai vadd) >>= \case
+            Left e -> return (Left e)
+            Right s' -> do
+                ssBlockState .= s'
+                return (Right ())
 
-    {-# INLINE configureDelegation #-}
-    configureDelegation ai dconfig = do
+    {-# INLINE updateValidator #-}
+    updateValidator ts ai vadd = do
         s <- use ssBlockState
-        (ret, s') <- lift (BS.bsoConfigureDelegation s ai dconfig)
-        ssBlockState .= s'
-        return ret
+        lift (BS.bsoUpdateValidator s ts ai vadd) >>= \case
+            Left e -> return (Left e)
+            Right (events, s') -> do
+                ssBlockState .= s'
+                return (Right events)
+
+    {-# INLINE addDelegator #-}
+    addDelegator ai dadd = do
+        s <- use ssBlockState
+        lift (BS.bsoAddDelegator s ai dadd) >>= \case
+            Left e -> return (Left e)
+            Right s' -> do
+                ssBlockState .= s'
+                return (Right ())
+
+    {-# INLINE updateDelegator #-}
+    updateDelegator ts ai dadd = do
+        s <- use ssBlockState
+        lift (BS.bsoUpdateDelegator s ts ai dadd) >>= \case
+            Left e -> return (Left e)
+            Right (events, s') -> do
+                ssBlockState .= s'
+                return (Right events)
 
     {-# INLINE removeBaker #-}
     removeBaker ai = do

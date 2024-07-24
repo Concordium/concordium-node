@@ -1063,6 +1063,98 @@ class (BlockStateQuery m) => BlockStateOperations m where
         BakerConfigure ->
         m (BakerConfigureResult, UpdatableBlockState m)
 
+    -- | From chain parameters version >= 1, this adds a validator for an account.
+    --
+    --  PRECONDITIONS:
+    --  * the account is valid;
+    --  * the account is not a baker;
+    --  * the account is not a delegator;
+    --  * the account has sufficient balance to cover the stake.
+    --
+    --  The function behaves as follows:
+    --
+    --  1. If the baker's capital is less than the minimum threshold, return 'VCFStakeUnderThreshold'.
+    --  2. If the transaction fee commission is not in the acceptable range, return
+    --     'VCFTransactionFeeCommissionNotInRange'.
+    --  3. If the baking reward commission is not in the acceptable range, return
+    --     'VCFBakingRewardCommissionNotInRange'.
+    --  4. If the finalization reward commission is not in the acceptable range, return
+    --     'VCFFinalizationRewardCommissionNotInRange'.
+    --  5. If the aggregation key is a duplicate, return 'VCFDuplicateAggregationKey'.
+    --  6. Add the baker to the account, updating the indexes as follows:
+    --     * add an empty pool for the baker in the active bakers;
+    --     * add the baker's equity capital to the total active capital;
+    --     * add the baker's aggregation key to the aggregation key set.
+    bsoAddValidator ::
+        (PVSupportsDelegation (MPV m)) =>
+        UpdatableBlockState m ->
+        AccountIndex ->
+        ValidatorAdd ->
+        m (Either ValidatorConfigureFailure (UpdatableBlockState m))
+
+    -- | Update the validator for an account.
+    --
+    --  PRECONDITIONS:
+    --  * the account is valid;
+    --  * the account is a baker;
+    --  * if the stake is being updated, then the account balance exceeds the new stake.
+    --
+    --  The function behaves as follows, building a list @events@:
+    --
+    --  1. If keys are supplied: if the aggregation key duplicates an existing aggregation key @key@
+    --     (except this baker's current aggregation key), return @BCDuplicateAggregationKey key@;
+    --     otherwise, update the keys with the supplied @keys@, update the aggregation key index
+    --     (removing the old key and adding the new one), and append @BakerConfigureUpdateKeys keys@
+    --     to @events@.
+    --  2. If the restake earnings flag is supplied: update the account's flag to the supplied value
+    --     @restakeEarnings@ and append @BakerConfigureRestakeEarnings restakeEarnings@ to @events@.
+    --  3. If the open-for-delegation configuration is supplied:
+    --     (1) update the account's configuration to the supplied value @openForDelegation@;
+    --     (2) if @openForDelegation == ClosedForAll@, transfer all delegators in the baker's pool to
+    --         passive delegation; and
+    --     (3) append @BakerConfigureOpenForDelegation openForDelegation@ to @events@.
+    --  4. If the metadata URL is supplied: update the account's metadata URL to the supplied value
+    --     @metadataURL@ and append @BakerConfigureMetadataURL metadataURL@ to @events@.
+    --  5. If the transaction fee commission is supplied:
+    --     (1) if the commission does not fall within the current range according to the chain
+    --         parameters, return @BCTransactionFeeCommissionNotInRange@; otherwise,
+    --     (2) update the account's transaction fee commission rate to the the supplied value @tfc@;
+    --     (3) append @BakerConfigureTransactionFeeCommission tfc@ to @events@.
+    --  6. If the baking reward commission is supplied:
+    --     (1) if the commission does not fall within the current range according to the chain
+    --         parameters, return @BCBakingRewardCommissionNotInRange@; otherwise,
+    --     (2) update the account's baking reward commission rate to the the supplied value @brc@;
+    --     (3) append @BakerConfigureBakingRewardCommission brc@ to @events@.
+    --  6. If the finalization reward commission is supplied:
+    --     (1) if the commission does not fall within the current range according to the chain
+    --         parameters, return @BCFinalizationRewardCommissionNotInRange@; otherwise,
+    --     (2) update the account's finalization reward commission rate to the the supplied value @frc@;
+    --     (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
+    --  7. If the capital is supplied: if there is a pending change to the baker's capital, return
+    --     @BCChangePending@; otherwise:
+    --     * if the capital is 0, mark the baker as pending removal at @bcuSlotTimestamp@ plus the
+    --       the current baker cooldown period according to the chain parameters, and append
+    --       @BakerConfigureStakeReduced 0@ to @events@;
+    --     * if the capital is less than the current minimum equity capital, return @BCStakeUnderThreshold@;
+    --     * if the capital is (otherwise) less than the current equity capital of the baker, mark the
+    --       baker as pending stake reduction to the new capital at @bcuSlotTimestamp@ plus the
+    --       current baker cooldown period according to the chain parameters and append
+    --       @BakerConfigureStakeReduced capital@ to @events@;
+    --     * if the capital is equal to the baker's current equity capital, do nothing, append
+    --       @BakerConfigureStakeIncreased capital@ to @events@;
+    --     * if the capital is greater than the baker's current equity capital, increase the baker's
+    --       equity capital to the new capital (updating the total active capital in the active baker
+    --       index by adding the difference between the new and old capital) and append
+    --       @BakerConfigureStakeIncreased capital@ to @events@.
+    --  8. return @BCSuccess events bid@, where @bid@ is the baker's ID.
+    bsoUpdateValidator ::
+        (PVSupportsDelegation (MPV m)) =>
+        UpdatableBlockState m ->
+        Timestamp ->
+        AccountIndex ->
+        ValidatorUpdate ->
+        m (Either ValidatorConfigureFailure ([BakerConfigureUpdateChange], UpdatableBlockState m))
+
     -- | Constrain the baker's commission rates to fall in the given ranges.
     --  If the account is invalid or not a baker, this does nothing.
     bsoConstrainBakerCommission ::
@@ -1152,6 +1244,21 @@ class (BlockStateQuery m) => BlockStateOperations m where
         AccountIndex ->
         DelegationConfigure ->
         m (DelegationConfigureResult, UpdatableBlockState m)
+
+    bsoAddDelegator ::
+        (PVSupportsDelegation (MPV m)) =>
+        UpdatableBlockState m ->
+        AccountIndex ->
+        DelegatorAdd ->
+        m (Either DelegatorConfigureFailure (UpdatableBlockState m))
+
+    bsoUpdateDelegator ::
+        (PVSupportsDelegation (MPV m)) =>
+        UpdatableBlockState m ->
+        Timestamp ->
+        AccountIndex ->
+        DelegatorUpdate ->
+        m (Either DelegatorConfigureFailure ([DelegationConfigureUpdateChange], UpdatableBlockState m))
 
     -- | Update the keys associated with an account.
     --  It is assumed that the keys have already been checked for validity/ownership as
@@ -1648,7 +1755,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetCurrentCapitalDistribution = lift . bsoGetCurrentCapitalDistribution
     bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
     bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
+    bsoAddValidator s ai a = lift $ bsoAddValidator s ai a
+    bsoUpdateValidator s ts ai upd = lift $ bsoUpdateValidator s ts ai upd
     bsoConstrainBakerCommission s acct ranges = lift $ bsoConstrainBakerCommission s acct ranges
+    bsoAddDelegator s ai a = lift $ bsoAddDelegator s ai a
+    bsoUpdateDelegator s ts ai a = lift $ bsoUpdateDelegator s ts ai a
     bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
     bsoUpdateBakerKeys s addr a = lift $ bsoUpdateBakerKeys s addr a
     bsoUpdateBakerStake s addr a = lift $ bsoUpdateBakerStake s addr a

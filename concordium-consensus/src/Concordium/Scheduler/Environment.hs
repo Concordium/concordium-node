@@ -192,23 +192,65 @@ class
         BakerAdd ->
         m BakerAddResult
 
-    -- | From chain parameters version >= 1, this operation is used to add/remove/update a baker.
+    -- | From chain parameters version 1, this operation adds a validator on an account.
     --  For details of the behaviour and return values, see
-    --  'Concordium.GlobalState.BlockState.bsoConfigureBaker'.
-    configureBaker ::
+    --  'Concordium.GlobalState.BlockState.bsoAddValidator'.
+    --
+    --  PRECONDITION:
+    --   * The account must exist;
+    --   * The account must not already be a validator;
+    --   * The account must not be a delegator;
+    --   * The account must have sufficient balance to cover the stake.
+    addValidator ::
         (PVSupportsDelegation (MPV m)) =>
         AccountIndex ->
-        BakerConfigure ->
-        m BakerConfigureResult
+        ValidatorAdd ->
+        m (Either ValidatorConfigureFailure ())
 
-    -- | From chain parameters version >= 1, this operation is used to add/remove/update a delegator.
+    -- | From chain parameters version 1, this operation updates or removes a validator on an
+    --  account. For details of the behaviour and return values, see
+    --  'Concordium.GlobalState.BlockState.bsoUpdateValidator'.
+    --
+    -- PRECONDITION:
+    --  * The account must exist;
+    --  * The account must be a validator;
+    --  * The account must have sufficient balance to cover the new stake.
+    updateValidator ::
+        (PVSupportsDelegation (MPV m)) =>
+        Timestamp ->
+        AccountIndex ->
+        ValidatorUpdate ->
+        m (Either ValidatorConfigureFailure [BakerConfigureUpdateChange])
+
+    -- | From chain parameters version 1, this operation adds a delegator on an account.
     --  For details of the behaviour and return values, see
-    --  'Concordium.GlobalState.BlockState.bsoConfigureDelegation'.
-    configureDelegation ::
+    --  'Concordium.GlobalState.BlockState.bsoAddDelegator'.
+    --
+    --  PRECONDITION:
+    --   * The account must exist;
+    --   * The account must not already be a delegator;
+    --   * The account must not be a validator;
+    --   * The account must have sufficient balance to cover the stake.
+    addDelegator ::
         (PVSupportsDelegation (MPV m)) =>
         AccountIndex ->
-        DelegationConfigure ->
-        m DelegationConfigureResult
+        DelegatorAdd ->
+        m (Either DelegatorConfigureFailure ())
+
+    -- | From chain parameters version 1, this operation updates or removes a delegator on an
+    --  account. For details of the behaviour and return values, see
+    -- 'Concordium.GlobalState.BlockState.bsoUpdateDelegator'.
+    --
+    -- PRECONDITION:
+    --  * The account must exist;
+    --  * The account must be a delegator;
+    --  * The account must have sufficient balance to cover the new stake.
+    updateDelegator ::
+        (PVSupportsDelegation (MPV m)) =>
+        Timestamp ->
+        AccountIndex ->
+        DelegatorUpdate ->
+        m (Either DelegatorConfigureFailure [DelegationConfigureUpdateChange])
 
     -- | Remove the baker associated with an account.
     --  The removal takes effect after a cooling-off period.

@@ -1521,14 +1521,6 @@ redelegatePassive accounts (DelegatorId accId) =
         accId
         accounts
 
-data BakerConfigureFailure
-    = BCFStakeUnderThreshold
-    | BCFTransactionFeeCommissionNotInRange
-    | BCFBakingRewardCommissionNotInRange
-    | BCFFinalizationRewardCommissionNotInRange
-    | BCFDuplicateAggregationKey !BakerAggregationVerifyKey
-    | BCFChangePending
-
 addValidatorChecks ::
     forall pv m.
     ( SupportsPersistentState pv m,
@@ -1536,7 +1528,7 @@ addValidatorChecks ::
     ) =>
     BlockStatePointers pv ->
     ValidatorAdd ->
-    MTL.ExceptT BakerConfigureFailure m ()
+    MTL.ExceptT ValidatorConfigureFailure m ()
 addValidatorChecks bsp ValidatorAdd{..} = do
     chainParams <- lookupCurrentParameters (bspUpdates bsp)
     let
@@ -1544,33 +1536,33 @@ addValidatorChecks bsp ValidatorAdd{..} = do
         capitalMin = poolParams ^. ppMinimumEquityCapital
         ranges = poolParams ^. ppCommissionBounds
     -- Check if the equity capital is below the minimum threshold.
-    when (vaCapital < capitalMin) $ MTL.throwError BCFStakeUnderThreshold
+    when (vaCapital < capitalMin) $ MTL.throwError VCFStakeUnderThreshold
     -- Check if the transaction fee commission rate is in the acceptable range.
     unless
         ( isInRange
             (vaCommissionRates ^. transactionCommission)
             (ranges ^. transactionCommissionRange)
         )
-        $ MTL.throwError BCFTransactionFeeCommissionNotInRange
+        $ MTL.throwError VCFTransactionFeeCommissionNotInRange
     -- Check if the baking reward commission rate is in the acceptable range.
     unless
         ( isInRange
             (vaCommissionRates ^. bakingCommission)
             (ranges ^. bakingCommissionRange)
         )
-        $ MTL.throwError BCFBakingRewardCommissionNotInRange
+        $ MTL.throwError VCFBakingRewardCommissionNotInRange
     -- Check if the finalization reward commission rate is in the acceptable range.
     unless
         ( isInRange
             (vaCommissionRates ^. finalizationCommission)
             (ranges ^. finalizationCommissionRange)
         )
-        $ MTL.throwError BCFFinalizationRewardCommissionNotInRange
+        $ MTL.throwError VCFFinalizationRewardCommissionNotInRange
     -- Check if the aggregation key is fresh.
     pab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
     existingAggKey <- isJust <$> Trie.lookup (bkuAggregationKey vaKeys) (pab ^. aggregationKeys)
     when existingAggKey $
-        MTL.throwError (BCFDuplicateAggregationKey (bkuAggregationKey vaKeys))
+        MTL.throwError (VCFDuplicateAggregationKey (bkuAggregationKey vaKeys))
 
 -- |
 -- PRECONDITION: The account exists and is not currently a baker or delegator.
@@ -1585,7 +1577,7 @@ newAddValidator ::
     PersistentBlockState (MPV m) ->
     AccountIndex ->
     ValidatorAdd ->
-    MTL.ExceptT BakerConfigureFailure m (PersistentBlockState (MPV m))
+    MTL.ExceptT ValidatorConfigureFailure m (PersistentBlockState (MPV m))
 newAddValidator pbs ai va@ValidatorAdd{..} = do
     bsp <- loadPBS pbs
     addValidatorChecks bsp va
@@ -1640,7 +1632,7 @@ updateValidatorChecks ::
     BlockStatePointers pv ->
     AccountBaker (AccountVersionFor pv) ->
     ValidatorUpdate ->
-    MTL.ExceptT BakerConfigureFailure m ()
+    MTL.ExceptT ValidatorConfigureFailure m ()
 updateValidatorChecks bsp baker ValidatorUpdate{..} = do
     chainParams <- lookupCurrentParameters (bspUpdates bsp)
     let
@@ -1652,27 +1644,27 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
         when (baker ^. BaseAccounts.bakerAggregationVerifyKey /= bkuAggregationKey) $ do
             pab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
             existingAggKey <- isJust <$> Trie.lookup bkuAggregationKey (pab ^. aggregationKeys)
-            when existingAggKey $ MTL.throwError (BCFDuplicateAggregationKey bkuAggregationKey)
+            when existingAggKey $ MTL.throwError (VCFDuplicateAggregationKey bkuAggregationKey)
     -- Check if the transaction fee commission rate is in the acceptable range.
     forM_ vuTransactionFeeCommission $ \tfc ->
         unless (isInRange tfc (ranges ^. transactionCommissionRange)) $
-            MTL.throwError BCFTransactionFeeCommissionNotInRange
+            MTL.throwError VCFTransactionFeeCommissionNotInRange
     -- Check if the baking reward commission rate is in the acceptable range.
     forM_ vuBakingRewardCommission $ \brc ->
         unless (isInRange brc (ranges ^. bakingCommissionRange)) $
-            MTL.throwError BCFBakingRewardCommissionNotInRange
+            MTL.throwError VCFBakingRewardCommissionNotInRange
     -- Check if the finalization reward commission rate is in the acceptable range.
     forM_ vuFinalizationRewardCommission $ \frc ->
         unless (isInRange frc (ranges ^. finalizationCommissionRange)) $
-            MTL.throwError BCFFinalizationRewardCommissionNotInRange
+            MTL.throwError VCFFinalizationRewardCommissionNotInRange
     forM_ vuCapital $ \capital -> do
         -- Check that there is no pending change on the account already.
         when (baker ^. BaseAccounts.bakerPendingChange /= BaseAccounts.NoChange) $
-            MTL.throwError BCFChangePending
+            MTL.throwError VCFChangePending
         -- Check that the baker's equity capital is above the minimum threshold, unless it
         -- is being removed.
         when (capital /= 0 && capital < capitalMin) $
-            MTL.throwError BCFStakeUnderThreshold
+            MTL.throwError VCFStakeUnderThreshold
 
 newUpdateValidator ::
     forall pv m.
@@ -1687,7 +1679,7 @@ newUpdateValidator ::
     Timestamp ->
     AccountIndex ->
     ValidatorUpdate ->
-    MTL.ExceptT BakerConfigureFailure m ([BakerConfigureUpdateChange], PersistentBlockState (MPV m))
+    MTL.ExceptT ValidatorConfigureFailure m ([BakerConfigureUpdateChange], PersistentBlockState (MPV m))
 newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
     bsp <- loadPBS pbs
     -- Cannot fail: account must exist.
@@ -2427,13 +2419,6 @@ delegationCheckTargetOpen bsp (Transactions.DelegateToBaker bid@(BakerId baid)) 
                 Transactions.OpenForAll -> return ()
                 _ -> MTL.throwError DCPoolClosed
         _ -> MTL.throwError (DCInvalidDelegationTarget bid)
-
-data DelegatorConfigureFailure
-    = DCFInvalidDelegationTarget !BakerId
-    | DCFPoolClosed
-    | DCFPoolStakeOverThreshold
-    | DCFPoolOverDelegated
-    | DCFChangePending
 
 addDelegatorChecks ::
     ( IsProtocolVersion pv,
@@ -4833,9 +4818,17 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoAddBaker = doAddBaker
     bsoConfigureBaker = case delegationChainParameters @pv of
         DelegationChainParameters -> doConfigureBaker
+    bsoAddValidator = case delegationChainParameters @pv of
+        DelegationChainParameters -> \bs ai a -> MTL.runExceptT (newAddValidator bs ai a)
+    bsoUpdateValidator = case delegationChainParameters @pv of
+        DelegationChainParameters -> \bs ts ai u -> MTL.runExceptT (newUpdateValidator bs ts ai u)
     bsoConstrainBakerCommission = doConstrainBakerCommission
     bsoConfigureDelegation = case delegationChainParameters @pv of
         DelegationChainParameters -> doConfigureDelegation
+    bsoAddDelegator = case delegationChainParameters @pv of
+        DelegationChainParameters -> \bs ai a -> MTL.runExceptT (newAddDelegator bs ai a)
+    bsoUpdateDelegator = case delegationChainParameters @pv of
+        DelegationChainParameters -> \bs ts ai u -> MTL.runExceptT (newUpdateDelegator bs ts ai u)
     bsoUpdateBakerKeys = doUpdateBakerKeys
     bsoUpdateBakerStake = doUpdateBakerStake
     bsoUpdateBakerRestakeEarnings = doUpdateBakerRestakeEarnings
