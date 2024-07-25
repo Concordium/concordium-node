@@ -47,7 +47,7 @@ testToFromBits sav = forAll (genEnduringDataFlags sav) $ \edf ->
 -- | Test that converting bits to 'EnduringDataFlags' and back is the identity where the first
 --  conversion is well-defined.
 testFromToBits :: forall av. (IsAccountVersion av) => SAccountVersion av -> Property
-testFromToBits sav = property $ \bs -> case enduringDataFlagsFromBits @av bs of
+testFromToBits _sav = property $ \bs -> case enduringDataFlagsFromBits @av bs of
     Left _ -> property ()
     Right edf -> bs === enduringDataFlagsToBits edf
 

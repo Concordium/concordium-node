@@ -2106,15 +2106,18 @@ handleConfigureBaker
                     let removeDelegator = conditionally flexibleCooldown False
                     case join $ mCBCAdd removeDelegator <$> cbCapital <*> cbRestakeEarnings of
                         Just va -> return va
-                        _ -> rejectTransaction MissingBakerAddParameters
+                        Nothing -> rejectTransaction MissingBakerAddParameters
                 AccountStakeDelegate del -> case flexibleCooldown of
                     SFalse -> rejectTransaction AlreadyADelegator
                     STrue -> do
+                        -- Where flexible cooldown is supported, we can transition from a
+                        -- delegator to a validator. If the stake amount or restake earnings
+                        -- flags are not specified, we inherit them from the delegator.
                         let capital = fromMaybe (_delegationStakedAmount del) cbCapital
                         let restake = fromMaybe (_delegationStakeEarnings del) cbRestakeEarnings
                         case mCBCAdd (CTrue True) capital restake of
                             Just va -> return va
-                            _ -> rejectTransaction MissingBakerAddParameters
+                            Nothing -> rejectTransaction MissingBakerAddParameters
                 AccountStakeBaker _ -> do
                     return
                         CBCUpdate
@@ -2258,11 +2261,6 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
     senderAddress = wtc ^. wtcSenderAddress
 
     flexibleCooldown = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor (MPV m)))
-    mDelegatorAdd = do
-        daCapital <- cdCapital
-        daRestakeEarnings <- cdRestakeEarnings
-        daDelegationTarget <- cdDelegationTarget
-        return BI.DelegatorAdd{..}
     tickAndGetAccountBalance = do
         -- Charge the energy cost and then check the validity of the parameters.
         tickEnergy Cost.configureDelegationCost
@@ -2271,6 +2269,12 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
             AccountStakeNone -> case mDelegatorAdd of
                 Just da -> return (CDCAdd (conditionally flexibleCooldown False) da)
                 Nothing -> rejectTransaction MissingDelegationAddParameters
+              where
+                mDelegatorAdd = do
+                    daCapital <- cdCapital
+                    daRestakeEarnings <- cdRestakeEarnings
+                    daDelegationTarget <- cdDelegationTarget
+                    return BI.DelegatorAdd{..}
             AccountStakeBaker ab -> case flexibleCooldown of
                 SFalse ->
                     rejectTransaction . AlreadyABaker $
@@ -2278,6 +2282,12 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                 STrue -> case mDelegatorAdd of
                     Just da -> return (CDCAdd (CTrue True) da)
                     Nothing -> rejectTransaction MissingDelegationAddParameters
+                  where
+                    mDelegatorAdd = do
+                        let daCapital = fromMaybe (ab ^. stakedAmount) cdCapital
+                        let daRestakeEarnings = fromMaybe (ab ^. stakeEarnings) cdRestakeEarnings
+                        daDelegationTarget <- cdDelegationTarget
+                        return BI.DelegatorAdd{..}
             AccountStakeDelegate _ ->
                 return $
                     CDCUpdate

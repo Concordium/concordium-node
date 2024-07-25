@@ -13,6 +13,7 @@
 --  ideal. The test should be expanded to also use the persistent state implementation.
 module SchedulerTests.Delegation (tests) where
 
+import Data.Bool.Singletons
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -338,7 +339,9 @@ testCase4 _ pvString =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Test changing the target and decreasing stake such that the new stake is acceptable for the new target.
---  This still fails because the change of target is only effected after the cooldown period.
+--  This still fails before P7 because the change of stake is only effective after the cooldown period,
+--  so changing the target results in overdelegation to the new target. From P7, the stake is
+--  reduced immediately, so the transaction should succeed.
 testCase5 ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -365,7 +368,15 @@ testCase5 _ pvString =
                 (initialBlockState @pv)
                 (Helpers.checkReloadCheck checkState)
                 transactions
-        Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
+        () <- case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
+            SFalse ->
+                Helpers.assertRejectWithReason StakeOverMaximumThresholdForPool result
+            STrue ->
+                Helpers.assertSuccessWithEvents
+                    [ DelegationSetDelegationTarget 1 delegator1Address (DelegateToBaker 2),
+                      DelegationStakeDecreased 1 delegator1Address 1
+                    ]
+                    result
         doBlockStateAssertions
   where
     checkState ::
