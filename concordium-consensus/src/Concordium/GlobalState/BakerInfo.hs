@@ -222,6 +222,20 @@ data ValidatorUpdate = ValidatorUpdate
     }
     deriving (Eq, Show)
 
+-- | A 'ValidatorUpdate' that removes the validator.
+validatorRemove :: ValidatorUpdate
+validatorRemove =
+    ValidatorUpdate
+        { vuKeys = Nothing,
+          vuCapital = Just 0,
+          vuRestakeEarnings = Nothing,
+          vuOpenForDelegation = Nothing,
+          vuMetadataURL = Nothing,
+          vuTransactionFeeCommission = Nothing,
+          vuBakingRewardCommission = Nothing,
+          vuFinalizationRewardCommission = Nothing
+        }
+
 -- | Failure modes when configuring a validator.
 data ValidatorConfigureFailure
     = -- | The stake is below the required threshold dictated by current chain parameters.
@@ -334,6 +348,15 @@ data DelegatorUpdate = DelegatorUpdate
       duDelegationTarget :: !(Maybe DelegationTarget)
     }
     deriving (Eq, Show)
+
+-- | A 'DelegatorUpdate' that removes the delegator.
+delegatorRemove :: DelegatorUpdate
+delegatorRemove =
+    DelegatorUpdate
+        { duCapital = Just 0,
+          duRestakeEarnings = Nothing,
+          duDelegationTarget = Nothing
+        }
 
 -- | Data structure used to add/remove/update delegator.
 data DelegationConfigure
