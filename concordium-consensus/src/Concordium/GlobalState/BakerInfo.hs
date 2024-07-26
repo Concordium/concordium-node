@@ -183,6 +183,16 @@ data BakerAddResult
       BAStakeUnderThreshold
     deriving (Eq, Ord, Show)
 
+-- | Result of remove baker.
+data BakerRemoveResult
+    = -- | The baker was removed, effective from the given epoch.
+      BRRemoved !BakerId !Epoch
+    | -- | This is not a valid baker.
+      BRInvalidBaker
+    | -- | A change is already pending on this baker.
+      BRChangePending !BakerId
+    deriving (Eq, Ord, Show)
+
 -- | Parameters for adding a validator.
 data ValidatorAdd = ValidatorAdd
     { -- | The keys for the validator.
@@ -252,34 +262,6 @@ data ValidatorConfigureFailure
       VCFChangePending
     deriving (Eq, Show)
 
--- | Data structure used to add/remove/update baker.
-data BakerConfigure
-    = -- | Add a baker, all fields are required.
-      BakerConfigureAdd
-        { bcaKeys :: !BakerKeyUpdate,
-          bcaCapital :: !Amount,
-          bcaRestakeEarnings :: !Bool,
-          bcaOpenForDelegation :: !OpenStatus,
-          bcaMetadataURL :: !UrlText,
-          bcaTransactionFeeCommission :: !AmountFraction,
-          bcaBakingRewardCommission :: !AmountFraction,
-          bcaFinalizationRewardCommission :: !AmountFraction
-        }
-    | -- | Update baker with optional fields.
-      BakerConfigureUpdate
-        { -- | The timestamp of the current slot (slot time).
-          bcuSlotTimestamp :: !Timestamp,
-          bcuKeys :: !(Maybe BakerKeyUpdate),
-          bcuCapital :: !(Maybe Amount),
-          bcuRestakeEarnings :: !(Maybe Bool),
-          bcuOpenForDelegation :: !(Maybe OpenStatus),
-          bcuMetadataURL :: !(Maybe UrlText),
-          bcuTransactionFeeCommission :: !(Maybe AmountFraction),
-          bcuBakingRewardCommission :: !(Maybe AmountFraction),
-          bcuFinalizationRewardCommission :: !(Maybe AmountFraction)
-        }
-    deriving (Eq, Show)
-
 -- | A baker update change result from configure baker. Used to indicate whether the configure will cause
 --  any changes to the baker's stake, keys, etc.
 data BakerConfigureUpdateChange
@@ -293,38 +275,6 @@ data BakerConfigureUpdateChange
     | BakerConfigureBakingRewardCommission !AmountFraction
     | BakerConfigureFinalizationRewardCommission !AmountFraction
     deriving (Eq, Show)
-
--- | Result of configure baker.
-data BakerConfigureResult
-    = -- | Configure baker successful.
-      BCSuccess ![BakerConfigureUpdateChange] !BakerId
-    | -- | Account unknown.
-      BCInvalidAccount
-    | -- | The aggregation key already exists.
-      BCDuplicateAggregationKey !BakerAggregationVerifyKey
-    | -- | The stake is below the required threshold dictated by current chain parameters.
-      BCStakeUnderThreshold
-    | -- | The finalization reward commission is not in the allowed range.
-      BCFinalizationRewardCommissionNotInRange
-    | -- | The baking reward commission is not in the allowed range.
-      BCBakingRewardCommissionNotInRange
-    | -- | The transaction fee commission is not in the allowed range.
-      BCTransactionFeeCommissionNotInRange
-    | -- | A change is already pending on this baker.
-      BCChangePending
-    | -- | This is not a valid baker.
-      BCInvalidBaker
-    deriving (Eq, Show)
-
--- | Result of remove baker.
-data BakerRemoveResult
-    = -- | The baker was removed, effective from the given epoch.
-      BRRemoved !BakerId !Epoch
-    | -- | This is not a valid baker.
-      BRInvalidBaker
-    | -- | A change is already pending on this baker.
-      BRChangePending !BakerId
-    deriving (Eq, Ord, Show)
 
 -- | Parameters for adding a delegator.
 data DelegatorAdd = DelegatorAdd
@@ -358,24 +308,6 @@ delegatorRemove =
           duDelegationTarget = Nothing
         }
 
--- | Data structure used to add/remove/update delegator.
-data DelegationConfigure
-    = -- | Add a delegator, all fields are required.
-      DelegationConfigureAdd
-        { dcaCapital :: !Amount,
-          dcaRestakeEarnings :: !Bool,
-          dcaDelegationTarget :: !DelegationTarget
-        }
-    | -- | Update delegator with optional fields.
-      DelegationConfigureUpdate
-        { -- | The timestamp of the current slot (slot time of the block in which the update occurs).
-          dcuSlotTimestamp :: !Timestamp,
-          dcuCapital :: !(Maybe Amount),
-          dcuRestakeEarnings :: !(Maybe Bool),
-          dcuDelegationTarget :: !(Maybe DelegationTarget)
-        }
-    deriving (Eq, Show)
-
 -- | A delegation update change result from configure delegation. Used to indicate whether the
 --  configure will cause any changes to the delegator's stake, restake earnings flag, etc.
 data DelegationConfigureUpdateChange
@@ -398,26 +330,6 @@ data DelegatorConfigureFailure
       DCFPoolOverDelegated
     | -- | A change is already pending on this delegator.
       DCFChangePending
-    deriving (Eq, Show)
-
--- | Result of configure delegator.
-data DelegationConfigureResult
-    = -- | Configure delegation successful.
-      DCSuccess ![DelegationConfigureUpdateChange] !DelegatorId
-    | -- | Account unknown.
-      DCInvalidAccount
-    | -- | A change is already pending on this delegator.
-      DCChangePending
-    | -- | This is not a valid delegator.
-      DCInvalidDelegator
-    | -- | Delegation target is not a valid baker.
-      DCInvalidDelegationTarget !BakerId
-    | -- | The pool is not open for delegators.
-      DCPoolClosed
-    | -- | The pool's total capital would become too large.
-      DCPoolStakeOverThreshold
-    | -- | The delegated capital would become too large in comparison with pool owner's equity capital.
-      DCPoolOverDelegated
     deriving (Eq, Show)
 
 -- | Construct an 'AccountBaker' from a 'GenesisBaker'.

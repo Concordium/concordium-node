@@ -10,9 +10,9 @@
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
--- | This module implements accounts for account versions 'AccountV2' (protocol 'P5').
---  It should not be necessary to use this module directly, but instead through the interface
---  provided by 'Concordium.GlobalState.Persistent.Account'.
+-- | This module implements accounts for account versions 'AccountV2' (protocol 'P5', 'P6')
+--  and 'AccountV3' (protocol 'P7').  It should not be necessary to use this module directly,
+--  but instead through the interface provided by "Concordium.GlobalState.Persistent.Account".
 module Concordium.GlobalState.Persistent.Account.StructureV1 where
 
 import Control.Monad
