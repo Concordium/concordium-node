@@ -34,7 +34,6 @@ import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
-import qualified Concordium.GlobalState.Basic.BlockState.CooldownQueue as Transient
 import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.Account
@@ -78,7 +77,12 @@ dummyPersisingAccountData seed =
 
 -- | Create a test account with the given persisting data and stake.
 --  The balance of the account is set to 1 billion CCD (10^15 uCCD).
-testAccount :: (IsAccountVersion av) => PersistingAccountData -> AccountStake av -> Transient.Account av
+testAccount ::
+    forall av.
+    (IsAccountVersion av) =>
+    PersistingAccountData ->
+    AccountStake av ->
+    Transient.Account av
 testAccount persisting stake =
     Transient.Account
         { _accountPersisting = Transient.makeAccountPersisting persisting,
@@ -87,7 +91,7 @@ testAccount persisting stake =
           _accountEncryptedAmount = initialAccountEncryptedAmount,
           _accountReleaseSchedule = Transient.emptyAccountReleaseSchedule,
           _accountStaking = stake,
-          _accountStakeCooldown = Transient.emptyCooldownQueue
+          _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av)
         }
 
 -- | Initial stake for a test account, set to 500 million CCD plus @2^accountIndex@ uCCD.

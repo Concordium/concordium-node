@@ -1607,7 +1607,7 @@ makePersistentAccount Transient.Account{..} = do
                 rsRef <- refMake $! rs
                 let !lockedBal = _accountReleaseSchedule ^. TARS.totalLockedUpBalance
                 return (Some (rsRef, lockedBal))
-    paedStakeCooldown <- makePersistentCooldownQueue _accountStakeCooldown
+    paedStakeCooldown <- makePersistentCooldownQueue @_ @av _accountStakeCooldown
     accountEnduringData <-
         refMake
             =<< case accountVersion @av of

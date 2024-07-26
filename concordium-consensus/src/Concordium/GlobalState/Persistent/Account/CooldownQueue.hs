@@ -14,14 +14,14 @@ import Data.Functor
 import qualified Data.Map.Strict as Map
 
 import Concordium.Types
+import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Utils
 
 import Concordium.GlobalState.Account
-import qualified Concordium.GlobalState.Basic.BlockState.CooldownQueue as Transient
 import Concordium.GlobalState.CooldownQueue as Cooldowns
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.Types.Option
 
 -- | A 'CooldownQueue' records the inactive stake amounts that are due to be released in future.
 --  Note that prior to account version 3 (protocol version 7), the only value is the empty cooldown
@@ -86,17 +86,26 @@ makeCooldownQueue cooldowns
     | isEmptyCooldowns cooldowns = return EmptyCooldownQueue
     | otherwise = CooldownQueue <$> refMake cooldowns
 
+-- | Construct a 'CooldownQueue' from the representation used for transient accounts.
 makePersistentCooldownQueue ::
     (MonadBlobStore m) =>
-    Transient.CooldownQueue av ->
+    Conditionally (SupportsFlexibleCooldown av) Cooldowns ->
     m (CooldownQueue av)
-makePersistentCooldownQueue Transient.EmptyCooldownQueue = return EmptyCooldownQueue
-makePersistentCooldownQueue (Transient.CooldownQueue queue) = CooldownQueue <$> refMake queue
+makePersistentCooldownQueue CFalse = return EmptyCooldownQueue
+makePersistentCooldownQueue (CTrue cooldowns) = makeCooldownQueue cooldowns
 
-toTransientCooldownQueue :: CooldownQueue av -> Transient.CooldownQueue av
-toTransientCooldownQueue EmptyCooldownQueue = Transient.EmptyCooldownQueue
-toTransientCooldownQueue (CooldownQueue queueRef) =
-    Transient.CooldownQueue (eagerBufferedDeref queueRef)
+-- | Convert a 'CooldownQueue' to representation used for transient accounts.
+toTransientCooldownQueue ::
+    forall av.
+    (IsAccountVersion av) =>
+    CooldownQueue av ->
+    Conditionally (SupportsFlexibleCooldown av) Cooldowns
+toTransientCooldownQueue = case sSupportsFlexibleCooldown (accountVersion @av) of
+    SFalse -> const CFalse
+    STrue ->
+        CTrue . \case
+            EmptyCooldownQueue -> emptyCooldowns
+            CooldownQueue ref -> eagerBufferedDeref ref
 
 -- | Create an initial 'CooldownQueue' with only the given amount set in pre-pre-cooldown.
 initialPrePreCooldownQueue ::

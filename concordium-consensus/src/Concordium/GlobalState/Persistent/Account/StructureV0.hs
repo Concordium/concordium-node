@@ -43,7 +43,6 @@ import Concordium.GlobalState.BakerInfo (BakerAdd (..), BakerKeyUpdate (..), bak
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as ARSV0
-import qualified Concordium.GlobalState.Basic.BlockState.CooldownQueue as Transient
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
@@ -1206,5 +1205,5 @@ toTransientAccount PersistentAccount{..} = do
         PersistentAccountStakeNone -> return AccountStakeNone
         PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
         PersistentAccountStakeDelegate dlg -> AccountStakeDelegate <$> refLoad dlg
-    let _accountStakeCooldown = Transient.emptyCooldownQueue
+    let _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av)
     return $ Transient.Account{..}

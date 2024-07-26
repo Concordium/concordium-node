@@ -22,13 +22,14 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
-import Concordium.GlobalState.Basic.BlockState.CooldownQueue
+import Concordium.GlobalState.CooldownQueue
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types.HashableTo
 
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Conditionally
 
 -- | Type for how a 'PersistingAccountData' value is stored as part of
 --  an account. This is stored with its hash.
@@ -57,7 +58,7 @@ data Account (av :: AccountVersion) = Account
       -- | The baker or delegation associated with the account (if any).
       _accountStaking :: !(AccountStake av),
       -- | The cooldown on the account.
-      _accountStakeCooldown :: !(CooldownQueue av)
+      _accountStakeCooldown :: !(Conditionally (SupportsFlexibleCooldown av) Cooldowns)
     }
     deriving (Eq, Show)
 
@@ -150,7 +151,7 @@ accountHashInputsV3 Account{..} =
               amhi3AccountStakeHash = getHash _accountStaking :: AccountStakeHash 'AccountV3,
               amhi3EncryptedAmountHash = getHash _accountEncryptedAmount,
               amhi3AccountReleaseScheduleHash = getHash _accountReleaseSchedule,
-              amhi3Cooldown = getHash _accountStakeCooldown
+              amhi3Cooldown = CooldownQueueHash $ getHash $ uncond _accountStakeCooldown
             }
 
 instance (IsAccountVersion av) => HashableTo (AccountHash av) (Account av) where
@@ -162,6 +163,10 @@ instance (IsAccountVersion av) => HashableTo (AccountHash av) (Account av) where
 
 instance forall av. (IsAccountVersion av) => HashableTo Hash.Hash (Account av) where
     getHash = coerce @(AccountHash av) . getHash
+
+-- | An empty cooldown queue for a given account version.
+emptyCooldownQueue :: SAccountVersion av -> Conditionally (SupportsFlexibleCooldown av) Cooldowns
+emptyCooldownQueue sav = conditionally (sSupportsFlexibleCooldown sav) emptyCooldowns
 
 -- | Create an empty account with the given public key, address and credentials.
 newAccountMultiCredential ::
@@ -192,7 +197,7 @@ newAccountMultiCredential cryptoParams threshold _accountAddress cs =
           _accountEncryptedAmount = initialAccountEncryptedAmount,
           _accountReleaseSchedule = emptyAccountReleaseSchedule,
           _accountStaking = AccountStakeNone,
-          _accountStakeCooldown = emptyCooldownQueue
+          _accountStakeCooldown = emptyCooldownQueue (accountVersion @av)
         }
 
 -- | Create an empty account with the given public key, address and credential.
