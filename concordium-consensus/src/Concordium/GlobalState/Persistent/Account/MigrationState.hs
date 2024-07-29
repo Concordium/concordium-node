@@ -34,22 +34,26 @@ import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.Cooldown
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
+-- | Whether the migration from one protocol version to another introduces flexible cooldown
+--  support.
+type IntroducesFlexibleCooldown (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) =
+    Not (SupportsFlexibleCooldown (AccountVersionFor oldpv))
+        && SupportsFlexibleCooldown (AccountVersionFor pv)
+
 data AccountMigrationState (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = AccountMigrationState
     { -- | In the P6 -> P7 protocol update, this records the accounts that previously were in
       --  cooldown, and now will be in pre-pre-cooldown.
       _migrationPrePreCooldown ::
         !( Conditionally
-            ( Not (SupportsFlexibleCooldown (AccountVersionFor oldpv))
-                && SupportsFlexibleCooldown (AccountVersionFor pv)
-            )
+            (IntroducesFlexibleCooldown oldpv pv)
             AccountList
          ),
-      -- | When migrating to P7 (and onwards), we will build up the 'PersistentActiveBakers' while
+      -- | When migrating P6->P7, we build up the 'PersistentActiveBakers' while
       --  traversing the account table. This should be initialised with the active bakers (that
       --  survive migration) but no delegators.
       _persistentActiveBakers ::
         !( Conditionally
-            (SupportsFlexibleCooldown (AccountVersionFor pv))
+            (IntroducesFlexibleCooldown oldpv pv)
             (PersistentActiveBakers (AccountVersionFor pv))
          ),
       -- | A counter to track the index of the current account as we traverse the account table.
@@ -59,12 +63,13 @@ makeLenses ''AccountMigrationState
 
 -- | Construct an initial 'PersistentActiveBakers' that records all of the bakers that are still
 -- active after migration, but does not include any delegators. This only applies when migrating
--- to a protocol version from P7 onwards. The total active capital constitutes the stake of all
--- bakers that remain active, with their capital reduced corresponding to any pending reduction
--- in their stakes.
+-- to a protocol version that supports flexible cooldowns for the first time. The total active
+-- capital constitutes the stake of all bakers that remain active, with their capital reduced
+-- corresponding to any pending reduction in their stakes.
 --
 -- The idea is that with the P6->P7 migration, bakers that are in cooldown to be removed will
--- actually be removed as bakers.
+-- actually be removed as bakers. During the processing of the account table, the delegators
+-- will be added back to the 'PersistentActiveBakers' as they are encountered.
 initialPersistentActiveBakersForMigration ::
     forall oldpv av t m.
     ( IsAccountVersion av,
@@ -73,10 +78,16 @@ initialPersistentActiveBakersForMigration ::
     ) =>
     Accounts oldpv ->
     PersistentActiveBakers (AccountVersionFor oldpv) ->
-    t m (Conditionally (SupportsFlexibleCooldown av) (PersistentActiveBakers av))
-initialPersistentActiveBakersForMigration oldAccounts oldActiveBakers = case sSupportsFlexibleCooldown (accountVersion @av) of
-    SFalse -> return CFalse
-    STrue -> do
+    t
+        m
+        ( Conditionally
+            (Not (SupportsFlexibleCooldown (AccountVersionFor oldpv)) && SupportsFlexibleCooldown av)
+            (PersistentActiveBakers av)
+        )
+initialPersistentActiveBakersForMigration oldAccounts oldActiveBakers = case (oldSFC, newSFC) of
+    (SFalse, SFalse) -> return CFalse
+    (STrue, _) -> return CFalse
+    (SFalse, STrue) -> do
         bakers <- lift $ Trie.keysAsc (oldActiveBakers ^. activeBakers)
         CTrue <$> foldM accumBakers emptyPersistentActiveBakers bakers
       where
@@ -111,6 +122,9 @@ initialPersistentActiveBakersForMigration oldAccounts oldActiveBakers = case sSu
                                           _aggregationKeys = newAggregationKeys,
                                           _totalActiveCapital = newTotalActiveCapital
                                         }
+  where
+    oldSFC = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor oldpv))
+    newSFC = sSupportsFlexibleCooldown (accountVersion @av)
 
 -- | An 'AccountMigrationState' in an initial state.
 initialAccountMigrationState ::
@@ -118,7 +132,7 @@ initialAccountMigrationState ::
     (IsProtocolVersion oldpv, IsProtocolVersion pv) =>
     -- | The active bakers without the delegators.
     Conditionally
-        (SupportsFlexibleCooldown (AccountVersionFor pv))
+        (IntroducesFlexibleCooldown oldpv pv)
         (PersistentActiveBakers (AccountVersionFor pv)) ->
     AccountMigrationState oldpv pv
 initialAccountMigrationState _persistentActiveBakers = AccountMigrationState{..}
@@ -164,6 +178,8 @@ newtype
           LMDBAccountMap.MonadAccountMapStore
         )
 
+-- | Run an 'AccountMigrationStateTT' computation with the given initial state.
+--  This is used to add 'AccountMigration' and 'AccountsMigration' interfaces to the monad stack.
 runAccountMigrationStateTT ::
     AccountMigrationStateTT oldpv pv t m a ->
     AccountMigrationState oldpv pv ->
@@ -215,8 +231,6 @@ instance
                 migrationPrePreCooldown .= CTrue (Some newHead)
             CFalse -> return ()
 
-    nextAccount = currentAccountIndex %=! (+ 1)
-
     isBakerRemoved bakerId =
         use persistentActiveBakers >>= \case
             CFalse -> return False
@@ -240,3 +254,9 @@ instance
                         persistentActiveBakers
                             .= CTrue (newPAB & totalActiveCapital %~ addActiveCapital delAmt)
             CFalse -> return ()
+
+instance
+    (MonadBlobStore (t m), IsProtocolVersion pv, av ~ AccountVersionFor pv) =>
+    AccountsMigration av (AccountMigrationStateTT oldpv pv t m)
+    where
+    nextAccount = currentAccountIndex %=! (+ 1)

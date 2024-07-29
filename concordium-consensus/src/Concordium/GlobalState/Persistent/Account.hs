@@ -648,6 +648,20 @@ makePersistentBakerInfoRef = case accountVersion @av of
 -- * Migration
 
 -- | Migrate a 'PersistentAccount' between protocol versions according to a state migration.
+--
+--  When migrating P6->P7 (account version 2 to 3), the 'AccountMigration' interface is used as
+--  follows:
+--
+--   * Accounts that previously had a pending change are updated to have a pre-pre-cooldown, and
+--     'addAccountInPrePreCooldown' is called. If the pending change is a reduction in stake,
+--     the reduction is applied immediately to the active stake. If the pending change is a removal,
+--     the baker or delegator record is removed altogether.
+--
+--   * Accounts that are still delegating but were delegating to a baker for which 'isBakerRemoved'
+--     returns @True@ are updated to delegate to passive delegation.
+--
+--   * For accounts that are still delegating, 'retainDelegator' is called to record the (new)
+--     delegation amount and target.
 migratePersistentAccount ::
     forall oldpv pv t m.
     ( IsProtocolVersion oldpv,

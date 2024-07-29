@@ -420,6 +420,8 @@ updateAccountsAtIndex fupd ai a0@Accounts{..} =
         Nothing -> return (Nothing, a0)
         Just (res, act') -> return (Just res, a0{accountTable = act'})
 
+-- | Set the account at the given index. There must already be an account at the given index
+--  (otherwise this has no effect).
 setAccountAtIndex :: (SupportsPersistentAccount pv m) => AccountIndex -> PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Accounts pv)
 setAccountAtIndex ai newAcct a0@Accounts{..} =
     L.update (const (return ((), newAcct))) ai accountTable >>= \case
@@ -498,7 +500,7 @@ migrateAccounts ::
       SupportMigration m t,
       SupportsPersistentAccount oldpv m,
       SupportsPersistentAccount pv (t m),
-      AccountMigration (AccountVersionFor pv) (t m)
+      AccountsMigration (AccountVersionFor pv) (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
     Accounts oldpv ->

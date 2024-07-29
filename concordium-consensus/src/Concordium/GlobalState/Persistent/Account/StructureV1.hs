@@ -206,19 +206,25 @@ migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringBaker{..} = 
 migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringDelegator{..} =
     return $! PersistentAccountStakeEnduringDelegator{..}
 
--- | Migrate a 'PersistentAccountStakeEnduring' from 'AccountV2' to 'AccountV3'.
---  If a cooldown is in effect on the account, then the pending change is removed and the amount
---  of stake entering cooldown is returned.
---  If the account is a delegator, then this checks if it was delegating to a baker
---  that has been removed as a result of the migration, and if so, delegates to passive instead.
---  Either way, 'retainDelegator' is called with the delegator ID and updated delegated amount and
---  target.
---  If the account is not in cooldown, 'Nothing' is returned.
--- The 'Amount' in the 'State.StateT' represents the current active stake on the account.
+-- | Migrate a 'PersistentAccountStakeEnduring' from 'AccountV2' to 'AccountV3'.  This runs in the
+--   'StateT' monad, where the state is the amount of active stake on the account.
+--
+--   * If there is a pending change on the account, then the pending change is removed and the
+--     active stake is updated to apply the pending change. The change in the stake is moved to
+--     pre-pre-cooldown in the returned 'CooldownQueue'. 'addAccountInPrePreCooldown' is called
+--     to record that the account is in pre-pre-cooldown. If the pending change was a removal,
+--     the baker or delegator record is removed from the account.
+
+--   * If the account is (still) a delegator and the baker it was delegating to has been removed
+--     (according to 'isBakerRemoved'), then the delegator is changed to delegate to passive
+--     instead.
+--
+--   * If the account is (still) a delegator, then 'retainDelegator' is called to record the
+--     delegator's (updated) stake and target.
 migratePersistentAccountStakeEnduringV2toV3 ::
     (SupportMigration m t, AccountMigration 'AccountV3 (t m)) =>
     PersistentAccountStakeEnduring 'AccountV2 ->
-    -- | Returns the new 'PersistentAccountStakeEnduring' and the amount entering cooldown (if any).
+    -- | Returns the new 'PersistentAccountStakeEnduring' and 'CooldownQueue'.
     State.StateT Amount (t m) (PersistentAccountStakeEnduring 'AccountV3, CooldownQueue 'AccountV3)
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringNone =
     return (PersistentAccountStakeEnduringNone, emptyCooldownQueue)
@@ -226,7 +232,9 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{
     case paseBakerPendingChange of
         RemoveStake _ -> do
             -- The baker is being removed, so we don't migrate it.
-            cooldownAmount <- id <<.= 0 -- Get the old stake, updating it to 0.
+            -- Get the old stake, updating it to 0.
+            cooldownAmount <- State.get
+            State.put 0
             cooldown <- initialPrePreCooldownQueue cooldownAmount
             lift addAccountInPrePreCooldown
             return (PersistentAccountStakeEnduringNone, cooldown)
@@ -256,7 +264,9 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringDelegator{..} =
     case paseDelegatorPendingChange of
         RemoveStake _ -> do
-            cooldownAmount <- id <<.= 0 -- Get the old stake, updating it to 0.
+            -- Get the old stake, updating it to 0.
+            cooldownAmount <- State.get
+            State.put 0
             cooldown <- initialPrePreCooldownQueue cooldownAmount
             lift addAccountInPrePreCooldown
             return (PersistentAccountStakeEnduringNone, cooldown)
@@ -336,7 +346,7 @@ data PersistentAccountEnduringData (av :: AccountVersion) = PersistentAccountEnd
       paedReleaseSchedule :: !(Nullable (LazyBufferedRef AccountReleaseSchedule, Amount)),
       -- | The staking details associated with the account.
       paedStake :: !(PersistentAccountStakeEnduring av),
-      -- | The cooldown.
+      -- | The inactive stake in cooldown.
       paedStakeCooldown :: !(CooldownQueue av)
     }
 
@@ -1739,9 +1749,19 @@ migrateEnduringDataV2 ed = do
               ..
             }
 
--- | Migrate enduring data from 'AccountV2' to 'AccountV3'. If there was a stake cooldown in effect,
---  that is migrated to a pre-pre-cooldown in the new state. The 'Amount' in the 'State.StateT'
+-- | Migrate enduring data from 'AccountV2' to 'AccountV3'. The 'Amount' in the 'State.StateT'
 --  represents the current active stake on the account.
+--
+--   * If the account previously had a pending change, it will now have a pre-pre-cooldown, and
+--     'addAccountInPrePreCooldown' is called (to register this globally). If the pending change
+--     was a reduction in stake, the reduction is applied immediately to the active stake. If the
+--     pending change wass a removal, the baker or delegator record is removed altogether.
+--
+--   * If the account is still delegating but was delegating to a baker for which 'isBakerRemoved'
+--     returns @True@, the delegation target is updated to passive delegation.
+--
+--   * If the account is still delegating, 'retainDelegator' is called to record the (new)
+--     delegation amount and target globally.
 migrateEnduringDataV2toV3 ::
     (SupportMigration m t, AccountMigration 'AccountV3 (t m)) =>
     -- | Current enduring data
@@ -1798,8 +1818,21 @@ migrateV2ToV2 acc = do
             }
 
 -- | Migrate from account version 2 to account version 3.
---  Stake cooldowns are migrated to being in pre-pre-cooldown.
---  Otherwise, the state is unchanged on migration.
+--
+--   * If the account previously had a pending change, it will now have a pre-pre-cooldown, and
+--     'addAccountInPrePreCooldown' is called (to register this globally). If the pending change
+--     was a reduction in stake, the reduction is applied immediately to the active stake. If the
+--     pending change wass a removal, the baker or delegator record is removed altogether.
+--
+--   * If the account is still delegating but was delegating to a baker for which 'isBakerRemoved'
+--     returns @True@, the delegation target is updated to passive delegation.
+--
+--   * If the account is still delegating, 'retainDelegator' is called to record the (new)
+--     delegation amount and target globally.
+--
+--  Note: the global record of which bakers are retained and their stakes is determined a priori
+--  (see "Concordium.GlobalState.Persistent.Account.MigrationState"). This is used to determine
+--  whether a baker is removed.
 migrateV2ToV3 ::
     ( MonadBlobStore m,
       MonadBlobStore (t m),
@@ -1840,7 +1873,21 @@ migrateV3ToV3 acc = do
               ..
             }
 
--- | Migration for 'PersistentAccount'. Only supports 'AccountV2'.
+-- | Migration for 'PersistentAccount'. Supports 'AccountV2' and 'AccountV3'.
+--
+--  When migrating P6->P7 (account version 2 to 3), the 'AccountMigration' interface is used as
+--  follows:
+--
+--   * Accounts that previously had a pending change are updated to have a pre-pre-cooldown, and
+--     'addAccountInPrePreCooldown' is called. If the pending change is a reduction in stake,
+--     the reduction is applied immediately to the active stake. If the pending change is a removal,
+--     the baker or delegator record is removed altogether.
+--
+--   * Accounts that are still delegating but were delegating to a baker for which 'isBakerRemoved'
+--     returns @True@ are updated to delegate to passive delegation.
+--
+--   * For accounts that are still delegating, 'retainDelegator' is called to record the (new)
+--     delegation amount and target.
 migratePersistentAccount ::
     forall m t oldpv pv.
     ( IsProtocolVersion oldpv,
