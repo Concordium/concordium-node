@@ -153,6 +153,11 @@ delegator3Address = Helpers.accountAddressFromSeed 19
 delegator3KP :: SigScheme.KeyPair
 delegator3KP = Helpers.keyPairFromSeed 19
 
+dummy3Account ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    m (BS.PersistentAccount av)
+dummy3Account = Helpers.makeTestAccountFromSeed 20_000_000 19
+
 -- | Account of the baker 4.
 baker4Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
@@ -161,6 +166,14 @@ baker4Account = makeTestBakerV1FromSeed 1_000_000 1_000 bakerId seed
   where
     bakerId = 4
     seed = 20
+
+-- | Account address of the delegator3.
+baker4Address :: AccountAddress
+baker4Address = Helpers.accountAddressFromSeed 20
+
+-- | Account keys of the delegator3 account.
+baker4KP :: SigScheme.KeyPair
+baker4KP = Helpers.keyPairFromSeed 20
 
 -- | Create initial block state with account
 --  account index 0 is baker0
@@ -177,6 +190,23 @@ initialBlockState =
           delegator1Account,
           baker2Account,
           delegator3Account,
+          baker4Account
+        ]
+
+-- | Create initial block state with account
+--  account index 0 is baker0
+--  account index 1 is delegator 1 (delegates to baker 0 with overdelegation)
+--  account index 2 is baker 2
+--  account index 4 is baker 4
+initialBlockState2 ::
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockState2 =
+    Helpers.createTestBlockStateWithAccountsM
+        [ baker0Account,
+          delegator1Account,
+          baker2Account,
+          dummy3Account,
           baker4Account
         ]
 
@@ -538,6 +568,175 @@ testCase9 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
+-- | Add delegator successfully.
+testCase10 ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testCase10 _ pvString =
+    specify (pvString ++ ": Add delegator successfully.") $ do
+        let transactions =
+                [ Runner.TJSON
+                    { payload =
+                        Runner.ConfigureDelegation
+                            { cdCapital = Just 1_000,
+                              cdRestakeEarnings = Just False,
+                              cdDelegationTarget = Just (DelegateToBaker 2)
+                            },
+                      metadata = makeDummyHeader delegator3Address 1 1_000,
+                      keys = [(0, [(0, delegator3KP)])]
+                    }
+                ]
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState2 @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        Helpers.assertSuccessWithEvents events result
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+    events =
+        [ DelegationAdded 3 delegator3Address,
+          DelegationSetDelegationTarget 3 delegator3Address (DelegateToBaker 2),
+          DelegationSetRestakeEarnings 3 delegator3Address False,
+          DelegationStakeIncreased 3 delegator3Address 1_000
+        ]
+
+-- | Add delegator with 0 stake should get rejected.
+testCase10A ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testCase10A _ pvString =
+    specify (pvString ++ ": Add delegator with 0 stake should get rejected.") $ do
+        let transactions =
+                [ Runner.TJSON
+                    { payload =
+                        Runner.ConfigureDelegation
+                            { cdCapital = Just 0,
+                              cdRestakeEarnings = Just False,
+                              cdDelegationTarget = Just (DelegateToBaker 2)
+                            },
+                      metadata = makeDummyHeader delegator3Address 1 1_000,
+                      keys = [(0, [(0, delegator3KP)])]
+                    }
+                ]
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState2 @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        Helpers.assertRejectWithReason InsufficientDelegationStake result
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+
+-- | Add delegator when already baker. Should get rejected in protocols <= P6 and accepted from P7.
+testCase11 ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testCase11 spv pvString =
+    specify (pvString ++ ": Add delegator when already baker.") $ do
+        let transactions =
+                [ Runner.TJSON
+                    { payload =
+                        Runner.ConfigureDelegation
+                            { cdCapital = Just 1_000,
+                              cdRestakeEarnings = Just False,
+                              cdDelegationTarget = Just (DelegateToBaker 2)
+                            },
+                      metadata = makeDummyHeader baker4Address 1 1_000,
+                      keys = [(0, [(0, baker4KP)])]
+                    }
+                ]
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState2 @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let successOrReject :: Assertion
+            successOrReject = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
+                SFalse -> Helpers.assertRejectWithReason (AlreadyABaker 4) result
+                STrue -> Helpers.assertSuccessWithEvents events result
+        successOrReject
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+    events =
+        [ BakerRemoved 4 baker4Address,
+          DelegationAdded 4 baker4Address,
+          DelegationSetDelegationTarget 4 baker4Address (DelegateToBaker 2),
+          DelegationSetRestakeEarnings 4 baker4Address False,
+          DelegationStakeIncreased 4 baker4Address 1_000
+        ]
+
+-- | Add delegator with 0 stake when already a baker should get rejected with
+--  `AlreadyABaker` in protocols <= P6 and `InsufficientDelegationStake` from P7.
+testCase11A ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testCase11A spv pvString =
+    specify (pvString ++ ": Add delegator with 0 stake when already baker should get rejected.") $ do
+        let transactions =
+                [ Runner.TJSON
+                    { payload =
+                        Runner.ConfigureDelegation
+                            { cdCapital = Just 0,
+                              cdRestakeEarnings = Just False,
+                              cdDelegationTarget = Just (DelegateToBaker 2)
+                            },
+                      metadata = makeDummyHeader baker4Address 1 1_000,
+                      keys = [(0, [(0, baker4KP)])]
+                    }
+                ]
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState2 @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let reason = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
+                SFalse -> AlreadyABaker 4
+                STrue -> InsufficientDelegationStake
+        Helpers.assertRejectWithReason reason result
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState =
+        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+
 tests :: Spec
 tests =
     describe "Delegate in different scenarios" $
@@ -558,3 +757,7 @@ tests =
                 testCase7 spv pvString
                 testCase8 spv pvString
                 testCase9 spv pvString
+                testCase10 spv pvString
+                testCase10A spv pvString
+                testCase11 spv pvString
+                testCase11A spv pvString
