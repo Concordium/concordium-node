@@ -2267,6 +2267,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
         accountStake <- getAccountStake (snd senderAccount)
         arg :: (ConfigureDelegationCont (AccountVersionFor (MPV m))) <- case accountStake of
             AccountStakeNone -> case mDelegatorAdd of
+                Just da | BI.daCapital da == 0 -> rejectTransaction InsufficientDelegationStake
                 Just da -> return (CDCAdd (conditionally flexibleCooldown False) da)
                 Nothing -> rejectTransaction MissingDelegationAddParameters
               where
@@ -2280,6 +2281,7 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
                     rejectTransaction . AlreadyABaker $
                         ab ^. accountBakerInfo . bieBakerInfo . bakerIdentity
                 STrue -> case mDelegatorAdd of
+                    Just da | BI.daCapital da == 0 -> rejectTransaction InsufficientDelegationStake
                     Just da -> return (CDCAdd (CTrue True) da)
                     Nothing -> rejectTransaction MissingDelegationAddParameters
                   where
