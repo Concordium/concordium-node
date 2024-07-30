@@ -36,6 +36,7 @@ import Concordium.Utils.Serialization
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBTV1)
+import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
@@ -283,7 +284,10 @@ delegatorTotalCapital :: (AVSupportsDelegation av) => Lens' (PersistentActiveDel
 delegatorTotalCapital f (PersistentActiveDelegatorsV1{..}) =
     (\newDTC -> PersistentActiveDelegatorsV1{adDelegatorTotalCapital = newDTC, ..}) <$> f adDelegatorTotalCapital
 
--- | See documentation of @migratePersistentBlockState@.
+-- | Migrate the representation of a set of delegators to a particular pool.
+-- In most cases, the migration is trivial, and the resulting structure is the same.
+-- In the case of 'StateMigrationParametersP3ToP4', the set of delegators is introduced as empty,
+-- and the total capital is introduced at 0.
 migratePersistentActiveDelegators ::
     (BlobStorable m (), BlobStorable (t m) (), MonadTrans t) =>
     StateMigrationParameters oldpv pv ->
@@ -408,6 +412,51 @@ data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers
 
 makeLenses ''PersistentActiveBakers
 
+-- | Migrate the representation of the active bakers and delegators on protocol update.
+--  In most cases, the migration is trivial, and the resulting structure is the same.
+--  The exception is migrating from P3 to P4 (where delegation is introduced), where
+--  each pool's delegators are introduced as empty, and delegated capital is introduced at 0.
+--  In that case, the total active capital is computed by summing the baker stake amounts
+--  from the supplied accounts table.
+migratePersistentActiveBakers ::
+    forall oldpv pv t m.
+    ( IsProtocolVersion oldpv,
+      IsProtocolVersion pv,
+      SupportMigration m t,
+      Accounts.SupportsPersistentAccount pv (t m)
+    ) =>
+    StateMigrationParameters oldpv pv ->
+    -- | Already migrated accounts.
+    Accounts.Accounts pv ->
+    PersistentActiveBakers (AccountVersionFor oldpv) ->
+    t m (PersistentActiveBakers (AccountVersionFor pv))
+migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
+    newActiveBakers <- Trie.migrateTrieN True (migratePersistentActiveDelegators migration) _activeBakers
+    newAggregationKeys <- Trie.migrateTrieN True return _aggregationKeys
+    newPassiveDelegators <- migratePersistentActiveDelegators migration _passiveDelegators
+    bakerIds <- Trie.keysAsc newActiveBakers
+    bakerStakedAmount <-
+        foldM
+            ( \acc (BakerId aid) ->
+                Accounts.indexedAccount aid accounts >>= \case
+                    Nothing -> error "Baker account does not exist."
+                    Just pa ->
+                        accountBakerStakeAmount pa >>= \case
+                            Nothing -> error "Baker account not a baker."
+                            Just amt -> return $! (acc + amt)
+            )
+            0
+            bakerIds
+    let newTotalActiveCapital = migrateTotalActiveCapital migration bakerStakedAmount _totalActiveCapital
+    return
+        PersistentActiveBakers
+            { _activeBakers = newActiveBakers,
+              _aggregationKeys = newAggregationKeys,
+              _passiveDelegators = newPassiveDelegators,
+              _totalActiveCapital = newTotalActiveCapital
+            }
+
+-- | Construct a 'PersistentActiveBakers' with no bakers or delegators.
 emptyPersistentActiveBakers :: forall av. (IsAccountVersion av) => PersistentActiveBakers av
 emptyPersistentActiveBakers = case delegationSupport @av of
     SAVDelegationSupported ->

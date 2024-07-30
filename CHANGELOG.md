@@ -19,6 +19,13 @@
   prevents encrypting further CCDs or transferring encrypted CCDs.
   `TransferToPublic` remains enabled, allowing existing encrypted balances to be
   decrypted.
+- Changes to stake cooldown behavior in protocol version 7:
+  - When stake is reduced or removed from a validator or delegator, it becomes
+    inactive, and is not counted for future stake calculations. The inactive
+    stake is not spendable, but is released after a cooldown period elapses.
+  - Changes to validators and delegators can be made while stake is in cooldown,
+    including changing the stake, or changing directly between validator and
+    delegator.
 
 ## 6.3.1
 
