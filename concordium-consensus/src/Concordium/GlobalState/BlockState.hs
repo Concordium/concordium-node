@@ -1129,7 +1129,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  * the account is valid;
     --  * the account is not a baker;
     --  * the account is not a delegator;
-    --  * the delegated amount does not exceed the account's balance.
+    --  * the delegated amount does not exceed the account's balance;
+    --  * the delegated stake is > 0.
     --
     --  The function behaves as follows:
     --

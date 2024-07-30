@@ -1435,7 +1435,7 @@ doAddBaker pbs ai ba@BakerAdd{..} = do
             -- Account is not a baker
             | otherwise -> do
                 cp <- (^. cpPoolParameters . ppBakerStakeThreshold) <$> lookupCurrentParameters (bspUpdates bsp)
-                if baStake < cp
+                if baStake < max 1 cp
                     then return (BAStakeUnderThreshold, pbs)
                     else do
                         let bid = BakerId ai
@@ -1497,7 +1497,7 @@ addValidatorChecks bsp ValidatorAdd{..} = do
         capitalMin = poolParams ^. ppMinimumEquityCapital
         ranges = poolParams ^. ppCommissionBounds
     -- Check if the equity capital is below the minimum threshold.
-    when (vaCapital < capitalMin) $ MTL.throwError VCFStakeUnderThreshold
+    when (vaCapital < max 1 capitalMin) $ MTL.throwError VCFStakeUnderThreshold
     -- Check if the transaction fee commission rate is in the acceptable range.
     unless
         ( isInRange
@@ -2289,7 +2289,7 @@ doUpdateBakerStake pbs ai newStake = do
                             storePBS pbs bsp{bspAccounts = newAccounts}
                     case compare newStake sdStakedCapital of
                         LT ->
-                            if newStake < bakerStakeThreshold
+                            if newStake < max 1 bakerStakeThreshold
                                 then return (BSUStakeUnderThreshold, pbs)
                                 else
                                     (BSUStakeReduced (BakerId ai) (curEpoch + cooldownEpochs),)

@@ -280,9 +280,11 @@ data PersistentActiveDelegators (av :: AccountVersion) where
         } ->
         PersistentActiveDelegators av
 
+-- | Lens to access the total capital of the delegators to the pool.
 delegatorTotalCapital :: (AVSupportsDelegation av) => Lens' (PersistentActiveDelegators av) Amount
 delegatorTotalCapital f (PersistentActiveDelegatorsV1{..}) =
-    (\newDTC -> PersistentActiveDelegatorsV1{adDelegatorTotalCapital = newDTC, ..}) <$> f adDelegatorTotalCapital
+    (\newDTC -> PersistentActiveDelegatorsV1{adDelegatorTotalCapital = newDTC, ..})
+        <$> f adDelegatorTotalCapital
 
 -- | Migrate the representation of a set of delegators to a particular pool.
 -- In most cases, the migration is trivial, and the resulting structure is the same.
