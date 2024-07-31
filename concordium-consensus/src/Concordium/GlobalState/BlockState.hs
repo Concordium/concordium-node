@@ -986,7 +986,8 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --
     --  The function behaves as follows:
     --
-    --  1. If the baker's capital is less than the minimum threshold, return 'VCFStakeUnderThreshold'.
+    --  1. If the baker's capital is 0, or less than the minimum threshold, return
+    --     'VCFStakeUnderThreshold'.
     --  2. If the transaction fee commission is not in the acceptable range, return
     --     'VCFTransactionFeeCommissionNotInRange'.
     --  3. If the baking reward commission is not in the acceptable range, return
@@ -1016,7 +1017,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --
     --  * the account is valid;
     --  * the account is a baker;
-    --  * if the stake is being updated, then the account balance exceeds the new stake.
+    --  * if the stake is being updated, then the account balance is at least the new stake.
     --
     --  The function behaves as follows, building a list @events@:
     --
@@ -1174,7 +1175,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --
     --  1. If the delegation target is specified as @target@:
     --
-    --       (1) If the delegation target is a valid baker that is not 'OpenForAll', return 'DCPoolClosed'.
+    --       (1) If the delegation target is a valid baker that is not 'OpenForAll', return 'DCFPoolClosed'.
     --
     --       (2) If the delegation target is baker id @bid@, but the baker does not exist, return
     --           @DCFInvalidDelegationTarget bid@.
@@ -1221,11 +1222,13 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --
     --             * append @DelegationConfigureStakeIncreased capital@ to @events@.
     --
-    --  4. If the amount delegated to the delegation target exceeds the leverage bound, return
-    --     'DCFPoolStakeOverThreshold' and revert any changes.
+    --  4. If the delegation target has changed or the delegated capital is increased:
     --
-    --  5. If the amount delegated to the delegation target exceed the capital bound, return
-    --     'DCFPoolOverDelegated' and revert any changes.
+    --            * If the amount delegated to the delegation target exceeds the leverage bound,
+    --              return 'DCFPoolStakeOverThreshold' and revert any changes.
+    --
+    --            * If the amount delegated to the delegation target exceed the capital bound,
+    --              return 'DCFPoolOverDelegated' and revert any changes.
     --
     --  6. Return @events@ with the updated state.
     bsoUpdateDelegator ::
