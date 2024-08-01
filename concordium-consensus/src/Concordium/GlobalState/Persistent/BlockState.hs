@@ -81,6 +81,7 @@ import qualified Concordium.Types.Execution as Transactions
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.IdentityProviders as IPS
 import Concordium.Types.Queries (
+    ActiveBakerPoolStatus (..),
     BakerPoolStatus (..),
     CurrentPaydayBakerPoolStatus (..),
     PassiveDelegationStatus (..),
