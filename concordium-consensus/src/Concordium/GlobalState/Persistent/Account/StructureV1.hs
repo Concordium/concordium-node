@@ -1351,7 +1351,7 @@ migratePersistentAccount ::
     t m (PersistentAccount (AccountVersionFor pv))
 migratePersistentAccount StateMigrationParametersTrivial acc = migrateV2ToV2 acc
 migratePersistentAccount StateMigrationParametersP5ToP6{} acc = migrateV2ToV2 acc
-migratePersistentAccount StateMigrationParametersP6ToP7{} acc = undefined -- TODO: implement migration
+migratePersistentAccount StateMigrationParametersP6ToP7{} _ = undefined -- TODO: implement migration
 
 -- | Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
 --  'P4' to 'P5'.

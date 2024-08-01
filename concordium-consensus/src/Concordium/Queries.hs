@@ -1059,6 +1059,8 @@ getAccountInfoHelper getASI acct bs = do
         aiAccountEncryptionKey <- BS.getAccountEncryptionKey acc
         aiStakingInfo <- getASI acc
         aiAccountAddress <- BS.getAccountCanonicalAddress acc
+        let aiAccountCooldowns = [] -- TODO: Support cooldowns
+        aiAccountAvailableAmount <- BS.getAccountAvailableAmount acc
         return AccountInfo{..}
 
 -- | Get the details of a smart contract instance in the block state.

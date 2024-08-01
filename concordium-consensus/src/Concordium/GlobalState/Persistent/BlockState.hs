@@ -105,6 +105,7 @@ import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Writer.Strict as MTL
+import Data.Bool.Singletons
 import Data.IORef
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
@@ -1462,6 +1463,7 @@ doConfigureBaker ::
     forall pv m.
     ( SupportsPersistentState pv m,
       PVSupportsDelegation pv,
+      SupportsFlexibleCooldown (AccountVersionFor pv) ~ 'False, -- FIXME: Flexible cooldown unimplemented
       IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
       PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
       CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1
@@ -1770,6 +1772,7 @@ doConfigureDelegation ::
     forall pv m.
     ( SupportsPersistentState pv m,
       PVSupportsDelegation pv,
+      SupportsFlexibleCooldown (AccountVersionFor pv) ~ 'False, -- FIXME: Flexible cooldown unimplemented
       IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
       PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
       CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1
@@ -3557,11 +3560,15 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetCurrentEpochFullBakersEx = doGetCurrentEpochFullBakersEx
     bsoGetCurrentCapitalDistribution = doGetCurrentCapitalDistribution
     bsoAddBaker = doAddBaker
-    bsoConfigureBaker = case delegationChainParameters @pv of
-        DelegationChainParameters -> doConfigureBaker
+    bsoConfigureBaker = case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
+        SFalse -> case delegationChainParameters @pv of
+            DelegationChainParameters -> doConfigureBaker
+        STrue -> undefined -- FIXME: Flexible cooldown unimplemented
     bsoConstrainBakerCommission = doConstrainBakerCommission
-    bsoConfigureDelegation = case delegationChainParameters @pv of
-        DelegationChainParameters -> doConfigureDelegation
+    bsoConfigureDelegation = case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
+        SFalse -> case delegationChainParameters @pv of
+            DelegationChainParameters -> doConfigureDelegation
+        STrue -> undefined -- FIXME: Flexible cooldown unimplemented
     bsoUpdateBakerKeys = doUpdateBakerKeys
     bsoUpdateBakerStake = doUpdateBakerStake
     bsoUpdateBakerRestakeEarnings = doUpdateBakerRestakeEarnings
