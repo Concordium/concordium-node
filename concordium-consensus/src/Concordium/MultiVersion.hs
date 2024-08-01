@@ -1068,23 +1068,27 @@ checkForProtocolUpdateV1 = body
                         return (Just initData)
             SkovV1.ProtocolUpdateStateNone -> return Nothing
             SkovV1.ProtocolUpdateStatePendingEpoch{..} -> do
-                notifyPending puTriggerTime puProtocolUpdate
+                notifyPending puTriggerTime puProtocolUpdate True
                 return Nothing
             SkovV1.ProtocolUpdateStateQueued{..} -> do
                 notifyPending
                     (transactionTimeToTimestamp puQueuedTime)
                     puProtocolUpdate
+                    False
                 return Nothing
 
-    notifyPending effectiveTimestamp pu = do
+    notifyPending effectiveTimestamp pu pendingEpoch = do
         let effectiveTime = timestampToUTCTime effectiveTimestamp
-        alreadyNotified <- SkovV1.alreadyNotified
+        alreadyNotified <- SkovV1.alreadyNotified pu pendingEpoch
         unless alreadyNotified $ case ProtocolUpdateV1.checkUpdate @lastpv pu of
             Left err -> do
                 logEvent Kontrol LLError $
                     "An unsupported protocol update ("
                         ++ err
-                        ++ ") will take effect after "
+                        ++ ( if pendingEpoch
+                                then ") will take effect at the end of the current epoch at "
+                                else ") is scheduled to take effect after "
+                           )
                         ++ show effectiveTime
                         ++ ": "
                         ++ showPU pu
@@ -1094,7 +1098,10 @@ checkForProtocolUpdateV1 = body
                     Nothing -> return ()
             Right upd -> do
                 logEvent Kontrol LLInfo $
-                    "A protocol update will take effect after "
+                    ( if pendingEpoch
+                        then "A protocol update will take effect at the end of the current epoch at "
+                        else "A protocol update is scheduled to take effect after "
+                    )
                         ++ show effectiveTime
                         ++ ": "
                         ++ showPU pu

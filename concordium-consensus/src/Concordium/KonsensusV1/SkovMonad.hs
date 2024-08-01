@@ -138,9 +138,9 @@ data SkovV1State pv = SkovV1State
       _v1sSkovData :: SkovData pv,
       -- | The timer used for triggering timeout events.
       _v1sTimer :: Maybe ThreadTimer,
-      -- | A flag that indicates whether we have already
-      --  informed about an unsupported protocol update.
-      _notifiedUnsupportedProtocol :: !Bool
+      -- | If we have already notified about an upcoming protocol update, this indicates the latest
+      -- one, and whether it is scheduled for the end of the present epoch.
+      _notifiedProtocolUpdate :: !(Maybe (ProtocolUpdate, Bool))
     }
 
 -- | Context of callback handlers for the consensus.
@@ -212,8 +212,7 @@ instance HasDatabaseHandlers (SkovV1Context pv m) pv where
 instance (MonadTrans (SkovV1T pv)) where
     lift = SkovV1T . lift
 
--- | A class used for implementing whether the user
---  has already been informed about an unsupported protocol.
+-- | A class used for implementing whether a protocol update has already been logged.
 --
 --  It is required since SkovV1State is considered an implementation detail
 --  of SkovV1T.
@@ -221,12 +220,15 @@ instance (MonadTrans (SkovV1T pv)) where
 --  Note that the 'alreadyNotified' function must be called only just
 --  before notifying the user.
 class (Monad m) => AlreadyNotified m where
-    -- Set the flag that the user has already been notified, and return the old value.
-    alreadyNotified :: m Bool
+    -- | Record that we have notified about a protocol update, returning 'True' if we
+    -- already notified about this update. The second argument indicates if the update
+    -- is scheduled for the end of the present epoch.
+    alreadyNotified :: ProtocolUpdate -> Bool -> m Bool
 
 instance (IsProtocolVersion pv, Monad m) => AlreadyNotified (SkovV1T pv m) where
-    alreadyNotified = SkovV1T $ do
-        notifiedUnsupportedProtocol <<.= True
+    alreadyNotified pu b = SkovV1T $ do
+        mOldPU <- notifiedProtocolUpdate <<.= Just (pu, b)
+        return $ mOldPU == Just (pu, b)
 
 instance (Monad m) => MonadState (SkovData pv) (SkovV1T pv m) where
     state = SkovV1T . state . v1sSkovData
@@ -535,7 +537,7 @@ initialiseExistingSkovV1 genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov g
                                     SkovV1State
                                         { _v1sSkovData = initialSkovData,
                                           _v1sTimer = Nothing,
-                                          _notifiedUnsupportedProtocol = False
+                                          _notifiedProtocolUpdate = Nothing
                                         },
                                   esGenesisHash = initialSkovData ^. currentGenesisHash,
                                   esLastFinalizedHeight =
@@ -616,7 +618,7 @@ initialiseNewSkovV1 genData genesisBlockHeightInfo bakerCtx handlerCtx unliftSko
                   SkovV1State
                     { _v1sSkovData = initSkovData,
                       _v1sTimer = Nothing,
-                      _notifiedUnsupportedProtocol = False
+                      _notifiedProtocolUpdate = Nothing
                     }
                 )
     initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
@@ -744,7 +746,7 @@ migrateSkovV1 genesisBlockHeightInfo regenesis migration gsConfig@GlobalStateCon
                   SkovV1State
                     { _v1sSkovData = initSkovData,
                       _v1sTimer = Nothing,
-                      _notifiedUnsupportedProtocol = False
+                      _notifiedProtocolUpdate = Nothing
                     }
                 )
     initWithBlockState `onException` liftIO (closeBlobStore pbscBlobStore)
