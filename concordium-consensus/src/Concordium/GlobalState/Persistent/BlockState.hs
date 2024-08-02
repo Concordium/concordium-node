@@ -361,7 +361,7 @@ initialBirkParameters accounts seedState _bakerFinalizationCommitteeParameters =
 
                 nextBakerIds <- Trie.insert bakerId activeDelegators $ aibpBakerIds accum
                 nextBakerKeys <- Trie.insert aggregationKey () $ aibpBakerKeys accum
-                stake <- accountStakedAmount account
+                stake <- accountActiveStakedAmount account
 
                 return
                     updatedAccum
@@ -1407,8 +1407,8 @@ doAddBaker pbs ai ba@BakerAdd{..} = do
         -- Cannot resolve the account
         Nothing -> return (BAInvalidAccount, pbs)
         Just acct
-            -- Account is already a baker
-            | accountHasStake acct -> return (BAAlreadyBaker (BakerId ai), pbs)
+            -- Account is already a baker. (NB: cannot be a delegator at AccountV0.)
+            | accountHasActiveStake acct -> return (BAAlreadyBaker (BakerId ai), pbs)
             -- Account is not a baker
             | otherwise -> do
                 cp <- (^. cpPoolParameters . ppBakerStakeThreshold) <$> lookupCurrentParameters (bspUpdates bsp)
@@ -3503,7 +3503,7 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
     getAccountAmount = accountAmount
 
-    getAccountStakedAmount = accountStakedAmount
+    getAccountTotalStakedAmount = accountTotalStakedAmount
 
     getAccountLockedAmount = accountLockedAmount
 
@@ -3534,6 +3534,8 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
     derefBakerInfo = loadBakerInfo
 
     getAccountHash = accountHash
+
+    getAccountCooldowns = accountCooldowns
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
