@@ -7,7 +7,6 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
 
 module Concordium.GlobalState.Account where
 
@@ -557,7 +556,7 @@ data StakeDetails (av :: AccountVersion) where
         } ->
         StakeDetails av
 
-instance (Show (PendingChangeEffective av)) => Show (StakeDetails av) where
+instance Show (StakeDetails av) where
     show StakeDetailsNone = "StakeDetailsNone"
     show StakeDetailsBaker{..} =
         "StakeDetailsBaker {sdStakedCapital = "
