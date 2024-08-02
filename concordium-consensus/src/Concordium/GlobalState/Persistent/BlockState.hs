@@ -49,6 +49,7 @@ import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
+import qualified Concordium.GlobalState.Persistent.Account.MigrationState as MigrationState
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
@@ -57,6 +58,7 @@ import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
+import Concordium.GlobalState.Persistent.Cooldown
 import Concordium.GlobalState.Persistent.Instances (PersistentInstance (..), PersistentInstanceParameters (..), PersistentInstanceV (..))
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
@@ -197,7 +199,7 @@ migrateSeedStateV1Trivial SeedStateV1{..} =
 --
 --  Migrate the birk parameters assuming accounts have already been migrated.
 migratePersistentBirkParameters ::
-    forall oldpv pv t m.
+    forall c oldpv pv t m.
     ( IsProtocolVersion pv,
       IsProtocolVersion oldpv,
       SupportMigration m t,
@@ -205,10 +207,13 @@ migratePersistentBirkParameters ::
     ) =>
     StateMigrationParameters oldpv pv ->
     Accounts.Accounts pv ->
+    Conditionally c (PersistentActiveBakers (AccountVersionFor pv)) ->
     PersistentBirkParameters oldpv ->
     t m (PersistentBirkParameters pv)
-migratePersistentBirkParameters migration accounts PersistentBirkParameters{..} = do
-    newActiveBakers <- migrateReference (migratePersistentActiveBakers migration accounts) _birkActiveBakers
+migratePersistentBirkParameters migration accounts mActiveBakers PersistentBirkParameters{..} = do
+    newActiveBakers <- case mActiveBakers of
+        CTrue ab -> refMake ab
+        CFalse -> migrateReference (migratePersistentActiveBakers migration accounts) _birkActiveBakers
     newNextEpochBakers <- migrateHashedBufferedRef (migratePersistentEpochBakers migration) _birkNextEpochBakers
     newCurrentEpochBakers <- migrateHashedBufferedRef (migratePersistentEpochBakers migration) _birkCurrentEpochBakers
     return
@@ -777,6 +782,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       bspCryptographicParameters :: !(HashedBufferedRef CryptographicParameters),
       bspUpdates :: !(BufferedRef (Updates pv)),
       bspReleaseSchedule :: !(ReleaseSchedule pv),
+      bspAccountsInCooldown :: !(AccountsInCooldownForPV pv),
       bspTransactionOutcomes :: !(PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)),
       -- | Details of bakers that baked blocks in the current epoch. This is
       --  used for rewarding bakers at the end of epochs.
@@ -837,6 +843,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         (poutcomes, bspTransactionOutcomes') <- storeUpdate bspTransactionOutcomes
         (pupdates, bspUpdates') <- storeUpdate bspUpdates
         (preleases, bspReleaseSchedule') <- storeUpdate bspReleaseSchedule
+        (pAccountsInCooldown, bspAccountInCooldown') <- storeUpdate bspAccountsInCooldown
         (pRewardDetails, bspRewardDetails') <- storeUpdate bspRewardDetails
         let putBSP = do
                 paccts
@@ -850,6 +857,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                 poutcomes
                 pupdates
                 preleases
+                pAccountsInCooldown
                 pRewardDetails
         return
             ( putBSP,
@@ -864,6 +872,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                   bspTransactionOutcomes = bspTransactionOutcomes',
                   bspUpdates = bspUpdates',
                   bspReleaseSchedule = bspReleaseSchedule',
+                  bspAccountsInCooldown = bspAccountInCooldown',
                   bspRewardDetails = bspRewardDetails'
                 }
             )
@@ -879,6 +888,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         moutcomes <- label "Transaction outcomes" load
         mUpdates <- label "Updates" load
         mReleases <- label "Release schedule" load
+        mAccountsInCooldown <- label "Accounts in cooldown" load
         mRewardDetails <- label "Epoch blocks" load
         return $! do
             bspAccounts <- maccts
@@ -891,6 +901,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
             bspTransactionOutcomes <- moutcomes
             bspUpdates <- mUpdates
             bspReleaseSchedule <- mReleases
+            bspAccountsInCooldown <- mAccountsInCooldown
             bspRewardDetails <- mRewardDetails
             return $! BlockStatePointers{..}
 
@@ -903,6 +914,7 @@ bspPoolRewards bsp = case bspRewardDetails bsp of
     BlockRewardDetailsV1 pr -> pr
 
 -- | An initial 'HashedPersistentBlockState', which may be used for testing purposes.
+-- This assumes that among the initial accounts, none are in (pre)*cooldown.
 {-# WARNING initialPersistentState "should only be used for testing" #-}
 initialPersistentState ::
     forall pv m.
@@ -925,6 +937,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     initialAmount <- foldM (\sumSoFar account -> (+ sumSoFar) <$> accountAmount account) 0 accounts
     updates <- refMake =<< initialUpdates keysCollection chainParams
     releaseSchedule <- emptyReleaseSchedule
+    acctsInCooldown <- initialAccountsInCooldown accounts
     red <- emptyBlockRewardDetails
     bsp <-
         makeBufferedRef $
@@ -940,6 +953,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
                   bspTransactionOutcomes = emptyPersistentTransactionOutcomes,
                   bspUpdates = updates,
                   bspReleaseSchedule = releaseSchedule,
+                  bspAccountsInCooldown = acctsInCooldown,
                   bspRewardDetails = red
                 }
     bps <- liftIO $ newIORef $! bsp
@@ -975,6 +989,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
                   bspIdentityProviders = identityProviders,
                   bspAnonymityRevokers = anonymityRevokers,
                   bspCryptographicParameters = cryptographicParameters,
+                  bspAccountsInCooldown = emptyAccountsInCooldownForPV,
                   bspTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv),
                   ..
                 }
@@ -2002,7 +2017,9 @@ doUpdateBakerStake pbs ai newStake = do
                 do
                     let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
-                    cooldown <- (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized <$> refLoad (currentParameters upds)
+                    cooldownEpochs <-
+                        (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized
+                            <$> refLoad (currentParameters upds)
 
                     bakerStakeThreshold <- (^. cpPoolParameters . ppBakerStakeThreshold) <$> doGetChainParameters pbs
                     let applyUpdate updAcc = do
@@ -2013,10 +2030,10 @@ doUpdateBakerStake pbs ai newStake = do
                             if newStake < bakerStakeThreshold
                                 then return (BSUStakeUnderThreshold, pbs)
                                 else
-                                    (BSUStakeReduced (BakerId ai) (curEpoch + cooldown),)
+                                    (BSUStakeReduced (BakerId ai) (curEpoch + cooldownEpochs),)
                                         <$> applyUpdate
                                             ( setAccountStakePendingChange
-                                                (BaseAccounts.ReduceStake newStake (BaseAccounts.PendingChangeEffectiveV0 $ curEpoch + cooldown))
+                                                (BaseAccounts.ReduceStake newStake (BaseAccounts.PendingChangeEffectiveV0 $ curEpoch + cooldownEpochs))
                                             )
                         EQ -> return (BSUStakeUnchanged (BakerId ai), pbs)
                         GT -> (BSUStakeIncreased (BakerId ai),) <$> applyUpdate (setAccountStake newStake)
@@ -2059,12 +2076,17 @@ doRemoveBaker pbs ai = do
                     -- transition.
                     let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
-                    cooldown <- (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized <$> refLoad (currentParameters upds)
+                    cooldownEpochs <-
+                        (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized
+                            <$> refLoad (currentParameters upds)
                     let updAcc =
                             setAccountStakePendingChange $
-                                BaseAccounts.RemoveStake (BaseAccounts.PendingChangeEffectiveV0 $ curEpoch + cooldown)
+                                BaseAccounts.RemoveStake $
+                                    BaseAccounts.PendingChangeEffectiveV0 $
+                                        curEpoch + cooldownEpochs
                     newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
-                    (BRRemoved (BakerId ai) (curEpoch + cooldown),) <$> storePBS pbs bsp{bspAccounts = newAccounts}
+                    (BRRemoved (BakerId ai) (curEpoch + cooldownEpochs),)
+                        <$> storePBS pbs bsp{bspAccounts = newAccounts}
         -- The account is not valid or has no baker
         _ -> return (BRInvalidBaker, pbs)
 
@@ -3742,7 +3764,18 @@ migrateBlockPointers migration BlockStatePointers{..} = do
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
-    newAccounts <- Accounts.migrateAccounts migration bspAccounts
+    pab <- lift . refLoad $ bspBirkParameters ^. birkActiveBakers
+    -- When we migrate the accounts, we accumulate state
+    initMigrationState :: MigrationState.AccountMigrationState oldpv pv <-
+        MigrationState.makeInitialAccountMigrationState bspAccounts pab
+    (newAccounts, migrationState) <-
+        MigrationState.runAccountMigrationStateTT
+            (Accounts.migrateAccounts migration bspAccounts)
+            initMigrationState
+    newAccountsInCooldown <-
+        migrateAccountsInCooldownForPV
+            (MigrationState._migrationPrePreCooldown migrationState)
+            bspAccountsInCooldown
     newModules <- migrateHashedBufferedRef (Modules.migrateModules migration) bspModules
     modules <- refLoad newModules
     newInstances <- Instances.migrateInstances modules bspInstances
@@ -3750,7 +3783,12 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     newIdentityProviders <- migrateHashedBufferedRefKeepHash bspIdentityProviders
     newAnonymityRevokers <- migrateHashedBufferedRefKeepHash bspAnonymityRevokers
     let oldEpoch = bspBirkParameters ^. birkSeedState . epoch
-    newBirkParameters <- migratePersistentBirkParameters migration newAccounts bspBirkParameters
+    newBirkParameters <-
+        migratePersistentBirkParameters
+            migration
+            newAccounts
+            (MigrationState._persistentActiveBakers migrationState)
+            bspBirkParameters
     newCryptographicParameters <- migrateHashedBufferedRefKeepHash bspCryptographicParameters
     newUpdates <- migrateReference (migrateUpdates migration) bspUpdates
     curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
@@ -3774,6 +3812,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
               bspCryptographicParameters = newCryptographicParameters,
               bspUpdates = newUpdates,
               bspReleaseSchedule = newReleaseSchedule,
+              bspAccountsInCooldown = newAccountsInCooldown,
               bspTransactionOutcomes = newTransactionOutcomes,
               bspRewardDetails = newRewardDetails
             }
@@ -3816,6 +3855,7 @@ cacheState hpbs = do
     cryptoParams <- cache bspCryptographicParameters
     upds <- cache bspUpdates
     rels <- cache bspReleaseSchedule
+    cdowns <- cache bspAccountsInCooldown
     red <- cache bspRewardDetails
     _ <-
         storePBS (hpbsPointers hpbs) $!
@@ -3830,6 +3870,7 @@ cacheState hpbs = do
                   bspCryptographicParameters = cryptoParams,
                   bspUpdates = upds,
                   bspReleaseSchedule = rels,
+                  bspAccountsInCooldown = cdowns,
                   bspTransactionOutcomes = bspTransactionOutcomes,
                   bspRewardDetails = red
                 }
@@ -3864,11 +3905,13 @@ cacheStateAndGetTransactionTable hpbs = do
                 then
                     return $!
                         tt
-                            & TransactionTable.ttNonFinalizedChainUpdates . at' uty
+                            & TransactionTable.ttNonFinalizedChainUpdates
+                                . at' uty
                                 ?~ TransactionTable.emptyNFCUWithSequenceNumber sn
                 else return tt
     tt <- foldM updInTT TransactionTable.emptyTransactionTable [minBound ..]
     rels <- cache bspReleaseSchedule
+    cdowns <- cache bspAccountsInCooldown
     red <- cache bspRewardDetails
     _ <-
         storePBS
@@ -3884,6 +3927,7 @@ cacheStateAndGetTransactionTable hpbs = do
                   bspCryptographicParameters = cryptoParams,
                   bspUpdates = upds,
                   bspReleaseSchedule = rels,
+                  bspAccountsInCooldown = cdowns,
                   bspTransactionOutcomes = bspTransactionOutcomes,
                   bspRewardDetails = red
                 }
