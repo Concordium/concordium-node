@@ -21,6 +21,7 @@ import Concordium.ID.Types as ID
 import Concordium.Types.Accounts
 
 import Concordium.GlobalState.BakerInfo
+import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
@@ -29,8 +30,12 @@ import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 
+import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
+import Concordium.Types.Option
+import Control.Monad
+import Data.Maybe
 import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
 import Test.Hspec
@@ -737,6 +742,116 @@ testCase11A spv pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
+-- | Reduce stake while in cooldown.
+testCase12 ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testCase12 spv pvString =
+    specify (pvString ++ ": Reduce stake while in cooldown.") $ do
+        let transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        Runner.TJSON
+                            { payload =
+                                Runner.ConfigureDelegation
+                                    { cdCapital = Just 999,
+                                      cdRestakeEarnings = Nothing,
+                                      cdDelegationTarget = Nothing
+                                    },
+                              metadata = makeDummyHeader delegator3Address 1 1_000,
+                              keys = [(0, [(0, delegator3KP)])]
+                            },
+                      taaAssertion = \result _ -> do
+                        return $ do
+                            Helpers.assertSuccessWithEvents
+                                [DelegationStakeDecreased 3 delegator3Address 999]
+                                result
+                    },
+                  Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        Runner.TJSON
+                            { payload =
+                                Runner.ConfigureDelegation
+                                    { cdCapital = Just 995,
+                                      cdRestakeEarnings = Nothing,
+                                      cdDelegationTarget = Nothing
+                                    },
+                              metadata = makeDummyHeader delegator3Address 2 1_000,
+                              keys = [(0, [(0, delegator3KP)])]
+                            },
+                      taaAssertion = assertPrePreCooldown 5 (DelegationStakeDecreased 3 delegator3Address 995)
+                    },
+                  Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        Runner.TJSON
+                            { payload =
+                                Runner.ConfigureDelegation
+                                    { cdCapital = Just 998,
+                                      cdRestakeEarnings = Nothing,
+                                      cdDelegationTarget = Nothing
+                                    },
+                              metadata = makeDummyHeader delegator3Address 3 1_000,
+                              keys = [(0, [(0, delegator3KP)])]
+                            },
+                      taaAssertion = assertPrePreCooldown 2 (DelegationStakeIncreased 3 delegator3Address 998)
+                    },
+                  Helpers.TransactionAndAssertion
+                    { taaTransaction =
+                        Runner.TJSON
+                            { payload =
+                                Runner.ConfigureDelegation
+                                    { cdCapital = Just 1000,
+                                      cdRestakeEarnings = Nothing,
+                                      cdDelegationTarget = Nothing
+                                    },
+                              metadata = makeDummyHeader delegator3Address 4 1_000,
+                              keys = [(0, [(0, delegator3KP)])]
+                            },
+                      taaAssertion = assertNoCooldown (DelegationStakeIncreased 3 delegator3Address 1000)
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
+  where
+    assertPrePreCooldown :: Amount -> Event -> Helpers.TransactionAssertion pv
+    assertPrePreCooldown expAmt event result pbs = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
+        STrue -> do
+            maybeAccount <- BS.bsoGetAccount pbs delegator3Address
+            case maybeAccount of
+                Nothing -> return $ assertFailure $ "Account with address '" ++ show delegator3Address ++ "' not found"
+                Just (_, account) -> do
+                    maybeCooldowns <- BS.accountCooldowns account
+                    let toAssert = case maybeCooldowns of
+                            Nothing -> assertFailure "Account should have been in pre-pre-cooldown"
+                            Just cd -> case prePreCooldown cd of
+                                Absent -> assertFailure "Account should have been in pre-pre cooldown"
+                                Present amt -> assertEqual "Amount in pre-pre-cooldown should be correct" expAmt amt
+                    return $ do
+                        toAssert
+                        Helpers.assertSuccessWithEvents [event] result
+        SFalse ->
+            return $ Helpers.assertRejectWithReason DelegatorInCooldown result
+    assertNoCooldown :: Event -> Helpers.TransactionAssertion pv
+    assertNoCooldown event result pbs = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
+        STrue -> do
+            maybeAccount <- BS.bsoGetAccount pbs delegator3Address
+            case maybeAccount of
+                Nothing -> return $ assertFailure $ "Account with address '" ++ show delegator3Address ++ "' not found"
+                Just (_, account) -> do
+                    maybeCooldowns <- BS.accountCooldowns account
+                    return $ do
+                        when (isJust maybeCooldowns) $ assertFailure "Account should have no cooldowns"
+                        Helpers.assertSuccessWithEvents [event] result
+        SFalse ->
+            return $ Helpers.assertRejectWithReason DelegatorInCooldown result
+
 tests :: Spec
 tests =
     describe "Delegate in different scenarios" $
@@ -761,3 +876,4 @@ tests =
                 testCase10A spv pvString
                 testCase11 spv pvString
                 testCase11A spv pvString
+                testCase12 spv pvString
