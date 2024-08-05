@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
+-- | Tests for the epoch transition logic for protocol version 7.
 module SchedulerTests.KonsensusV1.EpochTransition where
 
 import Control.Exception
@@ -52,6 +53,7 @@ import Concordium.Types.Parameters
 import Control.Monad
 import qualified Data.Vector as Vec
 
+-- | Create a 'PersistentAccount' with the given index, amount and cooldowns.
 dummyCooldownAccount ::
     forall av m.
     (IsAccountVersion av, MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
@@ -67,6 +69,7 @@ dummyCooldownAccount ai amt cooldowns = do
             newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
             return $ PAV3 acc{SV1.accountEnduringData = newEnduring}
 
+-- | Run a test block state computation with a temporary directory for the block state.
 runTestBlockState ::
     forall pv a.
     PersistentBlockStateMonad
@@ -129,11 +132,17 @@ checkCooldowns pbs = do
     liftIO $ assertEqual "Pre-pre-cooldown set" prePreCooldowns actualPrePreCooldowns
     return (reverse theCooldowns)
 
+-- | Account configuration for testing.
 data AccountConfig (av :: AccountVersion) = AccountConfig
-    { acAccountIndex :: AccountIndex,
+    { -- | The account index
+      acAccountIndex :: AccountIndex,
+      -- | The account balance
       acAmount :: Amount,
+      -- | Determines the initial (current epoch) stake distribution.
       acInitialStaking :: StakeDetails av,
+      -- | Determines the active stake distribution.
       acUpdatedStaking :: StakeDetails av,
+      -- | Cooldowns on the account.
       acCooldowns :: Cooldowns
     }
     deriving (Show)
@@ -200,6 +209,7 @@ genAccountConfigs allowPreCooldown = sized $ \n -> do
             return AccountConfig{..}
     mapM genAcc accs
 
+-- | Helper for constructing the stake for a persistent account.
 makePersistentAccountStakeEnduring ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av, AVSupportsDelegation av, IsAccountVersion av) =>
     StakeDetails av ->
@@ -328,6 +338,8 @@ makeInitialState accs seedState rpLen = withIsAuthorizationsVersionForPV (protoc
     newBirkParameters <- initialBirkParameters accts seedState (chainParams ^. cpFinalizationCommitteeParameters)
     storePBS pbs bsp{bspAccounts = newAccounts, bspBirkParameters = newBirkParameters}
 
+-- | A seed state with the specified epoch an trigger time, in which the epoch transition has been
+--  triggered.
 transitionalSeedState :: Epoch -> Timestamp -> SeedState SeedStateVersion1
 transitionalSeedState curEpoch triggerTime =
     (initialSeedStateV1 (Hash.hash "NONCE") triggerTime)

@@ -53,6 +53,7 @@ import qualified SchedulerTests.SmartContracts.V1.UpgradingPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.ValidInvalidModules (tests)
 
 import qualified SchedulerTests.KonsensusV1.EpochTransition (tests)
+
 import Test.Hspec
 
 main :: IO ()

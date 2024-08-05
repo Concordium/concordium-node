@@ -81,6 +81,8 @@ delegatedCapitalCap poolParams totalCap bakerCap delCap = min leverageCap boundC
     PoolCaps{..} = delegatedCapitalCaps poolParams totalCap bakerCap delCap
 
 -- | Process a set of bakers and delegators to apply pending changes that are effective.
+-- This is only relevent for protocol versions which support delegation but not flexible cooldowns
+-- (i.e. P4-P6).
 applyPendingChangesP4 ::
     (Timestamp -> Bool) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo]) ->
@@ -124,12 +126,14 @@ applyPendingChangesP4 isEffective (bakers0, passive0) =
       where
         pDelegators = processDelegators activeBakerDelegators
 
+-- | Process a set of bakers and delegators to apply pending changes that are effective.
 applyPendingChanges ::
     AccountVersion ->
     (Timestamp -> Bool) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo]) ->
     ([ActiveBakerInfo' bakerInfoRef], [ActiveDelegatorInfo])
 applyPendingChanges av
+    -- If the account version supports flexible cooldowns, there are no pending changes to apply.
     | supportsFlexibleCooldown av = \_ infos -> infos
     | otherwise = applyPendingChangesP4
 
