@@ -899,10 +899,34 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  the delegation from the active bakers index.
     --  For delegators pending stake reduction, this reduces the stake.
     bsoProcessPendingChanges ::
-        (PVSupportsDelegation (MPV m)) =>
+        ( PVSupportsDelegation (MPV m),
+          SupportsFlexibleCooldown (AccountVersionFor (MPV m)) ~ 'False
+        ) =>
         UpdatableBlockState m ->
         -- | Guard determining if a change is effective
         (Timestamp -> Bool) ->
+        m (UpdatableBlockState m)
+
+    -- | Process cooldowns on accounts that have expired, and move pre-cooldowns into cooldown.
+    --  All cooldowns that expire at or before the given expiry time will be removed from accounts.
+    --  After this, all pre-cooldowns on accounts are moved into cooldown.
+    bsoProcessCooldowns ::
+        (PVSupportsFlexibleCooldown (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | Timestamp for expiring cooldowns.
+        Timestamp ->
+        -- | Timestamp for pre-cooldowns entering cooldown.
+        Timestamp ->
+        m (UpdatableBlockState m)
+
+    -- | Move all pre-pre-cooldowns into pre-cooldown.
+    --  It is assumed that there are currently no pre-cooldowns. This should be ensured by
+    --  calling 'bsoProcessCooldowns' between successive calls to 'bsoProcessPrePreCooldowns', as
+    --  that moves all pre-cooldowns into cooldown, and only 'bsoProcessPrePreCooldowns' moves
+    --  anything into pre-cooldown.
+    bsoProcessPrePreCooldowns ::
+        (PVSupportsFlexibleCooldown (MPV m)) =>
+        UpdatableBlockState m ->
         m (UpdatableBlockState m)
 
     -- | Get the list of all active bakers in ascending order.
@@ -1614,6 +1638,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
     bsoRotateCurrentEpochBakers = lift . bsoRotateCurrentEpochBakers
     bsoProcessPendingChanges s g = lift $ bsoProcessPendingChanges s g
+    bsoProcessCooldowns s expiry cooldown = lift $ bsoProcessCooldowns s expiry cooldown
+    bsoProcessPrePreCooldowns = lift . bsoProcessPrePreCooldowns
     bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
     bsoGetActiveBakers = lift . bsoGetActiveBakers
     bsoGetActiveBakersAndDelegators = lift . bsoGetActiveBakersAndDelegators
