@@ -67,6 +67,7 @@ import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState (AccountsHash (..))
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
+import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
@@ -311,7 +312,7 @@ getAccountByCredId cid accs@Accounts{..} =
 --  First try lookup in the in-memory difference map associated with the the provided 'Accounts pv',
 --  if no account could be looked up, then we fall back to the lmdb backed account map.
 --
--- If account alises are supported then the equivalence class 'AccountAddressEq' is used for determining
+-- If account aliases are supported then the equivalence class 'AccountAddressEq' is used for determining
 -- whether the provided @AccountAddress@ is in the map, otherwise we check for exactness.
 getAccountIndex :: forall pv m. (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
 getAccountIndex addr Accounts{..} = do
@@ -490,13 +491,23 @@ migrateAccounts ::
       IsProtocolVersion pv,
       SupportMigration m t,
       SupportsPersistentAccount oldpv m,
-      SupportsPersistentAccount pv (t m)
+      SupportsPersistentAccount pv (t m),
+      AccountsMigration (AccountVersionFor pv) (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
     Accounts oldpv ->
     t m (Accounts pv)
 migrateAccounts migration Accounts{..} = do
-    newAccountTable <- L.migrateLFMBTree (migrateHashedCachedRef' (migratePersistentAccount migration)) accountTable
+    let migrateAccount acct = do
+            newAcct <- migrateHashedCachedRef' (migratePersistentAccount migration) acct
+            -- Increment the account index counter.
+            nextAccount
+            return newAcct
+    newAccountTable <-
+        L.migrateLFMBTree
+            migrateAccount
+            accountTable
+
     -- The account registration IDs are not cached. There is a separate cache
     -- that is purely in-memory and just copied over.
     newAccountRegIds <- Trie.migrateUnbufferedTrieN return accountRegIdHistory
