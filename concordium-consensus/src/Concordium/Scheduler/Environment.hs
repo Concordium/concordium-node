@@ -1218,7 +1218,7 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
     getCurrentAccountAvailableAmount (ai, acc) = do
         oldTotal <- getAccountAmount acc
         oldLockedUp <- getAccountLockedAmount acc
-        staked <- getAccountStakedAmount acc
+        staked <- getAccountTotalStakedAmount acc
         !txCtx <- ask
         -- If the account is the sender, subtract the deposit
         let netDeposit =
