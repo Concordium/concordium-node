@@ -3391,30 +3391,48 @@ doProcessCooldowns pbs now newExpiry = do
               bspAccounts = newAccts
             }
   where
+    -- Perform a monadic update on the global cooldown release schedule.
     withCooldown a = (_1 . cooldown .=) =<< a =<< use (_1 . cooldown)
+    -- Perform a monadic update an the accounts table.
     withAccounts a = (_2 .=) =<< a =<< use _2
     process = do
+        -- Determine which accounts have cooldowns that have expired and remove them from the
+        -- cooldown schedule.
         cooldown0 <- use (_1 . cooldown)
         (cooldownList, cooldown1) <- processReleasesUntil now cooldown0
         _1 . cooldown .= cooldown1
+        -- Process the cooldowns for the accounts that have expired cooldowns, adding them back
+        -- to the cooldown schedule if they have remaining cooldowns.
         forM_ cooldownList $ \acc -> do
             withAccounts (Accounts.updateAccountsAtIndex' (processCooldownForAccount acc) acc)
+        -- Fetch and clear the list of accounts in pre-cooldown.
         preCooldownAL <- _1 . preCooldown <<.= Null
         preCooldowns <- loadAccountList preCooldownAL
+        -- Process the pre-cooldowns, moving them into cooldown.
         forM_ preCooldowns $ \acc -> do
             withAccounts (Accounts.updateAccountsAtIndex' (processPreCooldownForAccount acc) acc)
     processCooldownForAccount acc pa = do
+        -- Release the elapsed cooldowns on the account.
         (mNextCooldown, newPA) <- processAccountCooldownsUntil now pa
+        -- If there are remaining cooldowns, add the account back to the cooldown schedule.
         forM_ mNextCooldown $ \nextCooldown -> withCooldown $ addAccountRelease nextCooldown acc
         return newPA
     processPreCooldownForAccount acc pa = do
+        -- Process the pre-cooldowns on the account.
         (res, newPA) <- processAccountPreCooldown newExpiry pa
         case res of
+            -- In this case, the account already had cooldowns, but the new cooldown expires
+            -- earlier, so the release schedule needs to be updated.
             Just (Just oldTS) -> withCooldown $ updateAccountRelease oldTS newExpiry acc
+            -- In this case, the account did not have cooldowns, so the new cooldown is added.
             Just Nothing -> withCooldown $ addAccountRelease newExpiry acc
+            -- In this case, the earliest cooldown on the account has not changed.
             Nothing -> return ()
         return newPA
 
+-- | Move all pre-pre-cooldowns into pre-cooldown.
+--
+-- PRECONDITION: there are no pre-cooldowns.
 doProcessPrePreCooldowns ::
     forall pv m.
     (SupportsPersistentState pv m, PVSupportsFlexibleCooldown pv) =>
@@ -3423,12 +3441,14 @@ doProcessPrePreCooldowns ::
 doProcessPrePreCooldowns pbs = do
     bsp <- loadPBS pbs
     let oldAIC = bspAccountsInCooldown bsp ^. accountsInCooldown
+    -- The new pre-cooldown list is the old pre-pre-cooldown list.
     let !newPreCooldown = assert (isNull (oldAIC ^. preCooldown)) $ oldAIC ^. prePreCooldown
     let newAIC =
             oldAIC
                 & preCooldown .~ newPreCooldown
                 & prePreCooldown .~ Null
     accounts <- loadAccountList newPreCooldown
+    -- Process the pre-pre-cooldown on each account, moving it to pre-cooldown.
     let processAccount = flip $ Accounts.updateAccountsAtIndex' processAccountPrePreCooldown
     newAccts <- foldM processAccount (bspAccounts bsp) accounts
     storePBS pbs $
