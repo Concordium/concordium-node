@@ -6,6 +6,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
+-- | Common functions for testing operations on the block state.
 module GlobalStateTests.BlockStateHelpers where
 
 import Control.Exception
@@ -57,6 +58,8 @@ dummyCooldownAccount ai amt cooldowns = do
             newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
             return $ PAV3 acc{SV1.accountEnduringData = newEnduring}
 
+-- | A configuration for an account, specifying the account index, amount, staking details and
+--  cooldowns. This is used to create accounts for testing.
 data AccountConfig (av :: AccountVersion) = AccountConfig
     { acAccountIndex :: AccountIndex,
       acAmount :: Amount,
@@ -65,10 +68,14 @@ data AccountConfig (av :: AccountVersion) = AccountConfig
     }
     deriving (Show)
 
+-- | Helper function for creating the initial stake for an account.
 makePersistentAccountStakeEnduring ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av, AVSupportsDelegation av, IsAccountVersion av) =>
+    -- | The 'StakeDetails' for the account.
     StakeDetails av ->
+    -- | The account index.
     AccountIndex ->
+    -- | The 'SV1.PersistentAccountStakeEnduring' and the amount staked.
     m (SV1.PersistentAccountStakeEnduring av, Amount)
 makePersistentAccountStakeEnduring StakeDetailsNone _ = return (SV1.PersistentAccountStakeEnduringNone, 0)
 makePersistentAccountStakeEnduring StakeDetailsBaker{..} ai = do
