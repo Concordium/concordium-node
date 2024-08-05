@@ -23,6 +23,7 @@ module Concordium.GlobalState.Persistent.BlockState (
     HashedPersistentBlockState (..),
     hashBlockState,
     PersistentBirkParameters (..),
+    initialBirkParameters,
     initialPersistentState,
     emptyBlockState,
     emptyHashedEpochBlocks,
@@ -37,6 +38,8 @@ module Concordium.GlobalState.Persistent.BlockState (
     cacheStateAndGetTransactionTable,
     migratePersistentBlockState,
     SupportsPersistentState,
+    loadPBS,
+    storePBS,
 ) where
 
 import qualified Concordium.Crypto.SHA256 as H
@@ -995,10 +998,12 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
                 }
     liftIO $ newIORef $! bsp
 
+-- | Load 'BlockStatePointers' from a 'PersistentBlockState'.
 loadPBS :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (BlockStatePointers pv)
 loadPBS = loadBufferedRef <=< liftIO . readIORef
 {-# INLINE loadPBS #-}
 
+-- | Update the 'BlockStatePointers' stored in a 'PersistentBlockState'.
 storePBS :: (SupportsPersistentAccount pv m) => PersistentBlockState pv -> BlockStatePointers pv -> m (PersistentBlockState pv)
 storePBS pbs bsp = liftIO $ do
     pbsp <- makeBufferedRef bsp
@@ -3364,6 +3369,74 @@ doProcessPendingChanges persistentBS isEffective = do
         newAccounts <- lift $ Accounts.updateAccountsAtIndex' updAcc accId accounts
         _1 .=! newAccounts
 
+-- | Process cooldowns on accounts that have expired, and move pre-cooldowns into cooldown.
+doProcessCooldowns ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsFlexibleCooldown pv) =>
+    PersistentBlockState pv ->
+    -- | Timestamp for expiring cooldowns.
+    Timestamp ->
+    -- | Timestamp for pre-cooldowns entering cooldown.
+    Timestamp ->
+    m (PersistentBlockState pv)
+doProcessCooldowns pbs now newExpiry = do
+    bsp <- loadPBS pbs
+    (newAIC, newAccts) <-
+        MTL.execStateT
+            process
+            (bspAccountsInCooldown bsp ^. accountsInCooldown, bspAccounts bsp)
+    storePBS pbs $
+        bsp
+            { bspAccountsInCooldown = AccountsInCooldownForPV (CTrue newAIC),
+              bspAccounts = newAccts
+            }
+  where
+    withCooldown a = (_1 . cooldown .=) =<< a =<< use (_1 . cooldown)
+    withAccounts a = (_2 .=) =<< a =<< use _2
+    process = do
+        cooldown0 <- use (_1 . cooldown)
+        (cooldownList, cooldown1) <- processReleasesUntil now cooldown0
+        _1 . cooldown .= cooldown1
+        forM_ cooldownList $ \acc -> do
+            withAccounts (Accounts.updateAccountsAtIndex' (processCooldownForAccount acc) acc)
+        preCooldownAL <- _1 . preCooldown <<.= Null
+        preCooldowns <- loadAccountList preCooldownAL
+        forM_ preCooldowns $ \acc -> do
+            withAccounts (Accounts.updateAccountsAtIndex' (processPreCooldownForAccount acc) acc)
+    processCooldownForAccount acc pa = do
+        (mNextCooldown, newPA) <- processAccountCooldownsUntil now pa
+        forM_ mNextCooldown $ \nextCooldown -> withCooldown $ addAccountRelease nextCooldown acc
+        return newPA
+    processPreCooldownForAccount acc pa = do
+        (res, newPA) <- processAccountPreCooldown newExpiry pa
+        case res of
+            Just (Just oldTS) -> withCooldown $ updateAccountRelease oldTS newExpiry acc
+            Just Nothing -> withCooldown $ addAccountRelease newExpiry acc
+            Nothing -> return ()
+        return newPA
+
+doProcessPrePreCooldowns ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsFlexibleCooldown pv) =>
+    PersistentBlockState pv ->
+    m (PersistentBlockState pv)
+doProcessPrePreCooldowns pbs = do
+    bsp <- loadPBS pbs
+    let oldAIC = bspAccountsInCooldown bsp ^. accountsInCooldown
+    let !newPreCooldown = assert (isNull (oldAIC ^. preCooldown)) $ oldAIC ^. prePreCooldown
+    let newAIC =
+            oldAIC
+                & preCooldown .~ newPreCooldown
+                & prePreCooldown .~ Null
+    accounts <- loadAccountList newPreCooldown
+    let processAccount = flip $ Accounts.updateAccountsAtIndex' processAccountPrePreCooldown
+    newAccts <- foldM processAccount (bspAccounts bsp) accounts
+    storePBS pbs $
+        bsp
+            { bspAccountsInCooldown = AccountsInCooldownForPV (CTrue newAIC),
+              bspAccounts = newAccts
+            }
+
 doGetBankStatus :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Rewards.BankStatus
 doGetBankStatus pbs = _unhashed . bspBank <$> loadPBS pbs
 
@@ -3635,6 +3708,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoRotateCurrentEpochBakers = doRotateCurrentEpochBakers
     bsoSetNextEpochBakers = doSetNextEpochBakers
     bsoProcessPendingChanges = doProcessPendingChanges
+    bsoProcessCooldowns = doProcessCooldowns
+    bsoProcessPrePreCooldowns = doProcessPrePreCooldowns
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
