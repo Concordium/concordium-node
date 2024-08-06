@@ -104,7 +104,7 @@ migratePersistentBakerInfoEx ::
     t m (PersistentBakerInfoEx (AccountVersionFor pv))
 migratePersistentBakerInfoEx StateMigrationParametersTrivial = migrateReference return
 migratePersistentBakerInfoEx StateMigrationParametersP5ToP6{} = migrateReference return
-migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = migrateReference return
+migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = undefined -- TODO: implement migration
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 --  See documentation of @migratePersistentBlockState@.
@@ -137,14 +137,14 @@ data PersistentAccountStakeEnduring av where
     PersistentAccountStakeEnduringBaker ::
         { paseBakerRestakeEarnings :: !Bool,
           paseBakerInfo :: !(LazyBufferedRef (BakerInfoEx av)),
-          paseBakerPendingChange :: !(StakePendingChange' Timestamp)
+          paseBakerPendingChange :: !(StakePendingChange av)
         } ->
         PersistentAccountStakeEnduring av
     PersistentAccountStakeEnduringDelegator ::
         { paseDelegatorId :: !DelegatorId,
           paseDelegatorRestakeEarnings :: !Bool,
           paseDelegatorTarget :: !DelegationTarget,
-          paseDelegatorPendingChange :: !(StakePendingChange' Timestamp)
+          paseDelegatorPendingChange :: !(StakePendingChange av)
         } ->
         PersistentAccountStakeEnduring av
 
@@ -162,7 +162,7 @@ persistentToAccountStake PersistentAccountStakeEnduringBaker{..} _stakedAmount =
         AccountStakeBaker
             AccountBaker
                 { _stakeEarnings = paseBakerRestakeEarnings,
-                  _bakerPendingChange = PendingChangeEffectiveV1 <$> paseBakerPendingChange,
+                  _bakerPendingChange = paseBakerPendingChange,
                   ..
                 }
 persistentToAccountStake PersistentAccountStakeEnduringDelegator{..} _delegationStakedAmount = do
@@ -172,7 +172,7 @@ persistentToAccountStake PersistentAccountStakeEnduringDelegator{..} _delegation
                 { _delegationIdentity = paseDelegatorId,
                   _delegationStakeEarnings = paseDelegatorRestakeEarnings,
                   _delegationTarget = paseDelegatorTarget,
-                  _delegationPendingChange = PendingChangeEffectiveV1 <$> paseDelegatorPendingChange,
+                  _delegationPendingChange = paseDelegatorPendingChange,
                   ..
                 }
 
@@ -748,7 +748,7 @@ getBaker acc = do
                         { _stakedAmount = accountStakedAmount acc,
                           _stakeEarnings = paseBakerRestakeEarnings,
                           _accountBakerInfo = abi,
-                          _bakerPendingChange = PendingChangeEffectiveV1 <$> paseBakerPendingChange
+                          _bakerPendingChange = paseBakerPendingChange
                         }
             return $ Just bkr
         _ -> return Nothing
@@ -776,7 +776,7 @@ getBakerAndInfoRef acc = do
                         { _stakedAmount = accountStakedAmount acc,
                           _stakeEarnings = paseBakerRestakeEarnings,
                           _accountBakerInfo = bi,
-                          _bakerPendingChange = PendingChangeEffectiveV1 <$> paseBakerPendingChange
+                          _bakerPendingChange = paseBakerPendingChange
                         }
             return $ Just (bkr, paseBakerInfo)
         _ -> return Nothing
@@ -793,7 +793,7 @@ getDelegator acc = do
                           _delegationStakedAmount = accountStakedAmount acc,
                           _delegationStakeEarnings = paseDelegatorRestakeEarnings,
                           _delegationTarget = paseDelegatorTarget,
-                          _delegationPendingChange = PendingChangeEffectiveV1 <$> paseDelegatorPendingChange
+                          _delegationPendingChange = paseDelegatorPendingChange
                         }
             return $ Just del
         _ -> return Nothing
@@ -822,13 +822,13 @@ getStakeDetails acc = do
             StakeDetailsBaker
                 { sdStakedCapital = accountStakedAmount acc,
                   sdRestakeEarnings = paseBakerRestakeEarnings,
-                  sdPendingChange = PendingChangeEffectiveV1 <$> paseBakerPendingChange
+                  sdPendingChange = paseBakerPendingChange
                 }
         PersistentAccountStakeEnduringDelegator{..} ->
             StakeDetailsDelegator
                 { sdStakedCapital = accountStakedAmount acc,
                   sdRestakeEarnings = paseDelegatorRestakeEarnings,
-                  sdPendingChange = PendingChangeEffectiveV1 <$> paseDelegatorPendingChange,
+                  sdPendingChange = paseDelegatorPendingChange,
                   sdDelegationTarget = paseDelegatorTarget
                 }
         PersistentAccountStakeEnduringNone -> StakeDetailsNone
@@ -1096,12 +1096,10 @@ setStakePendingChange newPC =
     updateStake $
         return . \case
             baker@PersistentAccountStakeEnduringBaker{} ->
-                baker{paseBakerPendingChange = newPC'}
+                baker{paseBakerPendingChange = newPC}
             del@PersistentAccountStakeEnduringDelegator{} ->
-                del{paseDelegatorPendingChange = newPC'}
+                del{paseDelegatorPendingChange = newPC}
             PersistentAccountStakeEnduringNone -> error "setStakePendingChange invariant violation: account is not a baker or delegator"
-  where
-    newPC' = pendingChangeEffectiveTimestamp <$> newPC
 
 -- | Set the target of a delegating account.
 --  This MUST only be called with an account that is a delegator.
@@ -1185,7 +1183,7 @@ makePersistentAccount Transient.Account{..} = do
             let baker =
                     PersistentAccountStakeEnduringBaker
                         { paseBakerRestakeEarnings = _stakeEarnings,
-                          paseBakerPendingChange = pendingChangeEffectiveTimestamp <$> _bakerPendingChange,
+                          paseBakerPendingChange = _bakerPendingChange,
                           ..
                         }
             return (_stakedAmount, baker)
@@ -1195,7 +1193,7 @@ makePersistentAccount Transient.Account{..} = do
                         { paseDelegatorRestakeEarnings = _delegationStakeEarnings,
                           paseDelegatorId = _delegationIdentity,
                           paseDelegatorTarget = _delegationTarget,
-                          paseDelegatorPendingChange = pendingChangeEffectiveTimestamp <$> _delegationPendingChange
+                          paseDelegatorPendingChange = _delegationPendingChange
                         }
             return (_delegationStakedAmount, del)
     paedEncryptedAmount <- do
@@ -1353,7 +1351,7 @@ migratePersistentAccount ::
     t m (PersistentAccount (AccountVersionFor pv))
 migratePersistentAccount StateMigrationParametersTrivial acc = migrateV2ToV2 acc
 migratePersistentAccount StateMigrationParametersP5ToP6{} acc = migrateV2ToV2 acc
-migratePersistentAccount StateMigrationParametersP6ToP7{} acc = migrateV2ToV2 acc
+migratePersistentAccount StateMigrationParametersP6ToP7{} _ = undefined -- TODO: implement migration
 
 -- | Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
 --  'P4' to 'P5'.
@@ -1380,7 +1378,7 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
             let baker =
                     PersistentAccountStakeEnduringBaker
                         { paseBakerRestakeEarnings = _stakeEarnings,
-                          paseBakerPendingChange = pendingChangeEffectiveTimestamp <$> _bakerPendingChange,
+                          paseBakerPendingChange = coercePendingChangeEffectiveV1 <$> _bakerPendingChange,
                           ..
                         }
             return (_stakedAmount, baker)
@@ -1391,7 +1389,7 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
                         { paseDelegatorRestakeEarnings = _delegationStakeEarnings,
                           paseDelegatorId = _delegationIdentity,
                           paseDelegatorTarget = _delegationTarget,
-                          paseDelegatorPendingChange = pendingChangeEffectiveTimestamp <$> _delegationPendingChange
+                          paseDelegatorPendingChange = coercePendingChangeEffectiveV1 <$> _delegationPendingChange
                         }
             return (_delegationStakedAmount, del)
     paedEncryptedAmount <- do
