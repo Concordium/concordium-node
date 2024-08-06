@@ -2634,6 +2634,8 @@ doSetPaydayMintRate pbs r = do
             hpr' <- refMake pr{nextPaydayMintRate = r}
             storePBS pbs bsp{bspRewardDetails = BlockRewardDetailsV1 hpr'}
 
+-- | Get the status of passive delegation.
+--  Used to implement 'getPassiveDelegationStatus'.
 doGetPassiveDelegationStatus ::
     forall pv m.
     (IsProtocolVersion pv, SupportsPersistentState pv m, PVSupportsDelegation pv) =>
@@ -2650,6 +2652,9 @@ doGetPassiveDelegationStatus pbs = case delegationChainParameters @pv of
         pdsAllPoolTotalCapital <- totalCapital bsp
         return $! PassiveDelegationStatus{..}
 
+-- | Get a 'BakerPoolStatus' record describing the status of a baker pool. The result is
+--  'Nothing' if the 'BakerId' is not an active or current-epoch baker.
+--  Used to implement 'getPoolStatus'.
 doGetPoolStatus ::
     forall pv m.
     ( IsProtocolVersion pv,
@@ -2690,7 +2695,12 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                         poolRewards <- refLoad (bspPoolRewards bsp)
                         mbcr <- lookupBakerCapitalAndRewardDetails psBakerId poolRewards
                         case mbcr of
-                            Nothing -> return Nothing -- This should not happen
+                            Nothing ->
+                                error $
+                                    "doGetPoolStatus: invariant violation: baker "
+                                        ++ show psBakerId
+                                        ++ " is present in the current epoch bakers, but not \
+                                           \the current epoch capital distribution."
                             Just (bc, BakerPoolRewardDetails{..}) -> do
                                 return $
                                     Just
