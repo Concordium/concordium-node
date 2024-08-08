@@ -122,6 +122,10 @@ transactionHelper t =
             return $ signTx keys meta (Types.encodePayload Types.TransferWithScheduleAndMemo{..})
         (TJSON meta ConfigureDelegation{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.ConfigureDelegation{..})
+        (TJSON meta Suspend keys) ->
+            return $ signTx keys meta (Types.encodePayload Types.Suspend)
+        (TJSON meta Resume keys) ->
+            return $ signTx keys meta (Types.encodePayload Types.Resume)
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON] -> m [Types.AccountTransaction]
 processTransactions = mapM transactionHelper
@@ -197,6 +201,10 @@ data PayloadJSON
         { -- | New set of credential keys to be replaced with the existing ones, including updating the threshold.
           uckCredId :: CredentialRegistrationID,
           uckKeys :: !CredentialPublicKeys
+        }
+    | UpdateSuspendResume
+        { -- | Update the suspended flag of the validator account. True: suspend, False: resume.
+          usrSuspendResume :: !Bool
         }
     | TransferToEncrypted
         { tteAmount :: !Amount
