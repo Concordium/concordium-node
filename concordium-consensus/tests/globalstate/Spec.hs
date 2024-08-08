@@ -10,6 +10,7 @@ import qualified GlobalStateTests.AccountsMigrationP6ToP7 (tests)
 import qualified GlobalStateTests.BlobStore (tests)
 import qualified GlobalStateTests.BlockHash (tests)
 import qualified GlobalStateTests.Cache (tests)
+import qualified GlobalStateTests.ConfigureValidator (tests)
 import qualified GlobalStateTests.CooldownProcessing (tests)
 import qualified GlobalStateTests.CooldownQueue (tests)
 import qualified GlobalStateTests.DifferenceMap (tests)
@@ -57,3 +58,4 @@ main = atLevel $ \lvl -> hspec $ do
     GlobalStateTests.AccountsMigrationP6ToP7.tests
     GlobalStateTests.CooldownQueue.tests
     GlobalStateTests.CooldownProcessing.tests
+    GlobalStateTests.ConfigureValidator.tests lvl

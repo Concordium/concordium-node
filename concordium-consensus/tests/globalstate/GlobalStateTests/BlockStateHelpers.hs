@@ -11,6 +11,7 @@ module GlobalStateTests.BlockStateHelpers where
 
 import Control.Exception
 import Control.Monad.IO.Class
+import Data.Bool.Singletons
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Set as Set
@@ -68,77 +69,73 @@ data AccountConfig (av :: AccountVersion) = AccountConfig
     }
     deriving (Show)
 
--- | Helper function for creating the initial stake for an account.
-makePersistentAccountStakeEnduring ::
-    (MonadBlobStore m, AVSupportsFlexibleCooldown av, AVSupportsDelegation av, IsAccountVersion av) =>
-    -- | The 'StakeDetails' for the account.
-    StakeDetails av ->
-    -- | The account index.
+-- | Set the staking details for an account.
+setAccountStakeDetails ::
+    (MonadBlobStore m, AVSupportsDelegation av, IsAccountVersion av) =>
     AccountIndex ->
-    -- | The 'SV1.PersistentAccountStakeEnduring' and the amount staked.
-    m (SV1.PersistentAccountStakeEnduring av, Amount)
-makePersistentAccountStakeEnduring StakeDetailsNone _ = return (SV1.PersistentAccountStakeEnduringNone, 0)
-makePersistentAccountStakeEnduring StakeDetailsBaker{..} ai = do
-    let fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
-    paseBakerInfo <-
-        refMake
-            BakerInfoExV1
-                { _bieBakerInfo = fulBaker ^. bakerInfo,
-                  _bieBakerPoolInfo = poolInfo
-                }
-    return
-        ( SV1.PersistentAccountStakeEnduringBaker
-            { paseBakerRestakeEarnings = sdRestakeEarnings,
-              paseBakerPendingChange = NoChange,
-              ..
-            },
-          sdStakedCapital
-        )
+    StakeDetails av ->
+    PersistentAccount av ->
+    m (PersistentAccount av)
+setAccountStakeDetails _ StakeDetailsNone acc = return acc
+setAccountStakeDetails ai StakeDetailsBaker{..} acc =
+    setAccountStakePendingChange sdPendingChange
+        =<< addAccountBakerV1 bie sdStakedCapital sdRestakeEarnings acc
   where
+    bie =
+        BakerInfoExV1
+            { _bieBakerInfo = fulBaker ^. bakerInfo,
+              _bieBakerPoolInfo = poolInfo
+            }
+    fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
     poolInfo =
         BakerPoolInfo
             { _poolOpenStatus = OpenForAll,
               _poolMetadataUrl = UrlText "Some URL",
               _poolCommissionRates =
+                -- Note: these commission rates are significant for the ConfigureValidator tests
                 CommissionRates
-                    { _finalizationCommission = makeAmountFraction 50_000,
-                      _bakingCommission = makeAmountFraction 50_000,
-                      _transactionCommission = makeAmountFraction 50_000
+                    { _finalizationCommission = makeAmountFraction 350,
+                      _bakingCommission = makeAmountFraction 550,
+                      _transactionCommission = makeAmountFraction 150
                     }
             }
-makePersistentAccountStakeEnduring StakeDetailsDelegator{..} ai = do
-    return
-        ( SV1.PersistentAccountStakeEnduringDelegator
-            { paseDelegatorId = DelegatorId ai,
-              paseDelegatorRestakeEarnings = sdRestakeEarnings,
-              paseDelegatorTarget = sdDelegationTarget,
-              paseDelegatorPendingChange = NoChange
-            },
-          sdStakedCapital
-        )
+setAccountStakeDetails ai StakeDetailsDelegator{..} acc =
+    setAccountStakePendingChange sdPendingChange =<< addAccountDelegator del acc
+  where
+    del =
+        AccountDelegationV1
+            { _delegationTarget = sdDelegationTarget,
+              _delegationStakedAmount = sdStakedCapital,
+              _delegationStakeEarnings = sdRestakeEarnings,
+              _delegationPendingChange = NoChange,
+              _delegationIdentity = DelegatorId ai
+            }
 
 -- | Create a dummy 'PersistentAccount' from an 'AccountConfig'.
 makeDummyAccount ::
     forall av m.
     ( IsAccountVersion av,
       MonadBlobStore m,
-      SupportsFlexibleCooldown av ~ 'True
+      SupportsDelegation av ~ 'True
     ) =>
     AccountConfig av ->
     m (PersistentAccount av)
 makeDummyAccount AccountConfig{..} = do
-    makeTestAccountFromSeed @av acAmount (fromIntegral acAccountIndex) >>= \case
-        PAV3 acc -> do
-            let ed = SV1.enduringData acc
-            cq <- CooldownQueue.makeCooldownQueue acCooldowns
-            (staking, stakeAmount) <- makePersistentAccountStakeEnduring acStaking acAccountIndex
-            newEnduring <-
-                refMake
-                    =<< SV1.rehashAccountEnduringData
-                        ed{SV1.paedStakeCooldown = cq, SV1.paedStake = staking}
-            return $
-                PAV3
-                    acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
+    acc0 <- makeTestAccountFromSeed @av acAmount (fromIntegral acAccountIndex)
+    acc1 <- setAccountStakeDetails acAccountIndex acStaking acc0
+    case sSupportsFlexibleCooldown (accountVersion @av) of
+        STrue -> case acc1 of
+            PAV3 acc -> do
+                let ed = SV1.enduringData acc
+                cq <- CooldownQueue.makeCooldownQueue acCooldowns
+                newEnduring <-
+                    refMake
+                        =<< SV1.rehashAccountEnduringData
+                            ed{SV1.paedStakeCooldown = cq}
+                return $
+                    PAV3
+                        acc{SV1.accountEnduringData = newEnduring}
+        SFalse -> return acc1
 
 -- | Run a block state computation using a temporary directory for the blob store and account map.
 runTestBlockState ::

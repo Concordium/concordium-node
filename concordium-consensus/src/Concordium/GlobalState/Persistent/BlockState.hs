@@ -306,7 +306,7 @@ initialBirkParameters accounts seedState _bakerFinalizationCommitteeParameters =
                   _passiveDelegators = ibpcdToPassive,
                   _totalActiveCapital = case delegationSupport @av of
                     SAVDelegationNotSupported -> TotalActiveCapitalV0
-                    SAVDelegationSupported -> TotalActiveCapitalV1 aibpTotal
+                    SAVDelegationSupported -> TotalActiveCapitalV1 aibpStakedTotal
                 }
 
     nextEpochBakers <- do
@@ -1760,7 +1760,9 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --           the current baker cooldown period according to the chain parameters
 --
 --           - (>= P7) transfer the existing staked capital to pre-pre-cooldown, and mark the
---           account as in pre-pre-cooldown (in the global index) if it wasn't already
+--           account as in pre-pre-cooldown (in the global index) if it wasn't already, and
+--           update the active bakers index to reflect the change, including removing the baker's
+--           aggregation key from the in-use set
 --
 --           - append @BakerConfigureStakeReduced 0@ to @events@;
 --
@@ -1772,8 +1774,9 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --             @bcuSlotTimestamp@ plus the current baker cooldown period according to the chain
 --             parameters
 --
---           - (>= P7) transfer the decrease in staked capital to pre-pre-cooldown, and mark the
---             account as in pre-pre-cooldown (in the global index) if it wasn't already
+--           - (>= P7) transfer the decrease in staked capital to pre-pre-cooldown, mark the
+--             account as in pre-pre-cooldown (in the global index) if it wasn't already, and
+--             update the active bakers index to reflect the change
 --
 --           - append @BakerConfigureStakeReduced capital@ to @events@;
 --
@@ -1926,7 +1929,12 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
                 MTL.tell [BakerConfigureStakeReduced 0]
                 alreadyInPrePreCooldown <- accountHasPrePreCooldown acc
                 acc1 <- removeAccountStake acc >>= addAccountPrePreCooldown oldCapital
-                bsp1 <- moveDelegatorsToPassive bsp (Just oldCapital)
+                let oldKeys =
+                        maybe
+                            (oldBaker ^. BaseAccounts.bakerAggregationVerifyKey)
+                            bkuAggregationKey
+                            vuKeys
+                bsp1 <- moveDelegatorsToPassive bsp (Just (oldCapital, oldKeys))
                 bsp2 <- (if alreadyInPrePreCooldown then return else addToPrePreCooldowns) bsp1
                 return (bsp2, acc1)
             else case compare capital oldCapital of
@@ -1955,16 +1963,22 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
                     let bsp2 = bsp1{bspAccountsInCooldown = newAIC}
                     return (bsp2, acc1)
     -- Move all @bid@'s current delegators into passive delegation.
-    -- If the amount (the baker's prior stake) is specified, then @bid@ is removed from the active
-    -- bakers, and the total active capital is reduced accordingly.
-    moveDelegatorsToPassive bsp mAmount = do
+    -- If the amount (the baker's prior stake) and key (the bakers prior aggregation key) are
+    -- specified, then @bid@ is removed from the active bakers, the total active capital is reduced
+    -- accordingly, and the aggregation key is removed from the set of keys in use.
+    moveDelegatorsToPassive bsp mAmountAndKey = do
         pab0 <- refLoad (bspBirkParameters bsp ^. birkActiveBakers)
         (delegators, pab1) <- transferDelegatorsToPassive bid pab0
-        pab2 <- case mAmount of
+        pab2 <- case mAmountAndKey of
             Nothing -> return pab1
-            Just amount -> do
-                newTrie <- Trie.delete bid (pab1 ^. activeBakers)
-                return $ pab1 & totalActiveCapital %~ subtractActiveCapital amount & activeBakers .~ newTrie
+            Just (amount, aggKey) -> do
+                newActiveBakers <- Trie.delete bid (pab1 ^. activeBakers)
+                newAggregationKeys <- Trie.delete aggKey (pab1 ^. aggregationKeys)
+                return $
+                    pab1
+                        & totalActiveCapital %~ subtractActiveCapital amount
+                        & activeBakers .~ newActiveBakers
+                        & aggregationKeys .~ newAggregationKeys
         newPABref <- refMake pab2
         let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newPABref
         newAccounts <- foldM redelegatePassive (bspAccounts bsp) delegators
@@ -2052,7 +2066,7 @@ addDelegatorChecks bsp DelegatorAdd{daDelegationTarget = Transactions.DelegateTo
   where
     BakerId baid = bid
 
--- \| From chain parameters version >= 1, this operation is used to add a delegator.
+-- | From chain parameters version >= 1, this operation is used to add a delegator.
 --  When adding delegator, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
 --
 --  PRECONDITIONS:
