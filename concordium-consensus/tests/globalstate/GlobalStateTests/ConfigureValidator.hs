@@ -42,36 +42,6 @@ import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
 import GlobalStateTests.BlockStateHelpers
 
--- | Representation of the active bakers in the block state.
-data ActiveBakers = ActiveBakers
-    { abActiveBakers :: Map.Map BakerId ([DelegatorId], Amount),
-      abAggregationKeys :: [BakerAggregationVerifyKey],
-      abPassiveDelegators :: ([DelegatorId], Amount),
-      abTotalActiveCapital :: Amount
-    }
-    deriving (Eq, Show)
-
--- | Load the active bakers from the block state.
--- Note, 'abTotalActiveCapital' will be 0 if the block state is from a version that does not store
--- this value.
-loadActiveBakers :: forall av m. (MonadBlobStore m, IsAccountVersion av) => BufferedRef (PersistentActiveBakers av) -> m ActiveBakers
-loadActiveBakers pabRef = do
-    PersistentActiveBakers{..} <- refLoad pabRef
-    bakers0 <- Trie.toMap _activeBakers
-    abActiveBakers <- mapM loadActiveDelegators bakers0
-    abAggregationKeys <- Map.keys <$> Trie.toMap _aggregationKeys
-    abPassiveDelegators <- loadActiveDelegators _passiveDelegators
-    let abTotalActiveCapital = case _totalActiveCapital of
-            TotalActiveCapitalV0 -> 0
-            TotalActiveCapitalV1 capital -> capital
-    return ActiveBakers{..}
-  where
-    loadActiveDelegators :: PersistentActiveDelegators av -> m ([DelegatorId], Amount)
-    loadActiveDelegators PersistentActiveDelegatorsV0 = return ([], 0)
-    loadActiveDelegators (PersistentActiveDelegatorsV1 delegators capital) = do
-        dlgs <- Trie.keysAsc delegators
-        return (dlgs, capital)
-
 -- | Test accounts used for testing the 'bsoAddValidator' function.
 --  The first account is a regular account, the second account is a baker account.
 addValidatorTestAccounts ::
@@ -83,6 +53,7 @@ addValidatorTestAccounts withCooldowns =
         { acAccountIndex = 0,
           acAmount = 1_000_000_000_000,
           acStaking = StakeDetailsNone,
+          acPoolInfo = Nothing,
           acCooldowns = if withCooldowns then initialTestCooldowns else emptyCooldowns
         },
       AccountConfig
@@ -94,6 +65,7 @@ addValidatorTestAccounts withCooldowns =
                   sdRestakeEarnings = True,
                   sdPendingChange = NoChange
                 },
+          acPoolInfo = Nothing,
           acCooldowns = emptyCooldowns
         }
     ]
@@ -143,10 +115,6 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
         when supportCooldown $ it (show vc <> " with cooldown") $ runTest True vc
   where
     supportCooldown = supportsFlexibleCooldown $ accountVersionFor $ demoteProtocolVersion (protocolVersion @pv)
-    seedState :: SeedState (SeedStateVersionFor pv)
-    seedState = case sSeedStateVersionFor (protocolVersion @pv) of
-        SSeedStateVersion0 -> initialSeedStateV0 (Hash.hash "NONCE") 1000
-        SSeedStateVersion1 -> initialSeedStateV1 (Hash.hash "NONCE") 1000
     minEquity = 1_000_000_000
     chainParams =
         DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
@@ -160,7 +128,7 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
     mkInitialState accounts =
         hpbsPointers
             <$> initialPersistentState @pv
-                seedState
+                (dummySeedState (protocolVersion @pv))
                 DummyData.dummyCryptographicParameters
                 accounts
                 DummyData.dummyIdentityProviders
@@ -194,15 +162,8 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                 | otherwise = Right ()
         liftIO $ void res `shouldBe` expect
         forM_ res $ \bs -> do
-            -- To check that the active stake indexes are updated correctly, we construct a new
-            -- block state using the current state of the accounts (which will build the indexes
-            -- anew) and check that the indexes match.
-            bsp <- loadPBS bs
-            theAccounts <- Accounts.foldAccountsDesc (\l a -> pure (a : l)) [] (bspAccounts bsp)
-            newBSP <- loadPBS =<< mkInitialState theAccounts
-            expectedActiveBakers <- loadActiveBakers (_birkActiveBakers $ bspBirkParameters newBSP)
-            actualActiveBakers <- loadActiveBakers (_birkActiveBakers $ bspBirkParameters bsp)
-            liftIO $ actualActiveBakers `shouldBe` expectedActiveBakers
+            -- Check the active bakers are correct
+            checkActiveBakers bs
             () <- case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
                 STrue -> do
                     -- Check that the cooldowns are correct
@@ -272,6 +233,7 @@ updateValidatorTestAccounts pendingChangeOrCooldown =
                   sdRestakeEarnings = True,
                   sdPendingChange = pendingChange
                 },
+          acPoolInfo = Nothing,
           acCooldowns = cooldowns
         },
       AccountConfig
@@ -283,6 +245,7 @@ updateValidatorTestAccounts pendingChangeOrCooldown =
                   sdRestakeEarnings = True,
                   sdPendingChange = NoChange
                 },
+          acPoolInfo = Nothing,
           acCooldowns = emptyCooldowns
         },
       AccountConfig
@@ -295,6 +258,7 @@ updateValidatorTestAccounts pendingChangeOrCooldown =
                   sdPendingChange = NoChange,
                   sdDelegationTarget = DelegateToBaker 0
                 },
+          acPoolInfo = Nothing,
           acCooldowns = emptyCooldowns
         }
     ]
@@ -527,15 +491,8 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                             then [BakerConfigureStakeIncreased capital]
                             else [BakerConfigureStakeReduced capital]
         liftIO $ changes `shouldBe` expectChanges
-        -- To check that the active stake indexes are updated correctly, we construct a new
-        -- block state using the current state of the accounts (which will build the indexes
-        -- anew) and check that the indexes match.
-        bsp <- loadPBS bs
-        theAccounts <- Accounts.foldAccountsDesc (\l a -> pure (a : l)) [] (bspAccounts bsp)
-        newBSP <- loadPBS =<< mkInitialState theAccounts
-        expectedActiveBakers <- loadActiveBakers (_birkActiveBakers $ bspBirkParameters newBSP)
-        actualActiveBakers <- loadActiveBakers (_birkActiveBakers $ bspBirkParameters bsp)
-        liftIO $ actualActiveBakers `shouldBe` expectedActiveBakers
+        -- Check the active bakers are correct
+        checkActiveBakers bs
         () <- case flexibleCooldown of
             STrue -> do
                 -- Check that the cooldowns are correct
@@ -590,10 +547,6 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
         liftIO $ actualAccountBaker `shouldBe` expectedAccountBaker
   where
     flexibleCooldown = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
-    seedState :: SeedState (SeedStateVersionFor pv)
-    seedState = case sSeedStateVersionFor (protocolVersion @pv) of
-        SSeedStateVersion0 -> initialSeedStateV0 (Hash.hash "NONCE") 1000
-        SSeedStateVersion1 -> initialSeedStateV1 (Hash.hash "NONCE") 1000
     minEquity = 1_000_000_000
     chainParams =
         DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
@@ -603,7 +556,7 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
     mkInitialState accounts =
         hpbsPointers
             <$> initialPersistentState @pv
-                seedState
+                (dummySeedState (protocolVersion @pv))
                 DummyData.dummyCryptographicParameters
                 accounts
                 DummyData.dummyIdentityProviders

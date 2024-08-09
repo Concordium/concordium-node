@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -41,6 +40,11 @@ import qualified Concordium.GlobalState.Persistent.ReleaseSchedule as ReleaseSch
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.Scheduler.DummyData
 
+import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.GlobalState.Parameters
+import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import Concordium.GlobalState.Persistent.Bakers
+import Concordium.Types.SeedState
 import GlobalStateTests.Accounts (NoLoggerT (..), runNoLoggerT)
 
 -- | Construct a dummy account with the specified cooldowns.
@@ -65,19 +69,35 @@ data AccountConfig (av :: AccountVersion) = AccountConfig
     { acAccountIndex :: AccountIndex,
       acAmount :: Amount,
       acStaking :: StakeDetails av,
+      acPoolInfo :: Maybe BakerPoolInfo,
       acCooldowns :: Cooldowns
     }
     deriving (Show)
+
+dummyBakerPoolInfo :: BakerPoolInfo
+dummyBakerPoolInfo =
+    BakerPoolInfo
+        { _poolOpenStatus = OpenForAll,
+          _poolMetadataUrl = UrlText "Some URL",
+          _poolCommissionRates =
+            -- Note: these commission rates are significant for the ConfigureValidator tests
+            CommissionRates
+                { _finalizationCommission = makeAmountFraction 350,
+                  _bakingCommission = makeAmountFraction 550,
+                  _transactionCommission = makeAmountFraction 150
+                }
+        }
 
 -- | Set the staking details for an account.
 setAccountStakeDetails ::
     (MonadBlobStore m, AVSupportsDelegation av, IsAccountVersion av) =>
     AccountIndex ->
     StakeDetails av ->
+    Maybe BakerPoolInfo ->
     PersistentAccount av ->
     m (PersistentAccount av)
-setAccountStakeDetails _ StakeDetailsNone acc = return acc
-setAccountStakeDetails ai StakeDetailsBaker{..} acc =
+setAccountStakeDetails _ StakeDetailsNone _ acc = return acc
+setAccountStakeDetails ai StakeDetailsBaker{..} mPoolInfo acc =
     setAccountStakePendingChange sdPendingChange
         =<< addAccountBakerV1 bie sdStakedCapital sdRestakeEarnings acc
   where
@@ -87,19 +107,8 @@ setAccountStakeDetails ai StakeDetailsBaker{..} acc =
               _bieBakerPoolInfo = poolInfo
             }
     fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
-    poolInfo =
-        BakerPoolInfo
-            { _poolOpenStatus = OpenForAll,
-              _poolMetadataUrl = UrlText "Some URL",
-              _poolCommissionRates =
-                -- Note: these commission rates are significant for the ConfigureValidator tests
-                CommissionRates
-                    { _finalizationCommission = makeAmountFraction 350,
-                      _bakingCommission = makeAmountFraction 550,
-                      _transactionCommission = makeAmountFraction 150
-                    }
-            }
-setAccountStakeDetails ai StakeDetailsDelegator{..} acc =
+    poolInfo = fromMaybe dummyBakerPoolInfo mPoolInfo
+setAccountStakeDetails ai StakeDetailsDelegator{..} _ acc =
     setAccountStakePendingChange sdPendingChange =<< addAccountDelegator del acc
   where
     del =
@@ -122,7 +131,7 @@ makeDummyAccount ::
     m (PersistentAccount av)
 makeDummyAccount AccountConfig{..} = do
     acc0 <- makeTestAccountFromSeed @av acAmount (fromIntegral acAccountIndex)
-    acc1 <- setAccountStakeDetails acAccountIndex acStaking acc0
+    acc1 <- setAccountStakeDetails acAccountIndex acStaking acPoolInfo acc0
     case sSupportsFlexibleCooldown (accountVersion @av) of
         STrue -> case acc1 of
             PAV3 acc -> do
@@ -199,3 +208,71 @@ checkCooldowns pbs = do
     actualPrePreCooldowns <- Set.fromList <$> Cooldown.loadAccountList (aic ^. Cooldown.prePreCooldown)
     liftIO $ assertEqual "Pre-pre-cooldown set" prePreCooldowns actualPrePreCooldowns
     return (reverse theCooldowns)
+
+dummySeedState :: forall pv. SProtocolVersion pv -> SeedState (SeedStateVersionFor pv)
+dummySeedState spv = case sSeedStateVersionFor spv of
+    SSeedStateVersion0 -> initialSeedStateV0 (Hash.hash "NONCE") 1000
+    SSeedStateVersion1 -> initialSeedStateV1 (Hash.hash "NONCE") 1000
+
+-- | Representation of the active bakers in the block state.
+data ActiveBakers = ActiveBakers
+    { abActiveBakers :: Map.Map BakerId ([DelegatorId], Amount),
+      abAggregationKeys :: [BakerAggregationVerifyKey],
+      abPassiveDelegators :: ([DelegatorId], Amount),
+      abTotalActiveCapital :: Amount
+    }
+    deriving (Eq, Show)
+
+-- | Load the active bakers from the block state.
+-- Note, 'abTotalActiveCapital' will be 0 if the block state is from a version that does not store
+-- this value.
+loadActiveBakers :: forall av m. (MonadBlobStore m, IsAccountVersion av) => BufferedRef (PersistentActiveBakers av) -> m ActiveBakers
+loadActiveBakers pabRef = do
+    PersistentActiveBakers{..} <- refLoad pabRef
+    bakers0 <- Trie.toMap _activeBakers
+    abActiveBakers <- mapM loadActiveDelegators bakers0
+    abAggregationKeys <- Map.keys <$> Trie.toMap _aggregationKeys
+    abPassiveDelegators <- loadActiveDelegators _passiveDelegators
+    let abTotalActiveCapital = case _totalActiveCapital of
+            TotalActiveCapitalV0 -> 0
+            TotalActiveCapitalV1 capital -> capital
+    return ActiveBakers{..}
+  where
+    loadActiveDelegators :: PersistentActiveDelegators av -> m ([DelegatorId], Amount)
+    loadActiveDelegators PersistentActiveDelegatorsV0 = return ([], 0)
+    loadActiveDelegators (PersistentActiveDelegatorsV1 delegators capital) = do
+        dlgs <- Trie.keysAsc delegators
+        return (dlgs, capital)
+
+-- | Check that the active bakers in the block state are correct for the accounts by constructing
+--  a fresh block state from the accounts and comparing the active bakers.
+checkActiveBakers :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> m ()
+checkActiveBakers bs = do
+    bsp <- loadPBS bs
+    theAccounts <- Accounts.foldAccountsDesc (\l a -> pure (a : l)) [] (bspAccounts bsp)
+    newBSP <- loadPBS . hpbsPointers =<< mkInitialState theAccounts
+    expectedActiveBakers <- loadActiveBakers (_birkActiveBakers $ bspBirkParameters newBSP)
+    actualActiveBakers <- loadActiveBakers (_birkActiveBakers $ bspBirkParameters bsp)
+    liftIO $ assertEqual "ActiveBakers" expectedActiveBakers actualActiveBakers
+  where
+    spv = protocolVersion @pv
+    mkInitialState accounts =
+        initialPersistentState @pv
+            (dummySeedState spv)
+            DummyData.dummyCryptographicParameters
+            accounts
+            DummyData.dummyIdentityProviders
+            DummyData.dummyArs
+            (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+            DummyData.dummyChainParameters
+
+dumpState :: (SupportsPersistentState pv m) => HashedPersistentBlockState pv -> m ()
+dumpState hpbs = do
+    bsp <- loadPBS (hpbsPointers hpbs)
+    liftIO $ putStrLn "== Accounts =="
+
+    Accounts.foldAccounts (\_ -> showPA) () (bspAccounts bsp)
+    return ()
+  where
+    showPA pa = do
+        liftIO . print =<< toTransientAccount pa
