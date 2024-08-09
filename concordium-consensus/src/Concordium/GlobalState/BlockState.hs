@@ -81,7 +81,7 @@ import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.IdentityProviders
-import Concordium.Types.Queries (PoolStatus, RewardStatus')
+import Concordium.Types.Queries (BakerPoolStatus, PassiveDelegationStatus, RewardStatus')
 import Concordium.Types.SeedState (SeedState, SeedStateVersion (..), SeedStateVersionFor)
 import Concordium.Types.Transactions hiding (BareBlockItem (..))
 import qualified Concordium.Types.UpdateQueues as UQ
@@ -89,6 +89,7 @@ import qualified Concordium.Types.UpdateQueues as UQ
 import Concordium.Crypto.EncryptedTransfers
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.CooldownQueue (Cooldowns)
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
@@ -167,9 +168,9 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- | Check whether an account is allowed to perform the given action.
     checkAccountIsAllowed :: Account m -> AccountAllowance -> m Bool
 
-    -- | Get the amount that is staked on the account.
+    -- | Get the amount that is staked on the account, both active and inactive (P7 onwards).
     --  This is 0 if the account is not staking or delegating.
-    getAccountStakedAmount :: Account m -> m Amount
+    getAccountTotalStakedAmount :: Account m -> m Amount
 
     -- | Get the amount that is locked in scheduled releases on the account.
     --  This is 0 if there are no pending releases on the account.
@@ -179,11 +180,6 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- This accounts for lock-up and staked amounts.
     -- @available = total - max locked staked@
     getAccountAvailableAmount :: Account m -> m Amount
-    getAccountAvailableAmount acc = do
-        total <- getAccountAmount acc
-        lockedUp <- getAccountLockedAmount acc
-        staked <- getAccountStakedAmount acc
-        return $ total - max lockedUp staked
 
     -- | Get the next available nonce for this account
     getAccountNonce :: Account m -> m Nonce
@@ -249,6 +245,13 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- | Get the hash of an account.
     --  Note: this may not be implemented efficiently, and is principally intended for testing purposes.
     getAccountHash :: Account m -> m (AccountHash (AccountVersionFor (MPV m)))
+
+    -- | Get the 'Cooldowns' for an account, if any. This is only available at account versions that
+    -- support flexible cooldowns.
+    getAccountCooldowns ::
+        (PVSupportsFlexibleCooldown (MPV m)) =>
+        Account m ->
+        m (Maybe Cooldowns)
 
 -- * Active, current and next bakers/delegators
 
@@ -646,14 +649,19 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the epoch time of the next scheduled payday.
     getPaydayEpoch :: (PVSupportsDelegation (MPV m)) => BlockState m -> m Epoch
 
-    -- | Get a 'PoolStatus' record describing the status of a baker pool (when the 'BakerId' is
-    --  provided) or the passive delegators (when 'Nothing' is provided). The result is 'Nothing'
-    --  if the 'BakerId' is not currently a baker.
+    -- | Get a 'BakerPoolStatus' record describing the status of a baker pool. The result is
+    -- 'Nothing' if the 'BakerId' is not an active or current-epoch baker.
     getPoolStatus ::
         (PVSupportsDelegation (MPV m)) =>
         BlockState m ->
-        Maybe BakerId ->
-        m (Maybe PoolStatus)
+        BakerId ->
+        m (Maybe BakerPoolStatus)
+
+    -- | Get the status of passive delegation.
+    getPassiveDelegationStatus ::
+        (PVSupportsDelegation (MPV m)) =>
+        BlockState m ->
+        m PassiveDelegationStatus
 
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
@@ -891,10 +899,34 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  the delegation from the active bakers index.
     --  For delegators pending stake reduction, this reduces the stake.
     bsoProcessPendingChanges ::
-        (PVSupportsDelegation (MPV m)) =>
+        ( PVSupportsDelegation (MPV m),
+          SupportsFlexibleCooldown (AccountVersionFor (MPV m)) ~ 'False
+        ) =>
         UpdatableBlockState m ->
         -- | Guard determining if a change is effective
         (Timestamp -> Bool) ->
+        m (UpdatableBlockState m)
+
+    -- | Process cooldowns on accounts that have expired, and move pre-cooldowns into cooldown.
+    --  All cooldowns that expire at or before the given expiry time will be removed from accounts.
+    --  After this, all pre-cooldowns on accounts are moved into cooldown.
+    bsoProcessCooldowns ::
+        (PVSupportsFlexibleCooldown (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | Timestamp for expiring cooldowns.
+        Timestamp ->
+        -- | Timestamp for pre-cooldowns entering cooldown.
+        Timestamp ->
+        m (UpdatableBlockState m)
+
+    -- | Move all pre-pre-cooldowns into pre-cooldown.
+    --  It is assumed that there are currently no pre-cooldowns. This should be ensured by
+    --  calling 'bsoProcessCooldowns' between successive calls to 'bsoProcessPrePreCooldowns', as
+    --  that moves all pre-cooldowns into cooldown, and only 'bsoProcessPrePreCooldowns' moves
+    --  anything into pre-cooldown.
+    bsoProcessPrePreCooldowns ::
+        (PVSupportsFlexibleCooldown (MPV m)) =>
+        UpdatableBlockState m ->
         m (UpdatableBlockState m)
 
     -- | Get the list of all active bakers in ascending order.
@@ -943,10 +975,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
         BakerAdd ->
         m (BakerAddResult, UpdatableBlockState m)
 
-    -- | From chain parameters version >= 1, this operation is used to add/remove/update a baker.
-    --  When adding baker, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
+    -- | From chain parameters version >= 1, this adds a validator for an account.
     --
-    --  When the argument is 'BakerConfigureAdd', the caller __must ensure__ that:
+    --  PRECONDITIONS:
+    --
     --  * the account is valid;
     --  * the account is not a baker;
     --  * the account is not a delegator;
@@ -954,82 +986,132 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --
     --  The function behaves as follows:
     --
-    --  1. If the account index is not valid, return 'BCInvalidAccount'.
-    --  2. If the baker's capital is less than the minimum threshold, return 'BCStakeUnderThreshold'.
-    --  3. If the transaction fee commission is not in the acceptable range, return
-    --     'BCTransactionFeeCommissionNotInRange'.
-    --  4. If the baking reward commission is not in the acceptable range, return
-    --     'BCBakingRewardCommissionNotInRange'.
-    --  5. If the finalization reward commission is not in the acceptable range, return
-    --     'BCFinalizationRewardCommissionNotInRange'.
-    --  6. If the aggregation key is a duplicate, return 'BCDuplicateAggregationKey'.
-    --  7. Add the baker to the account, updating the indexes as follows:
-    --     * add an empty pool for the baker in the active bakers;
-    --     * add the baker's equity capital to the total active capital;
-    --     * add the baker's aggregation key to the aggregation key set.
-    --  8. Return @BCSuccess []@.
+    --  1. If the baker's capital is 0, or less than the minimum threshold, return
+    --     'VCFStakeUnderThreshold'.
+    --  2. If the transaction fee commission is not in the acceptable range, return
+    --     'VCFTransactionFeeCommissionNotInRange'.
+    --  3. If the baking reward commission is not in the acceptable range, return
+    --     'VCFBakingRewardCommissionNotInRange'.
+    --  4. If the finalization reward commission is not in the acceptable range, return
+    --     'VCFFinalizationRewardCommissionNotInRange'.
+    --  5. If the aggregation key is a duplicate, return 'VCFDuplicateAggregationKey'.
+    --  6. Add the baker to the account. If flexible cooldowns are supported by the protocol
+    --     version, then the capital in cooldown is reactivated. The indexes are updated as follows:
     --
-    --  When the argument is 'BakerConfigureUpdate', the caller __must ensure__ that:
+    --       * add an empty pool for the baker in the active bakers;
+    --       * add the baker's equity capital to the total active capital;
+    --       * add the baker's aggregation key to the aggregation key set;
+    --       * the cooldown indexes are updated to reflect any reactivation of capital.
+    --
+    --  7. Return the updated block state.
+    bsoAddValidator ::
+        (PVSupportsDelegation (MPV m)) =>
+        UpdatableBlockState m ->
+        AccountIndex ->
+        ValidatorAdd ->
+        m (Either ValidatorConfigureFailure (UpdatableBlockState m))
+
+    -- | Update the validator for an account.
+    --
+    --  PRECONDITIONS:
+    --
     --  * the account is valid;
     --  * the account is a baker;
-    --  * if the stake is being updated, then the account balance exceeds the new stake.
+    --  * if the stake is being updated, then the account balance is at least the new stake.
     --
     --  The function behaves as follows, building a list @events@:
     --
     --  1. If keys are supplied: if the aggregation key duplicates an existing aggregation key @key@
-    --     (except this baker's current aggregation key), return @BCDuplicateAggregationKey key@;
+    --     (except the accounts's current aggregation key), return @VCFDuplicateAggregationKey key@;
     --     otherwise, update the keys with the supplied @keys@, update the aggregation key index
     --     (removing the old key and adding the new one), and append @BakerConfigureUpdateKeys keys@
     --     to @events@.
+    --
     --  2. If the restake earnings flag is supplied: update the account's flag to the supplied value
     --     @restakeEarnings@ and append @BakerConfigureRestakeEarnings restakeEarnings@ to @events@.
+    --
     --  3. If the open-for-delegation configuration is supplied:
-    --     (1) update the account's configuration to the supplied value @openForDelegation@;
-    --     (2) if @openForDelegation == ClosedForAll@, transfer all delegators in the baker's pool to
-    --         passive delegation; and
-    --     (3) append @BakerConfigureOpenForDelegation openForDelegation@ to @events@.
+    --
+    --         (1) update the account's configuration to the supplied value @openForDelegation@;
+    --
+    --         (2) if @openForDelegation == ClosedForAll@, transfer all delegators in the baker's pool to
+    --             passive delegation; and
+    --
+    --         (3) append @BakerConfigureOpenForDelegation openForDelegation@ to @events@.
+    --
     --  4. If the metadata URL is supplied: update the account's metadata URL to the supplied value
     --     @metadataURL@ and append @BakerConfigureMetadataURL metadataURL@ to @events@.
-    --  5. If the transaction fee commission is supplied:
-    --     (1) if the commission does not fall within the current range according to the chain
-    --         parameters, return @BCTransactionFeeCommissionNotInRange@; otherwise,
-    --     (2) update the account's transaction fee commission rate to the the supplied value @tfc@;
-    --     (3) append @BakerConfigureTransactionFeeCommission tfc@ to @events@.
-    --  6. If the baking reward commission is supplied:
-    --     (1) if the commission does not fall within the current range according to the chain
-    --         parameters, return @BCBakingRewardCommissionNotInRange@; otherwise,
-    --     (2) update the account's baking reward commission rate to the the supplied value @brc@;
-    --     (3) append @BakerConfigureBakingRewardCommission brc@ to @events@.
-    --  6. If the finalization reward commission is supplied:
-    --     (1) if the commission does not fall within the current range according to the chain
-    --         parameters, return @BCFinalizationRewardCommissionNotInRange@; otherwise,
-    --     (2) update the account's finalization reward commission rate to the the supplied value @frc@;
-    --     (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
-    --  7. If the capital is supplied: if there is a pending change to the baker's capital, return
-    --     @BCChangePending@; otherwise:
-    --     * if the capital is 0, mark the baker as pending removal at @bcuSlotTimestamp@ plus the
-    --       the current baker cooldown period according to the chain parameters, and append
-    --       @BakerConfigureStakeReduced 0@ to @events@;
-    --     * if the capital is less than the current minimum equity capital, return @BCStakeUnderThreshold@;
-    --     * if the capital is (otherwise) less than the current equity capital of the baker, mark the
-    --       baker as pending stake reduction to the new capital at @bcuSlotTimestamp@ plus the
-    --       current baker cooldown period according to the chain parameters and append
-    --       @BakerConfigureStakeReduced capital@ to @events@;
-    --     * if the capital is equal to the baker's current equity capital, do nothing, append
-    --       @BakerConfigureStakeIncreased capital@ to @events@;
-    --     * if the capital is greater than the baker's current equity capital, increase the baker's
-    --       equity capital to the new capital (updating the total active capital in the active baker
-    --       index by adding the difference between the new and old capital) and append
-    --       @BakerConfigureStakeIncreased capital@ to @events@.
-    --  8. return @BCSuccess events bid@, where @bid@ is the baker's ID.
     --
-    --  Note: in the case of an early return (i.e. not @BCSuccess@), the state is not updated.
-    bsoConfigureBaker ::
+    --  5. If the transaction fee commission is supplied:
+    --
+    --        (1) if the commission does not fall within the current range according to the chain
+    --            parameters, return @VCFTransactionFeeCommissionNotInRange@; otherwise,
+    --
+    --        (2) update the account's transaction fee commission rate to the the supplied value @tfc@;
+    --
+    --        (3) append @BakerConfigureTransactionFeeCommission tfc@ to @events@.
+    --
+    --  6. If the baking reward commission is supplied:
+    --
+    --        (1) if the commission does not fall within the current range according to the chain
+    --            parameters, return @VCFBakingRewardCommissionNotInRange@; otherwise,
+    --
+    --        (2) update the account's baking reward commission rate to the the supplied value @brc@;
+    --
+    --        (3) append @BakerConfigureBakingRewardCommission brc@ to @events@.
+    --
+    --  6. If the finalization reward commission is supplied:
+    --
+    --        (1) if the commission does not fall within the current range according to the chain
+    --            parameters, return @VCFFinalizationRewardCommissionNotInRange@; otherwise,
+    --
+    --        (2) update the account's finalization reward commission rate to the the supplied value @frc@;
+    --
+    --        (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
+    --
+    --  7. If the capital is supplied: if there is a pending change to the baker's capital, return
+    --     @VCFChangePending@; otherwise:
+    --
+    --       * if the capital is 0
+    --
+    --           - (< P7) mark the baker as pending removal at @bcuSlotTimestamp@ plus the
+    --           the current baker cooldown period according to the chain parameters
+    --
+    --           - (>= P7) transfer the existing staked capital to pre-pre-cooldown, and mark the
+    --           account as in pre-pre-cooldown (in the global index) if it wasn't already
+    --
+    --           - append @BakerConfigureStakeReduced 0@ to @events@;
+    --
+    --       * if the capital is less than the current minimum equity capital, return @BCStakeUnderThreshold@;
+    --
+    --       * if the capital is (otherwise) less than the current equity capital of the baker
+    --
+    --           - (< P7) mark the baker as pending stake reduction to the new capital at
+    --             @bcuSlotTimestamp@ plus the current baker cooldown period according to the chain
+    --             parameters
+    --
+    --           - (>= P7) transfer the decrease in staked capital to pre-pre-cooldown, and mark the
+    --             account as in pre-pre-cooldown (in the global index) if it wasn't already
+    --
+    --           - append @BakerConfigureStakeReduced capital@ to @events@;
+    --
+    --       * if the capital is equal to the baker's current equity capital, do nothing, append
+    --         @BakerConfigureStakeIncreased capital@ to @events@;
+    --
+    --       * if the capital is greater than the baker's current equity capital, increase the baker's
+    --         equity capital to the new capital (updating the total active capital in the active baker
+    --         index by adding the difference between the new and old capital) and append
+    --         @BakerConfigureStakeIncreased capital@ to @events@.
+    --
+    --  8. Return @events@ with the updated block state.
+    bsoUpdateValidator ::
         (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
+        -- | Current timestamp of the block.
+        Timestamp ->
         AccountIndex ->
-        BakerConfigure ->
-        m (BakerConfigureResult, UpdatableBlockState m)
+        ValidatorUpdate ->
+        m (Either ValidatorConfigureFailure ([BakerConfigureUpdateChange], UpdatableBlockState m))
 
     -- | Constrain the baker's commission rates to fall in the given ranges.
     --  If the account is invalid or not a baker, this does nothing.
@@ -1040,32 +1122,51 @@ class (BlockStateQuery m) => BlockStateOperations m where
         CommissionRanges ->
         m (UpdatableBlockState m)
 
-    -- | From chain parameters version >= 1, this operation is used to add/remove/update a delegator.
+    -- | From chain parameters version >= 1, this operation is used to add a delegator.
     --  When adding delegator, it is assumed that 'AccountIndex' account is NOT a baker and NOT a delegator.
     --
-    --  When the argument is 'DelegationConfigureAdd', the caller __must ensure__ that:
+    --  PRECONDITIONS:
+    --
     --  * the account is valid;
     --  * the account is not a baker;
     --  * the account is not a delegator;
-    --  * the delegated amount does not exceed the account's balance.
+    --  * the delegated amount does not exceed the account's balance;
+    --  * the delegated stake is > 0.
     --
     --  The function behaves as follows:
     --
-    --  1. If the delegation target is a valid baker that is not 'OpenForAll', return 'DCPoolClosed'.
-    --  2. If the delegation target is baker id @bid@, but the baker does not exist, return
-    --     @DCInvalidDelegationTarget bid@.
-    --  3. Update the active bakers index to record:
-    --     * the delegator delegates to the target pool;
-    --     * the target pool's delegated capital is increased by the delegated amount;
-    --     * the total active capital is increased by the delegated amount.
-    --  4. Update the account to record the specified delegation.
-    --  5. If the amount delegated to the delegation target exceeds the leverage bound, return
-    --     'DCPoolStakeOverThreshold' and revert any changes.
-    --  6. If the amount delegated to the delegation target exceed the capital bound, return
-    --     'DCPoolOverDelegated' and revert any changes.
-    --  7. Return @DCSuccess []@ with the updated state.
+    --  1. If the delegation target is a valid baker that is not 'OpenForAll', return 'DCFPoolClosed'.
     --
-    --  When the argument is 'DelegationConfigureUpdate', the caller __must ensure__ that:
+    --  2. If the delegation target is baker id @bid@, but the baker does not exist, return
+    --     @DCFInvalidDelegationTarget bid@.
+    --
+    --  3. Update the active bakers index to record:
+    --
+    --       * the delegator delegates to the target pool;
+    --       * the target pool's delegated capital is increased by the delegated amount;
+    --       * the total active capital is increased by the delegated amount.
+    --
+    --  4. Update the account to record the specified delegation.
+    --
+    --  5. If the amount delegated to the delegation target exceeds the leverage bound, return
+    --     'DCFPoolStakeOverThreshold' and revert any changes.
+    --
+    --  6. If the amount delegated to the delegation target exceed the capital bound, return
+    --     'DCFPoolOverDelegated' and revert any changes.
+    --
+    --  7. Return the updated state.
+    bsoAddDelegator ::
+        (PVSupportsDelegation (MPV m)) =>
+        UpdatableBlockState m ->
+        AccountIndex ->
+        DelegatorAdd ->
+        m (Either DelegatorConfigureFailure (UpdatableBlockState m))
+
+    -- | From chain parameters version >= 1, this operation is used to update or remove a delegator.
+    --  It is assumed that the account is already a delegator.
+    --
+    --  PRECONDITIONS:
+    --
     --  * the account is valid;
     --  * the account is a delegator;
     --  * if the delegated amount is updated, it does not exceed the account's balance.
@@ -1073,53 +1174,71 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  The function behaves as follows, building a list @events@:
     --
     --  1. If the delegation target is specified as @target@:
-    --     (1) If the delegation target is a valid baker that is not 'OpenForAll', return 'DCPoolClosed'.
-    --     (2) If the delegation target is baker id @bid@, but the baker does not exist, return
-    --         @DCInvalidDelegationTarget bid@.
-    --     (3) Update the active bakers index to: remove the delegator and delegated amount from the
-    --         old baker pool, and add the delegator and delegated amount to the new baker pool.
-    --         (Note, the total delegated amount is unchanged at this point.)
-    --     (4) Update the account to record the new delegation target.
-    --     (5) Append @DelegationConfigureDelegationTarget target@ to @events@. [N.B. if the target is
-    --         pool is the same as the previous value, steps (1)-(4) will do nothing and may be skipped
-    --         by the implementation. This relies on the invariant that delegators delegate only to
-    --         valid pools.]
-    --  2. If the "restake earnings" flag is specified as @restakeEarnings@:
-    --     (1) Update the restake earnings flag on the account to match @restakeEarnings@.
-    --     (2) Append @DelegationConfigureRestakeEarnings restakeEarnings@ to @events@.
-    --  3. If the delegated capital is specified as @capital@: if there is a pending change to the
-    --     delegator's stake, return 'DCChangePending'; otherwise:
-    --     * If the new capital is 0, mark the delegator as pending removal at the slot timestamp
-    --       plus the delegator cooldown chain parameter, and append
-    --       @DelegationConfigureStakeReduced capital@ to @events@; otherwise
-    --     * If the the new capital is less than the current staked capital (but not 0), mark the
-    --       delegator as pending stake reduction to @capital@ at the slot timestamp plus the
-    --       delegator cooldown chain parameter, and append @DelegationConfigureStakeReduced capital@
-    --       to @events@;
-    --     * If the new capital is equal to the current staked capital, append
-    --       @DelegationConfigureStakeIncreased capital@ to @events@.
-    --     * If the new capital is greater than the current staked capital by @delta > 0@:
-    --       * increase the total active capital by @delta@,
-    --       * increase the delegator's target pool delegated capital by @delta@,
-    --       * set the baker's delegated capital to @capital@, and
-    --       * append @DelegationConfigureStakeIncreased capital@ to @events@.
-    --  4. If the amount delegated to the delegation target exceeds the leverage bound, return
-    --     'DCPoolStakeOverThreshold' and revert any changes.
-    --  5. If the amount delegated to the delegation target exceed the capital bound, return
-    --     'DCPoolOverDelegated' and revert any changes.
-    --  6. Return @DCSuccess events@ with the updated state.
     --
-    --  Note, if the return code is anything other than 'DCSuccess', the original state is returned.
-    --  If the preconditions are violated, the function may return 'DCInvalidAccount' (if the account
-    --  is not valid) or 'DCInvalidDelegator' (when updating, if the account is not a delegator).
-    --  However, this behaviour is not guaranteed, and could result in violations of the state
-    --  invariants.
-    bsoConfigureDelegation ::
+    --       (1) If the delegation target is a valid baker that is not 'OpenForAll', return 'DCFPoolClosed'.
+    --
+    --       (2) If the delegation target is baker id @bid@, but the baker does not exist, return
+    --           @DCFInvalidDelegationTarget bid@.
+    --
+    --       (3) Update the active bakers index to: remove the delegator and delegated amount from the
+    --           old baker pool, and add the delegator and delegated amount to the new baker pool.
+    --           (Note, the total delegated amount is unchanged at this point.)
+    --
+    --       (4) Update the account to record the new delegation target.
+    --
+    --       (5) Append @DelegationConfigureDelegationTarget target@ to @events@. [N.B. if the target is
+    --           pool is the same as the previous value, steps (1)-(4) will do nothing and may be skipped
+    --           by the implementation. This relies on the invariant that delegators delegate only to
+    --           valid pools.]
+    --
+    --  2. If the "restake earnings" flag is specified as @restakeEarnings@:
+    --
+    --       (1) Update the restake earnings flag on the account to match @restakeEarnings@.
+    --
+    --       (2) Append @DelegationConfigureRestakeEarnings restakeEarnings@ to @events@.
+    --
+    --  3. If the delegated capital is specified as @capital@: if there is a pending change to the
+    --     delegator's stake, return 'DCFChangePending'; otherwise:
+    --
+    --       * If the new capital is 0, mark the delegator as pending removal at the slot timestamp
+    --         plus the delegator cooldown chain parameter, and append
+    --         @DelegationConfigureStakeReduced capital@ to @events@; otherwise
+    --
+    --       * If the the new capital is less than the current staked capital (but not 0), mark the
+    --         delegator as pending stake reduction to @capital@ at the slot timestamp plus the
+    --         delegator cooldown chain parameter, and append @DelegationConfigureStakeReduced capital@
+    --         to @events@;
+    --
+    --       * If the new capital is equal to the current staked capital, append
+    --         @DelegationConfigureStakeIncreased capital@ to @events@.
+    --
+    --       * If the new capital is greater than the current staked capital by @delta > 0@:
+    --
+    --             * increase the total active capital by @delta@,
+    --
+    --             * increase the delegator's target pool delegated capital by @delta@,
+    --
+    --             * set the baker's delegated capital to @capital@, and
+    --
+    --             * append @DelegationConfigureStakeIncreased capital@ to @events@.
+    --
+    --  4. If the delegation target has changed or the delegated capital is increased:
+    --
+    --            * If the amount delegated to the delegation target exceeds the leverage bound,
+    --              return 'DCFPoolStakeOverThreshold' and revert any changes.
+    --
+    --            * If the amount delegated to the delegation target exceed the capital bound,
+    --              return 'DCFPoolOverDelegated' and revert any changes.
+    --
+    --  6. Return @events@ with the updated state.
+    bsoUpdateDelegator ::
         (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
+        -- | The current timestamp of the block.
+        Timestamp ->
         AccountIndex ->
-        DelegationConfigure ->
-        m (DelegationConfigureResult, UpdatableBlockState m)
+        DelegatorUpdate ->
+        m (Either DelegatorConfigureFailure ([DelegationConfigureUpdateChange], UpdatableBlockState m))
 
     -- | Update the keys associated with an account.
     --  It is assumed that the keys have already been checked for validity/ownership as
@@ -1502,6 +1621,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getChainParameters = lift . getChainParameters
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
+    getPassiveDelegationStatus = lift . getPassiveDelegationStatus
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE accountExists #-}
@@ -1541,7 +1661,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
     getAccountAmount = lift . getAccountAmount
     checkAccountIsAllowed acc = lift . checkAccountIsAllowed acc
-    getAccountStakedAmount = lift . getAccountStakedAmount
+    getAccountTotalStakedAmount = lift . getAccountTotalStakedAmount
     getAccountLockedAmount = lift . getAccountLockedAmount
     getAccountAvailableAmount = lift . getAccountAvailableAmount
     getAccountNonce = lift . getAccountNonce
@@ -1556,6 +1676,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountBakerInfoRef = lift . getAccountBakerInfoRef
     derefBakerInfo = lift . derefBakerInfo
     getAccountHash = lift . getAccountHash
+    getAccountCooldowns = lift . getAccountCooldowns
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1570,6 +1691,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE getAccountBakerInfoRef #-}
     {-# INLINE derefBakerInfo #-}
     {-# INLINE getAccountHash #-}
+    {-# INLINE getAccountCooldowns #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState
@@ -1603,6 +1725,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetSeedState s ss = lift $ bsoSetSeedState s ss
     bsoRotateCurrentEpochBakers = lift . bsoRotateCurrentEpochBakers
     bsoProcessPendingChanges s g = lift $ bsoProcessPendingChanges s g
+    bsoProcessCooldowns s expiry cooldown = lift $ bsoProcessCooldowns s expiry cooldown
+    bsoProcessPrePreCooldowns = lift . bsoProcessPrePreCooldowns
     bsoTransitionEpochBakers s e = lift $ bsoTransitionEpochBakers s e
     bsoGetActiveBakers = lift . bsoGetActiveBakers
     bsoGetActiveBakersAndDelegators = lift . bsoGetActiveBakersAndDelegators
@@ -1610,9 +1734,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetCurrentEpochFullBakersEx = lift . bsoGetCurrentEpochFullBakersEx
     bsoGetCurrentCapitalDistribution = lift . bsoGetCurrentCapitalDistribution
     bsoAddBaker s addr a = lift $ bsoAddBaker s addr a
-    bsoConfigureBaker s aconfig a = lift $ bsoConfigureBaker s aconfig a
+    bsoAddValidator s ai a = lift $ bsoAddValidator s ai a
+    bsoUpdateValidator s ts ai upd = lift $ bsoUpdateValidator s ts ai upd
     bsoConstrainBakerCommission s acct ranges = lift $ bsoConstrainBakerCommission s acct ranges
-    bsoConfigureDelegation s aconfig a = lift $ bsoConfigureDelegation s aconfig a
+    bsoAddDelegator s ai a = lift $ bsoAddDelegator s ai a
+    bsoUpdateDelegator s ts ai a = lift $ bsoUpdateDelegator s ts ai a
     bsoUpdateBakerKeys s addr a = lift $ bsoUpdateBakerKeys s addr a
     bsoUpdateBakerStake s addr a = lift $ bsoUpdateBakerStake s addr a
     bsoUpdateBakerRestakeEarnings s addr a = lift $ bsoUpdateBakerRestakeEarnings s addr a
@@ -1674,7 +1800,10 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetSeedState #-}
     {-# INLINE bsoTransitionEpochBakers #-}
     {-# INLINE bsoAddBaker #-}
-    {-# INLINE bsoConfigureBaker #-}
+    {-# INLINE bsoAddValidator #-}
+    {-# INLINE bsoUpdateValidator #-}
+    {-# INLINE bsoAddDelegator #-}
+    {-# INLINE bsoUpdateDelegator #-}
     {-# INLINE bsoUpdateBakerKeys #-}
     {-# INLINE bsoUpdateBakerStake #-}
     {-# INLINE bsoUpdateBakerRestakeEarnings #-}

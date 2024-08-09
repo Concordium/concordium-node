@@ -123,42 +123,50 @@ createAccountWith a bs = do
     (,accIndex) <$> bsoModifyAccount bs' (emptyAccountUpdate accIndex & auAmount ?~ a)
 
 -- | Add a baker with the given staked amount.
-addBakerWith :: Amount -> (PBS.PersistentBlockState PV, AccountIndex) -> ThisMonadConcrete PV (BakerConfigureResult, (PBS.PersistentBlockState PV, AccountIndex))
+addBakerWith ::
+    Amount ->
+    (PBS.PersistentBlockState PV, AccountIndex) ->
+    ThisMonadConcrete PV (Either ValidatorConfigureFailure (PBS.PersistentBlockState PV, AccountIndex))
 addBakerWith am (bs, ai) = do
     a <- BlockSig.verifyKey <$> liftIO BlockSig.newKeyPair
     b <- Bls.derivePublicKey <$> liftIO Bls.generateSecretKey
     c <- VRF.publicKey <$> liftIO VRF.newKeyPair
     let conf =
-            BakerConfigureAdd
-                { bcaKeys = BakerKeyUpdate a b c,
-                  bcaCapital = am,
-                  bcaRestakeEarnings = False,
-                  bcaOpenForDelegation = ClosedForAll,
-                  bcaMetadataURL = emptyUrlText,
-                  bcaTransactionFeeCommission = makeAmountFraction 0,
-                  bcaBakingRewardCommission = makeAmountFraction 0,
-                  bcaFinalizationRewardCommission = makeAmountFraction 0
+            ValidatorAdd
+                { vaKeys = BakerKeyUpdate a b c,
+                  vaCapital = am,
+                  vaRestakeEarnings = False,
+                  vaOpenForDelegation = ClosedForAll,
+                  vaMetadataURL = emptyUrlText,
+                  vaCommissionRates =
+                    CommissionRates
+                        { _transactionCommission = makeAmountFraction 0,
+                          _finalizationCommission = makeAmountFraction 0,
+                          _bakingCommission = makeAmountFraction 0
+                        }
                 }
-    (bar, bs') <- bsoConfigureBaker bs ai conf
-    return (bar, (bs', ai))
+    res <- bsoAddValidator bs ai conf
+    return ((,ai) <$> res)
 
 -- | Modify the staked amount to the given value.
-modifyStakeTo :: Amount -> (PBS.PersistentBlockState PV, AccountIndex) -> ThisMonadConcrete PV (BakerConfigureResult, (PBS.PersistentBlockState PV, AccountIndex))
+modifyStakeTo ::
+    Amount ->
+    (PBS.PersistentBlockState PV, AccountIndex) ->
+    ThisMonadConcrete PV (Either ValidatorConfigureFailure ([BakerConfigureUpdateChange], (PBS.PersistentBlockState PV, AccountIndex)))
 modifyStakeTo a (bs, ai) = do
     let conf =
-            BakerConfigureUpdate
-                { bcuSlotTimestamp = 0,
-                  bcuKeys = Nothing,
-                  bcuCapital = Just a,
-                  bcuRestakeEarnings = Nothing,
-                  bcuOpenForDelegation = Nothing,
-                  bcuMetadataURL = Nothing,
-                  bcuTransactionFeeCommission = Nothing,
-                  bcuBakingRewardCommission = Nothing,
-                  bcuFinalizationRewardCommission = Nothing
+            ValidatorUpdate
+                { vuKeys = Nothing,
+                  vuCapital = Just a,
+                  vuRestakeEarnings = Nothing,
+                  vuOpenForDelegation = Nothing,
+                  vuMetadataURL = Nothing,
+                  vuTransactionFeeCommission = Nothing,
+                  vuBakingRewardCommission = Nothing,
+                  vuFinalizationRewardCommission = Nothing
                 }
-    (bsur, bs') <- bsoConfigureBaker bs ai conf
-    return (bsur, (bs', ai))
+    res <- bsoUpdateValidator bs 0 ai conf
+    return (fmap (,ai) <$> res)
 
 -- | Increase the current threshold for baking. This uses some trickery to run a
 --  side monad that will be a MonadBlobStore that can retrieve the required
@@ -191,19 +199,20 @@ testing1 :: ThisMonadConcrete PV ()
 -- starting from an empty blockstate with the dummy parameters, try to register
 -- a baker with not enough stake. (MUST FAIL)
 testing1 = do
-    (res, _) <-
+    res <-
         createGS
             >>= createAccountWith (limitDelta `div` 2)
             >>= addBakerWith (limit `div` 2)
     case res of
-        BCStakeUnderThreshold -> return ()
-        e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
+        Left VCFStakeUnderThreshold -> return ()
+        Left e -> error $ "Got (" ++ show e ++ ") but wanted VCFStakeUnderThreshold"
+        Right _ -> error "Expected failure, but got success"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake and decrease the stake below the limit. (MUST FAIL)
 testing2'1 :: ThisMonadConcrete PV ()
 testing2'1 = do
-    (res, _) <-
+    res <-
         createGS
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
@@ -214,17 +223,18 @@ testing2'1 = do
                 -- \* the account is not a delegator;
                 -- \* the account has sufficient balance to cover the stake,
                 -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                (BCSuccess _ _, a) -> modifyStakeTo (limit - 1) a
-                t -> return t
+                Right a -> modifyStakeTo (limit - 1) a
+                Left e -> error $ "Unexpected failure when adding baker: " ++ show e
     case res of
-        BCStakeUnderThreshold -> return ()
-        e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
+        Left VCFStakeUnderThreshold -> return ()
+        Left e -> error $ "Got (" ++ show e ++ ") but wanted VCFStakeUnderThreshold"
+        Right _ -> error "Expected VCFStakeUnderThreshold, but got success"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake and decrease the stake above the limit. (MUST SUCCEED)
 testing2'2 :: ThisMonadConcrete PV ()
 testing2'2 = do
-    (res, _) <-
+    res <-
         createGS
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith (limit + 100)
@@ -235,17 +245,18 @@ testing2'2 = do
                 -- \* the account is not a delegator;
                 -- \* the account has sufficient balance to cover the stake,
                 -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                (BCSuccess _ _, a) -> modifyStakeTo limit a
-                _ -> error "result of modifyStakeTo should be BCSuccess"
+                Right a -> modifyStakeTo limit a
+                Left e -> error $ "Unexpected failure when adding baker: " ++ show e
     case res of
-        BCSuccess [BakerConfigureStakeReduced newStake] _ -> liftIO (assertEqual "new stake" limit newStake)
-        e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeReduced"
+        Right ([BakerConfigureStakeReduced newStake], _) -> liftIO (assertEqual "new stake" limit newStake)
+        Right (evts, _) -> error $ "Got " ++ show evts ++ " but wanted BakerConfigureStakeReduced"
+        Left e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeReduced"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake and increase the stake. (MUST SUCCEED)
 testing2'3 :: ThisMonadConcrete PV ()
 testing2'3 = do
-    (res, _) <-
+    res <-
         createGS
             >>= createAccountWith (limitDelta + 100)
             >>= addBakerWith limit
@@ -256,18 +267,19 @@ testing2'3 = do
                 -- \* the account is not a delegator;
                 -- \* the account has sufficient balance to cover the stake,
                 -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                (BCSuccess _ _, a) -> modifyStakeTo (limit + 100) a
-                _ -> error "result of modifyStakeTo should be BCSuccess"
+                Right a -> modifyStakeTo (limit + 100) a
+                Left e -> error $ "Unexpected failure when adding baker: " ++ show e
     case res of
-        BCSuccess [BakerConfigureStakeIncreased newAmount] _ -> liftIO (assertEqual "new stake" (limit + 100) newAmount)
-        e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeIncreased"
+        Right ([BakerConfigureStakeIncreased newAmount], _) -> liftIO (assertEqual "new stake" (limit + 100) newAmount)
+        Right (evts, _) -> error $ "Got " ++ show evts ++ " but wanted BakerConfigureStakeIncreased"
+        Left e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeIncreased"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake, increase the limit and decrease the stake any amount (MUST
 -- FAIL)
 testing3'1 :: ThisMonadConcrete PV ()
 testing3'1 = do
-    (res, _) <-
+    res <-
         createGS
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
@@ -278,13 +290,14 @@ testing3'1 = do
                     -- \* the account is not a delegator;
                     -- \* the account has sufficient balance to cover the stake,
                     -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
-                    (_, bsAccIdx) -> return bsAccIdx
+                    Right a -> increaseLimit (limit * 2) a
+                    Left e -> error $ "Unexpected failure when adding baker: " ++ show e
                 )
             >>= modifyStakeTo (limit - 1)
     case res of
-        BCStakeUnderThreshold -> return ()
-        e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
+        Left VCFStakeUnderThreshold -> return ()
+        Left e -> error $ "Got (" ++ show e ++ ") but wanted VCFStakeUnderThreshold"
+        Right _ -> error "Expected VCFStakeUnderThreshold, but got success"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake, increase the limit and increase the stake below limit
@@ -292,7 +305,7 @@ testing3'1 = do
 -- Note, this is a departure from the behaviour prior to P4, where this would succeed.
 testing3'2 :: ThisMonadConcrete PV ()
 testing3'2 = do
-    (res, _) <-
+    res <-
         createGS
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
@@ -303,20 +316,21 @@ testing3'2 = do
                     -- \* the account is not a delegator;
                     -- \* the account has sufficient balance to cover the stake,
                     -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
-                    (_, bsAccIdx) -> return bsAccIdx
+                    Right a -> increaseLimit (limit * 2) a
+                    Left e -> error $ "Unexpected failure when adding baker: " ++ show e
                 )
             >>= modifyStakeTo (limit + 1)
     case res of
-        BCStakeUnderThreshold -> return ()
-        e -> error $ "Got (" ++ show e ++ ") but wanted BCStakeUnderThreshold"
+        Left VCFStakeUnderThreshold -> return ()
+        Left e -> error $ "Got (" ++ show e ++ ") but wanted VCFStakeUnderThreshold"
+        Right _ -> error "Expected VCFStakeUnderThreshold, but got success"
 
 -- starting from an empty blockstate with the dummy parameters, register a baker
 -- with enough stake, increase the limit and increase the stake over limit (MUST
 -- SUCCEED)
 testing3'3 :: ThisMonadConcrete PV ()
 testing3'3 = do
-    (res, _) <-
+    res <-
         createGS
             >>= createAccountWith limitDelta
             >>= addBakerWith limit
@@ -327,13 +341,14 @@ testing3'3 = do
                     -- \* the account is not a delegator;
                     -- \* the account has sufficient balance to cover the stake,
                     -- @(BCSuccess [], _)@ is returned, see `bsoConfigureBaker`.
-                    (BCSuccess _ _, a) -> increaseLimit (limit * 2) a
-                    _ -> error "result of increaseLimit should be BCSuccess"
+                    Right a -> increaseLimit (limit * 2) a
+                    Left e -> error $ "Unexpected failure when adding baker: " ++ show e
                 )
             >>= modifyStakeTo (limit * 2 + 1)
     case res of
-        BCSuccess [BakerConfigureStakeIncreased newStake] _ -> liftIO (assertEqual "new stake" (limit * 2 + 1) newStake)
-        e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeIncreased"
+        Right ([BakerConfigureStakeIncreased newStake], _) -> liftIO (assertEqual "new stake" (limit * 2 + 1) newStake)
+        Right (evts, _) -> error $ "Got " ++ show evts ++ " but wanted BakerConfigureStakeIncreased"
+        Left e -> error $ "Got (" ++ show e ++ ") but wanted BakerConfigureStakeIncreased"
 
 tests :: Spec
 tests = do

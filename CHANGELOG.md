@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug where `GetBakersRewardPeriod` returns incorrect data (#1176).
+- Fix a bug where `GetPoolInfo` returns incorrect data (#1177).
 - Change the severity of logs for failed gRPC API requests to DEBUG level.
 - Add support for new `invoke` calls from smart contracts in protocol version 7:
   - query the contract module reference for a given contract address
@@ -18,6 +20,13 @@
   `TransferToPublic` remains enabled, allowing existing encrypted balances to be
   decrypted.
 - Improve logging around protocol update events.
+- Changes to stake cooldown behavior in protocol version 7:
+  - When stake is reduced or removed from a validator or delegator, it becomes
+    inactive, and is not counted for future stake calculations. The inactive
+    stake is not spendable, but is released after a cooldown period elapses.
+  - Changes to validators and delegators can be made while stake is in cooldown,
+    including changing the stake, or changing directly between validator and
+    delegator.
 
 ## 6.3.1
 

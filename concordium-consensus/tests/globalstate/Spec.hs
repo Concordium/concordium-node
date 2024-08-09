@@ -6,9 +6,14 @@ import qualified GlobalStateTests.AccountMap (tests)
 import qualified GlobalStateTests.AccountReleaseScheduleMigration (tests)
 import qualified GlobalStateTests.AccountReleaseScheduleTest (tests)
 import qualified GlobalStateTests.Accounts (tests)
+import qualified GlobalStateTests.AccountsMigrationP6ToP7 (tests)
 import qualified GlobalStateTests.BlobStore (tests)
 import qualified GlobalStateTests.BlockHash (tests)
 import qualified GlobalStateTests.Cache (tests)
+import qualified GlobalStateTests.ConfigureDelegator (tests)
+import qualified GlobalStateTests.ConfigureValidator (tests)
+import qualified GlobalStateTests.CooldownProcessing (tests)
+import qualified GlobalStateTests.CooldownQueue (tests)
 import qualified GlobalStateTests.DifferenceMap (tests)
 import qualified GlobalStateTests.EnduringDataFlags (tests)
 import qualified GlobalStateTests.FinalizationSerializationSpec (tests)
@@ -51,3 +56,8 @@ main = atLevel $ \lvl -> hspec $ do
     GlobalStateTests.UpdateQueues.tests
     GlobalStateTests.LMDBAccountMap.tests
     GlobalStateTests.DifferenceMap.tests
+    GlobalStateTests.AccountsMigrationP6ToP7.tests
+    GlobalStateTests.CooldownQueue.tests
+    GlobalStateTests.CooldownProcessing.tests
+    GlobalStateTests.ConfigureValidator.tests lvl
+    GlobalStateTests.ConfigureDelegator.tests

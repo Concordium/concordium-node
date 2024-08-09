@@ -67,6 +67,7 @@ import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState (AccountsHash (..))
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
+import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
@@ -311,7 +312,7 @@ getAccountByCredId cid accs@Accounts{..} =
 --  First try lookup in the in-memory difference map associated with the the provided 'Accounts pv',
 --  if no account could be looked up, then we fall back to the lmdb backed account map.
 --
--- If account alises are supported then the equivalence class 'AccountAddressEq' is used for determining
+-- If account aliases are supported then the equivalence class 'AccountAddressEq' is used for determining
 -- whether the provided @AccountAddress@ is in the map, otherwise we check for exactness.
 getAccountIndex :: forall pv m. (SupportsPersistentAccount pv m) => AccountAddress -> Accounts pv -> m (Maybe AccountIndex)
 getAccountIndex addr Accounts{..} = do
@@ -419,6 +420,14 @@ updateAccountsAtIndex fupd ai a0@Accounts{..} =
         Nothing -> return (Nothing, a0)
         Just (res, act') -> return (Just res, a0{accountTable = act'})
 
+-- | Set the account at the given index. There must already be an account at the given index
+--  (otherwise this has no effect).
+setAccountAtIndex :: (SupportsPersistentAccount pv m) => AccountIndex -> PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Accounts pv)
+setAccountAtIndex ai newAcct a0@Accounts{..} =
+    L.update (const (return ((), newAcct))) ai accountTable >>= \case
+        Nothing -> return a0
+        Just (_, act') -> return (a0{accountTable = act'})
+
 -- | Perform an update to an account with the given index.
 --  Does nothing if the account does not exist.
 --  This should not be used to alter the address of an account (which is
@@ -490,13 +499,23 @@ migrateAccounts ::
       IsProtocolVersion pv,
       SupportMigration m t,
       SupportsPersistentAccount oldpv m,
-      SupportsPersistentAccount pv (t m)
+      SupportsPersistentAccount pv (t m),
+      AccountsMigration (AccountVersionFor pv) (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
     Accounts oldpv ->
     t m (Accounts pv)
 migrateAccounts migration Accounts{..} = do
-    newAccountTable <- L.migrateLFMBTree (migrateHashedCachedRef' (migratePersistentAccount migration)) accountTable
+    let migrateAccount acct = do
+            newAcct <- migrateHashedCachedRef' (migratePersistentAccount migration) acct
+            -- Increment the account index counter.
+            nextAccount
+            return newAcct
+    newAccountTable <-
+        L.migrateLFMBTree
+            migrateAccount
+            accountTable
+
     -- The account registration IDs are not cached. There is a separate cache
     -- that is purely in-memory and just copied over.
     newAccountRegIds <- Trie.migrateUnbufferedTrieN return accountRegIdHistory
