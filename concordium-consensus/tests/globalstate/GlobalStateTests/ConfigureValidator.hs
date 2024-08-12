@@ -19,7 +19,6 @@ import Test.QuickCheck
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -27,18 +26,13 @@ import qualified Concordium.Types.DummyData as DummyData
 import Concordium.Types.Execution
 import Concordium.Types.Option
 import Concordium.Types.Parameters
-import Concordium.Types.SeedState
 
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CooldownQueue
 import qualified Concordium.GlobalState.DummyData as DummyData
-import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
-import Concordium.GlobalState.Persistent.Bakers
-import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
-import qualified Concordium.GlobalState.Persistent.Trie as Trie
 
 import GlobalStateTests.BlockStateHelpers
 

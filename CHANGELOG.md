@@ -27,6 +27,9 @@
   - Changes to validators and delegators can be made while stake is in cooldown,
     including changing the stake, or changing directly between validator and
     delegator.
+- Fix a bug where a configure-validator transaction that is rejected for having
+  a duplicate aggregation key would report the old key for the validator,
+  rather than the key that is a duplicate.
 
 ## 6.3.1
 

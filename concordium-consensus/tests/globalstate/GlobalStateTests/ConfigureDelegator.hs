@@ -6,19 +6,9 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
+-- | Tests for adding and updating delegators.
 module GlobalStateTests.ConfigureDelegator where
 
-import Concordium.GlobalState.Account
-import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.BlockState
-import Concordium.GlobalState.CooldownQueue
-import qualified Concordium.GlobalState.DummyData as DummyData
-import Concordium.GlobalState.Persistent.BlockState
-import Concordium.Types
-import Concordium.Types.Accounts
-import Concordium.Types.Execution
-import Concordium.Types.Option
-import Concordium.Types.Parameters
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Writer.CPS
@@ -31,6 +21,19 @@ import Lens.Micro.Platform
 import Test.Hspec
 import Test.QuickCheck
 
+import Concordium.Types
+import Concordium.Types.Accounts
+import Concordium.Types.Execution
+import Concordium.Types.Option
+import Concordium.Types.Parameters
+
+import Concordium.GlobalState.Account
+import Concordium.GlobalState.BakerInfo
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.CooldownQueue
+import qualified Concordium.GlobalState.DummyData as DummyData
+import Concordium.GlobalState.Persistent.BlockState
+
 -- | Some non-trivial cooldowns that may be set on an account for testing.
 initialTestCooldowns :: Cooldowns
 initialTestCooldowns =
@@ -40,9 +43,12 @@ initialTestCooldowns =
           preCooldown = Present 2
         }
 
+-- | The balance for accounts used in the tests.
 baseAmount :: Amount
 baseAmount = 100
 
+-- | The baseline stake used in the tests. The test account use (small) multiples of this amount.
+--  Setting this to 1 makes it easier to catch off-by-one errors in the tests.
 baseStake :: Amount
 baseStake = 1
 
@@ -57,9 +63,17 @@ genTestAccounts = do
     nDelegators <- choose (1, nAccounts - nBakers - 1)
     let nonBakers = filter (`notElem` bakerIndices) accountIndices
     delegatorIndices <- take nDelegators <$> shuffle nonBakers
-    bakerStatuses <- vectorOf nAccounts (frequency [(8, return OpenForAll), (1, return ClosedForAll), (1, return ClosedForNew)])
+    -- Favour open pools to ensure the case of delegating to a closed pool is not overrepresented.
+    bakerStatuses <-
+        vectorOf nAccounts $
+            frequency
+                [ (8, return OpenForAll),
+                  (1, return ClosedForAll),
+                  (1, return ClosedForNew)
+                ]
     forM accountIndices $ \ai -> do
         stake <- (baseStake *) . fromInteger <$> choose (1, 10)
+        -- Delegators can only delegate to pools that are not closed for all.
         delTarget <-
             elements $
                 DelegatePassive
@@ -100,10 +114,16 @@ genTestAccounts = do
                   acCooldowns = cooldowns
                 }
 
+-- | A configuration for testing the delegator functionality.
 data DelegatorTestConfig av = DelegatorTestConfig
-    { dtcAccounts :: [AccountConfig av],
+    { -- | The configuration of account to use. These must be sequentially indexed.
+      dtcAccounts :: [AccountConfig av],
+      -- | The index of the account to use in a test. It must be present in 'dtcAccounts', and
+      --  other conditions may apply depending on the test.
       dtcUseAccount :: AccountIndex,
+      -- | The capital bound to use in the test.
       dtcCapitalBound :: CapitalBound,
+      -- | The leverage bound to use in the test.
       dtcLeverageBound :: LeverageFactor
     }
     deriving (Show)
@@ -122,6 +142,7 @@ dtcTargetOpen DelegatorTestConfig{..} (DelegateToBaker bi)
             _ -> Nothing
     | otherwise = Nothing
 
+-- | The total active stake of bakers and delegators in the configuration.
 dtcTotalStake :: DelegatorTestConfig av -> Amount
 dtcTotalStake DelegatorTestConfig{..} =
     sum $ map (accountStakedCapital . acStaking) dtcAccounts
@@ -130,6 +151,8 @@ dtcTotalStake DelegatorTestConfig{..} =
     accountStakedCapital StakeDetailsDelegator{..} = sdStakedCapital
     accountStakedCapital _ = 0
 
+-- | Get the total active stake and delegated stake of a baker. (Or 'Nothing' if the baker does
+-- not exist as an active baker.)
 dtcBakerStake :: DelegatorTestConfig av -> BakerId -> Maybe (Amount, Amount)
 dtcBakerStake DelegatorTestConfig{..} bi = (,delegatorStakes) <$> bkrStake
   where
@@ -143,9 +166,20 @@ dtcBakerStake DelegatorTestConfig{..} bi = (,delegatorStakes) <$> bkrStake
         | sdDelegationTarget == DelegateToBaker bi = sdStakedCapital
     delStake _ = 0
 
+-- | The cooldowns for the accounts in the configuration.
 dtcCooldowns :: DelegatorTestConfig av -> [Cooldowns]
 dtcCooldowns DelegatorTestConfig{..} = map acCooldowns dtcAccounts
 
+-- | Show the expected result of a test. This is used for labelling test cases.
+showExpectedResult :: Either DelegatorConfigureFailure a -> String
+showExpectedResult (Left DCFInvalidDelegationTarget{}) = "DCFInvalidDelegationTarget"
+showExpectedResult (Left DCFPoolClosed) = "DCFPoolClosed"
+showExpectedResult (Left DCFPoolStakeOverThreshold) = "DCFPoolStakeOverThreshold"
+showExpectedResult (Left DCFPoolOverDelegated) = "DCFPoolOverDelegated"
+showExpectedResult (Left DCFChangePending) = "DCFChangePending"
+showExpectedResult (Right _) = "Success"
+
+-- | Get the expected result of adding a delegator.
 expectedAddResult :: DelegatorTestConfig av -> DelegatorAdd -> Either DelegatorConfigureFailure ()
 expectedAddResult dtc@DelegatorTestConfig{..} DelegatorAdd{..}
     | Just False <- targetOpen = Left DCFPoolClosed
@@ -164,59 +198,9 @@ expectedAddResult dtc@DelegatorTestConfig{..} DelegatorAdd{..}
   where
     targetOpen = dtcTargetOpen dtc daDelegationTarget
 
-expectedUpdateResult :: forall av. (IsAccountVersion av) => DelegatorTestConfig av -> DelegatorUpdate -> Either DelegatorConfigureFailure ()
-expectedUpdateResult dtc@DelegatorTestConfig{..} DelegatorUpdate{..}
-    | Just t <- duDelegationTarget,
-      oldTarget /= t,
-      Just False <- dtcTargetOpen dtc t =
-        Left DCFPoolClosed
-    | Just t@(DelegateToBaker bid) <- duDelegationTarget,
-      Nothing <- dtcTargetOpen dtc t =
-        Left $ DCFInvalidDelegationTarget bid
-    | Just _ <- duCapital, changePending = Left DCFChangePending
-    | DelegateToBaker bid <- newTarget,
-      newEffectiveCapital > 0,
-      oldTarget /= newTarget || oldCapital < newEffectiveCapital,
-      Just (bkrStake, delStake) <- dtcBakerStake dtc bid =
-        if
-            | applyAmountDelta deltaPool (delStake + bkrStake)
-                > applyLeverageFactor dtcLeverageBound bkrStake ->
-                Left DCFPoolStakeOverThreshold
-            | applyAmountDelta deltaPool (bkrStake + delStake)
-                > takeFraction
-                    (theCapitalBound dtcCapitalBound)
-                    (applyAmountDelta delta $ dtcTotalStake dtc) ->
-                Left DCFPoolOverDelegated
-            | otherwise -> Right ()
-    | otherwise = Right ()
-  where
-    flexibleCooldown = case sSupportsFlexibleCooldown (accountVersion @av) of
-        STrue -> True
-        SFalse -> False
-    senderAccount = dtcAccounts !! fromIntegral dtcUseAccount
-    (oldCapital, oldTarget, changePending) = case acStaking senderAccount of
-        StakeDetailsDelegator{..} -> (sdStakedCapital, sdDelegationTarget, sdPendingChange /= NoChange)
-        _ -> error "Account is not a delegator"
-    newEffectiveCapital
-        | not flexibleCooldown,
-          Just newCap <- duCapital,
-          newCap < oldCapital =
-            oldCapital
-        | otherwise = fromMaybe oldCapital duCapital
-    delta = amountDiff newEffectiveCapital oldCapital
-    deltaPool
-        | Just t <- duDelegationTarget, t /= oldTarget = amountToDelta newEffectiveCapital
-        | otherwise = delta
-    newTarget = fromMaybe oldTarget duDelegationTarget
-
-showExpectedResult :: Either DelegatorConfigureFailure () -> String
-showExpectedResult (Left DCFInvalidDelegationTarget{}) = "DCFInvalidDelegationTarget"
-showExpectedResult (Left DCFPoolClosed) = "DCFPoolClosed"
-showExpectedResult (Left DCFPoolStakeOverThreshold) = "DCFPoolStakeOverThreshold"
-showExpectedResult (Left DCFPoolOverDelegated) = "DCFPoolOverDelegated"
-showExpectedResult (Left DCFChangePending) = "DCFChangePending"
-showExpectedResult (Right _) = "Success"
-
+-- | Run a test of 'bsoAddDelegator' with the given configuration and delegator to add.
+--  In the configuration, 'dtcUseAccount' must be the index of an account that is neither a baker
+--  nor a delegator.
 runAddDelegatorTest ::
     forall pv.
     ( IsProtocolVersion pv,
@@ -272,6 +256,7 @@ runAddDelegatorTest spv dtc@DelegatorTestConfig{..} da@DelegatorAdd{..} = runTes
                 (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
                 chainParams
 
+-- | Test 'bsoAddDelegator' with a random configurations.
 testAddDelegator ::
     forall pv.
     ( IsProtocolVersion pv,
@@ -289,9 +274,15 @@ testAddDelegator spv = withMaxSuccess 1000 $ property $ do
               fromInteger <$> choose (1, fromIntegral baseAmount)
             ]
     restake <- arbitrary
-    let chooseNonBaker = elements [DelegateToBaker (BakerId (acAccountIndex acc)) | acc <- accounts, not (isBaker acc)]
-    let chooseBaker = elements [DelegateToBaker (BakerId (acAccountIndex acc)) | acc <- accounts, isBaker acc]
-    let chooseInvalidAccount = elements [DelegateToBaker (BakerId (fromIntegral i)) | i <- [length accounts .. length accounts + 10]]
+    let delegateToAccount acc = DelegateToBaker (BakerId (acAccountIndex acc))
+    let chooseNonBaker = elements [delegateToAccount acc | acc <- accounts, not (isBaker acc)]
+    let chooseBaker = elements [delegateToAccount acc | acc <- accounts, isBaker acc]
+    let chooseInvalidAccount =
+            elements
+                [ DelegateToBaker (BakerId (fromIntegral i))
+                  | i <- [length accounts .. length accounts + 10]
+                ]
+    -- Favour delegating to a baker, as this covers the most interesting cases.
     target <-
         frequency
             [ (1, return DelegatePassive),
@@ -331,6 +322,65 @@ testAddDelegator spv = withMaxSuccess 1000 $ property $ do
     isBaker AccountConfig{acStaking = StakeDetailsBaker{}} = True
     isBaker _ = False
 
+-- | Get the expected result of updating a delegator.
+expectedUpdateResult ::
+    forall av.
+    (IsAccountVersion av) =>
+    DelegatorTestConfig av ->
+    DelegatorUpdate ->
+    Either DelegatorConfigureFailure [DelegationConfigureUpdateChange]
+expectedUpdateResult dtc@DelegatorTestConfig{..} DelegatorUpdate{..}
+    | Just t <- duDelegationTarget,
+      oldTarget /= t,
+      Just False <- dtcTargetOpen dtc t =
+        Left DCFPoolClosed
+    | Just t@(DelegateToBaker bid) <- duDelegationTarget,
+      Nothing <- dtcTargetOpen dtc t =
+        Left $ DCFInvalidDelegationTarget bid
+    | Just _ <- duCapital, changePending = Left DCFChangePending
+    | DelegateToBaker bid <- newTarget,
+      newEffectiveCapital > 0,
+      oldTarget /= newTarget || oldCapital < newEffectiveCapital,
+      Just (bkrStake, delStake) <- dtcBakerStake dtc bid =
+        if
+            | applyAmountDelta deltaPool (delStake + bkrStake)
+                > applyLeverageFactor dtcLeverageBound bkrStake ->
+                Left DCFPoolStakeOverThreshold
+            | applyAmountDelta deltaPool (bkrStake + delStake)
+                > takeFraction
+                    (theCapitalBound dtcCapitalBound)
+                    (applyAmountDelta delta $ dtcTotalStake dtc) ->
+                Left DCFPoolOverDelegated
+            | otherwise -> Right expectChanges
+    | otherwise = Right expectChanges
+  where
+    flexibleCooldown = case sSupportsFlexibleCooldown (accountVersion @av) of
+        STrue -> True
+        SFalse -> False
+    senderAccount = dtcAccounts !! fromIntegral dtcUseAccount
+    (oldCapital, oldTarget, changePending) = case acStaking senderAccount of
+        StakeDetailsDelegator{..} -> (sdStakedCapital, sdDelegationTarget, sdPendingChange /= NoChange)
+        _ -> error "Account is not a delegator"
+    newEffectiveCapital
+        | not flexibleCooldown,
+          Just newCap <- duCapital,
+          newCap < oldCapital =
+            oldCapital
+        | otherwise = fromMaybe oldCapital duCapital
+    delta = amountDiff newEffectiveCapital oldCapital
+    deltaPool
+        | Just t <- duDelegationTarget, t /= oldTarget = amountToDelta newEffectiveCapital
+        | otherwise = delta
+    newTarget = fromMaybe oldTarget duDelegationTarget
+    expectChanges = execWriter $ do
+        forM_ duDelegationTarget $ tell . (: []) . DelegationConfigureDelegationTarget
+        forM_ duRestakeEarnings $ tell . (: []) . DelegationConfigureRestakeEarnings
+        forM_ duCapital $ \newCap ->
+            if newCap >= oldCapital
+                then tell [DelegationConfigureStakeIncreased newCap]
+                else tell [DelegationConfigureStakeReduced newCap]
+
+-- | Run a test of 'bsoUpdateDelegator' with the given configuration and delegator update.
 runUpdateDelegatorTest ::
     forall pv.
     ( IsProtocolVersion pv,
@@ -346,9 +396,8 @@ runUpdateDelegatorTest spv dtc@DelegatorTestConfig{..} du@DelegatorUpdate{..} = 
     initialBS <- mkInitialState initialAccounts
     res <- bsoUpdateDelegator initialBS 5000 dtcUseAccount du
     let expect = expectedUpdateResult dtc du
-    liftIO $ void res `shouldBe` expect
-    forM_ res $ \(changes, bs) -> do
-        liftIO $ changes `shouldBe` expectChanges
+    liftIO $ fst <$> res `shouldBe` expect
+    forM_ res $ \(_, bs) -> do
         checkActiveBakers bs
         () <- case flexibleCooldown of
             STrue -> do
@@ -410,14 +459,8 @@ runUpdateDelegatorTest spv dtc@DelegatorTestConfig{..} du@DelegatorUpdate{..} = 
                 DummyData.dummyArs
                 (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
                 chainParams
-    expectChanges = execWriter $ do
-        forM_ duDelegationTarget $ tell . (: []) . DelegationConfigureDelegationTarget
-        forM_ duRestakeEarnings $ tell . (: []) . DelegationConfigureRestakeEarnings
-        forM_ duCapital $ \newCap ->
-            if newCap >= oldCapital
-                then tell [DelegationConfigureStakeIncreased newCap]
-                else tell [DelegationConfigureStakeReduced newCap]
 
+-- | Test 'bsoUpdateDelegator' with a random configurations.
 testUpdateDelegator ::
     forall pv.
     ( IsProtocolVersion pv,
