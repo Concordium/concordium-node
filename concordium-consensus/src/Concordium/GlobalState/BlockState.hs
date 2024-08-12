@@ -1101,7 +1101,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --       * if the capital is greater than the baker's current equity capital, increase the baker's
     --         equity capital to the new capital (updating the total active capital in the active baker
     --         index by adding the difference between the new and old capital) and append
-    --         @BakerConfigureStakeIncreased capital@ to @events@.
+    --         @BakerConfigureStakeIncreased capital@ to @events@. From P7, the increase in stake
+    --         is (preferentially) reactivated from the inactive stake, updating the global indices
+    --         accordingly.
     --
     --  8. Return @events@ with the updated block state.
     bsoUpdateValidator ::
@@ -1175,7 +1177,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --
     --  1. If the delegation target is specified as @target@:
     --
-    --       (1) If the delegation target is a valid baker that is not 'OpenForAll', return 'DCFPoolClosed'.
+    --       (1) If the delegation target is changed and is a valid baker that is not 'OpenForAll',
+    --           return 'DCFPoolClosed'. [Note, it is allowed for the target to be the same baker,
+    --           which is 'ClosedForNew'.]
     --
     --       (2) If the delegation target is baker id @bid@, but the baker does not exist, return
     --           @DCFInvalidDelegationTarget bid@.
@@ -1200,14 +1204,26 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  3. If the delegated capital is specified as @capital@: if there is a pending change to the
     --     delegator's stake, return 'DCFChangePending'; otherwise:
     --
-    --       * If the new capital is 0, mark the delegator as pending removal at the slot timestamp
-    --         plus the delegator cooldown chain parameter, and append
-    --         @DelegationConfigureStakeReduced capital@ to @events@; otherwise
+    --       * If the new capital is 0
     --
-    --       * If the the new capital is less than the current staked capital (but not 0), mark the
-    --         delegator as pending stake reduction to @capital@ at the slot timestamp plus the
-    --         delegator cooldown chain parameter, and append @DelegationConfigureStakeReduced capital@
-    --         to @events@;
+    --           - (< P7) mark the delegator as pending removal at the slot timestamp
+    --             plus the delegator cooldown chain parameter
+    --
+    --           - (>= P7) remove the delegation record from the account, transfer the existing
+    --             staked capital to pre-pre-cooldown, and mark the account as in pre-pre-cooldown
+    --             (in the global index) if it wasn't already
+    --
+    --           - append @DelegationConfigureStakeReduced capital@ to @events@;
+    --
+    --       * If the the new capital is less than the current staked capital (but not 0),
+    --
+    --           - (< P7) mark the delegator as pending stake reduction to @capital@ at the slot
+    --             timestamp plus the delegator cooldown chain parameter
+    --
+    --           - (>= P7) transfer the decrease in staked capital to pre-pre-cooldown, and mark the
+    --             account as in pre-pre-cooldown (in the global index) if it wasn't already
+    --
+    --           - append @DelegationConfigureStakeReduced capital@ to @events@;
     --
     --       * If the new capital is equal to the current staked capital, append
     --         @DelegationConfigureStakeIncreased capital@ to @events@.
@@ -1218,11 +1234,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --
     --             * increase the delegator's target pool delegated capital by @delta@,
     --
-    --             * set the baker's delegated capital to @capital@, and
+    --             * set the account's delegated capital to @capital@,
+    --
+    --             * (>= P7) reactivate @delta@ from the account's inactive stake, removing the
+    --               account from the global cooldown indices if necessary,
     --
     --             * append @DelegationConfigureStakeIncreased capital@ to @events@.
     --
-    --  4. If the delegation target has changed or the delegated capital is increased:
+    --  4. If the delegation target has changed (and the delegation was not immediately removed) or
+    --     the delegated capital is increased:
     --
     --            * If the amount delegated to the delegation target exceeds the leverage bound,
     --              return 'DCFPoolStakeOverThreshold' and revert any changes.

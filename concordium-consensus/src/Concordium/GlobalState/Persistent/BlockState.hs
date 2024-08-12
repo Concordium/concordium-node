@@ -2174,8 +2174,8 @@ newAddDelegator pbs ai da@DelegatorAdd{..} = do
 --  1. If the delegation target is neither passive nor a valid baker, throw
 --     'DCFInvalidDelegationTarget'.
 --
---  2. If the delegation target is a valid baker, but the pool is not open for all, throw
---     'DCFPoolClosed'.
+--  2. If the delegation target is a valid baker that is different from the previous target, but
+--     the pool is not open for all, throw 'DCFPoolClosed'.
 --
 --  3. If the delegated capital is specified and there is a pending change to the delegator's
 --     stake, throw 'DCFChangePending'.
@@ -2218,11 +2218,14 @@ updateDelegatorChecks bsp oldDelegator DelegatorUpdate{..} = do
             onAccount baid bsp accountBaker >>= \case
                 Nothing -> MTL.throwError (DCFInvalidDelegationTarget bid)
                 Just baker -> do
-                    unless (baker ^. BaseAccounts.poolOpenStatus == Transactions.OpenForAll) $
-                        MTL.throwError DCFPoolClosed
                     let sameBaker =
                             Transactions.DelegateToBaker bid
                                 == oldDelegator ^. BaseAccounts.delegationTarget
+                    unless
+                        ( sameBaker
+                            || baker ^. BaseAccounts.poolOpenStatus == Transactions.OpenForAll
+                        )
+                        $ MTL.throwError DCFPoolClosed
                     return $ Just (baker, sameBaker)
     -- If the capital is being changed, check there is not a pending change.
     let hasPendingChange =
@@ -2242,8 +2245,8 @@ updateDelegatorChecks bsp oldDelegator DelegatorUpdate{..} = do
                     SFalse -> max newStake oldStake -- If the stake is reduced, the change is pending.
                     STrue -> newStake
         -- We only check for over-delegation if the stake is being increased or the target is
-        -- is changed.
-        unless (sameBaker && newEffectiveStake <= oldStake) $ do
+        -- is changed and the effective stake is non-zero.
+        unless (newEffectiveStake == 0 || sameBaker && newEffectiveStake <= oldStake) $ do
             -- The change to the total staked capital.
             let delta = newEffectiveStake `amountDiff` oldStake
             -- The change to the pool's staked capital. This depends on whether the delegator is
@@ -2274,7 +2277,9 @@ updateDelegatorChecks bsp oldDelegator DelegatorUpdate{..} = do
 --
 --  1. If the delegation target is specified as @target@:
 --
---       (1) If the delegation target is a valid baker that is not 'OpenForAll', return 'DCFPoolClosed'.
+--       (1) If the delegation target is changed and is a valid baker that is not 'OpenForAll',
+--           return 'DCFPoolClosed'. [Note, it is allowed for the target to be the same baker,
+--           which is 'ClosedForNew'.]
 --
 --       (2) If the delegation target is baker id @bid@, but the baker does not exist, return
 --           @DCFInvalidDelegationTarget bid@.

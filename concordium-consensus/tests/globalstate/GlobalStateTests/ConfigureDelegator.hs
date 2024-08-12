@@ -167,6 +167,7 @@ expectedAddResult dtc@DelegatorTestConfig{..} DelegatorAdd{..}
 expectedUpdateResult :: forall av. (IsAccountVersion av) => DelegatorTestConfig av -> DelegatorUpdate -> Either DelegatorConfigureFailure ()
 expectedUpdateResult dtc@DelegatorTestConfig{..} DelegatorUpdate{..}
     | Just t <- duDelegationTarget,
+      oldTarget /= t,
       Just False <- dtcTargetOpen dtc t =
         Left DCFPoolClosed
     | Just t@(DelegateToBaker bid) <- duDelegationTarget,
@@ -174,8 +175,8 @@ expectedUpdateResult dtc@DelegatorTestConfig{..} DelegatorUpdate{..}
         Left $ DCFInvalidDelegationTarget bid
     | Just _ <- duCapital, changePending = Left DCFChangePending
     | DelegateToBaker bid <- newTarget,
-      oldTarget /= newTarget || oldCapital < newCapital,
-      -- not flexibleCooldown || newCapital > 0 || oldTarget /= newTarget,
+      newEffectiveCapital > 0,
+      oldTarget /= newTarget || oldCapital < newEffectiveCapital,
       Just (bkrStake, delStake) <- dtcBakerStake dtc bid =
         if
             | applyAmountDelta deltaPool (delStake + bkrStake)
@@ -196,16 +197,16 @@ expectedUpdateResult dtc@DelegatorTestConfig{..} DelegatorUpdate{..}
     (oldCapital, oldTarget, changePending) = case acStaking senderAccount of
         StakeDetailsDelegator{..} -> (sdStakedCapital, sdDelegationTarget, sdPendingChange /= NoChange)
         _ -> error "Account is not a delegator"
-    delta = maybe 0 (`amountDiff` oldCapital) duCapital
-    newCapital
+    newEffectiveCapital
         | not flexibleCooldown,
           Just newCap <- duCapital,
           newCap < oldCapital =
             oldCapital
         | otherwise = fromMaybe oldCapital duCapital
+    delta = amountDiff newEffectiveCapital oldCapital
     deltaPool
-        | Just t <- duDelegationTarget, t /= oldTarget = amountToDelta newCapital
-        | otherwise = amountDiff newCapital oldCapital
+        | Just t <- duDelegationTarget, t /= oldTarget = amountToDelta newEffectiveCapital
+        | otherwise = delta
     newTarget = fromMaybe oldTarget duDelegationTarget
 
 showExpectedResult :: Either DelegatorConfigureFailure () -> String
