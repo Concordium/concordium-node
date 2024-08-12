@@ -280,6 +280,12 @@ data PersistentActiveDelegators (av :: AccountVersion) where
         } ->
         PersistentActiveDelegators av
 
+-- | Lens to access the total capital of the delegators to the pool.
+delegatorTotalCapital :: (AVSupportsDelegation av) => Lens' (PersistentActiveDelegators av) Amount
+delegatorTotalCapital f (PersistentActiveDelegatorsV1{..}) =
+    (\newDTC -> PersistentActiveDelegatorsV1{adDelegatorTotalCapital = newDTC, ..})
+        <$> f adDelegatorTotalCapital
+
 -- | See documentation of @migratePersistentBlockState@.
 migratePersistentActiveDelegators ::
     (BlobStorable m (), BlobStorable (t m) (), MonadTrans t) =>

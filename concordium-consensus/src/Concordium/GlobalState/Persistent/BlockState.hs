@@ -295,6 +295,14 @@ initialBirkParameters accounts seedState _bakerFinalizationCommitteeParameters =
     -- Iterate the accounts again accumulate all relevant information.
     IBPFromAccountsAccum{..} <- foldM (accumFromAccounts ibpcdToBaker) initialIBPFromAccountsAccum accounts
 
+    -- The total stake from bakers and delegators
+    let totalStake = case delegationSupport @av of
+            SAVDelegationNotSupported -> aibpStakedTotal
+            SAVDelegationSupported ->
+                aibpStakedTotal
+                    + sum ((^. delegatorTotalCapital) <$> ibpcdToBaker)
+                    + ibpcdToPassive ^. delegatorTotalCapital
+
     persistentActiveBakers <-
         refMake $!
             PersistentActiveBakers
@@ -303,13 +311,13 @@ initialBirkParameters accounts seedState _bakerFinalizationCommitteeParameters =
                   _passiveDelegators = ibpcdToPassive,
                   _totalActiveCapital = case delegationSupport @av of
                     SAVDelegationNotSupported -> TotalActiveCapitalV0
-                    SAVDelegationSupported -> TotalActiveCapitalV1 aibpTotal
+                    SAVDelegationSupported -> TotalActiveCapitalV1 totalStake
                 }
 
     nextEpochBakers <- do
         _bakerInfos <- refMake $ BakerInfos aibpBakerInfoRefs
         _bakerStakes <- refMake $ BakerStakes aibpBakerStakes
-        refMake PersistentEpochBakers{_bakerTotalStake = aibpStakedTotal, ..}
+        refMake PersistentEpochBakers{_bakerTotalStake = totalStake, ..}
 
     return $!
         PersistentBirkParameters
@@ -1610,7 +1618,7 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                     let updAgg Nothing = return (True, Trie.Insert ())
                         updAgg (Just ()) = return (False, Trie.NoChange)
                     liftBSO $ Trie.adjust updAgg (bkuAggregationKey keys) ak1
-        unless keyOK (MTL.throwError (BCDuplicateAggregationKey key))
+        unless keyOK (MTL.throwError (BCDuplicateAggregationKey (bkuAggregationKey keys)))
         newActiveBakers <- liftBSO $ refMake pab{_aggregationKeys = newAggregationKeys}
         let newBirkParams = bspBirkParameters bsp & birkActiveBakers .~ newActiveBakers
         MTL.modify' $ \s -> s{bspBirkParameters = newBirkParams}
