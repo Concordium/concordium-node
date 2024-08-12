@@ -1162,28 +1162,6 @@ addBakerV1 binfo stake restake acc = do
               accountEnduringData = newEnduring
             }
 
--- | Remove a baker/delegator from an account.
---  This removes any baker or delegator record and sets the active stake to 0.
---  This does not affect the stake in cooldown, which should be updated separately.
-removeStake ::
-    ( MonadBlobStore m,
-      IsAccountVersion av,
-      AccountStructureVersionFor av ~ 'AccountStructureV1,
-      AVSupportsFlexibleCooldown av
-    ) =>
-    -- | Account remove staking from.
-    PersistentAccount av ->
-    m (PersistentAccount av)
-removeStake acc = do
-    let ed = enduringData acc
-    let newStake = PersistentAccountStakeEnduringNone
-    newEnduring <- refMake =<< rehashAccountEnduringData ed{paedStake = newStake}
-    return $!
-        acc
-            { accountStakedAmount = 0,
-              accountEnduringData = newEnduring
-            }
-
 -- | Add a delegator to an account.
 --  This will replace any existing staking information on the account.
 addDelegator ::
@@ -1442,7 +1420,7 @@ processPreCooldown ::
     ) =>
     Timestamp ->
     PersistentAccount av ->
-    m (Maybe (Maybe Timestamp), PersistentAccount av)
+    m (NextCooldownChange, PersistentAccount av)
 processPreCooldown ts acc = do
     let ed = enduringData acc
     (res, newQueue) <- CooldownQueue.processPreCooldown ts (paedStakeCooldown ed)

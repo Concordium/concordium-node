@@ -538,7 +538,7 @@ tests =
         case delegationSupport @(AccountVersionFor pv) of
             SAVDelegationNotSupported -> return ()
             SAVDelegationSupported ->
-                -- FIXME: re-enable when P7 cases are implemented
+                -- FIXME: re-enable when P7 cases are implemented (#1145)
                 (if demoteProtocolVersion spv == P7 then xdescribe "P7 cases unimplemented" else id) $ do
                     testCase1 spv pvString
                     testCase2 spv pvString
