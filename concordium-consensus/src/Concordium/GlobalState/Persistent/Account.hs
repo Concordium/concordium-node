@@ -59,6 +59,7 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAc
         SAccountV0 -> fmap PAV0 <$> load
         SAccountV1 -> fmap PAV1 <$> load
         SAccountV2 -> fmap PAV2 <$> load
+        SAccountV3 -> undefined -- TODO: Implement account version 3
 
 -- | Type of references to persistent accounts.
 type AccountRef (av :: AccountVersion) = HashedCachedRef (AccountCache av) (PersistentAccount av)
@@ -82,6 +83,7 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentBa
         SAccountV0 -> fmap PBIRV0 <$!> load
         SAccountV1 -> fmap PBIRV1 <$!> load
         SAccountV2 -> fmap PBIRV2 <$!> load
+        SAccountV3 -> undefined -- TODO: Implement account version 3
 
 -- * Account cache
 
@@ -457,6 +459,7 @@ makePersistentAccount tacc = case accountVersion @av of
     SAccountV0 -> PAV0 <$> V0.makePersistentAccount tacc
     SAccountV1 -> PAV1 <$> V0.makePersistentAccount tacc
     SAccountV2 -> PAV2 <$> V1.makePersistentAccount tacc
+    SAccountV3 -> undefined -- TODO: Implement account version 3
 
 -- | Create an empty account with the given public key, address and credential.
 newAccount ::
@@ -470,6 +473,7 @@ newAccount = case accountVersion @av of
     SAccountV0 -> \ctx addr cred -> PAV0 <$> V0.newAccount ctx addr cred
     SAccountV1 -> \ctx addr cred -> PAV1 <$> V0.newAccount ctx addr cred
     SAccountV2 -> \ctx addr cred -> PAV2 <$> V1.newAccount ctx addr cred
+    SAccountV3 -> undefined -- TODO: Implement account version 3
 
 -- | Make a persistent account from a genesis account.
 --  The data is immediately flushed to disc and cached.
@@ -489,6 +493,7 @@ makeFromGenesisAccount spv =
             PAV1 <$> V0.makeFromGenesisAccount spv cryptoParams chainParameters genesisAccount
         SAccountV2 -> \cryptoParams chainParameters genesisAccount ->
             PAV2 <$> V1.makeFromGenesisAccount spv cryptoParams chainParameters genesisAccount
+        SAccountV3 -> undefined -- TODO: Implement account version 3
 
 -- ** 'PersistentBakerInfoRef' creation
 
@@ -502,6 +507,7 @@ makePersistentBakerInfoRef = case accountVersion @av of
     SAccountV0 -> fmap PBIRV0 . V0.makePersistentBakerInfoEx
     SAccountV1 -> fmap PBIRV1 . V0.makePersistentBakerInfoEx
     SAccountV2 -> fmap PBIRV2 . V1.makePersistentBakerInfoEx
+    SAccountV3 -> undefined -- TODO: Implement account version 3
 
 -- * Migration
 
@@ -523,7 +529,7 @@ migratePersistentAccount m@StateMigrationParametersP2P3 (PAV0 acc) = PAV0 <$> V0
 migratePersistentAccount m@StateMigrationParametersP3ToP4{} (PAV0 acc) = PAV1 <$> V0.migratePersistentAccount m acc
 migratePersistentAccount m@StateMigrationParametersP4ToP5{} (PAV1 acc) = PAV2 <$> V1.migratePersistentAccountFromV0 m acc
 migratePersistentAccount m@StateMigrationParametersP5ToP6{} (PAV2 acc) = PAV2 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersP6ToP7{} (PAV2 acc) = PAV2 <$> V1.migratePersistentAccount m acc
+migratePersistentAccount StateMigrationParametersP6ToP7{} _ = undefined -- TODO: Implement migration
 
 -- | Migrate a 'PersistentBakerInfoRef' between protocol versions according to a state migration.
 migratePersistentBakerInfoRef ::
@@ -540,7 +546,7 @@ migratePersistentBakerInfoRef m@StateMigrationParametersP2P3 (PBIRV0 bir) = PBIR
 migratePersistentBakerInfoRef m@StateMigrationParametersP3ToP4{} (PBIRV0 bir) = PBIRV1 <$> V0.migratePersistentBakerInfoEx m bir
 migratePersistentBakerInfoRef m@StateMigrationParametersP4ToP5{} (PBIRV1 bir) = PBIRV2 <$> V1.migratePersistentBakerInfoExFromV0 m bir
 migratePersistentBakerInfoRef m@StateMigrationParametersP5ToP6{} (PBIRV2 bir) = PBIRV2 <$> V1.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP6ToP7{} (PBIRV2 bir) = PBIRV2 <$> V1.migratePersistentBakerInfoEx m bir
+migratePersistentBakerInfoRef StateMigrationParametersP6ToP7{} _ = undefined -- TODO: Implement migration
 
 -- * Conversion
 

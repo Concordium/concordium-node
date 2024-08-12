@@ -548,10 +548,10 @@ getPoolInfoV2 cptr blockType blockHashPtr bakerId outHash outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getPoolStatus bhi (Just $ fromIntegral bakerId)) mvr
+    response <- runMVR (Q.getPoolStatus bhi (fromIntegral bakerId)) mvr
     copyHashTo outHash response
     case fmap toProto <$> response of
-        Q.BQRBlock _ (Just (Left proto)) -> do
+        Q.BQRBlock _ (Just proto) -> do
             let encoded = Proto.encodeMessage proto
             BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
             return $ queryResultCode QRSuccess
@@ -573,10 +573,10 @@ getPassiveDelegationInfoV2 cptr blockType blockHashPtr outHash outVec copierCbk 
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
     let copier = callCopyToVecCallback copierCbk
     bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getPoolStatus bhi Nothing) mvr
+    response <- runMVR (Q.getPassiveDelegationStatus bhi) mvr
     copyHashTo outHash response
     case fmap toProto <$> response of
-        Q.BQRBlock _ (Just (Right proto)) -> do
+        Q.BQRBlock _ (Just proto) -> do
             let encoded = Proto.encodeMessage proto
             BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier outVec (castPtr ptr) (fromIntegral len))
             return $ queryResultCode QRSuccess

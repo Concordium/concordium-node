@@ -80,7 +80,14 @@ import Concordium.Types.Execution (DelegationTarget (..), TransactionIndex, Tran
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.Types.HashableTo
 import qualified Concordium.Types.IdentityProviders as IPS
-import Concordium.Types.Queries (CurrentPaydayBakerPoolStatus (..), PoolStatus (..), RewardStatus' (..), makePoolPendingChange)
+import Concordium.Types.Queries (
+    ActiveBakerPoolStatus (..),
+    BakerPoolStatus (..),
+    CurrentPaydayBakerPoolStatus (..),
+    PassiveDelegationStatus (..),
+    RewardStatus' (..),
+    makePoolPendingChange,
+ )
 import Concordium.Types.SeedState
 import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
 import qualified Concordium.Types.Transactions as Transactions
@@ -98,6 +105,7 @@ import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Writer.Strict as MTL
+import Data.Bool.Singletons
 import Data.IORef
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
@@ -1455,6 +1463,7 @@ doConfigureBaker ::
     forall pv m.
     ( SupportsPersistentState pv m,
       PVSupportsDelegation pv,
+      SupportsFlexibleCooldown (AccountVersionFor pv) ~ 'False, -- FIXME: Flexible cooldown unimplemented
       IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
       PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
       CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1
@@ -1763,6 +1772,7 @@ doConfigureDelegation ::
     forall pv m.
     ( SupportsPersistentState pv m,
       PVSupportsDelegation pv,
+      SupportsFlexibleCooldown (AccountVersionFor pv) ~ 'False, -- FIXME: Flexible cooldown unimplemented
       IsSupported 'PTTimeParameters (ChainParametersVersionFor pv) ~ 'True,
       PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1,
       CooldownParametersVersionFor (ChainParametersVersionFor pv) ~ 'CooldownParametersVersion1
@@ -2624,6 +2634,27 @@ doSetPaydayMintRate pbs r = do
             hpr' <- refMake pr{nextPaydayMintRate = r}
             storePBS pbs bsp{bspRewardDetails = BlockRewardDetailsV1 hpr'}
 
+-- | Get the status of passive delegation.
+--  Used to implement 'getPassiveDelegationStatus'.
+doGetPassiveDelegationStatus ::
+    forall pv m.
+    (IsProtocolVersion pv, SupportsPersistentState pv m, PVSupportsDelegation pv) =>
+    PersistentBlockState pv ->
+    m PassiveDelegationStatus
+doGetPassiveDelegationStatus pbs = case delegationChainParameters @pv of
+    DelegationChainParameters -> do
+        bsp <- loadPBS pbs
+        pdsDelegatedCapital <- passiveDelegationCapital bsp
+        pdsCommissionRates <- _ppPassiveCommissions . _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
+        poolRewards <- refLoad (bspPoolRewards bsp)
+        let pdsCurrentPaydayTransactionFeesEarned = passiveDelegationTransactionRewards poolRewards
+        pdsCurrentPaydayDelegatedCapital <- currentPassiveDelegationCapital poolRewards
+        pdsAllPoolTotalCapital <- totalCapital bsp
+        return $! PassiveDelegationStatus{..}
+
+-- | Get a 'BakerPoolStatus' record describing the status of a baker pool. The result is
+--  'Nothing' if the 'BakerId' is not an active or current-epoch baker.
+--  Used to implement 'getPoolStatus'.
 doGetPoolStatus ::
     forall pv m.
     ( IsProtocolVersion pv,
@@ -2631,66 +2662,66 @@ doGetPoolStatus ::
       PVSupportsDelegation pv
     ) =>
     PersistentBlockState pv ->
-    Maybe BakerId ->
-    m (Maybe PoolStatus)
-doGetPoolStatus pbs Nothing = case delegationChainParameters @pv of
-    DelegationChainParameters -> do
-        bsp <- loadPBS pbs
-        psDelegatedCapital <- passiveDelegationCapital bsp
-        psCommissionRates <- _ppPassiveCommissions . _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
-        poolRewards <- refLoad (bspPoolRewards bsp)
-        let psCurrentPaydayTransactionFeesEarned = passiveDelegationTransactionRewards poolRewards
-        psCurrentPaydayDelegatedCapital <- currentPassiveDelegationCapital poolRewards
-        psAllPoolTotalCapital <- totalCapital bsp
-        return $ Just PassiveDelegationStatus{..}
-doGetPoolStatus pbs (Just psBakerId@(BakerId aid)) = case delegationChainParameters @pv of
+    BakerId ->
+    m (Maybe BakerPoolStatus)
+doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv of
     DelegationChainParameters -> do
         bsp <- loadPBS pbs
         Accounts.indexedAccount aid (bspAccounts bsp) >>= \case
             Nothing -> return Nothing
-            Just acct ->
-                accountBaker acct >>= \case
+            Just acct -> do
+                psBakerAddress <- accountCanonicalAddress acct
+                psAllPoolTotalCapital <- totalCapital bsp
+                mBaker <- accountBaker acct
+                psActiveStatus <- forM mBaker $ \baker -> do
+                    let abpsBakerEquityCapital = baker ^. BaseAccounts.stakedAmount
+                    abpsDelegatedCapital <- poolDelegatorCapital bsp psBakerId
+                    poolParameters <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
+                    let abpsDelegatedCapitalCap =
+                            delegatedCapitalCap
+                                poolParameters
+                                psAllPoolTotalCapital
+                                abpsBakerEquityCapital
+                                abpsDelegatedCapital
+                    let abpsPoolInfo = baker ^. BaseAccounts.bakerPoolInfo
+                    let abpsBakerStakePendingChange =
+                            makePoolPendingChange $ BaseAccounts.pendingChangeEffectiveTimestamp <$> (baker ^. BaseAccounts.bakerPendingChange)
+                    return $! ActiveBakerPoolStatus{..}
+                epochBakers <- refLoad (_birkCurrentEpochBakers $ bspBirkParameters bsp)
+                mepochBaker <- epochBaker psBakerId epochBakers
+                psCurrentPaydayStatus <- case mepochBaker of
                     Nothing -> return Nothing
-                    Just baker -> do
-                        let psBakerEquityCapital = baker ^. BaseAccounts.stakedAmount
-                        psDelegatedCapital <- poolDelegatorCapital bsp psBakerId
-                        poolParameters <- _cpPoolParameters <$> lookupCurrentParameters (bspUpdates bsp)
-                        psAllPoolTotalCapital <- totalCapital bsp
-                        let psDelegatedCapitalCap =
-                                delegatedCapitalCap
-                                    poolParameters
-                                    psAllPoolTotalCapital
-                                    psBakerEquityCapital
-                                    psDelegatedCapital
-                        psBakerAddress <- accountCanonicalAddress acct
-                        let psPoolInfo = baker ^. BaseAccounts.bakerPoolInfo
-                        let psBakerStakePendingChange =
-                                makePoolPendingChange $ BaseAccounts.pendingChangeEffectiveTimestamp <$> (baker ^. BaseAccounts.bakerPendingChange)
-                        epochBakers <- refLoad (_birkCurrentEpochBakers $ bspBirkParameters bsp)
-                        mepochBaker <- epochBaker psBakerId epochBakers
-                        psCurrentPaydayStatus <- case mepochBaker of
-                            Nothing -> return Nothing
-                            Just (_, effectiveStake) -> do
-                                poolRewards <- refLoad (bspPoolRewards bsp)
-                                mbcr <- lookupBakerCapitalAndRewardDetails psBakerId poolRewards
-                                case mbcr of
-                                    Nothing -> return Nothing -- This should not happen
-                                    Just (bc, BakerPoolRewardDetails{..}) -> do
-                                        return $
-                                            Just
-                                                CurrentPaydayBakerPoolStatus
-                                                    { bpsBlocksBaked = blockCount,
-                                                      bpsFinalizationLive = finalizationAwake,
-                                                      bpsTransactionFeesEarned = transactionFeesAccrued,
-                                                      bpsEffectiveStake = effectiveStake,
-                                                      bpsLotteryPower =
-                                                        fromIntegral effectiveStake
-                                                            / fromIntegral (_bakerTotalStake epochBakers),
-                                                      bpsBakerEquityCapital = bcBakerEquityCapital bc,
-                                                      bpsDelegatedCapital = bcTotalDelegatorCapital bc,
-                                                      bpsCommissionRates = psPoolInfo ^. BaseAccounts.poolCommissionRates
-                                                    }
-                        return $ Just BakerPoolStatus{..}
+                    Just (currentEpochBaker, effectiveStake) -> do
+                        poolRewards <- refLoad (bspPoolRewards bsp)
+                        mbcr <- lookupBakerCapitalAndRewardDetails psBakerId poolRewards
+                        case mbcr of
+                            Nothing ->
+                                error $
+                                    "doGetPoolStatus: invariant violation: baker "
+                                        ++ show psBakerId
+                                        ++ " is present in the current epoch bakers, but not \
+                                           \the current epoch capital distribution."
+                            Just (bc, BakerPoolRewardDetails{..}) -> do
+                                return $
+                                    Just
+                                        CurrentPaydayBakerPoolStatus
+                                            { bpsBlocksBaked = blockCount,
+                                              bpsFinalizationLive = finalizationAwake,
+                                              bpsTransactionFeesEarned = transactionFeesAccrued,
+                                              bpsEffectiveStake = effectiveStake,
+                                              bpsLotteryPower =
+                                                fromIntegral effectiveStake
+                                                    / fromIntegral (_bakerTotalStake epochBakers),
+                                              bpsBakerEquityCapital = bcBakerEquityCapital bc,
+                                              bpsDelegatedCapital = bcTotalDelegatorCapital bc,
+                                              bpsCommissionRates =
+                                                currentEpochBaker
+                                                    ^. BaseAccounts.bieBakerPoolInfo
+                                                        . BaseAccounts.poolCommissionRates
+                                            }
+                if isJust psActiveStatus || isJust psCurrentPaydayStatus
+                    then return $ Just BakerPoolStatus{..}
+                    else return Nothing
 
 doGetTransactionOutcome :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
 doGetTransactionOutcome pbs transHash = do
@@ -3461,6 +3492,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getChainParameters = doGetChainParameters . hpbsPointers
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
+    getPassiveDelegationStatus = doGetPassiveDelegationStatus . hpbsPointers
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
     thawContractState (Instances.InstanceStateV0 inst) = return inst
@@ -3538,11 +3570,15 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetCurrentEpochFullBakersEx = doGetCurrentEpochFullBakersEx
     bsoGetCurrentCapitalDistribution = doGetCurrentCapitalDistribution
     bsoAddBaker = doAddBaker
-    bsoConfigureBaker = case delegationChainParameters @pv of
-        DelegationChainParameters -> doConfigureBaker
+    bsoConfigureBaker = case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
+        SFalse -> case delegationChainParameters @pv of
+            DelegationChainParameters -> doConfigureBaker
+        STrue -> undefined -- FIXME: Flexible cooldown unimplemented
     bsoConstrainBakerCommission = doConstrainBakerCommission
-    bsoConfigureDelegation = case delegationChainParameters @pv of
-        DelegationChainParameters -> doConfigureDelegation
+    bsoConfigureDelegation = case sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv)) of
+        SFalse -> case delegationChainParameters @pv of
+            DelegationChainParameters -> doConfigureDelegation
+        STrue -> undefined -- FIXME: Flexible cooldown unimplemented
     bsoUpdateBakerKeys = doUpdateBakerKeys
     bsoUpdateBakerStake = doUpdateBakerStake
     bsoUpdateBakerRestakeEarnings = doUpdateBakerRestakeEarnings

@@ -131,6 +131,7 @@ instance (IsAccountVersion av) => HashableTo (AccountHash av) (Account av) where
         SAccountV0 -> AHIV0 (accountHashInputsV0 acc)
         SAccountV1 -> AHIV1 (accountHashInputsV0 acc)
         SAccountV2 -> AHIV2 (accountHashInputsV2 acc)
+        SAccountV3 -> undefined -- TODO: Implement account version 3
 
 instance forall av. (IsAccountVersion av) => HashableTo Hash.Hash (Account av) where
     getHash = coerce @(AccountHash av) . getHash
