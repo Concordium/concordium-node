@@ -59,7 +59,7 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
         ofNullable Null = EmptyCooldownQueue
         ofNullable (Some queue) = CooldownQueue queue
 
--- | The has of 'EmptyCooldownQueue'.
+-- | The hash of 'EmptyCooldownQueue'.
 emptyCooldownQueueHash :: CooldownQueueHash av
 {-# NOINLINE emptyCooldownQueueHash #-}
 emptyCooldownQueueHash = CooldownQueueHash (getHash emptyCooldowns)
@@ -175,17 +175,27 @@ processCooldownsUntil ts (CooldownQueue queueRef) = do
     newQueue <- makeCooldownQueue newCooldowns
     return (nextTimestamp, newQueue)
 
+-- | The change to the next cooldown time as a result of processing the pre-cooldown.
+data NextCooldownChange
+    = -- | The previous next cooldown time was @oldNextCooldown@, but the new next cooldown
+      -- time is earlier.
+      EarlierNextCooldown {oldNextCooldown :: !Timestamp}
+    | -- | There was no cooldown but now there is.
+      NewNextCooldown
+    | -- | There was no change.
+      NextCooldownUnchanged
+
 -- | Move the pre-cooldown amount on into cooldown with the specified release time.
---  This returns @Just (Just ts)@ if the previous next cooldown time was @ts@, but the new next
---  cooldown (i.e. the supplied timestamp) time is earlier. It returns @Just Nothing@ if there was
---  no cooldown but now there is. Otherwise, it returns @Nothing@.
+--  This returns @EarlierNextCooldown ts@ if the previous next cooldown time was @ts@, but the new
+--  next cooldown (i.e. the supplied timestamp) time is earlier. It returns @NewNextCooldown@ if
+--  there was no cooldown but now there is. Otherwise, it returns @NextCooldownUnchanged@.
 processPreCooldown ::
     (MonadBlobStore m) =>
     -- | The timestamp at which the pre-cooldown should be released.
     Timestamp ->
     CooldownQueue av ->
-    m (Maybe (Maybe Timestamp), CooldownQueue av)
-processPreCooldown _ EmptyCooldownQueue = return (Nothing, EmptyCooldownQueue)
+    m (NextCooldownChange, CooldownQueue av)
+processPreCooldown _ EmptyCooldownQueue = return (NextCooldownUnchanged, EmptyCooldownQueue)
 processPreCooldown ts (CooldownQueue queueRef) = do
     let oldCooldowns = eagerBufferedDeref queueRef
     let !newCooldowns = Cooldowns.processPreCooldown ts oldCooldowns
@@ -195,11 +205,11 @@ processPreCooldown ts (CooldownQueue queueRef) = do
             | Just oldTS <- oldNextTimestamp,
               Just nextTS <- nextTimestamp,
               nextTS < oldTS =
-                Just (Just oldTS)
+                EarlierNextCooldown{oldNextCooldown = oldTS}
             | Nothing <- oldNextTimestamp,
               Just _ <- nextTimestamp =
-                Just Nothing
-            | otherwise = Nothing
+                NewNextCooldown
+            | otherwise = NextCooldownUnchanged
     newQueue <- makeCooldownQueue newCooldowns
     return (res, newQueue)
 

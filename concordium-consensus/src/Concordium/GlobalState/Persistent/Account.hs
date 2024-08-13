@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -28,6 +29,7 @@ import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import Concordium.GlobalState.BlockState (AccountAllowance)
 import Concordium.GlobalState.CooldownQueue
+import Concordium.GlobalState.Persistent.Account.CooldownQueue (NextCooldownChange)
 import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as V1
@@ -408,15 +410,6 @@ addAccountBakerV1 binfo amt restake (PAV1 acc) = PAV1 <$> V0.addBakerV1 binfo am
 addAccountBakerV1 binfo amt restake (PAV2 acc) = PAV2 <$> V1.addBakerV1 binfo amt restake acc
 addAccountBakerV1 binfo amt restake (PAV3 acc) = PAV3 <$> V1.addBakerV1 binfo amt restake acc
 
--- | Remove a baker/delegator from an account.
---  This removes any baker or delegator record and sets the active stake to 0.
---  This does not affect the stake in cooldown, which should be updated separately.
-removeAccountStake ::
-    (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
-    PersistentAccount av ->
-    m (PersistentAccount av)
-removeAccountStake (PAV3 acc) = PAV3 <$> V1.removeStake acc
-
 -- | Add a delegator to an account.
 --  This will replace any existing staking information on the account.
 addAccountDelegator ::
@@ -569,7 +562,7 @@ processAccountPreCooldown ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     Timestamp ->
     PersistentAccount av ->
-    m (Maybe (Maybe Timestamp), PersistentAccount av)
+    m (NextCooldownChange, PersistentAccount av)
 processAccountPreCooldown ts (PAV3 acc) = second PAV3 <$> V1.processPreCooldown ts acc
 
 -- | Move the pre-pre-cooldown amount on an account into pre-cooldown.
