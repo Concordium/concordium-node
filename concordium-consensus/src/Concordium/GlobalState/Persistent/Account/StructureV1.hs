@@ -360,6 +360,7 @@ instance HashableTo (AccountMerkleHash av) (PersistentAccountEnduringData av) wh
     getHash = paedHash
 
 -- | Construct a 'PersistentAccountEnduringData' from the components by computing the hash.
+--  Used for 'AccountV2'.
 --
 --  Precondition: if the 'PersistentAccountEncryptedAmount' is present then it must not satisfy
 --  'isInitialPersistentAccountEncryptedAmount'.
@@ -389,6 +390,14 @@ makeAccountEnduringDataAV2 paedPersistingData paedEncryptedAmount paedReleaseSch
         paedStakeCooldown = emptyCooldownQueue
     return $! PersistentAccountEnduringData{..}
 
+-- | Construct a 'PersistentAccountEnduringData' from the components by computing the hash.
+--   Used for 'AccountV3'.
+--
+--  Precondition: if the 'PersistentAccountEncryptedAmount' is present then it must not satisfy
+--  'isInitialPersistentAccountEncryptedAmount'.
+--
+--  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
+--  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV3 ::
     ( MonadBlobStore m
     ) =>
@@ -413,8 +422,12 @@ makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSch
         !paedHash = getHash hashInputs
     return $! PersistentAccountEnduringData{..}
 
--- | [For internal use in this module.] Recompute the Merkle hash of the enduring account data.
-rehashAccountEnduringDataAV2 :: (MonadBlobStore m) => PersistentAccountEnduringData 'AccountV2 -> m (PersistentAccountEnduringData 'AccountV2)
+-- | [For internal use in this module.] Recompute the Merkle hash of the enduring account data,
+--  for 'AccountV2'.
+rehashAccountEnduringDataAV2 ::
+    (MonadBlobStore m) =>
+    PersistentAccountEnduringData 'AccountV2 ->
+    m (PersistentAccountEnduringData 'AccountV2)
 rehashAccountEnduringDataAV2 ed = do
     amhi2PersistingAccountDataHash <- getHashM (paedPersistingData ed)
     (amhi2AccountStakeHash :: AccountStakeHash 'AccountV2) <- getHashM (paedStake ed)
@@ -424,11 +437,15 @@ rehashAccountEnduringDataAV2 ed = do
     amhi2AccountReleaseScheduleHash <- case paedReleaseSchedule ed of
         Null -> return TARSV1.emptyAccountReleaseScheduleHashV1
         Some (rs, _) -> getHashM rs
-    let hashInputs :: AccountMerkleHashInputs 'AccountV2
-        hashInputs = AccountMerkleHashInputsV2{..}
+    let hashInputs = AccountMerkleHashInputsV2{..}
     return $! ed{paedHash = getHash hashInputs}
 
-rehashAccountEnduringDataAV3 :: (MonadBlobStore m) => PersistentAccountEnduringData 'AccountV3 -> m (PersistentAccountEnduringData 'AccountV3)
+-- | [For internal use in this module.] Recompute the Merkle hash of the enduring account data,
+--  for 'AccountV3'.
+rehashAccountEnduringDataAV3 ::
+    (MonadBlobStore m) =>
+    PersistentAccountEnduringData 'AccountV3 ->
+    m (PersistentAccountEnduringData 'AccountV3)
 rehashAccountEnduringDataAV3 ed = do
     amhi3PersistingAccountDataHash <- getHashM (paedPersistingData ed)
     (amhi3AccountStakeHash :: AccountStakeHash 'AccountV3) <- getHashM (paedStake ed)
@@ -439,10 +456,10 @@ rehashAccountEnduringDataAV3 ed = do
         Null -> return TARSV1.emptyAccountReleaseScheduleHashV1
         Some (rs, _) -> getHashM rs
     amhi3Cooldown <- getHashM $ paedStakeCooldown ed
-    let hashInputs :: AccountMerkleHashInputs 'AccountV3
-        hashInputs = AccountMerkleHashInputsV3{..}
+    let hashInputs = AccountMerkleHashInputsV3{..}
     return $! ed{paedHash = getHash hashInputs}
 
+-- | [For internal use in this module.] Recompute the Merkle hash of the enduring account data.
 rehashAccountEnduringData ::
     forall m av.
     (MonadBlobStore m, IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1) =>
@@ -452,6 +469,8 @@ rehashAccountEnduringData = case accountVersion @av of
     SAccountV2 -> rehashAccountEnduringDataAV2
     SAccountV3 -> rehashAccountEnduringDataAV3
 
+-- | Compute the 'EnduringDataFlags' from a 'PersistentAccountEnduringData' for the purposes of
+--  storing the account.
 enduringDataFlags ::
     forall av.
     (IsAccountVersion av) =>
@@ -612,7 +631,8 @@ stakeFlagsFromBits bs = case bs .&. 0b11_0000 of
 --    a cooldown.
 --
 --  - The remaining bits indicate the staking status of the account, in accordance with
---    'StakeFlags' (where bit 0 is cleared in the case of flexible cooldowns).
+--    'StakeFlags'. (Note that bits 0 and 1 are used for the pending change type if the account
+--    version does not support flexible cooldowns.)
 data EnduringDataFlags (av :: AccountVersion) = EnduringDataFlags
     { -- | Whether the enduring data includes a (non-initial) encrypted amount.
       edHasEncryptedAmount :: !Bool,
@@ -1644,8 +1664,19 @@ newAccount cryptoParams _accountAddress credential = do
     accountEnduringData <-
         refMake
             =<< case accountVersion @av of
-                SAccountV2 -> makeAccountEnduringDataAV2 paedPersistingData Null Null PersistentAccountStakeEnduringNone
-                SAccountV3 -> makeAccountEnduringDataAV3 paedPersistingData Null Null PersistentAccountStakeEnduringNone emptyCooldownQueue
+                SAccountV2 ->
+                    makeAccountEnduringDataAV2
+                        paedPersistingData
+                        Null
+                        Null
+                        PersistentAccountStakeEnduringNone
+                SAccountV3 ->
+                    makeAccountEnduringDataAV3
+                        paedPersistingData
+                        Null
+                        Null
+                        PersistentAccountStakeEnduringNone
+                        emptyCooldownQueue
     return $!
         PersistentAccount
             { accountNonce = minNonce,
@@ -1698,8 +1729,19 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
     accountEnduringData <-
         refMakeFlushed
             =<< case accountVersion @av of
-                SAccountV2 -> makeAccountEnduringDataAV2 paedPersistingData Null Null stakeEnduring
-                SAccountV3 -> makeAccountEnduringDataAV3 paedPersistingData Null Null stakeEnduring emptyCooldownQueue
+                SAccountV2 ->
+                    makeAccountEnduringDataAV2
+                        paedPersistingData
+                        Null
+                        Null
+                        stakeEnduring
+                SAccountV3 ->
+                    makeAccountEnduringDataAV3
+                        paedPersistingData
+                        Null
+                        Null
+                        stakeEnduring
+                        emptyCooldownQueue
     return $!
         PersistentAccount
             { accountNonce = minNonce,

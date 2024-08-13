@@ -108,16 +108,18 @@ addPrePreCooldown amt Cooldowns{..} =
 reactivateCooldownAmount :: Amount -> Cooldowns -> Cooldowns
 reactivateCooldownAmount = reactivatePrePre
   where
-    reactivateHelper more update available amt cd = case available of
-        Absent -> more amt cd
-        Present availableAmt -> case availableAmt `compare` amt of
-            LT -> more (amt - availableAmt) $ update Absent
-            EQ -> update Absent
-            GT -> update (Present (availableAmt - amt))
-    reactivatePrePre amt cd =
-        reactivateHelper reactivatePre (\pp -> cd{prePreCooldown = pp}) (prePreCooldown cd) amt cd
-    reactivatePre amt cd =
-        reactivateHelper reactivateInCooldown (\p -> cd{preCooldown = p}) (preCooldown cd) amt cd
+    reactivatePrePre amt cd = case prePreCooldown cd of
+        Absent -> reactivatePre amt cd
+        Present prePreAmt -> case prePreAmt `compare` amt of
+            LT -> reactivatePre (amt - prePreAmt) cd{prePreCooldown = Absent}
+            EQ -> cd{prePreCooldown = Absent}
+            GT -> cd{prePreCooldown = Present (prePreAmt - amt)}
+    reactivatePre amt cd = case preCooldown cd of
+        Absent -> reactivateInCooldown amt cd
+        Present preAmt -> case preAmt `compare` amt of
+            LT -> reactivateInCooldown (amt - preAmt) cd{preCooldown = Absent}
+            EQ -> cd{preCooldown = Absent}
+            GT -> cd{preCooldown = Present (preAmt - amt)}
     reactivateInCooldown amt cd = reactivateCooldown (Map.toDescList $ inCooldown cd) amt cd
     reactivateCooldown [] _ cd = cd
     reactivateCooldown ((ts, availableAmount) : rest) amt cd =
@@ -179,7 +181,7 @@ data CooldownCalculationParameters = CooldownCalculationParameters
       ccpNextPayday :: Epoch,
       -- | The length of a reward period in epochs.
       ccpRewardPeriodLength :: RewardPeriodLength,
-      -- | The current duration to for cooldowns.
+      -- | The current duration for cooldowns.
       ccpCooldownDuration :: DurationSeconds
     }
 
@@ -195,8 +197,8 @@ preCooldownTimestamp CooldownCalculationParameters{..} =
         `addDurationSeconds` ccpCooldownDuration
 
 -- | Calculate the timestamp at which stake in pre-pre-cooldown is expected to be released from
---  cooldown. If the next epoch is the next payday, this is the time of the payday after that.
---  Otherwise, this is the same as the 'preCooldownTimestamp'.
+--  cooldown. If the next epoch is the next payday, the cooldown starts from the payday after
+--  that. Otherwise, it starts from the next payday, as for 'preCooldownTimestamp'.
 prePreCooldownTimestamp :: CooldownCalculationParameters -> Timestamp
 prePreCooldownTimestamp ccp@CooldownCalculationParameters{..}
     | ccpNextPayday - ccpCurrentEpoch == 1 =
