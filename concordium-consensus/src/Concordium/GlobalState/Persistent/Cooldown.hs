@@ -67,6 +67,8 @@ migrateAccountList (Some ubRef) = do
         return $! ali{accountListTail = newTail}
 
 -- | Remove the first instance of an 'AccountIndex' from an 'AccountList'.
+--  (This should only be used when the 'AccountIndex' is expected to be in the list. Otherwise,
+--  the entire list will be effectively duplicated in the blob store for no reason.)
 removeAccountFromAccountList :: (MonadBlobStore m) => AccountIndex -> AccountList -> m AccountList
 removeAccountFromAccountList ai alist = case alist of
     Null -> return Null
@@ -85,7 +87,8 @@ removeAccountFromAccountList ai alist = case alist of
                     newRef <- refMake $ AccountListItem (accountListEntry item) newList
                     return $ Some newRef
 
--- | This is an indexing structure and therefore does not need to be hashed. FIXME: add more docs
+-- | An index of the accounts that are currently in cooldown/pre-cooldown/pre-pre-cooldown.
+--  As this is an indexing structure, it is not hashed as part of the block state hash.
 data AccountsInCooldown = AccountsInCooldown
     { -- | The accounts that are in cooldown with their earliest release times.
       _cooldown :: !NewReleaseSchedule,
@@ -189,6 +192,7 @@ instance (MonadBlobStore m) => Cacheable m (AccountsInCooldownForPV pv) where
     cache = fmap AccountsInCooldownForPV . mapM cache . theAccountsInCooldownForPV
 
 -- | Generate the initial 'AccountsInCooldownForPV' structure from the initial accounts.
+--  This is used for testing purposes.
 initialAccountsInCooldown ::
     forall pv m.
     (MonadBlobStore m, IsProtocolVersion pv) =>

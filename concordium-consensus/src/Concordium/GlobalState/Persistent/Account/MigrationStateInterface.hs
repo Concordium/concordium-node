@@ -20,7 +20,8 @@ class AccountMigration (av :: AccountVersion) m | m -> av where
     --  The delegator must not already have been retained. This MUST be called for every delegator
     --  that remains a delegator after migration when transitioning from a protocol version that
     --  does not support flexible delegation to one that does. Outside of such a transition, this
-    --  has no effect.
+    --  has no effect. If the target is a baker, then the baker must be one that is retained
+    --  (i.e. it was previously a baker and has not been removed in the migration).
     retainDelegator :: (AVSupportsDelegation av) => DelegatorId -> Amount -> DelegationTarget -> m ()
 
 -- | This class provides functionality used during account migration. This interface is used when

@@ -1775,7 +1775,7 @@ migrateEnduringDataV2 ed = do
 --   * If the account previously had a pending change, it will now have a pre-pre-cooldown, and
 --     'addAccountInPrePreCooldown' is called (to register this globally). If the pending change
 --     was a reduction in stake, the reduction is applied immediately to the active stake. If the
---     pending change wass a removal, the baker or delegator record is removed altogether.
+--     pending change was a removal, the baker or delegator record is removed altogether.
 --
 --   * If the account is still delegating but was delegating to a baker for which 'isBakerRemoved'
 --     returns @True@, the delegation target is updated to passive delegation.
@@ -1842,7 +1842,7 @@ migrateV2ToV2 acc = do
 --   * If the account previously had a pending change, it will now have a pre-pre-cooldown, and
 --     'addAccountInPrePreCooldown' is called (to register this globally). If the pending change
 --     was a reduction in stake, the reduction is applied immediately to the active stake. If the
---     pending change wass a removal, the baker or delegator record is removed altogether.
+--     pending change was a removal, the baker or delegator record is removed altogether.
 --
 --   * If the account is still delegating but was delegating to a baker for which 'isBakerRemoved'
 --     returns @True@, the delegation target is updated to passive delegation.
