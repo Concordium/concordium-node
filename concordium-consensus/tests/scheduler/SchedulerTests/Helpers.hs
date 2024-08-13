@@ -133,8 +133,8 @@ forEveryProtocolVersion check =
       check Types.SP3 "P3",
       check Types.SP4 "P4",
       check Types.SP5 "P5",
-      check Types.SP6 "P6"
-      -- FIXME: check Types.SP7 "P7"
+      check Types.SP6 "P6",
+      check Types.SP7 "P7"
     ]
 
 -- | Construct a test block state containing the provided accounts.

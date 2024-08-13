@@ -743,8 +743,8 @@ getStake :: (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => Persist
 getStake acc = loadAccountStake (acc ^. accountStake)
 
 -- | Determine if an account has stake as a baker or delegator.
-hasStake :: PersistentAccount av -> Bool
-hasStake acc = case acc ^. accountStake of
+hasActiveStake :: PersistentAccount av -> Bool
+hasActiveStake acc = case acc ^. accountStake of
     PersistentAccountStakeNone -> False
     _ -> True
 
@@ -1205,4 +1205,5 @@ toTransientAccount PersistentAccount{..} = do
         PersistentAccountStakeNone -> return AccountStakeNone
         PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
         PersistentAccountStakeDelegate dlg -> AccountStakeDelegate <$> refLoad dlg
+    let _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av)
     return $ Transient.Account{..}
