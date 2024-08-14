@@ -40,6 +40,8 @@ type IntroducesFlexibleCooldown (oldpv :: ProtocolVersion) (pv :: ProtocolVersio
     Not (SupportsFlexibleCooldown (AccountVersionFor oldpv))
         && SupportsFlexibleCooldown (AccountVersionFor pv)
 
+-- | State that is accumulated accross the migration of accounts from one protocol version to
+-- another.
 data AccountMigrationState (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = AccountMigrationState
     { -- | In the P6 -> P7 protocol update, this records the accounts that previously were in
       --  cooldown, and now will be in pre-pre-cooldown.
@@ -59,6 +61,7 @@ data AccountMigrationState (oldpv :: ProtocolVersion) (pv :: ProtocolVersion) = 
       -- | A counter to track the index of the current account as we traverse the account table.
       _currentAccountIndex :: !AccountIndex
     }
+
 makeLenses ''AccountMigrationState
 
 -- | Construct an initial 'PersistentActiveBakers' that records all of the bakers that are still
@@ -144,8 +147,8 @@ initialAccountMigrationState _persistentActiveBakers = AccountMigrationState{..}
         STrue -> CFalse
     _currentAccountIndex = 0
 
--- | Construct an initial account migration state that records all of the active bakers that
---  remain active after the migration. This is then used
+-- | Construct an initial account migration state. When migrating P6->P7, this initializes the
+--  '_persistentActiveBakers' with the active bakers that survive migration, but no delegators.
 makeInitialAccountMigrationState ::
     ( IsProtocolVersion pv,
       SupportMigration m t,
@@ -218,22 +221,19 @@ instance
     AccountMigration av (AccountMigrationStateTT oldpv pv t m)
     where
     addAccountInPrePreCooldown = do
-        ai <- use currentAccountIndex
         mmpc <- use migrationPrePreCooldown
         case mmpc of
             CTrue mpc -> do
-                newHead <-
-                    makeUnbufferedRef
-                        AccountListItem
-                            { accountListEntry = ai,
-                              accountListTail = mpc
-                            }
-                migrationPrePreCooldown .= CTrue (Some newHead)
+                ai <- use currentAccountIndex
+                newHead <- consAccountList ai mpc
+                migrationPrePreCooldown .= CTrue newHead
             CFalse -> return ()
 
     isBakerRemoved bakerId =
         use persistentActiveBakers >>= \case
-            CFalse -> return False
+            CFalse ->
+                -- In this case, no bakers are removed during migration.
+                return False
             CTrue pab ->
                 isNothing <$> Trie.lookup bakerId (pab ^. activeBakers)
 

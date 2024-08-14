@@ -224,13 +224,21 @@ instance Serialize PersistingAccountData where
 newtype AccountHash (av :: AccountVersion) = AccountHash {theAccountHash :: Hash.Hash}
     deriving newtype (Eq, Ord, Show, Serialize)
 
--- | Inputs for computing the hash of an account.
+-- | Inputs for computing the hash of an account, used for 'AccountV0' and 'AccountV1'.
+--  While the structure is common across both versions, the 'AccountStakeHash' is version-specific.
+--  (In particular, the 'AccountStakeHash' for 'AccountV1' allows for delegation.)
 data AccountHashInputsV0 (av :: AccountVersion) = AccountHashInputsV0
-    { ahiNextNonce :: !Nonce,
+    { -- | The next nonce for the account.
+      ahiNextNonce :: !Nonce,
+      -- | The account balance.
       ahiAccountAmount :: !Amount,
+      -- | The account's encrypted balance.
       ahiAccountEncryptedAmount :: !AccountEncryptedAmount,
+      -- | The account's release schedule.
       ahiAccountReleaseScheduleHash :: !ARSV0.AccountReleaseScheduleHashV0,
+      -- | Hash of the persisting account data.
       ahiPersistingAccountDataHash :: !PersistingAccountDataHash,
+      -- | Hash of the account's stake details.
       ahiAccountStakeHash :: !(AccountStakeHash av)
     }
 
@@ -307,10 +315,17 @@ instance HashableTo (AccountMerkleHash av) (AccountMerkleHashInputs av) where
                     )
                 )
 
+-- | The data used to compute an 'AccountHash' from 'AccountV2' onwards.
+--  While this is common between account versions, the 'AccountMerkleHash' is version-specific,
+--  as is the mode of computing the account hash.
 data AccountHashInputsV2 (av :: AccountVersion) = AccountHashInputsV2
-    { ahi2NextNonce :: !Nonce,
+    { -- | The next nonce for the account.
+      ahi2NextNonce :: !Nonce,
+      -- | The account balance.
       ahi2AccountBalance :: !Amount,
+      -- | The actively staked balance.
       ahi2StakedBalance :: !Amount,
+      -- | Hash derived from the seldom-updated parts of the account.
       ahi2MerkleHash :: !(AccountMerkleHash av)
     }
 

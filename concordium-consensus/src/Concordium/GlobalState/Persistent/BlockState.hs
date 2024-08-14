@@ -54,6 +54,7 @@ import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.CooldownQueue as CooldownQueue
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
+import Concordium.GlobalState.Persistent.Account.CooldownQueue (NextCooldownChange (..))
 import qualified Concordium.GlobalState.Persistent.Account.MigrationState as MigrationState
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
@@ -1936,7 +1937,7 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
             then do
                 MTL.tell [BakerConfigureStakeReduced 0]
                 alreadyInPrePreCooldown <- accountHasPrePreCooldown acc
-                acc1 <- removeAccountStake acc >>= addAccountPrePreCooldown oldCapital
+                acc1 <- removeAccountStaking acc >>= addAccountPrePreCooldown oldCapital
                 let oldKeys =
                         maybe
                             (oldBaker ^. BaseAccounts.bakerAggregationVerifyKey)
@@ -2431,7 +2432,7 @@ newUpdateDelegator pbs blockTimestamp ai du@DelegatorUpdate{..} = do
                                 . (totalActiveCapital %~ subtractActiveCapital oldCapital)
 
                     alreadyInPrePreCooldown <- accountHasPrePreCooldown acc
-                    acc1 <- removeAccountStake acc >>= addAccountPrePreCooldown oldCapital
+                    acc1 <- removeAccountStaking acc >>= addAccountPrePreCooldown oldCapital
                     bsp2 <- (if alreadyInPrePreCooldown then return else addToPrePreCooldowns) bsp1
                     return (bsp2, acc1)
                 else case compare capital oldCapital of
@@ -3225,6 +3226,8 @@ doSetPaydayMintRate pbs r = do
             hpr' <- refMake pr{nextPaydayMintRate = r}
             storePBS pbs bsp{bspRewardDetails = BlockRewardDetailsV1 hpr'}
 
+-- | Get the status of passive delegation.
+--  Used to implement 'getPassiveDelegationStatus'.
 doGetPassiveDelegationStatus ::
     forall pv m.
     (IsProtocolVersion pv, SupportsPersistentState pv m, PVSupportsDelegation pv) =>
@@ -3241,6 +3244,9 @@ doGetPassiveDelegationStatus pbs = case delegationChainParameters @pv of
         pdsAllPoolTotalCapital <- totalCapital bsp
         return $! PassiveDelegationStatus{..}
 
+-- | Get a 'BakerPoolStatus' record describing the status of a baker pool. The result is
+--  'Nothing' if the 'BakerId' is not an active or current-epoch baker.
+--  Used to implement 'getPoolStatus'.
 doGetPoolStatus ::
     forall pv m.
     ( IsProtocolVersion pv,
@@ -3281,7 +3287,12 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                         poolRewards <- refLoad (bspPoolRewards bsp)
                         mbcr <- lookupBakerCapitalAndRewardDetails psBakerId poolRewards
                         case mbcr of
-                            Nothing -> return Nothing -- This should not happen
+                            Nothing ->
+                                error $
+                                    "doGetPoolStatus: invariant violation: baker "
+                                        ++ show psBakerId
+                                        ++ " is present in the current epoch bakers, but not \
+                                           \the current epoch capital distribution."
                             Just (bc, BakerPoolRewardDetails{..}) -> do
                                 return $
                                     Just
@@ -3987,11 +3998,11 @@ doProcessCooldowns pbs now newExpiry = do
         case res of
             -- In this case, the account already had cooldowns, but the new cooldown expires
             -- earlier, so the release schedule needs to be updated.
-            Just (Just oldTS) -> withCooldown $ updateAccountRelease oldTS newExpiry acc
+            EarlierNextCooldown oldTS -> withCooldown $ updateAccountRelease oldTS newExpiry acc
             -- In this case, the account did not have cooldowns, so the new cooldown is added.
-            Just Nothing -> withCooldown $ addAccountRelease newExpiry acc
+            NewNextCooldown -> withCooldown $ addAccountRelease newExpiry acc
             -- In this case, the earliest cooldown on the account has not changed.
-            Nothing -> return ()
+            NextCooldownUnchanged -> return ()
         return newPA
 
 -- | Move all pre-pre-cooldowns into pre-cooldown.

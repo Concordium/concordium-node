@@ -2,6 +2,7 @@ module Main where
 
 import Data.List (stripPrefix)
 import Data.Semigroup
+import qualified GlobalStateTests.AccountList (tests)
 import qualified GlobalStateTests.AccountMap (tests)
 import qualified GlobalStateTests.AccountReleaseScheduleMigration (tests)
 import qualified GlobalStateTests.AccountReleaseScheduleTest (tests)
@@ -57,6 +58,7 @@ main = atLevel $ \lvl -> hspec $ do
     GlobalStateTests.LMDBAccountMap.tests
     GlobalStateTests.DifferenceMap.tests
     GlobalStateTests.AccountsMigrationP6ToP7.tests
+    GlobalStateTests.AccountList.tests
     GlobalStateTests.CooldownQueue.tests
     GlobalStateTests.CooldownProcessing.tests
     GlobalStateTests.ConfigureValidator.tests lvl

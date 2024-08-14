@@ -125,7 +125,7 @@ accountHashInputsV2 Account{..} =
     merkleInputs =
         AccountMerkleHashInputsV2
             { amhi2PersistingAccountDataHash = getHash _accountPersisting,
-              amhi2AccountStakeHash = getHash _accountStaking :: AccountStakeHash 'AccountV2,
+              amhi2AccountStakeHash = getHash _accountStaking,
               amhi2EncryptedAmountHash = getHash _accountEncryptedAmount,
               amhi2AccountReleaseScheduleHash = getHash _accountReleaseSchedule
             }
@@ -148,7 +148,7 @@ accountHashInputsV3 Account{..} =
     merkleInputs =
         AccountMerkleHashInputsV3
             { amhi3PersistingAccountDataHash = getHash _accountPersisting,
-              amhi3AccountStakeHash = getHash _accountStaking :: AccountStakeHash 'AccountV3,
+              amhi3AccountStakeHash = getHash _accountStaking,
               amhi3EncryptedAmountHash = getHash _accountEncryptedAmount,
               amhi3AccountReleaseScheduleHash = getHash _accountReleaseSchedule,
               amhi3Cooldown = CooldownQueueHash $ getHash $ uncond _accountStakeCooldown

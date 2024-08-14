@@ -242,7 +242,18 @@ migrateNewReleaseSchedule rs = do
               nrsMap = newMap
             }
 
-removeAccountFromReleaseSchedule :: (MonadBlobStore m) => Timestamp -> AccountIndex -> NewReleaseSchedule -> m NewReleaseSchedule
+-- | Remove an account from the release schedule, given the timestamp and the account index.
+--
+--  PRECONDITION: The account must have a scheduled release at the given timestamp.
+removeAccountFromReleaseSchedule ::
+    (MonadBlobStore m) =>
+    -- | The timestamp at which the account has a scheduled release.
+    Timestamp ->
+    -- | The account index to remove.
+    AccountIndex ->
+    -- | The release schedule to remove the account from.
+    NewReleaseSchedule ->
+    m NewReleaseSchedule
 removeAccountFromReleaseSchedule ts ai rs = do
     (_, nrsMap) <- Trie.adjust remAcc ts (nrsMap rs)
     newMin <- Trie.findMin nrsMap
@@ -255,9 +266,6 @@ removeAccountFromReleaseSchedule ts ai rs = do
         return $!
             let accs' = Set.delete ai accs
             in  if Set.null accs' then ((), Trie.Remove) else ((), Trie.Insert (AccountSet accs'))
-
-updateAccountFromReleaseSchedule :: (MonadBlobStore m) => Timestamp -> Timestamp -> AccountIndex -> NewReleaseSchedule -> m NewReleaseSchedule
-updateAccountFromReleaseSchedule = updateAccountRelease
 
 -- | A reference to an account used in the top-level release schedule.
 --  For protocol version prior to 'P5', this is 'AccountAddress', and for 'P5' onward this is

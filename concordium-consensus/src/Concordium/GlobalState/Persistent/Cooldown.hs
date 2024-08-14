@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
@@ -65,26 +66,29 @@ migrateAccountList (Some ubRef) = do
         newTail <- migrateAccountList (accountListTail ali)
         return $! ali{accountListTail = newTail}
 
-removeAccountFromAccountListItem :: (MonadBlobStore m) => AccountIndex -> AccountListItem -> m AccountList
-removeAccountFromAccountListItem ai alist =
-    if accountListEntry alist == ai
-        then return $ accountListTail alist
-        else case accountListTail alist of
-            Null -> Some <$> refMake alist
-            Some ref -> do
-                alistItem <- refLoad ref
-                newList <- removeAccountFromAccountListItem ai alistItem
-                newRef <- refMake $ AccountListItem (accountListEntry alist) newList
-                return $ Some newRef
-
+-- | Remove the first instance of an 'AccountIndex' from an 'AccountList'.
+--  (This should only be used when the 'AccountIndex' is expected to be in the list. Otherwise,
+--  the entire list will be effectively duplicated in the blob store for no reason.)
 removeAccountFromAccountList :: (MonadBlobStore m) => AccountIndex -> AccountList -> m AccountList
 removeAccountFromAccountList ai alist = case alist of
     Null -> return Null
     Some ref -> do
         item <- refLoad ref
-        removeAccountFromAccountListItem ai item
+        removeAccountFromAccountListItem item
+  where
+    removeAccountFromAccountListItem item =
+        if accountListEntry item == ai
+            then return $ accountListTail item
+            else case accountListTail item of
+                Null -> Some <$> refMake item
+                Some ref -> do
+                    alistItem <- refLoad ref
+                    newList <- removeAccountFromAccountListItem alistItem
+                    newRef <- refMake $ AccountListItem (accountListEntry item) newList
+                    return $ Some newRef
 
--- | This is an indexing structure and therefore does not need to be hashed. FIXME: add more docs
+-- | An index of the accounts that are currently in cooldown/pre-cooldown/pre-pre-cooldown.
+--  As this is an indexing structure, it is not hashed as part of the block state hash.
 data AccountsInCooldown = AccountsInCooldown
     { -- | The accounts that are in cooldown with their earliest release times.
       _cooldown :: !NewReleaseSchedule,
@@ -147,7 +151,9 @@ migrateAccountsInCooldown aic = do
               _prePreCooldown = newPrePreCooldown
             }
 
-newtype AccountsInCooldownForPV pv = AccountsInCooldownForPV
+-- | A type that holds an 'AccountsInCooldown' for protocol versions that support flexible
+--  cooldowns (and nothing for versions that do not).
+newtype AccountsInCooldownForPV (pv :: ProtocolVersion) = AccountsInCooldownForPV
     { theAccountsInCooldownForPV ::
         Conditionally (SupportsFlexibleCooldown (AccountVersionFor pv)) AccountsInCooldown
     }
@@ -186,6 +192,7 @@ instance (MonadBlobStore m) => Cacheable m (AccountsInCooldownForPV pv) where
     cache = fmap AccountsInCooldownForPV . mapM cache . theAccountsInCooldownForPV
 
 -- | Generate the initial 'AccountsInCooldownForPV' structure from the initial accounts.
+--  This is used for testing purposes.
 initialAccountsInCooldown ::
     forall pv m.
     (MonadBlobStore m, IsProtocolVersion pv) =>
@@ -199,6 +206,8 @@ initialAccountsInCooldown accounts = case sSupportsFlexibleCooldown sAV of
   where
     sAV = accountVersion @(AccountVersionFor pv)
     checkAccount aic (aid, acct) = do
+        -- If the account is in cooldown/pre-cooldown/pre-pre-cooldown, add it to the
+        -- 'AccountsInCooldown' as appropriate.
         accountCooldowns acct >>= \case
             Nothing -> return aic
             Just accCooldowns -> do
