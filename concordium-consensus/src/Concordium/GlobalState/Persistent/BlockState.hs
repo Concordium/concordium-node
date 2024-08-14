@@ -52,6 +52,7 @@ import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
+import Concordium.GlobalState.Persistent.Account.CooldownQueue (NextCooldownChange (..))
 import qualified Concordium.GlobalState.Persistent.Account.MigrationState as MigrationState
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
@@ -3433,11 +3434,11 @@ doProcessCooldowns pbs now newExpiry = do
         case res of
             -- In this case, the account already had cooldowns, but the new cooldown expires
             -- earlier, so the release schedule needs to be updated.
-            Just (Just oldTS) -> withCooldown $ updateAccountRelease oldTS newExpiry acc
+            EarlierNextCooldown oldTS -> withCooldown $ updateAccountRelease oldTS newExpiry acc
             -- In this case, the account did not have cooldowns, so the new cooldown is added.
-            Just Nothing -> withCooldown $ addAccountRelease newExpiry acc
+            NewNextCooldown -> withCooldown $ addAccountRelease newExpiry acc
             -- In this case, the earliest cooldown on the account has not changed.
-            Nothing -> return ()
+            NextCooldownUnchanged -> return ()
         return newPA
 
 -- | Move all pre-pre-cooldowns into pre-cooldown.
