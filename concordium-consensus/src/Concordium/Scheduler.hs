@@ -2022,11 +2022,16 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
 -- | Argument to configure baker 'withDeposit' continuation.
 data ConfigureBakerCont (av :: AccountVersion)
     = CBCAdd
-        { cbcRemoveDelegator :: Conditionally (SupportsFlexibleCooldown av) Bool,
+        { -- | When flexible cooldown is supported, we can add a baker when there already is a
+          --  delegator on the account, but we have to remove the delegator first. This flag indicates
+          --  if there is a delegator to remove.
+          cbcRemoveDelegator :: Conditionally (SupportsFlexibleCooldown av) Bool,
+          -- | The parameters defining the baker to add.
           cbcValidatorAdd :: BI.ValidatorAdd
         }
     | CBCUpdate
-        { cbcValidatorUpdate :: BI.ValidatorUpdate
+        { -- | The parameters defining the update to the baker.
+          cbcValidatorUpdate :: BI.ValidatorUpdate
         }
 
 -- | Check that the ownership proofs for keys used for a configure baker transaction are valid.
@@ -2038,8 +2043,6 @@ checkConfigureBakerKeys senderAddress BakerKeysWithProofs{..} =
     electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
     signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
     aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
-
--- makeConfigureBakerArg
 
 handleConfigureBaker ::
     forall m.
