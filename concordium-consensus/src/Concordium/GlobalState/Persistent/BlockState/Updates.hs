@@ -305,6 +305,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             SomeParam _ -> return NoParam
         StateMigrationParametersP6ToP7{} -> case pElectionDifficultyQueue of
             NoParam -> return NoParam
+        StateMigrationParametersP7ToP8{} -> case pElectionDifficultyQueue of
+            NoParam -> return NoParam
     newTimeParameters <- case migration of
         StateMigrationParametersTrivial -> case pTimeParametersQueue of
             NoParam -> return NoParam
@@ -321,6 +323,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
         StateMigrationParametersP5ToP6{} -> case pTimeParametersQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
         StateMigrationParametersP6ToP7{} -> case pTimeParametersQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP7ToP8{} -> case pTimeParametersQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newCooldownParameters <- case migration of
         StateMigrationParametersTrivial -> case pCooldownParametersQueue of
@@ -340,6 +344,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
         StateMigrationParametersP6ToP7{} -> case pCooldownParametersQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP7ToP8{} -> case pCooldownParametersQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newTimeoutParameters <- case migration of
         StateMigrationParametersTrivial -> case pTimeoutParametersQueue of
             NoParam -> return NoParam
@@ -356,6 +362,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
             return (SomeParam hbr)
         StateMigrationParametersP6ToP7{} -> case pTimeoutParametersQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP7ToP8{} -> case pTimeoutParametersQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newMinBlockTimeQueue <- case migration of
         StateMigrationParametersTrivial -> case pMinBlockTimeQueue of
@@ -374,6 +382,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             return (SomeParam hbr)
         StateMigrationParametersP6ToP7{} -> case pMinBlockTimeQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP7ToP8{} -> case pMinBlockTimeQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newBlockEnergyLimitQueue <- case migration of
         StateMigrationParametersTrivial -> case pBlockEnergyLimitQueue of
             NoParam -> return NoParam
@@ -391,6 +401,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             return (SomeParam hbr)
         StateMigrationParametersP6ToP7{} -> case pBlockEnergyLimitQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP7ToP8{} -> case pBlockEnergyLimitQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     newFinalizationCommitteeParametersQueue <- case migration of
         StateMigrationParametersTrivial -> case pFinalizationCommitteeParametersQueue of
             NoParam -> return NoParam
@@ -407,6 +419,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
             return (SomeParam hbr)
         StateMigrationParametersP6ToP7{} -> case pFinalizationCommitteeParametersQueue of
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP7ToP8{} -> case pFinalizationCommitteeParametersQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
     return $!
         PendingUpdates
