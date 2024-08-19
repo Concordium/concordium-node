@@ -198,7 +198,8 @@ data BakerConfigure
           bcuMetadataURL :: !(Maybe UrlText),
           bcuTransactionFeeCommission :: !(Maybe AmountFraction),
           bcuBakingRewardCommission :: !(Maybe AmountFraction),
-          bcuFinalizationRewardCommission :: !(Maybe AmountFraction)
+          bcuFinalizationRewardCommission :: !(Maybe AmountFraction),
+          bcuSuspend :: !(Maybe Bool)
         }
     deriving (Eq, Show)
 
@@ -214,6 +215,8 @@ data BakerConfigureUpdateChange
     | BakerConfigureTransactionFeeCommission !AmountFraction
     | BakerConfigureBakingRewardCommission !AmountFraction
     | BakerConfigureFinalizationRewardCommission !AmountFraction
+    | BakerConfigureSuspended
+    | BakerConfigureResumed
     deriving (Eq, Show)
 
 -- | Result of configure baker.
