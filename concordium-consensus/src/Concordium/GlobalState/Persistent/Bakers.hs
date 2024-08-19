@@ -437,6 +437,24 @@ migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
               _totalActiveCapital = newTotalActiveCapital
             }
 
+-- | Construct a 'PersistentActiveBakers' with no bakers or delegators.
+emptyPersistentActiveBakers :: forall av. (IsAccountVersion av) => PersistentActiveBakers av
+emptyPersistentActiveBakers = case delegationSupport @av of
+    SAVDelegationSupported ->
+        PersistentActiveBakers
+            { _activeBakers = Trie.empty,
+              _aggregationKeys = Trie.empty,
+              _passiveDelegators = PersistentActiveDelegatorsV1 Trie.empty 0,
+              _totalActiveCapital = TotalActiveCapitalV1 0
+            }
+    SAVDelegationNotSupported ->
+        PersistentActiveBakers
+            { _activeBakers = Trie.empty,
+              _aggregationKeys = Trie.empty,
+              _passiveDelegators = PersistentActiveDelegatorsV0,
+              _totalActiveCapital = TotalActiveCapitalV0
+            }
+
 totalActiveCapitalV1 :: (AVSupportsDelegation av) => Lens' (PersistentActiveBakers av) Amount
 totalActiveCapitalV1 = totalActiveCapital . tac
   where

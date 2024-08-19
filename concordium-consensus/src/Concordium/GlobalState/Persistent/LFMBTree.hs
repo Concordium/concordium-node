@@ -487,7 +487,8 @@ mmap_ f (NonEmpty _ t) = mmap_T t
         mmap_T =<< refLoad r
 
 -- | Migrate a LFMBTree from one context to the other. The new tree is cached in
--- memory and written to disk.
+-- memory and written to disk. Accounts are migrated in order of increasing account
+-- index.
 migrateLFMBTree ::
     forall m t ref1 ref2 v1 v2 k.
     (CanStoreLFMBTree m ref1 v1, Reference (t m) ref2 (T ref2 v2), MonadTrans t) =>
