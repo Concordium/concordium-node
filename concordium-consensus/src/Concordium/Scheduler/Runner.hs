@@ -124,10 +124,7 @@ transactionHelper t =
             return $ signTx keys meta (Types.encodePayload Types.ConfigureBaker{..})
         (TJSON meta ConfigureDelegation{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.ConfigureDelegation{..})
-        (TJSON meta Suspend keys) ->
-            return $ signTx keys meta (Types.encodePayload Types.Suspend)
-        (TJSON meta Resume keys) ->
-            return $ signTx keys meta (Types.encodePayload Types.Resume)
+        (TJSON _meta UpdateSuspendResume{..} _keys) -> error "TODO (drsk) implemnt transactionHelper for suspend/resume"
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON] -> m [Types.AccountTransaction]
 processTransactions = mapM transactionHelper
