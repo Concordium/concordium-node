@@ -17,6 +17,7 @@ import qualified Data.Kind as DK
 import Lens.Micro.Platform
 
 import Concordium.GlobalState.Account
+import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.TreeState
 import Concordium.Logger
@@ -294,13 +295,34 @@ instance
         return ret
 
     {-# INLINE addValidator #-}
-    addValidator ai vadd = do
+    addValidator ai removeDelegator vadd = do
         s <- use ssBlockState
-        lift (BS.bsoAddValidator s ai vadd) >>= \case
-            Left e -> return (Left e)
-            Right s' -> do
-                ssBlockState .= s'
-                return (Right ())
+        (s', res) <- lift (doAdd s)
+        ssBlockState .= s'
+        return res
+      where
+        doAdd s0 | RemoveExistingStake ts <- removeDelegator = do
+            -- We need to remove the delegator first.
+            -- We take a snapshot of the state so we can rollback if the add fails.
+            snapshot <- BS.bsoSnapshotState s0
+            rdRes <- BS.bsoUpdateDelegator s0 ts ai BI.delegatorRemove
+            case rdRes of
+                Left e ->
+                    -- Removing the delegator cannot fail, since the account must have a delegator.
+                    error $ "addValidator: Failed to remove delegator: " ++ show e
+                Right (_, s1) -> do
+                    res <- BS.bsoAddValidator s1 ai vadd
+                    case res of
+                        Left e -> do
+                            -- Rollback the state to the snapshot.
+                            s' <- BS.bsoRollback s1 snapshot
+                            return (s', Left e)
+                        Right s' -> return (s', Right ())
+        doAdd s = do
+            res <- BS.bsoAddValidator s ai vadd
+            return $! case res of
+                Left e -> (s, Left e)
+                Right s' -> (s', Right ())
 
     {-# INLINE updateValidator #-}
     updateValidator ts ai vadd = do
@@ -312,13 +334,34 @@ instance
                 return (Right events)
 
     {-# INLINE addDelegator #-}
-    addDelegator ai dadd = do
+    addDelegator ai removeValidator dadd = do
         s <- use ssBlockState
-        lift (BS.bsoAddDelegator s ai dadd) >>= \case
-            Left e -> return (Left e)
-            Right s' -> do
-                ssBlockState .= s'
-                return (Right ())
+        (s', res) <- lift (doAdd s)
+        ssBlockState .= s'
+        return res
+      where
+        doAdd s0 | RemoveExistingStake ts <- removeValidator = do
+            -- We need to remove the validator first.
+            -- We take a snapshot of the state so we can rollback if the add fails.
+            snapshot <- BS.bsoSnapshotState s0
+            rvRes <- BS.bsoUpdateValidator s0 ts ai BI.validatorRemove
+            case rvRes of
+                Left e ->
+                    -- Removing the validator cannot fail, since the account must have a validator.
+                    error $ "addDelegator: Failed to remove validator: " ++ show e
+                Right (_, s1) -> do
+                    res <- BS.bsoAddDelegator s1 ai dadd
+                    case res of
+                        Left e -> do
+                            -- Rollback the state to the snapshot.
+                            s' <- BS.bsoRollback s1 snapshot
+                            return (s', Left e)
+                        Right s' -> return (s', Right ())
+        doAdd s = do
+            res <- BS.bsoAddDelegator s ai dadd
+            return $! case res of
+                Left e -> (s, Left e)
+                Right s' -> (s', Right ())
 
     {-# INLINE updateDelegator #-}
     updateDelegator ts ai dadd = do

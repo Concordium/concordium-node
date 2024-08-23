@@ -82,6 +82,15 @@ class (Monad m) => StaticInformation m where
     -- | Get the current exchange rates, that is the Euro per NRG, micro CCD per Euro and the energy rate.
     getExchangeRates :: m ExchangeRates
 
+-- | When adding a validator or delegator to an account, this indicates whether the account has
+--  an existing delegator or validator that must be removed.
+data RemoveExistingStake
+    = -- | The existing stake will be removed. The timestamp is that of the current block.
+      RemoveExistingStake !Timestamp
+    | -- | The account has no existing stake.
+      NoExistingStake
+    deriving (Eq, Show)
+
 -- | Information needed to execute transactions in the form that is easy to use.
 class
     (Monad m, StaticInformation m, AccountOperations m, ContractStateOperations m, ModuleQuery m, MonadLogger m, MonadProtocolVersion m, TVer.TransactionVerifier m) =>
@@ -199,11 +208,13 @@ class
     --  PRECONDITION:
     --   * The account must exist;
     --   * The account must not already be a validator;
-    --   * The account must not be a delegator;
+    --   * The flag must indicate if the account is currently a delegator, which will be removed;
     --   * The account must have sufficient balance to cover the stake.
     addValidator ::
         (PVSupportsDelegation (MPV m)) =>
         AccountIndex ->
+        -- | Whether the account already has a delegator, which will be removed in the process.
+        RemoveExistingStake ->
         ValidatorAdd ->
         m (Either ValidatorConfigureFailure ())
 
@@ -229,11 +240,13 @@ class
     --  PRECONDITION:
     --   * The account must exist;
     --   * The account must not already be a delegator;
-    --   * The account must not be a validator;
+    --   * The flag must indicate if the account is currently a validator, which will be removed;
     --   * The account must have sufficient balance to cover the stake.
     addDelegator ::
         (PVSupportsDelegation (MPV m)) =>
         AccountIndex ->
+        -- | Whether the account already has a validator, which will be removed in the process.
+        RemoveExistingStake ->
         DelegatorAdd ->
         m (Either DelegatorConfigureFailure ())
 

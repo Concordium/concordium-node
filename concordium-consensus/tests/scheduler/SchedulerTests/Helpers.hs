@@ -137,6 +137,11 @@ forEveryProtocolVersion check =
       check Types.SP7 "P7"
     ]
 
+-- | Convert an energy value to an amount, based on the exchange rates used in
+--   'DummyData.dummyChainParameters'.
+energyToAmount :: Types.Energy -> Types.Amount
+energyToAmount = Types.computeCost (Types.makeExchangeRates 0.000_1 1_000_000 ^. Types.energyRate)
+
 -- | Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccounts ::
     forall pv.

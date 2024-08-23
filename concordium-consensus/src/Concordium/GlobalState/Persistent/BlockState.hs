@@ -4308,6 +4308,9 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
+    type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
+    bsoSnapshotState = loadPBS
+    bsoRollback = storePBS
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage (PersistentBlockStateMonad pv r m) where
     thawBlockState = doThawBlockState

@@ -8,19 +8,18 @@
 
 -- | Test that reducing delegation and removing delegators always works, regardless
 --  of whether the new stake would violate any of the cap bounds.
---
---  This currently only tests with the basic state implementation which is not
---  ideal. The test should be expanded to also use the persistent state implementation.
 module SchedulerTests.Delegation (tests) where
 
 import Data.Bool.Singletons
 import Lens.Micro.Platform
 
+import qualified Concordium.Cost as Cost
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types as ID
 import Concordium.Types.Accounts
 
 import Concordium.GlobalState.BakerInfo
+import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
@@ -739,8 +738,19 @@ testCase11A spv pvString =
         Helpers.SchedulerResult ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
-    checkState result blockState =
-        Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+    checkState result blockState = do
+        invariants <- Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+        updatedBaker4 <- BS.toTransientAccount . fromJust =<< BS.bsoGetAccountByIndex blockState 4
+        initialBaker4 <- BS.toTransientAccount =<< baker4Account @(AccountVersionFor pv)
+        return $ do
+            invariants
+            assertEqual
+                "Baker account should not have changed except nonce and balance"
+                ( initialBaker4
+                    & Transient.accountNonce .~ 2
+                    & Transient.accountAmount -~ Helpers.energyToAmount (Cost.configureDelegationCost + Cost.baseCost 81 1)
+                )
+                updatedBaker4
 
 -- | Reduce stake while in cooldown.
 testCase12 ::
@@ -852,6 +862,58 @@ testCase12 spv pvString =
         SFalse ->
             return $ Helpers.assertRejectWithReason DelegatorInCooldown result
 
+-- | Change baker to delegate to itself should get rejected with
+--  `AlreadyABaker` in protocols <= P6 and `DelegationTargetNotABaker` from P7.
+testCase13 ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    SProtocolVersion pv ->
+    String ->
+    Spec
+testCase13 spv pvString =
+    specify (pvString ++ ": Change baker to delegate to itself.") $ do
+        let transactions =
+                [ Runner.TJSON
+                    { payload =
+                        Runner.ConfigureDelegation
+                            { cdCapital = Just 1000,
+                              cdRestakeEarnings = Just False,
+                              cdDelegationTarget = Just (DelegateToBaker 4)
+                            },
+                      metadata = makeDummyHeader baker4Address 1 1_000,
+                      keys = [(0, [(0, baker4KP)])]
+                    }
+                ]
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState2 @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        let reason = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
+                SFalse -> AlreadyABaker 4
+                STrue -> DelegationTargetNotABaker 4
+        Helpers.assertRejectWithReason reason result
+        doBlockStateAssertions
+  where
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState = do
+        invariants <- Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+        updatedBaker4 <- BS.toTransientAccount . fromJust =<< BS.bsoGetAccountByIndex blockState 4
+        initialBaker4 <- BS.toTransientAccount =<< baker4Account @(AccountVersionFor pv)
+        return $ do
+            invariants
+            assertEqual
+                "Baker account should not have changed except nonce and balance"
+                ( initialBaker4
+                    & Transient.accountNonce .~ 2
+                    & Transient.accountAmount -~ Helpers.energyToAmount (Cost.configureDelegationCost + Cost.baseCost 81 1)
+                )
+                updatedBaker4
+
 tests :: Spec
 tests =
     describe "Delegate in different scenarios" $
@@ -877,3 +939,4 @@ tests =
                 testCase11 spv pvString
                 testCase11A spv pvString
                 testCase12 spv pvString
+                testCase13 spv pvString

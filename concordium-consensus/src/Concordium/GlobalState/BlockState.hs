@@ -1503,6 +1503,18 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- | Get whether a protocol update is effective
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
 
+    -- | A snapshot of the block state that can be used to roll back to a previous state.
+    type StateSnapshot m
+
+    -- | Take a snapshot of the block state that can be used to roll back to the state at the
+    --  snapshot. Note, if the state is restored then any 'UpdatableBlockState' that was derived
+    --  from the original state should be discarded.
+    --  This should be used with caution.
+    bsoSnapshotState :: UpdatableBlockState m -> m (StateSnapshot m)
+
+    -- | Roll back to the state at the snapshot. This should be used with caution.
+    bsoRollback :: UpdatableBlockState m -> StateSnapshot m -> m (UpdatableBlockState m)
+
 -- | Block state storage operations
 class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => BlockStateStorage m where
     -- | Derive a mutable state instance from a block state instance. The mutable
@@ -1802,6 +1814,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
+    type StateSnapshot (MGSTrans t m) = StateSnapshot m
+    bsoSnapshotState = lift . bsoSnapshotState
+    bsoRollback s = lift . bsoRollback s
     {-# INLINE bsoGetModule #-}
     {-# INLINE bsoGetAccount #-}
     {-# INLINE bsoGetAccountIndex #-}
@@ -1855,6 +1870,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetRewardAccounts #-}
     {-# INLINE bsoGetCurrentEpochBakers #-}
     {-# INLINE bsoIsProtocolUpdateEffective #-}
+    {-# INLINE bsoSnapshotState #-}
+    {-# INLINE bsoRollback #-}
 
 instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (MGSTrans t m) where
     thawBlockState = lift . thawBlockState

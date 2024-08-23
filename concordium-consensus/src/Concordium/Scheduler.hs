@@ -2155,20 +2155,12 @@ handleConfigureBaker
             | not proofsValid =
                 return (TxReject InvalidProof)
             | otherwise = do
-                removedDelegator <- case cbcRemoveDelegator of
+                (removedDelegator, removeStake) <- case cbcRemoveDelegator of
                     CTrue True -> do
-                        -- Remove the delegator if necessary.
-                        -- We know this will succeed because:
-                        -- 1. The account is a delegator.
-                        -- 2. Flexible cooldown is enabled, meaning:
-                        --    * The account cannot have a pending change (which would cause failure)
-                        --    * Setting the capital to 0 will remove the delegator immediately,
-                        --      moving the old staked capital to pre-pre-cooldown.
                         cm <- getChainMetadata
-                        _ <- updateDelegator (slotTime cm) senderAccountIndex BI.delegatorRemove
-                        return True
-                    _ -> return False
-                addValidator senderAccountIndex cbcValidatorAdd <&> \case
+                        return (True, RemoveExistingStake (slotTime cm))
+                    _ -> return (False, NoExistingStake)
+                addValidator senderAccountIndex removeStake cbcValidatorAdd <&> \case
                     Left failure -> rejectResult failure
                     Right () -> addResult removedDelegator cbcValidatorAdd
         executeConfigure (CBCUpdate{..}, accountBalance)
@@ -2311,20 +2303,12 @@ handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
         | accountBalance < BI.daCapital cdcDelegatorAdd =
             return (TxReject InsufficientBalanceForDelegationStake)
         | otherwise = do
-            removedValidator <- case cdcRemoveValidator of
+            (removedValidator, removeStake) <- case cdcRemoveValidator of
                 CTrue True -> do
-                    -- Remove the validator if necessary.
-                    -- We know this will succeed because:
-                    -- 1. The account is a validator.
-                    -- 2. Flexible cooldown is enabled, meaning:
-                    --    * The account cannot have a pending change (which would cause failure)
-                    --    * Setting the capital to 0 will remove the validator immediately,
-                    --      moving the old staked capital to pre-pre-cooldown.
                     cm <- getChainMetadata
-                    _ <- updateValidator (slotTime cm) senderAccountIndex BI.validatorRemove
-                    return True
-                _ -> return False
-            addDelegator senderAccountIndex cdcDelegatorAdd <&> \case
+                    return (True, RemoveExistingStake (slotTime cm))
+                _ -> return (False, NoExistingStake)
+            addDelegator senderAccountIndex removeStake cdcDelegatorAdd <&> \case
                 Left failure -> rejectResult failure
                 Right () -> addResult removedValidator cdcDelegatorAdd
     executeConfigure (CDCUpdate{..}, accountBalance)
