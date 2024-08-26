@@ -2025,13 +2025,13 @@ data ConfigureBakerCont (av :: AccountVersion)
         { -- | When flexible cooldown is supported, we can add a baker when there already is a
           --  delegator on the account, but we have to remove the delegator first. This flag indicates
           --  if there is a delegator to remove.
-          cbcRemoveDelegator :: Conditionally (SupportsFlexibleCooldown av) Bool,
+          cbcRemoveDelegator :: !(Conditionally (SupportsFlexibleCooldown av) Bool),
           -- | The parameters defining the baker to add.
-          cbcValidatorAdd :: BI.ValidatorAdd
+          cbcValidatorAdd :: !BI.ValidatorAdd
         }
     | CBCUpdate
         { -- | The parameters defining the update to the baker.
-          cbcValidatorUpdate :: BI.ValidatorUpdate
+          cbcValidatorUpdate :: !BI.ValidatorUpdate
         }
 
 -- | Check that the ownership proofs for keys used for a configure baker transaction are valid.
@@ -2044,6 +2044,7 @@ checkConfigureBakerKeys senderAddress BakerKeysWithProofs{..} =
     signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
     aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
 
+-- | Handler for a configure baker transaction.
 handleConfigureBaker ::
     forall m.
     ( PVSupportsDelegation (MPV m),
@@ -2148,6 +2149,8 @@ handleConfigureBaker
             chargeExecutionCost senderAccount energyCost
             result <- executeConfigure argAndBalance
             return (result, energyCost, usedEnergy)
+        -- Check the proofs are valid, if we are updating the keys.
+        -- (If there is no key update, then this is trivially 'True'.)
         proofsValid = maybe True (checkConfigureBakerKeys senderAddress) cbKeysWithProofs
         executeConfigure (CBCAdd{..}, accountBalance)
             | accountBalance < BI.vaCapital cbcValidatorAdd =
@@ -2230,15 +2233,22 @@ handleConfigureBaker
                 BI.VCFDuplicateAggregationKey key -> DuplicateAggregationKey key
                 BI.VCFChangePending -> BakerInCooldown
 
+-- | Argument to the 'withDeposit' continuation for 'handleConfigureDelegation'.
 data ConfigureDelegationCont (av :: AccountVersion)
     = CDCAdd
-        { cdcRemoveValidator :: Conditionally (SupportsFlexibleCooldown av) Bool,
-          cdcDelegatorAdd :: BI.DelegatorAdd
+        { -- | When flexible cooldown is supported, we can add a delegator when there already is
+          -- a validator on the account, but we have to remove the validator first. This flag
+          -- indicates if there is a validator to remove.
+          cdcRemoveValidator :: !(Conditionally (SupportsFlexibleCooldown av) Bool),
+          -- | The parameters defining the delegator to add.
+          cdcDelegatorAdd :: !BI.DelegatorAdd
         }
     | CDCUpdate
-        { cdcDelegatorUpdate :: BI.DelegatorUpdate
+        { -- | The parameters defining the update to the delegator.
+          cdcDelegatorUpdate :: !BI.DelegatorUpdate
         }
 
+-- | Handler for a configure delegation transaction.
 handleConfigureDelegation ::
     forall m.
     (PVSupportsDelegation (MPV m), SchedulerMonad m) =>

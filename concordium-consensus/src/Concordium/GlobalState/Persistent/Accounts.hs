@@ -420,12 +420,12 @@ updateAccountsAtIndex fupd ai a0@Accounts{..} =
         Nothing -> return (Nothing, a0)
         Just (res, act') -> return (Just res, a0{accountTable = act'})
 
--- | Set the account at the given index. There must already be an account at the given index
---  (otherwise this has no effect).
+-- | Set the account at the given index. There must already be an account at the given index.
+--  (If the account does not exist, this will throw an error.)
 setAccountAtIndex :: (SupportsPersistentAccount pv m) => AccountIndex -> PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Accounts pv)
 setAccountAtIndex ai newAcct a0@Accounts{..} =
     L.update (const (return ((), newAcct))) ai accountTable >>= \case
-        Nothing -> return a0
+        Nothing -> error $ "setAccountAtIndex: no account at index " ++ show ai
         Just (_, act') -> return (a0{accountTable = act'})
 
 -- | Perform an update to an account with the given index.
