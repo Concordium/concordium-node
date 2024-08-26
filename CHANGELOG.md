@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 7.0.0
+
 - Fix a bug where `GetBakersRewardPeriod` returns incorrect data (#1176).
 - Fix a bug where `GetPoolInfo` returns incorrect data (#1177).
 - Change the severity of logs for failed gRPC API requests to DEBUG level.
