@@ -299,12 +299,16 @@ dummyRewardParametersV0 =
                 }
         }
 
-dummyRewardParametersV1 :: RewardParameters 'ChainParametersV1
-dummyRewardParametersV1 =
+-- | Dummy reward parameters for `ChainParameters` V1 to V3.
+dummyRewardParametersVX ::
+    Conditionally (SupportsMintPerSlot (MintDistributionVersionFor cpv)) MintRate ->
+    Conditionally (SupportsGASFinalizationProof (GasRewardsVersionFor cpv)) AmountFraction ->
+    RewardParameters cpv
+dummyRewardParametersVX dummyMdMintPerSlot dummyGasFinalizationProof =
     RewardParameters
         { _rpMintDistribution =
             MintDistribution
-                { _mdMintPerSlot = CFalse,
+                { _mdMintPerSlot = dummyMdMintPerSlot,
                   _mdBakingReward = AmountFraction 60000, -- 60%
                   _mdFinalizationReward = AmountFraction 30000 -- 30%
                 },
@@ -316,57 +320,20 @@ dummyRewardParametersV1 =
           _rpGASRewards =
             GASRewards
                 { _gasBaker = AmountFraction 25000, -- 25%
-                  _gasFinalizationProof = CTrue $ AmountFraction 50, -- 0.05%
+                  _gasFinalizationProof = dummyGasFinalizationProof, -- 0.05%
                   _gasAccountCreation = AmountFraction 200, -- 0.2%
                   _gasChainUpdate = AmountFraction 50 -- 0.05%
                 }
         }
+
+dummyRewardParametersV1 :: RewardParameters 'ChainParametersV1
+dummyRewardParametersV1 = dummyRewardParametersVX CFalse (CTrue $ AmountFraction 50)
 
 dummyRewardParametersV2 :: RewardParameters 'ChainParametersV2
-dummyRewardParametersV2 =
-    RewardParameters
-        { _rpMintDistribution =
-            MintDistribution
-                { _mdMintPerSlot = CFalse,
-                  _mdBakingReward = AmountFraction 60000, -- 60%
-                  _mdFinalizationReward = AmountFraction 30000 -- 30%
-                },
-          _rpTransactionFeeDistribution =
-            TransactionFeeDistribution
-                { _tfdBaker = AmountFraction 45000, -- 45%
-                  _tfdGASAccount = AmountFraction 45000 -- 45%
-                },
-          _rpGASRewards =
-            GASRewards
-                { _gasBaker = AmountFraction 25000, -- 25%
-                  _gasFinalizationProof = CFalse,
-                  _gasAccountCreation = AmountFraction 200, -- 0.2%
-                  _gasChainUpdate = AmountFraction 50 -- 0.05%
-                }
-        }
+dummyRewardParametersV2 = dummyRewardParametersVX CFalse CFalse
 
 dummyRewardParametersV3 :: RewardParameters 'ChainParametersV3
-dummyRewardParametersV3 =
-    RewardParameters
-        { _rpMintDistribution =
-            MintDistribution
-                { _mdMintPerSlot = CFalse,
-                  _mdBakingReward = AmountFraction 60000, -- 60%
-                  _mdFinalizationReward = AmountFraction 30000 -- 30%
-                },
-          _rpTransactionFeeDistribution =
-            TransactionFeeDistribution
-                { _tfdBaker = AmountFraction 45000, -- 45%
-                  _tfdGASAccount = AmountFraction 45000 -- 45%
-                },
-          _rpGASRewards =
-            GASRewards
-                { _gasBaker = AmountFraction 25000, -- 25%
-                  _gasFinalizationProof = CFalse,
-                  _gasAccountCreation = AmountFraction 200, -- 0.2%
-                  _gasChainUpdate = AmountFraction 50 -- 0.05%
-                }
-        }
+dummyRewardParametersV3 = dummyRewardParametersVX CFalse CFalse
 
 -- | Consensus parameters for the second consensus protocol.
 dummyConsensusParametersV1 :: ConsensusParameters' 'ConsensusParametersVersion1
