@@ -1090,6 +1090,8 @@ getAccountInfoHelper getASI getCooldowns acct bs = do
         aiAccountAddress <- BS.getAccountCanonicalAddress acc
         aiAccountCooldowns <- getCooldowns acc
         aiAccountAvailableAmount <- BS.getAccountAvailableAmount acc
+        -- TODO(drsk). github #1225. Implement getAccountIsSuspended
+        let aiAccountIsSuspended = False
         return AccountInfo{..}
 
 -- | Get the details of a smart contract instance in the block state.
