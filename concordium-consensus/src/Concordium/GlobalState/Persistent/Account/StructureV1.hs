@@ -8,6 +8,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -1222,6 +1223,12 @@ getCooldowns =
         EmptyCooldownQueue -> return Nothing
         CooldownQueue ref -> Just <$> refLoad ref
 
+getIsSuspended ::
+    (MonadBlobStore m) =>
+    PersistentAccount av ->
+    m Bool
+getIsSuspended _acc = undefined
+
 -- ** Updates
 
 -- | Apply account updates to an account. It is assumed that the address in
@@ -1467,7 +1474,9 @@ setBakerKeys upd = updateStake $ \case
 --  This MUST only be called with an account that is either a baker or delegator.
 --  This does no check that the staked amount is sensible, and has no effect on pending changes.
 setStake ::
-    (Monad m) =>
+    (Monad m,
+      AccountStructureVersionFor av ~ 'AccountStructureV1
+    ) =>
     Amount ->
     PersistentAccount av ->
     m (PersistentAccount av)
