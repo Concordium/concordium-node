@@ -2080,7 +2080,7 @@ handleConfigureBaker
     cbMetadataURL
     cbTransactionFeeCommission
     cbBakingRewardCommission
-    cbFinalizationRewardCommission 
+    cbFinalizationRewardCommission
     cbSuspend =
         withDeposit wtc tickGetArgAndBalance chargeAndExecute
       where
