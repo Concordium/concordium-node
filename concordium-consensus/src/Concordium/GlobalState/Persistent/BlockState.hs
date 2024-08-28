@@ -1546,7 +1546,8 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                                 bakerInfoEx =
                                     BaseAccounts.BakerInfoExV1
                                         { _bieBakerPoolInfo = poolInfo,
-                                          _bieBakerInfo = bakerInfo
+                                          _bieBakerInfo = bakerInfo,
+                                          _bieAccountIsSuspended = conditionally hasValidatorSuspension False
                                         }
                                 updAcc = addAccountBakerV1 bakerInfoEx bcaCapital bcaRestakeEarnings
                             -- This cannot fail to update the account, since we already looked up the account.
@@ -1558,6 +1559,8 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                                         { bspBirkParameters = newBirkParams,
                                           bspAccounts = newAccounts
                                         }
+    where
+        hasValidatorSuspension = (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)))
 doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
     origBSP <- loadPBS pbs
     cp <- lookupCurrentParameters (bspUpdates origBSP)
@@ -1569,8 +1572,9 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
         uRestake <- updateRestakeEarnings baker
         uPoolInfo <- updateBakerPoolInfo baker cp
         uCapital <- updateCapital baker cp
+        uSuspend <- updateSuspend (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)))
         -- Compose together the transformations and apply them to the account.
-        let updAcc = uKeys >=> uRestake >=> uPoolInfo >=> uCapital
+        let updAcc = uKeys >=> uRestake >=> uPoolInfo >=> uCapital >=> uSuspend
         modifyAccount' updAcc
     case res of
         Left errorRes -> return (errorRes, pbs)
@@ -1718,7 +1722,14 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
                         return $ setAccountStake capital
-
+    updateSuspend STrue  =
+            case bcuSuspend of
+                Nothing -> return return
+                Just b ->  do
+                    MTL.tell [if b then BakerConfigureSuspended else BakerConfigureResumed]
+                    return $ setAccountSuspended b
+    updateSuspend SFalse = return return
+             
 doConstrainBakerCommission ::
     (SupportsPersistentState pv m, PVSupportsDelegation pv) =>
     PersistentBlockState pv ->
@@ -3577,7 +3588,7 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
     getAccountCooldowns = accountCooldowns
 
-    getAccountIsSuspended = error "TODO(drsk) implement accountIsSuspended"
+    getAccountIsSuspended = accountIsSuspended
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref

@@ -319,6 +319,16 @@ accountHasPrePreCooldown = fmap check . accountCooldowns
   where
     check = maybe False (not . null . prePreCooldown)
 
+accountIsSuspended ::
+    (MonadBlobStore m) =>
+    PersistentAccount av ->
+    m Bool
+accountIsSuspended (PAV0 _acc) = return False
+accountIsSuspended (PAV1 _acc) = return False
+accountIsSuspended (PAV2 _acc) = return False
+accountIsSuspended (PAV3 _acc) = return False
+accountIsSuspended (PAV4 acc) = V1.getIsSuspended acc
+
 -- | Get the 'AccountHash' for the account.
 accountHash :: (MonadBlobStore m) => PersistentAccount av -> m (AccountHash av)
 accountHash (PAV0 acc) = getHashM acc
@@ -502,6 +512,11 @@ setAccountStake newStake (PAV1 acc) = PAV1 <$> V0.setStake newStake acc
 setAccountStake newStake (PAV2 acc) = PAV2 <$> V1.setStake newStake acc
 setAccountStake newStake (PAV3 acc) = PAV3 <$> V1.setStake newStake acc
 setAccountStake newStake (PAV4 acc) = PAV4 <$> V1.setStake newStake acc
+
+setAccountSuspended :: 
+    (MonadBlobStore m, AVSupportsValidatorSuspension av) =>
+    Bool -> PersistentAccount av -> m (PersistentAccount av)
+setAccountSuspended isSuspended (PAV4 acc) = PAV4 <$> V1.setSuspended isSuspended acc
 
 -- | Add a specified amount to the pre-pre-cooldown inactive stake.
 addAccountPrePreCooldown ::
