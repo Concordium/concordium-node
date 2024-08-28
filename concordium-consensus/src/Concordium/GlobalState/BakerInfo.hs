@@ -333,9 +333,12 @@ genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
     binfoV1 :: (PVSupportsDelegation pv, PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1) => BakerInfoEx (AccountVersionFor pv)
     binfoV1 =
         BakerInfoExV1
-            bkrInfo
-            BakerPoolInfo
-                { _poolOpenStatus = OpenForAll,
-                  _poolMetadataUrl = emptyUrlText,
-                  _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
-                }
+            { _bieBakerInfo = bkrInfo,
+              _bieBakerPoolInfo =
+                BakerPoolInfo
+                    { _poolOpenStatus = OpenForAll,
+                      _poolMetadataUrl = emptyUrlText,
+                      _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
+                    },
+              _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
+            }
