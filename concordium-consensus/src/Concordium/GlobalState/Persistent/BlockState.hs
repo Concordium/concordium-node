@@ -1614,7 +1614,12 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
                   _poolCommissionRates = vaCommissionRates
                 }
     let bakerInfo = bakerKeyUpdateToInfo bid vaKeys
-    let bakerInfoEx = BaseAccounts.BakerInfoExV1 bakerInfo poolInfo
+    let bakerInfoEx = BaseAccounts.BakerInfoExV1
+                         { _bieBakerPoolInfo = poolInfo,
+                           _bieBakerInfo = bakerInfo
+                           _bieBakerInfo = bakerInfo,
+                           _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+                         }
     -- The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Add the baker to the account.
@@ -1639,6 +1644,7 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
   where
     bid = BakerId ai
     flexibleCooldowns = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
+    hasValidatorSuspension = (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)))
 
 -- | Check the conditions required for successfully updating a validator. This does not modify
 --  the block state.
@@ -1829,6 +1835,7 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
                 >>= updateRestakeEarnings
                 >>= updatePoolInfo existingBaker
                 >>= updateCapital existingBaker
+                >>= updateSuspend (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)))
         newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts newBSP)
         return newBSP{bspAccounts = newAccounts}
     (events,) <$> storePBS pbs newBSP
@@ -1837,6 +1844,13 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
     -- Only do the given update if specified.
     ifPresent Nothing _ = return
     ifPresent (Just v) k = k v
+    updateSuspend STrue  =
+            case bcuSuspend of
+                Nothing -> return return
+                Just b ->  do
+                    MTL.tell [if b then BakerConfigureSuspended else BakerConfigureResumed]
+                    return $ setAccountSuspended b
+    updateSuspend SFalse = return return
     updateKeys oldBaker = ifPresent vuKeys $ \keys (bsp, acc) -> do
         let oldAggrKey = oldBaker ^. BaseAccounts.bakerAggregationVerifyKey
         bsp1 <-
@@ -4240,7 +4254,7 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
     getAccountCooldowns = accountCooldowns
 
-    getAccountIsSuspended = error "TODO(drsk) implement accountIsSuspended"
+    getAccountIsSuspended = accountIsSuspended
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref

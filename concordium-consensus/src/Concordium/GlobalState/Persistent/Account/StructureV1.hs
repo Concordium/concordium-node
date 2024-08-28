@@ -8,6 +8,7 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 -- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -118,10 +119,10 @@ migratePersistentBakerInfoEx StateMigrationParametersP5ToP6{} = migrateReference
 migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = migrateReference migrateBakerInfoExV1
   where
     migrateBakerInfoExV1 ::
-        (AVSupportsDelegation av1, AVSupportsDelegation av2, Monad m') =>
+        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'False, Monad m') =>
         BakerInfoEx av1 ->
         m' (BakerInfoEx av2)
-    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{..}
+    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieAccountIsSuspended = CFalse, ..}
 migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = error "TODO(drsk) github #1220. Implement migratePersistenBakerInfoEx p7 -> p8"
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
@@ -138,7 +139,7 @@ migratePersistentBakerInfoExFromV0 StateMigrationParametersP4ToP5{} V0.Persisten
     bkrInfoEx <- lift $ do
         bkrInfo <- refLoad bakerInfoRef
         bkrPoolInfo <- refLoad (V0._theExtraBakerInfo bakerInfoExtra)
-        return $! BakerInfoExV1 bkrInfo bkrPoolInfo
+        return $! BakerInfoExV1 bkrInfo bkrPoolInfo CFalse
     (ref, _) <- refFlush =<< refMake bkrInfoEx
     return $! ref
 
@@ -1222,6 +1223,12 @@ getCooldowns =
         EmptyCooldownQueue -> return Nothing
         CooldownQueue ref -> Just <$> refLoad ref
 
+getIsSuspended ::
+    (MonadBlobStore m) =>
+    PersistentAccount av ->
+    m Bool
+getIsSuspended _acc = undefined
+
 -- ** Updates
 
 -- | Apply account updates to an account. It is assumed that the address in
@@ -1467,11 +1474,31 @@ setBakerKeys upd = updateStake $ \case
 --  This MUST only be called with an account that is either a baker or delegator.
 --  This does no check that the staked amount is sensible, and has no effect on pending changes.
 setStake ::
-    (Monad m) =>
+    (Monad m,
+      AccountStructureVersionFor av ~ 'AccountStructureV1
+    ) =>
     Amount ->
     PersistentAccount av ->
     m (PersistentAccount av)
 setStake newStake acc = return $! acc{accountStakedAmount = newStake}
+
+setSuspended ::
+    forall av m.
+    (MonadBlobStore m, IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1, AVSupportsDelegation av) =>
+    Bool ->
+    PersistentAccount av ->
+    m (PersistentAccount av)
+setSuspended isSuspended = updateStake $ \case
+    baker@PersistentAccountStakeEnduringBaker{} -> do
+        oldInfo <- refLoad (paseBakerInfo baker)
+        let newInfo = oldInfo & bieAccountIsSuspended .~ conditionally (sSupportsValidatorSuspension (accountVersion @av)) isSuspended
+        newInfoRef <- refMake $! newInfo
+        return $! baker{paseBakerInfo = newInfoRef}
+    PersistentAccountStakeEnduringDelegator{} ->
+        error "setSuspend invariant violation: account is not a baker"
+    PersistentAccountStakeEnduringNone ->
+        error "setSuspend invariant violation: account is not a baker"
+    
 
 -- | Add a specified amount to the pre-pre-cooldown inactive stake.
 addPrePreCooldown ::
@@ -2130,7 +2157,7 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
             bkrInfoEx <- lift $ do
                 bkrInfo <- refLoad _accountBakerInfo
                 bkrPoolInfo <- refLoad (V0._theExtraBakerInfo _extraBakerInfo)
-                return $! BakerInfoExV1 bkrInfo bkrPoolInfo
+                return $! BakerInfoExV1 bkrInfo bkrPoolInfo CFalse
             paseBakerInfo' <- refMake bkrInfoEx
             (paseBakerInfo, _) <- refFlush paseBakerInfo'
             let baker =
