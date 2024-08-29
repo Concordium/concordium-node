@@ -10,6 +10,7 @@
 --  of whether the new stake would violate any of the cap bounds.
 module SchedulerTests.Delegation (tests) where
 
+import Data.Singletons (sing)
 import Lens.Micro.Platform
 
 import qualified Concordium.Cost as Cost
@@ -221,7 +222,7 @@ initialBlockState2 =
 -- | Test removing a delegator even if the stake is over the threshold.
 testRemoveDelegatorWithStakeOverThreshold ::
     forall pv.
-    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -267,7 +268,7 @@ testRemoveDelegatorWithStakeOverThreshold _ pvString =
 -- | Test reducing delegator stake in such a way that it stays above the cap threshold.
 testReduceDelegatorStakeStillAboveCapThreshold ::
     forall pv.
-    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -304,7 +305,7 @@ testReduceDelegatorStakeStillAboveCapThreshold _ pvString =
 -- | Test transaction rejects if increasing stake above the threshold of the pool
 testTransactionRejectsIfStakeIncreasedOverThreshold ::
     forall pv.
-    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
