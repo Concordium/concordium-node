@@ -13,11 +13,13 @@
 --  ideal. The test should be expanded to also use the persistent state implementation.
 module SchedulerTests.Delegation (tests) where
 
+import Data.Singletons (sing)
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types as ID
 import Concordium.Types.Accounts
+import Concordium.Types.Conditionally
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Persistent.Account as BS
@@ -36,6 +38,7 @@ import Test.Hspec
 
 -- | Deterministically generate a baker account from a seed.
 makeTestBakerV1FromSeed ::
+    forall av m.
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     -- | The initial balance of the account.
     Amount ->
@@ -54,7 +57,8 @@ makeTestBakerV1FromSeed amount stake bakerId seed = do
     let bakerInfoEx =
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. theBakerInfo,
-                  _bieBakerPoolInfo = poolInfo
+                  _bieBakerPoolInfo = poolInfo,
+                  _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sing @av)) False
                 }
     BS.addAccountBakerV1 bakerInfoEx stake True account
   where
@@ -182,7 +186,7 @@ initialBlockState =
 -- | Test removing a delegator even if the stake is over the threshold.
 testCase1 ::
     forall pv.
-    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -228,7 +232,7 @@ testCase1 _ pvString =
 -- | Test reducing delegator stake in such a way that it stays above the cap threshold.
 testCase2 ::
     forall pv.
-    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -265,7 +269,7 @@ testCase2 _ pvString =
 -- | Test transaction rejects if increasing stake above the threshold of the pool
 testCase3 ::
     forall pv.
-    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
