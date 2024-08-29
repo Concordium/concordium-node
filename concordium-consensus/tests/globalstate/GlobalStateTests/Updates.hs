@@ -155,7 +155,8 @@ modifyStakeTo a (bs, ai) = do
                   bcuMetadataURL = Nothing,
                   bcuTransactionFeeCommission = Nothing,
                   bcuBakingRewardCommission = Nothing,
-                  bcuFinalizationRewardCommission = Nothing
+                  bcuFinalizationRewardCommission = Nothing,
+                  bcuSuspend = Nothing
                 }
     (bsur, bs') <- bsoConfigureBaker bs ai conf
     return (bsur, (bs', ai))

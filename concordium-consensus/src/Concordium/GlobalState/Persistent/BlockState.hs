@@ -1559,8 +1559,8 @@ doConfigureBaker pbs ai BakerConfigureAdd{..} = do
                                         { bspBirkParameters = newBirkParams,
                                           bspAccounts = newAccounts
                                         }
-    where
-        hasValidatorSuspension = (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)))
+  where
+    hasValidatorSuspension = (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)))
 doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
     origBSP <- loadPBS pbs
     cp <- lookupCurrentParameters (bspUpdates origBSP)
@@ -1722,14 +1722,14 @@ doConfigureBaker pbs ai BakerConfigureUpdate{..} = do
                         MTL.modify' $ \bsp -> bsp{bspBirkParameters = birkParams & birkActiveBakers .~ newActiveBkrs}
                         MTL.tell [BakerConfigureStakeIncreased capital]
                         return $ setAccountStake capital
-    updateSuspend STrue  =
-            case bcuSuspend of
-                Nothing -> return return
-                Just b ->  do
-                    MTL.tell [if b then BakerConfigureSuspended else BakerConfigureResumed]
-                    return $ setAccountSuspended b
+    updateSuspend STrue =
+        case bcuSuspend of
+            Nothing -> return return
+            Just b -> do
+                MTL.tell [if b then BakerConfigureSuspended else BakerConfigureResumed]
+                return $ setAccountSuspended b
     updateSuspend SFalse = return return
-             
+
 doConstrainBakerCommission ::
     (SupportsPersistentState pv m, PVSupportsDelegation pv) =>
     PersistentBlockState pv ->
