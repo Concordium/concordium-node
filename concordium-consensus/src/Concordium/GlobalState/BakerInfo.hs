@@ -228,7 +228,9 @@ data ValidatorUpdate = ValidatorUpdate
       -- | The new baking reward commission for the validator.
       vuBakingRewardCommission :: !(Maybe AmountFraction),
       -- | The new finalization reward commission for the validator.
-      vuFinalizationRewardCommission :: !(Maybe AmountFraction)
+      vuFinalizationRewardCommission :: !(Maybe AmountFraction),
+      -- | Whether the validator's account should be suspended/resumed.
+      vuSuspend :: !(Maybe Bool)
     }
     deriving (Eq, Show)
 
