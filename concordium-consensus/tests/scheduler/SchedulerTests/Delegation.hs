@@ -10,13 +10,13 @@
 --  of whether the new stake would violate any of the cap bounds.
 module SchedulerTests.Delegation (tests) where
 
-import Data.Bool.Singletons
 import Lens.Micro.Platform
 
 import qualified Concordium.Cost as Cost
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types as ID
 import Concordium.Types.Accounts
+import Concordium.Types.Conditionally
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
@@ -41,6 +41,7 @@ import Test.Hspec
 
 -- | Deterministically generate a baker account from a seed.
 makeTestBakerV1FromSeed ::
+    forall av m.
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     -- | The initial balance of the account.
     Amount ->
@@ -59,7 +60,8 @@ makeTestBakerV1FromSeed amount stake bakerId seed = do
     let bakerInfoEx =
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. theBakerInfo,
-                  _bieBakerPoolInfo = poolInfo
+                  _bieBakerPoolInfo = poolInfo,
+                  _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @av)) False
                 }
     BS.addAccountBakerV1 bakerInfoEx stake True account
   where
@@ -217,7 +219,7 @@ initialBlockState2 =
 -- | Test removing a delegator even if the stake is over the threshold.
 testRemoveDelegatorWithStakeOverThreshold ::
     forall pv.
-    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -263,7 +265,7 @@ testRemoveDelegatorWithStakeOverThreshold _ pvString =
 -- | Test reducing delegator stake in such a way that it stays above the cap threshold.
 testReduceDelegatorStakeStillAboveCapThreshold ::
     forall pv.
-    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
@@ -300,7 +302,7 @@ testReduceDelegatorStakeStillAboveCapThreshold _ pvString =
 -- | Test transaction rejects if increasing stake above the threshold of the pool
 testTransactionRejectsIfStakeIncreasedOverThreshold ::
     forall pv.
-    (IsProtocolVersion pv, PVSupportsDelegation pv) =>
+    (IsProtocolVersion pv, PVSupportsDelegation pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
