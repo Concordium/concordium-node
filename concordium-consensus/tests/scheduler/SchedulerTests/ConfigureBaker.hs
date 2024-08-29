@@ -856,13 +856,15 @@ testUpdateBakerOk _spv pvString =
                 )
                 updatedAccount1
     updateStaking =
-        ( Transient.accountStaking . accountBaker
+        ( Transient.accountStaking
+            . accountBaker
             %~ (stakedAmount .~ stakeAmount)
-                . (stakeEarnings .~ True)
-                . ( accountBakerInfo . bieBakerPoolInfo
-                        %~ (poolCommissionRates . transactionCommission .~ makeAmountFraction 1_000)
-                            . (poolMetadataUrl .~ emptyUrlText)
-                  )
+            . (stakeEarnings .~ True)
+            . ( accountBakerInfo
+                    . bieBakerPoolInfo
+                    %~ (poolCommissionRates . transactionCommission .~ makeAmountFraction 1_000)
+                    . (poolMetadataUrl .~ emptyUrlText)
+              )
         )
     accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
     accountBaker _ x = pure x
@@ -1098,7 +1100,9 @@ testUpdateBakerRemoveOk spv pvString =
                 updatedAccount1
     updateStaking = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
         SFalse ->
-            Transient.accountStaking . accountBaker . bakerPendingChange
+            Transient.accountStaking
+                . accountBaker
+                . bakerPendingChange
                 .~ RemoveStake (PendingChangeEffectiveV1 86400000)
         STrue ->
             (Transient.accountStaking .~ AccountStakeNone)
@@ -1190,19 +1194,22 @@ testUpdateBakerReduceStakeOk spv pvString =
     updateStaking keysWithProofs =
         ( case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
             SFalse ->
-                Transient.accountStaking . accountBaker
+                Transient.accountStaking
+                    . accountBaker
                     %~ ( bakerPendingChange .~ ReduceStake stakeAmount (PendingChangeEffectiveV1 86400000)
                        )
             STrue ->
                 (Transient.accountStakeCooldown . unconditionally .~ emptyCooldowns{prePreCooldown = Present 200_000_000_000})
                     . (Transient.accountStaking . accountBaker . stakedAmount .~ stakeAmount)
         )
-            . ( Transient.accountStaking . accountBaker . accountBakerInfo
+            . ( Transient.accountStaking
+                    . accountBaker
+                    . accountBakerInfo
                     %~ (poolCommissionRates . bakingCommission .~ makeAmountFraction 1_000)
-                        . (poolCommissionRates . finalizationCommission .~ makeAmountFraction 1_000)
-                        . (bakerElectionVerifyKey .~ bkwpElectionVerifyKey keysWithProofs)
-                        . (bakerSignatureVerifyKey .~ bkwpSignatureVerifyKey keysWithProofs)
-                        . (bakerAggregationVerifyKey .~ bkwpAggregationVerifyKey keysWithProofs)
+                    . (poolCommissionRates . finalizationCommission .~ makeAmountFraction 1_000)
+                    . (bakerElectionVerifyKey .~ bkwpElectionVerifyKey keysWithProofs)
+                    . (bakerSignatureVerifyKey .~ bkwpSignatureVerifyKey keysWithProofs)
+                    . (bakerAggregationVerifyKey .~ bkwpAggregationVerifyKey keysWithProofs)
               )
     accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
     accountBaker _ x = pure x

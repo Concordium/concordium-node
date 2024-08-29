@@ -1224,10 +1224,21 @@ getCooldowns =
         CooldownQueue ref -> Just <$> refLoad ref
 
 getIsSuspended ::
-    (MonadBlobStore m) =>
+    ( MonadBlobStore m,
+      IsAccountVersion av,
+      AVSupportsValidatorSuspension av
+    ) =>
     PersistentAccount av ->
     m Bool
-getIsSuspended _acc = undefined
+getIsSuspended acc = do
+    let stake = paedStake $ enduringData acc
+    case stake of
+        PersistentAccountStakeEnduringNone -> return False
+        PersistentAccountStakeEnduringDelegator{} -> return False
+        PersistentAccountStakeEnduringBaker{..} -> do
+            bie <- refLoad paseBakerInfo
+            case _bieAccountIsSuspended bie of
+                CTrue b -> return b
 
 -- ** Updates
 
@@ -1474,7 +1485,7 @@ setBakerKeys upd = updateStake $ \case
 --  This MUST only be called with an account that is either a baker or delegator.
 --  This does no check that the staked amount is sensible, and has no effect on pending changes.
 setStake ::
-    (Monad m,
+    ( Monad m,
       AccountStructureVersionFor av ~ 'AccountStructureV1
     ) =>
     Amount ->
@@ -1484,21 +1495,20 @@ setStake newStake acc = return $! acc{accountStakedAmount = newStake}
 
 setSuspended ::
     forall av m.
-    (MonadBlobStore m, IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1, AVSupportsDelegation av) =>
+    (MonadBlobStore m, IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1, AVSupportsDelegation av, AVSupportsValidatorSuspension av) =>
     Bool ->
     PersistentAccount av ->
     m (PersistentAccount av)
-setSuspended isSuspended = updateStake $ \case
+setSuspended isSusp = updateStake $ \case
     baker@PersistentAccountStakeEnduringBaker{} -> do
         oldInfo <- refLoad (paseBakerInfo baker)
-        let newInfo = oldInfo & bieAccountIsSuspended .~ conditionally (sSupportsValidatorSuspension (accountVersion @av)) isSuspended
+        let newInfo = oldInfo & bieAccountIsSuspended .~ isSusp
         newInfoRef <- refMake $! newInfo
         return $! baker{paseBakerInfo = newInfoRef}
     PersistentAccountStakeEnduringDelegator{} ->
         error "setSuspend invariant violation: account is not a baker"
     PersistentAccountStakeEnduringNone ->
         error "setSuspend invariant violation: account is not a baker"
-    
 
 -- | Add a specified amount to the pre-pre-cooldown inactive stake.
 addPrePreCooldown ::

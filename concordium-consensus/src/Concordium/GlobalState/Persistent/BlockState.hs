@@ -1614,12 +1614,12 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
                   _poolCommissionRates = vaCommissionRates
                 }
     let bakerInfo = bakerKeyUpdateToInfo bid vaKeys
-    let bakerInfoEx = BaseAccounts.BakerInfoExV1
-                         { _bieBakerPoolInfo = poolInfo,
-                           _bieBakerInfo = bakerInfo
-                           _bieBakerInfo = bakerInfo,
-                           _bieAccountIsSuspended = conditionally hasValidatorSuspension False
-                         }
+    let bakerInfoEx =
+            BaseAccounts.BakerInfoExV1
+                { _bieBakerPoolInfo = poolInfo,
+                  _bieBakerInfo = bakerInfo,
+                  _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+                }
     -- The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Add the baker to the account.
@@ -1844,12 +1844,12 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
     -- Only do the given update if specified.
     ifPresent Nothing _ = return
     ifPresent (Just v) k = k v
-    updateSuspend STrue  =
-            case bcuSuspend of
-                Nothing -> return return
-                Just b ->  do
-                    MTL.tell [if b then BakerConfigureSuspended else BakerConfigureResumed]
-                    return $ setAccountSuspended b
+    updateSuspend STrue =
+        case bcuSuspend of
+            Nothing -> return return
+            Just b -> do
+                MTL.tell [if b then BakerConfigureSuspended else BakerConfigureResumed]
+                return $ setAccountSuspended b
     updateSuspend SFalse = return return
     updateKeys oldBaker = ifPresent vuKeys $ \keys (bsp, acc) -> do
         let oldAggrKey = oldBaker ^. BaseAccounts.bakerAggregationVerifyKey
@@ -2818,8 +2818,8 @@ doMint pbs mint = do
             bspBank bsp
                 & unhashed
                     %~ (Rewards.totalGTU +~ mintTotal mint)
-                    . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
-                    . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
+                        . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
+                        . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
     let updAcc = addAccountAmount $ mintDevelopmentCharge mint
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)

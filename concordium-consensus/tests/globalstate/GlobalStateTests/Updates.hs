@@ -163,7 +163,8 @@ modifyStakeTo a (bs, ai) = do
                   vuMetadataURL = Nothing,
                   vuTransactionFeeCommission = Nothing,
                   vuBakingRewardCommission = Nothing,
-                  vuFinalizationRewardCommission = Nothing
+                  vuFinalizationRewardCommission = Nothing,
+                  vuSuspend = Nothing
                 }
     res <- bsoUpdateValidator bs 0 ai conf
     return (fmap (,ai) <$> res)
