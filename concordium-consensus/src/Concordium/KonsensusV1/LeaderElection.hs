@@ -4,7 +4,7 @@
 module Concordium.KonsensusV1.LeaderElection (
     -- * Leader election
     getLeader,
-    getLeaderFullBakers,
+    getLeaderFullBakersEx,
 
     -- * Seed state
     updateSeedStateForBlock,
@@ -43,7 +43,7 @@ import Concordium.GlobalState.BakerInfo
 --  (See the benchmark LeaderElectionBench.)
 getLeader ::
     -- | (Non-empty) list of bakers and their effective stakes.
-    [(bakerInfo, Amount)] ->
+    [(bakerInfo, Amount, Bool)] ->
     -- | Current epoch leadership election nonce
     LeadershipElectionNonce ->
     -- | Round number to compute the leader for
@@ -52,19 +52,20 @@ getLeader ::
 getLeader bakers nonce rnd = grabBaker 0 bakers
   where
     hsh = getHash $ runPutLazy $ put nonce >> put rnd
-    totalStake = toInteger . sum $ snd <$> bakers
+    totalStake = toInteger . sum $ [stake | (_fbi, stake, suspended) <- bakers, not suspended]
     targetVal = fromIntegral $ Hash.hashToInteger hsh `mod` fromIntegral totalStake
-    grabBaker runningTotal ((bi, amt) : bkrs)
+    grabBaker runningTotal ((bi, amt, suspended) : bkrs)
+        | suspended = grabBaker runningTotal bkrs
         | targetVal < runningTotal + amt = bi
         | otherwise = grabBaker (runningTotal + amt) bkrs
     grabBaker _ [] = error "getLeader: Empty bakers"
 
 -- | Compute the leader for a given round, given the set of bakers and leadership election nonce
 --  for the epoch. (See 'getLeader'.)
-getLeaderFullBakers :: FullBakers -> LeadershipElectionNonce -> Round -> FullBakerInfo
-getLeaderFullBakers = getLeader . fmap bi . Vec.toList . fullBakerInfos
+getLeaderFullBakersEx :: FullBakersEx -> LeadershipElectionNonce -> Round -> FullBakerInfo
+getLeaderFullBakersEx = getLeader . fmap bi . Vec.toList . bakerInfoExs
   where
-    bi fbi@FullBakerInfo{..} = (fbi, _bakerStake)
+    bi FullBakerInfoEx{..} = (_exFullBakerInfo, _bakerStake _exFullBakerInfo, _isSuspended)
 
 -- | Compute the update for the leadership election nonce due to a particular block nonce.
 updateWithBlockNonce ::

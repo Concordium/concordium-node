@@ -162,10 +162,10 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                 Right (genState, initTT) -> do
                     chainParams <- getChainParameters genState
                     let genTimeoutBase = chainParams ^. cpConsensusParameters . cpTimeoutParameters . tpTimeoutBase
-                    curBakers <- getCurrentEpochBakers genState
+                    curBakers <- getCurrentEpochFullBakersEx genState
                     curFCP <- getCurrentEpochFinalizationCommitteeParameters genState
                     let curBF = computeBakersAndFinalizers curBakers curFCP
-                    nextBakers <- getNextEpochBakers genState
+                    nextBakers <- getNextEpochFullBakersEx genState
                     nextFCP <- getNextEpochFinalizationCommitteeParameters genState
                     let nextBF = computeBakersAndFinalizers nextBakers nextFCP
                     payday <- getPaydayEpoch genState

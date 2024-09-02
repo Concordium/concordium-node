@@ -391,7 +391,7 @@ getNextEpochBakersAndFinalizers ::
     GSTypes.BlockState m ->
     m BakersAndFinalizers
 getNextEpochBakersAndFinalizers finState = do
-    nextFullBakers <- getNextEpochBakers finState
+    nextFullBakers <- getNextEpochFullBakersEx finState
     nextFCParams <- getNextEpochFinalizationCommitteeParameters finState
     return $! computeBakersAndFinalizers nextFullBakers nextFCParams
 

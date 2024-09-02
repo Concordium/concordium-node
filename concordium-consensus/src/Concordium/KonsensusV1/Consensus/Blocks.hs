@@ -208,7 +208,7 @@ receiveBlockKnownParent parent pendingBlock = do
             return BlockResultInvalid
         Just bakersAndFinalizers
             -- We know the bakers
-            | Just baker <- fullBaker (bakersAndFinalizers ^. bfBakers) (blockBaker pendingBlock),
+            | Just baker <- fullBaker (projFullBakers $ bakersAndFinalizers ^. bfBakersEx) (blockBaker pendingBlock),
               verifyBlockSignature (baker ^. bakerSignatureVerifyKey) genesisHash pendingBlock ->
                 -- The signature is valid
                 receiveSigned bakersAndFinalizers
@@ -246,7 +246,7 @@ receiveBlockKnownParent parent pendingBlock = do
                 then
                     checkLeader
                         bakersAndFinalizers
-                        (nonceForNewEpoch (bakersAndFinalizers ^. bfBakers) seedState)
+                        (nonceForNewEpoch (projFullBakers $ bakersAndFinalizers ^. bfBakersEx) seedState)
                 else do
                     -- If the transition is not triggered, then the child block should not be
                     -- in the new epoch.
@@ -320,7 +320,7 @@ receiveBlockKnownParent parent pendingBlock = do
             return BlockResultInvalid
       where
         roundBaker =
-            getLeaderFullBakers (bakersAndFinalizers ^. bfBakers) leNonce (blockRound pendingBlock)
+            getLeaderFullBakersEx (bakersAndFinalizers ^. bfBakersEx) leNonce (blockRound pendingBlock)
 
 -- | Process receiving a block when the parent is not live.
 --  Precondition: the block is for a round and epoch that have not already been finalized.
@@ -1156,16 +1156,17 @@ prepareBakeBlockInputs = runMaybeT $ do
                         ++ show (qcRound (feSuccessorQuorumCertificate finEntry))
                         ++ "."
                 empty
-    bbiEpochBakers <-
+    bbiEpochBakersEx <-
         if isAbsent bbiEpochFinalizationEntry
-            then getCurrentEpochBakers (bpState bbiParent)
-            else getNextEpochBakers (bpState bbiParent)
+            then getCurrentEpochFullBakersEx (bpState bbiParent)
+            else getNextEpochFullBakersEx (bpState bbiParent)
+    let bbiEpochBakers = projFullBakers bbiEpochBakersEx
     parentSeedState <- getSeedState (bpState bbiParent)
     let bbiLeadershipElectionNonce =
             if isAbsent bbiEpochFinalizationEntry
                 then parentSeedState ^. currentLeadershipElectionNonce
                 else nonceForNewEpoch bbiEpochBakers parentSeedState
-    let leader = getLeaderFullBakers bbiEpochBakers bbiLeadershipElectionNonce bbiRound
+    let leader = getLeaderFullBakersEx bbiEpochBakersEx bbiLeadershipElectionNonce bbiRound
     guard (leader ^. bakerIdentity == bakerId)
     unless (bakerSignPublicKey bbiBakerIdentity == leader ^. bakerSignatureVerifyKey) $ do
         logEvent Konsensus LLWarning "Baker signing key does not match the key in the current committee."

@@ -434,7 +434,7 @@ initialRoundStatus currentTimeout genesisBlock =
 -- | The sets of bakers and finalizers for an epoch/payday.
 data BakersAndFinalizers = BakersAndFinalizers
     { -- | Bakers set.
-      _bfBakers :: !FullBakers,
+      _bfBakersEx :: !FullBakersEx,
       -- | Finalizers set.
       _bfFinalizers :: !FinalizationCommittee,
       -- | Hash computed from the BLS verify key and weight of each finalizer included in the set above.
