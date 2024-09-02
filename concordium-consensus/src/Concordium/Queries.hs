@@ -1559,7 +1559,8 @@ getBakerStatusBestBlock =
                     return (bakerStatus, Just $ bakerId bakerIdent, bakerLotteryPower)
                 )
                 ( do
-                    bakers <- gets (SkovV1._bfBakers . SkovV1.bakersForCurrentEpoch)
+                    bakersEx <- gets (SkovV1._bfBakersEx . SkovV1.bakersForCurrentEpoch)
+                    let bakers = projFullBakers bakersEx
                     (bakerStatus, bakerLotteryPower) <- case fullBaker bakers (bakerId bakerIdent) of
                         Just fbinfo -> return $! currentBakerStatus bakerIdent bakers fbinfo
                         Nothing -> do

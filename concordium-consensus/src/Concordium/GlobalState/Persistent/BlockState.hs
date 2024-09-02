@@ -1180,6 +1180,11 @@ doGetNextEpochBakers pbs = do
     bsp <- loadPBS pbs
     epochToFullBakers =<< refLoad (bspBirkParameters bsp ^. birkNextEpochBakers)
 
+doGetNextEpochFullBakersEx :: (SupportsPersistentState pv m, PVSupportsDelegation pv) => PersistentBlockState pv -> m FullBakersEx
+doGetNextEpochFullBakersEx pbs = do
+    bsp <- loadPBS pbs
+    epochToFullBakersEx =<< refLoad (bspBirkParameters bsp ^. birkNextEpochBakers)
+
 doGetSlotBakersP1 ::
     ( AccountVersionFor pv ~ 'AccountV0,
       SeedStateVersionFor pv ~ 'SeedStateVersion0,
@@ -4178,7 +4183,13 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getSeedState = doGetSeedState . hpbsPointers
     getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteeParameters . hpbsPointers
     getCurrentEpochBakers = doGetCurrentEpochBakers . hpbsPointers
+    getCurrentEpochFullBakersEx = case sSupportsDelegation (accountVersion @av) of
+         STrue -> doGetCurrentEpochFullBakersEx . hpbsPointers 
+         SFalse -> error "getCurrentEpochFullBakersEx needs a protocol version supporting delegation"
     getNextEpochBakers = doGetNextEpochBakers . hpbsPointers
+    getNextEpochFullBakersEx = case sSupportsDelegation (accountVersion @av) of
+         STrue -> doGetNextEpochFullBakersEx . hpbsPointers          
+         SFalse -> error "getNextEpochFullBakersEx needs a protocol version supporting delegation"
     getNextEpochFinalizationCommitteeParameters = doGetNextEpochFinalizationCommitteeParameters . hpbsPointers
     getSlotBakersP1 = doGetSlotBakersP1 . hpbsPointers
     getBakerAccount = doGetBakerAccount . hpbsPointers

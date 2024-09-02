@@ -541,6 +541,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     -- | Get the bakers for the epoch in which the block was baked.
     getCurrentEpochBakers :: BlockState m -> m FullBakers
 
+    -- | Get the bakers for the epoch in which the block was baked.
+    getCurrentEpochFullBakersEx :: BlockState m -> m FullBakersEx
+
     -- | Get the finalization committee parameters for the epoch in which the block was baked.
     --  Together with the bakers, this is used to compute the finalization committee for the epoch.
     getCurrentEpochFinalizationCommitteeParameters ::
@@ -550,6 +553,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
 
     -- | Get the bakers for the next epoch. (See $ActiveCurrentNext.)
     getNextEpochBakers :: BlockState m -> m FullBakers
+
+    -- | Get the bakers for the next epoch. (See $ActiveCurrentNext.)
+    getNextEpochFullBakersEx :: BlockState m -> m FullBakersEx
 
     -- | Get the finalization committee parameters for next epoch than in which the block was baked.
     --  Together with the bakers, this is used to compute the finalization committee for the epoch.
@@ -1635,8 +1641,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getContractInstanceList = lift . getContractInstanceList
     getSeedState = lift . getSeedState
     getCurrentEpochBakers = lift . getCurrentEpochBakers
+    getCurrentEpochFullBakersEx = lift . getCurrentEpochFullBakersEx
     getCurrentEpochFinalizationCommitteeParameters = lift . getCurrentEpochFinalizationCommitteeParameters
     getNextEpochBakers = lift . getNextEpochBakers
+    getNextEpochFullBakersEx = lift . getNextEpochFullBakersEx
     getNextEpochFinalizationCommitteeParameters = lift . getNextEpochFinalizationCommitteeParameters
     getSlotBakersP1 d = lift . getSlotBakersP1 d
     getRewardStatus = lift . getRewardStatus

@@ -79,7 +79,8 @@ lotteryBaker fbs bid = lp <$> fullBaker fbs bid
 -- | 'FullBakerInfo' plus the baker's 'CommissionRates'.
 data FullBakerInfoEx = FullBakerInfoEx
     { _exFullBakerInfo :: !FullBakerInfo,
-      _bakerPoolCommissionRates :: !CommissionRates
+      _bakerPoolCommissionRates :: !CommissionRates,
+      _isSuspended :: !Bool
     }
     deriving (Eq, Show)
 
@@ -100,6 +101,9 @@ data FullBakersEx = FullBakersEx
       bakerPoolTotalStake :: !Amount
     }
     deriving (Eq, Show)
+
+projFullBakers :: FullBakersEx -> FullBakers
+projFullBakers FullBakersEx{..} = FullBakers {bakerTotalStake = bakerPoolTotalStake, fullBakerInfos = fmap _exFullBakerInfo bakerInfoExs}
 
 data BakerKeyUpdate = BakerKeyUpdate
     { -- | New public sign key

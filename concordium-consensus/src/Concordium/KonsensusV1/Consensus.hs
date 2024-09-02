@@ -228,15 +228,15 @@ computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} 
 
 -- | Compute the finalization committee and finalization committee hash given the bakers and the
 -- finalization committee parameters, returning a 'BakersAndFinalizers'.
-computeBakersAndFinalizers :: FullBakers -> FinalizationCommitteeParameters -> BakersAndFinalizers
+computeBakersAndFinalizers :: FullBakersEx -> FinalizationCommitteeParameters -> BakersAndFinalizers
 computeBakersAndFinalizers bakers fcp =
     BakersAndFinalizers
-        { _bfBakers = bakers,
+        { _bfBakersEx = bakers,
           _bfFinalizers = finalizers,
           _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
         }
   where
-    finalizers = computeFinalizationCommittee bakers fcp
+    finalizers = computeFinalizationCommittee (projFullBakers bakers) fcp
 
 -- | Get the baker identity and finalizer info if we are a finalizer in the specified epoch.
 --  This checks that the signing key and aggregate signing key match those for the finalizer,
@@ -353,13 +353,13 @@ bakerEarliestWinTimestamp ::
 bakerEarliestWinTimestamp baker sd = do
     let lfBlock = sd ^. lastFinalized
     -- The bakers with respect to the epoch of the last finalized block.
-    let fullBakers = sd ^. currentEpochBakers . bfBakers
+    let fullBakers = sd ^. currentEpochBakers . bfBakersEx
     let epochDuration = genesisEpochDuration . gmParameters $ sd ^. genesisMetadata
     lfSeedState <- BS.getSeedState (bpState lfBlock)
     let lfTriggerTime = lfSeedState ^. triggerBlockTime
     chainParams <- BS.getChainParameters (bpState lfBlock)
     let minBlockTime = chainParams ^. cpConsensusParameters . cpMinBlockTime
-    if null (fullBaker fullBakers baker)
+    if null (fullBaker (projFullBakers fullBakers) baker)
         then do
             -- The baker is not a baker in the current payday, so take the start of the next payday
             -- as the soonest that the account could be a baker (and thus bake).
@@ -376,7 +376,7 @@ bakerEarliestWinTimestamp baker sd = do
             -- guarantee termination in @epochDuration / minBlockTime@ iterations.
             let findLeader nxtRound nxtTimestamp
                     | baker
-                        == getLeaderFullBakers
+                        == getLeaderFullBakersEx
                             fullBakers
                             (lfSeedState ^. currentLeadershipElectionNonce)
                             nxtRound
@@ -420,10 +420,10 @@ getWinningBakersForEpoch targetEpoch sd = do
         -- The start block will be a finalized block and not the genesis block (its epoch is > 1).
         -- Its parent will be in the target epoch. (There are no empty epochs.)
         lastOfEpoch <- parentOfFinalized startBlock
-        bakers <- BS.getCurrentEpochBakers (bpState lastOfEpoch)
+        bakers <- BS.getCurrentEpochFullBakersEx (bpState lastOfEpoch)
         seedState <- BS.getSeedState (bpState lastOfEpoch)
         let leNonce = seedState ^. currentLeadershipElectionNonce
-        let roundWinner = getLeaderFullBakers bakers leNonce
+        let roundWinner = getLeaderFullBakersEx bakers leNonce
         let roundWB rnd present =
                 WinningBaker
                     { wbWinner = roundWinner rnd ^. Accounts.bakerIdentity,

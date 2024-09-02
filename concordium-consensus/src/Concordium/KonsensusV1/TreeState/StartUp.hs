@@ -56,11 +56,11 @@ genesisEpochBakers ::
     PBS.HashedPersistentBlockState pv ->
     m EpochBakers
 genesisEpochBakers genState = do
-    curFullBakers <- getCurrentEpochBakers genState
+    curFullBakers <- getCurrentEpochFullBakersEx genState
     curFinParams <- getCurrentEpochFinalizationCommitteeParameters genState
     let _currentEpochBakers = computeBakersAndFinalizers curFullBakers curFinParams
     let _previousEpochBakers = _currentEpochBakers
-    nextFullBakers <- getNextEpochBakers genState
+    nextFullBakers <- getNextEpochFullBakersEx genState
     nextFinParams <- getNextEpochFinalizationCommitteeParameters genState
     let _nextEpochBakers = computeBakersAndFinalizers nextFullBakers nextFinParams
     _nextPayday <- getPaydayEpoch genState
@@ -81,10 +81,10 @@ makeEpochBakers ::
     m EpochBakers
 makeEpochBakers lastFinBlock = do
     let lfbState = bpState lastFinBlock
-    curFullBakers <- getCurrentEpochBakers lfbState
+    curFullBakers <- getCurrentEpochFullBakersEx lfbState
     curFinParams <- getCurrentEpochFinalizationCommitteeParameters lfbState
     let _currentEpochBakers = computeBakersAndFinalizers curFullBakers curFinParams
-    nextFullBakers <- getNextEpochBakers lfbState
+    nextFullBakers <- getNextEpochFullBakersEx lfbState
     nextFinParams <- getNextEpochFinalizationCommitteeParameters lfbState
     let _nextEpochBakers = computeBakersAndFinalizers nextFullBakers nextFinParams
     _nextPayday <- getPaydayEpoch lfbState
@@ -121,7 +121,7 @@ makeEpochBakers lastFinBlock = do
             Just stb -> case compare (blockEpoch stb) targetEpoch of
                 EQ -> do
                     blockState <- bpState <$> mkBlockPointer stb
-                    fullBakers <- getCurrentEpochBakers blockState
+                    fullBakers <- getCurrentEpochFullBakersEx blockState
                     finParams <- getCurrentEpochFinalizationCommitteeParameters blockState
                     return $ computeBakersAndFinalizers fullBakers finParams
                 LT -> do

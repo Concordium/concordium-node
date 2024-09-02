@@ -30,6 +30,7 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
+import Concordium.Types.Conditionally
 import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.Types.Execution (DelegationTarget (..))
 import Concordium.Utils.BinarySearch
@@ -165,6 +166,7 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
             }
 
 -- | Look up a baker and its stake in a 'PersistentEpochBakers'.
+-- TODO (drsk) change returned effective stake depending on whether the account is suspended or not.
 epochBaker ::
     forall m pv.
     (IsProtocolVersion pv, MonadBlobStore m) =>
@@ -245,7 +247,7 @@ epochToFullBakers PersistentEpochBakers{..} = do
   where
     mkFullBakerInfo info stake = FullBakerInfo info stake
 
--- | Derive a 'FullBakers' from a 'PersistentEpochBakers'.
+-- | Derive a 'FullBakersEx' from a 'PersistentEpochBakers'.
 epochToFullBakersEx ::
     forall m pv.
     (MonadBlobStore m, IsProtocolVersion pv, PVSupportsDelegation pv) =>
@@ -262,8 +264,8 @@ epochToFullBakersEx PersistentEpochBakers{..} = do
             }
   where
     mkFullBakerInfoEx :: BaseAccounts.BakerInfoEx (AccountVersionFor pv) -> Amount -> FullBakerInfoEx
-    mkFullBakerInfoEx (BaseAccounts.BakerInfoExV1 info extra _isSuspended) stake =
-        FullBakerInfoEx (FullBakerInfo info stake) (extra ^. BaseAccounts.poolCommissionRates)
+    mkFullBakerInfoEx (BaseAccounts.BakerInfoExV1 info extra isSusp) stake =
+        FullBakerInfoEx (FullBakerInfo info stake) (extra ^. BaseAccounts.poolCommissionRates) (fromCondDef isSusp False)
 
 type DelegatorIdTrieSet = Trie.TrieN BufferedFix DelegatorId ()
 
