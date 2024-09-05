@@ -88,7 +88,7 @@ dummyEpochBakers = EpochBakers dummyBakersAndFinalizers dummyBakersAndFinalizers
 dummyBakersAndFinalizers :: BakersAndFinalizers
 dummyBakersAndFinalizers =
     BakersAndFinalizers
-        { _bfBakers = FullBakers Vec.empty 0,
+        { _bfBakersEx = FullBakersEx Vec.empty 0,
           _bfFinalizers = finalizers,
           _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
         }

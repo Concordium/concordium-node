@@ -5,6 +5,7 @@
 -- | Tests for the functions in 'Concordium.KonsensusV1.LeaderElection'.
 module ConcordiumTests.KonsensusV1.LeaderElectionTest (tests) where
 
+import qualified Data.IntSet as S
 import Data.Serialize
 import qualified Data.Vector as Vec
 import System.Random
@@ -68,17 +69,27 @@ serializeDeserializeFullBakers = describe "serialize and deserialize full bakers
 --  cause them to fail.
 --  The test cases demonstrate that different inputs (leader election nonce, round, baker stakes,
 --  number of bakers) result in different outputs from 'getLeader'.
+-- TODO (drsk) test for empty bakers and all suspended bakers
 testGetLeader :: Spec
 testGetLeader = describe "getLeader" $ do
-    it "1" $ testIt [(i, 1000000000000000) | i <- [0 .. 50]] len1 0 31
-    it "2" $ testIt [(i, 1000000000000000) | i <- [0 .. 50]] len2 0 6
-    it "3" $ testIt [(i, 1000000000000000) | i <- [0 .. 50]] len1 1 7
-    it "4" $ testIt [(i, 1000000000000001) | i <- [0 .. 50]] len1 0 47
-    it "5" $ testIt [(i, 1000000000000000) | i <- [0 .. 500]] len1 0 106
-    it "6" $ testIt [(i, 1000000000000000) | i <- [0 .. 500]] len2 0 39
+    it "1" $ testIt (infos 1000000000000000 50) len1 0 31
+    it "2" $ testIt (infos 1000000000000000 50) len2 0 6
+    it "3" $ testIt (infos 1000000000000000 50) len1 1 7
+    it "4" $ testIt (infos 1000000000000001 50) len1 0 47
+    it "5" $ testIt (infos 1000000000000000 500) len1 0 106
+    it "6" $ testIt (infos 1000000000000000 500) len2 0 39
+    it "7" $ testIt (suspendedAtInfos 1000000000000000 50 [31]) len1 0 12
+    it "8" $ testIt (suspendedAtInfos 1000000000000000 50 [29, 30, 31]) len1 0 43
+    it "9" $ testIt (suspendedAtInfos 1000000000000000 50 [6]) len2 0 42
+    it "10" $ testIt (suspendedAtInfos 1000000000000000 50 [6, 24, 8]) len2 0 30
+    it "11" $ testIt (suspendedAtInfos 1000000000000000 500 [106]) len1 1 445
+    it "12" $ testIt (suspendedAtInfos 1000000000000000 500 [0, 1, 39]) len2 1 499
   where
     len1 = Hash.hash "LEN1"
     len2 = Hash.hash "LEN2"
+    infos stake n = [(i, stake, False) | i <- [0 .. n]]
+    suspendedAtInfos stake n susIxs =
+        [if i `S.member` S.fromList susIxs then (i, s, True) else (i, s, sus) | (i, s, sus) <- infos stake n]
     testIt bakers len rnd expec =
         assertEqual
             ("getLeader " ++ show bakers ++ " " ++ show len ++ " " ++ show rnd)

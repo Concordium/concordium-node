@@ -103,7 +103,7 @@ data FullBakersEx = FullBakersEx
     deriving (Eq, Show)
 
 projFullBakers :: FullBakersEx -> FullBakers
-projFullBakers FullBakersEx{..} = FullBakers {bakerTotalStake = bakerPoolTotalStake, fullBakerInfos = fmap _exFullBakerInfo bakerInfoExs}
+projFullBakers FullBakersEx{..} = FullBakers{bakerTotalStake = bakerPoolTotalStake, fullBakerInfos = fmap _exFullBakerInfo bakerInfoExs}
 
 data BakerKeyUpdate = BakerKeyUpdate
     { -- | New public sign key

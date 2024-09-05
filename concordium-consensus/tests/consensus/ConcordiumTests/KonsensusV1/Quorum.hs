@@ -114,7 +114,7 @@ testMakeQuorumCertificate sProtocolVersion =
     finalizers = FinalizationCommittee (Vec.fromList $ fi <$> [1, 2, 3]) 3
     bfs =
         BakersAndFinalizers
-            { _bfBakers = FullBakers Vec.empty 0,
+            { _bfBakersEx = FullBakersEx Vec.empty 0,
               _bfFinalizers = finalizers,
               _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
             }
@@ -196,7 +196,7 @@ testReceiveQuorumMessage sProtocolVersion =
     finalizers = FinalizationCommittee (Vec.fromList [fi 0, fi 1, fi 2, fi 3]) 4
     bakersAndFinalizers =
         BakersAndFinalizers
-            (FullBakers Vec.empty 0)
+            (FullBakersEx Vec.empty 0)
             finalizers
             (computeFinalizationCommitteeHash finalizers)
     -- A skov data where

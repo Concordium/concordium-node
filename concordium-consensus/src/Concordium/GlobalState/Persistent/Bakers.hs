@@ -31,8 +31,8 @@ import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
-import Concordium.Types.Conditionally
 import qualified Concordium.Types.Accounts as BaseAccounts
+import Concordium.Types.Conditionally
 import Concordium.Types.Execution (DelegationTarget (..))
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization

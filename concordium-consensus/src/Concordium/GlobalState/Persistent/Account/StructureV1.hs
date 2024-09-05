@@ -33,10 +33,10 @@ import Concordium.ID.Types hiding (values)
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
+import Concordium.Types.Conditionally
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
-import Concordium.Types.Conditionally
 import Concordium.Utils
 
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount, replaceUpTo)
