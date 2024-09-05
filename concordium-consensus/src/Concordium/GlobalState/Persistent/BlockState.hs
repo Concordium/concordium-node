@@ -4184,12 +4184,12 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getCurrentEpochFinalizationCommitteeParameters = doGetCurrentEpochFinalizationCommitteeParameters . hpbsPointers
     getCurrentEpochBakers = doGetCurrentEpochBakers . hpbsPointers
     getCurrentEpochFullBakersEx = case sSupportsDelegation (accountVersion @av) of
-         STrue -> doGetCurrentEpochFullBakersEx . hpbsPointers 
-         SFalse -> error "getCurrentEpochFullBakersEx needs a protocol version supporting delegation"
+        STrue -> doGetCurrentEpochFullBakersEx . hpbsPointers
+        SFalse -> error "getCurrentEpochFullBakersEx needs a protocol version supporting delegation"
     getNextEpochBakers = doGetNextEpochBakers . hpbsPointers
     getNextEpochFullBakersEx = case sSupportsDelegation (accountVersion @av) of
-         STrue -> doGetNextEpochFullBakersEx . hpbsPointers          
-         SFalse -> error "getNextEpochFullBakersEx needs a protocol version supporting delegation"
+        STrue -> doGetNextEpochFullBakersEx . hpbsPointers
+        SFalse -> error "getNextEpochFullBakersEx needs a protocol version supporting delegation"
     getNextEpochFinalizationCommitteeParameters = doGetNextEpochFinalizationCommitteeParameters . hpbsPointers
     getSlotBakersP1 = doGetSlotBakersP1 . hpbsPointers
     getBakerAccount = doGetBakerAccount . hpbsPointers

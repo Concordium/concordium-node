@@ -36,11 +36,13 @@ import Concordium.GlobalState.BakerInfo
 --  This process has a bias towards bakers with smaller indexes. However, the chance of this bias
 --  affecting the result of any given election is less than 1 in 10^57, and so is effectively
 --  impossible.
+-- TODO (drsk) How is the ordering of the indeces determined. What is the reasoning for the 10^57 number? 
 --
 --  Note: this implementation is linear in the number of bakers. By pre-processing the baker set,
 --  we could have a logarithmic algorithm. However, as the runtime is on the order of 5 us for 1000
 --  bakers and 45 us for 10000, this is not a worthwhile optimisation at the current time.
 --  (See the benchmark LeaderElectionBench.)
+-- TODO (drsk) How do we guarantee that the error cases never happen?
 getLeader ::
     -- | (Non-empty) list of bakers and their effective stakes.
     [(bakerInfo, Amount, Bool)] ->
@@ -49,7 +51,10 @@ getLeader ::
     -- | Round number to compute the leader for
     Round ->
     bakerInfo
-getLeader bakers nonce rnd = grabBaker 0 bakers
+getLeader bakers nonce rnd 
+    | and [suspended | (_bi, _amt, suspended) <- bakers] = error "getLeader: All bakers suspended"
+    | null bakers = error "getLeader: Empty bakers"
+    | otherwise = grabBaker 0 bakers
   where
     hsh = getHash $ runPutLazy $ put nonce >> put rnd
     totalStake = toInteger . sum $ [stake | (_fbi, stake, suspended) <- bakers, not suspended]

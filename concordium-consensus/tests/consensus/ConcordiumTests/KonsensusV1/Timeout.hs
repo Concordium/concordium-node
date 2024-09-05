@@ -509,7 +509,7 @@ testReceiveTimeoutMessage sProtocolVersion =
     -- Construct a set of 0 bakers and 3 finalisers with indices 0,1,2.
     bakersAndFinalizers =
         BakersAndFinalizers
-            (FullBakers Vec.empty 0)
+            (FullBakersEx Vec.empty 0)
             finalizers
             (computeFinalizationCommitteeHash finalizers)
     -- A tree state where the following applies:
