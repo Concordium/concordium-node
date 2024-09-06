@@ -373,7 +373,13 @@ readBlobBSFromHandle BlobStoreAccess{..} (BlobRef offset) = mask $ \restore -> d
             Right size
                 | offset + 8 + size <= fromIntegral bhSize ->
                     BS.hGet bhHandle (fromIntegral size)
-            _ -> throwIO $ userError "Attempted to read beyond the blob store end"
+            _ ->
+                throwIO $
+                    userError $
+                        "Attempted to read beyond the blob store end @"
+                            ++ show offset
+                            ++ " in file "
+                            ++ blobStoreFilePath
     putMVar blobStoreFile bh{bhAtEnd = False}
     case eres :: Either SomeException BS.ByteString of
         Left e -> throwIO e

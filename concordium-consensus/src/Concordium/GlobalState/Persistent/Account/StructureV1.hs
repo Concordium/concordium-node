@@ -1,9 +1,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE BinaryLiterals #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 -- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
@@ -16,11 +18,13 @@
 module Concordium.GlobalState.Persistent.Account.StructureV1 where
 
 import Control.Monad
+import qualified Control.Monad.State.Class as State
 import Control.Monad.Trans
-import qualified Control.Monad.Trans.State.Strict as State
+import qualified Control.Monad.Trans.State.Strict as State (StateT (..))
 import Data.Bits
 import Data.Bool.Singletons
 import Data.Foldable
+import Data.Kind
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Word
@@ -29,6 +33,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Genesis.Data
 import Concordium.ID.Types hiding (values)
+import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
@@ -206,8 +211,42 @@ migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringBaker{..} = 
 migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringDelegator{..} =
     return $! PersistentAccountStakeEnduringDelegator{..}
 
+-- | A monad transformer transformer that left-composes @StateT Amount@
+--  with a given monad transformer @t@. The purpose of this is to add state functionality for
+--  tracking the current active stake on an account, which is used when migrating an account
+--  between certain protocol versions.
+--
+--  A monad transformer transformer is used so that the 'lift' operation removes both the
+--  @StateT Amount@ and the underlying monad transformer @t@. This is important as the reference
+--  migration functions depend on using 'lift' to access the source block state.
+newtype StakedBalanceStateTT (t :: (Type -> Type) -> (Type -> Type)) (m :: Type -> Type) (a :: Type) = StakedBalanceStateTT
+    { runStakedBalanceStateTT' :: State.StateT Amount (t m) a
+    }
+    deriving newtype (Functor, Applicative, Monad, State.MonadState Amount, MonadIO, MonadLogger)
+
+-- | Run an 'StakedBalanceStateTT' computation with the given initial staked balance state.
+runStakedBalanceStateTT :: StakedBalanceStateTT t m a -> Amount -> t m (a, Amount)
+runStakedBalanceStateTT = State.runStateT . runStakedBalanceStateTT'
+
+instance (MonadTrans t) => MonadTrans (StakedBalanceStateTT t) where
+    lift = StakedBalanceStateTT . lift . lift
+
+deriving via
+    forall (t :: (Type -> Type) -> (Type -> Type)) (m :: Type -> Type).
+    State.StateT Amount (t m)
+    instance
+        (MonadBlobStore (t m)) =>
+        MonadBlobStore (StakedBalanceStateTT t m)
+
+-- | Lift a computation in the base monad to the transformed monad.
+liftStakedBalanceStateTT ::
+    (Monad (t m)) =>
+    t m a ->
+    StakedBalanceStateTT t m a
+liftStakedBalanceStateTT = StakedBalanceStateTT . lift
+
 -- | Migrate a 'PersistentAccountStakeEnduring' from 'AccountV2' to 'AccountV3'.  This runs in the
---   'StateT' monad, where the state is the amount of active stake on the account.
+--   @StakedBalanceStateTT t m@ monad, where the state is the amount of active stake on the account.
 --
 --   * If there is a pending change on the account, then the pending change is removed and the
 --     active stake is updated to apply the pending change. The change in the stake is moved to
@@ -225,7 +264,7 @@ migratePersistentAccountStakeEnduringV2toV3 ::
     (SupportMigration m t, AccountMigration 'AccountV3 (t m)) =>
     PersistentAccountStakeEnduring 'AccountV2 ->
     -- | Returns the new 'PersistentAccountStakeEnduring' and 'CooldownQueue'.
-    State.StateT Amount (t m) (PersistentAccountStakeEnduring 'AccountV3, CooldownQueue 'AccountV3)
+    StakedBalanceStateTT t m (PersistentAccountStakeEnduring 'AccountV3, CooldownQueue 'AccountV3)
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringNone =
     return (PersistentAccountStakeEnduringNone, emptyCooldownQueue)
 migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{..} =
@@ -236,7 +275,7 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{
             cooldownAmount <- State.get
             State.put 0
             cooldown <- initialPrePreCooldownQueue cooldownAmount
-            lift addAccountInPrePreCooldown
+            liftStakedBalanceStateTT addAccountInPrePreCooldown
             return (PersistentAccountStakeEnduringNone, cooldown)
         ReduceStake newStake _ -> do
             oldStake <- State.get
@@ -248,7 +287,7 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringBaker{
                         ++ show newStake
             State.put newStake
             cooldown <- initialPrePreCooldownQueue (oldStake - newStake)
-            lift addAccountInPrePreCooldown
+            liftStakedBalanceStateTT addAccountInPrePreCooldown
             newPASE <- keepBakerInfo
             return (newPASE, cooldown)
         NoChange -> (,emptyCooldownQueue) <$> keepBakerInfo
@@ -268,13 +307,13 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringDelega
             cooldownAmount <- State.get
             State.put 0
             cooldown <- initialPrePreCooldownQueue cooldownAmount
-            lift addAccountInPrePreCooldown
+            liftStakedBalanceStateTT addAccountInPrePreCooldown
             return (PersistentAccountStakeEnduringNone, cooldown)
         _ -> do
             newTarget <- case paseDelegatorTarget of
                 DelegatePassive -> return DelegatePassive
                 DelegateToBaker bid -> do
-                    removed <- lift $ isBakerRemoved bid
+                    removed <- liftStakedBalanceStateTT $ isBakerRemoved bid
                     return $ if removed then DelegatePassive else paseDelegatorTarget
             let newDelegatorInfo =
                     PersistentAccountStakeEnduringDelegator
@@ -295,12 +334,12 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringDelega
                                 ++ show newStake
                     State.put newStake
                     cooldown <- initialPrePreCooldownQueue (oldStake - newStake)
-                    lift $ do
+                    liftStakedBalanceStateTT $ do
                         addAccountInPrePreCooldown
                         retainDelegator paseDelegatorId newStake newTarget
                     return $!! (newDelegatorInfo, cooldown)
                 NoChange -> do
-                    lift $ retainDelegator paseDelegatorId oldStake newTarget
+                    liftStakedBalanceStateTT $ retainDelegator paseDelegatorId oldStake newTarget
                     return $!! (newDelegatorInfo, emptyCooldownQueue)
 
 -- | This relies on the fact that the 'AccountV2' hashing of 'AccountStake' is independent of the
@@ -1752,7 +1791,7 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
 -- ** Migration
 
 migrateEnduringDataV2 ::
-    (SupportMigration m t) =>
+    (SupportMigration m t, MonadLogger (t m)) =>
     PersistentAccountEnduringData 'AccountV2 ->
     t m (PersistentAccountEnduringData 'AccountV2)
 migrateEnduringDataV2 ed = do
@@ -1769,8 +1808,8 @@ migrateEnduringDataV2 ed = do
               ..
             }
 
--- | Migrate enduring data from 'AccountV2' to 'AccountV3'. The 'Amount' in the 'State.StateT'
---  represents the current active stake on the account.
+-- | Migrate enduring data from 'AccountV2' to 'AccountV3'. This uses 'StakedBalanceStateTT' to
+--  track the staked balance of the account.
 --
 --   * If the account previously had a pending change, it will now have a pre-pre-cooldown, and
 --     'addAccountInPrePreCooldown' is called (to register this globally). If the pending change
@@ -1783,18 +1822,24 @@ migrateEnduringDataV2 ed = do
 --   * If the account is still delegating, 'retainDelegator' is called to record the (new)
 --     delegation amount and target globally.
 migrateEnduringDataV2toV3 ::
-    (SupportMigration m t, AccountMigration 'AccountV3 (t m)) =>
+    (SupportMigration m t, AccountMigration 'AccountV3 (t m), MonadLogger (t m)) =>
     -- | Current enduring data
     PersistentAccountEnduringData 'AccountV2 ->
     -- | New enduring data.
-    State.StateT Amount (t m) (PersistentAccountEnduringData 'AccountV3)
+    StakedBalanceStateTT t m (PersistentAccountEnduringData 'AccountV3)
 migrateEnduringDataV2toV3 ed = do
+    logEvent GlobalState LLTrace "Migrating persisting data"
     paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
-    paedEncryptedAmount <- forM (paedEncryptedAmount ed) $ migrateReference migratePersistentEncryptedAmount
+    paedEncryptedAmount <- forM (paedEncryptedAmount ed) $ \e -> do
+        logEvent GlobalState LLTrace "Migrating encrypted amount"
+        migrateReference migratePersistentEncryptedAmount e
     paedReleaseSchedule <- forM (paedReleaseSchedule ed) $ \(oldRSRef, lockedAmt) -> do
+        logEvent GlobalState LLTrace "Migrating release schedule"
         newRSRef <- migrateReference migrateAccountReleaseSchedule oldRSRef
         return (newRSRef, lockedAmt)
+    logEvent GlobalState LLTrace "Migrating stake"
     (paedStake, paedStakeCooldown) <- migratePersistentAccountStakeEnduringV2toV3 (paedStake ed)
+    logEvent GlobalState LLTrace "Reconstructing account enduring data"
     makeAccountEnduringDataAV3
         paedPersistingData
         paedEncryptedAmount
@@ -1805,7 +1850,7 @@ migrateEnduringDataV2toV3 ed = do
 -- | Migration for 'PersistentAccountEnduringData'. Only supports 'AccountV3'.
 --  The data is unchanged in the migration.
 migrateEnduringDataV3toV3 ::
-    (SupportMigration m t) =>
+    (SupportMigration m t, MonadLogger (t m)) =>
     PersistentAccountEnduringData 'AccountV3 ->
     t m (PersistentAccountEnduringData 'AccountV3)
 migrateEnduringDataV3toV3 ed = do
@@ -1823,7 +1868,8 @@ migrateEnduringDataV3toV3 ed = do
 migrateV2ToV2 ::
     ( MonadBlobStore m,
       MonadBlobStore (t m),
-      MonadTrans t
+      MonadTrans t,
+      MonadLogger (t m)
     ) =>
     PersistentAccount 'AccountV2 ->
     t m (PersistentAccount 'AccountV2)
@@ -1857,13 +1903,14 @@ migrateV2ToV3 ::
     ( MonadBlobStore m,
       MonadBlobStore (t m),
       AccountMigration 'AccountV3 (t m),
-      MonadTrans t
+      MonadTrans t,
+      MonadLogger (t m)
     ) =>
     PersistentAccount 'AccountV2 ->
     t m (PersistentAccount 'AccountV3)
 migrateV2ToV3 acc = do
     (accountEnduringData, newStakedAmount) <-
-        State.runStateT
+        runStakedBalanceStateTT
             (migrateEagerBufferedRef migrateEnduringDataV2toV3 (accountEnduringData acc))
             (accountStakedAmount acc)
     return $!
@@ -1879,7 +1926,8 @@ migrateV2ToV3 acc = do
 migrateV3ToV3 ::
     ( MonadBlobStore m,
       MonadBlobStore (t m),
-      MonadTrans t
+      MonadTrans t,
+      MonadLogger (t m)
     ) =>
     PersistentAccount 'AccountV3 ->
     t m (PersistentAccount 'AccountV3)
@@ -1913,7 +1961,8 @@ migratePersistentAccount ::
     ( IsProtocolVersion oldpv,
       SupportMigration m t,
       AccountMigration (AccountVersionFor pv) (t m),
-      AccountStructureVersionFor (AccountVersionFor oldpv) ~ 'AccountStructureV1
+      AccountStructureVersionFor (AccountVersionFor oldpv) ~ 'AccountStructureV1,
+      MonadLogger (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
     PersistentAccount (AccountVersionFor oldpv) ->
@@ -1929,7 +1978,8 @@ migratePersistentAccount StateMigrationParametersP6ToP7{} acc = migrateV2ToV3 ac
 migratePersistentAccountFromV0 ::
     ( SupportMigration m t,
       AccountVersionFor oldpv ~ 'AccountV1,
-      AccountVersionFor pv ~ 'AccountV2
+      AccountVersionFor pv ~ 'AccountV2,
+      MonadLogger (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
     V0.PersistentAccount (AccountVersionFor oldpv) ->

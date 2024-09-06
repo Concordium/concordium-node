@@ -78,7 +78,7 @@ import qualified Concordium.GlobalState.Wasm as GSWasm
 import qualified Concordium.ID.Parameters as ID
 import qualified Concordium.ID.Types as ID
 import Concordium.Kontrol.Bakers
-import Concordium.Logger (MonadLogger)
+import Concordium.Logger
 import Concordium.TimeMonad (TimeMonad)
 import Concordium.Types
 import Concordium.Types.Accounts (AccountBaker (..))
@@ -4436,40 +4436,53 @@ migrateBlockPointers migration BlockStatePointers{..} = do
                     Just ai -> ai
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
+    logEvent GlobalState LLTrace "Migrating release schedule"
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     pab <- lift . refLoad $ bspBirkParameters ^. birkActiveBakers
     -- When we migrate the accounts, we accumulate state
     initMigrationState :: MigrationState.AccountMigrationState oldpv pv <-
         MigrationState.makeInitialAccountMigrationState bspAccounts pab
+    logEvent GlobalState LLTrace "Migrating accounts"
     (newAccounts, migrationState) <-
         MigrationState.runAccountMigrationStateTT
             (Accounts.migrateAccounts migration bspAccounts)
             initMigrationState
+    logEvent GlobalState LLTrace "Migrating accounts in cooldown"
     newAccountsInCooldown <-
         migrateAccountsInCooldownForPV
             (MigrationState._migrationPrePreCooldown migrationState)
             bspAccountsInCooldown
+    logEvent GlobalState LLTrace "Migrating modules"
     newModules <- migrateHashedBufferedRef (Modules.migrateModules migration) bspModules
     modules <- refLoad newModules
+    logEvent GlobalState LLTrace "Migrating contract instances"
     newInstances <- Instances.migrateInstances modules bspInstances
     let newBank = bspBank
+    logEvent GlobalState LLTrace "Migrating identity providers"
     newIdentityProviders <- migrateHashedBufferedRefKeepHash bspIdentityProviders
+    logEvent GlobalState LLTrace "Migrating anonymity revokers"
     newAnonymityRevokers <- migrateHashedBufferedRefKeepHash bspAnonymityRevokers
     let oldEpoch = bspBirkParameters ^. birkSeedState . epoch
+    logEvent GlobalState LLTrace "Migrating Birk parameters"
     newBirkParameters <-
         migratePersistentBirkParameters
             migration
             newAccounts
             (MigrationState._persistentActiveBakers migrationState)
             bspBirkParameters
+    logEvent GlobalState LLTrace "Migrating cryptographic parameters"
     newCryptographicParameters <- migrateHashedBufferedRefKeepHash bspCryptographicParameters
+    logEvent GlobalState LLTrace "Migrating chain parameters and updates updates"
     newUpdates <- migrateReference (migrateUpdates migration) bspUpdates
+    logEvent GlobalState LLTrace "Migrating current epoch bakers"
     curBakers <- extractBakerStakes =<< refLoad (_birkCurrentEpochBakers newBirkParameters)
+    logEvent GlobalState LLTrace "Migrating next epoch bakers"
     nextBakers <- extractBakerStakes =<< refLoad (_birkNextEpochBakers newBirkParameters)
     -- clear transaction outcomes.
     let newTransactionOutcomes = emptyTransactionOutcomes (Proxy @pv)
     chainParams <- refLoad . currentParameters =<< refLoad newUpdates
     let timeParams = _cpTimeParameters . unStoreSerialized $ chainParams
+    logEvent GlobalState LLTrace "Migrating reward details"
     newRewardDetails <-
         migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails
 
