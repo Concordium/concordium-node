@@ -1456,7 +1456,12 @@ setStake newStake acc = return $! acc{accountStakedAmount = newStake}
 
 setSuspended ::
     forall av m.
-    (MonadBlobStore m, IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV1, AVSupportsDelegation av, AVSupportsValidatorSuspension av) =>
+    ( MonadBlobStore m,
+      IsAccountVersion av,
+      AccountStructureVersionFor av ~ 'AccountStructureV1,
+      AVSupportsDelegation av,
+      AVSupportsValidatorSuspension av
+    ) =>
     Bool ->
     PersistentAccount av ->
     m (PersistentAccount av)
