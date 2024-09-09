@@ -691,7 +691,11 @@ getNextReleaseTimestamp :: (MonadBlobStore m) => PersistentAccount av -> m (Mayb
 getNextReleaseTimestamp acc = nextReleaseTimestamp <$!> refLoad (acc ^. accountReleaseSchedule)
 
 -- | Get the baker and baker info reference (if any) attached to the account.
-getBakerAndInfoRef :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, SupportsValidatorSuspension av ~ 'False) => PersistentAccount av -> m (Maybe (AccountBaker av, PersistentBakerInfoEx av))
+getBakerAndInfoRef ::
+    forall m av.
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, SupportsValidatorSuspension av ~ 'False) =>
+    PersistentAccount av ->
+    m (Maybe (AccountBaker av, PersistentBakerInfoEx av))
 getBakerAndInfoRef acc = case acc ^. accountBaker of
     Null -> return Nothing
     Some bref -> do
@@ -719,7 +723,11 @@ getBakerAndInfoRef acc = case acc ^. accountBaker of
                         )
 
 -- | Get the baker (if any) attached to an account.
-getBaker :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, SupportsValidatorSuspension av ~ 'False) => PersistentAccount av -> m (Maybe (AccountBaker av))
+getBaker ::
+    forall m av.
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, SupportsValidatorSuspension av ~ 'False) =>
+    PersistentAccount av ->
+    m (Maybe (AccountBaker av))
 getBaker acc = fmap fst <$> getBakerAndInfoRef acc
 
 -- | Get the baker and baker info reference (if any) attached to the account.

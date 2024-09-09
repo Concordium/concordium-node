@@ -364,7 +364,17 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                             handleTransferWithSchedule (mkWTC TTTransferWithScheduleAndMemo) twswmTo twswmSchedule $ Just twswmMemo
                         ConfigureBaker{..} ->
                             onlyWithDelegation $
-                                handleConfigureBaker (mkWTC TTConfigureBaker) cbCapital cbRestakeEarnings cbOpenForDelegation cbKeysWithProofs cbMetadataURL cbTransactionFeeCommission cbBakingRewardCommission cbFinalizationRewardCommission cbSuspend
+                                handleConfigureBaker
+                                    (mkWTC TTConfigureBaker)
+                                    cbCapital
+                                    cbRestakeEarnings
+                                    cbOpenForDelegation
+                                    cbKeysWithProofs
+                                    cbMetadataURL
+                                    cbTransactionFeeCommission
+                                    cbBakingRewardCommission
+                                    cbFinalizationRewardCommission
+                                    cbSuspend
                         ConfigureDelegation{..} ->
                             onlyWithDelegation $
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget

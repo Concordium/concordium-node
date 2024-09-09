@@ -376,7 +376,7 @@ makeAccountHashV3 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
     put ahi2StakedBalance
     put ahi2MerkleHash
 
--- | Generate the hash for an account (for 'AccountV3'), given the
+-- | Generate the hash for an account (for 'AccountV4'), given the
 --  'AccountHashInputsV2'. 'makeAccountHash' should be used in preference to this function.
 makeAccountHashV4 :: AccountHashInputsV2 av -> Hash.Hash
 makeAccountHashV4 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
