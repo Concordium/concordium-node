@@ -35,6 +35,7 @@ import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as V1
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
+import Concordium.Logger
 
 -- * Account types
 
@@ -659,7 +660,8 @@ migratePersistentAccount ::
     ( IsProtocolVersion oldpv,
       IsProtocolVersion pv,
       SupportMigration m t,
-      AccountMigration (AccountVersionFor pv) (t m)
+      AccountMigration (AccountVersionFor pv) (t m),
+      MonadLogger (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
     PersistentAccount (AccountVersionFor oldpv) ->

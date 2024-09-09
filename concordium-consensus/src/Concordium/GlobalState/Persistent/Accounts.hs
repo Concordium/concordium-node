@@ -75,6 +75,7 @@ import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree', LFMBTreeHash, LFMB
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import qualified Concordium.ID.Types as ID
+import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option (Option (..))
@@ -500,13 +501,17 @@ migrateAccounts ::
       SupportMigration m t,
       SupportsPersistentAccount oldpv m,
       SupportsPersistentAccount pv (t m),
-      AccountsMigration (AccountVersionFor pv) (t m)
+      AccountsMigration (AccountVersionFor pv) (t m),
+      MonadLogger (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
     Accounts oldpv ->
     t m (Accounts pv)
 migrateAccounts migration Accounts{..} = do
+    logEvent GlobalState LLTrace "Migrating accounts"
     let migrateAccount acct = do
+            canonicalAddress <- accountCanonicalAddress =<< lift (refLoad acct)
+            logEvent GlobalState LLTrace $ "Migrating account: " <> show canonicalAddress
             newAcct <- migrateHashedCachedRef' (migratePersistentAccount migration) acct
             -- Increment the account index counter.
             nextAccount

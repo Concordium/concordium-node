@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+## 7.0.1
+
+- Fix a bug in migration from protocol version 6 to 7.
+- Support "reboot" protocol update at protocol version 7.
+
 ## 7.0.0
 
 - Fix a bug where `GetBakersRewardPeriod` returns incorrect data (#1176).
