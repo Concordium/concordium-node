@@ -311,30 +311,30 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
 --  state. At the end of contract execution the mutable state is "frozen", which
 --  converts it to the persistent version, retaining as much sharing as possible
 --  with the previous version.
-type family UpdatableContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
-    UpdatableContractState GSWasm.V0 = Wasm.ContractState
-    UpdatableContractState GSWasm.V1 = StateV1.MutableState
+type family UpdatableContractState store (v :: Wasm.WasmVersion) = ty | ty -> v where
+    UpdatableContractState store GSWasm.V0 = Wasm.ContractState
+    UpdatableContractState store GSWasm.V1 = StateV1.MutableState store
 
 -- | An external representation of the persistent (i.e., frozen) contract state.
 --  This is used to pass this state through FFI for queries and should not be
 --  used during contract execution in the scheduler since it's considered an
 --  implementation detail and needs to be used together with the correct loader
 --  callback. Higher-level abstractions should be used in the scheduler.
-type family ExternalContractState (v :: Wasm.WasmVersion) = ty | ty -> v where
-    ExternalContractState GSWasm.V0 = Wasm.ContractState
-    ExternalContractState GSWasm.V1 = StateV1.PersistentState
+type family ExternalContractState store (v :: Wasm.WasmVersion) = ty | ty -> v where
+    ExternalContractState store GSWasm.V0 = Wasm.ContractState
+    ExternalContractState store GSWasm.V1 = StateV1.PersistentState store
 
 class (BlockStateTypes m, Monad m) => ContractStateOperations m where
     -- | Convert a persistent state to a mutable one that can be updated by the
     --  scheduler. This function must generate independent mutable states for
     --  each invocation, where independent means that updates to different
     --  versions are __not__ reflected in others.
-    thawContractState :: ContractState m v -> m (UpdatableContractState v)
+    thawContractState :: ContractState m v -> m (UpdatableContractState (MBSStore m) v)
 
     -- | Convert a persistent state to its external representation that can be
     --  passed through FFI. The state should be used together with the
     --  callbacks returned by 'getV1StateContext'.
-    externalContractState :: ContractState m v -> m (ExternalContractState v)
+    externalContractState :: ContractState m v -> m (ExternalContractState (MBSStore m) v)
 
     -- | Get the callback to allow loading the contract state. Contracts are
     --  executed on the other end of FFI, and state is managed by Haskell, this
@@ -342,7 +342,7 @@ class (BlockStateTypes m, Monad m) => ContractStateOperations m where
     --
     --  V0 state is a simple byte-array which is copied over the FFI boundary, so
     --  it does not require an analogous construct.
-    getV1StateContext :: m LoadCallback
+    getV1StateContext :: m (LoadCallback (MBSStore m))
 
     -- | Size of the persistent V0 state. The way charging is done for V0
     --  contracts requires us to get this information when loading the state __at
@@ -698,7 +698,7 @@ mintTotal MintAmounts{..} = mintBakingReward + mintFinalizationReward + mintDeve
 --  to simplify function API. Thus values are immediately deconstructed.
 --  It is parameterized by the concrete instrumented module @im@ and the
 --  WasmVersion @v@.
-data NewInstanceData im v = NewInstanceData
+data NewInstanceData store im v = NewInstanceData
     { -- | Name of the init method used to initialize the contract.
       nidInitName :: Wasm.InitName,
       -- | Receive functions suitable for this instance.
@@ -706,7 +706,7 @@ data NewInstanceData im v = NewInstanceData
       -- | Module interface that contains the code of the contract.
       nidInterface :: GSWasm.ModuleInterfaceA im,
       -- | Initial state of the instance.
-      nidInitialState :: UpdatableContractState v,
+      nidInitialState :: UpdatableContractState store v,
       -- | Initial balance.
       nidInitialAmount :: Amount,
       -- | Owner/creator of the instance.
@@ -774,7 +774,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoCreateAccount :: UpdatableBlockState m -> GlobalContext -> AccountAddress -> AccountCredential -> m (Maybe (Account m), UpdatableBlockState m)
 
     -- | Add a new smart contract instance to the state.
-    bsoPutNewInstance :: forall v. (Wasm.IsWasmVersion v) => UpdatableBlockState m -> NewInstanceData (InstrumentedModuleRef m v) v -> m (ContractAddress, UpdatableBlockState m)
+    bsoPutNewInstance :: forall v. (Wasm.IsWasmVersion v) => UpdatableBlockState m -> NewInstanceData (MBSStore m) (InstrumentedModuleRef m v) v -> m (ContractAddress, UpdatableBlockState m)
 
     -- | Add the module to the global state. If a module with the given address
     --  already exists return @False@.
@@ -838,7 +838,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
         UpdatableBlockState m ->
         ContractAddress ->
         AmountDelta ->
-        Maybe (UpdatableContractState v) ->
+        Maybe (UpdatableContractState (MBSStore m) v) ->
         Maybe (GSWasm.ModuleInterfaceA (InstrumentedModuleRef m v), Set.Set Wasm.ReceiveName) ->
         m (UpdatableBlockState m)
 
@@ -1584,7 +1584,7 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
 
     -- | Retrieve the callback that is needed to read state that is not in
     --  memory. This is needed for using V1 contract state.
-    blockStateLoadCallback :: m LoadCallback
+    blockStateLoadCallback :: m (LoadCallback (MBSStore m))
 
     -- | Shut down any caches used by the block state. This is used to free
     --  up the memory in the case where the block state is no longer being
@@ -1725,6 +1725,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE getAccountHash #-}
     {-# INLINE getAccountCooldowns #-}
 
+type instance MBSStore (MGSTrans t m) = MBSStore m
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState
     {-# INLINE thawContractState #-}
@@ -1902,6 +1903,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE cacheBlockStateAndGetTransactionTable #-}
     {-# INLINE tryPopulateAccountMap #-}
 
+type instance MBSStore (MaybeT m) = MBSStore m
 deriving via (MGSTrans MaybeT m) instance (BlockStateQuery m) => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (ContractStateOperations m) => ContractStateOperations (MaybeT m)

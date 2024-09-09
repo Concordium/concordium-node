@@ -45,6 +45,7 @@ import Concordium.GlobalState.Persistent.BlobStore (
     BufferedFix (..),
     Cacheable (..),
     FixShowable (..),
+    MBSStore,
     Nullable (..),
     Reference (..),
     UnbufferedFix (..),
@@ -496,8 +497,8 @@ migrateTrieN ::
     -- | Flag that indicates whether the new trie should be cached in memory or not.
     Bool ->
     (v1 -> t m v2) ->
-    TrieN BufferedFix k v1 ->
-    t m (TrieN BufferedFix k v2)
+    TrieN (BufferedFix (MBSStore m)) k v1 ->
+    t m (TrieN (BufferedFix (MBSStore (t m))) k v2)
 migrateTrieN _ _ EmptyTrieN = return EmptyTrieN
 migrateTrieN cacheNew f (TrieN n root) = do
     trieF <- lift (refLoad (unBF root))
@@ -512,8 +513,8 @@ migrateTrieF ::
     -- | Flag that indicates whether the new trie should be cached in memory or not.
     Bool ->
     (v1 -> t m v2) ->
-    TrieF k v1 (BufferedFix (TrieF k v1)) ->
-    t m (TrieF k v2 (BufferedFix (TrieF k v2)))
+    TrieF k v1 (BufferedFix (MBSStore m) (TrieF k v1)) ->
+    t m (TrieF k v2 (BufferedFix (MBSStore (t m)) (TrieF k v2)))
 migrateTrieF _ f (Tip v) = Tip <$!> f v
 migrateTrieF cacheNew f (Stem stem r) = do
     !child <- lift (refLoad (unBF r))
@@ -535,8 +536,8 @@ migrateUnbufferedTrieN ::
     forall v1 v2 k m t.
     (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
     (v1 -> t m v2) ->
-    TrieN UnbufferedFix k v1 ->
-    t m (TrieN UnbufferedFix k v2)
+    TrieN (UnbufferedFix (MBSStore m)) k v1 ->
+    t m (TrieN (UnbufferedFix (MBSStore (t m))) k v2)
 migrateUnbufferedTrieN _ EmptyTrieN = return EmptyTrieN
 migrateUnbufferedTrieN f (TrieN n root) = do
     trieF <- lift (refLoad (unUF root))
@@ -547,8 +548,8 @@ migrateUnbufferedTrieN f (TrieN n root) = do
 migrateUnbufferedTrieF ::
     (BlobStorable m v1, BlobStorable (t m) v2, MonadTrans t) =>
     (v1 -> t m v2) ->
-    TrieF k v1 (UnbufferedFix (TrieF k v1)) ->
-    t m (TrieF k v2 (UnbufferedFix (TrieF k v2)))
+    TrieF k v1 (UnbufferedFix (MBSStore m) (TrieF k v1)) ->
+    t m (TrieF k v2 (UnbufferedFix (MBSStore (t m)) (TrieF k v2)))
 migrateUnbufferedTrieF f (Tip v) = Tip <$!> f v
 migrateUnbufferedTrieF f (Stem stem r) = do
     !child <- lift (refLoad (unUF r))

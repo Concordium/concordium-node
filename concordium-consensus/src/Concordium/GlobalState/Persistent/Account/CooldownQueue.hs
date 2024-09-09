@@ -26,19 +26,19 @@ import Concordium.GlobalState.Persistent.BlobStore
 -- | A 'CooldownQueue' records the inactive stake amounts that are due to be released in future.
 --  Note that prior to account version 3 (protocol version 7), the only value is the empty cooldown
 --  queue.
-data CooldownQueue (av :: AccountVersion) where
+data CooldownQueue store (av :: AccountVersion) where
     -- | The empty cooldown queue.
-    EmptyCooldownQueue :: CooldownQueue av
+    EmptyCooldownQueue :: CooldownQueue store av
     -- | A non-empty cooldown queue.
     --  INVARIANT: The 'Cooldowns' must not satisfy 'isEmptyCooldowns'.
     CooldownQueue ::
         (AVSupportsFlexibleCooldown av) =>
-        !(EagerBufferedRef Cooldowns) ->
-        CooldownQueue av
+        !(EagerBufferedRef store Cooldowns) ->
+        CooldownQueue store av
 
-deriving instance Show (CooldownQueue av)
+deriving instance Show (CooldownQueue store av)
 
-instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (CooldownQueue av) where
+instance forall m store av. (MonadBlobStore m, store ~ MBSStore m, IsAccountVersion av) => BlobStorable m (CooldownQueue store av) where
     load = case sSupportsFlexibleCooldown (accountVersion @av) of
         SFalse -> return $ return EmptyCooldownQueue
         STrue -> do
@@ -53,7 +53,7 @@ instance forall m av. (MonadBlobStore m, IsAccountVersion av) => BlobStorable m 
             (putter, nRef) <- storeUpdate (asNullable queue)
             return $!! (putter, ofNullable nRef)
       where
-        asNullable :: CooldownQueue av -> Nullable (EagerBufferedRef Cooldowns)
+        asNullable :: CooldownQueue store av -> Nullable (EagerBufferedRef store Cooldowns)
         asNullable EmptyCooldownQueue = Null
         asNullable (CooldownQueue queue) = Some queue
         ofNullable Null = EmptyCooldownQueue
@@ -64,16 +64,16 @@ emptyCooldownQueueHash :: CooldownQueueHash av
 {-# NOINLINE emptyCooldownQueueHash #-}
 emptyCooldownQueueHash = CooldownQueueHash (getHash emptyCooldowns)
 
-instance (MonadBlobStore m) => MHashableTo m (CooldownQueueHash av) (CooldownQueue av) where
+instance (MonadBlobStore m, store ~ MBSStore m) => MHashableTo m (CooldownQueueHash av) (CooldownQueue store av) where
     getHashM EmptyCooldownQueue = return emptyCooldownQueueHash
     getHashM (CooldownQueue ref) = CooldownQueueHash . getHash <$> refLoad ref
 
 -- | The empty 'CooldownQueue'.
-emptyCooldownQueue :: CooldownQueue av
+emptyCooldownQueue :: CooldownQueue store av
 emptyCooldownQueue = EmptyCooldownQueue
 
 -- | Check if a 'CooldownQueue' is empty.
-isCooldownQueueEmpty :: CooldownQueue av -> Bool
+isCooldownQueueEmpty :: CooldownQueue store av -> Bool
 isCooldownQueueEmpty EmptyCooldownQueue = True
 isCooldownQueueEmpty _ = False
 
@@ -81,7 +81,7 @@ isCooldownQueueEmpty _ = False
 makeCooldownQueue ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     Cooldowns ->
-    m (CooldownQueue av)
+    m (CooldownQueue (MBSStore m) av)
 makeCooldownQueue cooldowns
     | isEmptyCooldowns cooldowns = return EmptyCooldownQueue
     | otherwise = CooldownQueue <$> refMake cooldowns
@@ -90,15 +90,15 @@ makeCooldownQueue cooldowns
 makePersistentCooldownQueue ::
     (MonadBlobStore m) =>
     Conditionally (SupportsFlexibleCooldown av) Cooldowns ->
-    m (CooldownQueue av)
+    m (CooldownQueue (MBSStore m) av)
 makePersistentCooldownQueue CFalse = return EmptyCooldownQueue
 makePersistentCooldownQueue (CTrue cooldowns) = makeCooldownQueue cooldowns
 
 -- | Convert a 'CooldownQueue' to representation used for transient accounts.
 toTransientCooldownQueue ::
-    forall av.
+    forall av store.
     (IsAccountVersion av) =>
-    CooldownQueue av ->
+    CooldownQueue store av ->
     Conditionally (SupportsFlexibleCooldown av) Cooldowns
 toTransientCooldownQueue = case sSupportsFlexibleCooldown (accountVersion @av) of
     SFalse -> const CFalse
@@ -112,7 +112,7 @@ initialPrePreCooldownQueue ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     -- | Initial amount in pre-pre-cooldown.
     Amount ->
-    m (CooldownQueue av)
+    m (CooldownQueue (MBSStore m) av)
 initialPrePreCooldownQueue target =
     CooldownQueue
         <$> refMake
@@ -123,13 +123,13 @@ initialPrePreCooldownQueue target =
                 }
 
 -- | Migrate a cooldown queue unchanged.
-migrateCooldownQueue :: forall m t av. (SupportMigration m t) => CooldownQueue av -> t m (CooldownQueue av)
+migrateCooldownQueue :: forall m t av. (SupportMigration m t) => CooldownQueue (MBSStore m) av -> t m (CooldownQueue (MBSStore (t m)) av)
 migrateCooldownQueue EmptyCooldownQueue = return EmptyCooldownQueue
 migrateCooldownQueue (CooldownQueue queueRef) =
     CooldownQueue <$> migrateEagerBufferedRef return queueRef
 
 -- | Get the total stake in cooldown, pre-cooldown and pre-pre-cooldown.
-cooldownStake :: CooldownQueue av -> Amount
+cooldownStake :: CooldownQueue store av -> Amount
 cooldownStake EmptyCooldownQueue = 0
 cooldownStake (CooldownQueue queueRef) = cooldownTotal $ eagerBufferedDeref queueRef
 
@@ -138,8 +138,8 @@ addPrePreCooldown ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     -- | The amount to add to the pre-pre-cooldown.
     Amount ->
-    CooldownQueue av ->
-    m (CooldownQueue av)
+    CooldownQueue (MBSStore m) av ->
+    m (CooldownQueue (MBSStore m) av)
 addPrePreCooldown amount EmptyCooldownQueue = initialPrePreCooldownQueue amount
 addPrePreCooldown amount (CooldownQueue queueRef) = do
     let oldCooldowns = eagerBufferedDeref queueRef
@@ -152,8 +152,8 @@ reactivateCooldownAmount ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     -- | The amount to reactivate.
     Amount ->
-    CooldownQueue av ->
-    m (CooldownQueue av)
+    CooldownQueue (MBSStore m) av ->
+    m (CooldownQueue (MBSStore m) av)
 reactivateCooldownAmount _ EmptyCooldownQueue = return EmptyCooldownQueue
 reactivateCooldownAmount amount (CooldownQueue queueRef) = do
     let oldCooldowns = eagerBufferedDeref queueRef
@@ -166,8 +166,8 @@ processCooldownsUntil ::
     (MonadBlobStore m) =>
     -- | Release all cooldowns up to and including this timestamp.
     Timestamp ->
-    CooldownQueue av ->
-    m (Maybe Timestamp, CooldownQueue av)
+    CooldownQueue (MBSStore m) av ->
+    m (Maybe Timestamp, CooldownQueue (MBSStore m) av)
 processCooldownsUntil _ EmptyCooldownQueue = return (Nothing, EmptyCooldownQueue)
 processCooldownsUntil ts (CooldownQueue queueRef) = do
     let !newCooldowns = processCooldowns ts $ eagerBufferedDeref queueRef
@@ -193,8 +193,8 @@ processPreCooldown ::
     (MonadBlobStore m) =>
     -- | The timestamp at which the pre-cooldown should be released.
     Timestamp ->
-    CooldownQueue av ->
-    m (NextCooldownChange, CooldownQueue av)
+    CooldownQueue (MBSStore m) av ->
+    m (NextCooldownChange, CooldownQueue (MBSStore m) av)
 processPreCooldown _ EmptyCooldownQueue = return (NextCooldownUnchanged, EmptyCooldownQueue)
 processPreCooldown ts (CooldownQueue queueRef) = do
     let oldCooldowns = eagerBufferedDeref queueRef
@@ -217,7 +217,7 @@ processPreCooldown ts (CooldownQueue queueRef) = do
 --  It should be the case that there is a pre-pre-cooldown amount and no pre-cooldown amount.
 --  However, if there is no pre-pre-cooldown amount, this will do nothing, and if there is already
 --  a pre-cooldown amount, the pre-pre-cooldown amount will be added to it.
-processPrePreCooldown :: (MonadBlobStore m) => CooldownQueue av -> m (CooldownQueue av)
+processPrePreCooldown :: (MonadBlobStore m) => CooldownQueue (MBSStore m) av -> m (CooldownQueue (MBSStore m) av)
 processPrePreCooldown EmptyCooldownQueue = return EmptyCooldownQueue
 processPrePreCooldown (CooldownQueue queueRef) = do
     let oldCooldowns = eagerBufferedDeref queueRef

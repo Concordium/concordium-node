@@ -5,7 +5,7 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
--- | This module provides an interface for operating on peristent accounts.
+-- | This module provides an interface for operating on persistent accounts.
 module Concordium.GlobalState.Persistent.Account where
 
 import Control.Arrow
@@ -40,25 +40,25 @@ import Concordium.Logger
 -- * Account types
 
 -- | A persistent account at a particular 'AccountVersion'.
-data PersistentAccount (av :: AccountVersion) where
-    PAV0 :: !(V0.PersistentAccount 'AccountV0) -> PersistentAccount 'AccountV0
-    PAV1 :: !(V0.PersistentAccount 'AccountV1) -> PersistentAccount 'AccountV1
-    PAV2 :: !(V1.PersistentAccount 'AccountV2) -> PersistentAccount 'AccountV2
-    PAV3 :: !(V1.PersistentAccount 'AccountV3) -> PersistentAccount 'AccountV3
+data PersistentAccount store (av :: AccountVersion) where
+    PAV0 :: !(V0.PersistentAccount store 'AccountV0) -> PersistentAccount store 'AccountV0
+    PAV1 :: !(V0.PersistentAccount store 'AccountV1) -> PersistentAccount store 'AccountV1
+    PAV2 :: !(V1.PersistentAccount store 'AccountV2) -> PersistentAccount store 'AccountV2
+    PAV3 :: !(V1.PersistentAccount store 'AccountV3) -> PersistentAccount store 'AccountV3
 
-instance (MonadBlobStore m) => MHashableTo m (AccountHash av) (PersistentAccount av) where
+instance (MonadBlobStore m, store ~ MBSStore m) => MHashableTo m (AccountHash av) (PersistentAccount store av) where
     getHashM (PAV0 acc) = getHashM acc
     getHashM (PAV1 acc) = getHashM acc
     getHashM (PAV2 acc) = getHashM acc
     getHashM (PAV3 acc) = getHashM acc
 
-instance (MonadBlobStore m) => MHashableTo m Hash.Hash (PersistentAccount av) where
+instance (MonadBlobStore m, store ~ MBSStore m) => MHashableTo m Hash.Hash (PersistentAccount store av) where
     getHashM (PAV0 acc) = getHashM acc
     getHashM (PAV1 acc) = getHashM acc
     getHashM (PAV2 acc) = getHashM acc
     getHashM (PAV3 acc) = getHashM acc
 
-instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAccount av) where
+instance (IsAccountVersion av, MonadBlobStore m, store ~ MBSStore m) => BlobStorable m (PersistentAccount store av) where
     storeUpdate (PAV0 acct) = second PAV0 <$!> storeUpdate acct
     storeUpdate (PAV1 acct) = second PAV1 <$!> storeUpdate acct
     storeUpdate (PAV2 acct) = second PAV2 <$!> storeUpdate acct
@@ -70,22 +70,23 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentAc
         SAccountV3 -> fmap PAV3 <$> load
 
 -- | Type of references to persistent accounts.
-type AccountRef (av :: AccountVersion) = HashedCachedRef (AccountCache av) (PersistentAccount av)
+type AccountRef store (av :: AccountVersion) =
+    HashedCachedRef store (AccountCache store av) (PersistentAccount store av)
 
 -- | A reference to persistent baker info.
-data PersistentBakerInfoRef (av :: AccountVersion) where
-    PBIRV0 :: !(V0.PersistentBakerInfoEx 'AccountV0) -> PersistentBakerInfoRef 'AccountV0
-    PBIRV1 :: !(V0.PersistentBakerInfoEx 'AccountV1) -> PersistentBakerInfoRef 'AccountV1
-    PBIRV2 :: !(V1.PersistentBakerInfoEx 'AccountV2) -> PersistentBakerInfoRef 'AccountV2
-    PBIRV3 :: !(V1.PersistentBakerInfoEx 'AccountV3) -> PersistentBakerInfoRef 'AccountV3
+data PersistentBakerInfoRef store (av :: AccountVersion) where
+    PBIRV0 :: !(V0.PersistentBakerInfoEx store 'AccountV0) -> PersistentBakerInfoRef store 'AccountV0
+    PBIRV1 :: !(V0.PersistentBakerInfoEx store 'AccountV1) -> PersistentBakerInfoRef store 'AccountV1
+    PBIRV2 :: !(V1.PersistentBakerInfoEx store 'AccountV2) -> PersistentBakerInfoRef store 'AccountV2
+    PBIRV3 :: !(V1.PersistentBakerInfoEx store 'AccountV3) -> PersistentBakerInfoRef store 'AccountV3
 
-instance Show (PersistentBakerInfoRef av) where
+instance Show (PersistentBakerInfoRef store av) where
     show (PBIRV0 pibr) = show pibr
     show (PBIRV1 pibr) = show pibr
     show (PBIRV2 pibr) = show pibr
     show (PBIRV3 pibr) = show pibr
 
-instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentBakerInfoRef av) where
+instance (IsAccountVersion av, MonadBlobStore m, store ~ MBSStore m) => BlobStorable m (PersistentBakerInfoRef store av) where
     storeUpdate (PBIRV0 bir) = second PBIRV0 <$!> storeUpdate bir
     storeUpdate (PBIRV1 bir) = second PBIRV1 <$!> storeUpdate bir
     storeUpdate (PBIRV2 bir) = second PBIRV2 <$!> storeUpdate bir
@@ -99,23 +100,23 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (PersistentBa
 -- * Account cache
 
 -- | Type alias for the cache to use for accounts.
-type AccountCache (av :: AccountVersion) = FIFOCache (PersistentAccount av)
+type AccountCache store (av :: AccountVersion) = FIFOCache store (PersistentAccount store av)
 
 -- | Construct a new 'AccountCache' with the given size.
-newAccountCache :: Int -> IO (AccountCache av)
+newAccountCache :: Int -> IO (AccountCache store av)
 newAccountCache = newCache
 
 -- * Queries
 
 -- | Get the canonical address of the account.
-accountCanonicalAddress :: (MonadBlobStore m) => PersistentAccount av -> m AccountAddress
+accountCanonicalAddress :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m AccountAddress
 accountCanonicalAddress (PAV0 acc) = V0.getCanonicalAddress acc
 accountCanonicalAddress (PAV1 acc) = V0.getCanonicalAddress acc
 accountCanonicalAddress (PAV2 acc) = V1.getCanonicalAddress acc
 accountCanonicalAddress (PAV3 acc) = V1.getCanonicalAddress acc
 
 -- | Get the current public account balance.
-accountAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
+accountAmount :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m Amount
 accountAmount (PAV0 acc) = V0.getAmount acc
 accountAmount (PAV1 acc) = V0.getAmount acc
 accountAmount (PAV2 acc) = V1.getAmount acc
@@ -123,21 +124,21 @@ accountAmount (PAV3 acc) = V1.getAmount acc
 
 -- | Gets the amount of a baker's stake, or 'Nothing' if the account is not a baker.
 --  This consists only of the active stake, and does not include any inactive stake.
-accountBakerStakeAmount :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe Amount)
+accountBakerStakeAmount :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (Maybe Amount)
 accountBakerStakeAmount (PAV0 acc) = V0.getBakerStakeAmount acc
 accountBakerStakeAmount (PAV1 acc) = V0.getBakerStakeAmount acc
 accountBakerStakeAmount (PAV2 acc) = V1.getBakerStakeAmount acc
 accountBakerStakeAmount (PAV3 acc) = V1.getBakerStakeAmount acc
 
 -- | Get the amount that is actively staked on an account as a baker or delegator.
-accountActiveStakedAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
+accountActiveStakedAmount :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m Amount
 accountActiveStakedAmount (PAV0 acc) = V0.getStakedAmount acc
 accountActiveStakedAmount (PAV1 acc) = V0.getStakedAmount acc
 accountActiveStakedAmount (PAV2 acc) = V1.getActiveStakedAmount acc
 accountActiveStakedAmount (PAV3 acc) = V1.getActiveStakedAmount acc
 
 -- | Get the amount that is staked on the account (both active and inactive).
-accountTotalStakedAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
+accountTotalStakedAmount :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m Amount
 accountTotalStakedAmount (PAV0 acc) = V0.getStakedAmount acc
 accountTotalStakedAmount (PAV1 acc) = V0.getStakedAmount acc
 accountTotalStakedAmount (PAV2 acc) =
@@ -146,7 +147,7 @@ accountTotalStakedAmount (PAV2 acc) =
 accountTotalStakedAmount (PAV3 acc) = V1.getTotalStakedAmount acc
 
 -- | Get the amount that is locked in scheduled releases on the account.
-accountLockedAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
+accountLockedAmount :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m Amount
 accountLockedAmount (PAV0 acc) = V0.getLockedAmount acc
 accountLockedAmount (PAV1 acc) = V0.getLockedAmount acc
 accountLockedAmount (PAV2 acc) = V1.getLockedAmount acc
@@ -155,14 +156,14 @@ accountLockedAmount (PAV3 acc) = V1.getLockedAmount acc
 -- | Get the current public account available balance.
 -- This accounts for lock-up and staked amounts.
 -- @available = total - max locked staked@
-accountAvailableAmount :: (MonadBlobStore m) => PersistentAccount av -> m Amount
+accountAvailableAmount :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m Amount
 accountAvailableAmount (PAV0 acc) = V0.getAvailableAmount acc
 accountAvailableAmount (PAV1 acc) = V0.getAvailableAmount acc
 accountAvailableAmount (PAV2 acc) = V1.getAvailableAmount acc
 accountAvailableAmount (PAV3 acc) = V1.getAvailableAmount acc
 
 -- | Get the next account nonce for transactions from this account.
-accountNonce :: (MonadBlobStore m) => PersistentAccount av -> m Nonce
+accountNonce :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m Nonce
 accountNonce (PAV0 acc) = V0.getNonce acc
 accountNonce (PAV1 acc) = V0.getNonce acc
 accountNonce (PAV2 acc) = V1.getNonce acc
@@ -173,7 +174,7 @@ accountNonce (PAV3 acc) = V1.getNonce acc
 --  * For 'AllowedEncryptedTransfers' the account may only have 1 credential.
 --
 --  * For 'AllowedMultipleCredentials' the account must have the empty encrypted balance.
-accountIsAllowed :: (MonadBlobStore m) => PersistentAccount av -> AccountAllowance -> m Bool
+accountIsAllowed :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> AccountAllowance -> m Bool
 accountIsAllowed (PAV0 acc) = V0.isAllowed acc
 accountIsAllowed (PAV1 acc) = V0.isAllowed acc
 accountIsAllowed (PAV2 acc) = V1.isAllowed acc
@@ -181,91 +182,91 @@ accountIsAllowed (PAV3 acc) = V1.isAllowed acc
 
 -- | Get the credentials deployed on the account. This map is always non-empty and (presently)
 --  will have a credential at index 'initialCredentialIndex' (0) that cannot be changed.
-accountCredentials :: (MonadBlobStore m) => PersistentAccount av -> m (Map.Map CredentialIndex RawAccountCredential)
+accountCredentials :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (Map.Map CredentialIndex RawAccountCredential)
 accountCredentials (PAV0 acc) = V0.getCredentials acc
 accountCredentials (PAV1 acc) = V0.getCredentials acc
 accountCredentials (PAV2 acc) = V1.getCredentials acc
 accountCredentials (PAV3 acc) = V1.getCredentials acc
 
 -- | Get the key used to verify transaction signatures, it records the signature scheme used as well.
-accountVerificationKeys :: (MonadBlobStore m) => PersistentAccount av -> m AccountInformation
+accountVerificationKeys :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m AccountInformation
 accountVerificationKeys (PAV0 acc) = V0.getVerificationKeys acc
 accountVerificationKeys (PAV1 acc) = V0.getVerificationKeys acc
 accountVerificationKeys (PAV2 acc) = V1.getVerificationKeys acc
 accountVerificationKeys (PAV3 acc) = V1.getVerificationKeys acc
 
 -- | Get the current encrypted amount on the account.
-accountEncryptedAmount :: (MonadBlobStore m) => PersistentAccount av -> m AccountEncryptedAmount
+accountEncryptedAmount :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m AccountEncryptedAmount
 accountEncryptedAmount (PAV0 acc) = V0.getEncryptedAmount acc
 accountEncryptedAmount (PAV1 acc) = V0.getEncryptedAmount acc
 accountEncryptedAmount (PAV2 acc) = V1.getEncryptedAmount acc
 accountEncryptedAmount (PAV3 acc) = V1.getEncryptedAmount acc
 
 -- | Get the public key used to receive encrypted amounts.
-accountEncryptionKey :: (MonadBlobStore m) => PersistentAccount av -> m AccountEncryptionKey
+accountEncryptionKey :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m AccountEncryptionKey
 accountEncryptionKey (PAV0 acc) = V0.getEncryptionKey acc
 accountEncryptionKey (PAV1 acc) = V0.getEncryptionKey acc
 accountEncryptionKey (PAV2 acc) = V1.getEncryptionKey acc
 accountEncryptionKey (PAV3 acc) = V1.getEncryptionKey acc
 
 -- | Get the 'AccountReleaseSummary' summarising scheduled releases for an account.
-accountReleaseSummary :: (MonadBlobStore m) => PersistentAccount av -> m AccountReleaseSummary
+accountReleaseSummary :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m AccountReleaseSummary
 accountReleaseSummary (PAV0 acc) = V0.getReleaseSummary acc
 accountReleaseSummary (PAV1 acc) = V0.getReleaseSummary acc
 accountReleaseSummary (PAV2 acc) = V1.getReleaseSummary acc
 accountReleaseSummary (PAV3 acc) = V1.getReleaseSummary acc
 
 -- | Get the timestamp at which the next scheduled release will occur (if any).
-accountNextReleaseTimestamp :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe Timestamp)
+accountNextReleaseTimestamp :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (Maybe Timestamp)
 accountNextReleaseTimestamp (PAV0 acc) = V0.getNextReleaseTimestamp acc
 accountNextReleaseTimestamp (PAV1 acc) = V0.getNextReleaseTimestamp acc
 accountNextReleaseTimestamp (PAV2 acc) = V1.getNextReleaseTimestamp acc
 accountNextReleaseTimestamp (PAV3 acc) = V1.getNextReleaseTimestamp acc
 
 -- | Get the baker (if any) attached to an account.
-accountBaker :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe (AccountBaker av))
+accountBaker :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (Maybe (AccountBaker av))
 accountBaker (PAV0 acc) = V0.getBaker acc
 accountBaker (PAV1 acc) = V0.getBaker acc
 accountBaker (PAV2 acc) = V1.getBaker acc
 accountBaker (PAV3 acc) = V1.getBaker acc
 
 -- | Get a reference to the baker info (if any) attached to an account.
-accountBakerInfoRef :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe (PersistentBakerInfoRef av))
+accountBakerInfoRef :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (Maybe (PersistentBakerInfoRef (MBSStore m) av))
 accountBakerInfoRef (PAV0 acc) = fmap PBIRV0 <$> V0.getBakerInfoRef acc
 accountBakerInfoRef (PAV1 acc) = fmap PBIRV1 <$> V0.getBakerInfoRef acc
 accountBakerInfoRef (PAV2 acc) = fmap PBIRV2 <$> V1.getBakerInfoRef acc
 accountBakerInfoRef (PAV3 acc) = fmap PBIRV3 <$> V1.getBakerInfoRef acc
 
 -- | Get the baker and baker info reference (if any) attached to the account.
-accountBakerAndInfoRef :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe (AccountBaker av, PersistentBakerInfoRef av))
+accountBakerAndInfoRef :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (Maybe (AccountBaker av, PersistentBakerInfoRef (MBSStore m) av))
 accountBakerAndInfoRef (PAV0 acc) = fmap (second PBIRV0) <$> V0.getBakerAndInfoRef acc
 accountBakerAndInfoRef (PAV1 acc) = fmap (second PBIRV1) <$> V0.getBakerAndInfoRef acc
 accountBakerAndInfoRef (PAV2 acc) = fmap (second PBIRV2) <$> V1.getBakerAndInfoRef acc
 accountBakerAndInfoRef (PAV3 acc) = fmap (second PBIRV3) <$> V1.getBakerAndInfoRef acc
 
 -- | Get the delegator (if any) attached to the account.
-accountDelegator :: (MonadBlobStore m) => PersistentAccount av -> m (Maybe (AccountDelegation av))
+accountDelegator :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (Maybe (AccountDelegation av))
 accountDelegator (PAV0 acc) = V0.getDelegator acc
 accountDelegator (PAV1 acc) = V0.getDelegator acc
 accountDelegator (PAV2 acc) = V1.getDelegator acc
 accountDelegator (PAV3 acc) = V1.getDelegator acc
 
 -- | Get the baker or stake delegation information attached to an account.
-accountStake :: (MonadBlobStore m) => PersistentAccount av -> m (AccountStake av)
+accountStake :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (AccountStake av)
 accountStake (PAV0 acc) = V0.getStake acc
 accountStake (PAV1 acc) = V0.getStake acc
 accountStake (PAV2 acc) = V1.getStake acc
 accountStake (PAV3 acc) = V1.getStake acc
 
 -- | Determine if an account has stake as a baker or delegator.
-accountHasActiveStake :: PersistentAccount av -> Bool
+accountHasActiveStake :: PersistentAccount store av -> Bool
 accountHasActiveStake (PAV0 acc) = V0.hasActiveStake acc
 accountHasActiveStake (PAV1 acc) = V0.hasActiveStake acc
 accountHasActiveStake (PAV2 acc) = V1.hasActiveStake acc
 accountHasActiveStake (PAV3 acc) = V1.hasActiveStake acc
 
 -- | Get details about an account's stake.
-accountStakeDetails :: (MonadBlobStore m) => PersistentAccount av -> m (StakeDetails av)
+accountStakeDetails :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (StakeDetails av)
 accountStakeDetails (PAV0 acc) = V0.getStakeDetails acc
 accountStakeDetails (PAV1 acc) = V0.getStakeDetails acc
 accountStakeDetails (PAV2 acc) = V1.getStakeDetails acc
@@ -275,21 +276,21 @@ accountStakeDetails (PAV3 acc) = V1.getStakeDetails acc
 -- support flexible cooldowns.
 accountCooldowns ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
-    PersistentAccount av ->
+    PersistentAccount (MBSStore m) av ->
     m (Maybe Cooldowns)
 accountCooldowns (PAV3 acc) = V1.getCooldowns acc
 
 -- | Determine if an account has a pre-pre-cooldown.
 accountHasPrePreCooldown ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
-    PersistentAccount av ->
+    PersistentAccount (MBSStore m) av ->
     m Bool
 accountHasPrePreCooldown = fmap check . accountCooldowns
   where
     check = maybe False (not . null . prePreCooldown)
 
 -- | Get the 'AccountHash' for the account.
-accountHash :: (MonadBlobStore m) => PersistentAccount av -> m (AccountHash av)
+accountHash :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (AccountHash av)
 accountHash (PAV0 acc) = getHashM acc
 accountHash (PAV1 acc) = getHashM acc
 accountHash (PAV2 acc) = getHashM acc
@@ -298,21 +299,21 @@ accountHash (PAV3 acc) = getHashM acc
 -- ** 'PersistentBakerInfoRef' queries
 
 -- | Load 'BakerInfo' from a 'PersistentBakerInfoRef'.
-loadBakerInfo :: (MonadBlobStore m) => PersistentBakerInfoRef av -> m BakerInfo
+loadBakerInfo :: (MonadBlobStore m) => PersistentBakerInfoRef (MBSStore m) av -> m BakerInfo
 loadBakerInfo (PBIRV0 bir) = V0.loadBakerInfo bir
 loadBakerInfo (PBIRV1 bir) = V0.loadBakerInfo bir
 loadBakerInfo (PBIRV2 bir) = V1.loadBakerInfo bir
 loadBakerInfo (PBIRV3 bir) = V1.loadBakerInfo bir
 
 -- | Load 'BakerInfoEx' from a 'PersistentBakerInfoRef'.
-loadPersistentBakerInfoRef :: (MonadBlobStore m) => PersistentBakerInfoRef av -> m (BakerInfoEx av)
+loadPersistentBakerInfoRef :: (MonadBlobStore m) => PersistentBakerInfoRef (MBSStore m) av -> m (BakerInfoEx av)
 loadPersistentBakerInfoRef (PBIRV0 bir) = V0.loadPersistentBakerInfoEx bir
 loadPersistentBakerInfoRef (PBIRV1 bir) = V0.loadPersistentBakerInfoEx bir
 loadPersistentBakerInfoRef (PBIRV2 bir) = V1.loadPersistentBakerInfoEx bir
 loadPersistentBakerInfoRef (PBIRV3 bir) = V1.loadPersistentBakerInfoEx bir
 
 -- | Load the 'BakerId' from a 'PersistentBakerInfoRef'.
-loadBakerId :: (MonadBlobStore m) => PersistentBakerInfoRef av -> m BakerId
+loadBakerId :: (MonadBlobStore m) => PersistentBakerInfoRef (MBSStore m) av -> m BakerId
 loadBakerId (PBIRV0 bir) = V0.loadBakerId bir
 loadBakerId (PBIRV1 bir) = V0.loadBakerId bir
 loadBakerId (PBIRV2 bir) = V1.loadBakerId bir
@@ -321,7 +322,7 @@ loadBakerId (PBIRV3 bir) = V1.loadBakerId bir
 -- * Updates
 
 -- | Apply an account update to an account.
-updateAccount :: (MonadBlobStore m) => AccountUpdate -> PersistentAccount av -> m (PersistentAccount av)
+updateAccount :: (MonadBlobStore m) => AccountUpdate -> PersistentAccount (MBSStore m) av -> m (PersistentAccount (MBSStore m) av)
 updateAccount upd (PAV0 acc) = PAV0 <$> V0.updateAccount upd acc
 updateAccount upd (PAV1 acc) = PAV1 <$> V0.updateAccount upd acc
 updateAccount upd (PAV2 acc) = PAV2 <$> V1.updateAccount upd acc
@@ -344,8 +345,8 @@ updateAccountCredentials ::
     -- | New account threshold
     AccountThreshold ->
     -- | Account to update
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 updateAccountCredentials cuRemove cuAdd cuAccountThreshold (PAV0 acc) =
     PAV0 <$> V0.updateAccountCredentials cuRemove cuAdd cuAccountThreshold acc
 updateAccountCredentials cuRemove cuAdd cuAccountThreshold (PAV1 acc) =
@@ -364,8 +365,8 @@ updateAccountCredentialKeys ::
     -- | New public keys
     CredentialPublicKeys ->
     -- | Account to update
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 updateAccountCredentialKeys credIndex credKeys (PAV0 acc) =
     PAV0 <$> V0.updateAccountCredentialKeys credIndex credKeys acc
 updateAccountCredentialKeys credIndex credKeys (PAV1 acc) =
@@ -376,7 +377,7 @@ updateAccountCredentialKeys credIndex credKeys (PAV3 acc) =
     PAV3 <$> V1.updateAccountCredentialKeys credIndex credKeys acc
 
 -- | Add an amount to the account's balance.
-addAccountAmount :: (MonadBlobStore m) => Amount -> PersistentAccount av -> m (PersistentAccount av)
+addAccountAmount :: (MonadBlobStore m) => Amount -> PersistentAccount (MBSStore m) av -> m (PersistentAccount (MBSStore m) av)
 addAccountAmount amt (PAV0 acc) = PAV0 <$> V0.addAmount amt acc
 addAccountAmount amt (PAV1 acc) = PAV1 <$> V0.addAmount amt acc
 addAccountAmount amt (PAV2 acc) = PAV2 <$> V1.addAmount amt acc
@@ -385,12 +386,12 @@ addAccountAmount amt (PAV3 acc) = PAV3 <$> V1.addAmount amt acc
 -- | Applies a pending stake change to an account. The account MUST have a pending stake change.
 --  If the account does not have a pending stake change, or is not staking, then this will raise
 --  an error.
-applyPendingStakeChange :: (MonadBlobStore m) => PersistentAccount 'AccountV0 -> m (PersistentAccount 'AccountV0)
+applyPendingStakeChange :: (MonadBlobStore m) => PersistentAccount (MBSStore m) 'AccountV0 -> m (PersistentAccount (MBSStore m) 'AccountV0)
 applyPendingStakeChange (PAV0 acc) = PAV0 <$> V0.applyPendingStakeChange acc
 
 -- | Add an account baker in account version 0.
 --  This will replace any existing staking information on the account.
-addAccountBakerV0 :: (MonadBlobStore m) => BakerId -> BakerAdd -> PersistentAccount 'AccountV0 -> m (PersistentAccount 'AccountV0)
+addAccountBakerV0 :: (MonadBlobStore m) => BakerId -> BakerAdd -> PersistentAccount (MBSStore m) 'AccountV0 -> m (PersistentAccount (MBSStore m) 'AccountV0)
 addAccountBakerV0 bid ab (PAV0 acc) = PAV0 <$> V0.addBakerV0 bid ab acc
 
 -- | Add a baker to an account for account version 1.
@@ -404,8 +405,8 @@ addAccountBakerV1 ::
     -- | Whether earnings are restaked
     Bool ->
     -- | Account to add baker to
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 addAccountBakerV1 binfo amt restake (PAV1 acc) = PAV1 <$> V0.addBakerV1 binfo amt restake acc
 addAccountBakerV1 binfo amt restake (PAV2 acc) = PAV2 <$> V1.addBakerV1 binfo amt restake acc
 addAccountBakerV1 binfo amt restake (PAV3 acc) = PAV3 <$> V1.addBakerV1 binfo amt restake acc
@@ -415,8 +416,8 @@ addAccountBakerV1 binfo amt restake (PAV3 acc) = PAV3 <$> V1.addBakerV1 binfo am
 addAccountDelegator ::
     (MonadBlobStore m, AVSupportsDelegation av) =>
     AccountDelegation av ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 addAccountDelegator del (PAV1 acc) = PAV1 <$> V0.addDelegator del acc
 addAccountDelegator del (PAV2 acc) = PAV2 <$> V1.addDelegator del acc
 addAccountDelegator del (PAV3 acc) = PAV3 <$> V1.addDelegator del acc
@@ -426,8 +427,8 @@ addAccountDelegator del (PAV3 acc) = PAV3 <$> V1.addDelegator del acc
 updateAccountBakerPoolInfo ::
     (MonadBlobStore m, AVSupportsDelegation av) =>
     BakerPoolInfoUpdate ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 updateAccountBakerPoolInfo upd (PAV1 acc) = PAV1 <$> V0.updateBakerPoolInfo upd acc
 updateAccountBakerPoolInfo upd (PAV2 acc) = PAV2 <$> V1.updateBakerPoolInfo upd acc
 updateAccountBakerPoolInfo upd (PAV3 acc) = PAV3 <$> V1.updateBakerPoolInfo upd acc
@@ -437,8 +438,8 @@ updateAccountBakerPoolInfo upd (PAV3 acc) = PAV3 <$> V1.updateBakerPoolInfo upd 
 setAccountBakerKeys ::
     (MonadBlobStore m) =>
     BakerKeyUpdate ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 setAccountBakerKeys keys (PAV0 acc) = PAV0 <$> V0.setBakerKeys keys acc
 setAccountBakerKeys keys (PAV1 acc) = PAV1 <$> V0.setBakerKeys keys acc
 setAccountBakerKeys keys (PAV2 acc) = PAV2 <$> V1.setBakerKeys keys acc
@@ -450,8 +451,8 @@ setAccountBakerKeys keys (PAV3 acc) = PAV3 <$> V1.setBakerKeys keys acc
 setAccountStake ::
     (MonadBlobStore m) =>
     Amount ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 setAccountStake newStake (PAV0 acc) = PAV0 <$> V0.setStake newStake acc
 setAccountStake newStake (PAV1 acc) = PAV1 <$> V0.setStake newStake acc
 setAccountStake newStake (PAV2 acc) = PAV2 <$> V1.setStake newStake acc
@@ -461,8 +462,8 @@ setAccountStake newStake (PAV3 acc) = PAV3 <$> V1.setStake newStake acc
 addAccountPrePreCooldown ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     Amount ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 addAccountPrePreCooldown amt (PAV3 acc) = PAV3 <$> V1.addPrePreCooldown amt acc
 
 -- | Remove up to the given amount from the cooldowns, starting with pre-pre-cooldown, then
@@ -470,8 +471,8 @@ addAccountPrePreCooldown amt (PAV3 acc) = PAV3 <$> V1.addPrePreCooldown amt acc
 reactivateCooldownAmount ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     Amount ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 reactivateCooldownAmount amt (PAV3 acc) = PAV3 <$> V1.reactivateCooldownAmount amt acc
 
 -- | Set whether a baker or delegator account restakes its earnings.
@@ -479,8 +480,8 @@ reactivateCooldownAmount amt (PAV3 acc) = PAV3 <$> V1.reactivateCooldownAmount a
 setAccountRestakeEarnings ::
     (MonadBlobStore m) =>
     Bool ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 setAccountRestakeEarnings restake (PAV0 acc) = PAV0 <$> V0.setRestakeEarnings restake acc
 setAccountRestakeEarnings restake (PAV1 acc) = PAV1 <$> V0.setRestakeEarnings restake acc
 setAccountRestakeEarnings restake (PAV2 acc) = PAV2 <$> V1.setRestakeEarnings restake acc
@@ -491,8 +492,8 @@ setAccountRestakeEarnings restake (PAV3 acc) = PAV3 <$> V1.setRestakeEarnings re
 setAccountStakePendingChange ::
     (MonadBlobStore m) =>
     StakePendingChange av ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 setAccountStakePendingChange pc (PAV0 acc) = PAV0 <$> V0.setStakePendingChange pc acc
 setAccountStakePendingChange pc (PAV1 acc) = PAV1 <$> V0.setStakePendingChange pc acc
 setAccountStakePendingChange pc (PAV2 acc) = PAV2 <$> V1.setStakePendingChange pc acc
@@ -503,8 +504,8 @@ setAccountStakePendingChange pc (PAV3 acc) = PAV3 <$> V1.setStakePendingChange p
 setAccountDelegationTarget ::
     (MonadBlobStore m) =>
     DelegationTarget ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 setAccountDelegationTarget target (PAV0 acc) = PAV0 <$> V0.setDelegationTarget target acc
 setAccountDelegationTarget target (PAV1 acc) = PAV1 <$> V0.setDelegationTarget target acc
 setAccountDelegationTarget target (PAV2 acc) = PAV2 <$> V1.setDelegationTarget target acc
@@ -513,8 +514,8 @@ setAccountDelegationTarget target (PAV3 acc) = PAV3 <$> V1.setDelegationTarget t
 -- | Remove any staking on an account.
 removeAccountStaking ::
     (MonadBlobStore m) =>
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 removeAccountStaking (PAV0 acc) = PAV0 <$> V0.removeStaking acc
 removeAccountStaking (PAV1 acc) = PAV1 <$> V0.removeStaking acc
 removeAccountStaking (PAV2 acc) = PAV2 <$> V1.removeStaking acc
@@ -525,8 +526,8 @@ removeAccountStaking (PAV3 acc) = PAV3 <$> V1.removeStaking acc
 setAccountCommissionRates ::
     (MonadBlobStore m, AVSupportsDelegation av) =>
     CommissionRates ->
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 setAccountCommissionRates rates (PAV1 acc) = PAV1 <$> V0.setCommissionRates rates acc
 setAccountCommissionRates rates (PAV2 acc) = PAV2 <$> V1.setCommissionRates rates acc
 setAccountCommissionRates rates (PAV3 acc) = PAV3 <$> V1.setCommissionRates rates acc
@@ -537,8 +538,8 @@ setAccountCommissionRates rates (PAV3 acc) = PAV3 <$> V1.setCommissionRates rate
 unlockAccountReleases ::
     (MonadBlobStore m) =>
     Timestamp ->
-    PersistentAccount av ->
-    m (Maybe Timestamp, PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (Maybe Timestamp, PersistentAccount (MBSStore m) av)
 unlockAccountReleases ts (PAV0 acc) = second PAV0 <$> V0.unlockReleases ts acc
 unlockAccountReleases ts (PAV1 acc) = second PAV1 <$> V0.unlockReleases ts acc
 unlockAccountReleases ts (PAV2 acc) = second PAV2 <$> V1.unlockReleases ts acc
@@ -549,8 +550,8 @@ unlockAccountReleases ts (PAV3 acc) = second PAV3 <$> V1.unlockReleases ts acc
 processAccountCooldownsUntil ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     Timestamp ->
-    PersistentAccount av ->
-    m (Maybe Timestamp, PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (Maybe Timestamp, PersistentAccount (MBSStore m) av)
 processAccountCooldownsUntil ts (PAV3 acc) =
     second PAV3 <$> V1.processCooldownsUntil ts acc
 
@@ -561,8 +562,8 @@ processAccountCooldownsUntil ts (PAV3 acc) =
 processAccountPreCooldown ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
     Timestamp ->
-    PersistentAccount av ->
-    m (NextCooldownChange, PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (NextCooldownChange, PersistentAccount (MBSStore m) av)
 processAccountPreCooldown ts (PAV3 acc) = second PAV3 <$> V1.processPreCooldown ts acc
 
 -- | Move the pre-pre-cooldown amount on an account into pre-cooldown.
@@ -571,8 +572,8 @@ processAccountPreCooldown ts (PAV3 acc) = second PAV3 <$> V1.processPreCooldown 
 --  a pre-cooldown amount, the pre-pre-cooldown amount will be added to it.
 processAccountPrePreCooldown ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
-    PersistentAccount av ->
-    m (PersistentAccount av)
+    PersistentAccount (MBSStore m) av ->
+    m (PersistentAccount (MBSStore m) av)
 processAccountPrePreCooldown (PAV3 acc) = PAV3 <$> V1.processPrePreCooldown acc
 
 -- * Creation
@@ -582,7 +583,7 @@ makePersistentAccount ::
     forall m av.
     (MonadBlobStore m, IsAccountVersion av) =>
     Transient.Account av ->
-    m (PersistentAccount av)
+    m (PersistentAccount (MBSStore m) av)
 makePersistentAccount tacc = case accountVersion @av of
     SAccountV0 -> PAV0 <$> V0.makePersistentAccount tacc
     SAccountV1 -> PAV1 <$> V0.makePersistentAccount tacc
@@ -596,7 +597,7 @@ newAccount ::
     GlobalContext ->
     AccountAddress ->
     AccountCredential ->
-    m (PersistentAccount av)
+    m (PersistentAccount (MBSStore m) av)
 newAccount = case accountVersion @av of
     SAccountV0 -> \ctx addr cred -> PAV0 <$> V0.newAccount ctx addr cred
     SAccountV1 -> \ctx addr cred -> PAV1 <$> V0.newAccount ctx addr cred
@@ -612,7 +613,7 @@ makeFromGenesisAccount ::
     GlobalContext ->
     ChainParameters pv ->
     GenesisAccount ->
-    m (PersistentAccount av)
+    m (PersistentAccount (MBSStore m) av)
 makeFromGenesisAccount spv =
     case accountVersion @av of
         SAccountV0 -> \cryptoParams chainParameters genesisAccount ->
@@ -631,7 +632,7 @@ makePersistentBakerInfoRef ::
     forall av m.
     (IsAccountVersion av, MonadBlobStore m) =>
     BakerInfoEx av ->
-    m (PersistentBakerInfoRef av)
+    m (PersistentBakerInfoRef (MBSStore m) av)
 makePersistentBakerInfoRef = case accountVersion @av of
     SAccountV0 -> fmap PBIRV0 . V0.makePersistentBakerInfoEx
     SAccountV1 -> fmap PBIRV1 . V0.makePersistentBakerInfoEx
@@ -664,8 +665,8 @@ migratePersistentAccount ::
       MonadLogger (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
-    PersistentAccount (AccountVersionFor oldpv) ->
-    t m (PersistentAccount (AccountVersionFor pv))
+    PersistentAccount (MBSStore m) (AccountVersionFor oldpv) ->
+    t m (PersistentAccount (MBSStore (t m)) (AccountVersionFor pv))
 migratePersistentAccount m@StateMigrationParametersTrivial (PAV0 acc) = PAV0 <$> V0.migratePersistentAccount m acc
 migratePersistentAccount m@StateMigrationParametersTrivial (PAV1 acc) = PAV1 <$> V0.migratePersistentAccount m acc
 migratePersistentAccount m@StateMigrationParametersTrivial (PAV2 acc) = PAV2 <$> V1.migratePersistentAccount m acc
@@ -682,8 +683,8 @@ migratePersistentBakerInfoRef ::
     forall oldpv pv t m.
     (IsProtocolVersion pv, SupportMigration m t) =>
     StateMigrationParameters oldpv pv ->
-    PersistentBakerInfoRef (AccountVersionFor oldpv) ->
-    t m (PersistentBakerInfoRef (AccountVersionFor pv))
+    PersistentBakerInfoRef (MBSStore m) (AccountVersionFor oldpv) ->
+    t m (PersistentBakerInfoRef (MBSStore (t m)) (AccountVersionFor pv))
 migratePersistentBakerInfoRef m@StateMigrationParametersTrivial (PBIRV0 bir) = PBIRV0 <$> V0.migratePersistentBakerInfoEx m bir
 migratePersistentBakerInfoRef m@StateMigrationParametersTrivial (PBIRV1 bir) = PBIRV1 <$> V0.migratePersistentBakerInfoEx m bir
 migratePersistentBakerInfoRef m@StateMigrationParametersTrivial (PBIRV2 bir) = PBIRV2 <$> V1.migratePersistentBakerInfoEx m bir
@@ -698,7 +699,7 @@ migratePersistentBakerInfoRef m@StateMigrationParametersP6ToP7{} (PBIRV2 bir) = 
 -- * Conversion
 
 -- | Converts an account to a transient (i.e. in memory) account. (Used for testing.)
-toTransientAccount :: (MonadBlobStore m) => PersistentAccount av -> m (Transient.Account av)
+toTransientAccount :: (MonadBlobStore m) => PersistentAccount (MBSStore m) av -> m (Transient.Account av)
 toTransientAccount (PAV0 acc) = V0.toTransientAccount acc
 toTransientAccount (PAV1 acc) = V0.toTransientAccount acc
 toTransientAccount (PAV2 acc) = V1.toTransientAccount acc

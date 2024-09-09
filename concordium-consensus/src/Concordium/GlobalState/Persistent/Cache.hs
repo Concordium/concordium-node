@@ -1,6 +1,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DefaultSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.GlobalState.Persistent.Cache where
@@ -49,7 +50,7 @@ instance (MonadCache c m) => MonadCache c (ExceptT e m) where
     getCache = lift getCache
     {-# INLINE getCache #-}
 
-instance (HasCache c r, MonadIO m) => MonadCache c (BlobStoreT r m) where
+instance (HasCache c r, MonadIO m) => MonadCache c (BlobStoreT store r m) where
     getCache = asks projectCache
     {-# INLINE getCache #-}
 
@@ -99,11 +100,11 @@ instance HasCache c (CacheContext c) where
 
 -- | A null cache that does not store any values.
 --  That is, all lookups are cache misses.
-data NullCache (v :: Type) = NullCache
+data NullCache store (v :: Type) = NullCache
 
-instance Cache (NullCache v) where
-    type CacheKey (NullCache v) = BlobRef v
-    type CacheValue (NullCache v) = v
+instance Cache (NullCache store v) where
+    type CacheKey (NullCache store v) = BlobRef store v
+    type CacheValue (NullCache store v) = v
 
     newCache = newNullCache
     collapseCache _ = return ()
@@ -112,7 +113,7 @@ instance Cache (NullCache v) where
     getCacheSize _ = return 0
 
 -- | Construct a new 'NullCache'. The size parameter is ignored.
-newNullCache :: Int -> IO (NullCache v)
+newNullCache :: Int -> IO (NullCache store v)
 newNullCache _ = pure NullCache
 
 -- | First-in, first-out cache, with entries keyed by 'BlobRef's.
@@ -132,30 +133,30 @@ data FIFOCache' v = FIFOCache'
     }
 
 -- | Convert a 'BlobRef' to an 'Int'.
-cacheEntry :: BlobRef a -> Int
+cacheEntry :: BlobRef store a -> Int
 cacheEntry = fromIntegral . theBlobRef
 
 -- | A cache entry that is a non-valid 'BlobRef'.
 nullCacheEntry :: Int
-nullCacheEntry = cacheEntry (refNull :: BlobRef ())
+nullCacheEntry = cacheEntry (refNull :: BlobRef store ())
 
 -- | First-in, first-out cache, with entries keyed by 'BlobRefs's.
 --  'refNull' is considered an invalid key, and should not be inserted in the cache.
-newtype FIFOCache v = FIFOCache {theFIFOCache :: MVar (FIFOCache' v)}
+newtype FIFOCache store v = FIFOCache {theFIFOCache :: MVar (FIFOCache' v)}
 
-instance Cache (FIFOCache v) where
-    type CacheKey (FIFOCache v) = BlobRef v
-    type CacheValue (FIFOCache v) = v
+instance Cache (FIFOCache store v) where
+    type CacheKey (FIFOCache store v) = BlobRef store v
+    type CacheValue (FIFOCache store v) = v
 
     newCache = newFIFOCache
     collapseCache _ = do
-        FIFOCache cacheRef <- getCache
+        FIFOCache cacheRef <- getCache @(FIFOCache store v)
         liftIO $ do
             (cache :: FIFOCache' v) <- emptyFIFOCache' 0
             void $ swapMVar cacheRef $! cache
     putCachedValue _ key val = do
         let intKey = cacheEntry key
-        FIFOCache cacheRef <- getCache
+        FIFOCache cacheRef <- getCache @(FIFOCache store v)
         liftIO $! do
             cache <- takeMVar cacheRef
             case IntMap.lookup intKey (keyMap cache) of
@@ -179,14 +180,14 @@ instance Cache (FIFOCache v) where
                     return val
 
     lookupCachedValue _ key = do
-        FIFOCache cacheRef <- getCache
+        FIFOCache cacheRef <- getCache @(FIFOCache store v)
         -- This should be OK as we are just accessing the keyMap, so we can read from a snapshot.
         -- We need to be sure not to retain references after we are done.
         cache <- liftIO $! readMVar cacheRef
         return $! IntMap.lookup (cacheEntry key) (keyMap cache)
 
     getCacheSize _ = do
-        FIFOCache cacheRef :: FIFOCache v <- getCache
+        FIFOCache cacheRef :: FIFOCache store v <- getCache
         cache <- liftIO $! readMVar cacheRef
         return $! IntMap.size (keyMap cache)
 
@@ -205,7 +206,7 @@ emptyFIFOCache' size' = do
 
 -- | Construct a FIFO cache of at least the specified size.
 --  If the size is less than 1, a cache of size 1 will be created instead.
-newFIFOCache :: Int -> IO (FIFOCache v)
+newFIFOCache :: Int -> IO (FIFOCache store v)
 newFIFOCache size = do
     cache <- emptyFIFOCache' size
     FIFOCache <$> newMVar cache

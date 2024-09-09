@@ -124,7 +124,7 @@ class (S.Serialize a) => FixedSizeSerialization a where
 instance FixedSizeSerialization () where
     serializedSize _ = 0
 
-instance FixedSizeSerialization (BlobRef a) where
+instance FixedSizeSerialization (BlobRef store a) where
     serializedSize _ = 8
 
 -- This instance is needed for paired state.

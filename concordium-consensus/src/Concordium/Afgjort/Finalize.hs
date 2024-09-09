@@ -73,6 +73,7 @@ import Concordium.GlobalState.BlockPointer
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
+import Concordium.GlobalState.Persistent.BlobStore (MBSStore)
 import Concordium.GlobalState.Transactions
 import Concordium.GlobalState.TreeState
 import Concordium.Kontrol
@@ -1157,6 +1158,8 @@ newtype ActiveFinalizationM (pv :: ProtocolVersion) (r :: Type) (s :: Type) (m :
           FinalizationOutputMonad,
           SkovQueryMonad
         )
+
+type instance MBSStore (ActiveFinalizationM pv r s m) = MBSStore m
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (ActiveFinalizationM pv r s m)
 deriving instance GlobalStateTypes (ActiveFinalizationM pv r s m)

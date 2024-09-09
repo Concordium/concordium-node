@@ -84,7 +84,7 @@ hashReleasesFrom dropCount Releases{..} =
 
 -- | A release schedule produced by a single scheduled transfer. An account can
 --  have any number (including 0) of release schedule entries.
-data ReleaseScheduleEntry = ReleaseScheduleEntry
+data ReleaseScheduleEntry store = ReleaseScheduleEntry
     { -- | Timestamp of the next release.
       rseNextTimestamp :: !Timestamp,
       -- | Hash derived from the releases (given the next release index).
@@ -92,13 +92,13 @@ data ReleaseScheduleEntry = ReleaseScheduleEntry
       -- | Reference to the releases. The releases are only stored once and never
       --  updated. Instead the 'rseNextReleaseIndex' is updated to indicate where
       --  in the list of releases is the current start of locked amounts.
-      rseReleasesRef :: !(LazyBufferedRef Releases),
+      rseReleasesRef :: !(LazyBufferedRef store Releases),
       -- | Index of the next release.
       rseNextReleaseIndex :: !Word64
     }
     deriving (Show)
 
-instance (MonadBlobStore m) => BlobStorable m ReleaseScheduleEntry where
+instance (MonadBlobStore m, store ~ MBSStore m) => BlobStorable m (ReleaseScheduleEntry store) where
     storeUpdate ReleaseScheduleEntry{..} = do
         (pReleases, newReleasesRef) <- storeUpdate rseReleasesRef
         let !p = do
@@ -120,15 +120,15 @@ instance (MonadBlobStore m) => BlobStorable m ReleaseScheduleEntry where
 --  'ReleaseScheduleEntry', and they are maintained ordered by this key. The
 --  ordering is first by timestamp, and ties are resolved by the hash of the
 --  releases.
-rseSortKey :: ReleaseScheduleEntry -> (Timestamp, Hash.Hash)
+rseSortKey :: ReleaseScheduleEntry store -> (Timestamp, Hash.Hash)
 rseSortKey ReleaseScheduleEntry{..} = (rseNextTimestamp, rseReleasesHash)
 
-newtype AccountReleaseSchedule = AccountReleaseSchedule
+newtype AccountReleaseSchedule store = AccountReleaseSchedule
     { -- | The release entries ordered on 'rseSortKey'.
-      arsReleases :: Vector ReleaseScheduleEntry
+      arsReleases :: Vector (ReleaseScheduleEntry store)
     }
 
-instance (MonadBlobStore m) => BlobStorable m AccountReleaseSchedule where
+instance (MonadBlobStore m, store ~ MBSStore m) => BlobStorable m (AccountReleaseSchedule store) where
     storeUpdate AccountReleaseSchedule{..} = do
         storeReleases <- mapM storeUpdate arsReleases
         let p = do
@@ -140,28 +140,28 @@ instance (MonadBlobStore m) => BlobStorable m AccountReleaseSchedule where
         loads <- Vector.replicateM len load
         return $! AccountReleaseSchedule <$> Vector.sequence loads
 
-instance HashableTo TARSV1.AccountReleaseScheduleHashV1 AccountReleaseSchedule where
+instance HashableTo TARSV1.AccountReleaseScheduleHashV1 (AccountReleaseSchedule store) where
     getHash AccountReleaseSchedule{..} = Vector.foldr' (TARSV1.consAccountReleaseScheduleHashV1 . rseReleasesHash) TARSV1.emptyAccountReleaseScheduleHashV1 arsReleases
 
-instance (Monad m) => MHashableTo m TARSV1.AccountReleaseScheduleHashV1 AccountReleaseSchedule
+instance (Monad m) => MHashableTo m TARSV1.AccountReleaseScheduleHashV1 (AccountReleaseSchedule store)
 
 -- | The empty account release schedule.
-emptyAccountReleaseSchedule :: AccountReleaseSchedule
+emptyAccountReleaseSchedule :: AccountReleaseSchedule store
 emptyAccountReleaseSchedule = AccountReleaseSchedule Vector.empty
 
 -- | Returns 'True' if the account release schedule contains no releases.
-isEmptyAccountReleaseSchedule :: AccountReleaseSchedule -> Bool
+isEmptyAccountReleaseSchedule :: AccountReleaseSchedule store -> Bool
 isEmptyAccountReleaseSchedule = Vector.null . arsReleases
 
 -- | Get the timestamp at which the next scheduled release will occur (if any).
-nextReleaseTimestamp :: AccountReleaseSchedule -> Maybe Timestamp
+nextReleaseTimestamp :: AccountReleaseSchedule store -> Maybe Timestamp
 nextReleaseTimestamp AccountReleaseSchedule{..}
     | Vector.length arsReleases == 0 = Nothing
     | otherwise = Just $! rseNextTimestamp (Vector.head arsReleases)
 
 -- | Insert an entry in the account release schedule, preserving the order of
 --  releases by 'rseSortKey'.
-insertEntry :: ReleaseScheduleEntry -> AccountReleaseSchedule -> AccountReleaseSchedule
+insertEntry :: ReleaseScheduleEntry store -> AccountReleaseSchedule store -> AccountReleaseSchedule store
 insertEntry entry AccountReleaseSchedule{..} = AccountReleaseSchedule newReleases
   where
     oldLen = Vector.length arsReleases
@@ -180,7 +180,7 @@ insertEntry entry AccountReleaseSchedule{..} = AccountReleaseSchedule newRelease
 --
 -- Precondition: The given list of timestamps and amounts MUST NOT be empty and in ascending order
 -- of timestamps.
-addReleases :: (MonadBlobStore m) => ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule -> m AccountReleaseSchedule
+addReleases :: (MonadBlobStore m) => ([(Timestamp, Amount)], TransactionHash) -> AccountReleaseSchedule (MBSStore m) -> m (AccountReleaseSchedule (MBSStore m))
 addReleases (rels@((rseNextTimestamp, _) : _), th) ars = do
     let newReleases = Releases th (Vector.fromList rels)
     let rseNextReleaseIndex = 0
@@ -193,7 +193,7 @@ addReleases _ _ = error "addReleases: Empty list of timestamps and amounts."
 -- | Returns the amount that was unlocked, the next timestamp for this account
 -- (if there is one) and the new account release schedule after removing the
 -- amounts whose timestamp was less or equal to the given timestamp.
-unlockAmountsUntil :: (MonadBlobStore m) => Timestamp -> AccountReleaseSchedule -> m (Amount, Maybe Timestamp, AccountReleaseSchedule)
+unlockAmountsUntil :: (MonadBlobStore m) => Timestamp -> AccountReleaseSchedule (MBSStore m) -> m (Amount, Maybe Timestamp, AccountReleaseSchedule (MBSStore m))
 unlockAmountsUntil ts ars = do
     (!relAmt, newRelsList) <- Vector.foldM' updateEntry (0, []) elapsedReleases
     -- Merge two lists that are assumed ordered by 'rseSortKey' into a
@@ -233,7 +233,7 @@ unlockAmountsUntil ts ars = do
         return $! go rseNextReleaseIndex 0
 
 -- | Migrate an account release schedule for a protocol update.
-migrateAccountReleaseSchedule :: (SupportMigration m t) => AccountReleaseSchedule -> t m AccountReleaseSchedule
+migrateAccountReleaseSchedule :: (SupportMigration m t) => AccountReleaseSchedule (MBSStore m) -> t m (AccountReleaseSchedule (MBSStore (t m)))
 migrateAccountReleaseSchedule AccountReleaseSchedule{..} = AccountReleaseSchedule <$!> mapM migrateEntry arsReleases
   where
     migrateEntry ReleaseScheduleEntry{..} = do
@@ -246,15 +246,15 @@ migrateAccountReleaseSchedule AccountReleaseSchedule{..} = AccountReleaseSchedul
 migrateAccountReleaseScheduleFromV0 ::
     forall t m.
     (SupportMigration m t) =>
-    ARSV0.AccountReleaseSchedule ->
-    t m AccountReleaseSchedule
+    ARSV0.AccountReleaseSchedule (MBSStore m) ->
+    t m (AccountReleaseSchedule (MBSStore (t m)))
 migrateAccountReleaseScheduleFromV0 schedule = do
     Vector.foldM' buildSchedule emptyAccountReleaseSchedule (ARSV0._arsValues schedule)
   where
     buildSchedule ::
-        AccountReleaseSchedule ->
-        Nullable (EagerlyHashedBufferedRef ARSV0.Release, TransactionHash) ->
-        t m AccountReleaseSchedule
+        AccountReleaseSchedule (MBSStore (t m)) ->
+        Nullable (EagerlyHashedBufferedRef (MBSStore m) (ARSV0.Release (MBSStore m)), TransactionHash) ->
+        t m (AccountReleaseSchedule (MBSStore (t m)))
     buildSchedule schedule' value =
         case value of
             Null -> return schedule'
@@ -263,7 +263,7 @@ migrateAccountReleaseScheduleFromV0 schedule = do
                 addReleases (releases, transactionHash) schedule'
 
 -- | Convert a transient account release schedule to the persistent one.
-makePersistentAccountReleaseSchedule :: (MonadBlobStore m) => TARSV1.AccountReleaseSchedule -> m AccountReleaseSchedule
+makePersistentAccountReleaseSchedule :: (MonadBlobStore m) => TARSV1.AccountReleaseSchedule -> m (AccountReleaseSchedule (MBSStore m))
 makePersistentAccountReleaseSchedule tars = do
     AccountReleaseSchedule . Vector.fromList <$> mapM mpEntry (TARSV1.arsReleases tars)
   where
@@ -284,7 +284,7 @@ getAccountReleaseSchedule ::
     (MonadBlobStore m) =>
     -- | Total locked amount
     Amount ->
-    AccountReleaseSchedule ->
+    AccountReleaseSchedule (MBSStore m) ->
     m TARSV1.AccountReleaseSchedule
 getAccountReleaseSchedule arsTotalLockedAmount AccountReleaseSchedule{..} = do
     releases <- foldrM processEntry [] arsReleases
@@ -302,7 +302,7 @@ getAccountReleaseSchedule arsTotalLockedAmount AccountReleaseSchedule{..} = do
         return $ entry : entries
 
 -- | Get the 'AccountReleaseSummary' describing the releases in the 'AccountReleaseSchedule'.
-toAccountReleaseSummary :: (MonadBlobStore m) => AccountReleaseSchedule -> m AccountReleaseSummary
+toAccountReleaseSummary :: (MonadBlobStore m) => AccountReleaseSchedule (MBSStore m) -> m AccountReleaseSummary
 toAccountReleaseSummary AccountReleaseSchedule{..} = do
     (releaseMap, releaseTotal) <- foldlM processEntry (Map.empty, 0) arsReleases
     let releaseSchedule = makeSR <$> Map.toList releaseMap

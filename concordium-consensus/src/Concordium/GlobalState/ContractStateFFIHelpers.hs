@@ -17,7 +17,7 @@ data Vec
 --  vector that should be passed to the Rust runtime.
 type LoadCallbackType = Word64 -> IO (Ptr Vec)
 
-type LoadCallback = FunPtr LoadCallbackType
+type LoadCallback store = FunPtr LoadCallbackType
 
 -- | Callback for writing to the blob store from the provided buffer. The
 --  arguments are the buffer where the data is and the amount of data to write.
@@ -25,12 +25,12 @@ type LoadCallback = FunPtr LoadCallbackType
 --  location where data was written.
 type StoreCallbackType = Ptr Word8 -> CSize -> IO Word64
 
-type StoreCallback = FunPtr StoreCallbackType
+type StoreCallback store = FunPtr StoreCallbackType
 
 -- | Wrappers for making callbacks from Haskell functions or closures.
-foreign import ccall "wrapper" createLoadCallback :: LoadCallbackType -> IO LoadCallback
+foreign import ccall "wrapper" createLoadCallback :: LoadCallbackType -> IO (LoadCallback store)
 
-foreign import ccall "wrapper" createStoreCallback :: StoreCallbackType -> IO StoreCallback
+foreign import ccall "wrapper" createStoreCallback :: StoreCallbackType -> IO (StoreCallback store)
 
 -- | Allocate and return a Rust vector that contains the given data.
 foreign import ccall "copy_to_vec_ffi" copyToRustVec :: Ptr Word8 -> CSize -> IO (Ptr Vec)
@@ -39,9 +39,9 @@ foreign import ccall "copy_to_vec_ffi" copyToRustVec :: Ptr Word8 -> CSize -> IO
 --  implementation which never stores any data in the backing store. NOINLINE
 --  here ensures that only a single instance of callbacks is allocated.
 {-# NOINLINE errorLoadCallback #-}
-errorLoadCallback :: LoadCallback
+errorLoadCallback :: LoadCallback store
 errorLoadCallback = unsafePerformIO $ createLoadCallback (\_location -> error "Error load callback invoked, and it should not have been.")
 
 -- | Deallocate the callbacks. This should generally be called to not leak memory.
-freeErrorCallback :: LoadCallback -> IO ()
+freeErrorCallback :: LoadCallback store -> IO ()
 freeErrorCallback = freeHaskellFunPtr

@@ -22,9 +22,9 @@ import Concordium.GlobalState.Persistent.Cache
 -- * 'CachedRef'
 
 -- | A value that is either stored on disk as a 'BlobRef' or in memory only.
-data MaybeMem a
+data MaybeMem store a
     = -- | A value stored on disk as a 'BlobRef'
-      Disk !(BlobRef a)
+      Disk !(BlobRef store a)
     | -- | A value held directly in memory
       Mem !a
 
@@ -37,16 +37,17 @@ data MaybeMem a
 --  between block states, which can happen if finalization is lagging the head of the chain.
 --  The IORef is shared among all copies of the reference, which ensures that it is not unnecessarily
 --  held in memory and is not written to disk in duplicate.
-newtype CachedRef c a = CachedRef {crIORef :: IORef (MaybeMem a)}
+newtype CachedRef store c a = CachedRef {crIORef :: IORef (MaybeMem store a)}
 
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a
     ) =>
-    Reference m (CachedRef c) a
+    Reference m store (CachedRef store c) a
     where
     refFlush cr@(CachedRef ioref) = do
         mbr <- liftIO $ readIORef ioref
@@ -92,11 +93,12 @@ instance
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a
     ) =>
-    BlobStorable m (CachedRef c a)
+    BlobStorable m (CachedRef store c a)
     where
     storeUpdate c = do
         (c', ref) <- refFlush c
@@ -112,47 +114,49 @@ instance
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    MHashableTo m h (CachedRef c a)
+    MHashableTo m h (CachedRef store c a)
     where
     getHashM ref = getHashM =<< refLoad ref
 
-instance (Show a) => Show (CachedRef c a) where
+instance (Show a) => Show (CachedRef store c a) where
     show _ = "<CachedRef>"
 
 -- | We do nothing to cache a 'CachedRef'. Since 'cache' is generally used to cache the entire
 --  global state, it is generally undesirable to load every 'CachedRef' into the cache, as this
 --  can result in evictions and wasted effort if the cache size is insufficient.
-instance (Applicative m) => Cacheable m (CachedRef c a) where
+instance (Applicative m) => Cacheable m (CachedRef store c a) where
     cache = pure
 
 -- * 'LazilyHashedCachedRef'
 
 -- | A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
 --  reference is cached (via 'refCache' or 'cache').
-data LazilyHashedCachedRef' h c a = LazilyHashedCachedRef
-    { lhCachedRef :: !(CachedRef c a),
+data LazilyHashedCachedRef' h store c a = LazilyHashedCachedRef
+    { lhCachedRef :: !(CachedRef store c a),
       lhHash :: !(IORef (Nullable h))
     }
 
 type LazilyHashedCachedRef = LazilyHashedCachedRef' H.Hash
 
-instance Show (LazilyHashedCachedRef' h c a) where
+instance Show (LazilyHashedCachedRef' h store c a) where
     show _ = "<LazilyHashedCachedRef>"
 
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    MHashableTo m h (LazilyHashedCachedRef' h c a)
+    MHashableTo m h (LazilyHashedCachedRef' h store c a)
     where
     getHashM LazilyHashedCachedRef{..} =
         liftIO (readIORef lhHash) >>= \case
@@ -165,12 +169,13 @@ instance
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    Reference m (LazilyHashedCachedRef' h c) a
+    Reference m store (LazilyHashedCachedRef' h store c) a
     where
     refFlush ref = do
         (cr, r) <- refFlush $ lhCachedRef ref
@@ -197,7 +202,7 @@ instance
         return LazilyHashedCachedRef{lhCachedRef = cr, lhHash = lhHash ref}
 
 -- | Construct a 'LazilyHashedCachedRef'' given the value and hash.
-makeLazilyHashedCachedRef :: (MonadIO m) => a -> h -> m (LazilyHashedCachedRef' h c a)
+makeLazilyHashedCachedRef :: (MonadIO m) => a -> h -> m (LazilyHashedCachedRef' h store c a)
 makeLazilyHashedCachedRef val hsh = liftIO $ do
     lhCachedRef <- CachedRef <$> (newIORef $! Mem val)
     lhHash <- newIORef $! Some hsh
@@ -206,11 +211,12 @@ makeLazilyHashedCachedRef val hsh = liftIO $ do
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a
     ) =>
-    BlobStorable m (LazilyHashedCachedRef' h c a)
+    BlobStorable m (LazilyHashedCachedRef' h store c a)
     where
     storeUpdate c = do
         (r, v') <- storeUpdate (lhCachedRef c)
@@ -226,12 +232,13 @@ instance
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    Cacheable m (LazilyHashedCachedRef' h c a)
+    Cacheable m (LazilyHashedCachedRef' h store c a)
     where
     cache r@LazilyHashedCachedRef{..} = do
         mhsh <- liftIO (readIORef lhHash)
@@ -246,8 +253,8 @@ instance
 -- | A 'CachedRef' with a hash that is always computed. In particular, this means that 'load'ing
 --  the reference will also load the referenced data (consequently caching it) in order to
 --  compute the hash.
-data EagerlyHashedCachedRef' h c a = EagerlyHashedCachedRef
-    { ehCachedRef :: !(CachedRef c a),
+data EagerlyHashedCachedRef' h store c a = EagerlyHashedCachedRef
+    { ehCachedRef :: !(CachedRef store c a),
       ehHash :: !h
     }
     deriving (Show)
@@ -255,21 +262,22 @@ data EagerlyHashedCachedRef' h c a = EagerlyHashedCachedRef
 -- | A 'CachedRef' with a hash that is eagerly computed.
 type EagerlyHashedCachedRef = EagerlyHashedCachedRef' H.Hash
 
-instance HashableTo h (EagerlyHashedCachedRef' h c a) where
+instance HashableTo h (EagerlyHashedCachedRef' h store c a) where
     getHash = ehHash
     {-# INLINE getHash #-}
 
-instance (Monad m) => MHashableTo m h (EagerlyHashedCachedRef' h c a)
+instance (Monad m) => MHashableTo m h (EagerlyHashedCachedRef' h store c a)
 
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    Reference m (EagerlyHashedCachedRef' h c) a
+    Reference m store (EagerlyHashedCachedRef' h store c) a
     where
     refFlush ref = do
         (cr, r) <- refFlush $ ehCachedRef ref
@@ -291,7 +299,7 @@ instance
         return EagerlyHashedCachedRef{ehCachedRef = cr, ehHash = ehHash ref}
 
 -- | Construct an 'EagerlyHashedCachedRef'' given the value and hash.
-makeEagerlyHashedCachedRef :: (MonadIO m) => a -> h -> m (EagerlyHashedCachedRef' h c a)
+makeEagerlyHashedCachedRef :: (MonadIO m) => a -> h -> m (EagerlyHashedCachedRef' h store c a)
 makeEagerlyHashedCachedRef val ehHash = do
     ehCachedRef <- liftIO $ CachedRef <$> (newIORef $! Mem val)
     return EagerlyHashedCachedRef{..}
@@ -299,12 +307,13 @@ makeEagerlyHashedCachedRef val ehHash = do
 instance
     ( MonadCache c m,
       BlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    BlobStorable m (EagerlyHashedCachedRef' h c a)
+    BlobStorable m (EagerlyHashedCachedRef' h store c a)
     where
     storeUpdate c = do
         (r, v') <- storeUpdate (ehCachedRef c)
@@ -321,37 +330,40 @@ instance
 instance
     ( Applicative m
     ) =>
-    Cacheable m (EagerlyHashedCachedRef' h c a)
+    Cacheable m (EagerlyHashedCachedRef' h store c a)
     where
     cache = pure
 
 -- * 'HashedCachedRef'
 
-data MaybeHashedCachedRef h c a = HCRMem !a | HCRMemHashed !a !h | HCRDisk !(HashedCachedRef' h c a)
+data MaybeHashedCachedRef h store c a
+    = HCRMem !a
+    | HCRMemHashed !a !h
+    | HCRDisk !(HashedCachedRef' h store c a)
 
 -- | A 'CachedRef' with a hash that is computed when first demanded (via 'getHashM'), or when the
 --  reference is cached (via 'refCache' or 'cache').
-data HashedCachedRef' h c a
-    = HCRUnflushed {hcrUnflushed :: !(IORef (MaybeHashedCachedRef h c a))}
+data HashedCachedRef' h store c a
+    = HCRUnflushed {hcrUnflushed :: !(IORef (MaybeHashedCachedRef h store c a))}
     | HCRFlushed
-        { hcrBlob :: !(BlobRef a),
+        { hcrBlob :: !(BlobRef store a),
           hcrHash :: !h
         }
 
 type HashedCachedRef = HashedCachedRef' H.Hash
 
-instance Show (HashedCachedRef' h c a) where
+instance Show (HashedCachedRef' h store c a) where
     show _ = "<HashedCachedRef>"
 
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    MHashableTo m h (HashedCachedRef' h c a)
+    MHashableTo m h (HashedCachedRef' h store c a)
     where
     getHashM HCRUnflushed{..} =
         liftIO (readIORef hcrUnflushed) >>= \case
@@ -363,12 +375,13 @@ instance
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    Reference m (HashedCachedRef' h c) a
+    Reference m store (HashedCachedRef' h store c) a
     where
     refFlush HCRUnflushed{..} =
         liftIO (readIORef hcrUnflushed) >>= \case
@@ -423,7 +436,7 @@ instance
 
 -- | Construct a 'HashedCachedRef'' given the value and hash.
 --  The value is in memory, and is __not__ stored to disk.
-makeHashedCachedRef :: (MonadIO m) => a -> h -> m (HashedCachedRef' h c a)
+makeHashedCachedRef :: (MonadIO m) => a -> h -> m (HashedCachedRef' h store c a)
 makeHashedCachedRef val hsh =
     liftIO $
         HCRUnflushed <$!> (newIORef $! HCRMemHashed val hsh)
@@ -431,7 +444,10 @@ makeHashedCachedRef val hsh =
 -- | Construct a 'HashedCachedRef'' given the value. The value is hashed and then
 --  stored to disk and only a reference to blob store, and the hash of the value,
 --  are retained.
-makeFlushedHashedCachedRef :: (MHashableTo m h a, DirectBlobStorable m a) => a -> m (HashedCachedRef' h c a)
+makeFlushedHashedCachedRef ::
+    (MHashableTo m h a, DirectBlobStorable m a) =>
+    a ->
+    m (HashedCachedRef' h (MBSStore m) c a)
 makeFlushedHashedCachedRef val = do
     h <- getHashM val
     (br, _) <- storeUpdateDirect val
@@ -440,12 +456,13 @@ makeFlushedHashedCachedRef val = do
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a,
       MHashableTo m h a
     ) =>
-    BlobStorable m (HashedCachedRef' h c a)
+    BlobStorable m (HashedCachedRef' h store c a)
     where
     storeUpdate hcr = do
         (!hcr', !ref) <- refFlush hcr
@@ -466,17 +483,18 @@ instance
 
 -- | Caching a 'HashedCachedRef' does nothing on the principle that it is generally undesirable to
 --  load every 'HashedCachedRef' into the cache at load time.
-instance (Applicative m) => Cacheable m (HashedCachedRef c a) where
+instance (Applicative m) => Cacheable m (HashedCachedRef store c a) where
     cache = pure
 
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      store ~ MBSStore m,
       Cache c,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef store a,
       CacheValue c ~ a
     ) =>
-    Cacheable1 m (HashedCachedRef' h c a) a
+    Cacheable1 m (HashedCachedRef' h store c a) a
     where
     liftCache csh hcr@HCRUnflushed{..} =
         liftIO (readIORef hcrUnflushed) >>= \case
@@ -512,14 +530,14 @@ migrateHashedCachedRef' ::
       MonadTrans t,
       MHashableTo m h a,
       CacheValue c ~ a,
-      CacheKey c ~ BlobRef a,
+      CacheKey c ~ BlobRef (MBSStore m) a,
       MHashableTo (t m) h b,
       CacheValue c' ~ b,
-      CacheKey c' ~ BlobRef b
+      CacheKey c' ~ BlobRef (MBSStore (t m)) b
     ) =>
     (a -> t m b) ->
-    HashedCachedRef' h c a ->
-    t m (HashedCachedRef' h c' b)
+    HashedCachedRef' h (MBSStore m) c a ->
+    t m (HashedCachedRef' h (MBSStore (t m)) c' b)
 migrateHashedCachedRef' f hcr = do
     !v <- f =<< lift (refLoad hcr)
     -- compute the hash now that the value is available

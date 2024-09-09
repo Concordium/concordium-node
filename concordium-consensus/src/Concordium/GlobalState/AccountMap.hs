@@ -69,13 +69,13 @@ newtype AccountMap (pv :: ProtocolVersion) fix = AccountMap
     }
 
 -- | The account map to be used in the persistent block state.
-type PersistentAccountMap pv = AccountMap pv BufferedFix
+type PersistentAccountMap store pv = AccountMap pv (BufferedFix store)
 
 -- | See documentation of @migratePersistentBlockState@.
 migratePersistentAccountMap ::
     (BlobStorable m AccountIndex, BlobStorable (t m) AccountIndex, MonadTrans t) =>
-    PersistentAccountMap oldpv ->
-    t m (PersistentAccountMap pv)
+    PersistentAccountMap (MBSStore m) oldpv ->
+    t m (PersistentAccountMap (MBSStore (t m)) pv)
 migratePersistentAccountMap (AccountMap am) = AccountMap <$> Trie.migrateTrieN True return am
 
 -- | The account map that is purely in memory and used in the basic block state.
@@ -83,11 +83,11 @@ type PureAccountMap pv = AccountMap pv Fix
 
 -- Necessary state storage instances for the persistent map. The pure one is not
 -- stored so does not need the related instances.
-instance (MonadBlobStore m) => Cacheable m (PersistentAccountMap pv) where
+instance (MonadBlobStore m, store ~ MBSStore m) => Cacheable m (PersistentAccountMap store pv) where
     cache (AccountMap am) = AccountMap <$> cache am
     {-# INLINE cache #-}
 
-instance (MonadBlobStore m) => BlobStorable m (PersistentAccountMap pv) where
+instance (MonadBlobStore m, store ~ MBSStore m) => BlobStorable m (PersistentAccountMap store pv) where
     storeUpdate (AccountMap am) = second AccountMap <$> storeUpdate am
     {-# INLINE storeUpdate #-}
 
@@ -95,7 +95,7 @@ instance (MonadBlobStore m) => BlobStorable m (PersistentAccountMap pv) where
     {-# INLINE load #-}
 
 -- | Convert a pure account map to the persistent one.
-toPersistent :: (MonadBlobStore m) => PureAccountMap pv -> m (PersistentAccountMap pv)
+toPersistent :: (MonadBlobStore m) => PureAccountMap pv -> m (PersistentAccountMap (MBSStore m) pv)
 toPersistent = fmap AccountMap . Trie.fromTrie . unAccountMap
 
 -- Aliases for reducing constraint repetition in methods below.
