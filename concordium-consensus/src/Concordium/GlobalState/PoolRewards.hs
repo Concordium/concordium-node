@@ -7,6 +7,7 @@ module Concordium.GlobalState.PoolRewards where
 
 import Data.Serialize
 import Data.Word
+import Data.Int
 
 import Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
@@ -21,7 +22,9 @@ data BakerPoolRewardDetails = BakerPoolRewardDetails
       -- | The total transaction fees accrued to this pool in the reward period
       transactionFeesAccrued :: !Amount,
       -- | Whether the pool contributed to a finalization proof in the reward period
-      finalizationAwake :: !Bool
+      finalizationAwake :: !Bool,
+      -- | The number of missed rounds in the reward period
+      missedRounds :: !Int8
     }
     deriving (Eq, Show)
 
@@ -31,7 +34,7 @@ instance Serialize BakerPoolRewardDetails where
         put transactionFeesAccrued
         putBool finalizationAwake
 
-    get = BakerPoolRewardDetails <$> getWord64be <*> get <*> getBool
+    get = BakerPoolRewardDetails <$> getWord64be <*> get <*> getBool <*> getInt8
 
 instance HashableTo Hash.Hash BakerPoolRewardDetails where
     getHash = Hash.hash . encode
@@ -44,5 +47,6 @@ emptyBakerPoolRewardDetails =
     BakerPoolRewardDetails
         { blockCount = 0,
           transactionFeesAccrued = 0,
-          finalizationAwake = False
+          finalizationAwake = False,
+          missedRounds = 0
         }
