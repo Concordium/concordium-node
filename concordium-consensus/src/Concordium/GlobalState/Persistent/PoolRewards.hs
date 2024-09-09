@@ -145,7 +145,8 @@ migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
                 BakerPoolRewardDetails
                     { blockCount = Map.findWithDefault 0 bid blockCounts,
                       transactionFeesAccrued = 0,
-                      finalizationAwake = False
+                      finalizationAwake = False,
+                      missedRounds = 0
                     }
         (!newRef, _) <- refFlush =<< refMake bprd
         return newRef
