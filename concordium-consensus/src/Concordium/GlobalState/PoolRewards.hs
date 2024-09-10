@@ -5,9 +5,9 @@
 
 module Concordium.GlobalState.PoolRewards where
 
+import Data.Int
 import Data.Serialize
 import Data.Word
-import Data.Int
 
 import Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
