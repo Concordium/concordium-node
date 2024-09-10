@@ -36,7 +36,7 @@ import Concordium.GlobalState.BakerInfo
 --  This process has a bias towards bakers with smaller indexes. However, the chance of this bias
 --  affecting the result of any given election is less than 1 in 10^57, and so is effectively
 --  impossible.
--- TODO (drsk) How is the ordering of the indeces determined. What is the reasoning for the 10^57 number? 
+-- TODO (drsk) How is the ordering of the indeces determined. What is the reasoning for the 10^57 number?
 --
 --  Note: this implementation is linear in the number of bakers. By pre-processing the baker set,
 --  we could have a logarithmic algorithm. However, as the runtime is on the order of 5 us for 1000
@@ -51,7 +51,7 @@ getLeader ::
     -- | Round number to compute the leader for
     Round ->
     bakerInfo
-getLeader bakers nonce rnd 
+getLeader bakers nonce rnd
     | and [suspended | (_bi, _amt, suspended) <- bakers] = error "getLeader: All bakers suspended"
     | null bakers = error "getLeader: Empty bakers"
     | otherwise = grabBaker 0 bakers

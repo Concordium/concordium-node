@@ -1296,7 +1296,7 @@ computeBlockResultHash newState relativeBlockHeight currentEpoch = do
         case currentSkovBakersAndFinalizers of
             Just bakersAndFinalizers -> return $ bakersAndFinalizers ^. bfFinalizerHash
             Nothing -> do
-                currentFullBakers <- getCurrentEpochBakers newState
+                currentFullBakers <- getCurrentEpochFullBakersEx newState
                 currentFinalizationParameters <- getCurrentEpochFinalizationCommitteeParameters newState
                 let nextFinalizationCommittee = computeFinalizationCommittee currentFullBakers currentFinalizationParameters
                 return $ computeFinalizationCommitteeHash nextFinalizationCommittee
@@ -1307,7 +1307,7 @@ computeBlockResultHash newState relativeBlockHeight currentEpoch = do
         case nextSkovBakersAndFinalizers of
             Just bakersAndFinalizers -> return $ bakersAndFinalizers ^. bfFinalizerHash
             Nothing -> do
-                nextFullBakers <- getNextEpochBakers newState
+                nextFullBakers <- getNextEpochFullBakersEx newState
                 nextFinalizationParameters <- getNextEpochFinalizationCommitteeParameters newState
                 let nextFinalizationCommittee = computeFinalizationCommittee nextFullBakers nextFinalizationParameters
                 return $ computeFinalizationCommitteeHash nextFinalizationCommittee
