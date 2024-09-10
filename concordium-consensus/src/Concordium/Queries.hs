@@ -1630,7 +1630,7 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
             SkovV1.NormalBlock b -> do
                 bs <- blockState bp
                 finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
-                bakers <- BS.getCurrentEpochBakers bs
+                bakers <- BS.getCurrentEpochFullBakersEx bs
                 let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
                 let SkovV1.BakedBlock{..} = SkovV1.sbBlock b
                 return
@@ -1730,10 +1730,10 @@ getBakersRewardPeriod = liftSkovQueryBHI bakerRewardPeriodInfosV0 bakerRewardPer
     -- Get the bakers and calculate the finalization committee for protocols using consensus v1.
     getBakersConsensusV1 :: (BS.BlockStateQuery m, IsConsensusV1 (MPV m)) => BlockState m -> m [BakerRewardPeriodInfo]
     getBakersConsensusV1 bs = do
-        bakers <- BS.getCurrentEpochBakers bs
+        bakers <- BS.getCurrentEpochFullBakersEx bs
         finCommitteeParams <- BS.getCurrentEpochFinalizationCommitteeParameters bs
         let finalizationCommittee = ConsensusV1.computeFinalizationCommittee bakers finCommitteeParams
-        mapBakersToInfos bs (Vec.toList $ fullBakerInfos bakers) (SkovV1.finalizerBakerId <$> Vec.toList (SkovV1.committeeFinalizers finalizationCommittee))
+        mapBakersToInfos bs (Vec.toList $ fullBakerInfos (projFullBakers bakers)) (SkovV1.finalizerBakerId <$> Vec.toList (SkovV1.committeeFinalizers finalizationCommittee))
     -- Map bakers to their associated 'BakerRewardPeriodInfo'.
     -- The supplied bakers and list of baker ids (of the finalization committee) MUST
     -- be sorted in ascending order of their baker id.

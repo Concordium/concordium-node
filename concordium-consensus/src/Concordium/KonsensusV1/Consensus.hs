@@ -178,8 +178,8 @@ checkedUpdateHighestCertifiedBlock newCB = do
     when isBetterQC $ roundStatus . rsHighestCertifiedBlock .= newCB
 
 -- | Compute the finalization committee given the bakers and the finalization committee parameters.
-computeFinalizationCommittee :: FullBakers -> FinalizationCommitteeParameters -> FinalizationCommittee
-computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} =
+computeFinalizationCommittee :: FullBakersEx -> FinalizationCommitteeParameters -> FinalizationCommittee
+computeFinalizationCommittee FullBakersEx{..} FinalizationCommitteeParameters{..} =
     FinalizationCommittee{..}
   where
     -- We construct a map with the top bakers ordered by descending stake and ascending baker ID.
@@ -197,13 +197,19 @@ computeFinalizationCommittee FullBakers{..} FinalizationCommitteeParameters{..} 
         | otherwise = Map.insert insKey fbi m
       where
         insKey = (Down (fbi ^. bakerStake), fbi ^. Accounts.bakerIdentity)
-    amountSortedBakers = Map.elems $ foldl' insert Map.empty fullBakerInfos
+    amountSortedBakers =
+        Map.elems $
+            foldl'
+                insert
+                Map.empty
+                [ _exFullBakerInfo bie | bie <- Vec.toList bakerInfoExs, not $ _isSuspended bie
+                ]
     -- Threshold stake required to be a finalizer
     finalizerAmountThreshold :: Amount
     finalizerAmountThreshold =
         ceiling $
             partsPerHundredThousandsToRational _fcpFinalizerRelativeStakeThreshold
-                * toRational bakerTotalStake
+                * toRational bakerPoolTotalStake
     -- Given the bakers sorted by their stakes, takes the first 'n' and then those that are
     -- at least at the threshold.
     takeFinalizers 0 fs = takeWhile ((>= finalizerAmountThreshold) . view bakerStake) fs
@@ -236,7 +242,7 @@ computeBakersAndFinalizers bakers fcp =
           _bfFinalizerHash = computeFinalizationCommitteeHash finalizers
         }
   where
-    finalizers = computeFinalizationCommittee (projFullBakers bakers) fcp
+    finalizers = computeFinalizationCommittee bakers fcp
 
 -- | Get the baker identity and finalizer info if we are a finalizer in the specified epoch.
 --  This checks that the signing key and aggregate signing key match those for the finalizer,
