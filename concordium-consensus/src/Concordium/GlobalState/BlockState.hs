@@ -48,6 +48,7 @@ import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
+import Data.Int
 import Data.Kind (Type)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
@@ -1509,6 +1510,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- | Get whether a protocol update is effective
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
 
+    -- | Update the count of missed blocks for a given validator
+    bsoUpdateMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> (BakerId, Int8) -> m (UpdatableBlockState m)
+
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -1820,6 +1824,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
+    bsoUpdateMissedBlocks s = lift . bsoUpdateMissedBlocks s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -1876,6 +1881,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetRewardAccounts #-}
     {-# INLINE bsoGetCurrentEpochBakers #-}
     {-# INLINE bsoIsProtocolUpdateEffective #-}
+    {-# INLINE bsoUpdateMissedBlocks #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 

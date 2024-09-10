@@ -116,6 +116,7 @@ import qualified Control.Monad.State.Strict as MTL
 import qualified Control.Monad.Writer.Strict as MTL
 import Data.Bool.Singletons
 import Data.IORef
+import Data.Int
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -3464,6 +3465,16 @@ doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 doIsProtocolUpdateEffective :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Bool
 doIsProtocolUpdateEffective = isProtocolUpdateEffective . bspUpdates <=< loadPBS
 
+doUpdateMissedBlocks :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> (BakerId, Int8) -> m (PersistentBlockState pv)
+doUpdateMissedBlocks pbs (bId, newMissedRounds) = do
+    bsp <- loadPBS pbs
+    bsp' <-
+        modifyBakerPoolRewardDetailsInPoolRewards
+            bsp
+            bId
+            (\bprd -> bprd{missedRounds = missedRounds bprd + newMissedRounds})
+    storePBS pbs bsp'
+
 doProcessUpdateQueues ::
     forall pv m.
     (SupportsPersistentState pv m) =>
@@ -4341,6 +4352,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
+    bsoUpdateMissedBlocks = doUpdateMissedBlocks
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
