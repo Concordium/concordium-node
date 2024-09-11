@@ -215,13 +215,13 @@ initialBlockState2 =
         ]
 
 -- | Test removing a delegator even if the stake is over the threshold.
-testCase1 ::
+testRemoveDelegatorWithStakeOverThreshold ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase1 _ pvString =
+testRemoveDelegatorWithStakeOverThreshold _ pvString =
     specify (pvString ++ ": Remove delegation") $ do
         let transactions =
                 [ Runner.TJSON
@@ -261,13 +261,13 @@ testCase1 _ pvString =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Test reducing delegator stake in such a way that it stays above the cap threshold.
-testCase2 ::
+testReduceDelegatorStakeStillAboveCapThreshold ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase2 _ pvString =
+testReduceDelegatorStakeStillAboveCapThreshold _ pvString =
     specify (pvString ++ ": Reduce delegation stake with overstaking") $ do
         let transactions =
                 [ Runner.TJSON
@@ -298,13 +298,13 @@ testCase2 _ pvString =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Test transaction rejects if increasing stake above the threshold of the pool
-testCase3 ::
+testTransactionRejectsIfStakeIncreasedOverThreshold ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase3 _ pvString =
+testTransactionRejectsIfStakeIncreasedOverThreshold _ pvString =
     specify (pvString ++ ": Increase stake with overstaking") $ do
         let transactions =
                 [ Runner.TJSON
@@ -336,13 +336,13 @@ testCase3 _ pvString =
 
 -- | Test reducing delegator stake **and changing target** such that the new stake is above the cap
 --  for the new target.
-testCase4 ::
+testReducingStakeAndTargetNewStakeOverCap ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase4 _ pvString =
+testReducingStakeAndTargetNewStakeOverCap _ pvString =
     specify (pvString ++ ": Reduce stake and change target 1") $ do
         let transactions =
                 [ Runner.TJSON
@@ -376,13 +376,13 @@ testCase4 _ pvString =
 --  This still fails before P7 because the change of stake is only effective after the cooldown period,
 --  so changing the target results in overdelegation to the new target. From P7, the stake is
 --  reduced immediately, so the transaction should succeed.
-testCase5 ::
+testChangingTargetAndReducingStake ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase5 _ pvString =
+testChangingTargetAndReducingStake _ pvString =
     specify (pvString ++ ": Reduce stake and change target 2") $ do
         let transactions =
                 [ Runner.TJSON
@@ -421,13 +421,13 @@ testCase5 _ pvString =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Increase stake successfully.
-testCase6 ::
+testIncreaseStake ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase6 _ pvString =
+testIncreaseStake _ pvString =
     specify (pvString ++ ": Increase stake successfully.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -458,13 +458,13 @@ testCase6 _ pvString =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Increase stake and change target successfully.
-testCase7 ::
+testIncreaseStakeAndTarget ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase7 _ pvString =
+testIncreaseStakeAndTarget _ pvString =
     specify (pvString ++ ": Increase stake and change target successfully.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -499,13 +499,13 @@ testCase7 _ pvString =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Increase stake and change target rejects with reason: maximum threshold for pool.
-testCase8 ::
+testIncreaseStakeAndChangeTargetReject ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase8 _ pvString =
+testIncreaseStakeAndChangeTargetReject _ pvString =
     specify (pvString ++ ": Increase stake and change target so that results is overdelegation.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -535,14 +535,14 @@ testCase8 _ pvString =
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- | Increase stake and change target rejects with reason: maximum threshold for pool.
-testCase9 ::
+-- | Change target to overdelegated pool
+testChangeTargetToOverdelegatedPool ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase9 _ pvString =
+testChangeTargetToOverdelegatedPool _ pvString =
     specify (pvString ++ ": Change target to overdelegated pool.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -573,13 +573,13 @@ testCase9 _ pvString =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Add delegator successfully.
-testCase10 ::
+testAddDelegator ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase10 _ pvString =
+testAddDelegator _ pvString =
     specify (pvString ++ ": Add delegator successfully.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -616,13 +616,13 @@ testCase10 _ pvString =
         ]
 
 -- | Add delegator with 0 stake should get rejected.
-testCase10A ::
+testDelegatorWithZeroStake ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase10A _ pvString =
+testDelegatorWithZeroStake _ pvString =
     specify (pvString ++ ": Add delegator with 0 stake should get rejected.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -653,13 +653,13 @@ testCase10A _ pvString =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Add delegator when already baker. Should get rejected in protocols <= P6 and accepted from P7.
-testCase11 ::
+testAddDelegatorWhenAlreadyBaker ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase11 spv pvString =
+testAddDelegatorWhenAlreadyBaker spv pvString =
     specify (pvString ++ ": Add delegator when already baker.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -702,13 +702,13 @@ testCase11 spv pvString =
 
 -- | Add delegator with 0 stake when already a baker should get rejected with
 --  `AlreadyABaker` in protocols <= P6 and `InsufficientDelegationStake` from P7.
-testCase11A ::
+testAddDelegatorWithZeroStakeWhenAlreadyBaker ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase11A spv pvString =
+testAddDelegatorWithZeroStakeWhenAlreadyBaker spv pvString =
     specify (pvString ++ ": Add delegator with 0 stake when already baker should get rejected.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -753,13 +753,13 @@ testCase11A spv pvString =
                 updatedBaker4
 
 -- | Reduce stake while in cooldown.
-testCase12 ::
+testReduceStakeWhileInCooldown ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase12 spv pvString =
+testReduceStakeWhileInCooldown spv pvString =
     specify (pvString ++ ": Reduce stake while in cooldown.") $ do
         let transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
             transactionsAndAssertions =
@@ -864,13 +864,13 @@ testCase12 spv pvString =
 
 -- | Change baker to delegate to itself should get rejected with
 --  `AlreadyABaker` in protocols <= P6 and `DelegationTargetNotABaker` from P7.
-testCase13 ::
+testDelegateToSelf ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase13 spv pvString =
+testDelegateToSelf spv pvString =
     specify (pvString ++ ": Change baker to delegate to itself.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -925,18 +925,18 @@ tests =
         case delegationSupport @(AccountVersionFor pv) of
             SAVDelegationNotSupported -> return ()
             SAVDelegationSupported -> do
-                testCase1 spv pvString
-                testCase2 spv pvString
-                testCase3 spv pvString
-                testCase4 spv pvString
-                testCase5 spv pvString
-                testCase6 spv pvString
-                testCase7 spv pvString
-                testCase8 spv pvString
-                testCase9 spv pvString
-                testCase10 spv pvString
-                testCase10A spv pvString
-                testCase11 spv pvString
-                testCase11A spv pvString
-                testCase12 spv pvString
-                testCase13 spv pvString
+                testRemoveDelegatorWithStakeOverThreshold spv pvString
+                testReduceDelegatorStakeStillAboveCapThreshold spv pvString
+                testTransactionRejectsIfStakeIncreasedOverThreshold spv pvString
+                testReducingStakeAndTargetNewStakeOverCap spv pvString
+                testChangingTargetAndReducingStake spv pvString
+                testIncreaseStake spv pvString
+                testIncreaseStakeAndTarget spv pvString
+                testIncreaseStakeAndChangeTargetReject spv pvString
+                testChangeTargetToOverdelegatedPool spv pvString
+                testAddDelegator spv pvString
+                testDelegatorWithZeroStake spv pvString
+                testAddDelegatorWhenAlreadyBaker spv pvString
+                testAddDelegatorWithZeroStakeWhenAlreadyBaker spv pvString
+                testReduceStakeWhileInCooldown spv pvString
+                testDelegateToSelf spv pvString
