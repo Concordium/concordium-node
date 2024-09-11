@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 7.0.2
+
 - Fix the timing of paydays after protocol update from version 6 to 7.
 - Improve consensus behaviour in the event of an unrecoverable exception.
 
