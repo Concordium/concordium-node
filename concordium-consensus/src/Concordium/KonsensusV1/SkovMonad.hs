@@ -111,7 +111,8 @@ newtype SkovV1T pv m a = SkovV1T
           MonadLogger,
           TimeMonad,
           MonadReader (SkovV1Context pv m),
-          MonadThrow
+          MonadThrow,
+          MonadCatch
         )
     deriving
         (BlockStateTypes, ContractStateOperations, ModuleQuery)
@@ -299,17 +300,17 @@ instance (Monad m) => MonadConsensusEvent (SkovV1T pv m) where
         handler <- view onFinalizeHandler
         handler fe bp
 
-instance (MonadIO m, MonadLogger m) => TimerMonad (SkovV1T pv m) where
+instance (MonadIO m, MonadLogger m, MonadCatch m) => TimerMonad (SkovV1T pv m) where
     type Timer (SkovV1T pv m) = ThreadTimer
     onTimeout timeout a = do
         ctx <- ask
         liftIO $
             makeThreadTimer timeout $ do
-                let handler (SomeException e) =
-                        _skovV1TUnliftIO ctx $
-                            logEvent Konsensus LLError $
-                                "Error in timer thread: " ++ show e
-                void (_skovV1TUnliftIO ctx a) `catchAll` handler
+                let handler ex@(SomeException e) = do
+                        logEvent Konsensus LLError $
+                            "Error in timer thread: " ++ displayException e
+                        throwM ex
+                _skovV1TUnliftIO ctx (void a `catch` handler)
     cancelTimer = liftIO . cancelThreadTimer
 
 instance

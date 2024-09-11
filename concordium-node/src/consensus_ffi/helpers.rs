@@ -190,6 +190,8 @@ pub enum ConsensusFfiResponse {
     InsufficientFunds,
     #[error("The consensus message is a result of double signing")]
     DoubleSign,
+    #[error("Consensus entered an unrecoverable state")]
+    ConsensusFailure,
 }
 
 impl ConsensusFfiResponse {
@@ -259,7 +261,8 @@ impl ConsensusFfiResponse {
             | BakerNotFound
             | MissingImportFile
             | ContinueCatchUp
-            | DoubleSign => false,
+            | DoubleSign
+            | ConsensusFailure => false,
             PendingBlock => packet_type != PacketType::Block,
             Success | PendingFinalization | Asynchronous => true,
         }
@@ -275,6 +278,14 @@ impl ConsensusFfiResponse {
         } else {
             "invalid"
         }
+    }
+
+    /// Panic if the response indicates an unrecoverable consensus failure.
+    pub fn check_consistent(self) -> Self {
+        if let ConsensusFfiResponse::ConsensusFailure = self {
+            panic!("Consensus entered an unrecoverable state.");
+        }
+        self
     }
 }
 
@@ -331,6 +342,7 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             29 => Ok(MaxBlockEnergyExceeded),
             30 => Ok(InsufficientFunds),
             31 => Ok(DoubleSign),
+            32 => Ok(ConsensusFailure),
             _ => Err(ConsensusFfiResponseConversionError {
                 unknown_code: value,
             }),
