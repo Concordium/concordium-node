@@ -518,7 +518,8 @@ data GlobalLockPoisonError = GlobalLockPoisonError
     deriving (Eq, Show, Typeable)
 
 instance Exception GlobalLockPoisonError where
-    displayException _ = "The global state lock was poisoned by an error in another thread."
+    displayException _ =
+        "The global state lock was poisoned by an unrecoverable error in another thread."
 
 -- | The context for managing multi-version consensus.
 data MultiVersionRunner finconf = MultiVersionRunner
