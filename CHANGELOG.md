@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Improve consensus behaviour in the event of an unrecoverable exception.
+
 ## 7.0.1
 
 - Fix a bug in migration from protocol version 6 to 7.
