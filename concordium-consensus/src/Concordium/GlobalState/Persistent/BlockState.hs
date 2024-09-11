@@ -2371,6 +2371,7 @@ newUpdateDelegator pbs blockTimestamp ai du@DelegatorUpdate{..} = do
   where
     did = DelegatorId ai
     flexibleCooldown = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
+    -- Only do the update if specified.
     ifPresent Nothing _ = return
     ifPresent (Just v) k = k v
     updateDelegationTarget oldTarget = ifPresent duDelegationTarget $ \target (bsp, acc) -> do
