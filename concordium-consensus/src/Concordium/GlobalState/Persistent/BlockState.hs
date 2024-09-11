@@ -1612,6 +1612,7 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
                 }
     let bakerInfo = bakerKeyUpdateToInfo bid vaKeys
     let bakerInfoEx = BaseAccounts.BakerInfoExV1 bakerInfo poolInfo
+    -- The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Add the baker to the account.
     accWithBaker <- addAccountBakerV1 bakerInfoEx vaCapital vaRestakeEarnings acc
@@ -1751,7 +1752,7 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --
 --        (3) append @BakerConfigureBakingRewardCommission brc@ to @events@.
 --
---  6. If the finalization reward commission is supplied:
+--  7. If the finalization reward commission is supplied:
 --
 --        (1) if the commission does not fall within the current range according to the chain
 --            parameters, return @VCFFinalizationRewardCommissionNotInRange@; otherwise,
@@ -1760,7 +1761,7 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --
 --        (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
 --
---  7. If the capital is supplied: if there is a pending change to the baker's capital, return
+--  8. If the capital is supplied: if there is a pending change to the baker's capital, return
 --     @VCFChangePending@; otherwise:
 --
 --       * if the capital is 0
@@ -1797,7 +1798,7 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --         index by adding the difference between the new and old capital) and append
 --         @BakerConfigureStakeIncreased capital@ to @events@.
 --
---  8. Return @events@ with the updated block state.
+--  9. Return @events@ with the updated block state.
 newUpdateValidator ::
     forall pv m.
     ( SupportsPersistentState pv m,
@@ -1814,7 +1815,7 @@ newUpdateValidator ::
     MTL.ExceptT ValidatorConfigureFailure m ([BakerConfigureUpdateChange], PersistentBlockState (MPV m))
 newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
     bsp <- loadPBS pbs
-    -- Cannot fail: account must exist.
+    -- Cannot fail: The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Cannot fail: account must be a registered baker.
     existingBaker <- fromJust <$> accountBaker acc
@@ -1830,6 +1831,7 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
     (events,) <$> storePBS pbs newBSP
   where
     bid = BakerId ai
+    -- Only do the given update if specified.
     ifPresent Nothing _ = return
     ifPresent (Just v) k = k v
     updateKeys oldBaker = ifPresent vuKeys $ \keys (bsp, acc) -> do
@@ -2125,7 +2127,7 @@ newAddDelegator pbs ai da@DelegatorAdd{..} = do
     addDelegatorChecks bsp da
     newBirkParameters <- do
         pab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
-        -- Cannot fail: the delegation target is valid.
+        -- Cannot fail: the delegation target is valid because it is checked in 'addDelegatorChecks'.
         newActiveBakers <-
             addDelegatorUnsafe daDelegationTarget did daCapital pab
                 <&> totalActiveCapital %~ addActiveCapital daCapital
@@ -2210,7 +2212,7 @@ updateDelegatorChecks bsp oldDelegator DelegatorUpdate{..} = do
         Nothing -> case oldDelegator ^. BaseAccounts.delegationTarget of
             Transactions.DelegatePassive -> return Nothing
             Transactions.DelegateToBaker (BakerId baid) -> do
-                -- Cannot fail: the account must delegate to a valid baker.
+                -- Cannot fail: the account is already delegating to a baker that can thus be looked up.
                 baker <- fromJust <$> onAccount baid bsp accountBaker
                 -- Since it wasn't changed, the baker is the same as before.
                 return (Just (baker, True))
@@ -2291,7 +2293,7 @@ updateDelegatorChecks bsp oldDelegator DelegatorUpdate{..} = do
 --
 --       (4) Update the account to record the new delegation target.
 --
---       (5) Append @DelegationConfigureDelegationTarget target@ to @events@. [N.B. if the target is
+--       (5) Append @DelegationConfigureDelegationTarget target@ to @events@. [N.B. if the target
 --           pool is the same as the previous value, steps (1)-(4) will do nothing and may be skipped
 --           by the implementation. This relies on the invariant that delegators delegate only to
 --           valid pools.]
@@ -2309,7 +2311,7 @@ updateDelegatorChecks bsp oldDelegator DelegatorUpdate{..} = do
 --         plus the delegator cooldown chain parameter, and append
 --         @DelegationConfigureStakeReduced capital@ to @events@; otherwise
 --
---       * If the the new capital is less than the current staked capital (but not 0), mark the
+--       * If the new capital is less than the current staked capital (but not 0), mark the
 --         delegator as pending stake reduction to @capital@ at the slot timestamp plus the
 --         delegator cooldown chain parameter, and append @DelegationConfigureStakeReduced capital@
 --         to @events@;
@@ -2352,7 +2354,7 @@ newUpdateDelegator ::
     MTL.ExceptT DelegatorConfigureFailure m ([DelegationConfigureUpdateChange], PersistentBlockState (MPV m))
 newUpdateDelegator pbs blockTimestamp ai du@DelegatorUpdate{..} = do
     bsp <- loadPBS pbs
-    -- Cannot fail: account must exist.
+    -- Cannot fail: The precondition guarantees that the account exists.
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Cannot fail: the account must already be a delegator.
     existingDelegator <- fromJust <$> accountDelegator acc
@@ -2480,17 +2482,21 @@ newUpdateDelegator pbs blockTimestamp ai du@DelegatorUpdate{..} = do
                 (bspAccountsInCooldown bsp)
         return bsp{bspAccountsInCooldown = newAccountsInCooldown}
 
+-- | Whether a (pre-)(pre-)cooldown was removed on an account. Used by 'applyCooldownRemovalsGlobally'
+-- to then also remove the account from the global list of accounts in cooldown.
 data CooldownRemovals = CooldownRemovals
     { -- | Whether the pre-pre cooldown was removed.
-      crPrePreCooldown :: Bool,
+      crPrePreCooldown :: !Bool,
       -- | Whether the pre cooldown was removed.
-      crPreCooldown :: Bool,
+      crPreCooldown :: !Bool,
       -- | If all cooldowns were removed, this is the previous timestamp of the earliest cooldown.
-      crCooldown :: Maybe Timestamp
+      crCooldown :: !(Maybe Timestamp)
     }
 
 -- | Determine if a change in cooldowns requires global updates to the indexes.
 --  The change should arise from (possibly) reactivating stake from cooldown.
+--  The first input is old 'Cooldowns' on the account, and the second input is the new 'Cooldowns' on
+--  the account after possibly reactivating stake.
 cooldownRemovals ::
     Maybe CooldownQueue.Cooldowns -> Maybe CooldownQueue.Cooldowns -> CooldownRemovals
 cooldownRemovals Nothing _ = CooldownRemovals False False Nothing
@@ -2793,8 +2799,8 @@ doMint pbs mint = do
             bspBank bsp
                 & unhashed
                     %~ (Rewards.totalGTU +~ mintTotal mint)
-                        . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
-                        . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
+                    . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
+                    . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
     let updAcc = addAccountAmount $ mintDevelopmentCharge mint
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)
