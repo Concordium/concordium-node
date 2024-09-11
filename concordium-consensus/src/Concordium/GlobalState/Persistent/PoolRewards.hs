@@ -17,6 +17,7 @@ module Concordium.GlobalState.Persistent.PoolRewards (
     lookupBakerCapitalAndRewardDetails,
     migratePoolRewardsP1,
     migratePoolRewards,
+    migratePoolRewardsP6,
 ) where
 
 import Control.Exception (assert)
@@ -67,7 +68,8 @@ data PoolRewards (bhv :: BlockHashVersion) = PoolRewards
 
 -- | Migrate pool rewards from @m@ to the new backing store @t m@.
 --  This takes the new next payday epoch as a parameter, since this should always be updated on
---  a protocol update. The hashes for the
+--  a protocol update. The hashes for the capital distributions are recomputed, as they schema
+--  may change between versions.
 migratePoolRewards ::
     (SupportMigration m t, IsBlockHashVersion bhv1) =>
     Epoch ->
@@ -77,6 +79,7 @@ migratePoolRewards newNextPayday PoolRewards{..} = do
     nextCapital' <- migrateHashedBufferedRef return nextCapital
     currentCapital' <- migrateHashedBufferedRef return currentCapital
     bakerPoolRewardDetails' <- LFMBT.migrateLFMBTree (migrateReference return) bakerPoolRewardDetails
+    -- the remaining fields are flat, so migration is copying
     return
         PoolRewards
             { nextCapital = nextCapital',
@@ -86,7 +89,22 @@ migratePoolRewards newNextPayday PoolRewards{..} = do
               ..
             }
 
--- the remaining fields are flat, so migration is copying
+-- | Migrate pool rewards from @m@ to the new backing store @t m@, for use with consensus version 1.
+--  This takes the pre-migration epoch number and reward period length as parameters, and sets the
+--  next payday epoch to be the the number of epochs that were remaining until the next payday
+--  at the time of the migration, or the length of the reward period if that is smaller.
+migratePoolRewardsP6 ::
+    (SupportMigration m t, IsBlockHashVersion bhv1) =>
+    -- | The epoch number before the migration.
+    Epoch ->
+    -- | The length of the reward period.
+    RewardPeriodLength ->
+    PoolRewards bhv0 ->
+    t m (PoolRewards bhv1)
+migratePoolRewardsP6 oldEpoch rpLength pr = migratePoolRewards newNextPayday pr
+  where
+    oldPaydayEpoch = nextPaydayEpoch pr
+    newNextPayday = max 1 (min (rewardPeriodEpochs rpLength) (oldPaydayEpoch - oldEpoch))
 
 -- | Migrate pool rewards from the format before delegation to the P4 format.
 migratePoolRewardsP1 ::

@@ -575,7 +575,9 @@ data BlockRewardDetails' (av :: AccountVersion) (bhv :: BlockHashVersion) where
 type BlockRewardDetails pv = BlockRewardDetails' (AccountVersionFor pv) (BlockHashVersionFor pv)
 
 -- | Migrate the block reward details.
---  When migrating to a 'P4' or later, this sets the 'nextPaydayEpoch' to the reward period length.
+--  When migrating to 'P4' or 'P5', or from 'P5' to 'P6', this sets the 'nextPaydayEpoch' to the
+--  reward period length. Migrations from 'P6' onwards (consensus protocol version 1) will set the
+--  'nextPaydayEpoch' to occur at the same time as it would have before the protocol update.
 migrateBlockRewardDetails ::
     forall t m oldpv pv.
     ( MonadBlobStore (t m),
@@ -600,11 +602,7 @@ migrateBlockRewardDetails StateMigrationParametersTrivial _ _ tp oldEpoch = \cas
             BlockRewardDetailsV1
                 <$> migrateHashedBufferedRef migratePR hbr
           where
-            rpLength = rewardPeriodEpochs _tpRewardPeriodLength
-            migratePR pr = migratePoolRewards nextPayday pr
-              where
-                oldPaydayEpoch = nextPaydayEpoch pr
-                nextPayday = max 1 (min rpLength (oldPaydayEpoch - oldEpoch))
+            migratePR = migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength
         NoParam -> case protocolVersion @pv of {}
 migrateBlockRewardDetails StateMigrationParametersP1P2 _ _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
@@ -623,10 +621,10 @@ migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimePa
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
-migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
+migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimeParametersV1{..}) oldEpoch = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
-            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+            <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
 
 instance
     (MonadBlobStore m, IsBlockHashVersion bhv) =>
