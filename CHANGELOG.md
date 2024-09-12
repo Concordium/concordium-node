@@ -2,6 +2,12 @@
 
 ## Unreleased changes
 
+## 7.0.3
+
+- Fix a bug in the computation of the genesis height after the second protocol update. (#1237)
+- Fix a bug where an error was incorrectly thrown when loading the consenus state immediately
+  after a protocol update (in the new consensus version) (#1236).
+
 ## 7.0.2
 
 - Fix the timing of paydays after protocol update from version 6 to 7.
