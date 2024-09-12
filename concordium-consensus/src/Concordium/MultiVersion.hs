@@ -1314,7 +1314,7 @@ startupSkov genesis = do
                                 -- continue to the next iteration. If the state for the next
                                 -- configuration is missing, 'activateThis' is called which will
                                 -- activate the configuration and trigger the protocol update.
-                                loadLoop nextSPV activateThis (genIndex + 1) (fromIntegral lastFinalizedHeight + 1)
+                                loadLoop nextSPV activateThis (genIndex + 1) (lastFinalizedHeight + 1)
                     Nothing -> activateLast
             ConsensusV1 -> do
                 let !handlers = skovV1Handlers genIndex genHeight
@@ -1377,7 +1377,7 @@ startupSkov genesis = do
                                         nextSPV
                                         activateThis
                                         (genIndex + 1)
-                                        (fromIntegral esLastFinalizedHeight + 1)
+                                        (localToAbsoluteBlockHeight genHeight esLastFinalizedHeight + 1)
                             _ -> do
                                 -- This is still the current configuration (i.e. no protocol update
                                 -- has occurred, or the protocol update is not supported), so
