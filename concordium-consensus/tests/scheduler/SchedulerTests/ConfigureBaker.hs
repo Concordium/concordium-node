@@ -859,12 +859,12 @@ testUpdateBakerOk _spv pvString =
         ( Transient.accountStaking
             . accountBaker
             %~ (stakedAmount .~ stakeAmount)
-            . (stakeEarnings .~ True)
-            . ( accountBakerInfo
-                    . bieBakerPoolInfo
-                    %~ (poolCommissionRates . transactionCommission .~ makeAmountFraction 1_000)
-                    . (poolMetadataUrl .~ emptyUrlText)
-              )
+                . (stakeEarnings .~ True)
+                . ( accountBakerInfo
+                        . bieBakerPoolInfo
+                        %~ (poolCommissionRates . transactionCommission .~ makeAmountFraction 1_000)
+                            . (poolMetadataUrl .~ emptyUrlText)
+                  )
         )
     accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
     accountBaker _ x = pure x
@@ -1206,10 +1206,10 @@ testUpdateBakerReduceStakeOk spv pvString =
                     . accountBaker
                     . accountBakerInfo
                     %~ (poolCommissionRates . bakingCommission .~ makeAmountFraction 1_000)
-                    . (poolCommissionRates . finalizationCommission .~ makeAmountFraction 1_000)
-                    . (bakerElectionVerifyKey .~ bkwpElectionVerifyKey keysWithProofs)
-                    . (bakerSignatureVerifyKey .~ bkwpSignatureVerifyKey keysWithProofs)
-                    . (bakerAggregationVerifyKey .~ bkwpAggregationVerifyKey keysWithProofs)
+                        . (poolCommissionRates . finalizationCommission .~ makeAmountFraction 1_000)
+                        . (bakerElectionVerifyKey .~ bkwpElectionVerifyKey keysWithProofs)
+                        . (bakerSignatureVerifyKey .~ bkwpSignatureVerifyKey keysWithProofs)
+                        . (bakerAggregationVerifyKey .~ bkwpAggregationVerifyKey keysWithProofs)
               )
     accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
     accountBaker _ x = pure x
