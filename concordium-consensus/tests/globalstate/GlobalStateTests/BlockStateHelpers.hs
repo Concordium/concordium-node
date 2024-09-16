@@ -80,6 +80,8 @@ data AccountConfig (av :: AccountVersion) = AccountConfig
     }
     deriving (Show)
 
+<<<<<<< Conflict 1 of 3
++++++++ Contents of side #1
 dummyBakerPoolInfo :: BakerPoolInfo
 dummyBakerPoolInfo =
     BakerPoolInfo
@@ -99,7 +101,16 @@ setAccountStakeDetails ::
     forall av m.
     (MonadBlobStore m, AVSupportsDelegation av, IsAccountVersion av) =>
     AccountIndex ->
+%%%%%%% Changes from base to side #2
+ -- | Helper function for creating the initial stake for an account.
+ makePersistentAccountStakeEnduring ::
++    forall m av.
+     (MonadBlobStore m, AVSupportsFlexibleCooldown av, AVSupportsDelegation av, IsAccountVersion av) =>
+     -- | The 'StakeDetails' for the account.
+>>>>>>> Conflict 1 of 3 ends
     StakeDetails av ->
+<<<<<<< Conflict 2 of 3
++++++++ Contents of side #1
     Maybe BakerPoolInfo ->
     PersistentAccount av ->
     m (PersistentAccount av)
@@ -128,6 +139,54 @@ setAccountStakeDetails ai StakeDetailsDelegator{..} _ acc =
               _delegationPendingChange = NoChange,
               _delegationIdentity = DelegatorId ai
             }
+%%%%%%% Changes from base to side #2
+     -- | The account index.
+     AccountIndex ->
+     -- | The 'SV1.PersistentAccountStakeEnduring' and the amount staked.
+     m (SV1.PersistentAccountStakeEnduring av, Amount)
+ makePersistentAccountStakeEnduring StakeDetailsNone _ = return (SV1.PersistentAccountStakeEnduringNone, 0)
+ makePersistentAccountStakeEnduring StakeDetailsBaker{..} ai = do
+     let fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
+     paseBakerInfo <-
+         refMake
+             BakerInfoExV1
+                 { _bieBakerInfo = fulBaker ^. bakerInfo,
+-                  _bieBakerPoolInfo = poolInfo
++                  _bieBakerPoolInfo = poolInfo,
++                  _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+                 }
+     return
+         ( SV1.PersistentAccountStakeEnduringBaker
+             { paseBakerRestakeEarnings = sdRestakeEarnings,
+               paseBakerPendingChange = NoChange,
+               ..
+             },
+           sdStakedCapital
+         )
+   where
+     poolInfo =
+         BakerPoolInfo
+             { _poolOpenStatus = OpenForAll,
+               _poolMetadataUrl = UrlText "Some URL",
+               _poolCommissionRates =
+                 CommissionRates
+                     { _finalizationCommission = makeAmountFraction 50_000,
+                       _bakingCommission = makeAmountFraction 50_000,
+                       _transactionCommission = makeAmountFraction 50_000
+                     }
+             }
++    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
+ makePersistentAccountStakeEnduring StakeDetailsDelegator{..} ai = do
+     return
+         ( SV1.PersistentAccountStakeEnduringDelegator
+             { paseDelegatorId = DelegatorId ai,
+               paseDelegatorRestakeEarnings = sdRestakeEarnings,
+               paseDelegatorTarget = sdDelegationTarget,
+               paseDelegatorPendingChange = NoChange
+             },
+           sdStakedCapital
+         )
+>>>>>>> Conflict 2 of 3 ends
 
 -- | Create a dummy 'PersistentAccount' from an 'AccountConfig'.
 makeDummyAccount ::
@@ -139,6 +198,8 @@ makeDummyAccount ::
     AccountConfig av ->
     m (PersistentAccount av)
 makeDummyAccount AccountConfig{..} = do
+<<<<<<< Conflict 3 of 3
++++++++ Contents of side #1
     acc0 <- makeTestAccountFromSeed @av acAmount (fromIntegral acAccountIndex)
     acc1 <- setAccountStakeDetails acAccountIndex acStaking acPoolInfo acc0
     case sSupportsFlexibleCooldown (accountVersion @av) of
@@ -164,6 +225,31 @@ makeDummyAccount AccountConfig{..} = do
                     PAV4
                         acc{SV1.accountEnduringData = newEnduring}
         SFalse -> return acc1
+%%%%%%% Changes from base to side #2
+     makeTestAccountFromSeed @av acAmount (fromIntegral acAccountIndex) >>= \case
+         PAV3 acc -> do
+             let ed = SV1.enduringData acc
+             cq <- CooldownQueue.makeCooldownQueue acCooldowns
+             (staking, stakeAmount) <- makePersistentAccountStakeEnduring acStaking acAccountIndex
+             newEnduring <-
+                 refMake
+                     =<< SV1.rehashAccountEnduringData
+                         ed{SV1.paedStakeCooldown = cq, SV1.paedStake = staking}
+             return $
+                 PAV3
+                     acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
++        PAV4 acc -> do
++            let ed = SV1.enduringData acc
++            cq <- CooldownQueue.makeCooldownQueue acCooldowns
++            (staking, stakeAmount) <- makePersistentAccountStakeEnduring acStaking acAccountIndex
++            newEnduring <-
++                refMake
++                    =<< SV1.rehashAccountEnduringData
++                        ed{SV1.paedStakeCooldown = cq, SV1.paedStake = staking}
++            return $
++                PAV4
++                    acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
+>>>>>>> Conflict 3 of 3 ends
 
 -- | Run a block state computation using a temporary directory for the blob store and account map.
 runTestBlockState ::
