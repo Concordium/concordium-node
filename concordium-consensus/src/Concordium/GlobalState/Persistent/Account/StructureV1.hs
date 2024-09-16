@@ -1454,6 +1454,8 @@ setStake ::
     m (PersistentAccount av)
 setStake newStake acc = return $! acc{accountStakedAmount = newStake}
 
+-- | Set the suspended flag of a validator account.
+--  This MUST only be called with an account that is a validator.
 setSuspended ::
     forall av m.
     ( MonadBlobStore m,
