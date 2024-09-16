@@ -21,6 +21,7 @@ import Test.HUnit
 
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Conditionally
 import Concordium.Types.Execution
 import Concordium.Types.Option
 
@@ -57,6 +58,11 @@ dummyCooldownAccount ai amt cooldowns = do
             cq <- CooldownQueue.makeCooldownQueue cooldowns
             newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
             return $ PAV3 acc{SV1.accountEnduringData = newEnduring}
+        PAV4 acc -> do
+            let ed = SV1.enduringData acc
+            cq <- CooldownQueue.makeCooldownQueue cooldowns
+            newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
+            return $ PAV4 acc{SV1.accountEnduringData = newEnduring}
 
 -- | A configuration for an account, specifying the account index, amount, staking details and
 --  cooldowns. This is used to create accounts for testing.
@@ -70,6 +76,7 @@ data AccountConfig (av :: AccountVersion) = AccountConfig
 
 -- | Helper function for creating the initial stake for an account.
 makePersistentAccountStakeEnduring ::
+    forall m av.
     (MonadBlobStore m, AVSupportsFlexibleCooldown av, AVSupportsDelegation av, IsAccountVersion av) =>
     -- | The 'StakeDetails' for the account.
     StakeDetails av ->
@@ -84,7 +91,8 @@ makePersistentAccountStakeEnduring StakeDetailsBaker{..} ai = do
         refMake
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. bakerInfo,
-                  _bieBakerPoolInfo = poolInfo
+                  _bieBakerPoolInfo = poolInfo,
+                  _bieAccountIsSuspended = conditionally hasValidatorSuspension False
                 }
     return
         ( SV1.PersistentAccountStakeEnduringBaker
@@ -106,6 +114,7 @@ makePersistentAccountStakeEnduring StakeDetailsBaker{..} ai = do
                       _transactionCommission = makeAmountFraction 50_000
                     }
             }
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
 makePersistentAccountStakeEnduring StakeDetailsDelegator{..} ai = do
     return
         ( SV1.PersistentAccountStakeEnduringDelegator
@@ -138,6 +147,17 @@ makeDummyAccount AccountConfig{..} = do
                         ed{SV1.paedStakeCooldown = cq, SV1.paedStake = staking}
             return $
                 PAV3
+                    acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
+        PAV4 acc -> do
+            let ed = SV1.enduringData acc
+            cq <- CooldownQueue.makeCooldownQueue acCooldowns
+            (staking, stakeAmount) <- makePersistentAccountStakeEnduring acStaking acAccountIndex
+            newEnduring <-
+                refMake
+                    =<< SV1.rehashAccountEnduringData
+                        ed{SV1.paedStakeCooldown = cq, SV1.paedStake = staking}
+            return $
+                PAV4
                     acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
 
 -- | Run a block state computation using a temporary directory for the blob store and account map.
