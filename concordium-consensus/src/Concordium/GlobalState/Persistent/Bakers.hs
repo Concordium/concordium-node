@@ -166,7 +166,6 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
             }
 
 -- | Look up a baker and its stake in a 'PersistentEpochBakers'.
--- TODO (drsk) change returned effective stake depending on whether the account is suspended or not.
 epochBaker ::
     forall m pv.
     (IsProtocolVersion pv, MonadBlobStore m) =>

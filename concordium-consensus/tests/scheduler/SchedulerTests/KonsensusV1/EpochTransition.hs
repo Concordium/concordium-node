@@ -479,7 +479,8 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
                 (BakerInfoExV1 info extra _isSuspended) ->
                     FullBakerInfoEx
                         { _exFullBakerInfo = FullBakerInfo info stake,
-                          _bakerPoolCommissionRates = extra ^. poolCommissionRates
+                          _bakerPoolCommissionRates = extra ^. poolCommissionRates,
+                          _isSuspended = False
                         }
     bkrs <- mapM mkFullBaker bakerStakes
     let updatedBakerStakes = FullBakersEx (Vec.fromList bkrs) (sum $ snd <$> bakerStakes)
@@ -538,7 +539,8 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
                 (BakerInfoExV1 info extra _isSuspended) ->
                     FullBakerInfoEx
                         { _exFullBakerInfo = FullBakerInfo info stake,
-                          _bakerPoolCommissionRates = extra ^. poolCommissionRates
+                          _bakerPoolCommissionRates = extra ^. poolCommissionRates,
+                          _isSuspended = False
                         }
     bkrs <- mapM mkFullBaker bakerStakes
     let updatedBakerStakes = FullBakersEx (Vec.fromList bkrs) (sum $ snd <$> bakerStakes)
@@ -626,7 +628,8 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ 
                 (BakerInfoExV1 info extra _isSuspended) ->
                     FullBakerInfoEx
                         { _exFullBakerInfo = FullBakerInfo info stake,
-                          _bakerPoolCommissionRates = extra ^. poolCommissionRates
+                          _bakerPoolCommissionRates = extra ^. poolCommissionRates,
+                          _isSuspended = False
                         }
     bkrs <- mapM mkFullBaker bakerStakes
     let updatedBakerStakes = FullBakersEx (Vec.fromList bkrs) (sum $ snd <$> bakerStakes)
