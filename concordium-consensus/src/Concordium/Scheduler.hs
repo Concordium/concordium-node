@@ -2021,29 +2021,33 @@ handleAddBaker wtc abElectionVerifyKey abSignatureVerifyKey abAggregationVerifyK
                     else return (TxReject InvalidProof, energyCost, usedEnergy)
 
 -- | Argument to configure baker 'withDeposit' continuation.
-data ConfigureBakerCont
-    = ConfigureAddBakerCont
-        { cbcCapital :: !Amount,
-          cbcRestakeEarnings :: !Bool,
-          cbcOpenForDelegation :: !OpenStatus,
-          cbcKeysWithProofs :: !BakerKeysWithProofs,
-          cbcMetadataURL :: !UrlText,
-          cbcTransactionFeeCommission :: !AmountFraction,
-          cbcBakingRewardCommission :: !AmountFraction,
-          cbcFinalizationRewardCommission :: !AmountFraction
+data ConfigureBakerCont (av :: AccountVersion)
+    = CBCAdd
+        { -- | When flexible cooldown is supported, we can add a baker when there already is a
+          --  delegator on the account, but we have to remove the delegator first. This flag indicates
+          --  if there is a delegator to remove.
+          cbcRemoveDelegator :: !(Conditionally (SupportsFlexibleCooldown av) Bool),
+          -- | The parameters defining the baker to add.
+          cbcValidatorAdd :: !BI.ValidatorAdd
         }
-    | ConfigureUpdateBakerCont
-
--- | Argument to configure delegation 'withDeposit' continuation.
-data ConfigureDelegationCont
-    = ConfigureAddDelegationCont
-        { cdcCapital :: !Amount,
-          cdcRestakeEarnings :: !Bool,
-          cdcDelegationTarget :: !DelegationTarget
+    | CBCUpdate
+        { -- | The parameters defining the update to the baker.
+          cbcValidatorUpdate :: !BI.ValidatorUpdate
         }
-    | ConfigureUpdateDelegationCont
 
+-- | Check that the ownership proofs for keys used for a configure baker transaction are valid.
+checkConfigureBakerKeys :: AccountAddress -> BakerKeysWithProofs -> Bool
+checkConfigureBakerKeys senderAddress BakerKeysWithProofs{..} =
+    electionP && signP && aggregationP
+  where
+    challenge = configureBakerKeyChallenge senderAddress bkwpElectionVerifyKey bkwpSignatureVerifyKey bkwpAggregationVerifyKey
+    electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
+    signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
+    aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
+
+-- | Handler for a configure baker transaction.
 handleConfigureBaker ::
+    forall m.
     ( PVSupportsDelegation (MPV m),
       SchedulerMonad m
     ) =>
@@ -2078,176 +2082,176 @@ handleConfigureBaker
         withDeposit wtc tickGetArgAndBalance chargeAndExecute
       where
         senderAccount = wtc ^. wtcSenderAccount
+        senderAccountIndex = fst senderAccount
+        bid = BakerId senderAccountIndex
         senderAddress = wtc ^. wtcSenderAddress
-        configureAddBakerArg =
-            case ( cbCapital,
-                   cbRestakeEarnings,
-                   cbOpenForDelegation,
-                   cbKeysWithProofs,
-                   cbMetadataURL,
-                   cbTransactionFeeCommission,
-                   cbBakingRewardCommission,
-                   cbFinalizationRewardCommission
-                 ) of
-                ( Just cbcCapital,
-                  Just cbcRestakeEarnings,
-                  Just cbcOpenForDelegation,
-                  Just cbcKeysWithProofs,
-                  Just cbcMetadataURL,
-                  Just cbcTransactionFeeCommission,
-                  Just cbcBakingRewardCommission,
-                  Just cbcFinalizationRewardCommission
-                    ) ->
-                        return ConfigureAddBakerCont{..}
-                _ ->
-                    rejectTransaction MissingBakerAddParameters
-        configureUpdateBakerArg =
-            return ConfigureUpdateBakerCont
-        areKeysOK BakerKeysWithProofs{..} =
-            let challenge = configureBakerKeyChallenge senderAddress bkwpElectionVerifyKey bkwpSignatureVerifyKey bkwpAggregationVerifyKey
-                electionP = checkElectionKeyProof challenge bkwpElectionVerifyKey bkwpProofElection
-                signP = checkSignatureVerifyKeyProof challenge bkwpSignatureVerifyKey bkwpProofSig
-                aggregationP = Bls.checkProofOfKnowledgeSK challenge bkwpProofAggregation bkwpAggregationVerifyKey
-            in  electionP && signP && aggregationP
+        flexibleCooldown = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor (MPV m)))
+        mCBCAdd ::
+            Conditionally (SupportsFlexibleCooldown (AccountVersionFor (MPV m))) Bool ->
+            Amount ->
+            Bool ->
+            Maybe (ConfigureBakerCont (AccountVersionFor (MPV m)))
+        mCBCAdd removeDelegator vaCapital vaRestakeEarnings = do
+            vaKeys <- BI.bakerKeysWithoutProofs <$> cbKeysWithProofs
+            _transactionCommission <- cbTransactionFeeCommission
+            _bakingCommission <- cbBakingRewardCommission
+            _finalizationCommission <- cbFinalizationRewardCommission
+            let vaCommissionRates = CommissionRates{..}
+            vaOpenForDelegation <- cbOpenForDelegation
+            vaMetadataURL <- cbMetadataURL
+            return
+                CBCAdd
+                    { cbcRemoveDelegator = removeDelegator,
+                      cbcValidatorAdd = BI.ValidatorAdd{..}
+                    }
+        makeArg = do
+            accountStake <- getAccountStake (snd senderAccount)
+            case accountStake of
+                AccountStakeNone -> do
+                    let removeDelegator = conditionally flexibleCooldown False
+                    case join $ mCBCAdd removeDelegator <$> cbCapital <*> cbRestakeEarnings of
+                        Just va -> return va
+                        Nothing -> rejectTransaction MissingBakerAddParameters
+                AccountStakeDelegate del -> case flexibleCooldown of
+                    SFalse -> rejectTransaction AlreadyADelegator
+                    STrue -> do
+                        -- Where flexible cooldown is supported, we can transition from a
+                        -- delegator to a validator. If the stake amount or restake earnings
+                        -- flags are not specified, we inherit them from the delegator.
+                        let capital = fromMaybe (_delegationStakedAmount del) cbCapital
+                        let restake = fromMaybe (_delegationStakeEarnings del) cbRestakeEarnings
+                        case mCBCAdd (CTrue True) capital restake of
+                            Just va -> return va
+                            Nothing -> rejectTransaction MissingBakerAddParameters
+                AccountStakeBaker _ -> do
+                    return
+                        CBCUpdate
+                            { cbcValidatorUpdate =
+                                BI.ValidatorUpdate
+                                    { vuKeys = BI.bakerKeysWithoutProofs <$> cbKeysWithProofs,
+                                      vuCapital = cbCapital,
+                                      vuRestakeEarnings = cbRestakeEarnings,
+                                      vuMetadataURL = cbMetadataURL,
+                                      vuTransactionFeeCommission = cbTransactionFeeCommission,
+                                      vuBakingRewardCommission = cbBakingRewardCommission,
+                                      vuFinalizationRewardCommission = cbFinalizationRewardCommission,
+                                      vuOpenForDelegation = cbOpenForDelegation
+                                    }
+                            }
         tickGetArgAndBalance = do
             -- Charge the energy cost before checking the validity of the parameters.
             if isJust cbKeysWithProofs
                 then tickEnergy Cost.configureBakerCostWithKeys
                 else tickEnergy Cost.configureBakerCostWithoutKeys
-            accountStake <- getAccountStake (snd senderAccount)
-            arg <- case accountStake of
-                AccountStakeNone -> configureAddBakerArg
-                AccountStakeDelegate _ -> rejectTransaction AlreadyADelegator
-                AccountStakeBaker _ ->
-                    configureUpdateBakerArg
+            arg <- makeArg
             (arg,) <$> getCurrentAccountTotalAmount senderAccount
         chargeAndExecute ls argAndBalance = do
             (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
             chargeExecutionCost senderAccount energyCost
-            executeConfigure energyCost usedEnergy argAndBalance
-        executeConfigure energyCost usedEnergy (ConfigureAddBakerCont{..}, accountBalance) = do
-            if accountBalance < cbcCapital
-                then -- The balance is insufficient.
-                    return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
-                else
-                    if areKeysOK cbcKeysWithProofs
-                        then do
-                            let bca =
-                                    BI.BakerConfigureAdd
-                                        { bcaKeys =
-                                            BI.BakerKeyUpdate
-                                                { bkuSignKey = bkwpSignatureVerifyKey cbcKeysWithProofs,
-                                                  bkuAggregationKey = bkwpAggregationVerifyKey cbcKeysWithProofs,
-                                                  bkuElectionKey = bkwpElectionVerifyKey cbcKeysWithProofs
-                                                },
-                                          bcaCapital = cbcCapital,
-                                          bcaRestakeEarnings = cbcRestakeEarnings,
-                                          bcaOpenForDelegation = cbcOpenForDelegation,
-                                          bcaMetadataURL = cbcMetadataURL,
-                                          bcaTransactionFeeCommission = cbcTransactionFeeCommission,
-                                          bcaBakingRewardCommission = cbcBakingRewardCommission,
-                                          bcaFinalizationRewardCommission = cbcFinalizationRewardCommission
-                                        }
-                            res <- configureBaker (fst senderAccount) bca
-                            kResult energyCost usedEnergy bca res
-                        else return (TxReject InvalidProof, energyCost, usedEnergy)
-        executeConfigure energyCost usedEnergy (ConfigureUpdateBakerCont, accountBalance) = do
-            if maybe False (accountBalance <) cbCapital
-                then return (TxReject InsufficientBalanceForBakerStake, energyCost, usedEnergy)
-                else
-                    if maybe True areKeysOK cbKeysWithProofs
-                        then do
-                            -- The proof validates that the baker owns all the private keys,
-                            -- thus we can try to create the baker.
-                            let bku =
-                                    cbKeysWithProofs <&> \BakerKeysWithProofs{..} ->
-                                        BI.BakerKeyUpdate
-                                            { bkuSignKey = bkwpSignatureVerifyKey,
-                                              bkuAggregationKey = bkwpAggregationVerifyKey,
-                                              bkuElectionKey = bkwpElectionVerifyKey
-                                            }
-                            cm <- getChainMetadata
-                            let bcu =
-                                    BI.BakerConfigureUpdate
-                                        { bcuSlotTimestamp = slotTime cm,
-                                          bcuKeys = bku,
-                                          bcuCapital = cbCapital,
-                                          bcuRestakeEarnings = cbRestakeEarnings,
-                                          bcuOpenForDelegation = cbOpenForDelegation,
-                                          bcuMetadataURL = cbMetadataURL,
-                                          bcuTransactionFeeCommission = cbTransactionFeeCommission,
-                                          bcuBakingRewardCommission = cbBakingRewardCommission,
-                                          bcuFinalizationRewardCommission = cbFinalizationRewardCommission
-                                        }
-                            res <- configureBaker (fst senderAccount) bcu
-                            kResult energyCost usedEnergy bcu res
-                        else return (TxReject InvalidProof, energyCost, usedEnergy)
-        kResult energyCost usedEnergy BI.BakerConfigureUpdate{} (BI.BCSuccess changes bid) = do
-            let events =
-                    changes <&> \case
-                        BI.BakerConfigureStakeIncreased newStake ->
-                            BakerStakeIncreased bid senderAddress newStake
-                        BI.BakerConfigureStakeReduced newStake
-                            | newStake == 0 -> BakerRemoved bid senderAddress
-                            | otherwise -> BakerStakeDecreased bid senderAddress newStake
-                        BI.BakerConfigureRestakeEarnings newRestakeEarnings ->
-                            BakerSetRestakeEarnings bid senderAddress newRestakeEarnings
-                        BI.BakerConfigureOpenForDelegation newOpenStatus ->
-                            BakerSetOpenStatus bid senderAddress newOpenStatus
-                        BI.BakerConfigureUpdateKeys BI.BakerKeyUpdate{..} ->
-                            BakerKeysUpdated
-                                { ebkuBakerId = bid,
-                                  ebkuAccount = senderAddress,
-                                  ebkuSignKey = bkuSignKey,
-                                  ebkuElectionKey = bkuElectionKey,
-                                  ebkuAggregationKey = bkuAggregationKey
-                                }
-                        BI.BakerConfigureMetadataURL newMetadataURL ->
-                            BakerSetMetadataURL bid senderAddress newMetadataURL
-                        BI.BakerConfigureTransactionFeeCommission transactionFeeCommission ->
-                            BakerSetTransactionFeeCommission bid senderAddress transactionFeeCommission
-                        BI.BakerConfigureBakingRewardCommission bakingRewardCommission ->
-                            BakerSetBakingRewardCommission bid senderAddress bakingRewardCommission
-                        BI.BakerConfigureFinalizationRewardCommission finalizationRewardCommission ->
-                            BakerSetFinalizationRewardCommission bid senderAddress finalizationRewardCommission
-            return (TxSuccess events, energyCost, usedEnergy)
-        kResult energyCost usedEnergy BI.BakerConfigureAdd{..} (BI.BCSuccess _ bid) = do
-            let events =
-                    [ BakerAdded
-                        { ebaBakerId = bid,
-                          ebaAccount = senderAddress,
-                          ebaSignKey = BI.bkuSignKey bcaKeys,
-                          ebaElectionKey = BI.bkuElectionKey bcaKeys,
-                          ebaAggregationKey = BI.bkuAggregationKey bcaKeys,
-                          ebaStake = bcaCapital,
-                          ebaRestakeEarnings = bcaRestakeEarnings
-                        },
-                      BakerSetRestakeEarnings bid senderAddress bcaRestakeEarnings,
-                      BakerSetOpenStatus bid senderAddress bcaOpenForDelegation,
-                      BakerSetMetadataURL bid senderAddress bcaMetadataURL,
-                      BakerSetTransactionFeeCommission bid senderAddress bcaTransactionFeeCommission,
-                      BakerSetBakingRewardCommission bid senderAddress bcaBakingRewardCommission,
-                      BakerSetFinalizationRewardCommission bid senderAddress bcaFinalizationRewardCommission
-                    ]
-            return (TxSuccess events, energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ BI.BCInvalidAccount =
-            return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ (BI.BCDuplicateAggregationKey key) =
-            return (TxReject (DuplicateAggregationKey key), energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ BI.BCStakeUnderThreshold =
-            return (TxReject StakeUnderMinimumThresholdForBaking, energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ BI.BCTransactionFeeCommissionNotInRange =
-            return (TxReject TransactionFeeCommissionNotInRange, energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ BI.BCBakingRewardCommissionNotInRange =
-            return (TxReject BakingRewardCommissionNotInRange, energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ BI.BCFinalizationRewardCommissionNotInRange =
-            return (TxReject FinalizationRewardCommissionNotInRange, energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ BI.BCChangePending =
-            return (TxReject BakerInCooldown, energyCost, usedEnergy)
-        kResult energyCost usedEnergy _ BI.BCInvalidBaker =
-            return (TxReject (NotABaker senderAddress), energyCost, usedEnergy)
+            result <- executeConfigure argAndBalance
+            return (result, energyCost, usedEnergy)
+        -- Check the proofs are valid, if we are updating the keys.
+        -- (If there is no key update, then this is trivially 'True'.)
+        proofsValid = maybe True (checkConfigureBakerKeys senderAddress) cbKeysWithProofs
+        executeConfigure (CBCAdd{..}, accountBalance)
+            | accountBalance < BI.vaCapital cbcValidatorAdd =
+                return (TxReject InsufficientBalanceForBakerStake)
+            | not proofsValid =
+                return (TxReject InvalidProof)
+            | otherwise = do
+                (removedDelegator, removeStake) <- case cbcRemoveDelegator of
+                    CTrue True -> do
+                        cm <- getChainMetadata
+                        return (True, RemoveExistingStake (slotTime cm))
+                    _ -> return (False, NoExistingStake)
+                addValidator senderAccountIndex removeStake cbcValidatorAdd <&> \case
+                    Left failure -> rejectResult failure
+                    Right () -> addResult removedDelegator cbcValidatorAdd
+        executeConfigure (CBCUpdate{..}, accountBalance)
+            | Just newCapital <- cbCapital,
+              accountBalance < newCapital =
+                return (TxReject InsufficientBalanceForBakerStake)
+            | not proofsValid =
+                return (TxReject InvalidProof)
+            | otherwise = do
+                cm <- getChainMetadata
+                updateValidator (slotTime cm) senderAccountIndex cbcValidatorUpdate <&> \case
+                    Left failure -> rejectResult failure
+                    Right changes -> updateResult changes
+        addResult removedDelegator BI.ValidatorAdd{vaCommissionRates = CommissionRates{..}, ..} =
+            TxSuccess $
+                [DelegationRemoved (DelegatorId senderAccountIndex) senderAddress | removedDelegator]
+                    ++ [ BakerAdded
+                            { ebaBakerId = bid,
+                              ebaAccount = senderAddress,
+                              ebaSignKey = BI.bkuSignKey vaKeys,
+                              ebaElectionKey = BI.bkuElectionKey vaKeys,
+                              ebaAggregationKey = BI.bkuAggregationKey vaKeys,
+                              ebaStake = vaCapital,
+                              ebaRestakeEarnings = vaRestakeEarnings
+                            },
+                         BakerSetRestakeEarnings bid senderAddress vaRestakeEarnings,
+                         BakerSetOpenStatus bid senderAddress vaOpenForDelegation,
+                         BakerSetMetadataURL bid senderAddress vaMetadataURL,
+                         BakerSetTransactionFeeCommission bid senderAddress _transactionCommission,
+                         BakerSetBakingRewardCommission bid senderAddress _bakingCommission,
+                         BakerSetFinalizationRewardCommission bid senderAddress _finalizationCommission
+                       ]
+        updateResult changes =
+            TxSuccess $
+                changes <&> \case
+                    BI.BakerConfigureStakeIncreased newStake ->
+                        BakerStakeIncreased bid senderAddress newStake
+                    BI.BakerConfigureStakeReduced newStake
+                        | newStake == 0 -> BakerRemoved bid senderAddress
+                        | otherwise -> BakerStakeDecreased bid senderAddress newStake
+                    BI.BakerConfigureRestakeEarnings newRestakeEarnings ->
+                        BakerSetRestakeEarnings bid senderAddress newRestakeEarnings
+                    BI.BakerConfigureOpenForDelegation newOpenStatus ->
+                        BakerSetOpenStatus bid senderAddress newOpenStatus
+                    BI.BakerConfigureUpdateKeys BI.BakerKeyUpdate{..} ->
+                        BakerKeysUpdated
+                            { ebkuBakerId = bid,
+                              ebkuAccount = senderAddress,
+                              ebkuSignKey = bkuSignKey,
+                              ebkuElectionKey = bkuElectionKey,
+                              ebkuAggregationKey = bkuAggregationKey
+                            }
+                    BI.BakerConfigureMetadataURL newMetadataURL ->
+                        BakerSetMetadataURL bid senderAddress newMetadataURL
+                    BI.BakerConfigureTransactionFeeCommission transactionFeeCommission ->
+                        BakerSetTransactionFeeCommission bid senderAddress transactionFeeCommission
+                    BI.BakerConfigureBakingRewardCommission bakingRewardCommission ->
+                        BakerSetBakingRewardCommission bid senderAddress bakingRewardCommission
+                    BI.BakerConfigureFinalizationRewardCommission finalizationRewardCommission ->
+                        BakerSetFinalizationRewardCommission bid senderAddress finalizationRewardCommission
+        rejectResult failure =
+            TxReject $! case failure of
+                BI.VCFStakeUnderThreshold -> StakeUnderMinimumThresholdForBaking
+                BI.VCFTransactionFeeCommissionNotInRange -> TransactionFeeCommissionNotInRange
+                BI.VCFBakingRewardCommissionNotInRange -> BakingRewardCommissionNotInRange
+                BI.VCFFinalizationRewardCommissionNotInRange -> FinalizationRewardCommissionNotInRange
+                BI.VCFDuplicateAggregationKey key -> DuplicateAggregationKey key
+                BI.VCFChangePending -> BakerInCooldown
 
+-- | Argument to the 'withDeposit' continuation for 'handleConfigureDelegation'.
+data ConfigureDelegationCont (av :: AccountVersion)
+    = CDCAdd
+        { -- | When flexible cooldown is supported, we can add a delegator when there already is
+          -- a validator on the account, but we have to remove the validator first. This flag
+          -- indicates if there is a validator to remove.
+          cdcRemoveValidator :: !(Conditionally (SupportsFlexibleCooldown av) Bool),
+          -- | The parameters defining the delegator to add.
+          cdcDelegatorAdd :: !BI.DelegatorAdd
+        }
+    | CDCUpdate
+        { -- | The parameters defining the update to the delegator.
+          cdcDelegatorUpdate :: !BI.DelegatorUpdate
+        }
+
+-- | Handler for a configure delegation transaction.
 handleConfigureDelegation ::
+    forall m.
     (PVSupportsDelegation (MPV m), SchedulerMonad m) =>
     WithDepositContext m ->
     Maybe Amount ->
@@ -2255,103 +2259,108 @@ handleConfigureDelegation ::
     Maybe DelegationTarget ->
     m (Maybe TransactionSummary)
 handleConfigureDelegation wtc cdCapital cdRestakeEarnings cdDelegationTarget =
-    withDeposit wtc tickAndGetAccountBalance kWithAccountBalance
+    withDeposit wtc tickAndGetAccountBalance chargeAndExecute
   where
     senderAccount = wtc ^. wtcSenderAccount
+    senderAccountIndex = fst senderAccount
+    did = DelegatorId senderAccountIndex
     senderAddress = wtc ^. wtcSenderAddress
 
-    configureAddDelegationArg =
-        case (cdCapital, cdRestakeEarnings, cdDelegationTarget) of
-            (Just cdcCapital, _, _)
-                | cdcCapital == 0 ->
-                    rejectTransaction InsufficientDelegationStake
-            (Just cdcCapital, Just cdcRestakeEarnings, Just cdcDelegationTarget) ->
-                return ConfigureAddDelegationCont{..}
-            _ ->
-                rejectTransaction MissingDelegationAddParameters
-    configureUpdateDelegationArg = return ConfigureUpdateDelegationCont
-
+    flexibleCooldown = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor (MPV m)))
     tickAndGetAccountBalance = do
         -- Charge the energy cost and then check the validity of the parameters.
         tickEnergy Cost.configureDelegationCost
         accountStake <- getAccountStake (snd senderAccount)
-        arg <- case accountStake of
-            AccountStakeNone -> configureAddDelegationArg
-            AccountStakeBaker ab ->
-                rejectTransaction $
-                    AlreadyABaker $
+        arg :: (ConfigureDelegationCont (AccountVersionFor (MPV m))) <- case accountStake of
+            AccountStakeNone -> case mDelegatorAdd of
+                Just da | BI.daCapital da == 0 -> rejectTransaction InsufficientDelegationStake
+                Just da -> return (CDCAdd (conditionally flexibleCooldown False) da)
+                Nothing -> rejectTransaction MissingDelegationAddParameters
+              where
+                mDelegatorAdd = do
+                    daCapital <- cdCapital
+                    daRestakeEarnings <- cdRestakeEarnings
+                    daDelegationTarget <- cdDelegationTarget
+                    return BI.DelegatorAdd{..}
+            AccountStakeBaker ab -> case flexibleCooldown of
+                SFalse ->
+                    rejectTransaction . AlreadyABaker $
                         ab ^. accountBakerInfo . bieBakerInfo . bakerIdentity
+                STrue -> case mDelegatorAdd of
+                    Just da | BI.daCapital da == 0 -> rejectTransaction InsufficientDelegationStake
+                    Just da -> return (CDCAdd (CTrue True) da)
+                    Nothing -> rejectTransaction MissingDelegationAddParameters
+                  where
+                    mDelegatorAdd = do
+                        let daCapital = fromMaybe (ab ^. stakedAmount) cdCapital
+                        let daRestakeEarnings = fromMaybe (ab ^. stakeEarnings) cdRestakeEarnings
+                        daDelegationTarget <- cdDelegationTarget
+                        return BI.DelegatorAdd{..}
             AccountStakeDelegate _ ->
-                configureUpdateDelegationArg
+                return $
+                    CDCUpdate
+                        BI.DelegatorUpdate
+                            { duCapital = cdCapital,
+                              duRestakeEarnings = cdRestakeEarnings,
+                              duDelegationTarget = cdDelegationTarget
+                            }
         (arg,) <$> getCurrentAccountTotalAmount senderAccount
-    kWithAccountBalance ls (ConfigureAddDelegationCont{..}, accountBalance) = do
+    chargeAndExecute ls argAndBalance = do
         (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
-        if accountBalance < cdcCapital
-            then -- The balance is insufficient.
-                return (TxReject InsufficientBalanceForDelegationStake, energyCost, usedEnergy)
-            else do
-                -- The proof validates that the baker owns all the private keys,
-                -- thus we can try to create the baker.
-                let dca =
-                        BI.DelegationConfigureAdd
-                            { dcaCapital = cdcCapital,
-                              dcaRestakeEarnings = cdcRestakeEarnings,
-                              dcaDelegationTarget = cdcDelegationTarget
-                            }
-                res <- configureDelegation (fst senderAccount) dca
-                kResult energyCost usedEnergy dca res
-    kWithAccountBalance ls (ConfigureUpdateDelegationCont, accountBalance) = do
-        (usedEnergy, energyCost) <- computeExecutionCharge (wtc ^. wtcEnergyAmount) (ls ^. energyLeft)
-        chargeExecutionCost senderAccount energyCost
-        if maybe False (accountBalance <) cdCapital
-            then return (TxReject InsufficientBalanceForDelegationStake, energyCost, usedEnergy)
-            else do
-                cm <- getChainMetadata
-                let dcu =
-                        BI.DelegationConfigureUpdate
-                            { dcuSlotTimestamp = slotTime cm,
-                              dcuCapital = cdCapital,
-                              dcuRestakeEarnings = cdRestakeEarnings,
-                              dcuDelegationTarget = cdDelegationTarget
-                            }
-                res <- configureDelegation (fst senderAccount) dcu
-                kResult energyCost usedEnergy dcu res
-    kResult energyCost usedEnergy BI.DelegationConfigureUpdate{} (BI.DCSuccess changes did) = do
-        let events =
-                changes <&> \case
-                    BI.DelegationConfigureStakeIncreased newStake ->
-                        DelegationStakeIncreased did senderAddress newStake
-                    BI.DelegationConfigureStakeReduced newStake
-                        | newStake == 0 -> DelegationRemoved did senderAddress
-                        | otherwise -> DelegationStakeDecreased did senderAddress newStake
-                    BI.DelegationConfigureRestakeEarnings newRestakeEarnings ->
-                        DelegationSetRestakeEarnings did senderAddress newRestakeEarnings
-                    BI.DelegationConfigureDelegationTarget newDelegationTarget ->
-                        DelegationSetDelegationTarget did senderAddress newDelegationTarget
-        return (TxSuccess events, energyCost, usedEnergy)
-    kResult energyCost usedEnergy BI.DelegationConfigureAdd{..} (BI.DCSuccess _ did) = do
-        let events =
-                [ DelegationAdded{edaDelegatorId = did, edaAccount = senderAddress},
-                  DelegationSetDelegationTarget did senderAddress dcaDelegationTarget,
-                  DelegationSetRestakeEarnings did senderAddress dcaRestakeEarnings,
-                  DelegationStakeIncreased did senderAddress dcaCapital
-                ]
-        return (TxSuccess events, energyCost, usedEnergy)
-    kResult energyCost usedEnergy _ BI.DCInvalidAccount =
-        return (TxReject (InvalidAccountReference senderAddress), energyCost, usedEnergy)
-    kResult energyCost usedEnergy _ BI.DCChangePending =
-        return (TxReject DelegatorInCooldown, energyCost, usedEnergy)
-    kResult energyCost usedEnergy _ BI.DCInvalidDelegator =
-        return (TxReject (NotADelegator senderAddress), energyCost, usedEnergy)
-    kResult energyCost usedEnergy _ (BI.DCInvalidDelegationTarget bid) =
-        return (TxReject (DelegationTargetNotABaker bid), energyCost, usedEnergy)
-    kResult energyCost usedEnergy _ BI.DCPoolStakeOverThreshold =
-        return (TxReject StakeOverMaximumThresholdForPool, energyCost, usedEnergy)
-    kResult energyCost usedEnergy _ BI.DCPoolOverDelegated =
-        return (TxReject PoolWouldBecomeOverDelegated, energyCost, usedEnergy)
-    kResult energyCost usedEnergy _ BI.DCPoolClosed =
-        return (TxReject PoolClosed, energyCost, usedEnergy)
+        result <- executeConfigure argAndBalance
+        return (result, energyCost, usedEnergy)
+    executeConfigure (CDCAdd{..}, accountBalance)
+        | accountBalance < BI.daCapital cdcDelegatorAdd =
+            return (TxReject InsufficientBalanceForDelegationStake)
+        | otherwise = do
+            (removedValidator, removeStake) <- case cdcRemoveValidator of
+                CTrue True -> do
+                    cm <- getChainMetadata
+                    return (True, RemoveExistingStake (slotTime cm))
+                _ -> return (False, NoExistingStake)
+            addDelegator senderAccountIndex removeStake cdcDelegatorAdd <&> \case
+                Left failure -> rejectResult failure
+                Right () -> addResult removedValidator cdcDelegatorAdd
+    executeConfigure (CDCUpdate{..}, accountBalance)
+        | Just newCapital <- cdCapital,
+          accountBalance < newCapital =
+            return (TxReject InsufficientBalanceForDelegationStake)
+        | otherwise = do
+            cm <- getChainMetadata
+            updateDelegator (slotTime cm) senderAccountIndex cdcDelegatorUpdate <&> \case
+                Left failure -> rejectResult failure
+                Right changes -> updateResult changes
+
+    addResult removedValidator BI.DelegatorAdd{..} =
+        TxSuccess $
+            [BakerRemoved (BakerId senderAccountIndex) senderAddress | removedValidator]
+                ++ [ DelegationAdded
+                        { edaDelegatorId = did,
+                          edaAccount = senderAddress
+                        },
+                     DelegationSetDelegationTarget did senderAddress daDelegationTarget,
+                     DelegationSetRestakeEarnings did senderAddress daRestakeEarnings,
+                     DelegationStakeIncreased did senderAddress daCapital
+                   ]
+    updateResult changes =
+        TxSuccess $
+            changes <&> \case
+                BI.DelegationConfigureStakeIncreased newStake ->
+                    DelegationStakeIncreased did senderAddress newStake
+                BI.DelegationConfigureStakeReduced newStake
+                    | newStake == 0 -> DelegationRemoved did senderAddress
+                    | otherwise -> DelegationStakeDecreased did senderAddress newStake
+                BI.DelegationConfigureRestakeEarnings newRestakeEarnings ->
+                    DelegationSetRestakeEarnings did senderAddress newRestakeEarnings
+                BI.DelegationConfigureDelegationTarget newDelegationTarget ->
+                    DelegationSetDelegationTarget did senderAddress newDelegationTarget
+    rejectResult = \case
+        BI.DCFChangePending -> TxReject DelegatorInCooldown
+        BI.DCFInvalidDelegationTarget bid -> TxReject (DelegationTargetNotABaker bid)
+        BI.DCFPoolStakeOverThreshold -> TxReject StakeOverMaximumThresholdForPool
+        BI.DCFPoolOverDelegated -> TxReject PoolWouldBecomeOverDelegated
+        BI.DCFPoolClosed -> TxReject PoolClosed
 
 -- | Remove the baker for an account. The logic is as follows:
 --

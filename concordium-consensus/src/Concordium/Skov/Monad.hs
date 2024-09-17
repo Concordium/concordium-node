@@ -111,6 +111,8 @@ data UpdateResult
       ResultInsufficientFunds
     | -- | The consensus message is a result of double signing, indicating malicious behaviour.
       ResultDoubleSign
+    | -- | The consensus has thrown an exception and entered an unrecoverable state.
+      ResultConsensusFailure
     deriving (Eq, Show)
 
 -- | Maps a 'TV.VerificationResult' to the corresponding 'UpdateResult' type.

@@ -28,6 +28,7 @@ import Concordium.Types.Accounts
 
 import qualified Concordium.Crypto.BlockSignature as Sig
 import qualified Concordium.Crypto.BlsSignature as Bls
+import Concordium.Crypto.EncryptedTransfers
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data
 import Concordium.GlobalState.Account
@@ -75,6 +76,14 @@ dummyPersisingAccountData seed =
     addr = accountAddressFromSeed seed
     encryptionKey = toRawEncryptionKey (makeEncryptionKey dummyCryptographicParameters (credId cred))
 
+-- | A dummy account encrypted amount, with a non-trivial self balance.
+-- This is used to test the migration of accounts with non-trivial encrypted balances.
+dummyAccountEncryptedAmount :: AccountEncryptedAmount
+dummyAccountEncryptedAmount =
+    initialAccountEncryptedAmount
+        { _selfAmount = encryptAmountZeroRandomness dummyCryptographicParameters 10
+        }
+
 -- | Create a test account with the given persisting data and stake.
 --  The balance of the account is set to 1 billion CCD (10^15 uCCD).
 testAccount ::
@@ -88,7 +97,7 @@ testAccount persisting stake =
         { _accountPersisting = Transient.makeAccountPersisting persisting,
           _accountNonce = minNonce,
           _accountAmount = 1_000_000_000_000_000,
-          _accountEncryptedAmount = initialAccountEncryptedAmount,
+          _accountEncryptedAmount = dummyAccountEncryptedAmount,
           _accountReleaseSchedule = Transient.emptyAccountReleaseSchedule,
           _accountStaking = stake,
           _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av)
@@ -198,10 +207,13 @@ setupTestAccounts = do
             (ReduceStake (reducedStake 13) (PendingChangeEffectiveV1 9000))
     a14 <- mkDelegatorAccount 14 DelegatePassive (RemoveStake (PendingChangeEffectiveV1 10_000))
     accounts0 <- emptyAccounts
-    foldM
-        (\accts a -> snd <$> putNewAccount a accts)
-        accounts0
-        [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14]
+    accounts1 <-
+        foldM
+            (\accts a -> snd <$> putNewAccount a accts)
+            accounts0
+            [a0, a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14]
+    -- Store and load the accounts to ensure the data is flushed.
+    loadRef =<< storeRef accounts1
   where
     mkBakerAccount accIdx pc =
         makePersistentAccount $
@@ -359,8 +371,10 @@ tests = describe "GlobalStateTests.AccountsMigrationP6ToP7"
   where
     createPBSC dir i = do
         pbscBlobStore <- createBlobStore (dir </> ("blockstate" ++ i ++ ".dat"))
-        pbscAccountCache <- newAccountCache 100
-        pbscModuleCache <- M.newModuleCache 100
+        -- Set the account cache size to 0 to ensure that the accounts are always loaded from the
+        -- blob store.
+        pbscAccountCache <- newAccountCache 0
+        pbscModuleCache <- M.newModuleCache 0
         pbscAccountMap <- LMDBAccountMap.openDatabase (dir </> ("accountmap" ++ i))
         return PersistentBlockStateContext{..}
     destroyPBSC PersistentBlockStateContext{..} = do

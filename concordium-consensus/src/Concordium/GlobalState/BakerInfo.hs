@@ -111,6 +111,15 @@ data BakerKeyUpdate = BakerKeyUpdate
     }
     deriving (Eq, Ord, Show)
 
+-- | Extract the 'BakerKeyUpdate' from a 'BakerKeysWithProofs'.
+bakerKeysWithoutProofs :: BakerKeysWithProofs -> BakerKeyUpdate
+bakerKeysWithoutProofs BakerKeysWithProofs{..} =
+    BakerKeyUpdate
+        { bkuSignKey = bkwpSignatureVerifyKey,
+          bkuAggregationKey = bkwpAggregationVerifyKey,
+          bkuElectionKey = bkwpElectionVerifyKey
+        }
+
 data BakerKeyUpdateResult
     = -- | The keys were updated successfully
       BKUSuccess !BakerId
@@ -174,32 +183,83 @@ data BakerAddResult
       BAStakeUnderThreshold
     deriving (Eq, Ord, Show)
 
--- | Data structure used to add/remove/update baker.
-data BakerConfigure
-    = -- | Add a baker, all fields are required.
-      BakerConfigureAdd
-        { bcaKeys :: !BakerKeyUpdate,
-          bcaCapital :: !Amount,
-          bcaRestakeEarnings :: !Bool,
-          bcaOpenForDelegation :: !OpenStatus,
-          bcaMetadataURL :: !UrlText,
-          bcaTransactionFeeCommission :: !AmountFraction,
-          bcaBakingRewardCommission :: !AmountFraction,
-          bcaFinalizationRewardCommission :: !AmountFraction
+-- | Result of remove baker.
+data BakerRemoveResult
+    = -- | The baker was removed, effective from the given epoch.
+      BRRemoved !BakerId !Epoch
+    | -- | This is not a valid baker.
+      BRInvalidBaker
+    | -- | A change is already pending on this baker.
+      BRChangePending !BakerId
+    deriving (Eq, Ord, Show)
+
+-- | Parameters for adding a validator.
+data ValidatorAdd = ValidatorAdd
+    { -- | The keys for the validator.
+      vaKeys :: !BakerKeyUpdate,
+      -- | The initial stake.
+      vaCapital :: !Amount,
+      -- | Whether to restake earned rewards
+      vaRestakeEarnings :: !Bool,
+      -- | Whether the validator pool is open for delegation.
+      vaOpenForDelegation :: !OpenStatus,
+      -- | The metadata URL for the validator.
+      vaMetadataURL :: !UrlText,
+      -- | The commission rates for the validator.
+      vaCommissionRates :: !CommissionRates
+    }
+    deriving (Eq, Show)
+
+-- | Parameters for updating an existing validator. Where a field is 'Nothing', the field is not
+--  updated.
+data ValidatorUpdate = ValidatorUpdate
+    { -- | The new keys for the validator.
+      vuKeys :: !(Maybe BakerKeyUpdate),
+      -- | The new capital for the validator. If this is @Just 0@, the validator is removed.
+      vuCapital :: !(Maybe Amount),
+      -- | Whether to restake earned rewards.
+      vuRestakeEarnings :: !(Maybe Bool),
+      -- | Whether the validator pool is open for delegation.
+      vuOpenForDelegation :: !(Maybe OpenStatus),
+      -- | The new metadata URL for the validator.
+      vuMetadataURL :: !(Maybe UrlText),
+      -- | The new transaction fee commission for the validator.
+      vuTransactionFeeCommission :: !(Maybe AmountFraction),
+      -- | The new baking reward commission for the validator.
+      vuBakingRewardCommission :: !(Maybe AmountFraction),
+      -- | The new finalization reward commission for the validator.
+      vuFinalizationRewardCommission :: !(Maybe AmountFraction)
+    }
+    deriving (Eq, Show)
+
+-- | A 'ValidatorUpdate' that removes the validator.
+validatorRemove :: ValidatorUpdate
+validatorRemove =
+    ValidatorUpdate
+        { vuKeys = Nothing,
+          vuCapital = Just 0,
+          vuRestakeEarnings = Nothing,
+          vuOpenForDelegation = Nothing,
+          vuMetadataURL = Nothing,
+          vuTransactionFeeCommission = Nothing,
+          vuBakingRewardCommission = Nothing,
+          vuFinalizationRewardCommission = Nothing
         }
-    | -- | Update baker with optional fields.
-      BakerConfigureUpdate
-        { -- | The timestamp of the current slot (slot time).
-          bcuSlotTimestamp :: !Timestamp,
-          bcuKeys :: !(Maybe BakerKeyUpdate),
-          bcuCapital :: !(Maybe Amount),
-          bcuRestakeEarnings :: !(Maybe Bool),
-          bcuOpenForDelegation :: !(Maybe OpenStatus),
-          bcuMetadataURL :: !(Maybe UrlText),
-          bcuTransactionFeeCommission :: !(Maybe AmountFraction),
-          bcuBakingRewardCommission :: !(Maybe AmountFraction),
-          bcuFinalizationRewardCommission :: !(Maybe AmountFraction)
-        }
+
+-- | Failure modes when configuring a validator.
+data ValidatorConfigureFailure
+    = -- | The stake is below the required threshold dictated by current chain parameters.
+      VCFStakeUnderThreshold
+    | -- | The transaction fee commission is not in the allowed range.
+      VCFTransactionFeeCommissionNotInRange
+    | -- | The baking reward commission is not in the allowed range.
+      VCFBakingRewardCommissionNotInRange
+    | -- | The finalization reward commission is not in the allowed range.
+      VCFFinalizationRewardCommissionNotInRange
+    | -- | The aggregation key is already in use by another validator.
+      VCFDuplicateAggregationKey !BakerAggregationVerifyKey
+    | -- | A change is already pending on this validator.
+      VCFChangePending
     deriving (Eq, Show)
 
 -- | A baker update change result from configure baker. Used to indicate whether the configure will cause
@@ -216,55 +276,37 @@ data BakerConfigureUpdateChange
     | BakerConfigureFinalizationRewardCommission !AmountFraction
     deriving (Eq, Show)
 
--- | Result of configure baker.
-data BakerConfigureResult
-    = -- | Configure baker successful.
-      BCSuccess ![BakerConfigureUpdateChange] !BakerId
-    | -- | Account unknown.
-      BCInvalidAccount
-    | -- | The aggregation key already exists.
-      BCDuplicateAggregationKey !BakerAggregationVerifyKey
-    | -- | The stake is below the required threshold dictated by current chain parameters.
-      BCStakeUnderThreshold
-    | -- | The finalization reward commission is not in the allowed range.
-      BCFinalizationRewardCommissionNotInRange
-    | -- | The baking reward commission is not in the allowed range.
-      BCBakingRewardCommissionNotInRange
-    | -- | The transaction fee commission is not in the allowed range.
-      BCTransactionFeeCommissionNotInRange
-    | -- | A change is already pending on this baker.
-      BCChangePending
-    | -- | This is not a valid baker.
-      BCInvalidBaker
+-- | Parameters for adding a delegator.
+data DelegatorAdd = DelegatorAdd
+    { -- | The initial staked capital for the delegator.
+      daCapital :: !Amount,
+      -- | Whether to restake earnings.
+      daRestakeEarnings :: !Bool,
+      -- | The delegation target for the delegator.
+      daDelegationTarget :: !DelegationTarget
+    }
     deriving (Eq, Show)
 
--- | Result of remove baker.
-data BakerRemoveResult
-    = -- | The baker was removed, effective from the given epoch.
-      BRRemoved !BakerId !Epoch
-    | -- | This is not a valid baker.
-      BRInvalidBaker
-    | -- | A change is already pending on this baker.
-      BRChangePending !BakerId
-    deriving (Eq, Ord, Show)
-
--- | Data structure used to add/remove/update delegator.
-data DelegationConfigure
-    = -- | Add a delegator, all fields are required.
-      DelegationConfigureAdd
-        { dcaCapital :: !Amount,
-          dcaRestakeEarnings :: !Bool,
-          dcaDelegationTarget :: !DelegationTarget
-        }
-    | -- | Update delegator with optional fields.
-      DelegationConfigureUpdate
-        { -- | The timestamp of the current slot (slot time of the block in which the update occurs).
-          dcuSlotTimestamp :: !Timestamp,
-          dcuCapital :: !(Maybe Amount),
-          dcuRestakeEarnings :: !(Maybe Bool),
-          dcuDelegationTarget :: !(Maybe DelegationTarget)
-        }
+-- | Parameters for updating an existing delegator. Where a field is 'Nothing', the field is not
+--  updated.
+data DelegatorUpdate = DelegatorUpdate
+    { -- | The new capital for the delegator. If this is @Just 0@, the delegator is removed.
+      duCapital :: !(Maybe Amount),
+      -- | Whether to restake earnings.
+      duRestakeEarnings :: !(Maybe Bool),
+      -- | The new delegation target for the delegator.
+      duDelegationTarget :: !(Maybe DelegationTarget)
+    }
     deriving (Eq, Show)
+
+-- | A 'DelegatorUpdate' that removes the delegator.
+delegatorRemove :: DelegatorUpdate
+delegatorRemove =
+    DelegatorUpdate
+        { duCapital = Just 0,
+          duRestakeEarnings = Nothing,
+          duDelegationTarget = Nothing
+        }
 
 -- | A delegation update change result from configure delegation. Used to indicate whether the
 --  configure will cause any changes to the delegator's stake, restake earnings flag, etc.
@@ -275,24 +317,19 @@ data DelegationConfigureUpdateChange
     | DelegationConfigureDelegationTarget !DelegationTarget
     deriving (Eq, Show)
 
--- | Result of configure delegator.
-data DelegationConfigureResult
-    = -- | Configure delegation successful.
-      DCSuccess ![DelegationConfigureUpdateChange] !DelegatorId
-    | -- | Account unknown.
-      DCInvalidAccount
-    | -- | A change is already pending on this delegator.
-      DCChangePending
-    | -- | This is not a valid delegator.
-      DCInvalidDelegator
-    | -- | Delegation target is not a valid baker.
-      DCInvalidDelegationTarget !BakerId
+-- | Failure modes for configuring a delegator.
+data DelegatorConfigureFailure
+    = -- | The delegation target is not a valid baker.
+      DCFInvalidDelegationTarget !BakerId
     | -- | The pool is not open for delegators.
-      DCPoolClosed
+      DCFPoolClosed
     | -- | The pool's total capital would become too large.
-      DCPoolStakeOverThreshold
-    | -- | The delegated capital would become too large in comparison with pool owner's equity capital.
-      DCPoolOverDelegated
+      DCFPoolStakeOverThreshold
+    | -- | The delegated capital would become too large in comparison with pool owner's equity
+      -- capital.
+      DCFPoolOverDelegated
+    | -- | A change is already pending on this delegator.
+      DCFChangePending
     deriving (Eq, Show)
 
 -- | Construct an 'AccountBaker' from a 'GenesisBaker'.

@@ -2,6 +2,24 @@
 
 ## Unreleased changes
 
+## 7.0.3
+
+- Fix a bug in the computation of the genesis height after the second protocol update. (#1237)
+- Fix a bug where an error was incorrectly thrown when loading the consenus state immediately
+  after a protocol update (in the new consensus version) (#1236).
+
+## 7.0.2
+
+- Fix the timing of paydays after protocol update from version 6 to 7.
+- Improve consensus behaviour in the event of an unrecoverable exception.
+
+## 7.0.1
+
+- Fix a bug in migration from protocol version 6 to 7.
+- Support "reboot" protocol update at protocol version 7.
+
+## 7.0.0
+
 - Fix a bug where `GetBakersRewardPeriod` returns incorrect data (#1176).
 - Fix a bug where `GetPoolInfo` returns incorrect data (#1177).
 - Change the severity of logs for failed gRPC API requests to DEBUG level.
@@ -20,6 +38,16 @@
   `TransferToPublic` remains enabled, allowing existing encrypted balances to be
   decrypted.
 - Improve logging around protocol update events.
+- Changes to stake cooldown behavior in protocol version 7:
+  - When stake is reduced or removed from a validator or delegator, it becomes
+    inactive, and is not counted for future stake calculations. The inactive
+    stake is not spendable, but is released after a cooldown period elapses.
+  - Changes to validators and delegators can be made while stake is in cooldown,
+    including changing the stake, or changing directly between validator and
+    delegator.
+- Fix a bug where a configure-validator transaction that is rejected for having
+  a duplicate aggregation key would report the old key for the validator,
+  rather than the key that is a duplicate.
 
 ## 6.3.1
 

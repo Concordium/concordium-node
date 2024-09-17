@@ -247,8 +247,8 @@ loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
             && not consensusIsShutdown
             then case mLatestFinEntry of
                 Nothing ->
-                    throwM . TreeStateInvariantViolation $
-                        "Missing finalization entry for last finalized block"
+                    -- In this case, by the above check, the last finalized block is the genesis block.
+                    return (blockEpoch lastFinBlock, Absent)
                 Just finEntry -> return (blockEpoch lastFinBlock + 1, Present finEntry)
             else return (blockEpoch lastFinBlock, Absent)
     chainParams <- getChainParameters $ bpState lastFinBlock

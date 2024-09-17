@@ -4,6 +4,7 @@ import qualified SchedulerTests.AccountTransactionSpecs (tests)
 import qualified SchedulerTests.BakerTransactions (tests)
 import qualified SchedulerTests.BlockEnergyLimitSpec (tests)
 import qualified SchedulerTests.ChainMetatest (tests)
+import qualified SchedulerTests.ConfigureBaker (tests)
 import qualified SchedulerTests.Delegation (tests)
 import qualified SchedulerTests.EncryptedTransfersTest (tests)
 import qualified SchedulerTests.FibonacciSelfMessageTest (tests)
@@ -103,6 +104,7 @@ main = hspec $ do
     SchedulerTests.SmartContracts.V1.QueriesPersistent.tests
     SchedulerTests.Payday.tests
     SchedulerTests.Delegation.tests
+    SchedulerTests.ConfigureBaker.tests
     SchedulerTests.SmartContracts.V1.P6WasmFeatures.tests
     SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
     SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests

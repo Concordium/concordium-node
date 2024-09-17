@@ -17,6 +17,7 @@ import qualified Data.Kind as DK
 import Lens.Micro.Platform
 
 import Concordium.GlobalState.Account
+import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.TreeState
 import Concordium.Logger
@@ -293,19 +294,83 @@ instance
         ssBlockState .= s'
         return ret
 
-    {-# INLINE configureBaker #-}
-    configureBaker ai bconfig = do
+    {-# INLINE addValidator #-}
+    addValidator ai removeDelegator vadd = do
         s <- use ssBlockState
-        (ret, s') <- lift (BS.bsoConfigureBaker s ai bconfig)
+        (s', res) <- lift (doAdd s)
         ssBlockState .= s'
-        return ret
+        return res
+      where
+        doAdd s0 | RemoveExistingStake ts <- removeDelegator = do
+            -- We need to remove the delegator first.
+            -- We take a snapshot of the state so we can rollback if the add fails.
+            snapshot <- BS.bsoSnapshotState s0
+            rdRes <- BS.bsoUpdateDelegator s0 ts ai BI.delegatorRemove
+            case rdRes of
+                Left e ->
+                    -- Removing the delegator cannot fail, since the account must have a delegator.
+                    error $ "addValidator: Failed to remove delegator: " ++ show e
+                Right (_, s1) -> do
+                    res <- BS.bsoAddValidator s1 ai vadd
+                    case res of
+                        Left e -> do
+                            -- Rollback the state to the snapshot.
+                            s' <- BS.bsoRollback s1 snapshot
+                            return (s', Left e)
+                        Right s' -> return (s', Right ())
+        doAdd s = do
+            res <- BS.bsoAddValidator s ai vadd
+            return $! case res of
+                Left e -> (s, Left e)
+                Right s' -> (s', Right ())
 
-    {-# INLINE configureDelegation #-}
-    configureDelegation ai dconfig = do
+    {-# INLINE updateValidator #-}
+    updateValidator ts ai vadd = do
         s <- use ssBlockState
-        (ret, s') <- lift (BS.bsoConfigureDelegation s ai dconfig)
+        lift (BS.bsoUpdateValidator s ts ai vadd) >>= \case
+            Left e -> return (Left e)
+            Right (events, s') -> do
+                ssBlockState .= s'
+                return (Right events)
+
+    {-# INLINE addDelegator #-}
+    addDelegator ai removeValidator dadd = do
+        s <- use ssBlockState
+        (s', res) <- lift (doAdd s)
         ssBlockState .= s'
-        return ret
+        return res
+      where
+        doAdd s0 | RemoveExistingStake ts <- removeValidator = do
+            -- We need to remove the validator first.
+            -- We take a snapshot of the state so we can rollback if the add fails.
+            snapshot <- BS.bsoSnapshotState s0
+            rvRes <- BS.bsoUpdateValidator s0 ts ai BI.validatorRemove
+            case rvRes of
+                Left e ->
+                    -- Removing the validator cannot fail, since the account must have a validator.
+                    error $ "addDelegator: Failed to remove validator: " ++ show e
+                Right (_, s1) -> do
+                    res <- BS.bsoAddDelegator s1 ai dadd
+                    case res of
+                        Left e -> do
+                            -- Rollback the state to the snapshot.
+                            s' <- BS.bsoRollback s1 snapshot
+                            return (s', Left e)
+                        Right s' -> return (s', Right ())
+        doAdd s = do
+            res <- BS.bsoAddDelegator s ai dadd
+            return $! case res of
+                Left e -> (s, Left e)
+                Right s' -> (s', Right ())
+
+    {-# INLINE updateDelegator #-}
+    updateDelegator ts ai dadd = do
+        s <- use ssBlockState
+        lift (BS.bsoUpdateDelegator s ts ai dadd) >>= \case
+            Left e -> return (Left e)
+            Right (events, s') -> do
+                ssBlockState .= s'
+                return (Right events)
 
     {-# INLINE removeBaker #-}
     removeBaker ai = do

@@ -120,6 +120,8 @@ transactionHelper t =
             return $ signTx keys meta (Types.encodePayload Types.EncryptedAmountTransferWithMemo{..})
         (TJSON meta TransferWithScheduleAndMemo{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.TransferWithScheduleAndMemo{..})
+        (TJSON meta ConfigureBaker{..} keys) ->
+            return $ signTx keys meta (Types.encodePayload Types.ConfigureBaker{..})
         (TJSON meta ConfigureDelegation{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.ConfigureDelegation{..})
 
@@ -231,6 +233,24 @@ data PayloadJSON
         { twswmTo :: !AccountAddress,
           twswmMemo :: !Memo,
           twswmSchedule :: ![(Timestamp, Amount)]
+        }
+    | ConfigureBaker
+        { -- | The equity capital of the baker
+          cbCapital :: !(Maybe Amount),
+          -- | Whether the baker's earnings are restaked
+          cbRestakeEarnings :: !(Maybe Bool),
+          -- | Whether the pool is open for delegators
+          cbOpenForDelegation :: !(Maybe Types.OpenStatus),
+          -- | The key/proof pairs to verify baker.
+          cbKeysWithProofs :: !(Maybe Types.BakerKeysWithProofs),
+          -- | The URL referencing the baker's metadata.
+          cbMetadataURL :: !(Maybe UrlText),
+          -- | The commission the pool owner takes on transaction fees.
+          cbTransactionFeeCommission :: !(Maybe AmountFraction),
+          -- | The commission the pool owner takes on baking rewards.
+          cbBakingRewardCommission :: !(Maybe AmountFraction),
+          -- | The commission the pool owner takes on finalization rewards.
+          cbFinalizationRewardCommission :: !(Maybe AmountFraction)
         }
     | ConfigureDelegation
         { -- | The capital delegated to the pool.

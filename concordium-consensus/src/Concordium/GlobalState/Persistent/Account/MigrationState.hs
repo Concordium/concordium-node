@@ -19,6 +19,7 @@ import Data.Kind
 import Data.Maybe
 import Lens.Micro.Platform
 
+import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Conditionally
@@ -178,7 +179,8 @@ newtype
           Monad,
           MonadState (AccountMigrationState oldpv pv),
           MonadIO,
-          LMDBAccountMap.MonadAccountMapStore
+          LMDBAccountMap.MonadAccountMapStore,
+          MonadLogger
         )
 
 -- | Run an 'AccountMigrationStateTT' computation with the given initial state.

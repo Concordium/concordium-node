@@ -75,6 +75,7 @@ import Concordium.GlobalState.Persistent.LFMBTree (LFMBTree', LFMBTreeHash, LFMB
 import qualified Concordium.GlobalState.Persistent.LFMBTree as L
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import qualified Concordium.ID.Types as ID
+import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.Option (Option (..))
@@ -420,6 +421,17 @@ updateAccountsAtIndex fupd ai a0@Accounts{..} =
         Nothing -> return (Nothing, a0)
         Just (res, act') -> return (Just res, a0{accountTable = act'})
 
+-- | Set the account at the given index. There must already be an account at the given index.
+--  (If the account does not exist, this will throw an error.)
+setAccountAtIndex :: (SupportsPersistentAccount pv m) => AccountIndex -> PersistentAccount (AccountVersionFor pv) -> Accounts pv -> m (Accounts pv)
+setAccountAtIndex ai newAcct a0@Accounts{..} =
+    L.update setUpdate ai accountTable >>= \case
+        Nothing -> error $ "setAccountAtIndex: no account at index " ++ show ai
+        Just (_, act') -> return (a0{accountTable = act'})
+  where
+    -- Replace the old account with the new account, returning ().
+    setUpdate _ = return ((), newAcct)
+
 -- | Perform an update to an account with the given index.
 --  Does nothing if the account does not exist.
 --  This should not be used to alter the address of an account (which is
@@ -492,13 +504,17 @@ migrateAccounts ::
       SupportMigration m t,
       SupportsPersistentAccount oldpv m,
       SupportsPersistentAccount pv (t m),
-      AccountsMigration (AccountVersionFor pv) (t m)
+      AccountsMigration (AccountVersionFor pv) (t m),
+      MonadLogger (t m)
     ) =>
     StateMigrationParameters oldpv pv ->
     Accounts oldpv ->
     t m (Accounts pv)
 migrateAccounts migration Accounts{..} = do
+    logEvent GlobalState LLTrace "Migrating accounts"
     let migrateAccount acct = do
+            canonicalAddress <- accountCanonicalAddress =<< lift (refLoad acct)
+            logEvent GlobalState LLTrace $ "Migrating account: " <> show canonicalAddress
             newAcct <- migrateHashedCachedRef' (migratePersistentAccount migration) acct
             -- Increment the account index counter.
             nextAccount

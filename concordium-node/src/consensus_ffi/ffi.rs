@@ -1958,7 +1958,8 @@ impl ConsensusContainer {
 
         (
             ConsensusFfiResponse::try_from(result)
-                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code)),
+                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+                .check_consistent(),
             callback,
         )
     }
@@ -1971,14 +1972,17 @@ impl ConsensusContainer {
         let result = unsafe { executeBlock(consensus, execute_block_callback) };
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            .check_consistent()
     }
 
     pub fn send_finalization(&self, genesis_index: u32, msg: &[u8]) -> ConsensusFfiResponse {
         wrap_send_data_to_c!(self, genesis_index, msg, receiveFinalizationMessage)
+        .check_consistent()
     }
 
     pub fn send_finalization_record(&self, genesis_index: u32, rec: &[u8]) -> ConsensusFfiResponse {
         wrap_send_data_to_c!(self, genesis_index, rec, receiveFinalizationRecord)
+        .check_consistent()
     }
 
     /// Send a transaction to consensus. Return whether the operation succeeded
@@ -1993,7 +1997,8 @@ impl ConsensusContainer {
         };
 
         let return_code = ConsensusFfiResponse::try_from(result)
-            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code));
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            .check_consistent();
         if return_code == ConsensusFfiResponse::Success {
             (Some(out_hash.into()), return_code)
         } else {
@@ -2054,6 +2059,7 @@ impl ConsensusContainer {
 
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            .check_consistent()
     }
 
     /// Gets baker status of the node along with the baker ID
@@ -2105,7 +2111,7 @@ impl ConsensusContainer {
         let len = path_bytes.len();
 
         let response = unsafe { importBlocks(consensus, path_bytes.as_ptr(), len as i64) };
-        match ConsensusFfiResponse::try_from(response)? {
+        match ConsensusFfiResponse::try_from(response)?.check_consistent() {
             ConsensusFfiResponse::Success => Ok(()),
             other => bail!("Error during block import: {}", other),
         }

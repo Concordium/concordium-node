@@ -27,7 +27,6 @@ import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
-import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
 import qualified Concordium.Types.Accounts as BaseAccounts
@@ -37,6 +36,7 @@ import Concordium.Utils.Serialization
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBTV1)
+import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization.Put
@@ -281,7 +281,16 @@ data PersistentActiveDelegators (av :: AccountVersion) where
         } ->
         PersistentActiveDelegators av
 
--- | See documentation of @migratePersistentBlockState@.
+-- | Lens to access the total capital of the delegators to the pool.
+delegatorTotalCapital :: (AVSupportsDelegation av) => Lens' (PersistentActiveDelegators av) Amount
+delegatorTotalCapital f (PersistentActiveDelegatorsV1{..}) =
+    (\newDTC -> PersistentActiveDelegatorsV1{adDelegatorTotalCapital = newDTC, ..})
+        <$> f adDelegatorTotalCapital
+
+-- | Migrate the representation of a set of delegators to a particular pool.
+-- In most cases, the migration is trivial, and the resulting structure is the same.
+-- In the case of 'StateMigrationParametersP3ToP4', the set of delegators is introduced as empty,
+-- and the total capital is introduced at 0.
 migratePersistentActiveDelegators ::
     (BlobStorable m (), BlobStorable (t m) (), MonadTrans t) =>
     StateMigrationParameters oldpv pv ->
@@ -394,17 +403,29 @@ tacAmount f (TotalActiveCapitalV1 amt) = TotalActiveCapitalV1 <$> f amt
 
 type AggregationKeySet = Trie.TrieN BufferedFix BakerAggregationVerifyKey ()
 
+-- | Persistent representation of the state of the active bakers and delegators.
 data PersistentActiveBakers (av :: AccountVersion) = PersistentActiveBakers
-    { _activeBakers :: !(BakerIdTrieMap av),
+    { -- | For each active baker, this records the set of delegators and their total stake.
+      --  (This does not include the baker's own stake.)
+      _activeBakers :: !(BakerIdTrieMap av),
+      -- | The set of aggregation keys of all active bakers.
+      -- This is used to prevent duplicate aggregation keys from being deployed.
       _aggregationKeys :: !AggregationKeySet,
+      -- | The set of delegators to the passive pool, with their total stake.
       _passiveDelegators :: !(PersistentActiveDelegators av),
+      -- | The total capital staked by all bakers and delegators.
       _totalActiveCapital :: !(TotalActiveCapital av)
     }
     deriving (Show)
 
 makeLenses ''PersistentActiveBakers
 
--- | See documentation of @migratePersistentBlockState@.
+-- | Migrate the representation of the active bakers and delegators on protocol update.
+--  In most cases, the migration is trivial, and the resulting structure is the same.
+--  The exception is migrating from P3 to P4 (where delegation is introduced), where
+--  each pool's delegators are introduced as empty, and delegated capital is introduced at 0.
+--  In that case, the total active capital is computed by summing the baker stake amounts
+--  from the supplied accounts table.
 migratePersistentActiveBakers ::
     forall oldpv pv t m.
     ( IsProtocolVersion oldpv,
@@ -422,7 +443,7 @@ migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
     newAggregationKeys <- Trie.migrateTrieN True return _aggregationKeys
     newPassiveDelegators <- migratePersistentActiveDelegators migration _passiveDelegators
     bakerIds <- Trie.keysAsc newActiveBakers
-    totalStakedAmount <-
+    bakerStakedAmount <-
         foldM
             ( \acc (BakerId aid) ->
                 Accounts.indexedAccount aid accounts >>= \case
@@ -434,7 +455,7 @@ migratePersistentActiveBakers migration accounts PersistentActiveBakers{..} = do
             )
             0
             bakerIds
-    let newTotalActiveCapital = migrateTotalActiveCapital migration totalStakedAmount _totalActiveCapital
+    let newTotalActiveCapital = migrateTotalActiveCapital migration bakerStakedAmount _totalActiveCapital
     return
         PersistentActiveBakers
             { _activeBakers = newActiveBakers,
@@ -503,6 +524,24 @@ addDelegator (DelegateToBaker bid) did amt pab =
             newActiveBakers <- Trie.insert bid pad' (pab ^. activeBakers)
             return $ Right $ pab & activeBakers .~ newActiveBakers
 
+-- | Add a delegator to the persistent active bakers at a particular target.
+--  It is assumed that the delegator is not already delegated to this target.
+--  If the target is a baker, then the baker MUST be in the active bakers.
+--
+--  IMPORTANT: This does not update the total active capital!
+addDelegatorUnsafe ::
+    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
+    DelegationTarget ->
+    DelegatorId ->
+    Amount ->
+    PersistentActiveBakers av ->
+    m (PersistentActiveBakers av)
+addDelegatorUnsafe DelegatePassive did amt = passiveDelegators (addDelegatorHelper did amt)
+addDelegatorUnsafe (DelegateToBaker bid) did amt = activeBakers (fmap snd . Trie.adjust upd bid)
+  where
+    upd Nothing = error "addDelegatorUnsafe: Baker not found"
+    upd (Just pad) = ((),) . Trie.Insert <$> addDelegatorHelper did amt pad
+
 -- | A helper function that removes a delegator from a 'PersistentActiveDelegators'.
 --  It is assumed that the delegator is in the delegators with the specified amount.
 removeDelegatorHelper ::
@@ -534,6 +573,23 @@ removeDelegator (DelegateToBaker bid) did amt pab = do
             return ((), Trie.Insert pad')
     newActiveBakers <- snd <$> Trie.adjust rdh bid (pab ^. activeBakers)
     return $ pab & activeBakers .~ newActiveBakers
+
+-- | Modify the total capital of a pool. The pool MUST already exist.
+--
+--  IMPORTANT: This does not update the total active capital!
+modifyPoolCapitalUnsafe ::
+    (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) =>
+    DelegationTarget ->
+    (Amount -> Amount) ->
+    PersistentActiveBakers av ->
+    m (PersistentActiveBakers av)
+modifyPoolCapitalUnsafe DelegatePassive change =
+    pure . (passiveDelegators . delegatorTotalCapital %~ change)
+modifyPoolCapitalUnsafe (DelegateToBaker bid) change =
+    activeBakers (fmap snd . Trie.adjust upd bid)
+  where
+    upd Nothing = error "modifyPoolCapitalUnsafe: Baker not found"
+    upd (Just pad) = pure . ((),) . Trie.Insert $ pad & delegatorTotalCapital %~ change
 
 -- | Transfer all delegators from a baker to passive delegation in the 'PersistentActiveBakers'. This does
 --  not affect the total stake, and does not remove the baker itself. This returns the list of
