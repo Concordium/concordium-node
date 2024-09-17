@@ -15,8 +15,14 @@ import Concordium.Types.Accounts
 
 -- | A 'FullBakerInfo' with the given 'BakerId' and stake.
 --  The keys are (deterministically) randomly generated.
-dummyFullBakerInfo :: BakerId -> Amount -> FullBakerInfo
-dummyFullBakerInfo bid stake = mkFullBaker (fromIntegral bid) bid ^. _1 & bakerStake .~ stake
+dummyFullBakerInfoEx :: BakerId -> Amount -> FullBakerInfoEx
+dummyFullBakerInfoEx bid stake =
+    FullBakerInfoEx
+        { _exFullBakerInfo = mkFullBaker (fromIntegral bid) bid ^. _1 & bakerStake .~ stake,
+          _bakerPoolCommissionRates =
+            CommissionRates (makeAmountFraction 0) (makeAmountFraction 0) (makeAmountFraction 0),
+          _isSuspended = False
+        }
 
 -- | A test case for 'computeFinalizationCommittee'.
 data FinalizationCommitteeTestCase = FinalizationCommitteeTestCase
@@ -37,11 +43,11 @@ testFinalizationCommitteeTestCase :: FinalizationCommitteeTestCase -> Spec
 testFinalizationCommitteeTestCase tc@FinalizationCommitteeTestCase{..} =
     it description $ assertEqual ("Finalizers for " ++ show tc) expect actual
   where
-    fullBakerInfos = Vec.fromList (zipWith dummyFullBakerInfo [0 ..] bakerStakes)
-    bakerTotalStake = sum $ view bakerStake <$> fullBakerInfos
-    bakers = FullBakers{..}
+    bakerInfoExs = Vec.fromList (zipWith dummyFullBakerInfoEx [0 ..] bakerStakes)
+    bakerPoolTotalStake = sum $ view bakerStake <$> bakerInfoExs
+    bakers = FullBakersEx{..}
     actual = computeFinalizationCommittee bakers parameters
-    expectedFinBakers = filter ((`elem` expectedFinalizers) . view bakerIdentity) (Vec.toList fullBakerInfos)
+    expectedFinBakers = filter ((`elem` expectedFinalizers) . view bakerIdentity) (Vec.toList bakerInfoExs)
     mkFinalizer finalizerIndex bi =
         FinalizerInfo
             { finalizerWeight = fromIntegral (bi ^. bakerStake),
