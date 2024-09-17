@@ -11,6 +11,7 @@ import Data.Bool.Singletons
 import Data.Int
 import qualified Data.Map as Map
 import Data.Time
+import Data.Maybe
 import Lens.Micro.Platform
 
 import Concordium.Logger
@@ -305,8 +306,12 @@ executeBlockPrologue BlockExecutionData{..} = do
     (mPaydayParms, theState4) <- doEpochTransition bedIsNewEpoch bedEpochDuration theState3
     -- update the seed state using the block time and block nonce
     theState5 <- doUpdateSeedStateForBlock bedTimestamp bedBlockNonce theState4
-    -- update the missed block count for each active baker
-    theState6 <- foldM bsoUpdateMissedBlocks theState5 bedMissedRounds
+    -- update the missed rounds count for each active baker
+    theState6 <- if isJust mPaydayParms
+                    -- TODO (drsk) For now, we just clear the missed rounds on each new payday. 
+                    -- on each new payday: update score, clear score if validator was active
+                    then foldM bsoClearMissedBlocks theState5 activeBakers
+                    else foldM bsoUpdateMissedBlocks theState5 bedMissedRounds
     return
         PrologueResult
             { prologueBlockState = theState6,
