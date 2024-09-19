@@ -312,7 +312,11 @@ executeBlockPrologue BlockExecutionData{..} = do
     theState6 <-
         if isJust mPaydayParms
             then bsoClearMissedRounds theState5 activeBakers
-            else bsoUpdateMissedRounds theState5 bedMissedRounds
+            else do
+                theState5' <- bsoUpdateMissedRounds theState5 bedMissedRounds
+                bsoUpdateActivity
+                    theState5'
+                    (pbBlockBaker bedParticipatingBakers : pbQCSignatories bedParticipatingBakers)
     return
         PrologueResult
             { prologueBlockState = theState6,
