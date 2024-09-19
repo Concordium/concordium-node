@@ -3477,7 +3477,25 @@ doUpdateMissedRounds pbs (bId, newMissedRounds) = do
 doClearMissedRounds :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
 doClearMissedRounds pbs bId = do
     bsp <- loadPBS pbs
-    bsp' <- modifyBakerPoolRewardDetailsInPoolRewards bsp bId (\bprd -> bprd{missedRounds = 0})
+    bsp' <-
+        modifyBakerPoolRewardDetailsInPoolRewards
+            bsp
+            bId
+            (\bprd -> bprd{missedRounds = 0, wasActive = False})
+    storePBS pbs bsp'
+
+doUpdateActivity ::
+    (PVSupportsDelegation pv, SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    BakerId ->
+    m (PersistentBlockState pv)
+doUpdateActivity pbs bId = do
+    bsp <- loadPBS pbs
+    bsp' <-
+        modifyBakerPoolRewardDetailsInPoolRewards
+            bsp
+            bId
+            (\bprd -> bprd{wasActive = True})
     storePBS pbs bsp'
 
 doProcessUpdateQueues ::
@@ -4359,6 +4377,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
     bsoUpdateMissedRounds = doUpdateMissedRounds
     bsoClearMissedRounds = doClearMissedRounds
+    bsoUpdateActivity = doUpdateActivity
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
