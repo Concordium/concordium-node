@@ -245,7 +245,8 @@ validatorRemove =
           vuMetadataURL = Nothing,
           vuTransactionFeeCommission = Nothing,
           vuBakingRewardCommission = Nothing,
-          vuFinalizationRewardCommission = Nothing
+          vuFinalizationRewardCommission = Nothing,
+          vuSuspend = Nothing
         }
 
 -- | Failure modes when configuring a validator.
@@ -276,6 +277,8 @@ data BakerConfigureUpdateChange
     | BakerConfigureTransactionFeeCommission !AmountFraction
     | BakerConfigureBakingRewardCommission !AmountFraction
     | BakerConfigureFinalizationRewardCommission !AmountFraction
+    | BakerConfigureSuspended
+    | BakerConfigureResumed
     deriving (Eq, Show)
 
 -- | Parameters for adding a delegator.
