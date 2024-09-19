@@ -1516,6 +1516,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- | Clear the missed round count for a given validator
     bsoClearMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
+    -- | Update the cumulated activity indicator since the last payday
+    bsoUpdateActivity :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -1829,6 +1832,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
     bsoUpdateMissedBlocks s = lift . bsoUpdateMissedBlocks s
     bsoClearMissedBlocks s = lift . bsoClearMissedBlocks s
+    bsoUpdateActivity s = lift . bsoUpdateActivity s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -1887,6 +1891,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoIsProtocolUpdateEffective #-}
     {-# INLINE bsoUpdateMissedBlocks #-}
     {-# INLINE bsoClearMissedBlocks #-}
+    {-# INLINE bsoUpdateActivity #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 

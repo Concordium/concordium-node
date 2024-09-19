@@ -3466,7 +3466,11 @@ doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 doIsProtocolUpdateEffective :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Bool
 doIsProtocolUpdateEffective = isProtocolUpdateEffective . bspUpdates <=< loadPBS
 
-doUpdateMissedBlocks :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> (BakerId, Int8) -> m (PersistentBlockState pv)
+doUpdateMissedBlocks ::
+    (PVSupportsDelegation pv, SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    (BakerId, Int8) ->
+    m (PersistentBlockState pv)
 doUpdateMissedBlocks pbs (bId, newMissedRounds) = do
     bsp <- loadPBS pbs
     bsp' <-
@@ -3476,10 +3480,32 @@ doUpdateMissedBlocks pbs (bId, newMissedRounds) = do
             (\bprd -> bprd{missedRounds = missedRounds bprd + newMissedRounds})
     storePBS pbs bsp'
 
-doClearMissedBlocks :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
+doClearMissedBlocks ::
+    (PVSupportsDelegation pv, SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    BakerId ->
+    m (PersistentBlockState pv)
 doClearMissedBlocks pbs bId = do
     bsp <- loadPBS pbs
-    bsp' <- modifyBakerPoolRewardDetailsInPoolRewards bsp bId (\bprd -> bprd{missedRounds = 0})
+    bsp' <-
+        modifyBakerPoolRewardDetailsInPoolRewards
+            bsp
+            bId
+            (\bprd -> bprd{missedRounds = 0, wasActive = False})
+    storePBS pbs bsp'
+
+doUpdateActivity ::
+    (PVSupportsDelegation pv, SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    BakerId ->
+    m (PersistentBlockState pv)
+doUpdateActivity pbs bId = do
+    bsp <- loadPBS pbs
+    bsp' <-
+        modifyBakerPoolRewardDetailsInPoolRewards
+            bsp
+            bId
+            (\bprd -> bprd{wasActive = True})
     storePBS pbs bsp'
 
 doProcessUpdateQueues ::
@@ -4361,6 +4387,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
     bsoUpdateMissedBlocks = doUpdateMissedBlocks
     bsoClearMissedBlocks = doClearMissedBlocks
+    bsoUpdateActivity = doUpdateActivity
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
