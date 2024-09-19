@@ -1835,7 +1835,7 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
                 >>= updateRestakeEarnings
                 >>= updatePoolInfo existingBaker
                 >>= updateCapital existingBaker
-                >>= updateSuspend (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)))
+                >>= updateSuspend
         newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts newBSP)
         return newBSP{bspAccounts = newAccounts}
     (events,) <$> storePBS pbs newBSP
@@ -1844,13 +1844,14 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
     -- Only do the given update if specified.
     ifPresent Nothing _ = return
     ifPresent (Just v) k = k v
-    updateSuspend STrue =
-        case bcuSuspend of
-            Nothing -> return return
-            Just b -> do
-                MTL.tell [if b then BakerConfigureSuspended else BakerConfigureResumed]
-                return $ setAccountSuspended b
-    updateSuspend SFalse = return return
+    updateSuspend =
+        ifPresent vuSuspend $ \suspend (bsp, acc) -> do
+            case sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)) of
+                STrue -> do
+                    acc1 <- setAccountSuspended suspend acc
+                    MTL.tell [if suspend then BakerConfigureSuspended else BakerConfigureResumed]
+                    return (bsp, acc1)
+                SFalse -> return (bsp, acc)
     updateKeys oldBaker = ifPresent vuKeys $ \keys (bsp, acc) -> do
         let oldAggrKey = oldBaker ^. BaseAccounts.bakerAggregationVerifyKey
         bsp1 <-

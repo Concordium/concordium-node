@@ -19,15 +19,18 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import qualified Concordium.ProtocolUpdate.P6 as P6
 import qualified Concordium.ProtocolUpdate.P7 as P7
+import qualified Concordium.ProtocolUpdate.P8 as P8
 
 -- | Type representing currently supported protocol update types.
 data Update (pv :: ProtocolVersion) where
     UpdateP6 :: P6.Update -> Update 'P6
     UpdateP7 :: P7.Update -> Update 'P7
+    UpdateP8 :: P8.Update -> Update 'P8
 
 instance Show (Update pv) where
     show (UpdateP6 u) = "P6." ++ show u
     show (UpdateP7 u) = "P7." ++ show u
+    show (UpdateP8 u) = "P8." ++ show u
 
 -- | Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: forall pv. (IsProtocolVersion pv) => ProtocolUpdate -> Either String (Update pv)
@@ -41,6 +44,7 @@ checkUpdate = case protocolVersion @pv of
     -- These ones are supported in V1.
     SP6 -> fmap UpdateP6 . P6.checkUpdate
     SP7 -> fmap UpdateP7 . P7.checkUpdate
+    SP8 -> fmap UpdateP8 . P8.checkUpdate
 
 -- | Construct the genesis data for a P1 update.
 updateRegenesis ::
@@ -55,6 +59,7 @@ updateRegenesis ::
     m (PVInit m)
 updateRegenesis (UpdateP6 u) = P6.updateRegenesis u
 updateRegenesis (UpdateP7 u) = P7.updateRegenesis u
+updateRegenesis (UpdateP8 u) = P8.updateRegenesis u
 
 -- | Determine the next protocol version for the given update. Although the same
 --  information can be retrieved from 'updateRegenesis', this is more efficient
@@ -64,3 +69,4 @@ updateNextProtocolVersion ::
     SomeProtocolVersion
 updateNextProtocolVersion (UpdateP6 u) = P6.updateNextProtocolVersion u
 updateNextProtocolVersion (UpdateP7 u) = P7.updateNextProtocolVersion u
+updateNextProtocolVersion (UpdateP8 u) = P8.updateNextProtocolVersion u
