@@ -1644,7 +1644,7 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
   where
     bid = BakerId ai
     flexibleCooldowns = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
-    hasValidatorSuspension = (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)))
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
 
 -- | Check the conditions required for successfully updating a validator. This does not modify
 --  the block state.
