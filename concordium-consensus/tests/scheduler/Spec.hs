@@ -32,6 +32,7 @@ import qualified SchedulerTests.SmartContracts.V0.SmartContractTests (tests)
 import qualified SchedulerTests.SmartContracts.Invoke (tests)
 import qualified SchedulerTests.SmartContracts.V1.AccountSignatureChecks (tests)
 import qualified SchedulerTests.SmartContracts.V1.AllNewHostFunctions (tests)
+import qualified SchedulerTests.SmartContracts.V1.Caller (tests)
 import qualified SchedulerTests.SmartContracts.V1.Checkpointing (tests)
 import qualified SchedulerTests.SmartContracts.V1.Counter (tests)
 import qualified SchedulerTests.SmartContracts.V1.CrossMessaging (tests)
@@ -50,7 +51,6 @@ import qualified SchedulerTests.SmartContracts.V1.TransfersPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.Upgrading (tests)
 import qualified SchedulerTests.SmartContracts.V1.UpgradingPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.ValidInvalidModules (tests)
-import qualified SchedulerTests.SmartContracts.V1.Caller (tests)
 
 import Test.Hspec
 
