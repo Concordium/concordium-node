@@ -1977,12 +1977,11 @@ impl ConsensusContainer {
 
     pub fn send_finalization(&self, genesis_index: u32, msg: &[u8]) -> ConsensusFfiResponse {
         wrap_send_data_to_c!(self, genesis_index, msg, receiveFinalizationMessage)
-        .check_consistent()
+            .check_consistent()
     }
 
     pub fn send_finalization_record(&self, genesis_index: u32, rec: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, genesis_index, rec, receiveFinalizationRecord)
-        .check_consistent()
+        wrap_send_data_to_c!(self, genesis_index, rec, receiveFinalizationRecord).check_consistent()
     }
 
     /// Send a transaction to consensus. Return whether the operation succeeded

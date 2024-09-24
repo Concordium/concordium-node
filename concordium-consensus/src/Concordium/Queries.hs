@@ -920,11 +920,20 @@ getRewardStatus =
             return $ epochToUTC <$> reward
         )
         ( \bp -> do
-            reward <- BS.getRewardStatus =<< blockState bp
+            bState <- blockState bp
+            reward <- BS.getRewardStatus bState
+            -- The reward status includes the next payday epoch. To convert this to a UTCTime,
+            -- we get the current epoch and the trigger block time (which we treat as the time of
+            -- the start of the next epoch) from the seed state. For each epoch after the next
+            -- epoch, we add the epoch duration to the trigger block time to get the time of the
+            -- payday.
+            ss <- BS.getSeedState bState
+            let nextEpoch = ss ^. epoch + 1
+            let deltaEpochs e = if e > nextEpoch then fromIntegral (e - nextEpoch) else 0
             BaseV1.CoreGenesisParametersV1{..} <- SkovV1.gmParameters <$> use SkovV1.genesisMetadata
             let epochToUTC e =
                     timestampToUTCTime $
-                        addDuration genesisTime (fromIntegral e * genesisEpochDuration)
+                        addDuration (ss ^. triggerBlockTime) (deltaEpochs e * genesisEpochDuration)
             return $ epochToUTC <$> reward
         )
 
