@@ -52,6 +52,7 @@ import qualified SchedulerTests.SmartContracts.V1.TransfersPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.Upgrading (tests)
 import qualified SchedulerTests.SmartContracts.V1.UpgradingPersistent (tests)
 import qualified SchedulerTests.SmartContracts.V1.ValidInvalidModules (tests)
+import qualified SchedulerTests.SmartContracts.V1.Caller (tests)
 
 import qualified SchedulerTests.KonsensusV1.EpochTransition (tests)
 
@@ -109,4 +110,5 @@ main = hspec $ do
     SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
     SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests
     SchedulerTests.SmartContracts.V1.InspectModuleReferenceAndContractName.tests
+    SchedulerTests.SmartContracts.V1.Caller.tests
     SchedulerTests.KonsensusV1.EpochTransition.tests
