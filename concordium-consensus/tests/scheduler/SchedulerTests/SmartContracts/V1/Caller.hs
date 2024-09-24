@@ -11,7 +11,7 @@ module SchedulerTests.SmartContracts.V1.Caller (tests) where
 
 import Control.Monad
 import qualified Data.ByteString.Short as BSS
-import Data.Serialize (putByteString, putWord16le, putWord64le, runPut, putWord32le)
+import Data.Serialize (putByteString, putWord16le, putWord32le, putWord64le, runPut)
 import Test.Hspec
 
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
