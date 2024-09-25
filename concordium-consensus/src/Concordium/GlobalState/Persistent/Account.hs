@@ -519,7 +519,7 @@ setAccountValidatorSuspended ::
     Bool ->
     PersistentAccount av ->
     m (PersistentAccount av)
-setAccountSuspended isSuspended (PAV4 acc) = PAV4 <$> V1.setSuspended isSuspended acc
+setAccountValidatorSuspended isSuspended (PAV4 acc) = PAV4 <$> V1.setValidatorSuspended isSuspended acc
 
 -- | Add a specified amount to the pre-pre-cooldown inactive stake.
 addAccountPrePreCooldown ::
