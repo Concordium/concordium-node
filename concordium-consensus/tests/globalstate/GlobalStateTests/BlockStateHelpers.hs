@@ -156,14 +156,13 @@ makeDummyAccount AccountConfig{..} = do
             PAV4 acc -> do
                 let ed = SV1.enduringData acc
                 cq <- CooldownQueue.makeCooldownQueue acCooldowns
-                (staking, stakeAmount) <- makePersistentAccountStakeEnduring acStaking acAccountIndex
                 newEnduring <-
                     refMake
                         =<< SV1.rehashAccountEnduringData
-                            ed{SV1.paedStakeCooldown = cq, SV1.paedStake = staking}
+                            ed{SV1.paedStakeCooldown = cq}
                 return $
                     PAV4
-                        acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
+                        acc{SV1.accountEnduringData = newEnduring}
         SFalse -> return acc1
 
 -- | Run a block state computation using a temporary directory for the blob store and account map.

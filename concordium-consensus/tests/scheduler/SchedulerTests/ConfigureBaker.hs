@@ -42,6 +42,7 @@ import Test.Hspec
 
 -- | Deterministically generate a baker account from a seed.
 makeTestBakerV1FromSeed ::
+    forall av m.
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     -- | The initial balance of the account.
     Amount ->
@@ -60,7 +61,8 @@ makeTestBakerV1FromSeed amount stake bakerId seed = do
     let bakerInfoEx =
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. theBakerInfo,
-                  _bieBakerPoolInfo = poolInfo
+                  _bieBakerPoolInfo = poolInfo,
+                  _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @av)) False
                 }
     BS.addAccountBakerV1 bakerInfoEx stake True account
   where
@@ -221,7 +223,8 @@ testDelegatorToBakerOk spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader delegator1Address 1 10_000,
                       keys = [(0, [(0, delegator1KP)])]
@@ -322,7 +325,8 @@ testDelegatorToBakerOk spv pvString =
                               _bakingCommission = makeAmountFraction 1_000,
                               _transactionCommission = makeAmountFraction 1_000
                             }
-                    }
+                    },
+              _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
             }
     updateStaking keysWithProofs = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
         SFalse -> id
@@ -363,7 +367,8 @@ testDelegatorToBakerDuplicateKey spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader delegator1Address 1 10_000,
                       keys = [(0, [(0, delegator1KP)])]
@@ -426,7 +431,8 @@ testDelegatorToBakerMissingParam spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader delegator1Address 1 10_000,
                       keys = [(0, [(0, delegator1KP)])]
@@ -471,7 +477,7 @@ testAddBakerOk ::
     SProtocolVersion pv ->
     String ->
     Spec
-testAddBakerOk _spv pvString =
+testAddBakerOk spv pvString =
     specify (pvString ++ ": AddBaker (OK)") $ do
         keysWithProofs <- makeBakerKeysWithProofs dummy3Address 3
         let transactions =
@@ -485,7 +491,8 @@ testAddBakerOk _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader dummy3Address 1 transactionEnergy,
                       keys = [(0, [(0, dummy3KP)])]
@@ -584,7 +591,8 @@ testAddBakerOk _spv pvString =
                               _bakingCommission = makeAmountFraction 1_000,
                               _transactionCommission = makeAmountFraction 1_000
                             }
-                    }
+                    },
+              _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
             }
     updateStaking keysWithProofs =
         ( Transient.accountStaking
@@ -619,7 +627,8 @@ testAddBakerInsufficientBalance _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader dummy3Address 1 transactionEnergy,
                       keys = [(0, [(0, dummy3KP)])]
@@ -677,7 +686,8 @@ testAddBakerMissingParam _spv pvString =
                               cbMetadataURL = Nothing,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader dummy3Address 1 transactionEnergy,
                       keys = [(0, [(0, dummy3KP)])]
@@ -736,7 +746,8 @@ testAddBakerInvalidProofs _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader dummy3Address 1 transactionEnergy,
                       keys = [(0, [(0, dummy3KP)])]
@@ -792,7 +803,8 @@ testUpdateBakerOk _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -889,7 +901,8 @@ testUpdateBakerInsufficientBalance _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -945,7 +958,8 @@ testUpdateBakerLowStake _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -1003,7 +1017,8 @@ testUpdateBakerInvalidProofs _spv pvString =
                               cbMetadataURL = Nothing,
                               cbTransactionFeeCommission = Nothing,
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -1057,7 +1072,8 @@ testUpdateBakerRemoveOk spv pvString =
                               cbMetadataURL = Nothing,
                               cbTransactionFeeCommission = Nothing,
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -1130,7 +1146,8 @@ testUpdateBakerReduceStakeOk spv pvString =
                               cbMetadataURL = Nothing,
                               cbTransactionFeeCommission = Nothing,
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -1238,3 +1255,5 @@ tests =
                 testUpdateBakerInvalidProofs spv pvString
                 testUpdateBakerRemoveOk spv pvString
                 testUpdateBakerReduceStakeOk spv pvString
+
+-- TODO (drsk) add suspend/resume test here.
