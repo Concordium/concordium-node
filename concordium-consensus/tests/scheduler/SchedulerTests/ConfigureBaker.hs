@@ -54,15 +54,17 @@ makeTestBakerV1FromSeed ::
     BakerId ->
     -- | Seed used to generate account and baker keys.
     Int ->
+    -- | Whether to suspend the account initially.
+    Bool ->
     m (BS.PersistentAccount av)
-makeTestBakerV1FromSeed amount stake bakerId seed = do
+makeTestBakerV1FromSeed amount stake bakerId seed suspend = do
     account <- Helpers.makeTestAccountFromSeed amount seed
     let (fulBaker, _, _, _) = mkFullBaker seed bakerId
     let bakerInfoEx =
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. theBakerInfo,
                   _bieBakerPoolInfo = poolInfo,
-                  _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @av)) False
+                  _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @av)) suspend
                 }
     BS.addAccountBakerV1 bakerInfoEx stake True account
   where
@@ -98,7 +100,7 @@ makeTestDelegatorFromSeed amount accountDelegation seed = do
 baker0Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
-baker0Account = makeTestBakerV1FromSeed 1_000_000_000_000 1_000_000_000_000 bakerId seed
+baker0Account = makeTestBakerV1FromSeed 1_000_000_000_000 1_000_000_000_000 bakerId seed False
   where
     bakerId = 0
     seed = 16
@@ -130,7 +132,7 @@ delegator1KP = Helpers.keyPairFromSeed 17
 baker2Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
-baker2Account = makeTestBakerV1FromSeed balance stake bakerId seed
+baker2Account = makeTestBakerV1FromSeed balance stake bakerId seed False
   where
     balance = 1_000_000_000_000
     stake = 1_000_000_000
@@ -155,7 +157,16 @@ dummy3KP = Helpers.keyPairFromSeed 19
 baker4Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
-baker4Account = makeTestBakerV1FromSeed 20_000_000_000_000 500_000_000_000 bakerId seed
+baker4Account = makeTestBakerV1FromSeed 20_000_000_000_000 500_000_000_000 bakerId seed False
+  where
+    bakerId = 4
+    seed = 20
+
+-- | Account of the baker 5. This account is suspended.
+baker5Account ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    m (BS.PersistentAccount av)
+baker5Account = makeTestBakerV1FromSeed 20_000_000_000_000 500_000_000_000 bakerId seed True
   where
     bakerId = 4
     seed = 20
@@ -1231,6 +1242,83 @@ testUpdateBakerReduceStakeOk spv pvString =
     accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
     accountBaker _ x = pure x
 
+data TestSuspendOrResume
+    = Suspend
+    | Resume
+    deriving (Show, Eq)
+
+testUpdateBakerSuspendResumeOk ::
+    forall m pv.
+    (IsProtocolVersion pv, PVSupportsDelegation pv, m ~ Helpers.PersistentBSM pv) =>
+    SProtocolVersion pv ->
+    String ->
+    TestSuspendOrResume ->
+    m (BS.PersistentAccount (AccountVersionFor pv)) ->
+    Spec
+testUpdateBakerSuspendResumeOk spv pvString suspendOrResume accM =
+    specify (pvString ++ ": UpdateBaker: " ++ show suspendOrResume ++ " (OK)") $ do
+        let transactions =
+                [ Runner.TJSON
+                    { payload =
+                        Runner.ConfigureBaker
+                            { cbCapital = Nothing,
+                              cbRestakeEarnings = Nothing,
+                              cbOpenForDelegation = Nothing,
+                              cbKeysWithProofs = Nothing,
+                              cbMetadataURL = Nothing,
+                              cbTransactionFeeCommission = Nothing,
+                              cbBakingRewardCommission = Nothing,
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Just $ suspendOrResume == Suspend
+                            },
+                      metadata = makeDummyHeader baker4Address 1 transactionEnergy,
+                      keys = [(0, [(0, baker4KP)])]
+                    }
+                ]
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState2 @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        Helpers.assertSuccessWithEvents events result
+        doBlockStateAssertions
+  where
+    -- Transaction length is 64 bytes (4 bytes for the transaction and 60 bytes for the header).
+    transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 64 1
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState = do
+        invariants <- Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+        updatedAccount1 <- BS.toTransientAccount . fromJust =<< BS.bsoGetAccountByIndex blockState 4
+        initialAccount1 <- BS.toTransientAccount =<< accM
+        return $ do
+            invariants
+            assertEqual
+                "Expected account update"
+                ( initialAccount1
+                    & Transient.accountNonce .~ 2
+                    & Transient.accountAmount -~ Helpers.energyToAmount transactionEnergy
+                    & updateResumed
+                )
+                updatedAccount1
+    updateResumed = case sSupportsValidatorSuspension (sAccountVersionFor spv) of
+        STrue ->
+            Transient.accountStaking
+                . accountBaker
+                . accountBakerInfo
+                . bieAccountIsSuspended
+                .~ (suspendOrResume == Suspend)
+        SFalse -> id
+    accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
+    accountBaker _ x = pure x
+    events =
+        [ BakerResumed{ebrBakerId = 4} | suspendOrResume == Resume
+        ]
+            ++ [BakerSuspended{ebsBakerId = 4} | suspendOrResume == Suspend]
+
 tests :: Spec
 tests =
     describe "ConfigureBaker transactions" $
@@ -1238,7 +1326,7 @@ tests =
             Helpers.forEveryProtocolVersion testCases
   where
     testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-    testCases spv pvString =
+    testCases spv pvString = do
         case delegationSupport @(AccountVersionFor pv) of
             SAVDelegationNotSupported -> return ()
             SAVDelegationSupported -> do
@@ -1255,5 +1343,8 @@ tests =
                 testUpdateBakerInvalidProofs spv pvString
                 testUpdateBakerRemoveOk spv pvString
                 testUpdateBakerReduceStakeOk spv pvString
-
--- TODO (drsk) add suspend/resume test here.
+                case sSupportsValidatorSuspension (sAccountVersionFor spv) of
+                    STrue -> do
+                        testUpdateBakerSuspendResumeOk spv pvString Suspend (baker4Account @(AccountVersionFor pv))
+                        testUpdateBakerSuspendResumeOk spv pvString Resume (baker5Account @(AccountVersionFor pv))
+                    SFalse -> return ()
