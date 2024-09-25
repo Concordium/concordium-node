@@ -1806,8 +1806,14 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --         equity capital to the new capital (updating the total active capital in the active baker
 --         index by adding the difference between the new and old capital) and append
 --         @BakerConfigureStakeIncreased capital@ to @events@.
+
+--  9. If the suspended/resumed flag is set and (>= P8):
+
+--        (1) Suspend/resume the validator according to the flag.
+
+--        (2) Append @BakerConfigureSuspended, @BakerConfigureResumed respectively to @events@.
 --
---  9. Return @events@ with the updated block state.
+--  10. Return @events@ with the updated block state.
 newUpdateValidator ::
     forall pv m.
     ( SupportsPersistentState pv m,
