@@ -1505,7 +1505,7 @@ setValidatorSuspended ::
     Bool ->
     PersistentAccount av ->
     m (PersistentAccount av)
-setSuspended isSusp = updateStake $ \case
+setValidatorSuspended isSusp = updateStake $ \case
     baker@PersistentAccountStakeEnduringBaker{} -> do
         oldInfo <- refLoad (paseBakerInfo baker)
         let newInfo = oldInfo & bieAccountIsSuspended .~ isSusp

@@ -1848,7 +1848,7 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
         ifPresent vuSuspend $ \suspend (bsp, acc) -> do
             case sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)) of
                 STrue -> do
-                    acc1 <- setAccountSuspended suspend acc
+                    acc1 <- setAccountValidatorSuspended suspend acc
                     MTL.tell [if suspend then BakerConfigureSuspended else BakerConfigureResumed]
                     return (bsp, acc1)
                 SFalse -> return (bsp, acc)
