@@ -1222,23 +1222,6 @@ getCooldowns =
         EmptyCooldownQueue -> return Nothing
         CooldownQueue ref -> Just <$> refLoad ref
 
-getIsSuspended ::
-    ( MonadBlobStore m,
-      IsAccountVersion av,
-      AVSupportsValidatorSuspension av
-    ) =>
-    PersistentAccount av ->
-    m Bool
-getIsSuspended acc = do
-    let stake = paedStake $ enduringData acc
-    case stake of
-        PersistentAccountStakeEnduringNone -> return False
-        PersistentAccountStakeEnduringDelegator{} -> return False
-        PersistentAccountStakeEnduringBaker{..} -> do
-            bie <- refLoad paseBakerInfo
-            case _bieAccountIsSuspended bie of
-                CTrue b -> return b
-
 -- ** Updates
 
 -- | Apply account updates to an account. It is assumed that the address in
