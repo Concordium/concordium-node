@@ -1467,9 +1467,7 @@ setBakerKeys upd = updateStake $ \case
 --  This MUST only be called with an account that is either a baker or delegator.
 --  This does no check that the staked amount is sensible, and has no effect on pending changes.
 setStake ::
-    ( Monad m,
-      AccountStructureVersionFor av ~ 'AccountStructureV1
-    ) =>
+    (Monad m) =>
     Amount ->
     PersistentAccount av ->
     m (PersistentAccount av)
