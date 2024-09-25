@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 6.3.2
+
+- Fix inconsistent handling of valid contract names.
+
 ## 6.3.1
 
 - Fix a bug where a node may fail to produce a timeout certificate due to
