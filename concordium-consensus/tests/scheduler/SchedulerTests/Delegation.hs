@@ -34,6 +34,7 @@ import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 import Concordium.Types.Option
 import Control.Monad
+import Data.Bool.Singletons
 import Data.Maybe
 import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
