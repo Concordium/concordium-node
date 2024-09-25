@@ -514,7 +514,7 @@ setAccountStake newStake (PAV2 acc) = PAV2 <$> V1.setStake newStake acc
 setAccountStake newStake (PAV3 acc) = PAV3 <$> V1.setStake newStake acc
 setAccountStake newStake (PAV4 acc) = PAV4 <$> V1.setStake newStake acc
 
-setAccountSuspended ::
+setAccountValidatorSuspended ::
     (MonadBlobStore m, AVSupportsValidatorSuspension av) =>
     Bool ->
     PersistentAccount av ->
