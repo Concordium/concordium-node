@@ -1105,7 +1105,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --         is (preferentially) reactivated from the inactive stake, updating the global indices
     --         accordingly.
     --
-    --  8. If the suspended/resumed flag is set and (>= P8):
+    --  8. (>= P8) If the suspended/resumed flag is set:
 
     --        (1) Suspend/resume the validator according to the flag.
 

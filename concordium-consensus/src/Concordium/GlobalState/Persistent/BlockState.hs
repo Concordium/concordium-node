@@ -1681,8 +1681,7 @@ updateValidatorChecks ::
     MTL.ExceptT ValidatorConfigureFailure m ()
 updateValidatorChecks bsp baker ValidatorUpdate{..} = do
     chainParams <- lookupCurrentParameters (bspUpdates bsp)
-    let
-        poolParams = chainParams ^. cpPoolParameters
+    let poolParams = chainParams ^. cpPoolParameters
         capitalMin = poolParams ^. ppMinimumEquityCapital
         ranges = poolParams ^. ppCommissionBounds
     -- Check if the aggregation key is fresh (or the same as the baker's existing one).
@@ -1807,7 +1806,7 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --         index by adding the difference between the new and old capital) and append
 --         @BakerConfigureStakeIncreased capital@ to @events@.
 
---  9. If the suspended/resumed flag is set and (>= P8):
+--  9. (>= P8) If the suspended/resumed flag is set:
 
 --        (1) Suspend/resume the validator according to the flag.
 
