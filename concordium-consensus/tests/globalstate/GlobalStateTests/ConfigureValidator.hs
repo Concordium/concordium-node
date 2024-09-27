@@ -555,8 +555,7 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
     chainParams =
         DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
             & cpPoolParameters . ppMinimumEquityCapital .~ minEquity
-            & cpPoolParameters
-                . ppCommissionBounds
+            & cpPoolParameters . ppCommissionBounds
                 .~ commissionRanges
     mkInitialState accounts =
         hpbsPointers

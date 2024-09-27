@@ -24,7 +24,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import qualified Concordium.ProtocolUpdate.P8.Reboot as Reboot
 
--- | Updates that are supported from protocol version P7.
+-- | Updates that are supported from protocol version P8.
 data Update = Reboot
     deriving (Show)
 
@@ -40,7 +40,7 @@ checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
         Left err -> Left $! "Could not deserialize auxiliary data: " ++ err
         Right update -> return update
 
--- | Construct the genesis data for a P7 update.
+-- | Construct the genesis data for a P8 update.
 updateRegenesis ::
     ( MPV m ~ 'P8,
       BlockStateStorage m,
