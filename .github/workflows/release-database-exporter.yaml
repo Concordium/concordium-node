@@ -3,7 +3,7 @@ name: Build and Push Database Exporter
 on:
   push:
     branches:
-      - lma/release
+      - lma/release/github_actions
 
 env:
   UBUNTU_VERSION: '20.04'
