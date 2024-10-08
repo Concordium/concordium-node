@@ -8,8 +8,8 @@ on:
 env:
   UBUNTU_VERSION: '20.04'
   GHC_VERSION: '9.6.4'
-  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.68.2_ghc-9.6.4'
-  OUT_DIR: ${{ github.workspace }}/output
+  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
+  VERSION: '7.0.5-0'
 
 jobs:
   build-database-exporter:
@@ -19,44 +19,26 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          submodules: true  # This will clone submodules recursively
-
-      - name: Set Version from Cargo.toml or use input version
-        id: set_version
-        run: |
-          if [ -z "${{ github.event.inputs.VERSION }}" ]; then
-            VERSION=$(awk '/version = / { print substr($3, 2, length($3)-2); exit }' concordium-node/Cargo.toml)
-          else
-            VERSION=${{ github.event.inputs.VERSION }}
-          fi
-          echo "TAG=$VERSION" >> $GITHUB_ENV
-          echo "::set-output name=TAG::$VERSION"
+          submodules: true
 
       - name: Precheck - Validate Version and Check S3 for existing files
         run: |
-          if ! [[ ${{ steps.set_version.outputs.TAG }} =~ ^[0-9] ]]; then
-            echo "error: VERSION must start with a number, currently: ${{ steps.set_version.outputs.TAG }}"
-            exit 1
-          fi
-
-          OUTFILE="s3://distribution.concordium.software/tools/linux/database-exporter_${{ steps.set_version.outputs.TAG }}.deb"
+          OUTFILE="s3://distribution.concordium.software/tools/linux/database-exporter_${{ env.VERSION }}.deb"
           totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
           if [ "$totalFoundObjects" -ne "0" ]; then
             echo "error: $OUTFILE already exists"
             exit 1
           fi
-        env:
-          OUTFILE: s3://distribution.concordium.software/tools/linux/database-exporter_${{ steps.set_version.outputs.TAG }}.deb
 
       - name: Build Docker Image
         run: |
           docker build \
             --build-arg ubuntu_version="${{ env.UBUNTU_VERSION }}" \
-            --build-arg version="${{ steps.set_version.outputs.TAG }}" \
+            --build-arg version="${{ env.VERSION }}" \
             --build-arg ghc_version="${{ env.GHC_VERSION }}" \
             --build-arg static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
             --label ubuntu_version="${{ env.UBUNTU_VERSION }}" \
-            --label version="${{ steps.set_version.outputs.TAG }}" \
+            --label version="${{ env.VERSION }}" \
             --label ghc_version="${{ env.GHC_VERSION }}" \
             --label static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
             -f "scripts/db-exporter/Dockerfile" \
