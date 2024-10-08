@@ -158,7 +158,7 @@ addIncomingEncryptedAmount newAmount old =
                 Seq.Empty -> error "_incomingEncryptedAmounts should not be empty since there is an aggregated incoming amount."
 
 -- | Drop the encrypted amount with indices up to (but not including) the given one, and add the new amount at the end.
--- This is used when an account is transfering from from an encrypted balance, and the newly added
+-- This is used when an account is transferring from an encrypted balance, and the newly added
 -- amount is the remaining balance that was not used.
 --
 -- As mentioned above, the whole 'selfBalance' must always be used in any

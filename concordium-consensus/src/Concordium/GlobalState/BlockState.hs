@@ -801,7 +801,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Update the set of credentials on a given account by: removing credentials, adding
     --  credentials, and updating the account threshold (i.e. number of credentials that are
-    --  required for a valid signature from the account).  Added credentials will be be added
+    --  required for a valid signature from the account).  Added credentials will be added
     --  to the global set of known credentials.
     --
     --  The caller is responsible for establishing the following preconditions:

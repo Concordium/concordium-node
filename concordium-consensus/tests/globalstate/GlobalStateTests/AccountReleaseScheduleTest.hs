@@ -136,7 +136,7 @@ tests = do
 
 ------------------------------------ Checks ------------------------------------
 
--- | Check that an an account was correctly updated in the blockstate with the given release schedule.
+-- | Check that an account was correctly updated in the blockstate with the given release schedule.
 checkCorrectAccountReleaseSchedule :: PBS.PersistentBlockState PV -> PBS.PersistentBlockState PV -> ((AccountAddress, AccountIndex), [(Timestamp, Amount)]) -> ThisMonadConcrete PV ()
 checkCorrectAccountReleaseSchedule newBlockState oldBlockState ((acc, _), rel) = do
     (_, newAccountState') <- fromJust <$> bsoGetAccount newBlockState acc
