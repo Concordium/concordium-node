@@ -21,6 +21,13 @@ jobs:
         with:
           submodules: true
 
+#      - name: Extract version tag from Cargo.toml manifest
+#        id: meta
+#        run: |
+#          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+#          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+
       - name: Precheck - Validate Version and Check S3 for existing files
         run: |
           OUTFILE="s3://distribution.concordium.software/tools/linux/database-exporter_${{ env.VERSION }}.deb"
