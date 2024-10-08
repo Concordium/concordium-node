@@ -19,7 +19,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          submodules: true
+          submodules: recursive
 
 #      - name: Extract version tag from Cargo.toml manifest
 #        id: meta
