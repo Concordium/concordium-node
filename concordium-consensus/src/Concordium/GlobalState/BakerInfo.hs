@@ -228,7 +228,9 @@ data ValidatorUpdate = ValidatorUpdate
       -- | The new baking reward commission for the validator.
       vuBakingRewardCommission :: !(Maybe AmountFraction),
       -- | The new finalization reward commission for the validator.
-      vuFinalizationRewardCommission :: !(Maybe AmountFraction)
+      vuFinalizationRewardCommission :: !(Maybe AmountFraction),
+      -- | Whether the validator's account should be suspended/resumed.
+      vuSuspend :: !(Maybe Bool)
     }
     deriving (Eq, Show)
 
@@ -243,7 +245,8 @@ validatorRemove =
           vuMetadataURL = Nothing,
           vuTransactionFeeCommission = Nothing,
           vuBakingRewardCommission = Nothing,
-          vuFinalizationRewardCommission = Nothing
+          vuFinalizationRewardCommission = Nothing,
+          vuSuspend = Nothing
         }
 
 -- | Failure modes when configuring a validator.
@@ -274,6 +277,8 @@ data BakerConfigureUpdateChange
     | BakerConfigureTransactionFeeCommission !AmountFraction
     | BakerConfigureBakingRewardCommission !AmountFraction
     | BakerConfigureFinalizationRewardCommission !AmountFraction
+    | BakerConfigureSuspended
+    | BakerConfigureResumed
     deriving (Eq, Show)
 
 -- | Parameters for adding a delegator.
@@ -367,9 +372,12 @@ genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
     binfoV1 :: (PVSupportsDelegation pv, PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1) => BakerInfoEx (AccountVersionFor pv)
     binfoV1 =
         BakerInfoExV1
-            bkrInfo
-            BakerPoolInfo
-                { _poolOpenStatus = OpenForAll,
-                  _poolMetadataUrl = emptyUrlText,
-                  _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
-                }
+            { _bieBakerInfo = bkrInfo,
+              _bieBakerPoolInfo =
+                BakerPoolInfo
+                    { _poolOpenStatus = OpenForAll,
+                      _poolMetadataUrl = emptyUrlText,
+                      _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
+                    },
+              _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
+            }
