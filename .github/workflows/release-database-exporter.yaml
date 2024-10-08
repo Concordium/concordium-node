@@ -37,20 +37,39 @@ jobs:
             exit 1
           fi
 
-      - name: Build Docker Image
-        run: |
-          docker build \
-            --build-arg ubuntu_version="${{ env.UBUNTU_VERSION }}" \
-            --build-arg version="${{ env.VERSION }}" \
-            --build-arg ghc_version="${{ env.GHC_VERSION }}" \
-            --build-arg static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
-            --label ubuntu_version="${{ env.UBUNTU_VERSION }}" \
-            --label version="${{ env.VERSION }}" \
-            --label ghc_version="${{ env.GHC_VERSION }}" \
-            --label static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
-            -f "scripts/db-exporter/Dockerfile" \
-            -t build-deb:${{ github.run_id }} \
-            .
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          tags: build-deb:${{ github.run_id }}
+          file: scripts/db-exporter/Dockerfile
+          build-args: |
+            - ubuntu_version=${{ env.UBUNTU_VERSION }}
+            - version=${{ env.VERSION }}
+            - ghc_version=${{ env.GHC_VERSION }}
+            - static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          labels: |
+            - ubuntu_version=${{ env.UBUNTU_VERSION }}
+            - version=${{ env.VERSION }}
+            - ghc_version=${{ env.GHC_VERSION }}
+            - static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+#      - name: Build Docker Image
+#        run: |
+#          docker build \
+#            --build-arg ubuntu_version="${{ env.UBUNTU_VERSION }}" \
+#            --build-arg version="${{ env.VERSION }}" \
+#            --build-arg ghc_version="${{ env.GHC_VERSION }}" \
+#            --build-arg static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
+#            --label ubuntu_version="${{ env.UBUNTU_VERSION }}" \
+#            --label version="${{ env.VERSION }}" \
+#            --label ghc_version="${{ env.GHC_VERSION }}" \
+#            --label static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
+#            -f "scripts/db-exporter/Dockerfile" \
+#            -t build-deb:${{ github.run_id }} \
+#            .
 
       - name: Run Docker and Extract Artifacts
         run: |
