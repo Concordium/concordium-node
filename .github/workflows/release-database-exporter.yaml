@@ -1,0 +1,79 @@
+name: Build and Push Database Exporter
+
+on:
+  push:
+    branches:
+      - lma/release
+
+env:
+  UBUNTU_VERSION: '20.04'
+  GHC_VERSION: '9.6.4'
+  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.68.2_ghc-9.6.4'
+  OUT_DIR: ${{ github.workspace }}/output
+
+jobs:
+  build-database-exporter:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true  # This will clone submodules recursively
+
+      - name: Set Version from Cargo.toml or use input version
+        id: set_version
+        run: |
+          if [ -z "${{ github.event.inputs.VERSION }}" ]; then
+            VERSION=$(awk '/version = / { print substr($3, 2, length($3)-2); exit }' concordium-node/Cargo.toml)
+          else
+            VERSION=${{ github.event.inputs.VERSION }}
+          fi
+          echo "TAG=$VERSION" >> $GITHUB_ENV
+          echo "::set-output name=TAG::$VERSION"
+
+      - name: Precheck - Validate Version and Check S3 for existing files
+        run: |
+          if ! [[ ${{ steps.set_version.outputs.TAG }} =~ ^[0-9] ]]; then
+            echo "error: VERSION must start with a number, currently: ${{ steps.set_version.outputs.TAG }}"
+            exit 1
+          fi
+
+          OUTFILE="s3://distribution.concordium.software/tools/linux/database-exporter_${{ steps.set_version.outputs.TAG }}.deb"
+          totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+          if [ "$totalFoundObjects" -ne "0" ]; then
+            echo "error: $OUTFILE already exists"
+            exit 1
+          fi
+        env:
+          OUTFILE: s3://distribution.concordium.software/tools/linux/database-exporter_${{ steps.set_version.outputs.TAG }}.deb
+
+      - name: Build Docker Image
+        run: |
+          docker build \
+            --build-arg ubuntu_version="${{ env.UBUNTU_VERSION }}" \
+            --build-arg version="${{ steps.set_version.outputs.TAG }}" \
+            --build-arg ghc_version="${{ env.GHC_VERSION }}" \
+            --build-arg static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
+            --label ubuntu_version="${{ env.UBUNTU_VERSION }}" \
+            --label version="${{ steps.set_version.outputs.TAG }}" \
+            --label ghc_version="${{ env.GHC_VERSION }}" \
+            --label static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
+            -f "scripts/db-exporter/Dockerfile" \
+            -t build-deb:${{ github.run_id }} \
+            .
+
+      - name: Run Docker and Extract Artifacts
+        run: |
+          docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
+
+      - name: Finish
+        run: |
+          ls -la /out
+
+#      - name: Upload to S3
+#        run: |
+#          aws s3 cp "${{ env.OUT_DIR }}/database-exporter_${{ steps.set_version.outputs.TAG }}.deb" \
+#            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+#        env:
+#          OUTFILE: s3://distribution.concordium.software/tools/linux/database-exporter_${{ steps.set_version.outputs.TAG }}.deb
