@@ -46,15 +46,15 @@ jobs:
           tags: build-deb:${{ github.run_id }}
           file: scripts/db-exporter/Dockerfile
           build-args: |
-            - ubuntu_version=${{ env.UBUNTU_VERSION }}
-            - version=${{ env.VERSION }}
-            - ghc_version=${{ env.GHC_VERSION }}
-            - static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            ghc_version=${{ env.GHC_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
           labels: |
-            - ubuntu_version=${{ env.UBUNTU_VERSION }}
-            - version=${{ env.VERSION }}
-            - ghc_version=${{ env.GHC_VERSION }}
-            - static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            ghc_version=${{ env.GHC_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
