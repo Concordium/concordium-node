@@ -111,6 +111,7 @@ jobs:
         run: ./scripts/static-binaries/build-static-binaries.sh
         env:
           STATIC_LIBRARIES_IMAGE_TAG: ${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          STATIC_BINARIES_IMAGE_TAG: ${{ github.run_id }}
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
