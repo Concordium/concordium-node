@@ -19,7 +19,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: 7.0.5-0
+          ref: ${{ env.VERSION }}
           submodules: recursive
 
 #      - name: Extract version tag from Cargo.toml manifest
@@ -81,7 +81,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: 7.0.5-0
+          ref: ${{ env.VERSION }}
           submodules: recursive
 
       - name: Precheck - Validate Version and Check S3 for existing files
@@ -159,7 +159,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: 7.0.5-0
+          ref: ${{ env.VERSION }}
           submodules: recursive
 
       - name: Set Workspace Path (Custom for Windows to avoid long paths)
