@@ -167,16 +167,42 @@ jobs:
 #        run: |
 #          powershell -File ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
 #
-#  build-macos-node:
-#    runs-on: macos-latest  # The build step is run on a macOS machine
-#    steps:
-#      - name: Checkout Repository
-#        uses: actions/checkout@v4
-#        with:
-#          ref: ${{ env.VERSION }}
-#          submodules: recursive
-#
-#      - name: Build macOS Package
-#        run: |
-#          # Answer "No" to signing and build the package
-#          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
+  build-macos-node:
+    runs-on: macos-latest  # The build step is run on a macOS machine
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+      - name: Install Rust (stable 1.73)
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+        env:
+          RUST_VERSION: 1.73.0
+
+      - name: Install Homebrew Packages
+        run: |
+          brew install cmake protobuf llvm
+          echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> $GITHUB_ENV
+          echo 'export LDFLAGS="-L/usr/local/opt/llvm/lib"' >> $GITHUB_ENV
+          echo 'export CPPFLAGS="-I/usr/local/opt/llvm/include"' >> $GITHUB_ENV
+          echo 'export PKG_CONFIG_PATH="/usr/local/opt/llvm/lib/pkgconfig"' >> $GITHUB_ENV
+          brew link cmake protobuf llvm
+
+      - name: Install Flatc v22.12.06
+        run: |
+          curl -L -o flatc.zip https://github.com/google/flatbuffers/releases/download/v22.12.06/flatc_darwin.zip
+          unzip flatc.zip -d flatc_bin
+          sudo mv flatc_bin/flatc /usr/local/bin/flatc
+        env:
+          FLATC_VERSION: v22.12.06
+
+      - name: Build macOS Package
+        run: |
+          # Answer "No" to signing and build the package
+          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
