@@ -107,8 +107,7 @@ jobs:
           push: false
           file: scripts/static-binaries/static-binaries.Dockerfile
           tags: static-node-binaries:${{ github.run_id }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             static_libraries_image_tag=${{ env.VERSION }}
