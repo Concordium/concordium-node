@@ -187,20 +187,12 @@ jobs:
 
       - name: Install Homebrew Packages
         run: |
-          brew install cmake protobuf llvm
+          brew install cmake protobuf llvm flatbuffers
           echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> $GITHUB_ENV
           echo 'export LDFLAGS="-L/usr/local/opt/llvm/lib"' >> $GITHUB_ENV
           echo 'export CPPFLAGS="-I/usr/local/opt/llvm/include"' >> $GITHUB_ENV
           echo 'export PKG_CONFIG_PATH="/usr/local/opt/llvm/lib/pkgconfig"' >> $GITHUB_ENV
           brew link cmake protobuf llvm
-
-      - name: Install Flatc v22.12.06
-        run: |
-          curl -L -o flatc.zip https://github.com/google/flatbuffers/releases/download/v22.12.06/flatc_darwin.zip
-          unzip flatc.zip -d flatc_bin
-          sudo mv flatc_bin/flatc /usr/local/bin/flatc
-        env:
-          FLATC_VERSION: v22.12.06
 
       - name: Build macOS Package
         run: |
