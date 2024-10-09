@@ -40,24 +40,24 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-#      - name: Build
-#        uses: docker/build-push-action@v6
-#        with:
-#          push: false
-#          tags: build-deb:${{ github.run_id }}
-#          file: scripts/db-exporter/Dockerfile
-#          build-args: |
-#            ubuntu_version=${{ env.UBUNTU_VERSION }}
-#            version=${{ env.VERSION }}
-#            ghc_version=${{ env.GHC_VERSION }}
-#            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
-#          labels: |
-#            ubuntu_version=${{ env.UBUNTU_VERSION }}
-#            version=${{ env.VERSION }}
-#            ghc_version=${{ env.GHC_VERSION }}
-#            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
-#          cache-from: type=gha
-#          cache-to: type=gha,mode=max
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          push: false
+          tags: build-deb:${{ github.run_id }}
+          file: scripts/db-exporter/Dockerfile
+          build-args: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            ghc_version=${{ env.GHC_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          labels: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            ghc_version=${{ env.GHC_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
 #      - name: Run Docker and Extract Artifacts
 #        run: |
@@ -126,8 +126,7 @@ jobs:
           push: false
           file: scripts/bootstrapper/Dockerfile
           tags: build-deb:${{ github.run_id }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             version=${{ env.VERSION }}
@@ -152,28 +151,33 @@ jobs:
 #        env:
 #          OUTFILE: s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ steps.set_version.outputs.TAG }}.deb
 
-  build-windows-node:
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.VERSION }}
-          submodules: recursive
-
-      - name: Set Workspace Path (Custom for Windows to avoid long paths)
-        run: mkdir C:\\node-ws
-
-      - name: Build Windows Node
-        run: |
-          powershell -File ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }}
-
-#      - name: Upload Windows MSI to S3
+#  build-windows-node:
+#    runs-on: windows-latest
+#
+#    steps:
+#      - name: Checkout Repository
+#        uses: actions/checkout@v4
+#        with:
+#          ref: ${{ env.VERSION }}
+#          submodules: recursive
+#
+#      - name: Set Workspace Path (Custom for Windows to avoid long paths)
+#        run: mkdir C:\\node-ws
+#
+#      - name: Build Windows Node
 #        run: |
-#          BASE_OUTFILE='s3://distribution.concordium.software/windows/'
-#          OUTFILE="${BASE_OUTFILE}Node-${{ steps.set_version.outputs.TAG }}.msi"
-#          aws s3 cp ./service/windows/installer/Node.msi $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-#        env:
-#          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-#          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#          powershell -File ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
+#
+#  build-macos-node:
+#    runs-on: macos-latest  # The build step is run on a macOS machine
+#    steps:
+#      - name: Checkout Repository
+#        uses: actions/checkout@v4
+#        with:
+#          ref: ${{ env.VERSION }}
+#          submodules: recursive
+#
+#      - name: Build macOS Package
+#        run: |
+#          # Answer "No" to signing and build the package
+#          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
