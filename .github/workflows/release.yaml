@@ -159,16 +159,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Precheck - Validate Version and Check S3 for existing files
-        run: |
-          # Check if the file already exists in S3
-          OUTFILE="s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ env.VERSION }}.deb"
-          totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
-          if [ "$totalFoundObjects" -ne "0" ]; then
-            echo "error: $OUTFILE already exists"
-            exit 1
-          fi
-
       - name: Set Workspace Path (Custom for Windows to avoid long paths)
         run: mkdir C:\\node-ws
 
