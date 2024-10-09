@@ -187,14 +187,8 @@ jobs:
 
       - name: Install Homebrew Packages
         run: |
-          brew install protobuf llvm flatbuffers haskell-stack
-          echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> $GITHUB_ENV
-          echo 'export LDFLAGS="-L/usr/local/opt/llvm/lib"' >> $GITHUB_ENV
-          echo 'export CPPFLAGS="-I/usr/local/opt/llvm/include"' >> $GITHUB_ENV
-          echo 'export PKG_CONFIG_PATH="/usr/local/opt/llvm/lib/pkgconfig"' >> $GITHUB_ENV
-          brew link cmake protobuf llvm
+          brew install lmdb protobuf llvm flatbuffers haskell-stack
 
       - name: Build macOS Package
         run: |
-          # Answer "No" to signing and build the package
           printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
