@@ -187,7 +187,7 @@ jobs:
 
       - name: Install Homebrew Packages
         run: |
-          brew install cmake protobuf llvm flatbuffers
+          brew install protobuf llvm flatbuffers haskell-stack
           echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> $GITHUB_ENV
           echo 'export LDFLAGS="-L/usr/local/opt/llvm/lib"' >> $GITHUB_ENV
           echo 'export CPPFLAGS="-I/usr/local/opt/llvm/include"' >> $GITHUB_ENV
