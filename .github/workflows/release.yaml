@@ -39,47 +39,32 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build
-        uses: docker/build-push-action@v6
-        with:
-          push: false
-          tags: build-deb:${{ github.run_id }}
-          file: scripts/db-exporter/Dockerfile
-          build-args: |
-            ubuntu_version=${{ env.UBUNTU_VERSION }}
-            version=${{ env.VERSION }}
-            ghc_version=${{ env.GHC_VERSION }}
-            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
-          labels: |
-            ubuntu_version=${{ env.UBUNTU_VERSION }}
-            version=${{ env.VERSION }}
-            ghc_version=${{ env.GHC_VERSION }}
-            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+#      - name: Build
+#        uses: docker/build-push-action@v6
+#        with:
+#          push: false
+#          tags: build-deb:${{ github.run_id }}
+#          file: scripts/db-exporter/Dockerfile
+#          build-args: |
+#            ubuntu_version=${{ env.UBUNTU_VERSION }}
+#            version=${{ env.VERSION }}
+#            ghc_version=${{ env.GHC_VERSION }}
+#            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+#          labels: |
+#            ubuntu_version=${{ env.UBUNTU_VERSION }}
+#            version=${{ env.VERSION }}
+#            ghc_version=${{ env.GHC_VERSION }}
+#            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+#          cache-from: type=gha
+#          cache-to: type=gha,mode=max
 
-#      - name: Build Docker Image
+#      - name: Run Docker and Extract Artifacts
 #        run: |
-#          docker build \
-#            --build-arg ubuntu_version="${{ env.UBUNTU_VERSION }}" \
-#            --build-arg version="${{ env.VERSION }}" \
-#            --build-arg ghc_version="${{ env.GHC_VERSION }}" \
-#            --build-arg static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
-#            --label ubuntu_version="${{ env.UBUNTU_VERSION }}" \
-#            --label version="${{ env.VERSION }}" \
-#            --label ghc_version="${{ env.GHC_VERSION }}" \
-#            --label static_libraries_image_tag="${{ env.STATIC_LIBRARIES_IMAGE_TAG }}" \
-#            -f "scripts/db-exporter/Dockerfile" \
-#            -t build-deb:${{ github.run_id }} \
-#            .
-
-      - name: Run Docker and Extract Artifacts
-        run: |
-          docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
-
-      - name: Finish
-        run: |
-          ls -la /out
+#          docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
+#
+#      - name: Finish
+#        run: |
+#          ls -la /out
 
 #      - name: Upload to S3
 #        run: |
@@ -112,6 +97,25 @@ jobs:
         env:
           STATIC_LIBRARIES_IMAGE_TAG: ${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
           STATIC_BINARIES_IMAGE_TAG: ${{ github.run_id }}
+
+      - name: Build Static Node Binary Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          file: scripts/static-binaries/static-binaries.Dockerfile
+          tags: static-node-binaries:${{ github.run_id }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            static_libraries_image_tag=${{ env.VERSION }}
+            ghc_version=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          labels: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            static_libraries_image_tag=${{ env.VERSION }}
+            ghc_version=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
