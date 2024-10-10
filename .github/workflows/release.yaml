@@ -185,12 +185,10 @@ jobs:
       - name: Install Homebrew Packages
         run: |
           brew install lmdb protobuf llvm flatbuffers
-          brew info lmdb
-          brew list
-          echo "PATH=/opt/homebrew/opt/llvm/bin:$PATH" >> $GITHUB_ENV
-          echo "LDFLAGS=-L/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
-          echo "CPPFLAGS=-I/opt/homebrew/opt/llvm/include" >> $GITHUB_ENV
+          echo "LDFLAGS=-L/opt/homebrew/opt/lmdb/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I/opt/homebrew/opt/lmdb/include" >> $GITHUB_ENV
 
       - name: Build macOS Package
         run: |
+          printenv
           printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
