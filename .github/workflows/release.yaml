@@ -14,7 +14,6 @@ env:
 jobs:
   build-database-exporter:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -56,8 +55,7 @@ jobs:
             version=${{ env.VERSION }}
             ghc_version=${{ env.GHC_VERSION }}
             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
 #      - name: Run Docker and Extract Artifacts
 #        run: |
