@@ -190,5 +190,5 @@ jobs:
 
       - name: Build macOS Package
         run: |
-          printenv
+          ls /opt/homebrew/opt/lmdb
           printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
