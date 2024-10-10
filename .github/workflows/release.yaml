@@ -166,6 +166,8 @@ jobs:
 #
   build-macos-node:
     runs-on: macos-latest  # The build step is run on a macOS machine
+    env:
+      LDFLAGS: "-L/opt/homebrew/opt/llvm/lib/c++ -L/opt/homebrew/opt/llvm/lib/unwind -lunwind"
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
