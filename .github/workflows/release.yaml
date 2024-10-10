@@ -42,6 +42,7 @@ jobs:
       - name: Build Database Exporter
         uses: docker/build-push-action@v6
         with:
+          context: .
           push: false
           tags: build-deb:${{ github.run_id }}
           file: scripts/db-exporter/Dockerfile
