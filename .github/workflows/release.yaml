@@ -169,6 +169,7 @@ jobs:
     env:
       LDFLAGS: "-L/opt/homebrew/opt/llvm/lib"
       CPPFLAGS: "-I/opt/homebrew/opt/llvm/include"
+      PATH: "/opt/homebrew/opt/llvm/bin:$PATH"
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
