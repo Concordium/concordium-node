@@ -1,0 +1,194 @@
+name: Build and Push Database Exporter
+
+on:
+  push:
+    branches:
+      - lma/release/github_actions
+
+env:
+  UBUNTU_VERSION: '20.04'
+  GHC_VERSION: '9.6.4'
+  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
+  VERSION: '7.0.5-0'
+  STACK_VERSION: '2.7.5'
+  FLATBUFFERS_VERSION: '22.12.06'
+
+jobs:
+  build-database-exporter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+#      - name: Extract version tag from Cargo.toml manifest
+#        id: meta
+#        run: |
+#          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+#          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+
+      - name: Precheck - Validate Version and Check S3 for existing files
+        run: |
+          OUTFILE="s3://distribution.concordium.software/tools/linux/database-exporter_${{ env.VERSION }}.deb"
+          totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+          if [ "$totalFoundObjects" -ne "0" ]; then
+            echo "error: $OUTFILE already exists"
+            exit 1
+          fi
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Database Exporter
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: build-deb:${{ github.run_id }}
+          file: scripts/db-exporter/Dockerfile
+          build-args: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            ghc_version=${{ env.GHC_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          labels: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            ghc_version=${{ env.GHC_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          no-cache: true
+
+#      - name: Run Docker and Extract Artifacts
+#        run: |
+#          docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
+#
+#      - name: Finish
+#        run: |
+#          ls -la /out
+
+#      - name: Upload to S3
+#        run: |
+#          aws s3 cp "${{ env.OUT_DIR }}/database-exporter_${{ steps.set_version.outputs.TAG }}.deb" \
+#            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+#        env:
+#          OUTFILE: s3://distribution.concordium.software/tools/linux/database-exporter_${{ steps.set_version.outputs.TAG }}.deb
+
+  build-p2p-bootstrapper:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+      - name: Precheck - Validate Version and Check S3 for existing files
+        run: |
+          # Check if the file already exists in S3
+          OUTFILE="s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ env.VERSION }}.deb"
+          totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+          if [ "$totalFoundObjects" -ne "0" ]; then
+            echo "error: $OUTFILE already exists"
+            exit 1
+          fi
+
+      - name: Build Static Node Binary Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          file: scripts/static-binaries/static-binaries.Dockerfile
+          tags: static-node-binaries:${{ github.run_id }}
+          no-cache: true
+          build-args: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+            ghc_version=${{ env.GHC_VERSION }}
+          labels: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+            ghc_version=${{ env.GHC_VERSION }}
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          file: scripts/bootstrapper/Dockerfile
+          tags: build-deb:${{ github.run_id }}
+          no-cache: true
+          build-args: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            static_binaries_image_tag=${{ github.run_id }}
+          labels: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            static_binaries_image_tag=${{ github.run_id }}
+
+      - name: Make out directory
+        run: echo "OUT_DIR=$(mktemp -d)" >> $GITHUB_ENV
+
+      - name: Run Docker Container to Generate Output
+        run: |
+          docker run \
+            --env EXTERNAL_UID=$(id -u) \
+            --env EXTERNAL_GID=$(id -g) \
+            -v "${{ env.OUT_DIR }}":/out \
+            build-deb:${{ github.run_id }}
+
+#      - name: Push Debian Package to S3
+#        run: |
+#          aws s3 cp "${{ env.OUT_DIR }}/p2p-bootstrapper_${{ steps.set_version.outputs.TAG }}.deb" \
+#            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+#        env:
+#          OUTFILE: s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ steps.set_version.outputs.TAG }}.deb
+
+#  build-windows-node:
+#    runs-on: windows-latest
+#
+#    steps:
+#      - name: Checkout Repository
+#        uses: actions/checkout@v4
+#        with:
+#          ref: ${{ env.VERSION }}
+#          submodules: recursive
+#
+#      - name: Set Workspace Path (Custom for Windows to avoid long paths)
+#        run: mkdir C:\\node-ws
+#
+#      - name: Build Windows Node
+#        run: |
+#          powershell -File ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
+#
+  build-macos-node:
+    runs-on: macos-latest  # The build step is run on a macOS machine
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.73.0
+
+      - name: Install Stack
+        run: |
+          wget -qO- https://github.com/commercialhaskell/stack/releases/download/v${{ env.STACK_VERSION }}/stack-${{ env.STACK_VERSION }}-osx-x86_64.tar.gz | tar -xzf -
+          sudo mv stack-${{ env.STACK_VERSION }}-osx-x86_64/stack /usr/local/bin/stack
+
+      - name: Install Homebrew Packages
+        run: |
+          brew install lmdb protobuf llvm flatbuffers
+          echo "LDFLAGS=-L/opt/homebrew/opt/lmdb/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I/opt/homebrew/opt/lmdb/include" >> $GITHUB_ENV
+
+      - name: Build macOS Package
+        run: |
+          ls /opt/homebrew/opt/lmdb
+          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
