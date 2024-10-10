@@ -39,7 +39,7 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build
+      - name: Build Database Exporter
         uses: docker/build-push-action@v6
         with:
           push: false
@@ -125,6 +125,9 @@ jobs:
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             version=${{ env.VERSION }}
             static_binaries_image_tag=${{ github.run_id }}
+
+      - name: Make out directory
+        run: echo "OUT_DIR=$(mktemp -d)" >> $GITHUB_ENV
 
       - name: Run Docker Container to Generate Output
         run: |
