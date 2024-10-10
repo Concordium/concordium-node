@@ -172,20 +172,14 @@ jobs:
           ref: ${{ env.VERSION }}
           submodules: recursive
 
-      - name: Install Rust (stable 1.73)
-        uses: actions-rs/toolchain@v1
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: stable
-          profile: minimal
-          override: true
-        env:
-          RUST_VERSION: 1.73.0
+          toolchain: 1.73.0
 
       - name: Install Stack
         run: |
           wget -qO- https://github.com/commercialhaskell/stack/releases/download/v${{ env.STACK_VERSION }}/stack-${{ env.STACK_VERSION }}-osx-x86_64.tar.gz | tar -xzf -
           sudo mv stack-${{ env.STACK_VERSION }}-osx-x86_64/stack /usr/local/bin/stack
-          stack --version
 
       - name: Install Homebrew Packages
         run: |
