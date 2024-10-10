@@ -12,7 +12,6 @@ env:
   VERSION: '7.0.5-0'
   STACK_VERSION: '2.7.5'
   FLATBUFFERS_VERSION: '22.12.06'
-  PROTOBUF_VERSION: '3.21.5'
   LLVM_VERSION: '11.1.0'
 
 jobs:
@@ -186,7 +185,8 @@ jobs:
 
       - name: Install Homebrew Packages
         run: |
-          brew install lmdb protobuf@${{ env.PROTOBUF_VERSION }} llvm@${{ env.LLVM_VERSION }} flatbuffers@${{ env.FLATBUFFERS_VERSION }}
+          brew install lmdb protobuf llvm@${{ env.LLVM_VERSION }} flatbuffers@${{ env.FLATBUFFERS_VERSION }}
+          brew info lmdb
           brew list
 
       - name: Build macOS Package
