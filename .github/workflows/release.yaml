@@ -105,7 +105,7 @@ jobs:
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             static_libraries_image_tag=${{ env.VERSION }}
-            ghc_version=${{ env.GHC_VERSION
+            ghc_version=${{ env.GHC_VERSION }}
           labels: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             static_libraries_image_tag=${{ env.VERSION }}
