@@ -10,6 +10,7 @@ env:
   GHC_VERSION: '9.6.4'
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   VERSION: '7.0.5-0'
+  STACK_VERSION: '2.7.5'
 
 jobs:
   build-database-exporter:
@@ -179,6 +180,12 @@ jobs:
           override: true
         env:
           RUST_VERSION: 1.73.0
+
+      - name: Install Stack
+        run: |
+          wget -qO- https://github.com/commercialhaskell/stack/releases/download/v${{ env.STACK_VERSION }}/stack-${{ env.STACK_VERSION }}-osx-x86_64.tar.gz | tar -xzf -
+          sudo mv stack-${{ env.STACK_VERSION }}-osx-x86_64/stack /usr/local/bin/stack
+          stack --version
 
       - name: Install Homebrew Packages
         run: |
