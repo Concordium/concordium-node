@@ -166,10 +166,6 @@ jobs:
 #
   build-macos-node:
     runs-on: macos-latest  # The build step is run on a macOS machine
-    env:
-      LDFLAGS: "-L/opt/homebrew/opt/llvm/lib"
-      CPPFLAGS: "-I/opt/homebrew/opt/llvm/include"
-      PATH: "/opt/homebrew/opt/llvm/bin:$PATH"
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -191,6 +187,9 @@ jobs:
           brew install lmdb protobuf llvm flatbuffers
           brew info lmdb
           brew list
+          echo "PATH=/opt/homebrew/opt/llvm/bin:$PATH" >> $GITHUB_ENV
+          echo "LDFLAGS=-L/opt/homebrew/opt/llvm/lib" >> $GITHUB_ENV
+          echo "CPPFLAGS=-I/opt/homebrew/opt/llvm/include" >> $GITHUB_ENV
 
       - name: Build macOS Package
         run: |
