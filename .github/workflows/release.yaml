@@ -104,11 +104,11 @@ jobs:
           no-cache: true
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
-            static_libraries_image_tag=${{ env.VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
             ghc_version=${{ env.GHC_VERSION }}
           labels: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
-            static_libraries_image_tag=${{ env.VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
             ghc_version=${{ env.GHC_VERSION }}
 
       - name: Build Docker Image
