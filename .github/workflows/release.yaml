@@ -192,4 +192,4 @@ jobs:
 
       - name: Build macOS Package
         run: |
-          stack build
+          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
