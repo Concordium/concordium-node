@@ -191,6 +191,7 @@ jobs:
 
       - name: Build macOS Package
         run: |
+          which stack
           stack path
           pkg-config --cflags libffi
           export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
