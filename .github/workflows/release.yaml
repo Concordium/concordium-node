@@ -190,5 +190,10 @@ jobs:
 
       - name: Build macOS Package
         run: |
-          ls /opt/homebrew/opt/lmdb
-          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
+          cd concordium-consensus
+          echo "First"
+          ls /opt/homebrew/opt/lmdb/include
+          echo "Second"
+          ls /opt/homebrew/opt/lmdb/lib
+          echo "Third"
+          stack build -v --extra-include-dirs=/opt/homebrew/opt/lmdb/lib --extra-lib-dirs=/opt/homebrew/opt/lmdb/include
