@@ -191,11 +191,7 @@ jobs:
 
       - name: Build macOS Package
         run: |
+          uname -m
           pkg-config --cflags libffi
-          cd concordium-consensus
-          echo "First"
-          ls /opt/homebrew/opt/lmdb/include
-          echo "Second"
-          ls /opt/homebrew/opt/lmdb/lib
-          echo "Third"
+          cat ~/.stack/config.yaml
           stack build -v --extra-include-dirs=/opt/homebrew/opt/lmdb/include --extra-lib-dirs=/opt/homebrew/opt/lmdb/lib
