@@ -191,7 +191,8 @@ jobs:
 
       - name: Build macOS Package
         run: |
-          uname -m
+          stack path
           pkg-config --cflags libffi
-          cat ~/.stack/config.yaml
+          export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
+          export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"
           stack build -v --extra-include-dirs=/opt/homebrew/opt/lmdb/include --extra-lib-dirs=/opt/homebrew/opt/lmdb/lib
