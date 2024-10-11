@@ -187,9 +187,9 @@ jobs:
         run: |
           brew install lmdb protobuf llvm flatbuffers
 
-      - name: List files
+      - name: Stack path
         run: |
-          ls -a ~/
+          stack path
 
       - name: Print libffi
         run: |
