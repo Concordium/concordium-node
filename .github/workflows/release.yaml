@@ -11,7 +11,6 @@ env:
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   VERSION: '7.0.5-0'
   STACK_VERSION: '2.7.5'
-  FLATBUFFERS_VERSION: '22.12.06'
 
 jobs:
   build-database-exporter:
@@ -178,22 +177,23 @@ jobs:
         with:
           toolchain: 1.73.0
 
-      - name: Install Stack
-        run: |
-          wget -qO- https://github.com/commercialhaskell/stack/releases/download/v${{ env.STACK_VERSION }}/stack-${{ env.STACK_VERSION }}-osx-x86_64.tar.gz | tar -xzf -
-          sudo mv stack-${{ env.STACK_VERSION }}-osx-x86_64/stack /usr/local/bin/stack
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.6.4'
+          cabal-version: '3.10.1.0'
+          stack-version: '2.7.5'
+          enable-stack: true
 
       - name: Install Homebrew Packages
         run: |
           brew install lmdb protobuf llvm flatbuffers
-          echo "LDFLAGS=-L/opt/homebrew/opt/lmdb/lib" >> $GITHUB_ENV
-          echo "CPPFLAGS=-I/opt/homebrew/opt/lmdb/include" >> $GITHUB_ENV
+
+      - name: Print libffi
+        run: |
+          pkg-config --cflags libffi
 
       - name: Build macOS Package
         run: |
-          which stack
-          stack path
-          pkg-config --cflags libffi
           export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
           export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"
           stack build -v --extra-include-dirs=/opt/homebrew/opt/lmdb/include --extra-lib-dirs=/opt/homebrew/opt/lmdb/lib
