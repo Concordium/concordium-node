@@ -187,6 +187,10 @@ jobs:
         run: |
           brew install lmdb protobuf llvm flatbuffers
 
+      - name: List files
+        run: |
+          ls -a ~/
+
       - name: Print libffi
         run: |
           pkg-config --cflags libffi
