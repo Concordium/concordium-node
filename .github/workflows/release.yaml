@@ -165,7 +165,7 @@ jobs:
 #          powershell -File ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
 #
   build-macos-node:
-    runs-on: macos-latest  # The build step is run on a macOS machine
+    runs-on: macos-latest-large
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -192,8 +192,6 @@ jobs:
 
       - name: Build macOS Package
         run: |
-          pkg-config --cflags libffi
-          echo "second"
           export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
           export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"
-          stack build --extra-include-dirs=/opt/homebrew/opt/lmdb/include --extra-include-dirs=/Library/Developer/CommandLineTools/SDKs/MacOSX14.sdk/usr/include/ffi --extra-lib-dirs=/opt/homebrew/opt/lmdb/lib
+          stack build --extra-include-dirs=/usr/local/Cellar/lmdb/0.9.33/lib --extra-lib-dirs=/usr/local/Cellar/lmdb/0.9.33/lib
