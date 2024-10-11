@@ -191,7 +191,7 @@ jobs:
 
       - name: Build macOS Package
         run: |
-          cat $(pkg-config --cflags libffi)
+          pkg-config --cflags libffi
           cd concordium-consensus
           echo "First"
           ls /opt/homebrew/opt/lmdb/include
