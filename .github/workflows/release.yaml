@@ -192,6 +192,4 @@ jobs:
 
       - name: Build macOS Package
         run: |
-          export LDFLAGS="-L/opt/homebrew/opt/llvm/lib"
-          export CPPFLAGS="-I/opt/homebrew/opt/llvm/include"
-          stack build --extra-include-dirs=/usr/local/Cellar/lmdb/0.9.33/include --extra-include-dirs=/Library/Developer/CommandLineTools/SDKs/MacOSX14.sdk/usr/include/ffi --extra-lib-dirs=/usr/local/Cellar/lmdb/0.9.33/lib
+          stack build
