@@ -181,7 +181,6 @@ jobs:
         with:
           ghc-version: '9.6.4'
           cabal-version: '3.10.1.0'
-          stack-version: '2.7.5'
           enable-stack: true
 
       - name: Install Homebrew Packages
