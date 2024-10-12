@@ -178,10 +178,12 @@ jobs:
         with:
           toolchain: 1.73.0
 
-      - name: Install Stack
-        run: |
-          wget -qO- https://github.com/commercialhaskell/stack/releases/download/v${{ env.STACK_VERSION }}/stack-${{ env.STACK_VERSION }}-osx-x86_64.tar.gz | tar -xzf -
-          sudo mv stack-${{ env.STACK_VERSION }}-osx-x86_64/stack /usr/local/bin/stack
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.6.4' # Resolves to the latest point release of GHC 8.8
+          cabal-version: '3.6.2.0' # Exact version of Cabal
+          enable-stack: true
+          stack-version: '2.7.5'
 
       - name: Install flatbuffers
         run: |
@@ -192,10 +194,6 @@ jobs:
       - name: Install Homebrew Packages
         run: |
           brew install lmdb protobuf llvm
-
-      - name: Print libiffi
-        run: |
-          pkg-config --cflags libffi
 
       - name: Build macOS Package
         run: |
