@@ -184,7 +184,8 @@ jobs:
 
       - name: Install Homebrew Packages
         run: |
-          brew install lmdb protobuf llvm flatbuffers
+          brew install lmdb protobuf llvm
+          brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/346d9265bd57774072a57cea175b9658bde7fde2/Formula/flatbuffers.rb
 
       - name: Print libiffi
         run: |
