@@ -194,16 +194,12 @@ jobs:
           unzip MacIntel.flatc.binary.zip -d flatbuffers
           sudo mv flatbuffers/flatc /usr/local/bin/
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "3.21.x"
-
-      - name: Install flatbuffers
+      - name: Install protobuf
         run: |
-          wget https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/MacIntel.flatc.binary.zip -O MacIntel.flatc.binary.zip
-          unzip MacIntel.flatc.binary.zip -d flatbuffers
-          sudo mv flatbuffers/flatc /usr/local/bin/
+          wget https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-osx-x86_64.zip
+          unzip protoc-21.5-osx-x86_64.zip -d protoc-21.5
+          sudo mv protoc-21.5/bin/protoc /usr/local/bin/
+          sudo mv protoc-21.5/include/* /usr/local/include/
 
       - name: Install Homebrew Packages
         run: |
