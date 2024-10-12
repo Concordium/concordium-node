@@ -9,9 +9,12 @@ env:
   UBUNTU_VERSION: '20.04'
   GHC_VERSION: '9.6.4'
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
+  RUST_VERSION: '1.73.0'
   VERSION: '7.0.5-0'
   STACK_VERSION: '2.7.5'
   FLATBUFFERS_VERSION: '22.12.06'
+  CABAL_VERSION: '3.6.2.0'
+  PROTOC_VERSION: '3.21.5'
 
 jobs:
   build-database-exporter:
@@ -180,10 +183,21 @@ jobs:
 
       - uses: haskell-actions/setup@v2
         with:
-          ghc-version: '9.6.4' # Resolves to the latest point release of GHC 8.8
-          cabal-version: '3.6.2.0' # Exact version of Cabal
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
           enable-stack: true
-          stack-version: '2.7.5'
+          stack-version: ${{ env.STACK_VERSION }}
+
+      - name: Install flatbuffers
+        run: |
+          wget https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/MacIntel.flatc.binary.zip -O MacIntel.flatc.binary.zip
+          unzip MacIntel.flatc.binary.zip -d flatbuffers
+          sudo mv flatbuffers/flatc /usr/local/bin/
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "3.21.x"
 
       - name: Install flatbuffers
         run: |
@@ -193,7 +207,7 @@ jobs:
 
       - name: Install Homebrew Packages
         run: |
-          brew install lmdb protobuf llvm
+          brew install lmdb llvm
 
       - name: Build macOS Package
         run: |
