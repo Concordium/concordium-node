@@ -182,6 +182,12 @@ jobs:
           wget -qO- https://github.com/commercialhaskell/stack/releases/download/v${{ env.STACK_VERSION }}/stack-${{ env.STACK_VERSION }}-osx-x86_64.tar.gz | tar -xzf -
           sudo mv stack-${{ env.STACK_VERSION }}-osx-x86_64/stack /usr/local/bin/stack
 
+      - name: Install flatbuffers
+        run: |
+          wget https://github.com/google/flatbuffers/releases/download/v22.12.06/MacIntel.flatc.binary.zip -O MacIntel.flatc.binary.zip
+          unzip MacIntel.flatc.binary.zip -d flatbuffers-v22.12.06
+          sudo mv flatbuffers-v22.12.06/flatc /usr/local/bin/
+
       - name: Install Homebrew Packages
         run: |
           brew install lmdb protobuf llvm
