@@ -11,6 +11,7 @@ env:
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   VERSION: '7.0.5-0'
   STACK_VERSION: '2.7.5'
+  FLATBUFFERS_VERSION: '22.12.06'
 
 jobs:
   build-database-exporter:
@@ -184,9 +185,9 @@ jobs:
 
       - name: Install flatbuffers
         run: |
-          wget https://github.com/google/flatbuffers/releases/download/v22.12.06/MacIntel.flatc.binary.zip -O MacIntel.flatc.binary.zip
-          unzip MacIntel.flatc.binary.zip -d flatbuffers-v22.12.06
-          sudo mv flatbuffers-v22.12.06/flatc /usr/local/bin/
+          wget https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/MacIntel.flatc.binary.zip -O MacIntel.flatc.binary.zip
+          unzip MacIntel.flatc.binary.zip -d flatbuffers
+          sudo mv flatbuffers/flatc /usr/local/bin/
 
       - name: Install Homebrew Packages
         run: |
