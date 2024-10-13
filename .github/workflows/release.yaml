@@ -203,7 +203,7 @@ jobs:
 
       - name: Install Homebrew Packages
         run: |
-          brew install llvm
+          brew install lmdb llvm
 
       - name: Build macOS Package
         run: |
