@@ -151,23 +151,57 @@ jobs:
 #        env:
 #          OUTFILE: s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ steps.set_version.outputs.TAG }}.deb
 
-#  build-windows-node:
-#    runs-on: windows-latest
-#
-#    steps:
-#      - name: Checkout Repository
-#        uses: actions/checkout@v4
-#        with:
-#          ref: ${{ env.VERSION }}
-#          submodules: recursive
-#
-#      - name: Set Workspace Path (Custom for Windows to avoid long paths)
-#        run: mkdir C:\\node-ws
-#
-#      - name: Build Windows Node
-#        run: |
-#          powershell -File ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
-#
+  build-windows-node:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+
+      - name: Install Rust (v1.73.0)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.73.0
+
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+          enable-stack: true
+          stack-version: ${{ env.STACK_VERSION }}
+
+      - name: Install flatbuffers
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/Windows.flatc.binary.zip" -OutFile "flatc.zip"
+          Expand-Archive -Path "flatc.zip" -DestinationPath "./flatbuffers"
+          Move-Item -Path "flatbuffers/flatc.exe" -Destination "C:/Program Files/flatbuffers/"
+          [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:/Program Files/flatbuffers/", [System.EnvironmentVariableTarget]::Machine)
+
+      - name: Install protobuf (protoc)
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-win64.zip" -OutFile "protoc.zip"
+          Expand-Archive -Path "protoc.zip" -DestinationPath "./protoc"
+          Move-Item -Path "protoc/bin/protoc.exe" -Destination "C:/Program Files/protoc/"
+          Move-Item -Path "protoc/include/*" -Destination "C:/Program Files/protoc/include/"
+          [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:/Program Files/protoc/", [System.EnvironmentVariableTarget]::Machine)
+
+      - name: Install Windows Dependencies
+        run: |
+          choco install llvm --version=12.0.0
+          choco install lmdb
+
+      - name: Set Workspace Path (Custom for Windows to avoid long paths)
+        run: mkdir C:\\node-ws
+
+      - name: Build Windows Node
+        run: |
+          powershell -File ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
+
   build-macos-node:
     runs-on: macos-latest-large
     steps:
