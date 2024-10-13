@@ -178,8 +178,8 @@ jobs:
       - name: Install flatbuffers
         run: |
           Invoke-WebRequest -Uri "https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/Windows.flatc.binary.zip" -OutFile "flatc.zip"
-          Expand-Archive -Path "flatc.zip" -DestinationPath "./flatbuffers"
-          Move-Item -Path "flatbuffers/flatc.exe" -Destination "C:/Program Files/flatbuffers/"
+          Expand-Archive -Path "flatc.zip"
+          Move-Item -Path "flatc.exe" -Destination "C:/Program Files/flatbuffers/"
           [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:/Program Files/flatbuffers/", [System.EnvironmentVariableTarget]::Machine)
 
       - name: Install protobuf (protoc)
