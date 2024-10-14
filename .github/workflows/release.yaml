@@ -182,7 +182,7 @@ jobs:
         run: |
           curl -L -O https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-win64.zip
           unzip protoc-21.5-win64.zip
-          mv protoc-21.5/bin/protoc "C:/Program Files/node/"
+          mv protoc-21.5/bin/protoc.exe "C:/Program Files/node/"
           mv protoc-21.5/include/* "C:/Program Files/node/include"
 
       - name: Setup Haskell
