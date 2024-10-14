@@ -178,9 +178,9 @@ jobs:
       - name: Install flatbuffers
         run: |
           curl -L -O https://github.com/google/flatbuffers/releases/download/v22.12.06/Windows.flatc.binary.zip
-          Invoke-WebRequest -Uri "https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/Windows.flatc.binary.zip"
-          Expand-Archive -Path "flatc.zip"
+          unzip Windows.flatc.binary.zip
           ls -la
+          wget --help
 #          Move-Item -Path "flatc.exe" -Destination "C:/Program Files/flatbuffers/"
 #          [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:/Program Files/flatbuffers/", [System.EnvironmentVariableTarget]::Machine)
 
