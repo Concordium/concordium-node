@@ -170,7 +170,7 @@ jobs:
       - name: Setup node folder
         run: |
           mkdir -p "C:/Program Files/node/include"
-          echo "C:\Program Files\node" >> $GITHUB_PATH
+          echo "C:/Program Files/node" >> $GITHUB_PATH
 
       - name: Install flatbuffers
         run: |
@@ -182,6 +182,9 @@ jobs:
         run: |
           echo "PATH: $Env:PATH"
           ls "C:/Program Files/node/"
+          echo "C:/Program Files/node" >> $GITHUB_PATH
+          export PATH="$PATH:/C/Program Files/node"
+          
           flatc --version
 
       - name: Install protobuf (protoc)
@@ -209,6 +212,7 @@ jobs:
 
   build-macos-node:
     runs-on: macos-latest-large
+    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
