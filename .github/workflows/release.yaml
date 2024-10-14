@@ -195,7 +195,7 @@ jobs:
 
       - name: Install Windows Dependencies
         run: |
-          choco install lmdb
+          choco install llvm --reinstall
 
       - name: Build Windows Node
         run: |
