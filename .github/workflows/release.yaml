@@ -198,23 +198,15 @@ jobs:
 
       - name: Download GCC Binary
         run: |
-          curl -L -O https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-19.1.1-12.0.0-msvcrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z
 
       - name: Install 7-Zip
         run: choco install 7zip --no-progress --yes
 
-      - name: Extract GCC Binary
+      - name: Install GCC
         run: |
+          curl -L -O https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-19.1.1-12.0.0-msvcrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z
           7z x winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z -oC:/gcc
-
-      - name: Setup node folder
-        run: |
-          ls "C:/gcc/mingw64/bin"
           Add-Content -Path $env:GITHUB_PATH -Value "C:/gcc/mingw64/bin"
-
-      - name: Install Windows Dependencies
-        run: |
-          choco install llvm --reinstall --force
 
       - name: Install LMDB
         run: |
