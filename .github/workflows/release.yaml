@@ -178,6 +178,12 @@ jobs:
           unzip Windows.flatc.binary.zip
           mv flatc.exe "C:/Program Files/node/"
 
+      - name: Test version
+        run: |
+          echo $PATH
+          ls "C:/Program Files/node/"
+          flatc --version
+
       - name: Install protobuf (protoc)
         run: |
           curl -L -O https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-win64.zip
