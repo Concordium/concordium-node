@@ -155,7 +155,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        shell: bash
+        shell: pwsh
 
     steps:
       - name: Checkout Repository
@@ -173,7 +173,7 @@ jobs:
       - name: Setup node folder
         run: |
           mkdir -p "C:/Program Files/node/include"
-          echo "/c/Program Files/node" >> $GITHUB_PATH
+          Add-Content -Path $env:GITHUB_PATH -Value "C:/Program Files/node"
 
       - name: Install flatbuffers
         run: |
@@ -183,7 +183,7 @@ jobs:
 
       - name: Print version
         run: |
-          $env:Path += ';C:\Program Files\node'
+          Write-Host "$env:Path"
           flatc --version
         shell: pwsh
 
