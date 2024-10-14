@@ -170,7 +170,6 @@ jobs:
       - name: Setup node folder
         run: |
           mkdir -p "C:/Program Files/node/include"
-          echo "C:/Program Files/node" >> $GITHUB_PATH
           echo "/c/Program Files/node" >> $GITHUB_PATH
         shell: bash
 
@@ -184,8 +183,6 @@ jobs:
       - name: Test version
         run: |
           echo "$PATH"
-          ls "C:/Program Files/node/"
-          export PATH="$PATH:/C/Program Files/node"
           flatc --version
         shell: bash
 
