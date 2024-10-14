@@ -167,21 +167,23 @@ jobs:
         with:
           toolchain: 1.73.0
 
+      - name: Setup node folder
+        run: |
+          mkdir -p "C:/Program Files/node/include"
+          echo "C:/Program Files/node" >> $GITHUB_PATH
+
       - name: Install flatbuffers
         run: |
           curl -L -O https://github.com/google/flatbuffers/releases/download/v22.12.06/Windows.flatc.binary.zip
           unzip Windows.flatc.binary.zip
-          wget --help
-#          Move-Item -Path "flatc.exe" -Destination "C:/Program Files/flatbuffers/"
-#          [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:/Program Files/flatbuffers/", [System.EnvironmentVariableTarget]::Machine)
+          mv flatc.exe "C:/Program Files/node/"
 
       - name: Install protobuf (protoc)
         run: |
-          Invoke-WebRequest -Uri "https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-win64.zip" -OutFile "protoc.zip"
-          Expand-Archive -Path "protoc.zip" -DestinationPath "./protoc"
-          Move-Item -Path "protoc/bin/protoc.exe" -Destination "C:/Program Files/protoc/"
-          Move-Item -Path "protoc/include/*" -Destination "C:/Program Files/protoc/include/"
-          [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:/Program Files/protoc/", [System.EnvironmentVariableTarget]::Machine)
+          curl -L -O https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-win64.zip
+          unzip protoc-21.5-win64.zip
+          mv protoc-21.5/bin/protoc "C:/Program Files/node/"
+          mv protoc-21.5/include/* "C:/Program Files/node/include"
 
       - name: Setup Haskell
         uses: haskell-actions/setup@v2
