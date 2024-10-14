@@ -170,8 +170,7 @@ jobs:
       - name: Setup node folder
         run: |
           mkdir -p "C:/Program Files/node/include"
-          echo "C:/Program Files/node" >> $GITHUB_PATH
-          echo "$HOME/.test/bin" >> $GITHUB_PATH
+          echo "C:\Program Files\node" >> $GITHUB_PATH
 
       - name: Install flatbuffers
         run: |
