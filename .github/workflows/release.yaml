@@ -202,7 +202,7 @@ jobs:
 
       - name: Install LMDB
         run: |
-          stack exec -- pacman -S mingw-w64-x86_64-lmdb
+          stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
       - name: Build Windows Node
         run: |
