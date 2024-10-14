@@ -170,9 +170,8 @@ jobs:
       - name: Setup node folder
         run: |
           mkdir -p "C:/Program Files/node/include"
-          echo "C:/Program Files/node" >> "$GITHUB_PATH"
-          echo "$HOME/.test/bin" >> "$GITHUB_PATH"
-        shell: bash
+          echo "C:/Program Files/node" >> $GITHUB_PATH
+          echo "$HOME/.test/bin" >> $GITHUB_PATH
 
       - name: Install flatbuffers
         run: |
@@ -186,7 +185,6 @@ jobs:
           echo "SHELL: $SHELL"
           ls "C:/Program Files/node/"
           flatc --version
-        shell: bash
 
       - name: Install protobuf (protoc)
         run: |
