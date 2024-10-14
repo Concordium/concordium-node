@@ -181,8 +181,7 @@ jobs:
 
       - name: Test version
         run: |
-          echo "PATH: $PATH"
-          echo "SHELL: $SHELL"
+          echo "PATH: $Env:PATH"
           ls "C:/Program Files/node/"
           flatc --version
 
