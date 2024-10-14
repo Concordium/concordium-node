@@ -167,19 +167,11 @@ jobs:
         with:
           toolchain: 1.73.0
 
-      - name: Setup Haskell
-        uses: haskell-actions/setup@v2
-        with:
-          ghc-version: ${{ env.GHC_VERSION }}
-          cabal-version: ${{ env.CABAL_VERSION }}
-          enable-stack: true
-          stack-version: ${{ env.STACK_VERSION }}
-
       - name: Install flatbuffers
         run: |
           curl -L -O https://github.com/google/flatbuffers/releases/download/v22.12.06/Windows.flatc.binary.zip
           unzip Windows.flatc.binary.zip
-          ls -la
+          ls -a
           wget --help
 #          Move-Item -Path "flatc.exe" -Destination "C:/Program Files/flatbuffers/"
 #          [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:/Program Files/flatbuffers/", [System.EnvironmentVariableTarget]::Machine)
@@ -191,6 +183,14 @@ jobs:
           Move-Item -Path "protoc/bin/protoc.exe" -Destination "C:/Program Files/protoc/"
           Move-Item -Path "protoc/include/*" -Destination "C:/Program Files/protoc/include/"
           [Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:/Program Files/protoc/", [System.EnvironmentVariableTarget]::Machine)
+
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+          enable-stack: true
+          stack-version: ${{ env.STACK_VERSION }}
 
       - name: Install Windows Dependencies
         run: |
