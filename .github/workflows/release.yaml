@@ -176,14 +176,14 @@ jobs:
         run: |
           curl -L -O https://github.com/google/flatbuffers/releases/download/v22.12.06/Windows.flatc.binary.zip
           unzip Windows.flatc.binary.zip
-          sudo mv flatc.exe "C:/Program Files/node/"
+          mv flatc.exe "C:/Program Files/node/"
 
       - name: Install protobuf (protoc)
         run: |
           curl -L -O https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-win64.zip
           unzip protoc-21.5-win64.zip
-          sudo mv bin/protoc.exe "C:/Program Files/node/"
-          sudo mv include/* "C:/Program Files/node/include"
+          mv bin/protoc.exe "C:/Program Files/node/"
+          mv include/* "C:/Program Files/node/include"
 
       - name: Setup Haskell
         uses: haskell-actions/setup@v2
