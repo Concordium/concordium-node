@@ -171,6 +171,9 @@ jobs:
         run: |
           mkdir -p "C:/Program Files/node/include"
           echo "C:/Program Files/node" >> $GITHUB_PATH
+          echo "/c/Program Files/node" >> $GITHUB_PATH
+        shell: bash
+
 
       - name: Install flatbuffers
         run: |
@@ -182,7 +185,6 @@ jobs:
         run: |
           echo "$PATH"
           ls "C:/Program Files/node/"
-          echo "/C/Program Files/node" >> $GITHUB_PATH
           export PATH="$PATH:/C/Program Files/node"
           flatc --version
         shell: bash
