@@ -196,11 +196,7 @@ jobs:
           enable-stack: true
           stack-version: ${{ env.STACK_VERSION }}
 
-      - name: Download GCC Binary
-        run: |
-
-      - name: Install 7-Zip
-        run: choco install 7zip --no-progress --yes
+      - uses: milliewalky/setup-7-zip@v1
 
       - name: Install GCC
         run: |
@@ -209,12 +205,10 @@ jobs:
           Add-Content -Path $env:GITHUB_PATH -Value "C:/gcc/mingw64/bin"
 
       - name: Install LMDB
-        run: |
-          stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
+        run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
       - name: Build Windows Node
-        run: |
-          ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
+        run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
 
   build-macos-node:
     runs-on: macos-latest-large
