@@ -180,12 +180,12 @@ jobs:
 
       - name: Test version
         run: |
-          echo "PATH: $Env:PATH"
+          echo "$PATH"
           ls "C:/Program Files/node/"
-          echo "C:/Program Files/node" >> $GITHUB_PATH
+          echo "/C/Program Files/node" >> $GITHUB_PATH
           export PATH="$PATH:/C/Program Files/node"
-          
           flatc --version
+        shell: bash
 
       - name: Install protobuf (protoc)
         run: |
