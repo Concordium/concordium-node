@@ -153,6 +153,9 @@ jobs:
 
   build-windows-node:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout Repository
@@ -171,8 +174,6 @@ jobs:
         run: |
           mkdir -p "C:/Program Files/node/include"
           echo "/c/Program Files/node" >> $GITHUB_PATH
-        shell: bash
-
 
       - name: Install flatbuffers
         run: |
@@ -183,7 +184,6 @@ jobs:
       - name: Test version
         run: |
           flatc --version
-        shell: bash
 
       - name: Install protobuf (protoc)
         run: |
