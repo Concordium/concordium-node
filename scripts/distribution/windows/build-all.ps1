@@ -26,7 +26,7 @@ Write-Output "Building node runner service..."
 # This ensures that the MSVC runtime is linked statically, and the output is produced
 # in the right target folder.
 Push-Location service\windows
-cargo +$rustVersion-x86_64-pc-windows-msvc build --release
+cargo build --release --frozen
 Pop-Location
 if ($LASTEXITCODE -ne 0) { throw "Failed building node runner service" }
 

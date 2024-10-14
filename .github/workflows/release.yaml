@@ -195,11 +195,8 @@ jobs:
 
       - name: Install Windows Dependencies
         run: |
-          choco install llvm --version=12.0.0
+          choco install llvm
           choco install lmdb
-
-      - name: Set Workspace Path (Custom for Windows to avoid long paths)
-        run: mkdir C:\\node-ws
 
       - name: Build Windows Node
         run: |

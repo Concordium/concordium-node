@@ -10,7 +10,7 @@ try {
     # Build the custom actions DLL. This provides custom functionality used by the installer.
     Write-Output "Building custom-actions.dll..."
     Push-Location custom-actions
-    cargo +$toolchain build --release
+    cargo build --release --frozen
     Pop-Location
     if ($LASTEXITCODE -ne 0) { throw "Failed building custom-actions.dll" }
 
