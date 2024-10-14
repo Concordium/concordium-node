@@ -8,7 +8,7 @@ on:
 env:
   UBUNTU_VERSION: '20.04'
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
-  RUST_VERSION: '1.73.0'
+  RUST_VERSION: '1.73'
   VERSION: '7.0.5-0'
   STACK_VERSION: '2.13.1'
   FLATBUFFERS_VERSION: '23.5.26'
@@ -168,7 +168,7 @@ jobs:
       - name: Install Rust (v1.73.0)
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: 1.73.0
+          toolchain: ${{ env.RUST_VERSION }}
 
       - name: Setup node folder
         run: |
@@ -177,14 +177,14 @@ jobs:
 
       - name: Install flatbuffers
         run: |
-          curl -L -O https://github.com/google/flatbuffers/releases/download/v22.12.06/Windows.flatc.binary.zip
+          curl -L -O https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/Windows.flatc.binary.zip
           unzip Windows.flatc.binary.zip
           mv flatc.exe "C:/Program Files/node/"
 
       - name: Install protobuf (protoc)
         run: |
-          curl -L -O https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-win64.zip
-          unzip protoc-21.5-win64.zip
+          curl -L -O https://github.com/protocolbuffers/protobuf/releases/download/v${{ env.PROTOC_VERSION }}/protoc-${{ env.PROTOC_VERSION }}-win64.zip
+          unzip protoc-${{ env.PROTOC_VERSION }}-win64.zip
           mv bin/protoc.exe "C:/Program Files/node/"
           mv include/* "C:/Program Files/node/include"
 
