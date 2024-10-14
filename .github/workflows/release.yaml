@@ -235,7 +235,7 @@ jobs:
 
       - name: Install protobuf
         run: |
-          wget https://github.com/protocolbuffers/protobuf/releases/download/v{{ env.PROTOC_VERSION }}/protoc-{{ env.PROTOC_VERSION }}-osx-x86_64.zip -O protoc.zip
+          wget https://github.com/protocolbuffers/protobuf/releases/download/v${{ env.PROTOC_VERSION }}/protoc-${{ env.PROTOC_VERSION }}-osx-x86_64.zip -O protoc.zip
           unzip protoc.zip
           sudo mv protoc/bin/protoc /usr/local/bin/
           sudo mv protoc/include/* /usr/local/include/
