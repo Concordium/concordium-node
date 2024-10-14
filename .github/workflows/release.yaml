@@ -181,12 +181,6 @@ jobs:
           unzip Windows.flatc.binary.zip
           mv flatc.exe "C:/Program Files/node/"
 
-      - name: Print version
-        run: |
-          Write-Host "$env:Path"
-          flatc --version
-        shell: pwsh
-
       - name: Install protobuf (protoc)
         run: |
           curl -L -O https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-win64.zip
@@ -205,6 +199,10 @@ jobs:
       - name: Install Windows Dependencies
         run: |
           choco install llvm --reinstall
+
+      - name: Install LMDB
+        run: |
+          stack exec -- pacman -S mingw-w64-x86_64-lmdb
 
       - name: Build Windows Node
         run: |
