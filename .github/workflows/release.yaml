@@ -235,10 +235,10 @@ jobs:
 
       - name: Install protobuf
         run: |
-          wget https://github.com/protocolbuffers/protobuf/releases/download/v21.5/protoc-21.5-osx-x86_64.zip
-          unzip protoc-21.5-osx-x86_64.zip -d protoc-21.5
-          sudo mv protoc-21.5/bin/protoc /usr/local/bin/
-          sudo mv protoc-21.5/include/* /usr/local/include/
+          wget https://github.com/protocolbuffers/protobuf/releases/download/v{{ env.PROTOC_VERSION }}/protoc-{{ env.PROTOC_VERSION }}-osx-x86_64.zip -O protoc.zip
+          unzip protoc.zip
+          sudo mv protoc/bin/protoc /usr/local/bin/
+          sudo mv protoc/include/* /usr/local/include/
 
       - name: Install Homebrew Packages
         run: |
