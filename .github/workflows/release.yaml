@@ -180,9 +180,11 @@ jobs:
 
       - name: Test version
         run: |
-          echo $PATH
+          echo "PATH: $PATH"
+          echo "SHELL: $SHELL"
           ls "C:/Program Files/node/"
           flatc --version
+        shell: bash
 
       - name: Install protobuf (protoc)
         run: |
