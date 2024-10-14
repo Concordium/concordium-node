@@ -181,9 +181,11 @@ jobs:
           unzip Windows.flatc.binary.zip
           mv flatc.exe "C:/Program Files/node/"
 
-      - name: Test version
+      - name: Print version
         run: |
+          $env:Path += ';C:\Program Files\node'
           flatc --version
+        shell: pwsh
 
       - name: Install protobuf (protoc)
         run: |
@@ -203,6 +205,7 @@ jobs:
       - name: Install Windows Dependencies
         run: |
           choco install llvm --reinstall
+
       - name: Build Windows Node
         run: |
           powershell -Command \
