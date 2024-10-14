@@ -203,10 +203,11 @@ jobs:
       - name: Install Windows Dependencies
         run: |
           choco install llvm --reinstall
-
       - name: Build Windows Node
         run: |
-          powershell -File ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
+          powershell -Command \
+            "[System.Environment]::SetEnvironmentVariable('Path', $([System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';C:/Program Files/node'), 'Machine'); \
+            ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73"
 
   build-macos-node:
     runs-on: macos-latest-large
