@@ -7,14 +7,14 @@ on:
 
 env:
   UBUNTU_VERSION: '20.04'
-  GHC_VERSION: '9.6.4'
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   RUST_VERSION: '1.73.0'
   VERSION: '7.0.5-0'
-  STACK_VERSION: '2.7.5'
-  FLATBUFFERS_VERSION: '22.12.06'
+  STACK_VERSION: '2.13.1'
+  FLATBUFFERS_VERSION: '23.5.26'
+  GHC_VERSION: '9.6.4'
   CABAL_VERSION: '3.6.2.0'
-  PROTOC_VERSION: '3.21.5'
+  PROTOC_VERSION: '25.2'
 
 jobs:
   build-database-exporter:
@@ -211,7 +211,6 @@ jobs:
 
   build-macos-node:
     runs-on: macos-latest-large
-    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
