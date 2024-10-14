@@ -182,9 +182,7 @@ jobs:
 
       - name: Test version
         run: |
-          echo "$PATH"
           flatc --version
-        shell: bash
 
       - name: Install protobuf (protoc)
         run: |
