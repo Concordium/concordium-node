@@ -162,7 +162,7 @@ function createBuildDirFromTemplate() {
 function compileConsensus() {
     cd "$consensusDir"
     logInfo "Building Consensus..."
-    stack build --extra-include-dirs=/opt/homebrew/opt/lmdb/lib --extra-lib-dirs=/opt/homebrew/opt/lmdb/include
+    stack build
     logInfo "Done"
 }
 

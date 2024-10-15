@@ -153,6 +153,7 @@ jobs:
 
   build-windows-node:
     runs-on: windows-latest
+    if: false
     defaults:
       run:
         shell: pwsh
@@ -254,6 +255,7 @@ jobs:
 
   build-linux-node:
      runs-on: ubuntu-latest
+     environment: release
      strategy:
        fail-fast: false
        matrix:
@@ -269,6 +271,7 @@ jobs:
          with:
            repository: 'Concordium/concordium-infra-genesis-data'
            path: 'genesis'
+           ssh-key: ${{ secrets.GENESIS_DATA_KEY }}
            ref: 'main'
 
        - name: Copy Genesis Data
