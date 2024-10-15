@@ -24,7 +24,7 @@ data BakerPoolRewardDetails = BakerPoolRewardDetails
       -- | Whether the pool contributed to a finalization proof in the reward period
       finalizationAwake :: !Bool,
       -- | The number of missed rounds in the reward period
-      missedRounds :: !Int8
+      missedRounds :: !Int16
     }
     deriving (Eq, Show)
 
@@ -34,7 +34,7 @@ instance Serialize BakerPoolRewardDetails where
         put transactionFeesAccrued
         putBool finalizationAwake
 
-    get = BakerPoolRewardDetails <$> getWord64be <*> get <*> getBool <*> getInt8
+    get = BakerPoolRewardDetails <$> getWord64be <*> get <*> getBool <*> getInt16be
 
 instance HashableTo Hash.Hash BakerPoolRewardDetails where
     getHash = Hash.hash . encode
