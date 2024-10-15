@@ -1511,7 +1511,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
 
     -- | Update the count of missed rounds for a given validator
-    bsoUpdateMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> (BakerId, Int8) -> m (UpdatableBlockState m)
+    bsoUpdateMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> (BakerId, Int16) -> m (UpdatableBlockState m)
 
     -- | Clear the missed round count for a given validator
     bsoClearMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)

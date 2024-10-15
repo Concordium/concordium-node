@@ -60,6 +60,8 @@ data PaydayParameters = PaydayParameters
 data ParticipatingBakers = ParticipatingBakers
     { -- | The 'BakerId' of the block baker.
       pbBlockBaker :: BakerId,
+      -- | The 'BakerId's of the signatories to the block QC.
+      --  No particular ordering is assumed.
       pbQCSignatories :: [BakerId]
     }
 
@@ -82,7 +84,7 @@ data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
       -- | Number of rounds a validator has missed (e.g. the validator was
       --   elected leader but a timeout certificate exist for the round) since the parent
       --   block.
-      bedMissedRounds :: [(BakerId, Int8)]
+      bedMissedRounds :: [(BakerId, Int16)]
     }
 
 -- | Details of the transactions in a block that are used for computing rewards that accrue to the
@@ -308,8 +310,6 @@ executeBlockPrologue BlockExecutionData{..} = do
     theState5 <- doUpdateSeedStateForBlock bedTimestamp bedBlockNonce theState4
     -- update the missed rounds count for each active baker
     theState6 <- if isJust mPaydayParms
-                    -- TODO (drsk) For now, we just clear the missed rounds on each new payday. 
-                    -- on each new payday: update score, clear score if validator was active
                     then foldM bsoClearMissedBlocks theState5 activeBakers
                     else foldM bsoUpdateMissedBlocks theState5 bedMissedRounds
     return
