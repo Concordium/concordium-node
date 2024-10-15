@@ -279,7 +279,7 @@ jobs:
        - name: Copy Genesis Data
          run: |
            mkdir -p ${{ env.DATA_DIR }}
-           cp genesis/${{ env.GENESIS_PATH }}/genesis.dat ${{ env.DATA_DIR }}/${{ matrix.env }}-genesis.dat
+           cp genesis/mainnet/2021-06-09/genesis.dat ${{ env.DATA_DIR }}/${{ matrix.env }}-genesis.dat
 
        - name: Precheck S3 Object Existence
          run: |
