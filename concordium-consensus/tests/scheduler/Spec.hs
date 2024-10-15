@@ -33,6 +33,7 @@ import qualified SchedulerTests.SmartContracts.V0.SmartContractTests (tests)
 import qualified SchedulerTests.SmartContracts.Invoke (tests)
 import qualified SchedulerTests.SmartContracts.V1.AccountSignatureChecks (tests)
 import qualified SchedulerTests.SmartContracts.V1.AllNewHostFunctions (tests)
+import qualified SchedulerTests.SmartContracts.V1.Caller (tests)
 import qualified SchedulerTests.SmartContracts.V1.Checkpointing (tests)
 import qualified SchedulerTests.SmartContracts.V1.Counter (tests)
 import qualified SchedulerTests.SmartContracts.V1.CrossMessaging (tests)
@@ -109,4 +110,5 @@ main = hspec $ do
     SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
     SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests
     SchedulerTests.SmartContracts.V1.InspectModuleReferenceAndContractName.tests
+    SchedulerTests.SmartContracts.V1.Caller.tests
     SchedulerTests.KonsensusV1.EpochTransition.tests
