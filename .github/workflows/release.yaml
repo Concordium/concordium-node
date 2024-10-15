@@ -256,6 +256,8 @@ jobs:
   build-linux-node:
      runs-on: ubuntu-latest
      environment: release
+     env:
+       DATA_DIR: './scripts/distribution/ubuntu-packages/template/data/'
      strategy:
        fail-fast: false
        matrix:
