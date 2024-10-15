@@ -16,7 +16,7 @@ if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
 Write-Output "Building node..."
 & {
     Set-Location concordium-node
-    cargo build --bin concordium-node --release --locked
+    stack exec -- cargo build --bin concordium-node --release --locked
 }
 if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
 
