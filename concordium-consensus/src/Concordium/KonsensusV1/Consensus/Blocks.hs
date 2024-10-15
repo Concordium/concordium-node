@@ -19,6 +19,7 @@ import Data.Function
 import Data.Int
 import Data.Ord
 import Data.Time
+import Data.List (group)
 import qualified Data.Vector as Vector
 import Lens.Micro.Platform
 
@@ -1385,19 +1386,19 @@ computeMissedRounds ::
     Option TimeoutCertificate ->
     BlockPointer (MPV m) ->
     Round ->
-    m [(BakerId, Int8)]
-computeMissedRounds tc parent rnd = do
+    m [(BakerId, Int16)]
+computeMissedRounds tc _parent _rnd | isAbsent tc = return []
+computeMissedRounds _tc parent rnd = do
     let parentBlockState = bpState parent
     validators <- getCurrentEpochBakers parentBlockState
     seedState <- getSeedState parentBlockState
-    let missedRounds
-            | isPresent tc =
-                let beginRound = blockRound parent
-                    endRound = rnd - 1
-                    leNonce = seedState ^. currentLeadershipElectionNonce
-                in  [ (winner ^. bakerIdentity, fromIntegral r)
-                      | r <- [beginRound .. endRound],
-                        let winner = getLeaderFullBakers validators leNonce r
-                    ]
-            | otherwise = []
+    let missedRoundsValidators =
+            let beginRound = blockRound parent
+                endRound = rnd - 1
+                leNonce = seedState ^. currentLeadershipElectionNonce
+            in  [ winner ^. bakerIdentity
+                  | r <- [beginRound .. endRound],
+                    let winner = getLeaderFullBakers validators leNonce r
+                ]
+    let missedRounds = [(head g, fromIntegral $ length g) | g <- group missedRoundsValidators]
     return missedRounds
