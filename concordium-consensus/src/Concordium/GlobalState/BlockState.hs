@@ -1510,10 +1510,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
 
     -- | Update the count of missed rounds for a given validator
-    bsoUpdateMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> (BakerId, Word16) -> m (UpdatableBlockState m)
+    bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> (BakerId, Word16) -> m (UpdatableBlockState m)
 
     -- | Clear the missed round count for a given validator
-    bsoClearMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+    bsoClearMissedRounds :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
@@ -1826,8 +1826,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
-    bsoUpdateMissedBlocks s = lift . bsoUpdateMissedBlocks s
-    bsoClearMissedBlocks s = lift . bsoClearMissedBlocks s
+    bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
+    bsoClearMissedRounds s = lift . bsoClearMissedRounds s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -1884,8 +1884,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetRewardAccounts #-}
     {-# INLINE bsoGetCurrentEpochBakers #-}
     {-# INLINE bsoIsProtocolUpdateEffective #-}
-    {-# INLINE bsoUpdateMissedBlocks #-}
-    {-# INLINE bsoClearMissedBlocks #-}
+    {-# INLINE bsoUpdateMissedRounds #-}
+    {-# INLINE bsoClearMissedRounds #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 

@@ -310,8 +310,8 @@ executeBlockPrologue BlockExecutionData{..} = do
     theState5 <- doUpdateSeedStateForBlock bedTimestamp bedBlockNonce theState4
     -- update the missed rounds count for each active baker
     theState6 <- if isJust mPaydayParms
-                    then foldM bsoClearMissedBlocks theState5 activeBakers
-                    else foldM bsoUpdateMissedBlocks theState5 bedMissedRounds
+                    then foldM bsoClearMissedRounds theState5 activeBakers
+                    else foldM bsoUpdateMissedRounds theState5 bedMissedRounds
     return
         PrologueResult
             { prologueBlockState = theState6,
