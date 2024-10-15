@@ -267,6 +267,9 @@ jobs:
      steps:
        - name: Checkout Repository
          uses: actions/checkout@v4
+         with:
+           ref: ${{ env.VERSION }}
+           submodules: recursive
 
        - name: Checkout Genesis Repository
          uses: actions/checkout@v4
