@@ -251,3 +251,69 @@ jobs:
       - name: Build macOS Package
         run: |
           printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
+
+  build-concordium-node:
+     runs-on: ubuntu-latest
+     strategy:
+       fail-fast: false
+       matrix:
+         include:
+           - env: stagenet
+             tld: com
+     steps:
+       - name: Checkout Repository
+         uses: actions/checkout@v4
+
+       - name: Checkout Genesis Repository
+         uses: actions/checkout@v4
+         with:
+           repository: 'Concordium/concordium-infra-genesis-data'
+           path: 'genesis'
+
+       - name: Copy Genesis Data
+         run: |
+           mkdir -p ${{ env.DATA_DIR }}
+           cp genesis/${{ env.GENESIS_PATH }}/genesis.dat ${{ env.DATA_DIR }}/${{ env.ENVIRONMENT }}-genesis.dat
+
+       - name: Precheck S3 Object Existence
+         run: |
+           OUT_VERSION=${{ env.VERSION }} || ${{ env.CODE_VERSION }}
+           OUTFILE="s3://distribution.${{ env.DOMAIN }}/deb/concordium-${{ env.ENVIRONMENT }}-node_${OUT_VERSION}_amd64.deb"
+           totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+           if [ "$totalFoundObjects" -ne "0" ]; then
+               echo "$OUTFILE already exists"
+               exit 1
+           fi
+
+       - name: Build Static Node Binary Image
+         uses: docker/build-push-action@v6
+         with:
+           context: .
+           push: false
+           file: scripts/static-binaries/static-binaries.Dockerfile
+           tags: static-node-binaries:${{ github.run_id }}
+           no-cache: true
+           build-args: |
+             ubuntu_version=${{ env.UBUNTU_VERSION }}
+             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+             ghc_version=${{ env.GHC_VERSION }}
+           labels: |
+             ubuntu_version=${{ env.UBUNTU_VERSION }}
+             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+             ghc_version=${{ env.GHC_VERSION }}
+
+#       - name: Build Node DEB Package
+#         run: |
+#           docker build\
+#             --build-arg ubuntu_version=${{ env.UBUNTU_VERSION }}\
+#             --build-arg static_binaries_image_tag=${{ env.STATIC_BINARIES_IMAGE_TAG }}\
+#             --build-arg build_env_name=${{ env.ENVIRONMENT | capitalize }}\
+#             --build-arg build_env_name_lower=${{ env.ENVIRONMENT }}\
+#             --build-arg build_catchup_url=https://catchup.${{ env.DOMAIN }}/blocks.idx\
+#             --build-arg build_genesis_hash=$(cat genesis/${{ env.GENESIS_PATH }}/genesis_hash | tr -cd "[:alnum:]")\
+#             --build-arg build_collector_backend_url=https://dashboard.${{ env.DOMAIN }}/nodes/post\
+#             --build-arg build_grpc2_listen_port=${{ steps.set_ports.outputs.grpc2_port }}\
+#             --build-arg build_listen_port=${{ steps.set_ports.outputs.listen_port }}\
+#             --build-arg build_bootstrap=bootstrap.${{ env.DOMAIN }}:8888\
+#             -f ./scripts/distribution/ubuntu-packages/deb.Dockerfile\
+#             -t ${{ env.ENVIRONMENT }}-deb ./scripts/distribution/ubuntu-packages/ --no-cache
