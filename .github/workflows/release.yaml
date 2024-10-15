@@ -283,8 +283,7 @@ jobs:
 
        - name: Precheck S3 Object Existence
          run: |
-           OUT_VERSION=${{ env.VERSION }} || ${{ env.CODE_VERSION }}
-           OUTFILE="s3://distribution.${{ env.DOMAIN }}/deb/concordium-${{ env.ENVIRONMENT }}-node_${OUT_VERSION}_amd64.deb"
+           OUTFILE="s3://distribution.${{ matrix.env }}.${{ matrix.tld }}/deb/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb"
            totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
            if [ "$totalFoundObjects" -ne "0" ]; then
                echo "$OUTFILE already exists"
