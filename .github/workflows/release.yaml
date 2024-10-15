@@ -257,7 +257,7 @@ jobs:
      runs-on: ubuntu-latest
      environment: release
      env:
-       DATA_DIR: './scripts/distribution/ubuntu-packages/template/data/'
+       DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
      strategy:
        fail-fast: false
        matrix:
@@ -279,7 +279,7 @@ jobs:
        - name: Copy Genesis Data
          run: |
            mkdir -p ${{ env.DATA_DIR }}
-           cp genesis/${{ env.GENESIS_PATH }}/genesis.dat ${{ env.DATA_DIR }}/${{ env.ENVIRONMENT }}-genesis.dat
+           cp genesis/${{ env.GENESIS_PATH }}/genesis.dat ${{ env.DATA_DIR }}/${{ matrix.env }}-genesis.dat
 
        - name: Precheck S3 Object Existence
          run: |
