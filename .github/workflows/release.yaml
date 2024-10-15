@@ -252,7 +252,7 @@ jobs:
         run: |
           printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
 
-  build-concordium-node:
+  build-linux-node:
      runs-on: ubuntu-latest
      strategy:
        fail-fast: false
@@ -269,6 +269,7 @@ jobs:
          with:
            repository: 'Concordium/concordium-infra-genesis-data'
            path: 'genesis'
+           ref: 'main'
 
        - name: Copy Genesis Data
          run: |
