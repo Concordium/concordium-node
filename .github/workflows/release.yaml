@@ -288,7 +288,7 @@ jobs:
   build-linux-node:
      runs-on: ubuntu-latest
      environment: release
-     if: false
+     needs: [ build-static-binaries ]
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
      strategy:
@@ -317,6 +317,17 @@ jobs:
              listen_port: 8890
 
      steps:
+       - name: Download artifact
+         uses: actions/download-artifact@v4
+         with:
+           name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+           path: /tmp
+
+       - name: Load image
+         run: |
+           docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+           rm /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+
        - name: Checkout Repository
          uses: actions/checkout@v4
          with:
