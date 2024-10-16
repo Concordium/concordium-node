@@ -327,8 +327,8 @@ jobs:
              ubuntu_version=${{ env.UBUNTU_VERSION }}
              version=${{ env.VERSION }}
              static_binaries_image_tag=${{ github.run_id }}
-             build_env_name=${{ env.ENVIRONMENT | capitalize }}
-             build_env_name_lower=${{ env.ENVIRONMENT }}
+             build_env_name=$(${{ matrix.env }} | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')
+             build_env_name_lower=${{ matrix.env }}
              build_catchup_url=https://${{ env.DOMAIN }}/blocks.idx
              build_genesis_hash=$(cat genesis/${{ matrix.genesis_path }}/genesis_hash | tr -cd "[:alnum:]")
              build_collector_backend_url=https://dashboard.${{ env.DOMAIN }}/nodes/post
