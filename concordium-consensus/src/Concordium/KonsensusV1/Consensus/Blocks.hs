@@ -16,7 +16,7 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Data.Function
-import Data.Int
+import Data.Word
 import Data.Ord
 import Data.Time
 import Data.List (group)
@@ -1386,7 +1386,7 @@ computeMissedRounds ::
     Option TimeoutCertificate ->
     BlockPointer (MPV m) ->
     Round ->
-    m [(BakerId, Int16)]
+    m [(BakerId, Word16)]
 computeMissedRounds tc _parent _rnd | isAbsent tc = return []
 computeMissedRounds _tc parent rnd = do
     let parentBlockState = bpState parent

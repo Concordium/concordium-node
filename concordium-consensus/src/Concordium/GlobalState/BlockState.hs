@@ -48,7 +48,6 @@ import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import qualified Data.ByteString as BS
 import Data.Foldable (foldl')
-import Data.Int
 import Data.Kind (Type)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
@@ -1511,7 +1510,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
 
     -- | Update the count of missed rounds for a given validator
-    bsoUpdateMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> (BakerId, Int16) -> m (UpdatableBlockState m)
+    bsoUpdateMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> (BakerId, Word16) -> m (UpdatableBlockState m)
 
     -- | Clear the missed round count for a given validator
     bsoClearMissedBlocks :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
