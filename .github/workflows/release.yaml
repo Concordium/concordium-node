@@ -100,6 +100,8 @@ jobs:
             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
           no-cache: true
 
+        run: echo "OUT_DIR=$(mktemp -d)" >> $GITHUB_ENV
+
       - name: Run Docker and Extract Artifacts
         run: |
           docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
@@ -314,21 +316,21 @@ jobs:
              genesis_path: stagenet/2024-09-12/genesis_data
              grpc_port: 20500
              listen_port: 9500
-           - env: testnet
-             tld: com
-             genesis_path: testnet/2022-06-13/genesis_data
-             grpc_port: 20001
-             listen_port: 8889
-           - env: mainnet
-             tld: software
-             genesis_path: mainnet/2021-06-09
-             grpc_port: 20000
-             listen_port: 8888
-           - env: flynet
-             tld: com
-             genesis_path: flynet/2023-02-01/genesis_data
-             grpc_port: 20002
-             listen_port: 8890
+#           - env: testnet
+#             tld: com
+#             genesis_path: testnet/2022-06-13/genesis_data
+#             grpc_port: 20001
+#             listen_port: 8889
+#           - env: mainnet
+#             tld: software
+#             genesis_path: mainnet/2021-06-09
+#             grpc_port: 20000
+#             listen_port: 8888
+#           - env: flynet
+#             tld: com
+#             genesis_path: flynet/2023-02-01/genesis_data
+#             grpc_port: 20002
+#             listen_port: 8890
 
      steps:
        - name: Download artifact
@@ -379,6 +381,11 @@ jobs:
                exit 1
            fi
 
+       - name: Set enviornment variables
+         run: |
+           echo "BUILD_ENV_NAME=$(echo "${{ matrix.env }}" | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')" >> $GITHUB_ENV
+           echo "BUILD_GENESIS_HASH=$(cat genesis/${{ matrix.genesis_path }}/genesis_hash | tr -cd "[:alnum:]")" >> $GITHUB_ENV
+
        - name: Build Docker Image
          uses: docker/build-push-action@v6
          with:
@@ -391,10 +398,10 @@ jobs:
              ubuntu_version=${{ env.UBUNTU_VERSION }}
              version=${{ env.VERSION }}
              static_binaries_image_tag=${{ github.run_id }}
-             build_env_name=$(${{ matrix.env }} | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')
+             build_env_name=${{ env.BUILD_ENV_NAME }}
              build_env_name_lower=${{ matrix.env }}
              build_catchup_url=https://${{ env.DOMAIN }}/blocks.idx
-             build_genesis_hash=$(cat genesis/${{ matrix.genesis_path }}/genesis_hash | tr -cd "[:alnum:]")
+             build_genesis_hash=${{ env.BUILD_GENESIS_HASH }}
              build_collector_backend_url=https://dashboard.${{ env.DOMAIN }}/nodes/post
              build_grpc2_listen_port=${{ matrix.grpc_port }}
              build_listen_port=${{ matrix.listen_port }}
@@ -404,7 +411,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     needs: [build-static-binaries]
-    if: false
     strategy:
       fail-fast: false
       matrix:
