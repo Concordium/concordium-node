@@ -56,7 +56,6 @@ jobs:
 
   build-database-exporter:
     runs-on: ubuntu-latest
-    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -64,12 +63,11 @@ jobs:
           ref: ${{ env.VERSION }}
           submodules: recursive
 
-#      - name: Extract version tag from Cargo.toml manifest
-#        id: meta
-#        run: |
-#          VERSION=$(yq .package.version concordium-node/Cargo.toml)
-#          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Precheck - Validate Version and Check S3 for existing files
         run: |
@@ -79,7 +77,7 @@ jobs:
             echo "error: $OUTFILE already exists"
             exit 1
           fi
-# This looks wrong
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -102,10 +100,10 @@ jobs:
             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
           no-cache: true
 
-#      - name: Run Docker and Extract Artifacts
-#        run: |
-#          docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
-#
+      - name: Run Docker and Extract Artifacts
+        run: |
+          docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
+
 #      - name: Finish
 #        run: |
 #          ls -la /out
@@ -129,7 +127,7 @@ jobs:
 
       - name: Load image
         run: |
-          docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+          docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
           rm /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
           docker image ls -a
 
@@ -138,6 +136,12 @@ jobs:
         with:
           ref: ${{ env.VERSION }}
           submodules: recursive
+
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Precheck - Validate Version and Check S3 for existing files
         run: |
@@ -197,11 +201,16 @@ jobs:
           ref: ${{ env.VERSION }}
           submodules: recursive
 
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
-      - name: Install Rust (v1.73.0)
+      - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: 1.73-x86_64-pc-windows-gnu
+          toolchain: ${{ env.RUST_VERSION }}-x86_64-pc-windows-gnu
 
       - name: Setup node folder
         run: |
@@ -241,7 +250,7 @@ jobs:
         run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
       - name: Build Windows Node
-        run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion 1.73
+        run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion ${{ env.RUST_VERSION }}
 
   build-macos-node:
     runs-on: macos-latest-large
@@ -255,7 +264,13 @@ jobs:
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
-          toolchain: 1.73.0
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - uses: haskell-actions/setup@v2
         with:
@@ -325,7 +340,7 @@ jobs:
 
        - name: Load image
          run: |
-           docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+           docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
            rm /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
 
        - name: Checkout Repository
@@ -333,6 +348,12 @@ jobs:
          with:
            ref: ${{ env.VERSION }}
            submodules: recursive
+
+       - name: Extract version tag from Cargo.toml manifest
+         id: meta
+         run: |
+           VERSION=$(yq .package.version concordium-node/Cargo.toml)
+           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
        - name: Checkout Genesis Repository
          uses: actions/checkout@v4
@@ -400,8 +421,14 @@ jobs:
 
       - name: Load image
         run: |
-          docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+          docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
           rm /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Checkout Repository
         uses: actions/checkout@v4
