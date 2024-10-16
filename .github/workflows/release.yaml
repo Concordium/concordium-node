@@ -266,6 +266,22 @@ jobs:
              genesis_path: stagenet/2024-09-12/genesis_data
              grpc_port: 20500
              listen_port: 9500
+           - env: testnet
+             tld: com
+             genesis_path: testnet/2022-06-13/genesis_data
+             grpc_port: 20001
+             listen_port: 8889
+           - env: mainnet
+             tld: software
+             genesis_path: mainnet/2021-06-09
+             grpc_port: 20000
+             listen_port: 8888
+           - env: flynet
+             tld: com
+             genesis_path: flynet/2023-02-01/genesis_data
+             grpc_port: 20002
+             listen_port: 8890
+
      steps:
        - name: Checkout Repository
          uses: actions/checkout@v4
