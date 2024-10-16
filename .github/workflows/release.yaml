@@ -371,6 +371,7 @@ jobs:
   build-docker-image:
     runs-on: ubuntu-latest
     environment: release
+    needs: [build-static-binaries]
     if: false
     strategy:
       fail-fast: false
@@ -383,6 +384,9 @@ jobs:
         with:
           ref: ${{ env.VERSION }}
           submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Checkout Genesis Repository
         uses: actions/checkout@v4
