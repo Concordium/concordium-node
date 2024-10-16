@@ -5,7 +5,6 @@
 
 module Concordium.GlobalState.PoolRewards where
 
-import Data.Int
 import Data.Serialize
 import Data.Word
 
@@ -24,7 +23,7 @@ data BakerPoolRewardDetails = BakerPoolRewardDetails
       -- | Whether the pool contributed to a finalization proof in the reward period
       finalizationAwake :: !Bool,
       -- | The number of missed rounds in the reward period
-      missedRounds :: !Int16
+      missedRounds :: !Word16
     }
     deriving (Eq, Show)
 
@@ -34,7 +33,7 @@ instance Serialize BakerPoolRewardDetails where
         put transactionFeesAccrued
         putBool finalizationAwake
 
-    get = BakerPoolRewardDetails <$> getWord64be <*> get <*> getBool <*> getInt16be
+    get = BakerPoolRewardDetails <$> getWord64be <*> get <*> getBool <*> getWord16be
 
 instance HashableTo Hash.Hash BakerPoolRewardDetails where
     getHash = Hash.hash . encode
