@@ -8,7 +8,7 @@ module Concordium.KonsensusV1.Scheduler where
 
 import Control.Monad
 import Data.Bool.Singletons
-import Data.Int
+import Data.Word
 import qualified Data.Map as Map
 import Data.Time
 import Data.Maybe
@@ -84,7 +84,7 @@ data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
       -- | Number of rounds a validator has missed (e.g. the validator was
       --   elected leader but a timeout certificate exist for the round) since the parent
       --   block.
-      bedMissedRounds :: [(BakerId, Int16)]
+      bedMissedRounds :: [(BakerId, Word16)]
     }
 
 -- | Details of the transactions in a block that are used for computing rewards that accrue to the
