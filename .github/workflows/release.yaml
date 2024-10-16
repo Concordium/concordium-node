@@ -20,7 +20,6 @@ env:
 jobs:
   build-static-binaries:
     runs-on: ubuntu-latest
-    env:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
