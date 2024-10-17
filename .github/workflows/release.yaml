@@ -28,6 +28,7 @@ jobs:
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           role-session-name: DatabaseExporter
+          aws-region: eu-west-1
 
       - name: Check if the specific S3 object exists
         id: s3-check
