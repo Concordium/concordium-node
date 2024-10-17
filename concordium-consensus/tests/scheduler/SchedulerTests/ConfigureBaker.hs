@@ -1219,8 +1219,7 @@ testUpdateBakerReduceStakeOk spv pvString =
     updateStaking keysWithProofs =
         ( case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
             SFalse ->
-                Transient.accountStaking
-                    . accountBaker
+                Transient.accountStaking . accountBaker
                     %~ ( bakerPendingChange .~ ReduceStake stakeAmount (PendingChangeEffectiveV1 86400000)
                        )
             STrue ->
