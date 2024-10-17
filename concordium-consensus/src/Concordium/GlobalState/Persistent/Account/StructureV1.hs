@@ -1493,9 +1493,9 @@ setValidatorSuspended isSusp = updateStake $ \case
         newInfoRef <- refMake $! newInfo
         return $! baker{paseBakerInfo = newInfoRef}
     PersistentAccountStakeEnduringDelegator{} ->
-        error "setSuspend invariant violation: account is not a baker"
+        error "setValidatorSuspended invariant violation: account is not a baker"
     PersistentAccountStakeEnduringNone ->
-        error "setSuspend invariant violation: account is not a baker"
+        error "setValidatorSuspended invariant violation: account is not a baker"
 
 -- | Add a specified amount to the pre-pre-cooldown inactive stake.
 addPrePreCooldown ::
