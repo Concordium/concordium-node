@@ -113,8 +113,7 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
     chainParams =
         DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
             & cpPoolParameters . ppMinimumEquityCapital .~ minEquity
-            & cpPoolParameters
-                . ppCommissionBounds
+            & cpPoolParameters . ppCommissionBounds
                 .~ CommissionRanges
                     { _transactionCommissionRange = InclusiveRange (makeAmountFraction 100) (makeAmountFraction 200),
                       _finalizationCommissionRange = InclusiveRange (makeAmountFraction 300) (makeAmountFraction 400),

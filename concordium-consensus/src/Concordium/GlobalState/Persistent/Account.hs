@@ -504,7 +504,7 @@ setAccountStake newStake (PAV2 acc) = PAV2 <$> V1.setStake newStake acc
 setAccountStake newStake (PAV3 acc) = PAV3 <$> V1.setStake newStake acc
 setAccountStake newStake (PAV4 acc) = PAV4 <$> V1.setStake newStake acc
 
--- | Suspend or resume the account of a validator. 
+-- | Suspend or resume the account of a validator.
 --  This MUST only be called with an account that is a validator.
 setAccountValidatorSuspended ::
     (MonadBlobStore m, AVSupportsValidatorSuspension av) =>
