@@ -18,7 +18,7 @@
 --
 --      * the hash of the genesis block of the previous chain, if it is a 'GDP8Initial'; or
 --      * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
---        is a 'GDP6Regenesis'.
+--        is a 'GDP8Regenesis'.
 --
 --  * 'genesisPreviousGenesis' is the hash of the previous genesis block.
 --
