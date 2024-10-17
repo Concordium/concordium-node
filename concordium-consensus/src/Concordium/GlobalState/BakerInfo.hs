@@ -207,6 +207,8 @@ data ValidatorAdd = ValidatorAdd
       vaMetadataURL :: !UrlText,
       -- | The commission rates for the validator.
       vaCommissionRates :: !CommissionRates
+      -- | TODO (drsk) Github issue #1246. Support suspend/resume for ValidatorAdd.
+      -- vaSuspend :: !Bool
     }
     deriving (Eq, Show)
 
