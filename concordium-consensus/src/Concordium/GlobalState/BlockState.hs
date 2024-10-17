@@ -1109,7 +1109,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     --        (1) Suspend/resume the validator according to the flag.
 
-    --        (2) Append @BakerConfigureSuspended, @BakerConfigureResumed respectively to @events@.
+    --        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
     --
     --  9. Return @events@ with the updated block state.
     bsoUpdateValidator ::
