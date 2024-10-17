@@ -5,7 +5,6 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -61,9 +60,7 @@ data Account (av :: AccountVersion) = Account
       -- | The cooldown on the account.
       _accountStakeCooldown :: !(Conditionally (SupportsFlexibleCooldown av) Cooldowns)
     }
-
-deriving instance forall av. (IsAccountVersion av) => Eq (Account av)
-deriving instance forall av. (IsAccountVersion av) => Show (Account av)
+    deriving (Eq, Show)
 
 makeLenses ''Account
 
