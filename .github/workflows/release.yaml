@@ -16,10 +16,13 @@ env:
   CABAL_VERSION: '3.6.2.0'
   PROTOC_VERSION: '25.2'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
+  AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
 
 jobs:
+
   build-static-binaries:
     runs-on: ubuntu-latest-8core
+    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -70,15 +73,6 @@ jobs:
           VERSION=$(yq .package.version concordium-node/Cargo.toml)
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
-      - name: Precheck - Validate Version and Check S3 for existing files
-        run: |
-          OUTFILE="s3://distribution.concordium.software/tools/linux/database-exporter_${{ env.VERSION }}.deb"
-          totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
-          if [ "$totalFoundObjects" -ne "0" ]; then
-            echo "error: $OUTFILE already exists"
-            exit 1
-          fi
-
       - name: Build Database Exporter
         uses: docker/build-push-action@v6
         with:
@@ -104,6 +98,12 @@ jobs:
       - name: Run Docker and Extract Artifacts
         run: |
           docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: DatabaseExporter
 
       - name: Publish
         run: |
