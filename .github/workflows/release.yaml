@@ -18,8 +18,11 @@ env:
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
 
-jobs:
+permissions:
+  id-token: write
+  contents: read
 
+jobs:
   check-artifacts-exist:
     runs-on: ubuntu-latest
     environment: release
@@ -28,8 +31,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: DatabaseExporter
-          aws-region: eu-west-1
+          role-session-name: DatabaseExporterSession
+          aws-region: "eu-west-1"
 
       - name: Check if the specific S3 object exists
         id: s3-check
