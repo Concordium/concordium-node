@@ -1810,7 +1810,7 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 
 --        (1) Suspend/resume the validator according to the flag.
 
---        (2) Append @BakerConfigureSuspended, @BakerConfigureResumed respectively to @events@.
+--        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
 --
 --  10. Return @events@ with the updated block state.
 newUpdateValidator ::
