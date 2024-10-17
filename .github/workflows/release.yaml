@@ -22,6 +22,7 @@ jobs:
 
   check-artifacts-exist:
     runs-on: ubuntu-latest
+    environment: release
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
