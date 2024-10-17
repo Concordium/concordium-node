@@ -104,16 +104,12 @@ jobs:
         run: |
           docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
 
-#      - name: Finish
-#        run: |
-#          ls -la /out
-
-#      - name: Upload to S3
-#        run: |
-#          aws s3 cp "${{ env.OUT_DIR }}/database-exporter_${{ steps.set_version.outputs.TAG }}.deb" \
-#            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-#        env:
-#          OUTFILE: s3://distribution.concordium.software/tools/linux/database-exporter_${{ steps.set_version.outputs.TAG }}.deb
+      - name: Publish
+        run: |
+          aws s3 cp "${{ env.OUT_DIR }}/database-exporter_${{ steps.set_version.outputs.TAG }}.deb" \
+            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+        env:
+          OUTFILE: s3://distribution.concordium.software/tools/linux/test/database-exporter_${{ env.VERSION }}.deb
 
   build-p2p-bootstrapper:
     runs-on: ubuntu-latest
@@ -180,12 +176,12 @@ jobs:
             -v "${{ env.OUT_DIR }}":/out \
             build-deb:${{ github.run_id }}
 
-#      - name: Push Debian Package to S3
-#        run: |
-#          aws s3 cp "${{ env.OUT_DIR }}/p2p-bootstrapper_${{ steps.set_version.outputs.TAG }}.deb" \
-#            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-#        env:
-#          OUTFILE: s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ steps.set_version.outputs.TAG }}.deb
+      - name: Publish
+        run: |
+          aws s3 cp "${{ env.OUT_DIR }}/p2p-bootstrapper_${{ steps.set_version.outputs.TAG }}.deb" \
+            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+        env:
+          OUTFILE: s3://distribution.concordium.software/tools/linux/test/p2p-bootstrapper_${{ env.VERSION }}.deb
 
   build-windows-node:
     runs-on: windows-latest
@@ -404,6 +400,13 @@ jobs:
              build_grpc2_listen_port=${{ matrix.grpc_port }}
              build_listen_port=${{ matrix.listen_port }}
              build_bootstrap=bootstrap.${{ env.DOMAIN }}:8888
+       - name: Publish
+         run: |
+           id=$(docker create ${{ matrix.env }}-deb)
+           docker cp $id:/out ${{ matrix.env }}-build
+           aws s3 cp ${{ matrix.env }}-build/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb ${OUTFILE} --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+         env:
+           OUTFILE: s3://distribution.${{ env.DOMAIN }}/deb/test/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb
 
   build-docker-image:
     runs-on: ubuntu-latest
