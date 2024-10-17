@@ -37,8 +37,9 @@ jobs:
       - name: Check if the specific S3 object exists
         id: s3-check
         run: |
+          set -e
           S3_ARN="s3://distribution.concordium.software/tools/linux/database-exporter_${{ env.VERSION }}.deb"
-          TOTAL_FOUND_OBJECTS=$(aws s3 ls $S3_ARN ${{ env.VERSION }}.deb --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+          TOTAL_FOUND_OBJECTS=$(aws s3 ls $S3_ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
           if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
             echo "error: item already exists at $S3_ARN"
             exit 1
