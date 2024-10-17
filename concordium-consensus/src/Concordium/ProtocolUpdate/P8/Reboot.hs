@@ -71,7 +71,8 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.ProtocolVersion
 
--- | The hash that identifies the P8.Reboot update.
+-- | The hash that identifies the P8.Reboot update:
+--  ff44f55c68323758f046d18935e74d1fb4387617009b5fb66f5706f7de25a919
 updateHash :: SHA256.Hash
 updateHash = SHA256.hash "P8.Reboot"
 
