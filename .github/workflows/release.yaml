@@ -20,7 +20,27 @@ env:
 
 jobs:
 
+  check-artifacts-exist:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: DatabaseExporter
+
+      - name: Check if the specific S3 object exists
+        id: s3-check
+        run: |
+          S3_ARN="s3://distribution.concordium.software/tools/linux/database-exporter_${{ env.VERSION }}.deb"
+          TOTAL_FOUND_OBJECTS=$(aws s3 ls $S3_ARN ${{ env.VERSION }}.deb --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+          if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
+            echo "error: item already exists at $S3_ARN"
+            exit 1
+          fi
+
   build-static-binaries:
+    needs: [check-artifacts-exist]
     runs-on: ubuntu-latest-8core
     if: false
     steps:
@@ -58,6 +78,7 @@ jobs:
           retention-days: 14
 
   build-database-exporter:
+    needs: [check-artifacts-exist]
     runs-on: ubuntu-latest
     environment: release
     steps:
