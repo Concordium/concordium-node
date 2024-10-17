@@ -1105,7 +1105,13 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --         is (preferentially) reactivated from the inactive stake, updating the global indices
     --         accordingly.
     --
-    --  8. Return @events@ with the updated block state.
+    --  8. (>= P8) If the suspended/resumed flag is set:
+
+    --        (1) Suspend/resume the validator according to the flag.
+
+    --        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
+    --
+    --  9. Return @events@ with the updated block state.
     bsoUpdateValidator ::
         (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->

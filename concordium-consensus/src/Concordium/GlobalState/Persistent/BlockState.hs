@@ -1614,7 +1614,12 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
                   _poolCommissionRates = vaCommissionRates
                 }
     let bakerInfo = bakerKeyUpdateToInfo bid vaKeys
-    let bakerInfoEx = BaseAccounts.BakerInfoExV1 bakerInfo poolInfo
+    let bakerInfoEx =
+            BaseAccounts.BakerInfoExV1
+                { _bieBakerPoolInfo = poolInfo,
+                  _bieBakerInfo = bakerInfo,
+                  _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+                }
     -- The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Add the baker to the account.
@@ -1639,6 +1644,7 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
   where
     bid = BakerId ai
     flexibleCooldowns = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
 
 -- | Check the conditions required for successfully updating a validator. This does not modify
 --  the block state.
@@ -1675,8 +1681,7 @@ updateValidatorChecks ::
     MTL.ExceptT ValidatorConfigureFailure m ()
 updateValidatorChecks bsp baker ValidatorUpdate{..} = do
     chainParams <- lookupCurrentParameters (bspUpdates bsp)
-    let
-        poolParams = chainParams ^. cpPoolParameters
+    let poolParams = chainParams ^. cpPoolParameters
         capitalMin = poolParams ^. ppMinimumEquityCapital
         ranges = poolParams ^. ppCommissionBounds
     -- Check if the aggregation key is fresh (or the same as the baker's existing one).
@@ -1800,8 +1805,14 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --         equity capital to the new capital (updating the total active capital in the active baker
 --         index by adding the difference between the new and old capital) and append
 --         @BakerConfigureStakeIncreased capital@ to @events@.
+
+--  9. (>= P8) If the suspended/resumed flag is set:
+
+--        (1) Suspend/resume the validator according to the flag.
+
+--        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
 --
---  9. Return @events@ with the updated block state.
+--  10. Return @events@ with the updated block state.
 newUpdateValidator ::
     forall pv m.
     ( SupportsPersistentState pv m,
@@ -1829,6 +1840,7 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
                 >>= updateRestakeEarnings
                 >>= updatePoolInfo existingBaker
                 >>= updateCapital existingBaker
+                >>= updateSuspend
         newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts newBSP)
         return newBSP{bspAccounts = newAccounts}
     (events,) <$> storePBS pbs newBSP
@@ -1837,6 +1849,14 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
     -- Only do the given update if specified.
     ifPresent Nothing _ = return
     ifPresent (Just v) k = k v
+    updateSuspend =
+        ifPresent vuSuspend $ \suspend (bsp, acc) -> do
+            case sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)) of
+                STrue -> do
+                    acc1 <- setAccountValidatorSuspended suspend acc
+                    MTL.tell [if suspend then BakerConfigureSuspended else BakerConfigureResumed]
+                    return (bsp, acc1)
+                SFalse -> return (bsp, acc)
     updateKeys oldBaker = ifPresent vuKeys $ \keys (bsp, acc) -> do
         let oldAggrKey = oldBaker ^. BaseAccounts.bakerAggregationVerifyKey
         bsp1 <-
@@ -2804,8 +2824,8 @@ doMint pbs mint = do
             bspBank bsp
                 & unhashed
                     %~ (Rewards.totalGTU +~ mintTotal mint)
-                    . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
-                    . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
+                        . (Rewards.bakingRewardAccount +~ mintBakingReward mint)
+                        . (Rewards.finalizationRewardAccount +~ mintFinalizationReward mint)
     let updAcc = addAccountAmount $ mintDevelopmentCharge mint
     foundationAccount <- (^. cpFoundationAccount) <$> lookupCurrentParameters (bspUpdates bsp)
     newAccounts <- Accounts.updateAccountsAtIndex' updAcc foundationAccount (bspAccounts bsp)

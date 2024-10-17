@@ -261,7 +261,7 @@ epochToFullBakersEx PersistentEpochBakers{..} = do
             }
   where
     mkFullBakerInfoEx :: BaseAccounts.BakerInfoEx (AccountVersionFor pv) -> Amount -> FullBakerInfoEx
-    mkFullBakerInfoEx (BaseAccounts.BakerInfoExV1 info extra) stake =
+    mkFullBakerInfoEx (BaseAccounts.BakerInfoExV1 info extra _isSuspended) stake =
         FullBakerInfoEx (FullBakerInfo info stake) (extra ^. BaseAccounts.poolCommissionRates)
 
 type DelegatorIdTrieSet = Trie.TrieN BufferedFix DelegatorId ()
