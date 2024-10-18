@@ -103,12 +103,6 @@ jobs:
           ref: ${{ env.VERSION }}
           submodules: recursive
 
-      - name: Extract version tag from Cargo.toml manifest
-        id: meta
-        run: |
-          VERSION=$(yq .package.version concordium-node/Cargo.toml)
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-
       - name: Build Database Exporter
         uses: docker/build-push-action@v6
         with:
@@ -133,7 +127,8 @@ jobs:
 
       - name: Run Docker and Extract Artifacts
         run: |
-          docker run -v "${{ env.OUT_DIR }}":/out build-deb:${{ github.run_id }}
+          id=$(docker create build-deb:${{ github.run_id }})
+          docker cp $id:/build/database-exporter_${{ env.VERSION }}.deb .
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -144,7 +139,7 @@ jobs:
 
       - name: Publish
         run: |
-          aws s3 cp "${{ env.OUT_DIR }}/database-exporter_${{ steps.set_version.outputs.TAG }}.deb" \
+          aws s3 cp "database-exporter_${{ env.VERSION }}.deb" \
             "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
         env:
           OUTFILE: s3://distribution.concordium.software/tools/linux/test/database-exporter_${{ env.VERSION }}.deb
