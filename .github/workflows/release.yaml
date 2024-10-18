@@ -49,7 +49,8 @@ jobs:
           set -e
           echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
-            if aws s3 ls "$ARN" > /dev/null 2>&1; then
+            TOTAL_FOUND_OBJECTS=$(aws s3 ls $S3_ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+            if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
               echo "error: item for $ARN already exists"
               exit 1
             else
