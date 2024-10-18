@@ -18,7 +18,7 @@ env:
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_OBJECTS_TEMPLATE: '{
-      \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"
+      \"database-exporter\": \"distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"
     }'
 
 
