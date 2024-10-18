@@ -42,7 +42,7 @@ jobs:
       - name: Use the S3 objects defined as environment variable
         run: |
           set -e
-          echo "$S3_OBJECTS" | jq -c '.[].repositoryName' | while read -r ARN; do
+          echo '${{ env.S3_OBJECTS }}' | jq -c '.[].repositoryName' | while read -r ARN; do
             echo "Checking for object at: $ARN"
 
             # Check if the S3 object exists
