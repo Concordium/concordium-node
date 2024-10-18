@@ -47,7 +47,7 @@ jobs:
       - name: Aws cli test
         run: |
           aws --version
-          aws s3 ls "distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb" --summarize
+          aws s3 ls "s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb" --summarize
 
       - name: Use the S3 objects defined as environment variable
         run: |
