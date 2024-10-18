@@ -37,23 +37,18 @@ jobs:
           aws-region: "eu-west-1"
 
       - name: Construct S3_OBJECTS from template
-        run: |
-          export VERSION=${{ env.VERSION }}
-          echo "S3_OBJECTS=${{ env.S3_OBJECTS_TEMPLATE }}"
-          echo "S3_OBJECTS=\"${{ env.S3_OBJECTS_TEMPLATE }}\"" >> $GITHUB_ENV
+        run: echo "S3_OBJECTS=\"${{ env.S3_OBJECTS_TEMPLATE }}\"" >> $GITHUB_ENV
 
       - name: Use the S3 objects defined as environment variable
         run: |
           set -e
-          echo '$S3_OBJECTS' | jq -c '.[].repositoryName' | while read -r ARN; do
+          echo ${{ env.S3_OBJECTS }} | jq -c '.[].s3_arn' | while read -r ARN; do
             echo "Checking for object at: $ARN"
-
-            # Check if the S3 object exists
             if aws s3 ls "$ARN" > /dev/null 2>&1; then
               echo "error: item for $ARN already exists"
               exit 1
             else
-              echo "No object found for $S3_ARN"
+              echo "No object found for $ARN"
             fi
           done
 
