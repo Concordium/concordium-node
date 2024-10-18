@@ -18,7 +18,7 @@ env:
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_OBJECTS_TEMPLATE: '{
-      \"database-exporter\": \"distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"
+      \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"
     }'
 
 
@@ -49,7 +49,7 @@ jobs:
           set -e -o pipefail
           echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
-            TOTAL_FOUND_OBJECTS=$(aws s3 ls "$ARN" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+            TOTAL_FOUND_OBJECTS=$(aws s3 ls $ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
             if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
               echo "error: item for $ARN already exists"
               exit 1
