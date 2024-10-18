@@ -1,0 +1,508 @@
+name: Concordium node release
+
+on:
+  push:
+    branches:
+      - lma/release/github_actions
+
+env:
+  UBUNTU_VERSION: '20.04'
+  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
+  RUST_VERSION: '1.73'
+  VERSION: '7.0.5-0'
+  STACK_VERSION: '2.13.1'
+  FLATBUFFERS_VERSION: '23.5.26'
+  GHC_VERSION: '9.6.4'
+  CABAL_VERSION: '3.6.2.0'
+  PROTOC_VERSION: '25.2'
+  STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
+  AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
+  S3_OBJECTS_TEMPLATE: '{
+      \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"
+    }'
+
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  validate-preconditions:
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      s3_objects: ${{ steps.s3_objects.outputs.s3_objects }}
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: ValidatePreconditionsSession
+          aws-region: "eu-west-1"
+
+      - name: Construct S3_OBJECTS from template
+        id: s3_objects
+        run: echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
+
+      - name: Use the S3 objects defined as environment variable
+        run: |
+          set -e -o pipefail
+          echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
+            echo "Checking for object at: $ARN"
+            TOTAL_FOUND_OBJECTS=$(aws s3 ls $ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+            if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
+              echo "error: item for $ARN already exists"
+              exit 1
+            else
+              echo "No object found for $ARN"
+            fi
+          done
+          
+        
+
+  build-static-binaries:
+    needs: [validate-preconditions]
+    runs-on: ubuntu-latest-8core
+    if: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Static Node Binary Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          file: scripts/static-binaries/static-binaries.Dockerfile
+          tags: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}:${{ github.run_id }}
+          no-cache: true
+          build-args: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+            ghc_version=${{ env.GHC_VERSION }}
+          labels: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+            ghc_version=${{ env.GHC_VERSION }}
+          outputs: type=docker,dest=/tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+          path: /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+          retention-days: 14
+
+  build-database-exporter:
+    needs: [validate-preconditions]
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_NAME: "database-exporter"
+    environment: release
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+      - name: Build Database Exporter
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: build-deb:${{ github.run_id }}
+          file: scripts/db-exporter/Dockerfile
+          build-args: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            ghc_version=${{ env.GHC_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          labels: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            ghc_version=${{ env.GHC_VERSION }}
+            static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
+          no-cache: true
+
+      - name: Run Docker and Extract Artifacts
+        run: |
+          id=$(docker create build-deb:${{ github.run_id }})
+          docker cp $id:/build/database-exporter_${{ env.VERSION }}.deb .
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: ${{ env.PROJECT_NAME }}
+          aws-region: "eu-west-1"
+
+      - name: Publish
+        run: |
+          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ env.PROJECT_NAME }}"]')
+          aws s3 cp "database-exporter_${{ env.VERSION }}.deb" \
+            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+
+  build-p2p-bootstrapper:
+    runs-on: ubuntu-latest
+    environment: release
+    needs: [build-static-binaries]
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+          path: /tmp
+
+      - name: Load image
+        run: |
+          docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+          docker image ls -a
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Precheck - Validate Version and Check S3 for existing files
+        run: |
+          # Check if the file already exists in S3
+          OUTFILE="s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ env.VERSION }}.deb"
+          totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+          if [ "$totalFoundObjects" -ne "0" ]; then
+            echo "error: $OUTFILE already exists"
+            exit 1
+          fi
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          file: scripts/bootstrapper/Dockerfile
+          tags: build-deb:${{ github.run_id }}
+          no-cache: true
+          build-args: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            static_binaries_image_tag=${{ github.run_id }}
+          labels: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            version=${{ env.VERSION }}
+            static_binaries_image_tag=${{ github.run_id }}
+
+      - name: Make out directory
+        run: echo "OUT_DIR=$(mktemp -d)" >> $GITHUB_ENV
+
+      - name: Run Docker Container to Generate Output
+        run: |
+          docker run \
+            --env EXTERNAL_UID=$(id -u) \
+            --env EXTERNAL_GID=$(id -g) \
+            -v "${{ env.OUT_DIR }}":/out \
+            build-deb:${{ github.run_id }}
+
+      - name: Publish
+        run: |
+          aws s3 cp "${{ env.OUT_DIR }}/p2p-bootstrapper_${{ steps.set_version.outputs.TAG }}.deb" \
+            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+        env:
+          OUTFILE: s3://distribution.concordium.software/tools/linux/test/p2p-bootstrapper_${{ env.VERSION }}.deb
+
+  build-windows-node:
+    runs-on: windows-latest
+    if: false
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}-x86_64-pc-windows-gnu
+
+      - name: Setup node folder
+        run: |
+          mkdir -p "C:/Program Files/node/include"
+          Add-Content -Path $env:GITHUB_PATH -Value "C:/Program Files/node"
+
+      - name: Install flatbuffers
+        run: |
+          curl -L -O https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/Windows.flatc.binary.zip
+          unzip Windows.flatc.binary.zip
+          mv flatc.exe "C:/Program Files/node/"
+
+      - name: Install protobuf (protoc)
+        run: |
+          curl -L -O https://github.com/protocolbuffers/protobuf/releases/download/v${{ env.PROTOC_VERSION }}/protoc-${{ env.PROTOC_VERSION }}-win64.zip
+          unzip protoc-${{ env.PROTOC_VERSION }}-win64.zip
+          mv bin/protoc.exe "C:/Program Files/node/"
+          mv include/* "C:/Program Files/node/include"
+
+      - name: Setup Haskell
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+          enable-stack: true
+          stack-version: ${{ env.STACK_VERSION }}
+
+      - uses: milliewalky/setup-7-zip@v1
+
+      - name: Install GCC
+        run: |
+          curl -L -O https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-19.1.1-12.0.0-msvcrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z
+          7z x winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z -oC:/gcc
+          Add-Content -Path $env:GITHUB_PATH -Value "C:/gcc/mingw64/bin"
+
+      - name: Install LMDB
+        run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
+
+      - name: Build Windows Node
+        run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion ${{ env.RUST_VERSION }}
+
+  build-macos-node:
+    runs-on: macos-latest-large
+    if: false
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+          cabal-version: ${{ env.CABAL_VERSION }}
+          enable-stack: true
+          stack-version: ${{ env.STACK_VERSION }}
+
+      - name: Install flatbuffers
+        run: |
+          wget https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/MacIntel.flatc.binary.zip -O MacIntel.flatc.binary.zip
+          unzip MacIntel.flatc.binary.zip -d flatbuffers
+          sudo mv flatbuffers/flatc /usr/local/bin/
+
+      - name: Install protobuf
+        run: |
+          curl -L -o protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v${{ env.PROTOC_VERSION }}/protoc-${{ env.PROTOC_VERSION }}-osx-x86_64.zip
+          unzip protoc.zip
+          sudo mv bin/protoc /usr/local/bin/
+          sudo mv include/* /usr/local/include/
+
+      - name: Install Homebrew Packages
+        run: |
+          brew install lmdb llvm
+
+      - name: Build macOS Package
+        run: |
+          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
+
+  build-linux-node:
+     runs-on: ubuntu-latest
+     environment: release
+     needs: [ build-static-binaries ]
+     env:
+       DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
+     strategy:
+       fail-fast: false
+       matrix:
+         include:
+           - env: stagenet
+             tld: com
+             genesis_path: stagenet/2024-09-12/genesis_data
+             grpc_port: 20500
+             listen_port: 9500
+           - env: testnet
+             tld: com
+             genesis_path: testnet/2022-06-13/genesis_data
+             grpc_port: 20001
+             listen_port: 8889
+           - env: mainnet
+             tld: software
+             genesis_path: mainnet/2021-06-09
+             grpc_port: 20000
+             listen_port: 8888
+           - env: flynet
+             tld: com
+             genesis_path: flynet/2023-02-01/genesis_data
+             grpc_port: 20002
+             listen_port: 8890
+
+     steps:
+       - name: Download artifact
+         uses: actions/download-artifact@v4
+         with:
+           name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+           path: /tmp
+
+       - name: Load image
+         run: |
+           docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+           rm /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+
+       - name: Checkout Repository
+         uses: actions/checkout@v4
+         with:
+           ref: ${{ env.VERSION }}
+           submodules: recursive
+
+       - name: Extract version tag from Cargo.toml manifest
+         id: meta
+         run: |
+           VERSION=$(yq .package.version concordium-node/Cargo.toml)
+           echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+       - name: Checkout Genesis Repository
+         uses: actions/checkout@v4
+         with:
+           repository: 'Concordium/concordium-infra-genesis-data'
+           path: 'genesis'
+           ssh-key: ${{ secrets.GENESIS_DATA_KEY }}
+           ref: 'main'
+
+       - name: Define domain
+         run: echo "DOMAIN=${{ matrix.env }}.concordium.${{ matrix.tld }}" >> $GITHUB_ENV
+
+       - name: Copy Genesis Data
+         run: |
+           mkdir -p ${{ env.DATA_DIR }}
+           cp genesis/${{ matrix.genesis_path }}/genesis.dat ${{ env.DATA_DIR }}/${{ matrix.env }}-genesis.dat
+
+       - name: Precheck S3 Object Existence
+         run: |
+           OUTFILE="s3://distribution.${{ env.DOMAIN }}/deb/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb"
+           totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+           if [ "$totalFoundObjects" -ne "0" ]; then
+               echo "$OUTFILE already exists"
+               exit 1
+           fi
+
+       - name: Set enviornment variables
+         run: |
+           echo "BUILD_ENV_NAME=$(echo "${{ matrix.env }}" | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')" >> $GITHUB_ENV
+           echo "BUILD_GENESIS_HASH=$(cat genesis/${{ matrix.genesis_path }}/genesis_hash | tr -cd "[:alnum:]")" >> $GITHUB_ENV
+
+       - name: Build Docker Image
+         uses: docker/build-push-action@v6
+         with:
+           context: ./scripts/distribution/ubuntu-packages/
+           push: false
+           file: ./scripts/distribution/ubuntu-packages/deb.Dockerfile
+           tags: ${{ matrix.env }}-deb
+           no-cache: true
+           build-args: |
+             ubuntu_version=${{ env.UBUNTU_VERSION }}
+             version=${{ env.VERSION }}
+             static_binaries_image_tag=${{ github.run_id }}
+             build_env_name=${{ env.BUILD_ENV_NAME }}
+             build_env_name_lower=${{ matrix.env }}
+             build_catchup_url=https://${{ env.DOMAIN }}/blocks.idx
+             build_genesis_hash=${{ env.BUILD_GENESIS_HASH }}
+             build_collector_backend_url=https://dashboard.${{ env.DOMAIN }}/nodes/post
+             build_grpc2_listen_port=${{ matrix.grpc_port }}
+             build_listen_port=${{ matrix.listen_port }}
+             build_bootstrap=bootstrap.${{ env.DOMAIN }}:8888
+       - name: Publish
+         run: |
+           id=$(docker create ${{ matrix.env }}-deb)
+           docker cp $id:/out ${{ matrix.env }}-build
+           aws s3 cp ${{ matrix.env }}-build/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb ${OUTFILE} --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+         env:
+           OUTFILE: s3://distribution.${{ env.DOMAIN }}/deb/test/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb
+
+  build-docker-image:
+    runs-on: ubuntu-latest
+    environment: release
+    if: false
+    needs: [build-static-binaries]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env: stagenet
+            genesis_path: stagenet/2024-09-12/genesis_data
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+          path: /tmp
+
+      - name: Load image
+        run: docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+
+
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.VERSION }}
+          submodules: recursive
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Checkout Genesis Repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'Concordium/concordium-infra-genesis-data'
+          path: 'genesis'
+          ssh-key: ${{ secrets.GENESIS_DATA_KEY }}
+          ref: 'main'
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          file: scripts/distribution/docker/builder.Dockerfile
+          tags: ${{ matrix.env }}-deb
+          no-cache: true
+          build-args: |
+            ubuntu_version=${{ env.UBUNTU_VERSION }}
+            static_binaries_image_tag=${{ github.run_id }}
+            genesis_ref=main
+            genesis_path=${{ matrix.genesis_path }}
+            image_name=${{ matrix.env }}-node
+            image_tag=${{ env.VERSION }}
+            environment=${{ matrix.env }}
