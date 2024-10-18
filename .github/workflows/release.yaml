@@ -17,13 +17,15 @@ env:
   PROTOC_VERSION: '25.2'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
+  S3_OBJECTS_TEMPLATE: '[{\"project\": \"database-exporter\", \"s3_arn\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"}]'
+
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  check-artifacts-exist:
+  validate-preconditions:
     runs-on: ubuntu-latest
     environment: release
     steps:
@@ -31,22 +33,29 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: DatabaseExporterSession
+          role-session-name: ValidatePreconditionsSession
           aws-region: "eu-west-1"
 
-      - name: Check if the specific S3 object exists
-        id: s3-check
+      - name: Construct S3_OBJECTS from template
+        run: S3_OBJECTS="${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_ENV
+
+      - name: Use the S3 objects defined as environment variable
         run: |
           set -e
-          S3_ARN="s3://distribution.concordium.software/tools/linux/test/database-exporter_${{ env.VERSION }}.deb"
-          TOTAL_FOUND_OBJECTS=$(aws s3 ls $S3_ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
-          if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
-            echo "error: item already exists at $S3_ARN"
-            exit 1
-          fi
+          echo "$S3_OBJECTS" | jq -c '.[].repositoryName' | while read -r ARN; do
+            echo "Checking for object at: $ARN"
+
+            # Check if the S3 object exists
+            if aws s3 ls "$ARN" > /dev/null 2>&1; then
+              echo "error: item for $ARN already exists"
+              exit 1
+            else
+              echo "No object found for $S3_ARN"
+            fi
+          done
 
   build-static-binaries:
-    needs: [check-artifacts-exist]
+    needs: [validate-preconditions]
     runs-on: ubuntu-latest-8core
     if: false
     steps:
@@ -84,7 +93,7 @@ jobs:
           retention-days: 14
 
   build-database-exporter:
-    needs: [check-artifacts-exist]
+    needs: [validate-preconditions]
     runs-on: ubuntu-latest
     environment: release
     steps:
@@ -130,7 +139,8 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: DatabaseExporter
+          role-session-name: DatabaseExporterSession
+          aws-region: "eu-west-1"
 
       - name: Publish
         run: |
