@@ -46,10 +46,10 @@ jobs:
 
       - name: Use the S3 objects defined as environment variable
         run: |
-          set -e
+          set -e -o pipefail
           echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
-            TOTAL_FOUND_OBJECTS=$(aws s3 ls $S3_ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+            TOTAL_FOUND_OBJECTS=$(aws s3 ls "$ARN" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
             if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
               echo "error: item for $ARN already exists"
               exit 1
