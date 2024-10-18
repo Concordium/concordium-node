@@ -30,6 +30,8 @@ jobs:
   validate-preconditions:
     runs-on: ubuntu-latest
     environment: release
+    outputs:
+      s3_objects: ${{ steps.s3_objects.outputs.s3_objects }}
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -39,12 +41,13 @@ jobs:
           aws-region: "eu-west-1"
 
       - name: Construct S3_OBJECTS from template
-        run: echo "S3_OBJECTS=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_ENV
+        id: s3_objects
+        run: echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
 
       - name: Use the S3 objects defined as environment variable
         run: |
           set -e
-          echo '${{ env.S3_OBJECTS }}' | jq '. | to_entries[] | .value' | while read -r ARN; do
+          echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
             if aws s3 ls "$ARN" > /dev/null 2>&1; then
               echo "error: item for $ARN already exists"
@@ -53,6 +56,8 @@ jobs:
               echo "No object found for $ARN"
             fi
           done
+          
+        
 
   build-static-binaries:
     needs: [validate-preconditions]
@@ -133,15 +138,14 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: DatabaseExporterSession
+          role-session-name: ${{ env.PROJECT_NAME }}
           aws-region: "eu-west-1"
 
       - name: Publish
         run: |
+          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ env.PROJECT_NAME }}"]')
           aws s3 cp "database-exporter_${{ env.VERSION }}.deb" \
-            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-        env:
-          OUTFILE: s3://distribution.concordium.software/tools/linux/test/database-exporter_${{ env.VERSION }}.deb
+            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   build-p2p-bootstrapper:
     runs-on: ubuntu-latest
