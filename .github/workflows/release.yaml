@@ -44,15 +44,10 @@ jobs:
         id: s3_objects
         run: echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
 
-      - name: Aws cli test
-        run: |
-          aws --version
-          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize
-
       - name: Use the S3 objects defined as environment variable
         run: |
-          set -e
-          echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq '. | to_entries[] | .value' | while read -r ARN; do
+          set -e -o pipefail
+          echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
             TOTAL_FOUND_OBJECTS=$(aws s3 ls $ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
             if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
