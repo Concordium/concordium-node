@@ -40,7 +40,7 @@ jobs:
         run: |
           export VERSION=${{ env.VERSION }}
           echo "S3_OBJECTS=${{ env.S3_OBJECTS_TEMPLATE }}"
-          echo "S3_OBJECTS=[{\"project\": \"database-exporter\", \"s3_arn\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"}]"
+          echo "S3_OBJECTS=\"${{ env.S3_OBJECTS_TEMPLATE }}\"" >> $GITHUB_ENV
 
       - name: Use the S3 objects defined as environment variable
         run: |
