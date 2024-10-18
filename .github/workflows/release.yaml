@@ -17,7 +17,9 @@ env:
   PROTOC_VERSION: '25.2'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
-  S3_OBJECTS_TEMPLATE: '[{\"project\": \"database-exporter\", \"s3_arn\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"}]'
+  S3_OBJECTS_TEMPLATE: '[
+      {\"project\": \"database-exporter\", \"s3_arn\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"}
+    ]'
 
 
 permissions:
@@ -42,7 +44,7 @@ jobs:
       - name: Use the S3 objects defined as environment variable
         run: |
           set -e
-          echo '${{ env.S3_OBJECTS }}' | jq -c '.[].s3_arn' | while read -r ARN; do
+          echo '${{ env.S3_OBJECTS }}' | jq '.[].s3_arn' | while read -r ARN; do
             echo "Checking for object at: $ARN"
             if aws s3 ls "$ARN" > /dev/null 2>&1; then
               echo "error: item for $ARN already exists"
