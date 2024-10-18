@@ -47,11 +47,11 @@ jobs:
       - name: Aws cli test
         run: |
           aws --version
-          aws s3 ls "s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb" --summarize
+          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize
 
       - name: Use the S3 objects defined as environment variable
         run: |
-          set -e -o pipefail
+          set -e
           echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
             TOTAL_FOUND_OBJECTS=$(aws s3 ls $ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
