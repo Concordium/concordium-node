@@ -44,7 +44,7 @@ jobs:
       - name: Use the S3 objects defined as environment variable
         run: |
           set -e
-          echo '${{ env.S3_OBJECTS }}' | jq '. | to_entries | map(.value)' | while read -r ARN; do
+          echo '${{ env.S3_OBJECTS }}' | jq '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
             if aws s3 ls "$ARN" > /dev/null 2>&1; then
               echo "error: item for $ARN already exists"
