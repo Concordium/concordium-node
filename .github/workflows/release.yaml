@@ -1,4 +1,4 @@
-name: Build and Push Database Exporter
+name: Concordium node release
 
 on:
   push:
@@ -37,7 +37,7 @@ jobs:
           aws-region: "eu-west-1"
 
       - name: Construct S3_OBJECTS from template
-        run: S3_OBJECTS="${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_ENV
+        run: echo "S3_OBJECTS=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_ENV
 
       - name: Use the S3 objects defined as environment variable
         run: |
