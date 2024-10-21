@@ -111,6 +111,7 @@ jobs:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest
     environment: release
+    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -151,8 +152,9 @@ jobs:
       - name: Publish
         run: |
           OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ github.job }}"]')
-          aws s3 cp "${{ github.job }}_${{ env.VERSION }}.deb" \
-            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+          echo $OUTFILE
+#          aws s3 cp "${{ github.job }}_${{ env.VERSION }}.deb" \
+#            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   p2p-bootstrapper:
     runs-on: ubuntu-latest
@@ -238,11 +240,16 @@ jobs:
         with:
           submodules: recursive
 
-#      - name: Extract version tag from Cargo.toml manifest
-#        id: meta
-#        run: |
-#          VERSION=$(yq .package.version concordium-node/Cargo.toml)
-#          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+      - name: Install yq on Windows
+        run: |
+          choco install yq
+        shell: cmd
+
+      - name: Extract version tag from Cargo.toml manifest
+        id: meta
+        run: |
+          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -306,8 +313,9 @@ jobs:
       - name: Publish
         run: |
           OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ github.job }}"]')
-          aws s3 cp ./service/windows/installer/Node.msi \
-            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+          echo "$OUTFILE"
+#          aws s3 cp ./service/windows/installer/Node.msi \
+#            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   node-macos:
     runs-on: macos-latest-large
@@ -372,9 +380,10 @@ jobs:
 
       - name: Publish
         run: |
-          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["github.job"]')
-          aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${TAG}-unsigned.pkg \
-            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ github.job }}"]')
+          echo "$OUTFILE"
+#          aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${TAG}-unsigned.pkg \
+#            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   node-linux:
      runs-on: ubuntu-latest
