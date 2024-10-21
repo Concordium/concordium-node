@@ -19,13 +19,13 @@ env:
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_OBJECTS_TEMPLATE: '{
       \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\",
-      \"p2p-bootstrapper\": \"s3://distribution.concordium.software/tools/linux/test/p2p-bootstrapper_${{ env.VERSION }}.deb\",
-      \"node-stagenet-linux\": \"s3://distribution.stagenet.concordium.com/deb/test/concordium-stagenet-node_${{ env.VERSION }}.deb\",
-      \"node-flynet-linux\": \"s3://distribution.flynet.concordium.com/deb/test/concordium-flynet-node_${{ env.VERSION }}.deb\",
-      \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/test/concordium-testnet-node_${{ env.VERSION }}.deb\",
-      \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/test/concordium-mainnet-node_${{ env.VERSION }}.deb\",
-      \"node-macos\": \"s3://distribution.mainnet.concordium.software/macos/test/concordium-node-${{ env.VERSION }}.pkg\",
-      \"node-windows\": \"s3://distribution.mainnet.concordium.software/macos/test/concordium-node-${{ env.VERSION }}.pkg\",
+      \"p2p-bootstrapper\": \"s3://distribution.concordium.software/tools/linux/test/p2p-bootstrapper_${VERSION}.deb\",
+      \"node-stagenet-linux\": \"s3://distribution.stagenet.concordium.com/deb/test/concordium-stagenet-node_${VERSION}.deb\",
+      \"node-flynet-linux\": \"s3://distribution.flynet.concordium.com/deb/test/concordium-flynet-node_${VERSION}.deb\",
+      \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/test/concordium-testnet-node_${VERSION}.deb\",
+      \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/test/concordium-mainnet-node_${VERSION}.deb\",
+      \"node-macos\": \"s3://distribution.mainnet.concordium.software/macos/test/concordium-node-${VERSION}.pkg\",
+      \"node-windows\": \"s3://distribution.mainnet.concordium.software/macos/test/concordium-node-${VERSION}.pkg\",
     }'
   REGISTRY: docker.io
 
