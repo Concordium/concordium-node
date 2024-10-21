@@ -55,11 +55,17 @@ jobs:
         run: |
           echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
-            if aws s3 ls "$ARN"; then
-              echo "error: item for $ARN already exists"
+            S3_OUTPUT=$(aws s3 ls "$ARN" --summarize 2>&1)
+            EXIT_CODE=$?
+            if [ $EXIT_CODE -eq 1 ]; then
+              echo "No object found for $ARN, proceeding."
+            elif [ $EXIT_CODE -eq 0 ]; then
+              echo "error: item for $ARN already exists."
               exit 1
             else
-              echo "No object found for $ARN"
+              echo "Unexpected exit code: $EXIT_CODE for $ARN."
+              echo "$S3_OUTPUT"
+              exit 1
             fi
           done
 
