@@ -18,9 +18,16 @@ env:
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_OBJECTS_TEMPLATE: '{
-      \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\"
+      \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\",
+      \"p2p-bootstrapper\": \"s3://distribution.concordium.software/tools/linux/test/p2p-bootstrapper_${{ env.VERSION }}.deb\",
+      \"node-stagenet-linux\": \"s3://distribution.stagenet.concordium.com/deb/test/concordium-stagenet-node_${{ env.VERSION }}.deb\",
+      \"node-flynet-linux\": \"s3://distribution.flynet.concordium.com/deb/test/concordium-flynet-node_${{ env.VERSION }}.deb\",
+      \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/test/concordium-testnet-node_${{ env.VERSION }}.deb\",
+      \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/test/concordium-mainnet-node_${{ env.VERSION }}.deb\",
+      \"node-macos\": \"s3://distribution.mainnet.concordium.software/macos/test/concordium-node-${{ env.VERSION }}.pkg\",
+      \"node-windows\": \"s3://distribution.mainnet.concordium.software/macos/test/concordium-node-${{ env.VERSION }}.pkg\",
     }'
-
+  REGISTRY: docker.io
 
 permissions:
   id-token: write
@@ -57,13 +64,10 @@ jobs:
               echo "No object found for $ARN"
             fi
           done
-          
-        
 
   build-static-binaries:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest-8core
-    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -133,25 +137,27 @@ jobs:
       - name: Run Docker and Extract Artifacts
         run: |
           id=$(docker create build-deb:${{ github.run_id }})
-          docker cp $id:/build/database-exporter_${{ env.VERSION }}.deb .
+          docker cp $id:/build/${{ env.PROJECT_NAME }}_${{ env.VERSION }}.deb .
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ${{ env.PROJECT_NAME }}
+          role-session-name: ${{ env.PROJECT_NAME }}Session
           aws-region: "eu-west-1"
 
       - name: Publish
         run: |
           OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ env.PROJECT_NAME }}"]')
-          aws s3 cp "database-exporter_${{ env.VERSION }}.deb" \
+          aws s3 cp "${{ env.PROJECT_NAME }}_${{ env.VERSION }}.deb" \
             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   build-p2p-bootstrapper:
     runs-on: ubuntu-latest
+    env:
+      PROJECT_NAME: "p2p-bootstrapper"
     environment: release
-    needs: [build-static-binaries]
+    needs: [build-static-binaries, validate-preconditions]
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -203,23 +209,23 @@ jobs:
             version=${{ env.VERSION }}
             static_binaries_image_tag=${{ github.run_id }}
 
-      - name: Make out directory
-        run: echo "OUT_DIR=$(mktemp -d)" >> $GITHUB_ENV
-
-      - name: Run Docker Container to Generate Output
+      - name: Run Docker and Extract Artifacts
         run: |
-          docker run \
-            --env EXTERNAL_UID=$(id -u) \
-            --env EXTERNAL_GID=$(id -g) \
-            -v "${{ env.OUT_DIR }}":/out \
-            build-deb:${{ github.run_id }}
+          id=$(docker create build-deb:${{ github.run_id }})
+          docker cp $id:/build/${{ env.PROJECT_NAME }}_${{ env.VERSION }}.deb .
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: ${{ env.PROJECT_NAME }}Session
+          aws-region: "eu-west-1"
 
       - name: Publish
         run: |
-          aws s3 cp "${{ env.OUT_DIR }}/p2p-bootstrapper_${{ steps.set_version.outputs.TAG }}.deb" \
-            "${OUTFILE}" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-        env:
-          OUTFILE: s3://distribution.concordium.software/tools/linux/test/p2p-bootstrapper_${{ env.VERSION }}.deb
+          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ env.PROJECT_NAME }}"]')
+          aws s3 cp "${{ env.PROJECT_NAME }}_${{ env.VERSION }}.deb" \
+            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   build-windows-node:
     runs-on: windows-latest
@@ -282,12 +288,18 @@ jobs:
       - name: Install LMDB
         run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: ${{ env.PROJECT_NAME }}Session
+          aws-region: "eu-west-1"
+
       - name: Build Windows Node
         run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion ${{ env.RUST_VERSION }}
 
   build-macos-node:
     runs-on: macos-latest-large
-    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -329,9 +341,29 @@ jobs:
         run: |
           brew install lmdb llvm
 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: ${{ env.PROJECT_NAME }}Session
+          aws-region: "eu-west-1"
+
       - name: Build macOS Package
         run: |
           printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: ${{ env.PROJECT_NAME }}Session
+          aws-region: "eu-west-1"
+
+      - name: Publish
+        run: |
+          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["node-macos"]')
+          aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${TAG}-unsigned.pkg \
+            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   build-linux-node:
      runs-on: ubuntu-latest
@@ -404,16 +436,7 @@ jobs:
            mkdir -p ${{ env.DATA_DIR }}
            cp genesis/${{ matrix.genesis_path }}/genesis.dat ${{ env.DATA_DIR }}/${{ matrix.env }}-genesis.dat
 
-       - name: Precheck S3 Object Existence
-         run: |
-           OUTFILE="s3://distribution.${{ env.DOMAIN }}/deb/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb"
-           totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
-           if [ "$totalFoundObjects" -ne "0" ]; then
-               echo "$OUTFILE already exists"
-               exit 1
-           fi
-
-       - name: Set enviornment variables
+       - name: Set environment variables
          run: |
            echo "BUILD_ENV_NAME=$(echo "${{ matrix.env }}" | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')" >> $GITHUB_ENV
            echo "BUILD_GENESIS_HASH=$(cat genesis/${{ matrix.genesis_path }}/genesis_hash | tr -cd "[:alnum:]")" >> $GITHUB_ENV
@@ -438,18 +461,28 @@ jobs:
              build_grpc2_listen_port=${{ matrix.grpc_port }}
              build_listen_port=${{ matrix.listen_port }}
              build_bootstrap=bootstrap.${{ env.DOMAIN }}:8888
+
+       - name: Configure AWS Credentials
+         uses: aws-actions/configure-aws-credentials@v4
+         with:
+           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+           role-session-name: ${{ env.PROJECT_NAME }}Session
+           aws-region: "eu-west-1"
+
+       - name: Run Docker and Extract Artifacts
+         run: |
+           id=$(docker create build-deb:${{ github.run_id }})
+           docker cp $id:/out/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb .
+
        - name: Publish
          run: |
-           id=$(docker create ${{ matrix.env }}-deb)
-           docker cp $id:/out ${{ matrix.env }}-build
-           aws s3 cp ${{ matrix.env }}-build/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb ${OUTFILE} --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-         env:
-           OUTFILE: s3://distribution.${{ env.DOMAIN }}/deb/test/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb
+           OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["node-${{ matrix.env }}-linux"]')
+           aws s3 cp concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb \
+             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   build-docker-image:
     runs-on: ubuntu-latest
     environment: release
-    if: false
     needs: [build-static-binaries]
     strategy:
       fail-fast: false
@@ -466,7 +499,6 @@ jobs:
 
       - name: Load image
         run: docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
-
 
       - name: Extract version tag from Cargo.toml manifest
         id: meta
@@ -490,13 +522,19 @@ jobs:
           ssh-key: ${{ secrets.GENESIS_DATA_KEY }}
           ref: 'main'
 
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
       - name: Build Docker Image
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: false
           file: scripts/distribution/docker/builder.Dockerfile
-          tags: ${{ matrix.env }}-deb
+          tags: ${{ matrix.env }}-deb:${{ env.VERSION }}-dev
           no-cache: true
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
