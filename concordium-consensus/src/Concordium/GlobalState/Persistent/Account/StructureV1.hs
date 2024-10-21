@@ -118,10 +118,10 @@ migratePersistentBakerInfoEx StateMigrationParametersP5ToP6{} = migrateReference
 migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = migrateReference migrateBakerInfoExV1
   where
     migrateBakerInfoExV1 ::
-        (AVSupportsDelegation av1, AVSupportsDelegation av2, Monad m') =>
+        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'False, Monad m') =>
         BakerInfoEx av1 ->
         m' (BakerInfoEx av2)
-    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{..}
+    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieAccountIsSuspended = CFalse, ..}
 migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = error "TODO(drsk) github #1220. Implement migratePersistenBakerInfoEx p7 -> p8"
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
@@ -138,7 +138,7 @@ migratePersistentBakerInfoExFromV0 StateMigrationParametersP4ToP5{} V0.Persisten
     bkrInfoEx <- lift $ do
         bkrInfo <- refLoad bakerInfoRef
         bkrPoolInfo <- refLoad (V0._theExtraBakerInfo bakerInfoExtra)
-        return $! BakerInfoExV1 bkrInfo bkrPoolInfo
+        return $! BakerInfoExV1 bkrInfo bkrPoolInfo CFalse
     (ref, _) <- refFlush =<< refMake bkrInfoEx
     return $! ref
 
@@ -1473,6 +1473,30 @@ setStake ::
     m (PersistentAccount av)
 setStake newStake acc = return $! acc{accountStakedAmount = newStake}
 
+-- | Set the suspended state of a validator account.
+--  This MUST only be called with an account that is a validator.
+setValidatorSuspended ::
+    forall av m.
+    ( MonadBlobStore m,
+      IsAccountVersion av,
+      AccountStructureVersionFor av ~ 'AccountStructureV1,
+      AVSupportsDelegation av,
+      AVSupportsValidatorSuspension av
+    ) =>
+    Bool ->
+    PersistentAccount av ->
+    m (PersistentAccount av)
+setValidatorSuspended isSusp = updateStake $ \case
+    baker@PersistentAccountStakeEnduringBaker{} -> do
+        oldInfo <- refLoad (paseBakerInfo baker)
+        let newInfo = oldInfo & bieAccountIsSuspended .~ isSusp
+        newInfoRef <- refMake $! newInfo
+        return $! baker{paseBakerInfo = newInfoRef}
+    PersistentAccountStakeEnduringDelegator{} ->
+        error "setValidatorSuspended invariant violation: account is not a baker"
+    PersistentAccountStakeEnduringNone ->
+        error "setValidatorSuspended invariant violation: account is not a baker"
+
 -- | Add a specified amount to the pre-pre-cooldown inactive stake.
 addPrePreCooldown ::
     forall m av.
@@ -2130,7 +2154,7 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
             bkrInfoEx <- lift $ do
                 bkrInfo <- refLoad _accountBakerInfo
                 bkrPoolInfo <- refLoad (V0._theExtraBakerInfo _extraBakerInfo)
-                return $! BakerInfoExV1 bkrInfo bkrPoolInfo
+                return $! BakerInfoExV1 bkrInfo bkrPoolInfo CFalse
             paseBakerInfo' <- refMake bkrInfoEx
             (paseBakerInfo, _) <- refFlush paseBakerInfo'
             let baker =

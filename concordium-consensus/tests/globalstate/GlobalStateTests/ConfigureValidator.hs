@@ -188,7 +188,8 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                                         { _poolOpenStatus = vaOpenForDelegation va,
                                           _poolMetadataUrl = vaMetadataURL va,
                                           _poolCommissionRates = vaCommissionRates va
-                                        }
+                                        },
+                                  _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))) False
                                 }
                         }
             bkr <- getAccountBaker (fromJust acc)
@@ -330,6 +331,11 @@ validatorUpdateCases = do
           (Just (makeAmountFraction 350), "same", False),
           (Nothing, "no change", False)
             ]
+    (vuSuspend, vuSuspendDesc) <-
+        [ (Just True, "suspend"),
+          (Just False, "resume"),
+          (Nothing, "no change")
+            ]
     let vucValidatorUpdate = ValidatorUpdate{..}
     let vucValidatorConditions = ValidatorConditions{..}
     vucPendingChangeOrCooldown <- [True, False]
@@ -354,6 +360,8 @@ validatorUpdateCases = do
                         then ", pending change/cooldown"
                         else ", no pending change/cooldown"
                    )
+                <> ", validator suspend/resume: "
+                <> vuSuspendDesc
     return $ ValidatorUpdateConfig{..}
 
 -- | Commission ranges that narrowly include the commission rates used in the test cases.
@@ -421,6 +429,7 @@ testUpdateValidatorOverlappingCommissions spv =
                       vuRestakeEarnings = Nothing,
                       vuOpenForDelegation = Nothing,
                       vuMetadataURL = Nothing,
+                      vuSuspend = Nothing,
                       ..
                     }
         let vucPendingChangeOrCooldown = False
