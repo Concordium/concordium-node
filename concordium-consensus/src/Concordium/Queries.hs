@@ -24,6 +24,7 @@ import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
 import Concordium.Common.Version
+import qualified Concordium.GRPC2 as Proto
 import Concordium.Genesis.Data
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
@@ -42,6 +43,7 @@ import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
 import qualified Concordium.Wasm as Wasm
+import qualified Proto.V2.Concordium.Types as Proto
 
 import qualified Concordium.Scheduler.InvokeContract as InvokeContract
 import qualified Concordium.Types.InvokeContract as InvokeContract
@@ -516,6 +518,31 @@ getConsensusStatus = MVR $ \mvr -> do
         ss <- BS.getSeedState (SkovV1.bpState lfb)
         let cbftsTriggerBlockTime = timestampToUTCTime (ss ^. triggerBlockTime)
         return ConsensusStatus{csConcordiumBFTStatus = Just ConcordiumBFTStatus{..}, ..}
+
+-- | The error type for 'getConsensusDetailedStatus'.
+data GetConsensusDetailsStatusError
+    = -- | The genesis index is unknown.
+      GCDSEUnknownEra
+    | -- | The genesis index is not for a consensus version 1 era.
+      GCDSEInvalidEra
+
+-- | Retrieve the detailed status of consensus at the given genesis index, or at the latest
+--  consensus version if 'Nothing'.
+getConsensusDetailedStatus ::
+    Maybe GenesisIndex ->
+    MVR finconf (Either GetConsensusDetailsStatusError Proto.ConsensusDetailedStatus)
+getConsensusDetailedStatus mgi = MVR $ \mvr -> do
+    versions <- readIORef (mvVersions mvr)
+    let atVersion v =
+            liftSkovQuery
+                mvr
+                v
+                (return (Left GCDSEInvalidEra))
+                (gets (Right . Proto.toProto))
+    case mgi of
+        Nothing -> atVersion (Vec.last versions)
+        Just gi | Just v <- versions Vec.!? fromIntegral gi -> atVersion v
+        _ -> return $ Left GCDSEUnknownEra
 
 -- | Retrieve the slot time of the last finalized block.
 getLastFinalizedSlotTime :: MVR finconf Timestamp

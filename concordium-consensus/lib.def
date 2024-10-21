@@ -34,6 +34,7 @@ EXPORTS
  getInstanceStateV2
  getNextAccountSequenceNumberV2
  getConsensusInfoV2
+ getConsensusDetailedStatusV2
  getBlockItemStatusV2
  getCryptographicParametersV2
  getBlockInfoV2
