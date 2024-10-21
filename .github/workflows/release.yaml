@@ -53,6 +53,7 @@ jobs:
 
       - name: Use the S3 objects defined as environment variable
         run: |
+          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize
           set -e -o pipefail
           echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
