@@ -231,6 +231,7 @@ jobs:
   node-windows:
     runs-on: windows-latest
     needs: [validate-preconditions]
+    environment: release
     defaults:
       run:
         shell: pwsh
@@ -294,13 +295,6 @@ jobs:
       - name: Install LMDB
         run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ${{ github.job }}Session
-          aws-region: "eu-west-1"
-
       - name: Build Windows Node
         run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion ${{ env.RUST_VERSION }}
 
@@ -321,6 +315,7 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
+    environment: release
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -360,13 +355,6 @@ jobs:
       - name: Install Homebrew Packages
         run: |
           brew install lmdb llvm
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ${{ github.job }}Session
-          aws-region: "eu-west-1"
 
       - name: Build macOS Package
         run: |
