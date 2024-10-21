@@ -9,7 +9,7 @@ env:
   UBUNTU_VERSION: '20.04'
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   RUST_VERSION: '1.73'
-  VERSION: '3.0.0-0'
+  VERSION: '7.0.6-0'
   STACK_VERSION: '2.13.1'
   FLATBUFFERS_VERSION: '23.5.26'
   GHC_VERSION: '9.6.4'
@@ -396,11 +396,11 @@ jobs:
              genesis_path: testnet/2022-06-13/genesis_data
              grpc_port: 20001
              listen_port: 8889
-           - env: mainnet
-             tld: software
-             genesis_path: mainnet/2021-06-09
-             grpc_port: 20000
-             listen_port: 8888
+#           - env: mainnet
+#             tld: software
+#             genesis_path: mainnet/2021-06-09
+#             grpc_port: 20000
+#             listen_port: 8888
            - env: flynet
              tld: com
              genesis_path: flynet/2023-02-01/genesis_data
