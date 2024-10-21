@@ -364,7 +364,17 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                             handleTransferWithSchedule (mkWTC TTTransferWithScheduleAndMemo) twswmTo twswmSchedule $ Just twswmMemo
                         ConfigureBaker{..} ->
                             onlyWithDelegation $
-                                handleConfigureBaker (mkWTC TTConfigureBaker) cbCapital cbRestakeEarnings cbOpenForDelegation cbKeysWithProofs cbMetadataURL cbTransactionFeeCommission cbBakingRewardCommission cbFinalizationRewardCommission
+                                handleConfigureBaker
+                                    (mkWTC TTConfigureBaker)
+                                    cbCapital
+                                    cbRestakeEarnings
+                                    cbOpenForDelegation
+                                    cbKeysWithProofs
+                                    cbMetadataURL
+                                    cbTransactionFeeCommission
+                                    cbBakingRewardCommission
+                                    cbFinalizationRewardCommission
+                                    cbSuspend
                         ConfigureDelegation{..} ->
                             onlyWithDelegation $
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
@@ -2068,6 +2078,8 @@ handleConfigureBaker ::
     Maybe AmountFraction ->
     -- | The commission the pool owner takes on finalization rewards.
     Maybe AmountFraction ->
+    -- | Whether to suspend/resume the baker.
+    Maybe Bool ->
     m (Maybe TransactionSummary)
 handleConfigureBaker
     wtc
@@ -2078,7 +2090,8 @@ handleConfigureBaker
     cbMetadataURL
     cbTransactionFeeCommission
     cbBakingRewardCommission
-    cbFinalizationRewardCommission =
+    cbFinalizationRewardCommission
+    cbSuspend =
         withDeposit wtc tickGetArgAndBalance chargeAndExecute
       where
         senderAccount = wtc ^. wtcSenderAccount
@@ -2135,7 +2148,8 @@ handleConfigureBaker
                                       vuTransactionFeeCommission = cbTransactionFeeCommission,
                                       vuBakingRewardCommission = cbBakingRewardCommission,
                                       vuFinalizationRewardCommission = cbFinalizationRewardCommission,
-                                      vuOpenForDelegation = cbOpenForDelegation
+                                      vuOpenForDelegation = cbOpenForDelegation,
+                                      vuSuspend = cbSuspend
                                     }
                             }
         tickGetArgAndBalance = do
@@ -2225,6 +2239,8 @@ handleConfigureBaker
                         BakerSetBakingRewardCommission bid senderAddress bakingRewardCommission
                     BI.BakerConfigureFinalizationRewardCommission finalizationRewardCommission ->
                         BakerSetFinalizationRewardCommission bid senderAddress finalizationRewardCommission
+                    BI.BakerConfigureSuspended -> BakerSuspended bid
+                    BI.BakerConfigureResumed -> BakerResumed bid
         rejectResult failure =
             TxReject $! case failure of
                 BI.VCFStakeUnderThreshold -> StakeUnderMinimumThresholdForBaking

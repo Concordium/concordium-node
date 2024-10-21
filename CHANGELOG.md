@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Add support for suspend/resume to validator configuration updates.
+
 ## 7.0.3
 
 - Fix a bug in the computation of the genesis height after the second protocol update. (#1237)

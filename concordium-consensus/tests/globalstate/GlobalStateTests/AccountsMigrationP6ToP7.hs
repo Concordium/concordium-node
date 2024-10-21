@@ -115,7 +115,7 @@ reducedStake accIndex = 10_000_000_000 + 2 ^ accIndex
 -- CCD plus @2^accountIndex@ uCCD. This is to ensure that any given combination of accounts have a
 -- unique total stake.
 dummyBakerStake ::
-    (AVSupportsDelegation av) =>
+    (AVSupportsDelegation av, SupportsValidatorSuspension av ~ 'False) =>
     (AccountIndex -> Amount) ->
     AccountIndex ->
     StakePendingChange av ->
@@ -146,7 +146,8 @@ dummyBakerStake compStake accIndex pc =
                               _bakerElectionVerifyKey = VRF.publicKey (bakerElectionKey seed),
                               _bakerAggregationVerifyKey =
                                 Bls.derivePublicKey (bakerAggregationKey seed)
-                            }
+                            },
+                      _bieAccountIsSuspended = CFalse
                     }
             }
   where
