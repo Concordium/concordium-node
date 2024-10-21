@@ -73,6 +73,7 @@ jobs:
   build-static-binaries:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest-8core
+    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -237,11 +238,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Extract version tag from Cargo.toml manifest
-        id: meta
-        run: |
-          VERSION=$(yq .package.version concordium-node/Cargo.toml)
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+#      - name: Extract version tag from Cargo.toml manifest
+#        id: meta
+#        run: |
+#          VERSION=$(yq .package.version concordium-node/Cargo.toml)
+#          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
