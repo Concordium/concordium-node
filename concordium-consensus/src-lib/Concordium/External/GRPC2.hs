@@ -315,6 +315,24 @@ getConsensusInfoV2 cptr outVec copierCbk = do
     consensusInfo <- runMVR Q.getConsensusStatus mvr
     returnMessage (copier outVec) consensusInfo
 
+getConsensusDetailedStatusV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- | Non-zero if the genesis index is explicitly specified
+    Word8 ->
+    -- | Genesis index
+    Word32 ->
+    Ptr ReceiverVec ->
+    FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
+    IO Int64
+getConsensusDetailedStatusV2 cptr explicitGenesisIndex genesisIndex outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    let maybeGI = if explicitGenesisIndex == 0 then Nothing else Just (GenesisIndex genesisIndex)
+    runMVR (Q.getConsensusDetailedStatus maybeGI) mvr >>= \case
+        Left Q.GCDSEUnknownEra -> return $ queryResultCode QRNotFound
+        Left Q.GCDSEInvalidEra -> return $ queryResultCode QRInvalidArgument
+        Right status -> returnMessageRaw (copier outVec) status
+
 getCryptographicParametersV2 ::
     StablePtr Ext.ConsensusRunner ->
     -- | Block type.
@@ -1103,8 +1121,12 @@ returnMessage ::
     -- | The message.
     a ->
     IO Int64
-returnMessage copier v = do
-    let encoded = Proto.encodeMessage (toProto v)
+returnMessage copier = returnMessageRaw copier . toProto
+
+-- | Encode and write the given message using the provided callback.
+returnMessageRaw :: (Proto.Message msg) => (Ptr Word8 -> Int64 -> IO ()) -> msg -> IO Int64
+returnMessageRaw copier v = do
+    let encoded = Proto.encodeMessage v
     BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier (castPtr ptr) (fromIntegral len))
     return $ queryResultCode QRSuccess
 
@@ -1322,6 +1344,17 @@ foreign export ccall
 foreign export ccall
     getConsensusInfoV2 ::
         StablePtr Ext.ConsensusRunner ->
+        Ptr ReceiverVec ->
+        FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
+        IO Int64
+
+foreign export ccall
+    getConsensusDetailedStatusV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- | Non-zero if the genesis index is explicitly specified
+        Word8 ->
+        -- | Genesis index
+        Word32 ->
         Ptr ReceiverVec ->
         FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
         IO Int64

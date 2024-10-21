@@ -269,6 +269,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_consensus_detailed_status")
+                .route_name("GetConsensusDetailedStatus")
+                .input_type("crate::grpc2::types::ConsensusDetailedStatusQuery")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_ancestors")
                 .route_name("GetAncestors")
                 .input_type("crate::grpc2::types::AncestorsRequest")

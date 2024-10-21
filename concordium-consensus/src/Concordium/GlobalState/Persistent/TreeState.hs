@@ -162,7 +162,7 @@ insertDeadCache !bh dc@DeadCache{..}
     | HS.member bh _dcHashes = dc
     | otherwise =
         let newHashes = HS.insert bh _dcHashes
-        in  if HS.size newHashes > deadCacheSize
+        in  if deadCacheCurrentSize dc >= deadCacheSize
                 then
                     let (newHashes', newQueue) = case _dcQueue of
                             h Seq.:<| q -> (HS.delete h newHashes, q)
@@ -180,6 +180,10 @@ insertDeadCache !bh dc@DeadCache{..}
 -- | Return whether the given block hash is in the cache.
 memberDeadCache :: BlockHash -> DeadCache -> Bool
 memberDeadCache bh DeadCache{..} = HS.member bh _dcHashes
+
+-- | Return the current size of the dead block cache.
+deadCacheCurrentSize :: DeadCache -> Int
+deadCacheCurrentSize = Seq.length . _dcQueue
 
 -- | A table of live and non-finalized blocks together with a small cache of dead
 --  ones.

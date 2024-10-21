@@ -545,6 +545,26 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get the detailed status of the consensus. If the genesis index is
+    /// explicitly specified, then the status of the consensus at that
+    /// genesis index is returned. Otherwise, the status of the consensus at
+    /// the latest genesis index is returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `use_genesis_index` - Non-zero if the genesis index is explicitly
+    ///   specified.
+    /// * `genesis_index` - Genesis index to use if `use_genesis_index` is
+    ///   non-zero.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getConsensusDetailedStatusV2(
+        consensus: *mut consensus_runner,
+        use_genesis_index: u8,
+        genesis_index: u32,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
     /// Get the cryptographic parameters at the end of a given block.
     ///
     /// * `consensus` - Pointer to the current consensus.
@@ -2192,6 +2212,30 @@ impl ConsensusContainer {
             getConsensusInfoV2(consensus, &mut out_data, copy_to_vec_callback).try_into()?
         };
         // The query should always return successfully, so no need to check here.
+        Ok(out_data)
+    }
+
+    pub fn get_consensus_detailed_status_v2(
+        &self,
+        genesis_index: Option<u32>,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let (use_genesis_index, genesis_index) = match genesis_index {
+            Some(genesis_index) => (1, genesis_index),
+            None => (0, 0),
+        };
+        let response: ConsensusQueryResponse = unsafe {
+            getConsensusDetailedStatusV2(
+                consensus,
+                use_genesis_index,
+                genesis_index,
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("genesis index")?;
         Ok(out_data)
     }
 
