@@ -53,8 +53,8 @@ jobs:
 
       - name: Use the S3 objects defined as environment variable
         run: |
+          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize
           echo "wtf"
-#          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize
 #          cat info.txt
 #          cat info.txt | grep "Total Objects" | sed "s/[^0-9]*//g"
 #          echo "first"
