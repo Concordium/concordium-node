@@ -52,7 +52,16 @@ jobs:
         run: echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
 
       - name: Use the S3 objects defined as environment variable
-        run: aws s3 ls 's3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb' --summarize
+        run: |
+          echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
+            echo "Checking for object at: $ARN"
+            if ! aws s3 ls "$ARN"; then
+              echo "error: item for $ARN already exists"
+              exit 1
+            else
+              echo "No object found for $ARN"
+            fi
+          done
 
   build-static-binaries:
     needs: [validate-preconditions]
