@@ -52,7 +52,7 @@ jobs:
         run: echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
 
       - name: Use the S3 objects defined as environment variable
-        shell: '/bin/bash'
+        shell: 'bash'
         run: |
           echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
