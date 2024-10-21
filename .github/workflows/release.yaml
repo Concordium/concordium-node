@@ -52,14 +52,12 @@ jobs:
         run: echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
 
       - name: Use the S3 objects defined as environment variable
-        shell: 'bash'
         run: |
+          set +e
           echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
             S3_OUTPUT=$(aws s3 ls "$ARN" --summarize 2>&1)
-            echo "POST"
             EXIT_CODE=$?
-            echo "EXIT_CODE: $EXIT_CODE"
             if [ $EXIT_CODE -eq 1 ]; then
               echo "No object found for $ARN, proceeding."
             elif [ $EXIT_CODE -eq 0 ]; then
