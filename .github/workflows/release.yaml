@@ -53,7 +53,13 @@ jobs:
 
       - name: Use the S3 objects defined as environment variable
         run: |
-          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize
+          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize > info.txt
+          echo "first"
+          cat info.txt | awk '/Total Objects: /{print $3}'
+          echo "second"
+          cat info.txt | grep -E "^\s*Total Objects"
+          echo "third"
+
           aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize | awk '/Total Objects: /{print $3}'
           aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize | grep "Total Objects" | sed "s/[^0-9]*//g
           set -e -o pipefail
