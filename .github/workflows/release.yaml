@@ -65,7 +65,7 @@ jobs:
             fi
           done
 
-  static-binaries:
+  build-static-binaries:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest-8core
     steps:
