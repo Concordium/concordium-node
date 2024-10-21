@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Add `GetConsensusDetailedStatus` gRPC endpoint for getting detailed information on the status
+  of the consensus, at consensus version 1.
+
 ## 7.0.5
 
 - Fix inconsistent handling of valid contract names.
