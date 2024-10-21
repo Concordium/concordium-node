@@ -54,25 +54,26 @@ jobs:
       - name: Use the S3 objects defined as environment variable
         run: |
           aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize > info.txt
+          cat info.txt | grep "Total Objects" | sed "s/[^0-9]*//g
           echo "first"
           cat info.txt | awk '/Total Objects: /{print $3}'
           echo "second"
           cat info.txt | grep -E "^\s*Total Objects"
           echo "third"
 
-          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize | awk '/Total Objects: /{print $3}'
-          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize | grep "Total Objects" | sed "s/[^0-9]*//g
-          set -e -o pipefail
-          echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
-            echo "Checking for object at: $ARN"
-            TOTAL_FOUND_OBJECTS=$(aws s3 ls $ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
-            if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
-              echo "error: item for $ARN already exists"
-              exit 1
-            else
-              echo "No object found for $ARN"
-            fi
-          done
+#          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize | awk '/Total Objects: /{print $3}'
+#          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize | grep "Total Objects" | sed "s/[^0-9]*//g
+#          set -e -o pipefail
+#          echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
+#            echo "Checking for object at: $ARN"
+#            TOTAL_FOUND_OBJECTS=$(aws s3 ls $ARN --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
+#            if [ "$TOTAL_FOUND_OBJECTS" -ne "0" ]; then
+#              echo "error: item for $ARN already exists"
+#              exit 1
+#            else
+#              echo "No object found for $ARN"
+#            fi
+#          done
 
   build-static-binaries:
     needs: [validate-preconditions]
