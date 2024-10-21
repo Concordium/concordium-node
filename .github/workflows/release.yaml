@@ -52,9 +52,7 @@ jobs:
         run: echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
 
       - name: Use the S3 objects defined as environment variable
-        run: |
-          aws s3 ls s3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb --summarize
-          echo "wtf"
+        run: aws s3 ls 's3://distribution.concordium.software/tools/linux/test/database-exporter_7.0.5-0.deb' --summarize
 
   build-static-binaries:
     needs: [validate-preconditions]
