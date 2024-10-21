@@ -258,6 +258,11 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}-x86_64-pc-windows-gnu
 
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}-x86_64-pc-windows-msvc
+
       - name: Setup node folder
         run: |
           mkdir -p "C:/Program Files/node/include"
@@ -315,6 +320,7 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
+    if: false
     environment: release
     steps:
       - name: Checkout Repository

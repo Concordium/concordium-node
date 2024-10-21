@@ -1,4 +1,4 @@
-﻿param ([string] $nodeVersion)
+﻿param ([string] $toolchain="", [string] $nodeVersion)
 
 Write-Output "Building Windows node installer..."
 
@@ -10,7 +10,7 @@ try {
     # Build the custom actions DLL. This provides custom functionality used by the installer.
     Write-Output "Building custom-actions.dll..."
     Push-Location custom-actions
-    cargo build --release --locked
+    cargo +$toolchain build --release --locked
     Pop-Location
     if ($LASTEXITCODE -ne 0) { throw "Failed building custom-actions.dll" }
 
