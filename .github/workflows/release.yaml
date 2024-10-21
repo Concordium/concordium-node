@@ -55,7 +55,7 @@ jobs:
         run: |
           echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
-            if ! aws s3 ls "$ARN"; then
+            if aws s3 ls "$ARN"; then
               echo "error: item for $ARN already exists"
               exit 1
             else
