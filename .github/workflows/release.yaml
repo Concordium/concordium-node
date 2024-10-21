@@ -151,7 +151,7 @@ jobs:
 
       - name: Publish
         run: |
-          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ github.job }}"]')
+          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
           echo $OUTFILE
 #          aws s3 cp "${{ github.job }}_${{ env.VERSION }}.deb" \
 #            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
@@ -224,7 +224,7 @@ jobs:
 
       - name: Publish
         run: |
-          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ github.job }}"]')
+          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
           aws s3 cp "${{ env.PROJECT_NAME }}_${{ env.VERSION }}.deb" \
             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
@@ -307,7 +307,7 @@ jobs:
 
       - name: Publish
         run: |
-          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ github.job }}"]')
+          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
           echo "$OUTFILE"
 #          aws s3 cp ./service/windows/installer/Node.msi \
 #            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
@@ -369,7 +369,7 @@ jobs:
 
       - name: Publish
         run: |
-          OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ github.job }}"]')
+          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
           echo "$OUTFILE"
 #          aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${TAG}-unsigned.pkg \
 #            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
@@ -487,7 +487,7 @@ jobs:
 
        - name: Publish
          run: |
-           OUTFILE=$(echo ${{ needs.validate-preconditions.outputs.s3_objects }} | jq -r '.["${{ env.PROJECT_NAME }}"]')
+           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ env.PROJECT_NAME }}"]')
            aws s3 cp concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb \
              "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 

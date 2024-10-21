@@ -6,18 +6,11 @@ Write-Output "flatc version: $(flatc --version)"
 Write-Output "protoc version: $(protoc --version)"
 
 Write-Output "Building consensus..."
-
-& {
-    Set-Location concordium-consensus
-    stack build
-}
+stack build
 if ($LASTEXITCODE -ne 0) { throw "Failed building consensus" }
 
 Write-Output "Building node..."
-& {
-    Set-Location concordium-node
-    stack exec -- cargo build --bin concordium-node --release --locked
-}
+stack exec -- cargo build --manifest-path concordium-node\Cargo.toml --release --locked
 if ($LASTEXITCODE -ne 0) { throw "Failed building node" }
 
 Write-Output "Building the collector..."
