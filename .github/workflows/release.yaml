@@ -398,29 +398,32 @@ jobs:
      strategy:
        fail-fast: false
        matrix:
-         include:
+         node:
            - env: stagenet
              tld: com
              genesis_path: stagenet/2024-09-12/genesis_data
              grpc_port: 20500
              listen_port: 9500
-#           - env: testnet
-#             tld: com
-#             genesis_path: testnet/2022-06-13/genesis_data
-#             grpc_port: 20001
-#             listen_port: 8889
-#             release_type: rc
-#           - env: mainnet
-#             tld: software
-#             genesis_path: mainnet/2021-06-09
-#             grpc_port: 20000
-#             listen_port: 8888
-#             release_type: rc
+           - env: testnet
+             tld: com
+             genesis_path: testnet/2022-06-13/genesis_data
+             grpc_port: 20001
+             listen_port: 8889
+             release_type: rc
+           - env: mainnet
+             tld: software
+             genesis_path: mainnet/2021-06-09
+             grpc_port: 20000
+             listen_port: 8888
+             release_type: rc
            - env: flynet
              tld: com
              genesis_path: flynet/2023-02-01/genesis_data
              grpc_port: 20002
              listen_port: 8890
+         exclude:
+           - node.env: mainnet
+             node.release_type: ${{ needs.validate-preconditions.outputs.release_type }}
      steps:
        - name: Download artifact
          uses: actions/download-artifact@v4
@@ -447,20 +450,20 @@ jobs:
            ref: 'main'
 
        - name: Define domain
-         run: echo "DOMAIN=${{ matrix.env }}.concordium.${{ matrix.tld }}" >> $GITHUB_ENV
+         run: echo "DOMAIN=${{ matrix.env }}.concordium.${{ matrix.node.tld }}" >> $GITHUB_ENV
 
        - name: Define project name
-         run: echo "PROJECT_NAME=node-${{ matrix.env }}-linux" >> $GITHUB_ENV
+         run: echo "PROJECT_NAME=node-${{ matrix.node.env }}-linux" >> $GITHUB_ENV
 
        - name: Copy Genesis Data
          run: |
            mkdir -p ${{ env.DATA_DIR }}
-           cp genesis/${{ matrix.genesis_path }}/genesis.dat ${{ env.DATA_DIR }}/${{ matrix.env }}-genesis.dat
+           cp genesis/${{ matrix.node.genesis_path }}/genesis.dat ${{ env.DATA_DIR }}/${{ matrix.node.env }}-genesis.dat
 
        - name: Set environment variables
          run: |
-           echo "BUILD_ENV_NAME=$(echo "${{ matrix.env }}" | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')" >> $GITHUB_ENV
-           echo "BUILD_GENESIS_HASH=$(cat genesis/${{ matrix.genesis_path }}/genesis_hash | tr -cd "[:alnum:]")" >> $GITHUB_ENV
+           echo "BUILD_ENV_NAME=$(echo "${{ matrix.node.env }}" | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')" >> $GITHUB_ENV
+           echo "BUILD_GENESIS_HASH=$(cat genesis/${{ matrix.node.genesis_path }}/genesis_hash | tr -cd "[:alnum:]")" >> $GITHUB_ENV
 
        - name: Build Docker Image
          uses: docker/build-push-action@v6
@@ -468,19 +471,19 @@ jobs:
            context: ./scripts/distribution/ubuntu-packages/
            push: false
            file: ./scripts/distribution/ubuntu-packages/deb.Dockerfile
-           tags: ${{ matrix.env }}-deb
+           tags: ${{ matrix.node.env }}-deb
            no-cache: true
            build-args: |
              ubuntu_version=${{ env.UBUNTU_VERSION }}
              version=${{ needs.validate-preconditions.outputs.version }}
              static_binaries_image_tag=${{ github.run_id }}
              build_env_name=${{ env.BUILD_ENV_NAME }}
-             build_env_name_lower=${{ matrix.env }}
+             build_env_name_lower=${{ matrix.node.env }}
              build_catchup_url=https://${{ env.DOMAIN }}/blocks.idx
              build_genesis_hash=${{ env.BUILD_GENESIS_HASH }}
              build_collector_backend_url=https://dashboard.${{ env.DOMAIN }}/nodes/post
-             build_grpc2_listen_port=${{ matrix.grpc_port }}
-             build_listen_port=${{ matrix.listen_port }}
+             build_grpc2_listen_port=${{ matrix.node.grpc_port }}
+             build_listen_port=${{ matrix.node.listen_port }}
              build_bootstrap=bootstrap.${{ env.DOMAIN }}:8888
 
        - name: Configure AWS Credentials
@@ -493,13 +496,13 @@ jobs:
        - name: Run Docker and Extract Artifacts
          run: |
            id=$(docker create build-deb:${{ github.run_id }})
-           docker cp $id:/out/concordium-${{ matrix.env }}-node_${{ needs.validate-preconditions.outputs.version }}_amd64.deb .
+           docker cp $id:/out/concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.version }}_amd64.deb .
 
        - name: Publish
          run: |
            OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ env.PROJECT_NAME }}"]')
            echo "OUTFILE"
-#           aws s3 cp concordium-${{ matrix.env }}-node_${{ needs.validate-preconditions.outputs.version }}_amd64.deb \
+#           aws s3 cp concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.version }}_amd64.deb \
 #             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   docker-image:
