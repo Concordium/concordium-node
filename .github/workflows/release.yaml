@@ -89,7 +89,7 @@ jobs:
             exit 1
           else
             echo "release_type=${RELEASE_TYPE}" > "$GITHUB_OUTPUT"
-            echo "version=${VERSION}-${RELEASE_TYPE}"
+            echo "version=${VERSION}-${BUILD}" > "$GITHUB_OUTPUT"
           fi
 
   build-static-binaries:
