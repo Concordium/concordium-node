@@ -387,7 +387,6 @@ jobs:
      runs-on: ubuntu-latest
      environment: release
      needs: [ build-static-binaries, validate-preconditions ]
-     if: ${{ matrix.release_type != 'rc' || needs.validate-preconditions.outputs.release_type == 'rc' }}
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
      strategy:
