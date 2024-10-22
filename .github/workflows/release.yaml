@@ -1,15 +1,20 @@
 name: Concordium node release
 
+
+
 on:
   push:
     branches:
       - lma/release/github_actions
+    tags:
+     - '*.*.*-*-rc'
+     - '*.*.*-*-alpha'
 
 env:
   UBUNTU_VERSION: '20.04'
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   RUST_VERSION: '1.73'
-  VERSION: '7.0.6-0'
+  VERSION_TAG: '7.0.5-1-alpha'
   STACK_VERSION: '2.13.1'
   FLATBUFFERS_VERSION: '23.5.26'
   GHC_VERSION: '9.6.4'
@@ -39,6 +44,8 @@ jobs:
     environment: release
     outputs:
       s3_objects: ${{ steps.s3_objects.outputs.s3_objects }}
+      release_type: ${{ steps.versions_derivation.outputs.release_type }}
+      version: ${{ steps.versions_derivation.outputs.version }}
     steps:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -69,11 +76,22 @@ jobs:
               exit 1
             fi
           done
+      - name: Validate version
+        id: versions_derivation
+        run: |
+          CARGO_VERSION=$(yq .package.version notification-server/Cargo.toml)
+          IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
+          if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
+            echo "::error ${{ github.ref_name }} does not match ${VERSION}."
+            exit 1
+          else
+            echo "release_type=${RELEASE_TYPE}" > "$GITHUB_OUTPUT"
+            echo "version=${VERSION}-${RELEASE_TYPE}"
+          fi
 
   build-static-binaries:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest-8core
-    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -111,7 +129,6 @@ jobs:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest
     environment: release
-    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -127,12 +144,12 @@ jobs:
           file: scripts/db-exporter/Dockerfile
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
-            version=${{ env.VERSION }}
+            version=${{ needs.validate-preconditions.outputs.version }}
             ghc_version=${{ env.GHC_VERSION }}
             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
           labels: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
-            version=${{ env.VERSION }}
+            version=${{ needs.validate-preconditions.outputs.version }}
             ghc_version=${{ env.GHC_VERSION }}
             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
           no-cache: true
@@ -140,7 +157,7 @@ jobs:
       - name: Run Docker and Extract Artifacts
         run: |
           id=$(docker create build-deb:${{ github.run_id }})
-          docker cp $id:/build/${{ github.job }}_${{ env.VERSION }}.deb .
+          docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb .
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -153,7 +170,7 @@ jobs:
         run: |
           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
           echo $OUTFILE
-#          aws s3 cp "${{ github.job }}_${{ env.VERSION }}.deb" \
+#          aws s3 cp "${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
 #            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   p2p-bootstrapper:
@@ -177,16 +194,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Extract version tag from Cargo.toml manifest
-        id: meta
-        run: |
-          VERSION=$(yq .package.version concordium-node/Cargo.toml)
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-
       - name: Precheck - Validate Version and Check S3 for existing files
         run: |
           # Check if the file already exists in S3
-          OUTFILE="s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ env.VERSION }}.deb"
+          OUTFILE="s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ needs.validate-preconditions.outputs.version }}.deb"
           totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
           if [ "$totalFoundObjects" -ne "0" ]; then
             echo "error: $OUTFILE already exists"
@@ -203,17 +214,17 @@ jobs:
           no-cache: true
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
-            version=${{ env.VERSION }}
+            version=${{ needs.validate-preconditions.outputs.version }}
             static_binaries_image_tag=${{ github.run_id }}
           labels: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
-            version=${{ env.VERSION }}
+            version=${{ needs.validate-preconditions.outputs.version }}
             static_binaries_image_tag=${{ github.run_id }}
 
       - name: Run Docker and Extract Artifacts
         run: |
           id=$(docker create build-deb:${{ github.run_id }})
-          docker cp $id:/build/${{ github.job }}_${{ env.VERSION }}.deb .
+          docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb .
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -225,8 +236,9 @@ jobs:
       - name: Publish
         run: |
           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
-          aws s3 cp "${{ env.PROJECT_NAME }}_${{ env.VERSION }}.deb" \
-            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+          echo "$OUTFILE"
+#          aws s3 cp "${{ env.PROJECT_NAME }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
+#            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   node-windows:
     runs-on: windows-latest
@@ -241,17 +253,10 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install yq on Windows
+      - name: Install dependencies
         run: |
-          choco install yq
+          choco install yq jq -y
         shell: cmd
-
-      - name: Extract version tag from Cargo.toml manifest
-        id: meta
-        run: |
-          VERSION=$(yq .package.version concordium-node/Cargo.toml)
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
-        shell: bash
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -306,7 +311,7 @@ jobs:
         run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
       - name: Build Windows Node
-        run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ env.VERSION }} -rustVersion ${{ env.RUST_VERSION }}
+        run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ env.RUST_VERSION }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -325,7 +330,6 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
-    if: false
     environment: release
     steps:
       - name: Checkout Repository
@@ -336,12 +340,6 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
-
-      - name: Extract version tag from Cargo.toml manifest
-        id: meta
-        run: |
-          VERSION=$(yq .package.version concordium-node/Cargo.toml)
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - uses: haskell-actions/setup@v2
         with:
@@ -369,7 +367,7 @@ jobs:
 
       - name: Build macOS Package
         run: |
-          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ env.VERSION }}
+          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -388,7 +386,8 @@ jobs:
   node-linux:
      runs-on: ubuntu-latest
      environment: release
-     needs: [ build-static-binaries ]
+     needs: [ build-static-binaries, validate-preconditions ]
+     if: ${{ matrix.release_type != 'rc' || needs.validate-preconditions.outputs.release_type == 'rc' }}
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
      strategy:
@@ -405,17 +404,19 @@ jobs:
              genesis_path: testnet/2022-06-13/genesis_data
              grpc_port: 20001
              listen_port: 8889
-#           - env: mainnet
-#             tld: software
-#             genesis_path: mainnet/2021-06-09
-#             grpc_port: 20000
-#             listen_port: 8888
+             release_type: rc
+           - env: mainnet
+             tld: software
+             genesis_path: mainnet/2021-06-09
+             grpc_port: 20000
+             listen_port: 8888
+             release_type: rc
            - env: flynet
              tld: com
              genesis_path: flynet/2023-02-01/genesis_data
              grpc_port: 20002
              listen_port: 8890
-
+             release_type: rc
      steps:
        - name: Download artifact
          uses: actions/download-artifact@v4
@@ -432,12 +433,6 @@ jobs:
          uses: actions/checkout@v4
          with:
            submodules: recursive
-
-       - name: Extract version tag from Cargo.toml manifest
-         id: meta
-         run: |
-           VERSION=$(yq .package.version concordium-node/Cargo.toml)
-           echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
        - name: Checkout Genesis Repository
          uses: actions/checkout@v4
@@ -473,7 +468,7 @@ jobs:
            no-cache: true
            build-args: |
              ubuntu_version=${{ env.UBUNTU_VERSION }}
-             version=${{ env.VERSION }}
+             version=${{ needs.validate-preconditions.outputs.version }}
              static_binaries_image_tag=${{ github.run_id }}
              build_env_name=${{ env.BUILD_ENV_NAME }}
              build_env_name_lower=${{ matrix.env }}
@@ -494,18 +489,20 @@ jobs:
        - name: Run Docker and Extract Artifacts
          run: |
            id=$(docker create build-deb:${{ github.run_id }})
-           docker cp $id:/out/concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb .
+           docker cp $id:/out/concordium-${{ matrix.env }}-node_${{ needs.validate-preconditions.outputs.version }}_amd64.deb .
 
        - name: Publish
          run: |
            OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ env.PROJECT_NAME }}"]')
-           aws s3 cp concordium-${{ matrix.env }}-node_${{ env.VERSION }}_amd64.deb \
-             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+           echo "OUTFILE"
+#           aws s3 cp concordium-${{ matrix.env }}-node_${{ needs.validate-preconditions.outputs.version }}_amd64.deb \
+#             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   docker-image:
     runs-on: ubuntu-latest
     environment: release
     needs: [build-static-binaries]
+    if: ${{ matrix.release_type != 'rc' || needs.validate-preconditions.outputs.release_type == 'rc' }}
     strategy:
       fail-fast: false
       matrix:
@@ -555,7 +552,7 @@ jobs:
         with:
           context: .
           file: scripts/distribution/docker/builder.Dockerfile
-          tags: ${{ matrix.env }}-deb:${{ env.VERSION }}-dev
+          tags: ${{ matrix.env }}-deb:${{ needs.validate-preconditions.outputs.version }}-dev
           no-cache: true
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
@@ -563,5 +560,5 @@ jobs:
             genesis_ref=main
             genesis_path=${{ matrix.genesis_path }}
             image_name=${{ matrix.env }}-node
-            image_tag=${{ env.VERSION }}
+            image_tag=${{ needs.validate-preconditions.outputs.version }}
             environment=${{ matrix.env }}
