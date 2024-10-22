@@ -95,6 +95,7 @@ jobs:
   build-static-binaries:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest-8core
+    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -259,7 +260,14 @@ jobs:
       - name: Install dependencies
         run: |
           choco install yq jq -y
-        shell: cmd
+        shell: bash
+
+      - name: Validate jq
+        shell: bash
+        run: |
+          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
+          echo "$OUTFILE"
+
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -333,6 +341,7 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
+    if: false
     environment: release
     steps:
       - name: Checkout Repository
