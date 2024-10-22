@@ -54,8 +54,8 @@ rustup default "$RUST_TOOLCHAIN_VERSION"
 
 # Install flatbuffers.
 
-curl -L https://github.com/google/flatbuffers/releases/download/v23.5.26/Linux.flatc.binary.g++-10.zip -O
-unzip Linux.flatc.binary.g++-10.zip /usr/bin
+curl -L "https://github.com/google/flatbuffers/releases/download/v${FLATBUFFERS_VERSION}/Linux.flatc.binary.g++-10.zip" -O
+unzip Linux.flatc.binary.g++-10.zip -d /usr/bin
 
 # Build all the binaries and copy them to ./bin/
 # This requires an up-to-date lockfile which should be committed to the repository.
