@@ -57,6 +57,19 @@ jobs:
           role-session-name: ValidatePreconditionsSession
           aws-region: "eu-west-1"
 
+      - name: Validate version
+        id: versions_derivation
+        run: |
+          CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
+          if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
+            echo "::error ${{ github.ref_name }} does not match ${VERSION}."
+            exit 1
+          fi
+          echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
+          echo "VERSION=${VERSION}-${BUILD}" >> "$GITHUB_ENV"
+
       - name: Construct S3_OBJECTS from template
         id: s3_objects
         run: echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
@@ -79,18 +92,6 @@ jobs:
               exit 1
             fi
           done
-      - name: Validate version
-        id: versions_derivation
-        run: |
-          CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
-          IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
-          if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
-            echo "::error ${{ github.ref_name }} does not match ${VERSION}."
-            exit 1
-          else
-            echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
-            echo "version=${VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
-          fi
 
   build-static-binaries:
     needs: [validate-preconditions]
@@ -506,7 +507,7 @@ jobs:
   docker-image:
     runs-on: ubuntu-latest
     environment: release
-    needs: [build-static-binaries]
+    needs: [ build-static-binaries, validate-preconditions ]
     strategy:
       fail-fast: false
       matrix:
