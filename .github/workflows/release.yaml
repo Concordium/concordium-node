@@ -79,7 +79,7 @@ jobs:
       - name: Validate version
         id: versions_derivation
         run: |
-          CARGO_VERSION=$(yq .package.version notification-server/Cargo.toml)
+          CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
           if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
             echo "::error ${{ github.ref_name }} does not match ${VERSION}."
