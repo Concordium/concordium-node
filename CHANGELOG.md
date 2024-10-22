@@ -4,6 +4,15 @@
 
 - Add support for suspend/resume to validator configuration updates.
 
+## 7.0.5
+
+- Fix inconsistent handling of valid contract names.
+
+## 7.0.4
+
+- Fix a bug where the next payday time reported by the `GetTokenomicsInfo` query was
+  incorrect (#1240).
+
 ## 7.0.3
 
 - Fix a bug in the computation of the genesis height after the second protocol update. (#1237)
