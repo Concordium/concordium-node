@@ -501,7 +501,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     needs: [build-static-binaries]
-    if: ${{ matrix.release_type != 'rc' || needs.validate-preconditions.outputs.release_type == 'rc' }}
     strategy:
       fail-fast: false
       matrix:
