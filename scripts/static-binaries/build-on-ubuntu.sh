@@ -13,9 +13,15 @@ set -euxo pipefail
 
 extra_features=${EXTRA_FEATURES:-""}
 
-protoc_version=25.2
-flatbuffers_version=v23.5.26
-rust_toolchain_version=1.73
+REQUIRED_PARAMETERS=("PROTOC_VERSION" "FLATBUFFERS_VERSION" "RUST_TOOLCHAIN_VERSION")
+
+# Loop through the required variables and check if they are set
+for VAR in "${REQUIRED_PARAMETERS[@]}"; do
+  if [ -z "${!VAR}" ]; then
+    echo "Error: $VAR is not set or empty."
+    exit 1
+  fi
+done
 
 # Install dependencies.
 
@@ -37,7 +43,7 @@ DEBIAN_FRONTEND=noninteractive apt-get -y install \
 
 # Install protobuf
 
-curl -L https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-linux-x86_64.zip -o protoc.zip
+curl -L "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip" -o protoc.zip
 unzip protoc.zip bin/protoc -d /usr/
 rm protoc.zip
 
@@ -46,12 +52,12 @@ rm protoc.zip
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 rustup set profile minimal
-rustup default "$rust_toolchain_version"
+rustup default "$RUST_TOOLCHAIN_VERSION"
 
 # Install flatbuffers.
 
 git clone https://github.com/google/flatbuffers.git
-( cd flatbuffers && git checkout "$flatbuffers_version" && cmake -G "Unix Makefiles" && make -j"$(nproc)" )
+( cd flatbuffers && git checkout "$FLATBUFFERS_VERSION" && cmake -G "Unix Makefiles" && make -j"$(nproc)" )
 
 # Build all the binaries and copy them to ./bin/
 # This requires an up-to-date lockfile which should be committed to the repository.

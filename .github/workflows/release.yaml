@@ -116,6 +116,9 @@ jobs:
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
             ghc_version=${{ env.GHC_VERSION }}
+            protoc_version=${{ env.PROTOC_VERSION }}
+            flatbuffers_version=${{ env.FLATBUFFERS_VERSION }}
+            rust_toolchain_version=${{ env.RUST_VERSION }}
           labels: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             static_libraries_image_tag=${{ env.STATIC_LIBRARIES_IMAGE_TAG }}
@@ -271,11 +274,6 @@ jobs:
         with:
           toolchain: ${{ env.RUST_VERSION }}-x86_64-pc-windows-gnu
 
-      - name: Test
-        run: |
-          rustup show
-
-
       - name: Setup node folder
         run: |
           mkdir -p "C:/Program Files/node/include"
@@ -407,13 +405,13 @@ jobs:
              genesis_path: testnet/2022-06-13/genesis_data
              grpc_port: 20001
              listen_port: 8889
-             release_type: rc
+             exclude_release_type: rc
            - env: mainnet
              tld: software
              genesis_path: mainnet/2021-06-09
              grpc_port: 20000
              listen_port: 8888
-             release_type: rc
+             exclude_release_type: rc
            - env: flynet
              tld: com
              genesis_path: flynet/2023-02-01/genesis_data
@@ -421,7 +419,9 @@ jobs:
              listen_port: 8890
          exclude:
            - node.env: mainnet
-             node.release_type: ${{ needs.validate-preconditions.outputs.release_type }}
+             node.release_type: ${{ needs.validate-preconditions.outputs.exclude_release_type }}
+           - node.env: testnet
+             node.release_type: ${{ needs.validate-preconditions.outputs.exclude_release_type }}
      steps:
        - name: Download artifact
          uses: actions/download-artifact@v4
