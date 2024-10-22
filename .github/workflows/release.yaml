@@ -246,7 +246,6 @@ jobs:
   node-windows:
     runs-on: windows-latest
     needs: [validate-preconditions]
-    if: false
     environment: release
     defaults:
       run:
@@ -335,7 +334,6 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
-    if: false
     environment: release
     steps:
       - name: Checkout Repository
