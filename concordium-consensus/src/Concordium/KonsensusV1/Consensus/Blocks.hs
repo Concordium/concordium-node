@@ -1379,7 +1379,7 @@ makeBlock = do
                 checkedValidateBlock block
 
 -- | Compute the missed rounds for each validator. Starts from the given parent
---   block up to (not including) the given final missed round.
+--   block up to (not including) the given final round.
 computeMissedRounds ::
     forall m.
     (BlockState m ~ HashedPersistentBlockState (MPV m), BlockStateQuery m) =>
