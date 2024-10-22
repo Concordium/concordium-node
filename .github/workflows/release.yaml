@@ -88,8 +88,8 @@ jobs:
             echo "::error ${{ github.ref_name }} does not match ${VERSION}."
             exit 1
           else
-            echo "release_type=${RELEASE_TYPE}" > "$GITHUB_OUTPUT"
-            echo "version=${VERSION}-${BUILD}" > "$GITHUB_OUTPUT"
+            echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
+            echo "version=${VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
           fi
 
   build-static-binaries:
