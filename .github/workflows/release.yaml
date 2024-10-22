@@ -262,13 +262,6 @@ jobs:
           choco install yq jq -y
         shell: bash
 
-      - name: Validate jq
-        shell: bash
-        run: |
-          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
-          echo "$OUTFILE"
-
-
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -332,6 +325,7 @@ jobs:
           aws-region: "eu-west-1"
 
       - name: Publish
+        shell: bash
         run: |
           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
           echo "$OUTFILE"
