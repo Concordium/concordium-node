@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Add support for suspend/resume to validator configuration updates.
+
 ## 7.0.5
 
 - Fix inconsistent handling of valid contract names.

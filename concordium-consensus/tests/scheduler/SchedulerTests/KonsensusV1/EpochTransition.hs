@@ -68,6 +68,11 @@ dummyCooldownAccount ai amt cooldowns = do
             cq <- CooldownQueue.makeCooldownQueue cooldowns
             newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
             return $ PAV3 acc{SV1.accountEnduringData = newEnduring}
+        PAV4 acc -> do
+            let ed = SV1.enduringData acc
+            cq <- CooldownQueue.makeCooldownQueue cooldowns
+            newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
+            return $ PAV4 acc{SV1.accountEnduringData = newEnduring}
 
 -- | Run a test block state computation with a temporary directory for the block state.
 runTestBlockState ::
@@ -211,6 +216,7 @@ genAccountConfigs allowPreCooldown = sized $ \n -> do
 
 -- | Helper for constructing the stake for a persistent account.
 makePersistentAccountStakeEnduring ::
+    forall m av.
     (MonadBlobStore m, AVSupportsFlexibleCooldown av, AVSupportsDelegation av, IsAccountVersion av) =>
     StakeDetails av ->
     AccountIndex ->
@@ -222,7 +228,8 @@ makePersistentAccountStakeEnduring StakeDetailsBaker{..} ai = do
         refMake
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. bakerInfo,
-                  _bieBakerPoolInfo = poolInfo
+                  _bieBakerPoolInfo = poolInfo,
+                  _bieAccountIsSuspended = conditionally hasValidatorSuspension False
                 }
     return
         ( SV1.PersistentAccountStakeEnduringBaker
@@ -244,6 +251,7 @@ makePersistentAccountStakeEnduring StakeDetailsBaker{..} ai = do
                       _transactionCommission = makeAmountFraction 50_000
                     }
             }
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
 makePersistentAccountStakeEnduring StakeDetailsDelegator{..} ai = do
     return
         ( SV1.PersistentAccountStakeEnduringDelegator
@@ -277,6 +285,17 @@ makeDummyAccount AccountConfig{..} = do
                         ed{SV1.paedStakeCooldown = cq, SV1.paedStake = staking}
             return $
                 PAV3
+                    acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
+        PAV4 acc -> do
+            let ed = SV1.enduringData acc
+            cq <- CooldownQueue.makeCooldownQueue acCooldowns
+            (staking, stakeAmount) <- makePersistentAccountStakeEnduring acInitialStaking acAccountIndex
+            newEnduring <-
+                refMake
+                    =<< SV1.rehashAccountEnduringData
+                        ed{SV1.paedStakeCooldown = cq, SV1.paedStake = staking}
+            return $
+                PAV4
                     acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
 
 -- | Construct an initial state for testing based on the account configuration provided.
@@ -329,6 +348,11 @@ makeInitialState accs seedState rpLen = withIsAuthorizationsVersionForPV (protoc
             let ed = SV1.enduringData pa
             newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStake = staking}
             return $ PAV3 pa{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = newStakeAmount}
+        updateAccountStake AccountConfig{..} (PAV4 pa) = do
+            (staking, newStakeAmount) <- makePersistentAccountStakeEnduring acUpdatedStaking acAccountIndex
+            let ed = SV1.enduringData pa
+            newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStake = staking}
+            return $ PAV4 pa{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = newStakeAmount}
     newAccounts <-
         foldM
             (\a ac -> updateAccountsAtIndex' (updateAccountStake ac) (acAccountIndex ac) a)
@@ -452,7 +476,7 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
     updatedCapitalDistr <- capitalDistributionM
     let mkFullBaker (ref, stake) = do
             loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
-                (BakerInfoExV1 info extra) ->
+                (BakerInfoExV1 info extra _isSuspended) ->
                     FullBakerInfoEx
                         { _exFullBakerInfo = FullBakerInfo info stake,
                           _bakerPoolCommissionRates = extra ^. poolCommissionRates
@@ -511,7 +535,7 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
     updatedCapitalDistr <- capitalDistributionM
     let mkFullBaker (ref, stake) = do
             loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
-                (BakerInfoExV1 info extra) ->
+                (BakerInfoExV1 info extra _isSuspended) ->
                     FullBakerInfoEx
                         { _exFullBakerInfo = FullBakerInfo info stake,
                           _bakerPoolCommissionRates = extra ^. poolCommissionRates
@@ -599,7 +623,7 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ 
     updatedCapitalDistr <- capitalDistributionM
     let mkFullBaker (ref, stake) = do
             loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
-                (BakerInfoExV1 info extra) ->
+                (BakerInfoExV1 info extra _isSuspended) ->
                     FullBakerInfoEx
                         { _exFullBakerInfo = FullBakerInfo info stake,
                           _bakerPoolCommissionRates = extra ^. poolCommissionRates

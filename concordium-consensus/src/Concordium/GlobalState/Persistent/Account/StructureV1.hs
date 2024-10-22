@@ -118,10 +118,11 @@ migratePersistentBakerInfoEx StateMigrationParametersP5ToP6{} = migrateReference
 migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = migrateReference migrateBakerInfoExV1
   where
     migrateBakerInfoExV1 ::
-        (AVSupportsDelegation av1, AVSupportsDelegation av2, Monad m') =>
+        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'False, Monad m') =>
         BakerInfoEx av1 ->
         m' (BakerInfoEx av2)
-    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{..}
+    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieAccountIsSuspended = CFalse, ..}
+migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = error "TODO(drsk) github #1220. Implement migratePersistenBakerInfoEx p7 -> p8"
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 --  See documentation of @migratePersistentBlockState@.
@@ -137,7 +138,7 @@ migratePersistentBakerInfoExFromV0 StateMigrationParametersP4ToP5{} V0.Persisten
     bkrInfoEx <- lift $ do
         bkrInfo <- refLoad bakerInfoRef
         bkrPoolInfo <- refLoad (V0._theExtraBakerInfo bakerInfoExtra)
-        return $! BakerInfoExV1 bkrInfo bkrPoolInfo
+        return $! BakerInfoExV1 bkrInfo bkrPoolInfo CFalse
     (ref, _) <- refFlush =<< refMake bkrInfoEx
     return $! ref
 
@@ -350,6 +351,9 @@ instance (MonadBlobStore m) => MHashableTo m (AccountStakeHash 'AccountV2) (Pers
 instance (MonadBlobStore m) => MHashableTo m (AccountStakeHash 'AccountV3) (PersistentAccountStakeEnduring 'AccountV3) where
     getHashM stake = getHash <$> persistentToAccountStake stake 0
 
+instance (MonadBlobStore m) => MHashableTo m (AccountStakeHash 'AccountV4) (PersistentAccountStakeEnduring 'AccountV4) where
+    getHashM stake = getHash <$> persistentToAccountStake stake 0
+
 -- * Enduring account data
 
 -- | Enduring data associated with an account. This is data that does not change very often.
@@ -461,6 +465,38 @@ makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSch
         !paedHash = getHash hashInputs
     return $! PersistentAccountEnduringData{..}
 
+-- | Construct a 'PersistentAccountEnduringData' from the components by computing the hash.
+--   Used for 'AccountV4'.
+--
+--  Precondition: if the 'PersistentAccountEncryptedAmount' is present then it must not satisfy
+--  'isInitialPersistentAccountEncryptedAmount'.
+--
+--  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
+--  and the total amount of the releases must be the provided amount.
+makeAccountEnduringDataAV4 ::
+    ( MonadBlobStore m
+    ) =>
+    EagerBufferedRef PersistingAccountData ->
+    Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
+    Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
+    PersistentAccountStakeEnduring 'AccountV4 ->
+    CooldownQueue 'AccountV4 ->
+    m (PersistentAccountEnduringData 'AccountV4)
+makeAccountEnduringDataAV4 paedPersistingData paedEncryptedAmount paedReleaseSchedule paedStake paedStakeCooldown = do
+    amhi4PersistingAccountDataHash <- getHashM paedPersistingData
+    (amhi4AccountStakeHash :: AccountStakeHash 'AccountV4) <- getHashM paedStake
+    amhi4EncryptedAmountHash <- case paedEncryptedAmount of
+        Null -> return initialAccountEncryptedAmountHash
+        Some e -> getHash <$> (loadPersistentAccountEncryptedAmount =<< refLoad e)
+    amhi4AccountReleaseScheduleHash <- case paedReleaseSchedule of
+        Null -> return TARSV1.emptyAccountReleaseScheduleHashV1
+        Some (rs, _) -> getHashM rs
+    amhi4Cooldown <- getHashM paedStakeCooldown
+    let hashInputs :: AccountMerkleHashInputs 'AccountV4
+        hashInputs = AccountMerkleHashInputsV4{..}
+        !paedHash = getHash hashInputs
+    return $! PersistentAccountEnduringData{..}
+
 -- | [For internal use in this module.] Recompute the Merkle hash of the enduring account data,
 --  for 'AccountV2'.
 rehashAccountEnduringDataAV2 ::
@@ -498,6 +534,23 @@ rehashAccountEnduringDataAV3 ed = do
     let hashInputs = AccountMerkleHashInputsV3{..}
     return $! ed{paedHash = getHash hashInputs}
 
+rehashAccountEnduringDataAV4 ::
+    (MonadBlobStore m) =>
+    PersistentAccountEnduringData 'AccountV4 ->
+    m (PersistentAccountEnduringData 'AccountV4)
+rehashAccountEnduringDataAV4 ed = do
+    amhi4PersistingAccountDataHash <- getHashM (paedPersistingData ed)
+    (amhi4AccountStakeHash :: AccountStakeHash 'AccountV4) <- getHashM (paedStake ed)
+    amhi4EncryptedAmountHash <- case paedEncryptedAmount ed of
+        Null -> return initialAccountEncryptedAmountHash
+        Some e -> getHash <$> (loadPersistentAccountEncryptedAmount =<< refLoad e)
+    amhi4AccountReleaseScheduleHash <- case paedReleaseSchedule ed of
+        Null -> return TARSV1.emptyAccountReleaseScheduleHashV1
+        Some (rs, _) -> getHashM rs
+    amhi4Cooldown <- getHashM $ paedStakeCooldown ed
+    let hashInputs = AccountMerkleHashInputsV4{..}
+    return $! ed{paedHash = getHash hashInputs}
+
 -- | [For internal use in this module.] Recompute the Merkle hash of the enduring account data.
 rehashAccountEnduringData ::
     forall m av.
@@ -507,6 +560,7 @@ rehashAccountEnduringData ::
 rehashAccountEnduringData = case accountVersion @av of
     SAccountV2 -> rehashAccountEnduringDataAV2
     SAccountV3 -> rehashAccountEnduringDataAV3
+    SAccountV4 -> rehashAccountEnduringDataAV4
 
 -- | Compute the 'EnduringDataFlags' from a 'PersistentAccountEnduringData' for the purposes of
 --  storing the account.
@@ -875,7 +929,19 @@ instance HashableTo (AccountHash 'AccountV3) (PersistentAccount 'AccountV3) wher
                       ahi2MerkleHash = getHash accountEnduringData
                     }
 
+instance HashableTo (AccountHash 'AccountV4) (PersistentAccount 'AccountV4) where
+    getHash PersistentAccount{..} =
+        makeAccountHash $
+            AHIV4 $
+                AccountHashInputsV2
+                    { ahi2NextNonce = accountNonce,
+                      ahi2AccountBalance = accountAmount,
+                      ahi2StakedBalance = accountStakedAmount,
+                      ahi2MerkleHash = getHash accountEnduringData
+                    }
+
 instance (Monad m) => MHashableTo m (AccountHash 'AccountV3) (PersistentAccount 'AccountV3)
+instance (Monad m) => MHashableTo m (AccountHash 'AccountV4) (PersistentAccount 'AccountV4)
 
 instance HashableTo Hash.Hash (PersistentAccount 'AccountV2) where
     getHash = theAccountHash @'AccountV2 . getHash
@@ -885,7 +951,11 @@ instance (Monad m) => MHashableTo m Hash.Hash (PersistentAccount 'AccountV2)
 instance HashableTo Hash.Hash (PersistentAccount 'AccountV3) where
     getHash = theAccountHash @'AccountV3 . getHash
 
+instance HashableTo Hash.Hash (PersistentAccount 'AccountV4) where
+    getHash = theAccountHash @'AccountV4 . getHash
+
 instance (Monad m) => MHashableTo m Hash.Hash (PersistentAccount 'AccountV3)
+instance (Monad m) => MHashableTo m Hash.Hash (PersistentAccount 'AccountV4)
 
 instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccount av) where
     storeUpdate acc@PersistentAccount{..} = do
@@ -1403,6 +1473,30 @@ setStake ::
     m (PersistentAccount av)
 setStake newStake acc = return $! acc{accountStakedAmount = newStake}
 
+-- | Set the suspended state of a validator account.
+--  This MUST only be called with an account that is a validator.
+setValidatorSuspended ::
+    forall av m.
+    ( MonadBlobStore m,
+      IsAccountVersion av,
+      AccountStructureVersionFor av ~ 'AccountStructureV1,
+      AVSupportsDelegation av,
+      AVSupportsValidatorSuspension av
+    ) =>
+    Bool ->
+    PersistentAccount av ->
+    m (PersistentAccount av)
+setValidatorSuspended isSusp = updateStake $ \case
+    baker@PersistentAccountStakeEnduringBaker{} -> do
+        oldInfo <- refLoad (paseBakerInfo baker)
+        let newInfo = oldInfo & bieAccountIsSuspended .~ isSusp
+        newInfoRef <- refMake $! newInfo
+        return $! baker{paseBakerInfo = newInfoRef}
+    PersistentAccountStakeEnduringDelegator{} ->
+        error "setValidatorSuspended invariant violation: account is not a baker"
+    PersistentAccountStakeEnduringNone ->
+        error "setValidatorSuspended invariant violation: account is not a baker"
+
 -- | Add a specified amount to the pre-pre-cooldown inactive stake.
 addPrePreCooldown ::
     forall m av.
@@ -1671,6 +1765,13 @@ makePersistentAccount Transient.Account{..} = do
                         paedReleaseSchedule
                         paedStake
                         paedStakeCooldown
+                SAccountV4 ->
+                    makeAccountEnduringDataAV4
+                        paedPersistingData
+                        paedEncryptedAmount
+                        paedReleaseSchedule
+                        paedStake
+                        paedStakeCooldown
     return $!
         PersistentAccount
             { accountNonce = _accountNonce,
@@ -1711,6 +1812,13 @@ newAccount cryptoParams _accountAddress credential = do
                         PersistentAccountStakeEnduringNone
                 SAccountV3 ->
                     makeAccountEnduringDataAV3
+                        paedPersistingData
+                        Null
+                        Null
+                        PersistentAccountStakeEnduringNone
+                        emptyCooldownQueue
+                SAccountV4 ->
+                    makeAccountEnduringDataAV4
                         paedPersistingData
                         Null
                         Null
@@ -1776,6 +1884,13 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
                         stakeEnduring
                 SAccountV3 ->
                     makeAccountEnduringDataAV3
+                        paedPersistingData
+                        Null
+                        Null
+                        stakeEnduring
+                        emptyCooldownQueue
+                SAccountV4 ->
+                    makeAccountEnduringDataAV4
                         paedPersistingData
                         Null
                         Null
@@ -1863,6 +1978,22 @@ migrateEnduringDataV3toV3 ed = do
     paedStakeCooldown <- migrateCooldownQueue (paedStakeCooldown ed)
     makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSchedule paedStake paedStakeCooldown
 
+-- | Migration for 'PersistentAccountEnduringData'. Only supports 'AccountV4'.
+--  The data is unchanged in the migration.
+migrateEnduringDataV4toV4 ::
+    (SupportMigration m t) =>
+    PersistentAccountEnduringData 'AccountV4 ->
+    t m (PersistentAccountEnduringData 'AccountV4)
+migrateEnduringDataV4toV4 ed = do
+    paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
+    paedEncryptedAmount <- forM (paedEncryptedAmount ed) $ migrateReference migratePersistentEncryptedAmount
+    paedReleaseSchedule <- forM (paedReleaseSchedule ed) $ \(oldRSRef, lockedAmt) -> do
+        newRSRef <- migrateReference migrateAccountReleaseSchedule oldRSRef
+        return (newRSRef, lockedAmt)
+    paedStake <- migratePersistentAccountStakeEnduring (paedStake ed)
+    paedStakeCooldown <- migrateCooldownQueue (paedStakeCooldown ed)
+    makeAccountEnduringDataAV4 paedPersistingData paedEncryptedAmount paedReleaseSchedule paedStake paedStakeCooldown
+
 -- | A trivial migration from account version 2 to account version 2.
 --  In particular the data is retained as-is.
 migrateV2ToV2 ::
@@ -1941,6 +2072,34 @@ migrateV3ToV3 acc = do
               ..
             }
 
+migrateV3ToV4 ::
+    ( MonadBlobStore m,
+      MonadBlobStore (t m),
+      MonadTrans t
+    ) =>
+    PersistentAccount 'AccountV3 ->
+    t m (PersistentAccount 'AccountV4)
+migrateV3ToV4 _acc = error "TODO(drsk) github #1221. implement migrateV3ToV4"
+
+-- | A trivial migration from account version 4 to account version 4.
+--  In particular the data is retained as-is.
+migrateV4ToV4 ::
+    ( MonadBlobStore m,
+      MonadBlobStore (t m),
+      MonadTrans t
+    ) =>
+    PersistentAccount 'AccountV4 ->
+    t m (PersistentAccount 'AccountV4)
+migrateV4ToV4 acc = do
+    accountEnduringData <- migrateEagerBufferedRef migrateEnduringDataV4toV4 (accountEnduringData acc)
+    return $!
+        PersistentAccount
+            { accountNonce = accountNonce acc,
+              accountAmount = accountAmount acc,
+              accountStakedAmount = accountStakedAmount acc,
+              ..
+            }
+
 -- | Migration for 'PersistentAccount'. Supports 'AccountV2' and 'AccountV3'.
 --
 --  When migrating P6->P7 (account version 2 to 3), the 'AccountMigration' interface is used as
@@ -1970,8 +2129,10 @@ migratePersistentAccount ::
 migratePersistentAccount StateMigrationParametersTrivial acc = case accountVersion @(AccountVersionFor oldpv) of
     SAccountV2 -> migrateV2ToV2 acc
     SAccountV3 -> migrateV3ToV3 acc
+    SAccountV4 -> migrateV4ToV4 acc
 migratePersistentAccount StateMigrationParametersP5ToP6{} acc = migrateV2ToV2 acc
 migratePersistentAccount StateMigrationParametersP6ToP7{} acc = migrateV2ToV3 acc
+migratePersistentAccount StateMigrationParametersP7ToP8{} acc = migrateV3ToV4 acc
 
 -- | Migration for 'PersistentAccount' from 'V0.PersistentAccount'. This supports migration from
 --  'P4' to 'P5'.
@@ -1993,7 +2154,7 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
             bkrInfoEx <- lift $ do
                 bkrInfo <- refLoad _accountBakerInfo
                 bkrPoolInfo <- refLoad (V0._theExtraBakerInfo _extraBakerInfo)
-                return $! BakerInfoExV1 bkrInfo bkrPoolInfo
+                return $! BakerInfoExV1 bkrInfo bkrPoolInfo CFalse
             paseBakerInfo' <- refMake bkrInfoEx
             (paseBakerInfo, _) <- refFlush paseBakerInfo'
             let baker =

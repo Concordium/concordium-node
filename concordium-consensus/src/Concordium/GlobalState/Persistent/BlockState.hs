@@ -178,6 +178,7 @@ migrateSeedState (StateMigrationParametersP5ToP6 (P6.StateMigrationData _ time))
     let seed = H.hash $ "Regenesis" <> encode ss0CurrentLeadershipElectionNonce
     in  initialSeedStateV1 seed time
 migrateSeedState StateMigrationParametersP6ToP7{} ss = migrateSeedStateV1Trivial ss
+migrateSeedState StateMigrationParametersP7ToP8{} ss = migrateSeedStateV1Trivial ss
 
 -- | Trivial migration of a 'SeedStateV1' between protocol versions.
 migrateSeedStateV1Trivial :: SeedState 'SeedStateVersion1 -> SeedState 'SeedStateVersion1
@@ -625,6 +626,10 @@ migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimePa
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
+migrateBlockRewardDetails StateMigrationParametersP7ToP8{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
 
 instance
     (MonadBlobStore m, IsBlockHashVersion bhv) =>
@@ -1609,7 +1614,12 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
                   _poolCommissionRates = vaCommissionRates
                 }
     let bakerInfo = bakerKeyUpdateToInfo bid vaKeys
-    let bakerInfoEx = BaseAccounts.BakerInfoExV1 bakerInfo poolInfo
+    let bakerInfoEx =
+            BaseAccounts.BakerInfoExV1
+                { _bieBakerPoolInfo = poolInfo,
+                  _bieBakerInfo = bakerInfo,
+                  _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+                }
     -- The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Add the baker to the account.
@@ -1634,6 +1644,7 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
   where
     bid = BakerId ai
     flexibleCooldowns = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
 
 -- | Check the conditions required for successfully updating a validator. This does not modify
 --  the block state.
@@ -1670,8 +1681,7 @@ updateValidatorChecks ::
     MTL.ExceptT ValidatorConfigureFailure m ()
 updateValidatorChecks bsp baker ValidatorUpdate{..} = do
     chainParams <- lookupCurrentParameters (bspUpdates bsp)
-    let
-        poolParams = chainParams ^. cpPoolParameters
+    let poolParams = chainParams ^. cpPoolParameters
         capitalMin = poolParams ^. ppMinimumEquityCapital
         ranges = poolParams ^. ppCommissionBounds
     -- Check if the aggregation key is fresh (or the same as the baker's existing one).
@@ -1795,8 +1805,14 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --         equity capital to the new capital (updating the total active capital in the active baker
 --         index by adding the difference between the new and old capital) and append
 --         @BakerConfigureStakeIncreased capital@ to @events@.
+
+--  9. (>= P8) If the suspended/resumed flag is set:
+
+--        (1) Suspend/resume the validator according to the flag.
+
+--        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
 --
---  9. Return @events@ with the updated block state.
+--  10. Return @events@ with the updated block state.
 newUpdateValidator ::
     forall pv m.
     ( SupportsPersistentState pv m,
@@ -1824,6 +1840,7 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
                 >>= updateRestakeEarnings
                 >>= updatePoolInfo existingBaker
                 >>= updateCapital existingBaker
+                >>= updateSuspend
         newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts newBSP)
         return newBSP{bspAccounts = newAccounts}
     (events,) <$> storePBS pbs newBSP
@@ -1832,6 +1849,14 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
     -- Only do the given update if specified.
     ifPresent Nothing _ = return
     ifPresent (Just v) k = k v
+    updateSuspend =
+        ifPresent vuSuspend $ \suspend (bsp, acc) -> do
+            case sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)) of
+                STrue -> do
+                    acc1 <- setAccountValidatorSuspended suspend acc
+                    MTL.tell [if suspend then BakerConfigureSuspended else BakerConfigureResumed]
+                    return (bsp, acc1)
+                SFalse -> return (bsp, acc)
     updateKeys oldBaker = ifPresent vuKeys $ \keys (bsp, acc) -> do
         let oldAggrKey = oldBaker ^. BaseAccounts.bakerAggregationVerifyKey
         bsp1 <-
@@ -2773,6 +2798,7 @@ doGetRewardStatus pbs = do
         SP5 -> rewardsV1
         SP6 -> rewardsV1
         SP7 -> rewardsV1
+        SP8 -> rewardsV1
 
 doRewardFoundationAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
 doRewardFoundationAccount pbs reward = do
@@ -2899,6 +2925,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
                     SP5 -> return _auIndex
                     SP6 -> return _auIndex
                     SP7 -> return _auIndex
+                    SP8 -> return _auIndex
                 !oldRel <- accountNextReleaseTimestamp acc
                 !newRel <- accountNextReleaseTimestamp acc'
                 return (acctRef :: RSAccountRef pv, oldRel, newRel)
@@ -3489,6 +3516,7 @@ doProcessReleaseSchedule pbs ts = do
                     SP5 -> processAccountP5
                     SP6 -> processAccountP5
                     SP7 -> processAccountP5
+                    SP8 -> processAccountP5
             (newAccs, newRS) <- foldM processAccount (bspAccounts bsp, remRS) affectedAccounts
             storePBS pbs (bsp{bspAccounts = newAccs, bspReleaseSchedule = newRS})
 
@@ -4441,6 +4469,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
                     Just ai -> ai
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
+            StateMigrationParametersP7ToP8{} -> RSMNewToNew
     logEvent GlobalState LLTrace "Migrating release schedule"
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     pab <- lift . refLoad $ bspBirkParameters ^. birkActiveBakers

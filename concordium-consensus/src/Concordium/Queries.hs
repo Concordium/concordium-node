@@ -32,6 +32,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
+import Concordium.Types.Conditionally
 import Concordium.Types.Execution (TransactionSummary)
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
@@ -1099,6 +1100,14 @@ getAccountInfoHelper getASI getCooldowns acct bs = do
         aiAccountAddress <- BS.getAccountCanonicalAddress acc
         aiAccountCooldowns <- getCooldowns acc
         aiAccountAvailableAmount <- BS.getAccountAvailableAmount acc
+        aiAccountIsSuspended <- do
+            mAccBaker <- BS.getAccountBaker acc
+            case mAccBaker of
+                -- If the account doesn't have an associated validator, then it can't be suspended.
+                Nothing -> return False
+                Just accBaker ->
+                    return $
+                        fromCondDef (_bieAccountIsSuspended $ _accountBakerInfo accBaker) False
         return AccountInfo{..}
 
 -- | Get the details of a smart contract instance in the block state.
