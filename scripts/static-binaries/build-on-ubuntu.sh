@@ -57,7 +57,7 @@ rustup default "$RUST_TOOLCHAIN_VERSION"
 # Install flatbuffers.
 
 git clone https://github.com/google/flatbuffers.git
-( cd flatbuffers && git checkout "$FLATBUFFERS_VERSION" && cmake -G "Unix Makefiles" && make -j"$(nproc)" )
+( cd flatbuffers && git checkout "v${FLATBUFFERS_VERSION}" && cmake -G "Unix Makefiles" && make -j )
 
 # Build all the binaries and copy them to ./bin/
 # This requires an up-to-date lockfile which should be committed to the repository.
