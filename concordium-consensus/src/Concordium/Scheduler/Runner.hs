@@ -250,7 +250,9 @@ data PayloadJSON
           -- | The commission the pool owner takes on baking rewards.
           cbBakingRewardCommission :: !(Maybe AmountFraction),
           -- | The commission the pool owner takes on finalization rewards.
-          cbFinalizationRewardCommission :: !(Maybe AmountFraction)
+          cbFinalizationRewardCommission :: !(Maybe AmountFraction),
+          -- | Whether to suspend/resume the validator.
+          cbSuspend :: !(Maybe Bool)
         }
     | ConfigureDelegation
         { -- | The capital delegated to the pool.

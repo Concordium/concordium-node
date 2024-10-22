@@ -10,7 +10,7 @@ import Concordium.Types
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cooldown
 
--- | Run an an action in the 'MemBlobStoreT' monad transformer from an empty store.
+-- | Run an action in the 'MemBlobStoreT' monad transformer from an empty store.
 runBlobStore :: MemBlobStoreT IO a -> IO a
 runBlobStore a = do
     mbs <- newMemBlobStore

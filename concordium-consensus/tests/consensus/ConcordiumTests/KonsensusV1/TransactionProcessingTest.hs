@@ -48,6 +48,7 @@ import qualified Concordium.Genesis.Data.Base as Base
 import Concordium.Genesis.Data.BaseV1
 import Concordium.Genesis.Data.P6
 import Concordium.Genesis.Data.P7
+import Concordium.Genesis.Data.P8
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
@@ -259,6 +260,12 @@ makeTestingGenesisData idps =
             SP7 ->
                 GDP7
                     GDP7Initial
+                        { genesisCore = coreGenesisParams,
+                          genesisInitialState = Base.GenesisState{..}
+                        }
+            SP8 ->
+                GDP8
+                    GDP8Initial
                         { genesisCore = coreGenesisParams,
                           genesisInitialState = Base.GenesisState{..}
                         }

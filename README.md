@@ -36,7 +36,7 @@ The auxiliary packages are the
 
 ## Submodules
 
-The [concordium-base](./concordium-base/) is a a direct dependency of both
+The [concordium-base](./concordium-base/) is a direct dependency of both
 [concordium-consensus/](./concordium-consensus/) and
 [concordium-node](./concordium-node/). Because
 [concordium-base](./concordium-base/) is also used by other components it is a
