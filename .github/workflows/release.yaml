@@ -405,13 +405,13 @@ jobs:
              genesis_path: testnet/2022-06-13/genesis_data
              grpc_port: 20001
              listen_port: 8889
-             exclude_release_type: rc
+             exclude_from_release_type: alpha
            - env: mainnet
              tld: software
              genesis_path: mainnet/2021-06-09
              grpc_port: 20000
              listen_port: 8888
-             exclude_release_type: rc
+             exclude_from_release_type: alpha
            - env: flynet
              tld: com
              genesis_path: flynet/2023-02-01/genesis_data
@@ -419,9 +419,9 @@ jobs:
              listen_port: 8890
          exclude:
            - node.env: mainnet
-             node.release_type: ${{ needs.validate-preconditions.outputs.exclude_release_type }}
+             node.exclude_from_release_type: ${{ needs.validate-preconditions.outputs.release_type }}
            - node.env: testnet
-             node.release_type: ${{ needs.validate-preconditions.outputs.exclude_release_type }}
+             node.exclude_from_release_type: ${{ needs.validate-preconditions.outputs.release_type }}
      steps:
        - name: Download artifact
          uses: actions/download-artifact@v4
@@ -522,12 +522,6 @@ jobs:
 
       - name: Load image
         run: docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
-
-      - name: Extract version tag from Cargo.toml manifest
-        id: meta
-        run: |
-          VERSION=$(yq .package.version concordium-node/Cargo.toml)
-          echo "VERSION=${VERSION}" >> $GITHUB_ENV
 
       - name: Checkout Repository
         uses: actions/checkout@v4
