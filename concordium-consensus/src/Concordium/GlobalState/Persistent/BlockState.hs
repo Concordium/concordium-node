@@ -3484,10 +3484,11 @@ doClearMissedRounds pbs bids = do
     bsp <- loadPBS pbs
     bsp' <-
         foldM
-            ( \bsp0 bId -> modifyBakerPoolRewardDetailsInPoolRewards 
-                            bsp0 
-                            bId
-                            (\bprd -> bprd{missedRounds = 0})
+            ( \bsp0 bId ->
+                modifyBakerPoolRewardDetailsInPoolRewards
+                    bsp0
+                    bId
+                    (\bprd -> bprd{missedRounds = 0})
             )
             bsp
             bids
