@@ -3464,20 +3464,33 @@ doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 doIsProtocolUpdateEffective :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Bool
 doIsProtocolUpdateEffective = isProtocolUpdateEffective . bspUpdates <=< loadPBS
 
-doUpdateMissedRounds :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> (BakerId, Word16) -> m (PersistentBlockState pv)
-doUpdateMissedRounds pbs (bId, newMissedRounds) = do
+doUpdateMissedRounds :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> [(BakerId, Word16)] -> m (PersistentBlockState pv)
+doUpdateMissedRounds pbs rds = do
     bsp <- loadPBS pbs
     bsp' <-
-        modifyBakerPoolRewardDetailsInPoolRewards
+        foldM
+            ( \bsp0 (bId, newMissedRounds) ->
+                modifyBakerPoolRewardDetailsInPoolRewards
+                    bsp0
+                    bId
+                    (\bprd -> bprd{missedRounds = missedRounds bprd + newMissedRounds})
+            )
             bsp
-            bId
-            (\bprd -> bprd{missedRounds = missedRounds bprd + newMissedRounds})
+            rds
     storePBS pbs bsp'
 
-doClearMissedRounds :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> BakerId -> m (PersistentBlockState pv)
-doClearMissedRounds pbs bId = do
+doClearMissedRounds :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> [BakerId] -> m (PersistentBlockState pv)
+doClearMissedRounds pbs bids = do
     bsp <- loadPBS pbs
-    bsp' <- modifyBakerPoolRewardDetailsInPoolRewards bsp bId (\bprd -> bprd{missedRounds = 0})
+    bsp' <-
+        foldM
+            ( \bsp0 bId -> modifyBakerPoolRewardDetailsInPoolRewards 
+                            bsp0 
+                            bId
+                            (\bprd -> bprd{missedRounds = 0})
+            )
+            bsp
+            bids
     storePBS pbs bsp'
 
 doProcessUpdateQueues ::

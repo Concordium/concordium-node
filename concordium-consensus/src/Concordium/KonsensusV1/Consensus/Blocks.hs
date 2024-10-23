@@ -16,11 +16,11 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Data.Function
-import Data.Word
+import Data.List (group)
 import Data.Ord
 import Data.Time
-import Data.List (group)
 import qualified Data.Vector as Vector
+import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Logger
