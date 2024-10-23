@@ -43,6 +43,7 @@ jobs:
     outputs:
       s3_objects: ${{ steps.s3_objects.outputs.s3_objects }}
       release_type: ${{ steps.versions_derivation.outputs.release_type }}
+      base_version: ${{ steps.versions_derivation.outputs.base_version }}
       version: ${{ steps.versions_derivation.outputs.version }}
     steps:
       - name: Checkout Repository
@@ -66,6 +67,7 @@ jobs:
           fi
           echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
+          echo "base_version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Construct S3_OBJECTS from template
         id: s3_objects
@@ -403,13 +405,6 @@ jobs:
               "genesis_path": "stagenet/2024-09-12/genesis_data",
               "grpc_port": 20500,
               "listen_port": 9500
-            },
-            {
-              "env": "flynet",
-              "tld": "com",
-              "genesis_path": "flynet/2023-02-01/genesis_data",
-              "grpc_port": 20002,
-              "listen_port": 8890
             }
           ]' | jq -c)
           echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
@@ -518,21 +513,16 @@ jobs:
            role-session-name: ${{ env.PROJECT_NAME }}Session
            aws-region: "eu-west-1"
 
-       - name: Trim version
-         env:
-           VERSION=${{ needs.validate-preconditions.outputs.version }}
-         run: echo "BASE_VERSION=${VERSION%%-*}" >> $GITHUB_ENV
-
        - name: Run Docker and Extract Artifacts
          run: |
            id=$(docker create static-node-binaries:${{ github.run_id }})
-           docker cp $id:/out/concordium-${{ matrix.node.env }}-node_${{ env.BASE_VERSION }}_amd64.deb .
+           docker cp $id:/out/concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb .
 
        - name: Publish
          run: |
            OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ env.PROJECT_NAME }}"]')
            echo "OUTFILE"
-#           aws s3 cp concordium-${{ matrix.node.env }}-node_${{ env.BASE_VERSION }}_amd64.deb \
+#           aws s3 cp concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb \
 #             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
 
@@ -544,8 +534,6 @@ jobs:
       fail-fast: false
       matrix:
         node: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
-        exclude:
-          - node.env: flynet
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
