@@ -387,43 +387,69 @@ jobs:
 #          aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${TAG}-unsigned.pkg \
 #            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
+  generate-matrix:
+    runs-on: ubuntu-latest
+    needs: [validate-preconditions]
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+
+      - name: Initialize Matrix with alpha environments
+        run: |
+          # Always include flynet and stagenet
+          MATRIX_JSON='[
+            {
+              "env": "stagenet",
+              "tld": "com",
+              "genesis_path": "stagenet/2024-09-12/genesis_data",
+              "grpc_port": 20500,
+              "listen_port": 9500
+            },
+            {
+              "env": "flynet",
+              "tld": "com",
+              "genesis_path": "flynet/2023-02-01/genesis_data",
+              "grpc_port": 20002,
+              "listen_port": 8890
+            }
+          ]'
+          echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
+
+      - name: Release candidate environments
+        if: needs.validate-preconditions.outputs.release_type == 'rc'
+        run: |
+          MATRIX_JSON=$(echo "$MATRIX_JSON" | jq '. + [
+            {
+              "env": "testnet",
+              "tld": "com",
+              "genesis_path": "testnet/2022-06-13/genesis_data",
+              "grpc_port": 20001,
+              "listen_port": 8889
+            },
+            {
+              "env": "mainnet",
+              "tld": "software",
+              "genesis_path": "mainnet/2021-06-09",
+              "grpc_port": 20000,
+              "listen_port": 8888
+            }
+          ]')
+          echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
+
+      - name: Output Matrix JSON
+        id: set-matrix
+        run: echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
   node-linux:
      runs-on: ubuntu-latest
      environment: release
-     needs: [ build-static-binaries, validate-preconditions ]
+     needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
      strategy:
        fail-fast: false
        matrix:
-         node:
-           - env: stagenet
-             tld: com
-             genesis_path: stagenet/2024-09-12/genesis_data
-             grpc_port: 20500
-             listen_port: 9500
-#           - env: testnet
-#             tld: com
-#             genesis_path: testnet/2022-06-13/genesis_data
-#             grpc_port: 20001
-#             listen_port: 8889
-#             exclude_from_release_type: alpha
-#           - env: mainnet
-#             tld: software
-#             genesis_path: mainnet/2021-06-09
-#             grpc_port: 20000
-#             listen_port: 8888
-#             exclude_from_release_type: alpha
-           - env: flynet
-             tld: com
-             genesis_path: flynet/2023-02-01/genesis_data
-             grpc_port: 20002
-             listen_port: 8890
-#         exclude:
-#           - node.env: mainnet
-#             node.exclude_from_release_type: ${{ needs.validate-preconditions.outputs.release_type }}
-#           - node.env: testnet
-#             node.exclude_from_release_type: ${{ needs.validate-preconditions.outputs.release_type }}
+         node: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
      steps:
        - name: Download artifact
          uses: actions/download-artifact@v4
