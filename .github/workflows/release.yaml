@@ -519,9 +519,9 @@ jobs:
            aws-region: "eu-west-1"
 
        - name: Trim version
-         run: echo "BASE_VERSION=${VERSION%%-*}" >> $GITHUB_ENV
          env:
            VERSION=${{ needs.validate-preconditions.outputs.version }}
+         run: echo "BASE_VERSION=${VERSION%%-*}" >> $GITHUB_ENV
 
        - name: Run Docker and Extract Artifacts
          run: |
@@ -539,7 +539,7 @@ jobs:
   docker-image:
     runs-on: ubuntu-latest
     environment: release
-    needs: [ build-static-binaries, validate-preconditions ]
+    needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
     strategy:
       fail-fast: false
       matrix:
