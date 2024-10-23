@@ -543,9 +543,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - env: stagenet
-            genesis_path: stagenet/2024-09-12/genesis_data
+        node: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+        exclude:
+          - node.env: flynet
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
@@ -578,7 +578,7 @@ jobs:
         with:
           context: .
           file: scripts/distribution/docker/builder.Dockerfile
-          tags: ${{ matrix.env }}-deb:${{ needs.validate-preconditions.outputs.version }}-dev
+          tags: ${{ matrix.node.env }}-deb:${{ needs.validate-preconditions.outputs.version }}-dev
           no-cache: true
           push: false
           ssh: |
@@ -587,7 +587,7 @@ jobs:
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             static_binaries_image_tag=${{ github.run_id }}
             genesis_ref=main
-            genesis_path=${{ matrix.genesis_path }}
-            image_name=${{ matrix.env }}-node
-            image_tag=${{ needs.validate-preconditions.outputs.version }}
-            environment=${{ matrix.env }}
+            genesis_path=${{ matrix.node.genesis_path }}
+            image_name=${{ matrix.node.env }}-node
+            image_tag=${{ needs.node.validate-preconditions.outputs.version }}
+            environment=${{ matrix.node.env }}
