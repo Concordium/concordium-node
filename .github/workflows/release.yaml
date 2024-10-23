@@ -396,8 +396,7 @@ jobs:
 
       - name: Initialize Matrix with alpha environments
         run: |
-          # Always include flynet and stagenet
-          MATRIX_JSON='[
+          MATRIX_JSON=$(echo '[
             {
               "env": "stagenet",
               "tld": "com",
@@ -412,13 +411,13 @@ jobs:
               "grpc_port": 20002,
               "listen_port": 8890
             }
-          ]'
+          ]' | jq -c)
           echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
 
       - name: Release candidate environments
         if: needs.validate-preconditions.outputs.release_type == 'rc'
         run: |
-          MATRIX_JSON=$(echo "$MATRIX_JSON" | jq '. + [
+          MATRIX_JSON=$(echo "$MATRIX_JSON" | jq -c '. + [
             {
               "env": "testnet",
               "tld": "com",
