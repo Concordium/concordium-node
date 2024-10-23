@@ -531,13 +531,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Checkout Genesis Repository
-        uses: actions/checkout@v4
-        with:
-          repository: 'Concordium/concordium-infra-genesis-data'
-          path: 'genesis'
-          ssh-key: ${{ secrets.GENESIS_DATA_KEY }}
-          ref: 'main'
+      - name: Setup SSH agent for Docker
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ env.GENESIS_DATA_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-add ~/.ssh/id_rsa
+        env:
+          GENESIS_DATA_KEY: ${{ secrets.GENESIS_DATA_KEY }}
 
       - name: Log in to the Container registry
         uses: docker/login-action@v3
@@ -554,6 +555,7 @@ jobs:
           tags: ${{ matrix.env }}-deb:${{ needs.validate-preconditions.outputs.version }}-dev
           no-cache: true
           push: false
+          ssh: default
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
             static_binaries_image_tag=${{ github.run_id }}
