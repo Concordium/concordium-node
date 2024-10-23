@@ -496,7 +496,7 @@ jobs:
 
        - name: Run Docker and Extract Artifacts
          run: |
-           id=$(docker create build-deb:${{ github.run_id }})
+           id=$(docker create static-node-binaries:${{ github.run_id }})
            docker cp $id:/out/concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.version }}_amd64.deb .
 
        - name: Publish
