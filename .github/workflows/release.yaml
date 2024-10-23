@@ -405,6 +405,13 @@ jobs:
               "genesis_path": "stagenet/2024-09-12/genesis_data",
               "grpc_port": 20500,
               "listen_port": 9500
+            },
+            {
+              "env": "flynet",
+              "tld": "com",
+              "genesis_path": "flynet/2023-02-01/genesis_data",
+              "grpc_port": 20002,
+              "listen_port": 8890
             }
           ]' | jq -c)
           echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
@@ -441,9 +448,11 @@ jobs:
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
      strategy:
-       fail-fast: false
        matrix:
          node: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+         exclude:
+           - node:
+               env: flynet
      steps:
        - name: Download artifact
          uses: actions/download-artifact@v4
@@ -515,7 +524,7 @@ jobs:
 
        - name: Run Docker and Extract Artifacts
          run: |
-           id=$(docker create static-node-binaries:${{ github.run_id }})
+           id=$(docker create ${{ matrix.node.env }}-deb)
            docker cp $id:/out/concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb .
 
        - name: Publish
@@ -531,7 +540,6 @@ jobs:
     environment: release
     needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
     strategy:
-      fail-fast: false
       matrix:
         node: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
     steps:
