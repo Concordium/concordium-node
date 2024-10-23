@@ -1,7 +1,5 @@
 name: Concordium node release
 
-
-
 on:
   push:
     branches:
@@ -30,7 +28,7 @@ env:
       \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/test/concordium-testnet-node_${VERSION}.deb\",
       \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/test/concordium-mainnet-node_${VERSION}.deb\",
       \"node-macos\": \"s3://distribution.mainnet.concordium.software/macos/test/concordium-node-${VERSION}.pkg\",
-      \"node-windows\": \"s3://distribution.mainnet.concordium.software/macos/test/concordium-node-${VERSION}.pkg\"
+      \"node-windows\": \"s3://distribution.mainnet.concordium.software/windows/test/concordium-node-${VERSION}.pkg\"
     }'
   REGISTRY: docker.io
 
@@ -496,7 +494,9 @@ jobs:
            aws-region: "eu-west-1"
 
        - name: Trim version
-         run: echo "BASE_VERSION=${${{ needs.validate-preconditions.outputs.version }}%%-*}" >> $GITHUB_ENV
+         run: echo "BASE_VERSION=${VERSION%%-*}" >> $GITHUB_ENV
+         env:
+           VERSION=${{ needs.validate-preconditions.outputs.version }}
 
        - name: Run Docker and Extract Artifacts
          run: |
@@ -509,6 +509,7 @@ jobs:
            echo "OUTFILE"
 #           aws s3 cp concordium-${{ matrix.node.env }}-node_${{ env.BASE_VERSION }}_amd64.deb \
 #             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+
 
   docker-image:
     runs-on: ubuntu-latest
@@ -535,7 +536,7 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Setup SSH agent for Docker
+      - name: Setup genesis deployment key
         run: |
           echo "${{ env.GENESIS_DATA_KEY }}" > id_rsa
           chmod 600 id_rsa
