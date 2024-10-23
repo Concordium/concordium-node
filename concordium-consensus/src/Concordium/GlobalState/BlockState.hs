@@ -1509,10 +1509,10 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- | Get whether a protocol update is effective
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
 
-    -- | Update the count of missed rounds for a given validator
+    -- | Update the count of missed rounds for given validators
     bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [(BakerId, Word16)] -> m (UpdatableBlockState m)
 
-    -- | Clear the missed round count for a given validator
+    -- | Clear the missed round count for given validators
     bsoClearMissedRounds :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [BakerId] -> m (UpdatableBlockState m)
 
     -- | A snapshot of the block state that can be used to roll back to a previous state.
