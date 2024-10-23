@@ -1,10 +1,10 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE NumericUnderscores #-}
 
 -- | Common functions for testing operations on the block state.
 module GlobalStateTests.BlockStateHelpers where
@@ -95,92 +95,92 @@ dummyBakerPoolInfo =
                 }
         }
 
- -- | Helper function for creating the initial stake for an account.
+-- \| Helper function for creating the initial stake for an account.
 makePersistentAccountStakeEnduring ::
-     forall m av.
-     (MonadBlobStore m, AVSupportsFlexibleCooldown av, AVSupportsDelegation av, IsAccountVersion av) =>
-     StakeDetails av ->
-     -- | The account index.
-     AccountIndex ->
-     -- | The 'SV1.PersistentAccountStakeEnduring' and the amount staked.
-     m (SV1.PersistentAccountStakeEnduring av, Amount)
+    forall m av.
+    (MonadBlobStore m, AVSupportsFlexibleCooldown av, AVSupportsDelegation av, IsAccountVersion av) =>
+    StakeDetails av ->
+    -- | The account index.
+    AccountIndex ->
+    -- | The 'SV1.PersistentAccountStakeEnduring' and the amount staked.
+    m (SV1.PersistentAccountStakeEnduring av, Amount)
 makePersistentAccountStakeEnduring StakeDetailsNone _ = return (SV1.PersistentAccountStakeEnduringNone, 0)
 makePersistentAccountStakeEnduring StakeDetailsBaker{..} ai = do
-     let fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
-     paseBakerInfo <-
-         refMake
-             BakerInfoExV1
-                 { _bieBakerInfo = fulBaker ^. bakerInfo,
-                   _bieBakerPoolInfo = poolInfo,
-                   _bieAccountIsSuspended = conditionally hasValidatorSuspension False
-                 }
-     return
-         ( SV1.PersistentAccountStakeEnduringBaker
-             { paseBakerRestakeEarnings = sdRestakeEarnings,
-               paseBakerPendingChange = NoChange,
-               ..
-             },
-           sdStakedCapital
-         )
-   where
-     poolInfo =
-         BakerPoolInfo
-             { _poolOpenStatus = OpenForAll,
-               _poolMetadataUrl = UrlText "Some URL",
-               _poolCommissionRates =
-                 CommissionRates
-                     { _finalizationCommission = makeAmountFraction 50_000,
-                       _bakingCommission = makeAmountFraction 50_000,
-                       _transactionCommission = makeAmountFraction 50_000
-                     }
-             }
-     hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
+    let fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
+    paseBakerInfo <-
+        refMake
+            BakerInfoExV1
+                { _bieBakerInfo = fulBaker ^. bakerInfo,
+                  _bieBakerPoolInfo = poolInfo,
+                  _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+                }
+    return
+        ( SV1.PersistentAccountStakeEnduringBaker
+            { paseBakerRestakeEarnings = sdRestakeEarnings,
+              paseBakerPendingChange = NoChange,
+              ..
+            },
+          sdStakedCapital
+        )
+  where
+    poolInfo =
+        BakerPoolInfo
+            { _poolOpenStatus = OpenForAll,
+              _poolMetadataUrl = UrlText "Some URL",
+              _poolCommissionRates =
+                CommissionRates
+                    { _finalizationCommission = makeAmountFraction 50_000,
+                      _bakingCommission = makeAmountFraction 50_000,
+                      _transactionCommission = makeAmountFraction 50_000
+                    }
+            }
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
 makePersistentAccountStakeEnduring StakeDetailsDelegator{..} ai = do
-     return
-         ( SV1.PersistentAccountStakeEnduringDelegator
-             { paseDelegatorId = DelegatorId ai,
-               paseDelegatorRestakeEarnings = sdRestakeEarnings,
-               paseDelegatorTarget = sdDelegationTarget,
-               paseDelegatorPendingChange = NoChange
-             },
-           sdStakedCapital
-         )
- 
- -- | Set the staking details for an account.
+    return
+        ( SV1.PersistentAccountStakeEnduringDelegator
+            { paseDelegatorId = DelegatorId ai,
+              paseDelegatorRestakeEarnings = sdRestakeEarnings,
+              paseDelegatorTarget = sdDelegationTarget,
+              paseDelegatorPendingChange = NoChange
+            },
+          sdStakedCapital
+        )
+
+-- \| Set the staking details for an account.
 setAccountStakeDetails ::
-     forall av m.
-     (MonadBlobStore m, AVSupportsDelegation av, IsAccountVersion av) =>
-     AccountIndex ->
-     -- | The 'StakeDetails' for the account.
-     StakeDetails av ->
-     Maybe BakerPoolInfo ->
-     PersistentAccount av ->
-     m (PersistentAccount av)
+    forall av m.
+    (MonadBlobStore m, AVSupportsDelegation av, IsAccountVersion av) =>
+    AccountIndex ->
+    -- | The 'StakeDetails' for the account.
+    StakeDetails av ->
+    Maybe BakerPoolInfo ->
+    PersistentAccount av ->
+    m (PersistentAccount av)
 setAccountStakeDetails _ StakeDetailsNone _ acc = return acc
 setAccountStakeDetails ai StakeDetailsBaker{..} mPoolInfo acc =
-     setAccountStakePendingChange sdPendingChange
-         =<< addAccountBakerV1 bie sdStakedCapital sdRestakeEarnings acc
-   where
-     bie =
-         BakerInfoExV1
-             { _bieBakerInfo = fulBaker ^. bakerInfo,
-               _bieBakerPoolInfo = poolInfo,
-               _bieAccountIsSuspended = conditionally hasValidatorSuspension False
-             }
-     fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
-     poolInfo = fromMaybe dummyBakerPoolInfo mPoolInfo
-     hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
+    setAccountStakePendingChange sdPendingChange
+        =<< addAccountBakerV1 bie sdStakedCapital sdRestakeEarnings acc
+  where
+    bie =
+        BakerInfoExV1
+            { _bieBakerInfo = fulBaker ^. bakerInfo,
+              _bieBakerPoolInfo = poolInfo,
+              _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+            }
+    fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
+    poolInfo = fromMaybe dummyBakerPoolInfo mPoolInfo
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
 setAccountStakeDetails ai StakeDetailsDelegator{..} _ acc =
-     setAccountStakePendingChange sdPendingChange =<< addAccountDelegator del acc
-   where
-     del =
-         AccountDelegationV1
-             { _delegationTarget = sdDelegationTarget,
-               _delegationStakedAmount = sdStakedCapital,
-               _delegationStakeEarnings = sdRestakeEarnings,
-               _delegationPendingChange = NoChange,
-               _delegationIdentity = DelegatorId ai
-             }
+    setAccountStakePendingChange sdPendingChange =<< addAccountDelegator del acc
+  where
+    del =
+        AccountDelegationV1
+            { _delegationTarget = sdDelegationTarget,
+              _delegationStakedAmount = sdStakedCapital,
+              _delegationStakeEarnings = sdRestakeEarnings,
+              _delegationPendingChange = NoChange,
+              _delegationIdentity = DelegatorId ai
+            }
 
 -- | Create a dummy 'PersistentAccount' from an 'AccountConfig'.
 makeDummyAccount ::

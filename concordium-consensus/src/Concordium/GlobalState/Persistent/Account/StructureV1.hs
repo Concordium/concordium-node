@@ -8,7 +8,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE UndecidableInstances #-}
 -- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -38,7 +37,6 @@ import Concordium.Logger
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
-import Concordium.Types.Conditionally
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
@@ -1224,23 +1222,6 @@ getCooldowns =
         EmptyCooldownQueue -> return Nothing
         CooldownQueue ref -> Just <$> refLoad ref
 
-getIsSuspended ::
-    ( MonadBlobStore m,
-      IsAccountVersion av,
-      AVSupportsValidatorSuspension av
-    ) =>
-    PersistentAccount av ->
-    m Bool
-getIsSuspended acc = do
-    let stake = paedStake $ enduringData acc
-    case stake of
-        PersistentAccountStakeEnduringNone -> return False
-        PersistentAccountStakeEnduringDelegator{} -> return False
-        PersistentAccountStakeEnduringBaker{..} -> do
-            bie <- refLoad paseBakerInfo
-            case _bieAccountIsSuspended bie of
-                CTrue b -> return b
-
 -- ** Updates
 
 -- | Apply account updates to an account. It is assumed that the address in
@@ -1486,9 +1467,7 @@ setBakerKeys upd = updateStake $ \case
 --  This MUST only be called with an account that is either a baker or delegator.
 --  This does no check that the staked amount is sensible, and has no effect on pending changes.
 setStake ::
-    ( Monad m,
-      AccountStructureVersionFor av ~ 'AccountStructureV1
-    ) =>
+    (Monad m) =>
     Amount ->
     PersistentAccount av ->
     m (PersistentAccount av)

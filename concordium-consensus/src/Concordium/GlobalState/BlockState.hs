@@ -253,9 +253,6 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
         Account m ->
         m (Maybe Cooldowns)
 
-    -- | Get the suspended flag for an account, if any.
-    getAccountIsSuspended :: Account m -> m Bool
-
 -- * Active, current and next bakers/delegators
 
 --
@@ -1726,7 +1723,6 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     derefBakerInfo = lift . derefBakerInfo
     getAccountHash = lift . getAccountHash
     getAccountCooldowns = lift . getAccountCooldowns
-    getAccountIsSuspended = lift . getAccountIsSuspended
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1742,7 +1738,6 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE derefBakerInfo #-}
     {-# INLINE getAccountHash #-}
     {-# INLINE getAccountCooldowns #-}
-    {-# INLINE getAccountIsSuspended #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState

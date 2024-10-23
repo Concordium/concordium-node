@@ -320,16 +320,6 @@ accountHasPrePreCooldown = fmap check . accountCooldowns
   where
     check = maybe False (not . null . prePreCooldown)
 
-accountIsSuspended ::
-    (MonadBlobStore m) =>
-    PersistentAccount av ->
-    m Bool
-accountIsSuspended (PAV0 _acc) = return False
-accountIsSuspended (PAV1 _acc) = return False
-accountIsSuspended (PAV2 _acc) = return False
-accountIsSuspended (PAV3 _acc) = return False
-accountIsSuspended (PAV4 acc) = V1.getIsSuspended acc
-
 -- | Get the 'AccountHash' for the account.
 accountHash :: (MonadBlobStore m) => PersistentAccount av -> m (AccountHash av)
 accountHash (PAV0 acc) = getHashM acc
