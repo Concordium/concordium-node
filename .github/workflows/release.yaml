@@ -68,11 +68,12 @@ jobs:
           fi
           echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
-          echo "VERSION=${VERSION}-${BUILD}" >> "$GITHUB_ENV"
 
       - name: Construct S3_OBJECTS from template
         id: s3_objects
-        run: echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
+        run: |
+          export VERSION=${{ steps.versions_derivation.outputs.version }}
+          echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
 
       - name: Use the S3 objects defined as environment variable
         run: |
@@ -494,16 +495,19 @@ jobs:
            role-session-name: ${{ env.PROJECT_NAME }}Session
            aws-region: "eu-west-1"
 
+       - name: Trim version
+         run: echo "BASE_VERSION=${${{ needs.validate-preconditions.outputs.version }}%%-*}" >> $GITHUB_ENV
+
        - name: Run Docker and Extract Artifacts
          run: |
            id=$(docker create static-node-binaries:${{ github.run_id }})
-           docker cp $id:/out/concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.version }}_amd64.deb .
+           docker cp $id:/out/concordium-${{ matrix.node.env }}-node_${{ env.BASE_VERSION }}_amd64.deb .
 
        - name: Publish
          run: |
            OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ env.PROJECT_NAME }}"]')
            echo "OUTFILE"
-#           aws s3 cp concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.version }}_amd64.deb \
+#           aws s3 cp concordium-${{ matrix.node.env }}-node_${{ env.BASE_VERSION }}_amd64.deb \
 #             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   docker-image:
@@ -536,6 +540,7 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ env.GENESIS_DATA_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          eval $(ssh-agent)
           ssh-add ~/.ssh/id_rsa
         env:
           GENESIS_DATA_KEY: ${{ secrets.GENESIS_DATA_KEY }}
