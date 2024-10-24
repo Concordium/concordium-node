@@ -32,6 +32,7 @@ instance Serialize BakerPoolRewardDetails where
         putWord64be blockCount
         put transactionFeesAccrued
         putBool finalizationAwake
+        putWord16be missedRounds
 
     get = BakerPoolRewardDetails <$> getWord64be <*> get <*> getBool <*> getWord16be
 
