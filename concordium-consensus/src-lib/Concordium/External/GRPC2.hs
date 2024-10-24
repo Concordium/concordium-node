@@ -322,7 +322,7 @@ getConsensusDetailedStatusV2 ::
     -- | Genesis index
     Word32 ->
     Ptr ReceiverVec ->
-    FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
+    FunPtr CopyToVecCallback ->
     IO Int64
 getConsensusDetailedStatusV2 cptr explicitGenesisIndex genesisIndex outVec copierCbk = do
     Ext.ConsensusRunner mvr <- deRefStablePtr cptr
