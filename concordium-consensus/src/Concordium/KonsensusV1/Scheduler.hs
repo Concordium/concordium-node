@@ -9,7 +9,9 @@ module Concordium.KonsensusV1.Scheduler where
 import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.Map as Map
+import Data.Maybe
 import Data.Time
+import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Logger
@@ -78,7 +80,11 @@ data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
       -- | The block baker and QC signatories.
       bedParticipatingBakers :: ParticipatingBakers,
       -- | The block state of the parent block.
-      bedParentState :: PBS.HashedPersistentBlockState pv
+      bedParentState :: PBS.HashedPersistentBlockState pv,
+      -- | Number of rounds a validator has missed (e.g. the validator was
+      --   elected leader but a timeout certificate exist for the round) since the parent
+      --   block.
+      bedMissedRounds :: [(BakerId, Word16)]
     }
 
 -- | Details of the transactions in a block that are used for computing rewards that accrue to the
@@ -302,9 +308,14 @@ executeBlockPrologue BlockExecutionData{..} = do
     (mPaydayParms, theState4) <- doEpochTransition bedIsNewEpoch bedEpochDuration theState3
     -- update the seed state using the block time and block nonce
     theState5 <- doUpdateSeedStateForBlock bedTimestamp bedBlockNonce theState4
+    -- update the missed rounds count for each active baker
+    theState6 <-
+        if isJust mPaydayParms
+            then bsoClearMissedRounds theState5 activeBakers
+            else bsoUpdateMissedRounds theState5 bedMissedRounds
     return
         PrologueResult
-            { prologueBlockState = theState5,
+            { prologueBlockState = theState6,
               prologuePaydayParameters = mPaydayParms
             }
 

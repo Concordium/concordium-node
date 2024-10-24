@@ -16,9 +16,11 @@ import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Maybe
 import Data.Function
+import Data.List (group)
 import Data.Ord
 import Data.Time
 import qualified Data.Vector as Vector
+import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Logger
@@ -722,6 +724,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             rejectBlock
         | otherwise = continue
     checkBlockExecution GenesisMetadata{..} parentBF continue = do
+        missedRounds <- computeMissedRounds (blockTimeoutCertificate pendingBlock) parent (blockRound pendingBlock)
         let execData =
                 BlockExecutionData
                     { bedIsNewEpoch = blockEpoch pendingBlock == blockEpoch parent + 1,
@@ -736,7 +739,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 quorumCertificateSigningBakers
                                     (_bfFinalizers parentBF)
                                     (blockQuorumCertificate pendingBlock)
-                            }
+                            },
+                      bedMissedRounds = missedRounds
                     }
         processBlockItems (sbBlock (pbBlock pendingBlock)) parent >>= \case
             Nothing -> do
@@ -1204,6 +1208,7 @@ bakeBlock BakeBlockInputs{..} = do
         gets (getBakersForEpoch (qcEpoch bbiQuorumCertificate)) <&> \case
             Nothing -> error "Invariant violation: could not determine bakers for QC epoch."
             Just bakers -> quorumCertificateSigningBakers (bakers ^. bfFinalizers) bbiQuorumCertificate
+    missedRounds <- computeMissedRounds bbiTimeoutCertificate bbiParent bbiRound
     let executionData =
             BlockExecutionData
                 { bedIsNewEpoch = isPresent bbiEpochFinalizationEntry,
@@ -1215,7 +1220,8 @@ bakeBlock BakeBlockInputs{..} = do
                     ParticipatingBakers
                         { pbBlockBaker = bakerId bbiBakerIdentity,
                           pbQCSignatories = signatories
-                        }
+                        },
+                  bedMissedRounds = missedRounds
                 }
     runtime <- use runtimeParameters
     tt <- use transactionTable
@@ -1371,3 +1377,28 @@ makeBlock = do
             void . onTimeout (DelayUntil . timestampToUTCTime $ blockTimestamp block) $ do
                 sendBlock block
                 checkedValidateBlock block
+
+-- | Compute the missed rounds for each validator. Starts from the given parent
+--   block up to (not including) the given final round.
+computeMissedRounds ::
+    forall m.
+    (BlockState m ~ HashedPersistentBlockState (MPV m), BlockStateQuery m) =>
+    Option TimeoutCertificate ->
+    BlockPointer (MPV m) ->
+    Round ->
+    m [(BakerId, Word16)]
+computeMissedRounds tc _parent _rnd | isAbsent tc = return []
+computeMissedRounds _tc parent rnd = do
+    let parentBlockState = bpState parent
+    validators <- getCurrentEpochBakers parentBlockState
+    seedState <- getSeedState parentBlockState
+    let missedRoundsValidators =
+            let beginRound = blockRound parent
+                endRound = rnd - 1
+                leNonce = seedState ^. currentLeadershipElectionNonce
+            in  [ winner ^. bakerIdentity
+                  | r <- [beginRound .. endRound],
+                    let winner = getLeaderFullBakers validators leNonce r
+                ]
+    let missedRounds = [(head g, fromIntegral $ length g) | g <- group missedRoundsValidators]
+    return missedRounds
