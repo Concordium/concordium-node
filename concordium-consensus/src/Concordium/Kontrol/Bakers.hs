@@ -169,7 +169,7 @@ data BakerStakesAndCapital m = BakerStakesAndCapital
     { -- | The baker info and stake for each baker.
       bakerStakes :: [(BakerInfoRef m, Amount)],
       -- | Determine the capital distribution.
-      capitalDistributionM :: m CapitalDistribution
+      capitalDistribution :: CapitalDistribution
     }
 
 -- | Compute the baker stakes and capital distribution.
@@ -190,26 +190,26 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
     capLimit = takeFraction (theCapitalBound capitalBound) totalCapital
     makeBakerStake ActiveBakerInfo{..} poolCap =
         ( activeBakerInfoRef,
-          minimum
-            [ poolCap,
-              applyLeverageFactor leverage activeBakerEquityCapital,
-              capLimit
-            ]
+          if activeBakerIsSuspended
+            then 0
+            else
+                minimum
+                    [ poolCap,
+                      applyLeverageFactor leverage activeBakerEquityCapital,
+                      capLimit
+                    ]
         )
     bakerStakes = zipWith makeBakerStake activeBakers poolCapitals
     delegatorCapital ActiveDelegatorInfo{..} = DelegatorCapital activeDelegatorId activeDelegatorStake
-    bakerCapital ActiveBakerInfo{..} = do
-        bid <- _bakerIdentity <$> derefBakerInfo activeBakerInfoRef
-        return
-            BakerCapital
-                { bcBakerId = bid,
-                  bcBakerEquityCapital = activeBakerEquityCapital,
-                  bcDelegatorCapital = Vec.fromList $ delegatorCapital <$> activeBakerDelegators
-                }
-    capitalDistributionM = do
-        bakerPoolCapital <- Vec.fromList <$> mapM bakerCapital activeBakers
-        let passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
-        return CapitalDistribution{..}
+    bakerCapital ActiveBakerInfo{..} =
+        BakerCapital
+            { bcBakerId = activeBakerId,
+              bcBakerEquityCapital = activeBakerEquityCapital,
+              bcDelegatorCapital = Vec.fromList $ delegatorCapital <$> activeBakerDelegators
+            }
+    bakerPoolCapital = Vec.fromList $ bakerCapital <$> activeBakers
+    passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
+    capitalDistribution = CapitalDistribution{..}
 
 -- | Generate and set the next epoch bakers and next capital based on the current active bakers.
 generateNextBakers ::
@@ -239,13 +239,12 @@ generateNextBakers paydayEpoch bs0 = do
     -- are no blocks in this epoch, 'getSlotBakersP4' does not apply any updates.)
     cps <- bsoGetChainParameters bs0
     let BakerStakesAndCapital{..} =
-            computeBakerStakesAndCapital
+            computeBakerStakesAndCapital @m
                 (cps ^. cpPoolParameters)
                 activeBakers
                 passiveDelegators
     bs1 <- bsoSetNextEpochBakers bs0 bakerStakes NoParam
-    capDist <- capitalDistributionM
-    bsoSetNextCapitalDistribution bs1 capDist
+    bsoSetNextCapitalDistribution bs1 capitalDistribution
 
 -- | Compute the epoch of the last payday at or before the given epoch.
 --  This accounts for changes to the reward period length.
