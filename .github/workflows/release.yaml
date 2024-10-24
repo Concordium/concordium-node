@@ -12,7 +12,7 @@ env:
   UBUNTU_VERSION: '20.04'
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   RUST_VERSION: '1.73'
-  VERSION_TAG: '7.0.5-1-alpha'
+  VERSION_TAG: '7.0.5-1-rc'
   STACK_VERSION: '2.13.1'
   FLATBUFFERS_VERSION: '23.5.26'
   GHC_VERSION: '9.6.4'
@@ -450,9 +450,6 @@ jobs:
      strategy:
        matrix:
          node: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
-         exclude:
-           - node:
-               env: flynet
      steps:
        - name: Download artifact
          uses: actions/download-artifact@v4
@@ -542,6 +539,9 @@ jobs:
     strategy:
       matrix:
         node: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+        exclude:
+          - node:
+              env: flynet
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
