@@ -20,7 +20,7 @@ env:
   PROTOC_VERSION: '25.2'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
-  S3_OBJECTS_TEMPLATE: '{
+  S3_ARN_TEMPLATES: '{
       \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\",
       \"p2p-bootstrapper\": \"s3://distribution.concordium.software/tools/linux/test/p2p-bootstrapper_${VERSION}.deb\",
       \"node-stagenet-linux\": \"s3://distribution.stagenet.concordium.com/deb/test/concordium-stagenet-node_${VERSION}.deb\",
@@ -29,6 +29,11 @@ env:
       \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/test/concordium-mainnet-node_${VERSION}.deb\",
       \"node-macos\": \"s3://distribution.concordium.software/macos/test/concordium-node-${VERSION}.pkg\",
       \"node-windows\": \"s3://distribution.concordium.software/windows/test/Node-${VERSION}.msi\"
+    }'
+  DOCKER_TAGS_TEMPLATES: '{
+      \"docker-stagenet\": \"concordium/stagenet-node:${VERSION}-dev\",
+      \"docker-testnet\": \"concordium/testnet-node:${VERSION}-dev\",
+      \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}-dev\"
     }'
   REGISTRY: docker.io
 
@@ -41,7 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     outputs:
-      s3_objects: ${{ steps.s3_objects.outputs.s3_objects }}
+      s3_arns: ${{ steps.render.outputs.s3_arns }}
+      docker_repository_names: ${{ steps.render.outputs. }}
       release_type: ${{ steps.versions_derivation.outputs.release_type }}
       base_version: ${{ steps.versions_derivation.outputs.base_version }}
       version: ${{ steps.versions_derivation.outputs.version }}
@@ -69,16 +75,17 @@ jobs:
           echo "version=${VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
           echo "base_version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Construct S3_OBJECTS from template
-        id: s3_objects
+      - name: Templates rendering
+        id: render
         run: |
-          export VERSION=${{ steps.versions_derivation.outputs.version }}
-          echo "s3_objects=${{ env.S3_OBJECTS_TEMPLATE }}" >> $GITHUB_OUTPUT
+          export VERSION="${{ steps.versions_derivation.outputs.version }}"
+          echo "s3_arns=${{ env.S3_ARN_TEMPLATES }}" >> $GITHUB_OUTPUT
+          echo "docker_tags=${{ env.DOCKER_TAGS_TEMPLATES }}" >> $GITHUB_OUTPUT
 
-      - name: Use the S3 objects defined as environment variable
+      - name: Validate whether s3 artifacts are not existing
         run: |
           set +e
-          echo '${{ steps.s3_objects.outputs.s3_objects }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
+          echo '${{ steps.render.outputs.s3_arns }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
             echo "Checking for object at: $ARN"
             S3_OUTPUT=$(aws s3 ls "$ARN" --summarize 2>&1)
             EXIT_CODE=$?
@@ -90,6 +97,15 @@ jobs:
             else
               echo "Unexpected exit code: $EXIT_CODE for $ARN."
               echo "$S3_OUTPUT"
+              exit 1
+            fi
+          done
+      - name: Validate whether docker tags are not existing
+        run: |
+          echo '${{ steps.render.outputs.docker_tags }}' | jq -r '. | to_entries[] | .value' | while read -r TAG; do
+            echo "Checking for object at: $TAG"
+            if docker manifest inspect $TAG > /dev/null; then
+              echo "::error $TAG already exists"
               exit 1
             fi
           done
@@ -177,7 +193,7 @@ jobs:
 
       - name: Publish
         run: |
-          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
+          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"]')
           aws s3 cp "${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
@@ -242,7 +258,7 @@ jobs:
 
       - name: Publish
         run: |
-          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
+          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"]')
           aws s3 cp "${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
@@ -324,7 +340,7 @@ jobs:
       - name: Publish
         shell: bash
         run: |
-          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
+          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"]')
           aws s3 cp ./service/windows/installer/Node.msi \
             "$OUTFILE" --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
@@ -380,7 +396,7 @@ jobs:
 
       - name: Publish
         run: |
-          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
+          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"]')
           aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}-unsigned.pkg \
             "$OUTFILE" --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
@@ -522,7 +538,7 @@ jobs:
 
        - name: Publish
          run: |
-           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ env.PROJECT_NAME }}"]')
+           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ env.PROJECT_NAME }}"]')
            aws s3 cp concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb \
              "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
@@ -564,12 +580,15 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN }}
 
+      - name: Set tag
+        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["docker-${{ matrix.env }}"]')"
+
       - name: Build Docker Image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: scripts/distribution/docker/builder.Dockerfile
-          tags: concordium/${{ matrix.node.env }}-node:${{ needs.validate-preconditions.outputs.version }}-dev
+          tags: ${{ env.TAG }}
           no-cache: true
           push: true
           ssh: |
