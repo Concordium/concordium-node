@@ -52,10 +52,17 @@ source "$HOME/.cargo/env"
 rustup set profile minimal
 rustup default "$RUST_TOOLCHAIN_VERSION"
 
-# Install flatbuffers.
+ASSETS_URL="https://github.com/google/flatbuffers/releases/expanded_assets/v${FLATBUFFERS_VERSION}"
+GCC_VERSION=$(curl -s "$ASSETS_URL" | grep -oP 'Linux\.flatc\.binary\.g\+\+\-\K[0-9]+' | head -n 1)
+if [ -z "$GCC_VERSION" ]; then
+  echo "Could not determine GCC version."
+  exit 1
+else
+  echo "Derived GCC version: $GCC_VERSION"
+fi
 
-curl -L "https://github.com/google/flatbuffers/releases/download/v${FLATBUFFERS_VERSION}/Linux.flatc.binary.g++-10.zip" -O
-unzip Linux.flatc.binary.g++-10.zip -d /usr/bin
+curl -L "https://github.com/google/flatbuffers/releases/download/v${FLATBUFFERS_VERSION}/Linux.flatc.binary.g++-${GCC_VERSION}.zip" -O
+unzip "Linux.flatc.binary.g++-${GCC_VERSION}.zip" -d /usr/bin
 
 # Build all the binaries and copy them to ./bin/
 # This requires an up-to-date lockfile which should be committed to the repository.

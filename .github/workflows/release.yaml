@@ -136,7 +136,6 @@ jobs:
   database-exporter:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest
-    if: false
     environment: release
     steps:
       - name: Checkout Repository
@@ -178,14 +177,12 @@ jobs:
       - name: Publish
         run: |
           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
-          echo $OUTFILE
-#          aws s3 cp "${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
-#            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+          aws s3 cp "${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
+            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   p2p-bootstrapper:
     runs-on: ubuntu-latest
     environment: release
-    if: false
     needs: [build-static-binaries, validate-preconditions]
     steps:
       - name: Download artifact
@@ -244,15 +241,13 @@ jobs:
       - name: Publish
         run: |
           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
-          echo "$OUTFILE"
-#          aws s3 cp "${{ env.PROJECT_NAME }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
-#            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+          aws s3 cp "${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
+            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   node-windows:
     runs-on: windows-latest
     needs: [validate-preconditions]
     environment: release
-    if: false
     defaults:
       run:
         shell: pwsh
@@ -328,15 +323,13 @@ jobs:
         shell: bash
         run: |
           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
-          echo "$OUTFILE"
-#          aws s3 cp ./service/windows/installer/Node.msi \
-#            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+          aws s3 cp ./service/windows/installer/Node.msi \
+            "$OUTFILE" --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
     environment: release
-    if: false
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -385,9 +378,8 @@ jobs:
       - name: Publish
         run: |
           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ github.job }}"]')
-          echo "$OUTFILE"
-#          aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${TAG}-unsigned.pkg \
-#            $OUTFILE --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+          aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}-unsigned.pkg \
+            "$OUTFILE" --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   generate-matrix:
     runs-on: ubuntu-latest
@@ -527,9 +519,8 @@ jobs:
        - name: Publish
          run: |
            OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_objects }}' | jq -r '.["${{ env.PROJECT_NAME }}"]')
-           echo "OUTFILE"
-#           aws s3 cp concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb \
-#             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
+           aws s3 cp concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb \
+             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
 
   docker-image:
@@ -574,9 +565,8 @@ jobs:
         with:
           context: .
           file: scripts/distribution/docker/builder.Dockerfile
-          tags: ${{ matrix.node.env }}-deb:${{ needs.validate-preconditions.outputs.version }}-dev
+          tags: concordium/${{ matrix.node.env }}-node:${{ needs.validate-preconditions.outputs.version }}-dev
           no-cache: true
-          push: false
           ssh: |
             default=./id_rsa
           build-args: |
@@ -584,6 +574,4 @@ jobs:
             static_binaries_image_tag=${{ github.run_id }}
             genesis_ref=main
             genesis_path=${{ matrix.node.genesis_path }}
-            image_name=${{ matrix.node.env }}-node
-            image_tag=${{ needs.node.validate-preconditions.outputs.version }}
             environment=${{ matrix.node.env }}
