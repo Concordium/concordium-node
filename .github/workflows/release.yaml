@@ -27,8 +27,8 @@ env:
       \"node-flynet-linux\": \"s3://distribution.flynet.concordium.com/deb/test/concordium-flynet-node_${VERSION}.deb\",
       \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/test/concordium-testnet-node_${VERSION}.deb\",
       \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/test/concordium-mainnet-node_${VERSION}.deb\",
-      \"node-macos\": \"s3://distribution.mainnet.concordium.software/macos/test/concordium-node-${VERSION}.pkg\",
-      \"node-windows\": \"s3://distribution.mainnet.concordium.software/windows/test/concordium-node-${VERSION}.pkg\"
+      \"node-macos\": \"s3://distribution.concordium.software/macos/test/concordium-node-${VERSION}.pkg\",
+      \"node-windows\": \"s3://distribution.concordium.software/windows/test/Node-${VERSION}.msi\"
     }'
   REGISTRY: docker.io
 
@@ -136,6 +136,7 @@ jobs:
   database-exporter:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest
+    if: false
     environment: release
     steps:
       - name: Checkout Repository
@@ -183,6 +184,7 @@ jobs:
   p2p-bootstrapper:
     runs-on: ubuntu-latest
     environment: release
+    if: false
     needs: [build-static-binaries, validate-preconditions]
     steps:
       - name: Download artifact
@@ -329,6 +331,7 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
+    if: false
     environment: release
     steps:
       - name: Checkout Repository
@@ -436,6 +439,7 @@ jobs:
   node-linux:
      runs-on: ubuntu-latest
      environment: release
+     if: false
      needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
@@ -567,6 +571,7 @@ jobs:
           file: scripts/distribution/docker/builder.Dockerfile
           tags: concordium/${{ matrix.node.env }}-node:${{ needs.validate-preconditions.outputs.version }}-dev
           no-cache: true
+          push: true
           ssh: |
             default=./id_rsa
           build-args: |
