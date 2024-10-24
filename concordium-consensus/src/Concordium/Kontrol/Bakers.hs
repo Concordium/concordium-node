@@ -10,6 +10,7 @@
 -- | Functionality for handling baker changes based on epoch boundaries.
 module Concordium.Kontrol.Bakers where
 
+import Control.Monad
 import Data.Maybe
 import Data.Monoid
 import qualified Data.Vector as Vec
@@ -17,6 +18,7 @@ import Lens.Micro.Platform
 
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Conditionally
 import Concordium.Types.Parameters
 import Concordium.Types.SeedState
 import Concordium.Types.UpdateQueues
@@ -167,7 +169,7 @@ effectiveTest' genData paydayEpoch = (<= paydayEpochTime)
 --  constructing them together can avoid unnecessary duplication of work.
 data BakerStakesAndCapital m = BakerStakesAndCapital
     { -- | The baker info and stake for each baker.
-      bakerStakes :: [(BakerInfoRef m, Amount)],
+      bakerStakesM :: [(BakerInfoRef m, m Amount)],
       -- | Determine the capital distribution.
       capitalDistributionM :: m CapitalDistribution
     }
@@ -190,13 +192,19 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
     capLimit = takeFraction (theCapitalBound capitalBound) totalCapital
     makeBakerStake ActiveBakerInfo{..} poolCap =
         ( activeBakerInfoRef,
-          minimum
-            [ poolCap,
-              applyLeverageFactor leverage activeBakerEquityCapital,
-              capLimit
-            ]
+          do
+            bakerEx <- derefBakerInfoEx activeBakerInfoRef
+            return $
+                if fromCondDef (_bieAccountIsSuspended bakerEx) False
+                    then 0
+                    else
+                        minimum
+                            [ poolCap,
+                              applyLeverageFactor leverage activeBakerEquityCapital,
+                              capLimit
+                            ]
         )
-    bakerStakes = zipWith makeBakerStake activeBakers poolCapitals
+    bakerStakesM = zipWith makeBakerStake activeBakers poolCapitals
     delegatorCapital ActiveDelegatorInfo{..} = DelegatorCapital activeDelegatorId activeDelegatorStake
     bakerCapital ActiveBakerInfo{..} = do
         bid <- _bakerIdentity <$> derefBakerInfo activeBakerInfoRef
@@ -243,6 +251,9 @@ generateNextBakers paydayEpoch bs0 = do
                 (cps ^. cpPoolParameters)
                 activeBakers
                 passiveDelegators
+    bakerStakes <- forM bakerStakesM $ \(biRef, amountM) -> do
+        amount <- amountM
+        return (biRef, amount)
     bs1 <- bsoSetNextEpochBakers bs0 bakerStakes NoParam
     capDist <- capitalDistributionM
     bsoSetNextCapitalDistribution bs1 capDist
@@ -396,7 +407,10 @@ getSlotBakersP4 genData bs slot =
                             let mkFullBaker (biRef, _bakerStake) = do
                                     _theBakerInfo <- derefBakerInfo biRef
                                     return FullBakerInfo{..}
-                            fullBakerInfos <- mapM mkFullBaker (Vec.fromList $ bakerStakes bsc)
+                            bakerStakes <- forM (bakerStakesM bsc) $ \(biRef, amountM) -> do
+                                amount <- amountM
+                                return (biRef, amount)
+                            fullBakerInfos <- mapM mkFullBaker (Vec.fromList bakerStakes)
                             let bakerTotalStake = sum $ _bakerStake <$> fullBakerInfos
                             return FullBakers{..}
 

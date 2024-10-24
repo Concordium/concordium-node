@@ -240,7 +240,9 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     getAccountStake :: Account m -> m (AccountStake (AccountVersionFor (MPV m)))
 
     -- | Dereference a 'BakerInfoRef' to a 'BakerInfo'.
-    derefBakerInfo :: BakerInfoRef m -> m BakerInfo
+    derefBakerInfo :: BakerInfoRef m -> m (BakerInfo)
+
+    derefBakerInfoEx :: BakerInfoRef m -> m (BakerInfoEx (AccountVersionFor (MPV m)))
 
     -- | Get the hash of an account.
     --  Note: this may not be implemented efficiently, and is principally intended for testing purposes.
@@ -1713,6 +1715,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountStake = lift . getAccountStake
     getAccountBakerInfoRef = lift . getAccountBakerInfoRef
     derefBakerInfo = lift . derefBakerInfo
+    derefBakerInfoEx = lift . derefBakerInfoEx
     getAccountHash = lift . getAccountHash
     getAccountCooldowns = lift . getAccountCooldowns
     {-# INLINE getAccountCanonicalAddress #-}
@@ -1728,6 +1731,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE getAccountStake #-}
     {-# INLINE getAccountBakerInfoRef #-}
     {-# INLINE derefBakerInfo #-}
+    {-# INLINE derefBakerInfoEx #-}
     {-# INLINE getAccountHash #-}
     {-# INLINE getAccountCooldowns #-}
 

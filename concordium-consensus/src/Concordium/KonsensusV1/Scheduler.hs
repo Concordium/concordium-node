@@ -234,6 +234,9 @@ doEpochTransition True epochDuration theState0 = do
                             (chainParams ^. cpPoolParameters)
                             activeBakers
                             passiveDelegators
+                bakerStakes <- forM bakerStakesM $ \(biRef, amountM) -> do
+                    amount <- amountM
+                    return (biRef, amount)
                 theState8 <-
                     bsoSetNextEpochBakers
                         theState7

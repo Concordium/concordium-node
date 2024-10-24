@@ -4256,6 +4256,8 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
     derefBakerInfo = loadBakerInfo
 
+    derefBakerInfoEx = loadPersistentBakerInfoRef
+
     getAccountHash = accountHash
 
     getAccountCooldowns = accountCooldowns
