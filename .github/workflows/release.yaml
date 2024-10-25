@@ -1,6 +1,19 @@
 name: Concordium node release
 
 on:
+  workflow_dispatch:
+    inputs:
+      service:
+        type: choice
+        description: Choose which workflow should be ran
+        options:
+          - node-macos
+          - node-windows
+          - node-linux
+          - docker
+          - p2p-bootstrapper
+          - database-exporter
+
   push:
     branches:
       - lma/release/github_actions
@@ -13,6 +26,7 @@ env:
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   RUST_VERSION: '1.73'
   VERSION_TAG: '7.0.5-3-rc'
+  SERVICE: 'p2p-bootstrapper'
   STACK_VERSION: '2.13.1'
   FLATBUFFERS_VERSION: '23.5.26'
   GHC_VERSION: '9.6.4'
@@ -42,6 +56,7 @@ permissions:
   contents: read
 
 jobs:
+
   validate-preconditions:
     runs-on: ubuntu-latest
     environment: release
@@ -66,15 +81,19 @@ jobs:
         id: versions_derivation
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
-          IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
-          if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
-            echo "::error ${{ github.ref_name }} does not match ${VERSION}."
-            exit 1
+          if [ -z "${{ env.SERVICE }}" ]; then
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
+            if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
+              echo "::error::${GITHUB_REF_NAME} does not match ${VERSION}."
+              exit 1
+            fi
+          else
+            RELEASE_TYPE="${{ env.SERVICE }}"
+            BUILD=$(git rev-parse --short HEAD)
           fi
           echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
-          echo "base_version=${VERSION}" >> "$GITHUB_OUTPUT"
-
+          echo "version=${CARGO_VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
+          echo "base_version=${CARGO_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Templates rendering
         id: render
         run: |
@@ -83,6 +102,7 @@ jobs:
           echo "docker_tags=${{ env.DOCKER_TAGS_TEMPLATES }}" >> $GITHUB_OUTPUT
 
       - name: Validate whether s3 artifacts are not existing
+        if: contains(fromJSON('["rc", "alpha"]'), needs.validate-preconditions.outputs.release_type)
         run: |
           set +e
           echo '${{ steps.render.outputs.s3_arns }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
@@ -101,6 +121,7 @@ jobs:
             fi
           done
       - name: Validate whether docker tags are not existing
+        if: contains(fromJSON('["rc", "alpha"]'), needs.validate-preconditions.outputs.release_type)
         run: |
           echo '${{ steps.render.outputs.docker_tags }}' | jq -r '. | to_entries[] | .value' | while read -r TAG; do
             echo "Checking for object at: $TAG"
@@ -113,6 +134,7 @@ jobs:
   build-static-binaries:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest-8core
+    if: contains(fromJSON('["rc", "alpha", "docker", "node-linux"]'), needs.validate-preconditions.outputs.release_type)
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -152,7 +174,7 @@ jobs:
   database-exporter:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest
-    if: false
+    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
     environment: release
     steps:
       - name: Checkout Repository
@@ -200,7 +222,7 @@ jobs:
   p2p-bootstrapper:
     runs-on: ubuntu-latest
     environment: release
-    if: false
+    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
     needs: [build-static-binaries, validate-preconditions]
     steps:
       - name: Download artifact
@@ -265,7 +287,7 @@ jobs:
   node-windows:
     runs-on: windows-latest
     needs: [validate-preconditions]
-    if: false
+    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
     environment: release
     defaults:
       run:
@@ -348,7 +370,7 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
-    if: false
+    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
     environment: release
     steps:
       - name: Checkout Repository
@@ -456,7 +478,7 @@ jobs:
   node-linux:
      runs-on: ubuntu-latest
      environment: release
-     if: false
+     if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
      needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
@@ -544,9 +566,10 @@ jobs:
              "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
 
-  docker-image:
+  docker:
     runs-on: ubuntu-latest
     environment: release
+    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
     needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
     strategy:
       matrix:
@@ -582,7 +605,7 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Set tag
-        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["docker-${{ matrix.env }}"]')"
+        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["${{ github.job }}-${{ matrix.env }}"]')"
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
