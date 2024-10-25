@@ -178,7 +178,7 @@ jobs:
   database-exporter:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest
-    if: contains(fromJSON(format('["rc", "alpha", "{0}"]', github.job)), needs.validate-preconditions.outputs.release_type)
+    if: github.job == 'database-exporter'
     environment: release
     steps:
       - name: Test
