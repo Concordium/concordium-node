@@ -26,7 +26,7 @@ env:
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   RUST_VERSION: '1.73'
   VERSION_TAG: '7.0.5-3-rc'
-  SERVICE: 'database-exporter'
+  SERVICE: 'node-windows'
   STACK_VERSION: '2.13.1'
   FLATBUFFERS_VERSION: '23.5.26'
   GHC_VERSION: '9.6.4'
