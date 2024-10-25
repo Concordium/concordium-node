@@ -132,6 +132,8 @@ jobs:
               exit 1
             fi
           done
+      - name: Test
+        run: echo '${{format('["rc", "alpha", "{0}"]', github.job)}}'
 
   build-static-binaries:
     needs: [validate-preconditions]
@@ -176,7 +178,7 @@ jobs:
   database-exporter:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest
-    if: contains(fromJSON(format('["rc", "alpha", "database-exporter"]')), needs.validate-preconditions.outputs.release_type)
+    if: contains(fromJSON(format('["rc", "alpha", "{0}"]', github.job)), needs.validate-preconditions.outputs.release_type)
     environment: release
     steps:
       - name: Test
