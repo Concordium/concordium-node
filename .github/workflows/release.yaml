@@ -179,9 +179,6 @@ jobs:
     if: contains(fromJSON(format('["rc", "alpha", "{0}"]', github.job)), needs.validate-preconditions.outputs.release_type)
     environment: release
     steps:
-      - name: Test
-        run: echo '${{}}'
-
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
