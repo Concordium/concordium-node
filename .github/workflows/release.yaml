@@ -174,7 +174,7 @@ jobs:
   database-exporter:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest
-    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
+    if: contains(fromJSON(format('["rc", "alpha", "{0}"]', github.job)), needs.validate-preconditions.outputs.release_type)
     environment: release
     steps:
       - name: Checkout Repository
@@ -222,7 +222,7 @@ jobs:
   p2p-bootstrapper:
     runs-on: ubuntu-latest
     environment: release
-    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
+    if: contains(fromJSON(format('["rc", "alpha", "{0}"]', github.job)), needs.validate-preconditions.outputs.release_type)
     needs: [build-static-binaries, validate-preconditions]
     steps:
       - name: Download artifact
@@ -287,7 +287,7 @@ jobs:
   node-windows:
     runs-on: windows-latest
     needs: [validate-preconditions]
-    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
+    if: contains(fromJSON(format('["rc", "alpha", "{0}"]', github.job)), needs.validate-preconditions.outputs.release_type)
     environment: release
     defaults:
       run:
@@ -370,7 +370,7 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
-    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
+    if: contains(fromJSON(format('["rc", "alpha", "{0}"]', github.job)), needs.validate-preconditions.outputs.release_type)
     environment: release
     steps:
       - name: Checkout Repository
@@ -478,7 +478,7 @@ jobs:
   node-linux:
      runs-on: ubuntu-latest
      environment: release
-     if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
+     if: contains(fromJSON(format('["rc", "alpha", "{0}"]', github.job)), needs.validate-preconditions.outputs.release_type)
      needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
@@ -569,7 +569,7 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     environment: release
-    if: contains(fromJSON('["rc", "alpha", "' + github.job + '"]'), needs.validate-preconditions.outputs.release_type)
+    if: contains(fromJSON(format('["rc", "alpha", "{0}"]', github.job)), needs.validate-preconditions.outputs.release_type)
     needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
     strategy:
       matrix:
