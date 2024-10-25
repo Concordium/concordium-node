@@ -104,7 +104,7 @@ jobs:
           echo "docker_tags=${{ env.DOCKER_TAGS_TEMPLATES }}" >> $GITHUB_OUTPUT
 
       - name: Validate whether s3 artifacts are not existing
-        if: contains(fromJSON('["rc", "alpha"]'), needs.validate-preconditions.outputs.release_type)
+        if: contains(fromJSON('["rc", "alpha"]'), steps.versions_derivation.outputs.release_type)
         run: |
           set +e
           echo '${{ steps.render.outputs.s3_arns }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
@@ -123,7 +123,7 @@ jobs:
             fi
           done
       - name: Validate whether docker tags are not existing
-        if: contains(fromJSON('["rc", "alpha"]'), needs.validate-preconditions.outputs.release_type)
+        if: contains(fromJSON('["rc", "alpha"]'), steps.versions_derivation.outputs.release_type)
         run: |
           echo '${{ steps.render.outputs.docker_tags }}' | jq -r '. | to_entries[] | .value' | while read -r TAG; do
             echo "Checking for object at: $TAG"
@@ -132,8 +132,6 @@ jobs:
               exit 1
             fi
           done
-      - name: Test
-        run: echo '${{format('["rc", "alpha", "{0}"]', github.job)}}'
 
   build-static-binaries:
     needs: [validate-preconditions]
@@ -181,8 +179,6 @@ jobs:
     if: contains(fromJSON('["rc", "alpha", "database-exporter"]'), needs.validate-preconditions.outputs.release_type)
     environment: release
     steps:
-      - name: Test
-        run: echo '${{format('["rc", "alpha", "{0}"]', github.job)}}'
 
       - name: Checkout Repository
         uses: actions/checkout@v4
