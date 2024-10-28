@@ -31,19 +31,19 @@ env:
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_ARN_TEMPLATES: '{
-      \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\",
-      \"p2p-bootstrapper\": \"s3://distribution.concordium.software/tools/linux/test/p2p-bootstrapper_${VERSION}.deb\",
-      \"node-stagenet-linux\": \"s3://distribution.stagenet.concordium.com/deb/test/concordium-stagenet-node_${VERSION}.deb\",
-      \"node-flynet-linux\": \"s3://distribution.flynet.concordium.com/deb/test/concordium-flynet-node_${VERSION}.deb\",
-      \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/test/concordium-testnet-node_${VERSION}.deb\",
-      \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/test/concordium-mainnet-node_${VERSION}.deb\",
-      \"node-macos\": \"s3://distribution.concordium.software/macos/test/concordium-node-${VERSION}.pkg\",
-      \"node-windows\": \"s3://distribution.concordium.software/windows/test/Node-${VERSION}.msi\"
+      \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/database-exporter_${VERSION}.deb\",
+      \"p2p-bootstrapper\": \"s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${VERSION}.deb\",
+      \"node-stagenet-linux\": \"s3://distribution.stagenet.concordium.com/deb/concordium-stagenet-node_${VERSION}.deb\",
+      \"node-flynet-linux\": \"s3://distribution.flynet.concordium.com/deb/concordium-flynet-node_${VERSION}.deb\",
+      \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/concordium-testnet-node_${VERSION}.deb\",
+      \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/concordium-mainnet-node_${VERSION}.deb\",
+      \"node-macos\": \"s3://distribution.concordium.software/macos/concordium-node-${VERSION}.pkg\",
+      \"node-windows\": \"s3://distribution.concordium.software/windows/Node-${VERSION}.msi\"
     }'
   DOCKER_TAGS_TEMPLATES: '{
-      \"docker-stagenet\": \"concordium/stagenet-node:${VERSION}-dev\",
-      \"docker-testnet\": \"concordium/testnet-node:${VERSION}-dev\",
-      \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}-dev\"
+      \"docker-stagenet\": \"concordium/stagenet-node:${VERSION}\",
+      \"docker-testnet\": \"concordium/testnet-node:${VERSION}\",
+      \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}\"
     }'
   REGISTRY: docker.io
   SERVICE: "${{ inputs.service }}"
