@@ -1386,7 +1386,7 @@ computeMissedRounds ::
     Option TimeoutCertificate ->
     BlockPointer (MPV m) ->
     Round ->
-    m [(BakerId, Word16)]
+    m [(BakerId, Word64)]
 computeMissedRounds tc _parent _rnd | isAbsent tc = return []
 computeMissedRounds _tc parent rnd = do
     let parentBlockState = bpState parent

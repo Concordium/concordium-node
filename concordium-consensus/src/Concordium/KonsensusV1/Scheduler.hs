@@ -84,7 +84,7 @@ data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
       -- | Number of rounds a validator has missed (e.g. the validator was
       --   elected leader but a timeout certificate exist for the round) since the parent
       --   block.
-      bedMissedRounds :: [(BakerId, Word16)]
+      bedMissedRounds :: [(BakerId, Word64)]
     }
 
 -- | Details of the transactions in a block that are used for computing rewards that accrue to the

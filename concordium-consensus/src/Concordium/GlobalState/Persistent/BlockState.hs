@@ -3464,7 +3464,7 @@ doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 doIsProtocolUpdateEffective :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Bool
 doIsProtocolUpdateEffective = isProtocolUpdateEffective . bspUpdates <=< loadPBS
 
-doUpdateMissedRounds :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> [(BakerId, Word16)] -> m (PersistentBlockState pv)
+doUpdateMissedRounds :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> [(BakerId, Word64)] -> m (PersistentBlockState pv)
 doUpdateMissedRounds pbs rds = do
     bsp <- loadPBS pbs
     bsp' <-
