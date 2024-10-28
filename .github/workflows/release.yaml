@@ -31,12 +31,12 @@ env:
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_ARN_TEMPLATES: '{
-      \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/database-exporter_${VERSION}.deb\",
-      \"p2p-bootstrapper\": \"s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${VERSION}.deb\",
-      \"node-stagenet-linux\": \"s3://distribution.stagenet.concordium.com/deb/concordium-stagenet-node_${VERSION}.deb\",
-      \"node-flynet-linux\": \"s3://distribution.flynet.concordium.com/deb/concordium-flynet-node_${VERSION}.deb\",
-      \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/concordium-testnet-node_${VERSION}.deb\",
-      \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/concordium-mainnet-node_${VERSION}.deb\",
+      \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/test/database-exporter_${VERSION}.deb\",
+      \"p2p-bootstrapper\": \"s3://distribution.concordium.software/tools/linux/test/p2p-bootstrapper_${VERSION}.deb\",
+      \"node-stagenet-linux\": \"s3://distribution.stagenet.concordium.com/deb/test/concordium-stagenet-node_${VERSION}_amd64.deb\",
+      \"node-flynet-linux\": \"s3://distribution.flynet.concordium.com/deb/test/concordium-flynet-node_${VERSION}_amd64.deb\",
+      \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/test/concordium-testnet-node_${VERSION}_amd64.deb\",
+      \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/test/concordium-mainnet-node_${VERSION}_amd64.deb\",
       \"node-macos\": \"s3://distribution.concordium.software/macos/concordium-node-${VERSION}.pkg\",
       \"node-windows\": \"s3://distribution.concordium.software/windows/Node-${VERSION}.msi\"
     }'
@@ -47,6 +47,7 @@ env:
     }'
   REGISTRY: docker.io
   SERVICE: "${{ inputs.service }}"
+  VERSION_TAG: "7.0.5-4-rc"
 
 permissions:
   id-token: write
@@ -79,7 +80,7 @@ jobs:
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           if [ -z "${{ env.SERVICE }}" ]; then
-            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ github.ref }}"
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
               echo "::error::${GITHUB_REF_NAME} does not match ${VERSION}."
               exit 1
@@ -285,7 +286,8 @@ jobs:
   node-windows:
     runs-on: windows-latest
     needs: [validate-preconditions]
-    if: contains(fromJSON('["rc", "alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
+    #if: contains(fromJSON('["rc", "alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
+    if: false
     environment: release
     defaults:
       run:
@@ -368,7 +370,8 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
-    if: contains(fromJSON('["rc", "alpha", "node-macos"]'), needs.validate-preconditions.outputs.release_type)
+    #if: contains(fromJSON('["rc", "alpha", "node-macos"]'), needs.validate-preconditions.outputs.release_type)
+    if: false
     environment: release
     steps:
       - name: Checkout Repository
@@ -509,7 +512,7 @@ jobs:
            ref: 'main'
 
        - name: Define domain
-         run: echo "DOMAIN=${{ matrix.env }}.concordium.${{ matrix.node.tld }}" >> $GITHUB_ENV
+         run: echo "DOMAIN=${{ matrix.node.env }}.concordium.${{ matrix.node.tld }}" >> $GITHUB_ENV
 
        - name: Define project name
          run: echo "PROJECT_NAME=node-${{ matrix.node.env }}-linux" >> $GITHUB_ENV
@@ -567,7 +570,8 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     environment: release
-    if: contains(fromJSON('["rc", "alpha", "docker"]'), needs.validate-preconditions.outputs.release_type)
+    #if: contains(fromJSON('["rc", "alpha", "docker"]'), needs.validate-preconditions.outputs.release_type)
+    if: false
     needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
     strategy:
       matrix:
@@ -603,7 +607,7 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Set tag
-        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["${{ github.job }}-${{ matrix.env }}"]')"
+        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["${{ github.job }}-${{ matrix.node.env }}"]')"
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
