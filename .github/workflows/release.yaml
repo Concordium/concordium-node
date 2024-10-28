@@ -15,8 +15,6 @@ on:
           - database-exporter
 
   push:
-    branches:
-      - lma/release/github_actions
     tags:
      - '*.*.*-*-rc'
      - '*.*.*-*-alpha'
@@ -112,11 +110,10 @@ jobs:
             if [ $EXIT_CODE -eq 1 ]; then
               echo "No object found for $ARN, proceeding."
             elif [ $EXIT_CODE -eq 0 ]; then
-              echo "error: item for $ARN already exists."
+              echo "::error::item for $ARN already exists."
               exit 1
             else
-              echo "Unexpected exit code: $EXIT_CODE for $ARN."
-              echo "$S3_OUTPUT"
+              echo "::error::Unexpected exit code: $EXIT_CODE for $ARN."
               exit 1
             fi
           done
@@ -126,7 +123,7 @@ jobs:
           echo '${{ steps.render.outputs.docker_tags }}' | jq -r '. | to_entries[] | .value' | while read -r TAG; do
             echo "Checking for object at: $TAG"
             if docker manifest inspect $TAG > /dev/null; then
-              echo "::error $TAG already exists"
+              echo "::error::$TAG already exists"
               exit 1
             fi
           done
