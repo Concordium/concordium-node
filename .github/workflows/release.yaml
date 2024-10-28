@@ -15,8 +15,6 @@ on:
           - database-exporter
 
   push:
-    branches:
-      - lma/release/github_actions
     tags:
      - '*.*.*-*-rc'
      - '*.*.*-*-alpha'
@@ -25,8 +23,6 @@ env:
   UBUNTU_VERSION: '20.04'
   STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.73.0_ghc-9.6.4'
   RUST_VERSION: '1.73'
-  VERSION_TAG: '7.0.5-3-rc'
-  SERVICE: ''
   STACK_VERSION: '2.13.1'
   FLATBUFFERS_VERSION: '23.5.26'
   GHC_VERSION: '9.6.4'
@@ -50,6 +46,8 @@ env:
       \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}-dev\"
     }'
   REGISTRY: docker.io
+  SERVICE: "${{ inputs.service }}"
+  VERSION_TAG: '7.0.5-3-rc'
 
 permissions:
   id-token: write
@@ -82,7 +80,7 @@ jobs:
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           if [ -z "${{ env.SERVICE }}" ]; then
-            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ github.ref }}"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
               echo "::error::${GITHUB_REF_NAME} does not match ${VERSION}."
               exit 1
