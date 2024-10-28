@@ -1509,7 +1509,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- | Get whether a protocol update is effective
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
 
-    -- | Update the count of missed rounds for given validators
+    -- | Update the count of missed rounds for given validators by the given
+    --  delta. Rounds are `missed` by a validator, if it has been elected leader but the
+    --  round did timeout.
     bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [(BakerId, Word16)] -> m (UpdatableBlockState m)
 
     -- | Clear the missed round count for given validators
