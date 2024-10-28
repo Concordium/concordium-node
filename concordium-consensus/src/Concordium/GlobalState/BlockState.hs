@@ -1344,7 +1344,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Function 'bsoGetBakerPoolRewardDetails' returns a map with the 'BakerPoolRewardDetails' for each
     --  current-epoch baker (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
-    bsoGetBakerPoolRewardDetails :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (Map.Map BakerId BakerPoolRewardDetails)
+    bsoGetBakerPoolRewardDetails :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (Map.Map BakerId (BakerPoolRewardDetails (AccountVersionFor (MPV m))))
 
     -- | Update the transaction fee rewards accruing to a baker pool by the specified delta. It is a
     --  precondition that the given baker is a current-epoch baker.

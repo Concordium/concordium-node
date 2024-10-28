@@ -42,13 +42,13 @@ import qualified Concordium.TransactionVerification as TVer
 --  epilogue to distribute rewards.
 --
 --  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
-data PaydayParameters = PaydayParameters
+data PaydayParameters (av :: AccountVersion) = PaydayParameters
     { -- | The capital distribution among the baker pools.
       paydayCapitalDistribution :: CapitalDistribution,
       -- | The effective stake distribution among the baker pools.
       paydayBakers :: FullBakersEx,
       -- | The rewards accruing to each baker pool.
-      paydayPoolRewards :: Map.Map BakerId BakerPoolRewardDetails,
+      paydayPoolRewards :: Map.Map BakerId (BakerPoolRewardDetails av),
       -- | The mint rate for the payday.
       paydayMintRate :: MintRate
     }
@@ -113,12 +113,12 @@ data TransactionExecutionResult m = TransactionExecutionResult
 -- | The result of executing the prologue.
 --
 --  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
-data PrologueResult m = PrologueResult
+data PrologueResult m av = PrologueResult
     { -- | The block state after prologue execution.
       prologueBlockState :: UpdatableBlockState m,
       -- | If the block should pay out for a payday, these parameters determine the pay out.
       --  Otherwise, they are 'Nothing'.
-      prologuePaydayParameters :: Maybe PaydayParameters
+      prologuePaydayParameters :: Maybe (PaydayParameters av)
     }
 
 -- * Block prologue
@@ -187,7 +187,7 @@ doEpochTransition ::
     Duration ->
     -- | State to update
     UpdatableBlockState m ->
-    m (Maybe PaydayParameters, UpdatableBlockState m)
+    m (Maybe (PaydayParameters (AccountVersionFor (MPV m))), UpdatableBlockState m)
 doEpochTransition False _ theState = return (Nothing, theState)
 doEpochTransition True epochDuration theState0 = do
     chainParams <- bsoGetChainParameters theState0
@@ -289,7 +289,7 @@ executeBlockPrologue ::
       IsConsensusV1 pv
     ) =>
     BlockExecutionData pv ->
-    m (PrologueResult m)
+    m (PrologueResult m (AccountVersionFor (MPV m)))
 executeBlockPrologue BlockExecutionData{..} = do
     theState0 <- thawBlockState bedParentState
     -- process the update queues
@@ -361,7 +361,7 @@ processPaydayRewards ::
       BlockStateStorage m,
       IsConsensusV1 pv
     ) =>
-    Maybe PaydayParameters ->
+    Maybe (PaydayParameters (AccountVersionFor (MPV m))) ->
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 processPaydayRewards Nothing theState = return theState
@@ -402,7 +402,7 @@ executeBlockEpilogue ::
       IsConsensusV1 pv
     ) =>
     ParticipatingBakers ->
-    Maybe PaydayParameters ->
+    Maybe (PaydayParameters (AccountVersionFor (MPV m))) ->
     TransactionRewardParameters ->
     UpdatableBlockState m ->
     m (PBS.HashedPersistentBlockState pv)
