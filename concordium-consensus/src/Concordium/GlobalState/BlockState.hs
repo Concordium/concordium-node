@@ -1353,9 +1353,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoUpdateAccruedTransactionFeesBaker :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
 
     -- | Mark that the given bakers have signed a finalization proof included in a block during the
-    --  reward period. Any baker ids that are not current-epoch bakers will be ignored.
-    --  (This is significant, as the finalization record in a block may be signed by a finalizer that
-    --  has since been removed as a baker.)
+    --  reward period and clear their missed rounds. Any baker ids that are not current-epoch bakers
+    --  will be ignored. (This is significant, as the finalization record in a block may be signed by
+    --  a finalizer that has since been removed as a baker.)
     --  Note, the finalization-awake status is reset by 'bsoRotateCurrentCapitalDistribution'.
     bsoMarkFinalizationAwakeBakers :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [BakerId] -> m (UpdatableBlockState m)
 
@@ -1479,7 +1479,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoGetEpochBlocksBaked :: UpdatableBlockState m -> m (Word64, [(BakerId, Word64)])
 
     -- | Record that the given baker has baked a block in the current epoch. It is a precondition that
-    --  the given baker is a current-epoch baker.
+    --  the given baker is a current-epoch baker. This also clears the missed rounds for a baker.
     bsoNotifyBlockBaked :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
     -- | Clear the tracking of baked blocks in the current epoch.
@@ -1496,7 +1496,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Set the current capital distribution to the current value of the next capital distribution.
     --  The next capital distribution is unchanged.
-    --  This also clears transaction rewards and block counts accruing to baker pools.
+    --  This also clears transaction rewards, missed rounds and block counts accruing to baker pools.
     --  The passive delegator and foundation transaction rewards are not affected.
     bsoRotateCurrentCapitalDistribution :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
