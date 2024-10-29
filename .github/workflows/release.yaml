@@ -15,6 +15,8 @@ on:
           - database-exporter
 
   push:
+    branches:
+      - lma/release/github_actions
     tags:
      - '*.*.*-*-rc'
      - '*.*.*-*-alpha'
@@ -46,7 +48,9 @@ env:
       \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}\"
     }'
   REGISTRY: docker.io
-  SERVICE: "${{ inputs.service }}"
+  #SERVICE: "${{ inputs.service }}"
+  SERVICE: "node-windows"
+  VERSION_TAG: "7.0.5-4-rc"
 
 permissions:
   id-token: write
@@ -79,7 +83,7 @@ jobs:
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           if [ -z "${{ env.SERVICE }}" ]; then
-            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ github.ref }}"
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
               echo "::error::${GITHUB_REF_NAME} does not match ${VERSION}."
               exit 1
