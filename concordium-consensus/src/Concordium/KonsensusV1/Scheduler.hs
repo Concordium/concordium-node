@@ -384,13 +384,15 @@ processBlockRewards ::
     ParticipatingBakers ->
     -- | Transaction fees and number of "free" transactions.
     TransactionRewardParameters ->
+    [(BakerId, Word64)] ->
     -- | Block state.
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
-processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} theState0 = do
-    theState1 <- bsoNotifyBlockBaked theState0 pbBlockBaker
-    theState2 <- bsoMarkFinalizationAwakeBakers theState1 pbQCSignatories
-    doBlockRewardP4 trpTransactionFees trpFreeTransactionCounts pbBlockBaker theState2
+processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} missedRounds theState0 = do
+    theState1 <- bsoMarkFinalizationAwakeBakers theState0 pbQCSignatories
+    theState2 <- bsoUpdateMissedRounds theState1 missedRounds
+    theState3 <- bsoNotifyBlockBaked theState2 pbBlockBaker
+    doBlockRewardP4 trpTransactionFees trpFreeTransactionCounts pbBlockBaker theState3
 
 -- | Execute the block epilogue. This mints and distributes the rewards for a payday if the block is
 --  in a new payday. This also accrues the rewards for the block that will be paid at the next
@@ -404,11 +406,12 @@ executeBlockEpilogue ::
     ParticipatingBakers ->
     Maybe (PaydayParameters (AccountVersionFor (MPV m))) ->
     TransactionRewardParameters ->
+    [(BakerId, Word64)] ->
     UpdatableBlockState m ->
     m (PBS.HashedPersistentBlockState pv)
-executeBlockEpilogue participants paydayParams transactionRewardParams theState0 = do
+executeBlockEpilogue participants paydayParams transactionRewardParams missedRounds theState0 = do
     theState1 <- processPaydayRewards paydayParams theState0
-    theState2 <- processBlockRewards participants transactionRewardParams theState1
+    theState2 <- processBlockRewards participants transactionRewardParams missedRounds theState1
     freezeBlockState theState2
 
 -- * Transactions
@@ -579,6 +582,7 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
                         bedParticipatingBakers
                         prologuePaydayParameters
                         terTransactionRewardParameters
+                        bedMissedRounds
                         terBlockState
                 return (endState, terEnergyUsed)
 
@@ -633,6 +637,7 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
                     bedParticipatingBakers
                     prologuePaydayParameters
                     terTransactionRewardParameters
+                    bedMissedRounds
                     terBlockState
             endTime <- currentTime
             logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)
