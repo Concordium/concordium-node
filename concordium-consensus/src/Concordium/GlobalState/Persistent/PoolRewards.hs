@@ -29,7 +29,6 @@ import Data.Word
 import Concordium.Crypto.SHA256 as Hash
 
 import Concordium.Types
-import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization.Put (MonadPut (..))
@@ -133,7 +132,6 @@ migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
         nextPaydayMintRate = npMintRate
     return PoolRewards{..}
   where
-    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
     makeCD bkrs =
         makeHashed $
             CapitalDistribution
@@ -148,7 +146,7 @@ migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
                     { blockCount = Map.findWithDefault 0 bid blockCounts,
                       transactionFeesAccrued = 0,
                       finalizationAwake = False,
-                      missedRounds = conditionally hasValidatorSuspension 0
+                      missedRounds = 0 <$ missedRounds bprd
                     }
         (!newRef, _) <- refFlush =<< refMake bprd
         return newRef

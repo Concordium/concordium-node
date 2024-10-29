@@ -3479,7 +3479,7 @@ doUpdateMissedRounds pbs rds = do
                 modifyBakerPoolRewardDetailsInPoolRewards
                     bsp0
                     bId
-                    (\bprd -> bprd{missedRounds = fmap (+ newMissedRounds) $ missedRounds bprd})
+                    (\bprd -> bprd{missedRounds = (+ newMissedRounds) <$> missedRounds bprd})
             )
             bsp
             rds
@@ -3681,11 +3681,9 @@ doNotifyBlockBaked pbs bid = do
             let incBPR bpr =
                     bpr
                         { blockCount = blockCount bpr + 1,
-                          missedRounds = conditionally hasValidatorSuspension 0
+                          missedRounds = 0 <$ missedRounds bpr
                         }
             in  storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
-  where
-    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
 
 doUpdateAccruedTransactionFeesBaker :: forall pv m. (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> BakerId -> AmountDelta -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesBaker pbs bid delta = do
@@ -3719,8 +3717,14 @@ doMarkFinalizationAwakeBakers pbs bids = do
                         error "Invariant violation: unable to find baker in baker pool reward details tree"
                     Just ((), newBPRs) ->
                         return newBPRs
-    setAwake bpr = return ((), bpr{finalizationAwake = True, missedRounds = conditionally hasValidatorSuspension 0})
-    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
+    setAwake bpr =
+        return
+            ( (),
+              bpr
+                { finalizationAwake = True,
+                  missedRounds = 0 <$ missedRounds bpr
+                }
+            )
 
 doUpdateAccruedTransactionFeesPassive :: forall pv m. (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesPassive pbs delta = do

@@ -383,6 +383,14 @@ processBlockRewards ::
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} missedRounds theState0 = do
+    -- Note: The order of the following operations is important.
+    --
+    -- The finalization awake bakers are the ones that signed the QC (possibly
+    -- a timeout) for the parent block. If it was a timeout, missed rounds are counted
+    -- between this last timeout round and the round of the block that is baked next. So if
+    -- a validator signed the QC for the parent block, but missed a round in the interim,
+    -- then its missed round counter would be 1. Though if it also baked the new block, it
+    -- would be reset to 0.
     theState1 <- bsoMarkFinalizationAwakeBakers theState0 pbQCSignatories
     theState2 <- bsoUpdateMissedRounds theState1 missedRounds
     theState3 <- bsoNotifyBlockBaked theState2 pbBlockBaker
