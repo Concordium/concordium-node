@@ -40,7 +40,7 @@ env:
       \"node-testnet-linux\": \"s3://distribution.testnet.concordium.com/deb/concordium-testnet-node_${VERSION}_amd64.deb\",
       \"node-mainnet-linux\": \"s3://distribution.mainnet.concordium.software/deb/concordium-mainnet-node_${VERSION}_amd64.deb\",
       \"node-macos\": \"s3://distribution.concordium.software/macos/concordium-node-${VERSION}.pkg\",
-      \"node-windows\": \"s3://distribution.concordium.software/windows/Node-${VERSION}.msi\"
+      \"node-windows\": \"s3://distribution.concordium.software/windows/test/Node-${VERSION}.msi\"
     }'
   DOCKER_TAGS_TEMPLATES: '{
       \"docker-stagenet\": \"concordium/stagenet-node:${VERSION}\",
@@ -353,7 +353,7 @@ jobs:
         run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
       - name: Build Windows Node
-        run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ env.RUST_VERSION }}
+        run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.base_version }}-4 -rustVersion ${{ env.RUST_VERSION }}
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
