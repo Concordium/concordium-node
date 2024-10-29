@@ -12,23 +12,23 @@ module Concordium.KonsensusV1.LeaderElection (
     nonceForNewEpoch,
 
     -- * Missed rounds
-    computeMissedRounds
+    computeMissedRounds,
 ) where
 
-import Data.Serialize
-import Data.Word
 import Data.List (group)
+import Data.Serialize
 import qualified Data.Vector as Vec
+import Data.Word
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.Types
-import Concordium.Types.Option
-import Concordium.Types.HashableTo
-import Concordium.Types.SeedState
-import Concordium.Types.Accounts
-import Concordium.KonsensusV1.Types
 import Concordium.KonsensusV1.TreeState.Types
+import Concordium.KonsensusV1.Types
+import Concordium.Types
+import Concordium.Types.Accounts
+import Concordium.Types.HashableTo
+import Concordium.Types.Option
+import Concordium.Types.SeedState
 
 import Concordium.Crypto.VRF (proofToHash)
 import Concordium.GlobalState.BakerInfo
