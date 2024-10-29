@@ -311,7 +311,7 @@ executeBlockPrologue BlockExecutionData{..} = do
     -- update the missed rounds count for each active baker
     theState6 <-
         if isJust mPaydayParms
-            then bsoClearMissedRounds theState5 activeBakers
+            then return theState5
             else bsoUpdateMissedRounds theState5 bedMissedRounds
     return
         PrologueResult

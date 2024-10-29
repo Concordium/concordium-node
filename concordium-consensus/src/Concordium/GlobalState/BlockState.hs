@@ -1514,9 +1514,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  round did timeout.
     bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [(BakerId, Word64)] -> m (UpdatableBlockState m)
 
-    -- | Clear the missed round count for given validators
-    bsoClearMissedRounds :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [BakerId] -> m (UpdatableBlockState m)
-
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -1829,7 +1826,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
     bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
-    bsoClearMissedRounds s = lift . bsoClearMissedRounds s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -1887,7 +1883,6 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoGetCurrentEpochBakers #-}
     {-# INLINE bsoIsProtocolUpdateEffective #-}
     {-# INLINE bsoUpdateMissedRounds #-}
-    {-# INLINE bsoClearMissedRounds #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 

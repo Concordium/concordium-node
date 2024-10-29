@@ -3485,27 +3485,6 @@ doUpdateMissedRounds pbs rds = do
             rds
     storePBS pbs bsp'
 
-doClearMissedRounds ::
-    ( PVSupportsDelegation pv,
-      SupportsPersistentState pv m
-    ) =>
-    PersistentBlockState pv ->
-    [BakerId] ->
-    m (PersistentBlockState pv)
-doClearMissedRounds pbs bids = do
-    bsp <- loadPBS pbs
-    bsp' <-
-        foldM
-            ( \bsp0 bId ->
-                modifyBakerPoolRewardDetailsInPoolRewards
-                    bsp0
-                    bId
-                    (\bprd -> bprd{missedRounds = fmap (const 0) $ missedRounds bprd})
-            )
-            bsp
-            bids
-    storePBS pbs bsp'
-
 doProcessUpdateQueues ::
     forall pv m.
     (SupportsPersistentState pv m) =>
@@ -3699,8 +3678,14 @@ doNotifyBlockBaked pbs bid = do
             newBlockRewardDetails <- consBlockRewardDetails bid (bspRewardDetails bsp)
             storePBS pbs bsp{bspRewardDetails = newBlockRewardDetails}
         SAVDelegationSupported ->
-            let incBPR bpr = bpr{blockCount = blockCount bpr + 1}
+            let incBPR bpr =
+                    bpr
+                        { blockCount = blockCount bpr + 1,
+                          missedRounds = conditionally hasValidatorSuspension 0
+                        }
             in  storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
+  where
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
 
 doUpdateAccruedTransactionFeesBaker :: forall pv m. (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> BakerId -> AmountDelta -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesBaker pbs bid delta = do
@@ -3734,7 +3719,8 @@ doMarkFinalizationAwakeBakers pbs bids = do
                         error "Invariant violation: unable to find baker in baker pool reward details tree"
                     Just ((), newBPRs) ->
                         return newBPRs
-    setAwake bpr = return ((), bpr{finalizationAwake = True})
+    setAwake bpr = return ((), bpr{finalizationAwake = True, missedRounds = conditionally hasValidatorSuspension 0})
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
 
 doUpdateAccruedTransactionFeesPassive :: forall pv m. (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesPassive pbs delta = do
@@ -4384,7 +4370,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoSetRewardAccounts = doSetRewardAccounts
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
     bsoUpdateMissedRounds = doUpdateMissedRounds
-    bsoClearMissedRounds = doClearMissedRounds
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
