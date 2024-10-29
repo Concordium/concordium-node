@@ -10,16 +10,25 @@ module Concordium.KonsensusV1.LeaderElection (
     updateSeedStateForBlock,
     updateSeedStateForEpoch,
     nonceForNewEpoch,
+
+    -- * Missed rounds
+    computeMissedRounds
 ) where
 
 import Data.Serialize
+import Data.Word
+import Data.List (group)
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
+import Concordium.Types.Option
 import Concordium.Types.HashableTo
 import Concordium.Types.SeedState
+import Concordium.Types.Accounts
+import Concordium.KonsensusV1.Types
+import Concordium.KonsensusV1.TreeState.Types
 
 import Concordium.Crypto.VRF (proofToHash)
 import Concordium.GlobalState.BakerInfo
@@ -147,3 +156,25 @@ updateSeedStateForEpoch newBakers epochDuration ss =
         }
   where
     newNonce = nonceForNewEpoch newBakers ss
+
+-- | Compute the missed rounds for each validator. Starts from the given parent
+--   block up to (not including) the given final round.
+computeMissedRounds ::
+    Option TimeoutCertificate ->
+    FullBakers ->
+    SeedState ssv ->
+    BlockPointer mpv ->
+    Round ->
+    [(BakerId, Word64)]
+computeMissedRounds mbTc _validators _seedState _parent _rnd | isAbsent mbTc = []
+computeMissedRounds _mbTc validators seedState parent rnd = missedRounds
+  where
+    missedRoundsValidators =
+        let beginRound = blockRound parent
+            endRound = rnd - 1
+            leNonce = seedState ^. currentLeadershipElectionNonce
+        in  [ _bakerIdentity $ _theBakerInfo winner
+              | r <- [beginRound .. endRound],
+                let winner = getLeaderFullBakers validators leNonce r
+            ]
+    missedRounds = [(head g, fromIntegral $ length g) | g <- group missedRoundsValidators]
