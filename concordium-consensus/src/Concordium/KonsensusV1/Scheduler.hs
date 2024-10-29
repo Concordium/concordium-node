@@ -9,7 +9,6 @@ module Concordium.KonsensusV1.Scheduler where
 import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.Map as Map
-import Data.Maybe
 import Data.Time
 import Data.Word
 import Lens.Micro.Platform
@@ -308,14 +307,9 @@ executeBlockPrologue BlockExecutionData{..} = do
     (mPaydayParms, theState4) <- doEpochTransition bedIsNewEpoch bedEpochDuration theState3
     -- update the seed state using the block time and block nonce
     theState5 <- doUpdateSeedStateForBlock bedTimestamp bedBlockNonce theState4
-    -- update the missed rounds count for each active baker
-    theState6 <-
-        if isJust mPaydayParms
-            then return theState5
-            else bsoUpdateMissedRounds theState5 bedMissedRounds
     return
         PrologueResult
-            { prologueBlockState = theState6,
+            { prologueBlockState = theState5,
               prologuePaydayParameters = mPaydayParms
             }
 
