@@ -79,7 +79,7 @@ jobs:
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           if [ -z "${{ env.SERVICE }}" ]; then
-            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ env.VERSION_TAG }}"
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ github.ref_name }}"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
               echo "::error::${GITHUB_REF_NAME} does not match ${VERSION}."
               exit 1
