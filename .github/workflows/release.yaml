@@ -59,7 +59,7 @@ jobs:
     environment: release
     outputs:
       s3_arns: ${{ steps.render.outputs.s3_arns }}
-      docker_repository_names: ${{ steps.render.outputs.docker_tags }}
+      docker_tags: ${{ steps.render.outputs.docker_tags }}
       release_type: ${{ steps.versions_derivation.outputs.release_type }}
       base_version: ${{ steps.versions_derivation.outputs.base_version }}
       version: ${{ steps.versions_derivation.outputs.version }}
