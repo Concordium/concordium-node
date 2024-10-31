@@ -612,7 +612,7 @@ jobs:
           file: scripts/distribution/docker/builder.Dockerfile
           tags: ${{ env.TAG }}
           no-cache: true
-          push: false
+          push: true
           ssh: |
             default=./id_rsa
           build-args: |
