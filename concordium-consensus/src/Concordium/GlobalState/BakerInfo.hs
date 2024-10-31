@@ -9,13 +9,17 @@
 module Concordium.GlobalState.BakerInfo where
 
 import qualified Concordium.Crypto.SHA256 as H
+import Concordium.GRPC2
 import Concordium.Genesis.Data
 import Concordium.Scheduler.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
+import qualified Proto.V2.Concordium.Types as Proto
+import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 
+import qualified Data.ProtoLens.Combinators as Proto
 import Data.Ratio
 import Data.Serialize
 import qualified Data.Vector as Vec
@@ -42,6 +46,15 @@ instance HasBakerInfo FullBakerInfo where
     bakerInfo = theBakerInfo
 instance HashableTo H.Hash FullBakerInfo where
     getHash = H.hash . encode
+
+instance ToProto FullBakerInfo where
+    type Output FullBakerInfo = Proto.FullBakerInfo
+    toProto fbi = Proto.make $ do
+        ProtoFields.bakerIdentity .= toProto (fbi ^. bakerIdentity)
+        ProtoFields.electionVerifyKey .= toProto (fbi ^. bakerElectionVerifyKey)
+        ProtoFields.signatureVerifyKey .= toProto (fbi ^. bakerSignatureVerifyKey)
+        ProtoFields.aggregationVerifyKey .= toProto (fbi ^. bakerAggregationVerifyKey)
+        ProtoFields.stake .= toProto (fbi ^. bakerStake)
 
 data FullBakers = FullBakers
     { -- | All bakers in ascending order of BakerId.

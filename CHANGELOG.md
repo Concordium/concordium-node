@@ -3,6 +3,8 @@
 ## Unreleased changes
 
 - Add support for suspend/resume to validator configuration updates.
+- Add `GetConsensusDetailedStatus` gRPC endpoint for getting detailed information on the status
+  of the consensus, at consensus version 1.
 
 ## 7.0.5
 

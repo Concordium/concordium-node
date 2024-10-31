@@ -32,6 +32,7 @@ import Control.Monad.State
 import Data.Foldable
 import Data.IORef
 import Data.Maybe (fromMaybe)
+import qualified Data.ProtoLens.Combinators as Proto
 import Data.Time
 import Data.Typeable
 import GHC.Stack
@@ -41,6 +42,7 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 
+import Concordium.GRPC2 (ToProto (..))
 import qualified Concordium.Genesis.Data.BaseV1 as Base
 import Concordium.Types
 import qualified Concordium.Types.Conditionally as Cond
@@ -51,12 +53,14 @@ import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Utils
 import Concordium.Utils.InterpolationSearch
+import qualified Proto.V2.Concordium.Types as Proto
+import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters (RuntimeParameters (..))
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
-import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
+import Concordium.GlobalState.Persistent.TreeState (DeadCache, deadCacheCurrentSize, emptyDeadCache, insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
 import qualified Concordium.GlobalState.TransactionTable as TT
@@ -105,6 +109,12 @@ data BlockTable pv = BlockTable
     deriving (Show)
 
 makeLenses ''BlockTable
+
+instance ToProto (BlockTable pv) where
+    type Output (BlockTable pv) = Proto.BlockTableSummary
+    toProto BlockTable{..} = Proto.make $ do
+        ProtoFields.deadBlockCacheSize .= fromIntegral (deadCacheCurrentSize _deadBlocks)
+        ProtoFields.liveBlocks .= fmap toProto (HM.keys _liveMap)
 
 -- | Create the empty block table.
 emptyBlockTable :: BlockTable pv
@@ -221,6 +231,43 @@ instance HasPendingTransactions (SkovData pv) pv where
 instance HasEpochBakers (SkovData pv) where
     epochBakers = skovEpochBakers
     {-# INLINE epochBakers #-}
+
+instance ToProto (SkovData pv) where
+    type Output (SkovData pv) = Proto.ConsensusDetailedStatus
+    toProto sd = Proto.make $ do
+        ProtoFields.genesisBlock .= toProto (sd ^. currentGenesisHash)
+        ProtoFields.persistentRoundStatus .= toProto (sd ^. persistentRoundStatus)
+        ProtoFields.roundStatus .= toProto (sd ^. roundStatus)
+        ProtoFields.nonFinalizedTransactionCount
+            .= sd ^. transactionTable . to (fromIntegral . TT.getNumberOfNonFinalizedTransactions)
+        ProtoFields.transactionTablePurgeCounter .= fromIntegral (sd ^. transactionTablePurgeCounter)
+        ProtoFields.blockTable .= toProto (sd ^. blockTable)
+        let makeBranchBlocks blocks =
+                Proto.make $
+                    ProtoFields.blocksAtBranchHeight .= fmap (toProto . getHash @BlockHash) blocks
+        ProtoFields.branches .= fmap makeBranchBlocks (toList $ sd ^. branches)
+        let makeREB rnd baker witness = Proto.make $ do
+                ProtoFields.round .= toProto rnd
+                ProtoFields.baker .= toProto baker
+                ProtoFields.block .= toProto (bswBlockHash witness)
+        let flattenRE rnd = flip $ Map.foldrWithKey (\b w -> (makeREB rnd b w :))
+        ProtoFields.roundExistingBlocks .= Map.foldrWithKey flattenRE [] (sd ^. roundExistingBlocks)
+        let flattenREQCs rnd (QuorumCertificateCheckedWitness epoch) =
+                (:)
+                    ( Proto.make $ do
+                        ProtoFields.round .= toProto rnd
+                        ProtoFields.epoch .= toProto epoch
+                    )
+        ProtoFields.roundExistingQcs .= Map.foldrWithKey flattenREQCs [] (sd ^. roundExistingQCs)
+        ProtoFields.genesisBlockHeight .= toProto (sd ^. genesisBlockHeight . to gbhiAbsoluteHeight)
+        ProtoFields.lastFinalizedBlock .= toProto (getHash @BlockHash $ sd ^. lastFinalized)
+        ProtoFields.lastFinalizedBlockHeight .= toProto (blockHeight $ sd ^. lastFinalized)
+        mapM_ (assign ProtoFields.latestFinalizationEntry . toProto) (sd ^. latestFinalizationEntry)
+        ProtoFields.epochBakers .= toProto (sd ^. skovEpochBakers)
+        mapM_ (assign ProtoFields.timeoutMessages . toProto) (sd ^. currentTimeoutMessages)
+        mapM_
+            (assign ProtoFields.terminalBlock . toProto . getHash @BlockHash)
+            (sd ^. terminalBlock)
 
 -- | Getter for accessing the genesis hash for the current genesis.
 currentGenesisHash :: SimpleGetter (SkovData pv) BlockHash

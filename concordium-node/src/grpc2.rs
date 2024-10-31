@@ -628,6 +628,8 @@ struct ServiceConfig {
     #[serde(default)]
     get_consensus_info: bool,
     #[serde(default)]
+    get_consensus_detailed_status: bool,
+    #[serde(default)]
     get_ancestors: bool,
     #[serde(default)]
     get_block_item_status: bool,
@@ -732,6 +734,7 @@ impl ServiceConfig {
             instance_state_lookup: true,
             get_next_account_sequence_number: true,
             get_consensus_info: true,
+            get_consensus_detailed_status: true,
             get_ancestors: true,
             get_block_item_status: true,
             invoke_instance: true,
@@ -1664,6 +1667,24 @@ pub mod server {
             }
             let response =
                 self.run_blocking(move |consensus| consensus.get_consensus_info_v2()).await?;
+            Ok(tonic::Response::new(response))
+        }
+
+        async fn get_consensus_detailed_status(
+            &self,
+            request: tonic::Request<crate::grpc2::types::ConsensusDetailedStatusQuery>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_consensus_detailed_status {
+                return Err(tonic::Status::unimplemented(
+                    "`GetConsensusDetailedStatus` is not enabled.",
+                ));
+            }
+            let response = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref().genesis_index.as_ref().map(|x| x.value);
+                    consensus.get_consensus_detailed_status_v2(request)
+                })
+                .await?;
             Ok(tonic::Response::new(response))
         }
 

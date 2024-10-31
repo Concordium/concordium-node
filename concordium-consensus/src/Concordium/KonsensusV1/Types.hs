@@ -3,6 +3,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -28,6 +29,7 @@ import qualified Concordium.Crypto.BlockSignature as BlockSig
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
+import Concordium.GRPC2 (ToProto (..), mkSerialize, mkWord32)
 import Concordium.Genesis.Data (Regenesis, firstGenesisBlockHash, regenesisBlockHash, regenesisCoreParametersV1)
 import Concordium.Genesis.Data.BaseV1
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
@@ -41,6 +43,10 @@ import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
+import qualified Data.ProtoLens.Combinators as Proto
+import Lens.Micro.Platform
+import qualified Proto.V2.Concordium.Types as Proto
+import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 
 -- | The message that is signed by a finalizer to certify a block.
 data QuorumSignatureMessage = QuorumSignatureMessage
@@ -82,6 +88,10 @@ quorumSignatureMessageBytes QuorumSignatureMessage{..} = runPut $ do
 newtype QuorumSignature = QuorumSignature {theQuorumSignature :: Bls.Signature}
     deriving (Eq, Ord, Show, Serialize, Semigroup, Monoid)
 
+instance ToProto QuorumSignature where
+    type Output QuorumSignature = Proto.QuorumSignature
+    toProto = mkSerialize
+
 -- | Sign a 'QuorumSignatureMessage' with a baker's private key.
 signQuorumSignatureMessage :: QuorumSignatureMessage -> BakerAggregationPrivateKey -> QuorumSignature
 signQuorumSignatureMessage msg privKey =
@@ -104,6 +114,10 @@ checkQuorumSignature msg pubKeys =
 -- | Index of a finalizer in the finalization committee vector.
 newtype FinalizerIndex = FinalizerIndex {theFinalizerIndex :: Word32}
     deriving (Eq, Ord, Show, Enum, Bounded, Serialize)
+
+instance ToProto FinalizerIndex where
+    type Output FinalizerIndex = Proto.FinalizerIndex
+    toProto = mkWord32
 
 -- | The message that is multicast by a finalizer when validating and signing blocks.
 data QuorumMessage = QuorumMessage
@@ -154,6 +168,15 @@ instance Serialize QuorumMessage where
         qmEpoch <- get
         return QuorumMessage{..}
 
+instance ToProto QuorumMessage where
+    type Output QuorumMessage = Proto.QuorumMessage
+    toProto QuorumMessage{..} = Proto.make $ do
+        ProtoFields.signature .= toProto qmSignature
+        ProtoFields.block .= toProto qmBlock
+        ProtoFields.finalizer .= toProto qmFinalizerIndex
+        ProtoFields.round .= toProto qmRound
+        ProtoFields.epoch .= toProto qmEpoch
+
 -- | Information about a finalizer.
 data FinalizerInfo = FinalizerInfo
     { -- | The index of the finalizer in the finalization committee vector.
@@ -194,7 +217,11 @@ finalizerByIndex finCom finInd =
 newtype FinalizationCommitteeHash = FinalizationCommitteeHash
     { theFinalizationCommitteeHash :: Hash.Hash
     }
-    deriving newtype (Eq, Show)
+    deriving newtype (Eq, Show, Serialize)
+
+instance ToProto FinalizationCommitteeHash where
+    type Output FinalizationCommitteeHash = Proto.FinalizationCommitteeHash
+    toProto = mkSerialize
 
 -- | Compute the hash of the finalization committee. Only the weight and BLS verify key of each
 -- finalizer are used for computing this.
@@ -281,6 +308,10 @@ subsetFinalizerSet (FinalizerSet s1) (FinalizerSet s2) = s1 .&. s2 == s1
 instance Show FinalizerSet where
     show = show . finalizerList
 
+instance ToProto FinalizerSet where
+    type Output FinalizerSet = [Proto.FinalizerIndex]
+    toProto = fmap toProto . finalizerList
+
 -- | A quorum certificate, to be formed when enough finalizers have signed the same 'QuorumSignatureMessage'.
 data QuorumCertificate = QuorumCertificate
     { -- | Hash of the block this certificate refers to.
@@ -320,6 +351,15 @@ instance HashableTo Hash.Hash QuorumCertificate where
 
 instance (Monad m) => Merkle.MerkleProvable m QuorumCertificate where
     buildMerkleProof _ qc = return [Merkle.RawData $ encode qc]
+
+instance ToProto QuorumCertificate where
+    type Output QuorumCertificate = Proto.RawQuorumCertificate
+    toProto QuorumCertificate{..} = Proto.make $ do
+        ProtoFields.blockHash .= toProto qcBlock
+        ProtoFields.round .= toProto qcRound
+        ProtoFields.epoch .= toProto qcEpoch
+        ProtoFields.aggregateSignature .= toProto qcAggregateSignature
+        ProtoFields.signatories .= (toProto <$> finalizerList qcSignatories)
 
 -- | Check that the quorum certificate has:
 --
@@ -376,6 +416,10 @@ quorumCertificateSigningBakers finalizers qc =
 -- | A Merkle proof that one block is the successor of another.
 newtype SuccessorProof = SuccessorProof {theSuccessorProof :: Hash.Hash}
     deriving (Eq, Ord, Show, Serialize)
+
+instance ToProto SuccessorProof where
+    type Output SuccessorProof = Proto.SuccessorProof
+    toProto = mkSerialize
 
 -- | Construct a 'SuccessorProof' from a 'BlockQuasiHash'.
 makeSuccessorProof :: BlockQuasiHash' bhv -> SuccessorProof
@@ -443,6 +487,13 @@ data FinalizationEntry (pv :: ProtocolVersion) = FinalizationEntry
       feSuccessorProof :: !SuccessorProof
     }
     deriving (Eq, Show)
+
+instance ToProto (FinalizationEntry pv) where
+    type Output (FinalizationEntry pv) = Proto.RawFinalizationEntry
+    toProto FinalizationEntry{..} = Proto.make $ do
+        ProtoFields.finalizedQc .= toProto feFinalizedQuorumCertificate
+        ProtoFields.successorQc .= toProto feSuccessorQuorumCertificate
+        ProtoFields.successorProof .= toProto feSuccessorProof
 
 -- | Convert a 'FinalizationEntry' to a 'ProtoFinalizationEntry'. This loses redundant information
 --  that can be recovered knowing the protocol version (if the finalization entry is well formed).
@@ -569,6 +620,10 @@ timeoutSignatureMessageBytes TimeoutSignatureMessage{..} = runPut $ do
 newtype TimeoutSignature = TimeoutSignature {theTimeoutSignature :: Bls.Signature}
     deriving (Eq, Ord, Show, Serialize, Semigroup, Monoid)
 
+instance ToProto TimeoutSignature where
+    type Output TimeoutSignature = Proto.TimeoutSignature
+    toProto = mkSerialize
+
 -- | Sign a 'TimeoutSignatureMessage' with a Baker's private key.
 signTimeoutSignatureMessage :: TimeoutSignatureMessage -> BakerAggregationPrivateKey -> TimeoutSignature
 signTimeoutSignatureMessage msg privKey =
@@ -600,6 +655,17 @@ instance Serialize FinalizerRounds where
 finalizerRoundsList :: FinalizerRounds -> [(Round, FinalizerSet)]
 finalizerRoundsList = Map.toAscList . theFinalizerRounds
 
+instance ToProto FinalizerRounds where
+    type Output FinalizerRounds = [Proto.RawFinalizerRound]
+    toProto :: FinalizerRounds -> Output FinalizerRounds
+    toProto =
+        fmap
+            ( \(r, fs) -> Proto.make $ do
+                ProtoFields.round .= toProto r
+                ProtoFields.finalizers .= toProto fs
+            )
+            . finalizerRoundsList
+
 -- | A timeout certificate aggregates signatures on timeout messages for the same round.
 --  Finalizers may have different QC rounds.
 --
@@ -618,6 +684,15 @@ data TimeoutCertificate = TimeoutCertificate
       tcAggregateSignature :: !TimeoutSignature
     }
     deriving (Eq, Show)
+
+instance ToProto TimeoutCertificate where
+    type Output TimeoutCertificate = Proto.RawTimeoutCertificate
+    toProto TimeoutCertificate{..} = Proto.make $ do
+        ProtoFields.round .= toProto tcRound
+        ProtoFields.minEpoch .= toProto tcMinEpoch
+        ProtoFields.qcRoundsFirstEpoch .= toProto tcFinalizerQCRoundsFirstEpoch
+        ProtoFields.qcRoundsSecondEpoch .= toProto tcFinalizerQCRoundsSecondEpoch
+        ProtoFields.aggregateSignature .= toProto tcAggregateSignature
 
 -- | Returns 'True' if and only if the finalizers are exclusively in 'tcFinalizerQCRoundsFirstEpoch'
 --  in a 'TimeoutCertificate'.
@@ -838,6 +913,16 @@ instance Serialize TimeoutMessage where
         tmSignature <- get
         return TimeoutMessage{..}
 
+instance ToProto TimeoutMessage where
+    type Output TimeoutMessage = Proto.TimeoutMessage
+    toProto TimeoutMessage{tmBody = TimeoutMessageBody{..}, ..} = Proto.make $ do
+        ProtoFields.finalizer .= toProto tmFinalizerIndex
+        ProtoFields.round .= toProto tmRound
+        ProtoFields.epoch .= toProto tmEpoch
+        ProtoFields.quorumCertificate .= toProto tmQuorumCertificate
+        ProtoFields.signature .= toProto tmAggregateSignature
+        ProtoFields.messageSignature .= toProto tmSignature
+
 -- | Byte representation of a 'TimeoutMessageBody' used for signing the timeout message.
 timeoutMessageBodySignatureBytes ::
     -- | The contents of the timeout message.
@@ -898,7 +983,7 @@ instance Serialize FinalizationMessage where
             1 -> FMTimeoutMessage <$> get
             _ -> fail "Invalid finalization message type."
 
--- | Type family providing a mapping of the protocol version for types which are parametized by this.
+-- | Type family providing a mapping of the protocol version for types which are parametrized by this.
 type family BlockProtocolVersion block :: ProtocolVersion
 
 -- | Projections for the data associated with a baked (i.e. non-genesis) block.
