@@ -160,19 +160,23 @@ updateSeedStateForEpoch newBakers epochDuration ss =
 -- | Compute the missed rounds for each validator. Starts from the given parent
 --   block up to (not including) the given final round.
 computeMissedRounds ::
+    -- | Optional timeout certificate for the round of the parent block.
     Option TimeoutCertificate ->
+    -- | Validators participating in the current epoch.
     FullBakers ->
-    SeedState ssv ->
+    -- | Leadership election nonce for the current epoch.
+    LeadershipElectionNonce ->
+    -- | Pointer to the parent block.
     BlockPointer mpv ->
+    -- | The current round.
     Round ->
     [(BakerId, Word64)]
-computeMissedRounds mbTc _validators _seedState _parent _rnd | isAbsent mbTc = []
-computeMissedRounds _mbTc validators seedState parent rnd = missedRounds
+computeMissedRounds mbTc _validators _leNonce _parent _rnd | isAbsent mbTc = []
+computeMissedRounds _mbTc validators leNonce parent rnd = missedRounds
   where
     missedRoundsValidators =
         let beginRound = blockRound parent
             endRound = rnd - 1
-            leNonce = seedState ^. currentLeadershipElectionNonce
         in  [ _bakerIdentity $ _theBakerInfo winner
               | r <- [beginRound .. endRound],
                 let winner = getLeaderFullBakers validators leNonce r

@@ -722,13 +722,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             rejectBlock
         | otherwise = continue
     checkBlockExecution GenesisMetadata{..} parentBF continue = do
-        let parentBlockState = bpState parent
-        parentSeedState <- getSeedState parentBlockState
         let missedRounds =
                 computeMissedRounds
                     (blockTimeoutCertificate pendingBlock)
                     (_bfBakers vbBakersAndFinalizers)
-                    parentSeedState
+                    vbLeadershipElectionNonce
                     parent
                     (blockRound pendingBlock)
         let execData =
@@ -1214,13 +1212,11 @@ bakeBlock BakeBlockInputs{..} = do
         gets (getBakersForEpoch (qcEpoch bbiQuorumCertificate)) <&> \case
             Nothing -> error "Invariant violation: could not determine bakers for QC epoch."
             Just bakers -> quorumCertificateSigningBakers (bakers ^. bfFinalizers) bbiQuorumCertificate
-    let parentBlockState = bpState bbiParent
-    parentSeedState <- getSeedState parentBlockState
     let missedRounds =
             computeMissedRounds
                 bbiTimeoutCertificate
                 bbiEpochBakers
-                parentSeedState
+                bbiLeadershipElectionNonce
                 bbiParent
                 bbiRound
     let executionData =
