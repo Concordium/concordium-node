@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 
@@ -15,7 +16,7 @@ module Concordium.KonsensusV1.LeaderElection (
     computeMissedRounds,
 ) where
 
-import Data.List (group)
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Data.Word
@@ -172,13 +173,9 @@ computeMissedRounds ::
     Round ->
     [(BakerId, Word64)]
 computeMissedRounds mbTc _validators _leNonce _parent _rnd | isAbsent mbTc = []
-computeMissedRounds _mbTc validators leNonce parent rnd = missedRounds
+computeMissedRounds _mbTc validators leNonce parent rnd = Map.toList $ makeMissedRounds Map.empty (blockRound parent)
   where
-    missedRoundsValidators =
-        let beginRound = blockRound parent
-            endRound = rnd - 1
-        in  [ _bakerIdentity $ _theBakerInfo winner
-              | r <- [beginRound .. endRound],
-                let winner = getLeaderFullBakers validators leNonce r
-            ]
-    missedRounds = [(head g, fromIntegral $ length g) | g <- group missedRoundsValidators]
+    getLeader' = _bakerIdentity . _theBakerInfo . getLeaderFullBakers validators leNonce
+    makeMissedRounds !m !r
+        | r >= rnd = m
+        | otherwise = makeMissedRounds (Map.insertWith (+) (getLeader' r) 1 m) (r + 1)
