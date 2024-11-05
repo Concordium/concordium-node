@@ -378,6 +378,7 @@ processBlockRewards ::
     ParticipatingBakers ->
     -- | Transaction fees and number of "free" transactions.
     TransactionRewardParameters ->
+    -- | Number of missed rounds per validator.
     [(BakerId, Word64)] ->
     -- | Block state.
     UpdatableBlockState m ->
