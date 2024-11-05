@@ -370,7 +370,9 @@ processPaydayRewards (Just PaydayParameters{..}) theState0 = do
 --  finalizers that signed the QC in the block are awake (and eligible for finalizer rewards).
 --  Distributes the transaction fees to the appropriate reward accounts.
 processBlockRewards ::
+    forall pv m.
     ( pv ~ MPV m,
+      IsProtocolVersion pv,
       BlockStateStorage m,
       IsConsensusV1 pv
     ) =>
@@ -393,15 +395,20 @@ processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} miss
     -- then its missed round counter would be 1. Though if it also baked the new block, it
     -- would be reset to 0.
     theState1 <- bsoMarkFinalizationAwakeBakers theState0 pbQCSignatories
-    theState2 <- bsoUpdateMissedRounds theState1 missedRounds
+    theState2 <- case hasValidatorSuspension of
+        STrue -> bsoUpdateMissedRounds theState1 missedRounds
+        SFalse -> return theState1
     theState3 <- bsoNotifyBlockBaked theState2 pbBlockBaker
     doBlockRewardP4 trpTransactionFees trpFreeTransactionCounts pbBlockBaker theState3
+  where
+    hasValidatorSuspension = sSupportsValidatorSuspension (sAccountVersionFor (protocolVersion @pv))
 
 -- | Execute the block epilogue. This mints and distributes the rewards for a payday if the block is
 --  in a new payday. This also accrues the rewards for the block that will be paid at the next
 --  payday.
 executeBlockEpilogue ::
     ( pv ~ MPV m,
+      IsProtocolVersion pv,
       BlockStateStorage m,
       BlockState m ~ PBS.HashedPersistentBlockState pv,
       IsConsensusV1 pv
