@@ -81,7 +81,7 @@ jobs:
           if [ -z "${{ env.SERVICE }}" ]; then
             IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ github.ref_name }}"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
-              echo "::error::${GITHUB_REF_NAME} does not match ${VERSION}."
+              echo "::error::${CARGO_VERSION} does not match ${VERSION}."
               exit 1
             fi
           else
