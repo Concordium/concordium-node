@@ -1496,7 +1496,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Set the current capital distribution to the current value of the next capital distribution.
     --  The next capital distribution is unchanged.
-    --  This also clears transaction rewards, missed rounds and block counts accruing to baker pools.
+    --  This also clears transaction rewards and block counts accruing to baker pools.
     --  The passive delegator and foundation transaction rewards are not affected.
     bsoRotateCurrentCapitalDistribution :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (UpdatableBlockState m)
 

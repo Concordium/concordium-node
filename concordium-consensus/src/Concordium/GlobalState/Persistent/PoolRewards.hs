@@ -274,20 +274,31 @@ bakerBlockCounts PoolRewards{..} = do
             then []
             else (bcBakerId (Vec.head bpc), blockCount) : zipToBlockCounts (Vec.tail bpc) rds
 
--- | Rotate the capital distribution, so that the current capital distribution is replaced by the
---  next one, and set up empty pool rewards.
+-- | Rotate the capital distribution, so that the current capital distribution
+--  is replaced by the next one, and set up empty pool rewards, except that
+--  missed rounds are carried over from the old pool rewards.
 rotateCapitalDistribution ::
+    forall av ref m bhv.
     (MonadBlobStore m, Reference m ref (PoolRewards bhv av), IsBlockHashVersion bhv, IsAccountVersion av) =>
     ref (PoolRewards bhv av) ->
     m (ref (PoolRewards bhv av))
 rotateCapitalDistribution oldPoolRewards = do
     pr <- refLoad oldPoolRewards
     nextCap <- refLoad (nextCapital pr)
-    rewardDetails <-
-        LFMBT.fromAscList $
-            replicate
-                (Vec.length (bakerPoolCapital nextCap))
-                emptyBakerPoolRewardDetails
+    oldBakerIds <- fmap bcBakerId . Vec.toList . bakerPoolCapital <$> refLoad (currentCapital pr)
+    let newBakerIds = bcBakerId <$> Vec.toList (bakerPoolCapital nextCap)
+    oldRewardDetails <- LFMBT.toAscList (bakerPoolRewardDetails pr)
+    let buildRewardDetails [] _ _ = []
+        buildRewardDetails newIds [] [] = emptyBakerPoolRewardDetails <$ newIds
+        buildRewardDetails (newId : newIds) (oldId : oldIds) (r : rs) = case compare newId oldId of
+            LT -> emptyBakerPoolRewardDetails : buildRewardDetails newIds (oldId : oldIds) (r : rs)
+            EQ ->
+                (emptyBakerPoolRewardDetails @av){missedRounds = missedRounds r}
+                    : buildRewardDetails newIds oldIds rs
+            GT -> buildRewardDetails (newId : newIds) oldIds rs
+        buildRewardDetails _ _ _ =
+            error "rotateCapitalDistribution: length mismatch between capital distribution and reward details"
+    rewardDetails <- LFMBT.fromAscList $ buildRewardDetails newBakerIds oldBakerIds oldRewardDetails
     refMake $
         pr
             { currentCapital = nextCapital pr,
