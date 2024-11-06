@@ -23,7 +23,6 @@ import Data.Word
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types
 import Concordium.Types.Accounts
@@ -167,13 +166,13 @@ computeMissedRounds ::
     FullBakers ->
     -- | Leadership election nonce for the current epoch.
     LeadershipElectionNonce ->
-    -- | Pointer to the parent block.
-    BlockPointer mpv ->
+    -- | Parent round.
+    Round ->
     -- | The current round.
     Round ->
     [(BakerId, Word64)]
-computeMissedRounds mbTc _validators _leNonce _parent _rnd | isAbsent mbTc = []
-computeMissedRounds _mbTc validators leNonce parent rnd = Map.toList $ makeMissedRounds Map.empty (blockRound parent)
+computeMissedRounds mbTc _validators _leNonce _parentRnd _rnd | isAbsent mbTc = []
+computeMissedRounds _mbTc validators leNonce parentRnd rnd = Map.toList $ makeMissedRounds Map.empty parentRnd
   where
     getLeader' = _bakerIdentity . _theBakerInfo . getLeaderFullBakers validators leNonce
     makeMissedRounds !m !r

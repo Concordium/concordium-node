@@ -727,7 +727,7 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                     (blockTimeoutCertificate pendingBlock)
                     (_bfBakers vbBakersAndFinalizers)
                     vbLeadershipElectionNonce
-                    parent
+                    (blockRound parent)
                     (blockRound pendingBlock)
         let execData =
                 BlockExecutionData
@@ -1217,7 +1217,7 @@ bakeBlock BakeBlockInputs{..} = do
                 bbiTimeoutCertificate
                 bbiEpochBakers
                 bbiLeadershipElectionNonce
-                bbiParent
+                (blockRound bbiParent)
                 bbiRound
     let executionData =
             BlockExecutionData
