@@ -4,10 +4,10 @@ on:
       - base/*
 
 jobs:
-  release-:
+  release-collector-backend:
     uses: concordium/.github/.github/workflows/docker-release-workflow.yaml@ekw/SRE-998/Use-custom-registry
     with:
-      SERVICE_NAME: "base"
+      SERVICE_NAME: "collector-backend"
       DOCKER_REGISTRY: "192549843005.dkr.ecr.eu-west-1.amazonaws.com/concordium"
       BUILD_ARGS: |
         RUST_VERSION=1.74.1
@@ -16,5 +16,5 @@ jobs:
         FLATBUFFERS_TAG=v22.12.06
         NVM_SH_VERSION=v0.37.2
         CMAKE_VERSION=3.25.1
-      DOCKER_FILE_PATH: docker/base.Dockerfile
+      DOCKER_FILE_PATH: collector-backend/Dockerfile
     secrets: inherit
