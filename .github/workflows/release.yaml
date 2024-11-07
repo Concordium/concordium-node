@@ -600,7 +600,7 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Set tag
-        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["${{ github.job }}-${{ matrix.node.env }}"]')"
+        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["${{ github.job }}-${{ matrix.node.env }}"]')" >> $GITHUB_ENV
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
