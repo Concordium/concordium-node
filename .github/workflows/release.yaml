@@ -26,7 +26,6 @@ env:
   STACK_VERSION: '2.13.1'
   FLATBUFFERS_VERSION: '23.5.26'
   GHC_VERSION: '9.6.4'
-  CABAL_VERSION: '3.6.2.0'
   PROTOC_VERSION: '25.2'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
@@ -333,7 +332,6 @@ jobs:
         uses: haskell-actions/setup@v2
         with:
           ghc-version: ${{ env.GHC_VERSION }}
-          cabal-version: ${{ env.CABAL_VERSION }}
           enable-stack: true
           stack-version: ${{ env.STACK_VERSION }}
 
@@ -383,7 +381,6 @@ jobs:
       - uses: haskell-actions/setup@v2
         with:
           ghc-version: ${{ env.GHC_VERSION }}
-          cabal-version: ${{ env.CABAL_VERSION }}
           enable-stack: true
           stack-version: ${{ env.STACK_VERSION }}
 
