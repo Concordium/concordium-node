@@ -1,7 +1,6 @@
 {-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 -- | Tests for the functions in 'Concordium.KonsensusV1.LeaderElection'.
@@ -20,7 +19,6 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
 import Concordium.Types.Option
 import Concordium.Types.SeedState
-import ConcordiumTests.KonsensusV1.TreeStateTest (dummyBlock)
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.LeaderElection
