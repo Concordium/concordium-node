@@ -1512,7 +1512,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- | Update the count of missed rounds for given validators by the given
     --  delta. Rounds are `missed` by a validator, if it has been elected leader but the
     --  round did timeout.
-    bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [(BakerId, Word64)] -> m (UpdatableBlockState m)
+    bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Map.Map BakerId Word64 -> m (UpdatableBlockState m)
 
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
