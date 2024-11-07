@@ -381,7 +381,7 @@ processBlockRewards ::
     -- | Transaction fees and number of "free" transactions.
     TransactionRewardParameters ->
     -- | Number of missed rounds per validator.
-    [(BakerId, Word64)] ->
+    Map.Map BakerId Word64 ->
     -- | Block state.
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
@@ -416,7 +416,7 @@ executeBlockEpilogue ::
     ParticipatingBakers ->
     Maybe (PaydayParameters (AccountVersionFor (MPV m))) ->
     TransactionRewardParameters ->
-    [(BakerId, Word64)] ->
+    Map.Map BakerId Word64 ->
     UpdatableBlockState m ->
     m (PBS.HashedPersistentBlockState pv)
 executeBlockEpilogue participants paydayParams transactionRewardParams missedRounds theState0 = do

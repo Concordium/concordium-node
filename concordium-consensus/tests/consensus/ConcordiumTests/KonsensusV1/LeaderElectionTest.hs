@@ -7,10 +7,10 @@
 -- | Tests for the functions in 'Concordium.KonsensusV1.LeaderElection'.
 module ConcordiumTests.KonsensusV1.LeaderElectionTest (tests) where
 
-import Data.Serialize
-import Data.Word
-import qualified Data.Vector as Vec
 import qualified Data.Map.Strict as Map
+import Data.Serialize
+import qualified Data.Vector as Vec
+import Data.Word
 import System.Random
 import Test.HUnit
 import Test.Hspec
@@ -60,14 +60,14 @@ dummyFullBakers =
 
 -- | A dummy `TimeoutCertificate` used for testing.
 dummyTimeoutCertificate :: Word64 -> TimeoutCertificate
-dummyTimeoutCertificate r = 
-        TimeoutCertificate
-            { tcRound = Round r,
-              tcMinEpoch = 0,
-              tcFinalizerQCRoundsFirstEpoch = FinalizerRounds Map.empty,
-              tcFinalizerQCRoundsSecondEpoch = FinalizerRounds Map.empty,
-              tcAggregateSignature = mempty
-            }
+dummyTimeoutCertificate r =
+    TimeoutCertificate
+        { tcRound = Round r,
+          tcMinEpoch = 0,
+          tcFinalizerQCRoundsFirstEpoch = FinalizerRounds Map.empty,
+          tcFinalizerQCRoundsSecondEpoch = FinalizerRounds Map.empty,
+          tcAggregateSignature = mempty
+        }
 
 -- | Serialization test for FullBakers.
 --  Note that we are never deserializing the full bakers in practice,
@@ -156,41 +156,49 @@ testUpdateSeedStateForEpoch =
               ss1ShutdownTriggered = False
             }
 
-testComputeMissedRounds :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> Spec
-testComputeMissedRounds _spv =
+testComputeMissedRounds :: Spec
+testComputeMissedRounds =
     describe "computeMissedRounds" $ do
         it "no timeout" $
-            computeMissedRounds
-                Absent
-                dummyFullBakers
-                (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
-                (dummyBlock @pv 5)
-                6
+            ( Map.toList $
+                computeMissedRounds
+                    Absent
+                    dummyFullBakers
+                    (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
+                    5
+                    6
+            )
                 `shouldBe` []
-        it "timeout present, 1 missed round" $ 
-            computeMissedRounds
-                (Present $ dummyTimeoutCertificate 5)
-                dummyFullBakers
-                (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
-                (dummyBlock @pv 5)
-                6
-                `shouldBe` [(1,1)]
-        it "timeout present, 3 missed rounds" $ 
-            computeMissedRounds
-                (Present $ dummyTimeoutCertificate 5)
-                dummyFullBakers
-                (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
-                (dummyBlock @pv 5)
-                8
-                `shouldBe` [(1,2), (2,1)]
-        it "timeout present, 95 missed rounds" $ 
-            computeMissedRounds
-                (Present $ dummyTimeoutCertificate 5)
-                dummyFullBakers
-                (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
-                (dummyBlock @pv 5)
-                100
-                `shouldBe` [(1,46), (2,49)]
+        it "timeout present, 1 missed round" $
+            ( Map.toList $
+                computeMissedRounds
+                    (Present $ dummyTimeoutCertificate 5)
+                    dummyFullBakers
+                    (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
+                    5
+                    6
+            )
+                `shouldBe` [(1, 1)]
+        it "timeout present, 3 missed rounds" $
+            ( Map.toList $
+                computeMissedRounds
+                    (Present $ dummyTimeoutCertificate 5)
+                    dummyFullBakers
+                    (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
+                    5
+                    8
+            )
+                `shouldBe` [(1, 2), (2, 1)]
+        it "timeout present, 95 missed rounds" $
+            ( Map.toList $
+                computeMissedRounds
+                    (Present $ dummyTimeoutCertificate 5)
+                    dummyFullBakers
+                    (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
+                    5
+                    100
+            )
+                `shouldBe` [(1, 46), (2, 49)]
 
 tests :: Spec
 tests = describe "KonsensusV1.LeadershipElection" $ do
@@ -198,4 +206,4 @@ tests = describe "KonsensusV1.LeadershipElection" $ do
     testUpdateSeedStateForBlock
     testUpdateSeedStateForEpoch
     serializeDeserializeFullBakers
-    testComputeMissedRounds SP8
+    testComputeMissedRounds

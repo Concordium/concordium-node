@@ -3469,7 +3469,7 @@ doUpdateMissedRounds ::
       SupportsPersistentState pv m
     ) =>
     PersistentBlockState pv ->
-    [(BakerId, Word64)] ->
+    Map.Map BakerId Word64 ->
     m (PersistentBlockState pv)
 doUpdateMissedRounds pbs rds = do
     bsp <- loadPBS pbs
@@ -3482,7 +3482,7 @@ doUpdateMissedRounds pbs rds = do
                     (\bprd -> bprd{missedRounds = (+ newMissedRounds) <$> missedRounds bprd})
             )
             bsp
-            rds
+            (Map.toList rds)
     storePBS pbs bsp'
 
 doProcessUpdateQueues ::
