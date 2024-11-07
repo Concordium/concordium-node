@@ -1,5 +1,7 @@
 on:
   push:
+    branches:
+      - ekw/SRE-988/migrate-collector-backend
     tags:
       - collector-backend/*
 
