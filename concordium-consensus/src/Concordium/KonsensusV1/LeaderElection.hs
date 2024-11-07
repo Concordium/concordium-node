@@ -170,9 +170,9 @@ computeMissedRounds ::
     Round ->
     -- | The current round.
     Round ->
-    [(BakerId, Word64)]
-computeMissedRounds mbTc _validators _leNonce _parentRnd _rnd | isAbsent mbTc = []
-computeMissedRounds _mbTc validators leNonce parentRnd rnd = Map.toList $ makeMissedRounds Map.empty parentRnd
+    Map.Map BakerId Word64
+computeMissedRounds mbTc _validators _leNonce _parentRnd _rnd | isAbsent mbTc = Map.empty
+computeMissedRounds _mbTc validators leNonce parentRnd rnd = makeMissedRounds Map.empty parentRnd
   where
     getLeader' = _bakerIdentity . _theBakerInfo . getLeaderFullBakers validators leNonce
     makeMissedRounds !m !r
