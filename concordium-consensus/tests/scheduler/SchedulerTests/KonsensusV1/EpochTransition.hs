@@ -43,6 +43,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.Cooldown as Cooldown
 import qualified Concordium.GlobalState.Persistent.ReleaseSchedule as ReleaseSchedule
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
+import Concordium.GlobalState.PoolRewards
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Scheduler
 import Concordium.Kontrol.Bakers
@@ -372,8 +373,8 @@ transitionalSeedState curEpoch triggerTime =
         }
 
 -- | Test an epoch transition with no payday or snapshot.
-testEpochTransitionNoPaydayNoSnapshot :: [AccountConfig 'AccountV3] -> Assertion
-testEpochTransitionNoPaydayNoSnapshot accountConfigs = runTestBlockState @P7 $ do
+testEpochTransitionNoPaydayNoSnapshot :: [AccountConfig 'AccountV4] -> Assertion
+testEpochTransitionNoPaydayNoSnapshot accountConfigs = runTestBlockState @P8 $ do
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 2
     initCapDist <- bsoGetCurrentCapitalDistribution bs0
     initBakers <- bsoGetCurrentEpochFullBakersEx bs0
@@ -398,19 +399,26 @@ testEpochTransitionNoPaydayNoSnapshot accountConfigs = runTestBlockState @P7 $ d
     liftIO $ assertEqual "Capital distribution should be unchanged" initCapDist finalCapDist
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be unchanged" initBakers finalBakers
+    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
     updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be unchanged" initCapDist finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be unchanged" initBakers finalNEBakers
+    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    liftIO $
+        assertEqual
+            "Next-epoch missed rounds should be unchanged after capital distribution rotation"
+            (Map.intersection initMissedRounds finalMissedRounds)
+            (Map.intersection finalMissedRounds initMissedRounds)
   where
     hour = Duration 3_600_000
     startEpoch = 10
     startTriggerTime = 1000
 
 -- | Test a payday epoch transition.
-testEpochTransitionPaydayOnly :: [AccountConfig 'AccountV3] -> Assertion
-testEpochTransitionPaydayOnly accountConfigs = runTestBlockState @P7 $ do
+testEpochTransitionPaydayOnly :: [AccountConfig 'AccountV4] -> Assertion
+testEpochTransitionPaydayOnly accountConfigs = runTestBlockState @P8 $ do
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 2
     initCapDist <- bsoGetCurrentCapitalDistribution bs0
     initBakers <- bsoGetCurrentEpochFullBakersEx bs0
@@ -447,11 +455,18 @@ testEpochTransitionPaydayOnly accountConfigs = runTestBlockState @P7 $ do
     liftIO $ assertEqual "Capital distribution should be unchanged" initCapDist finalCapDist
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be unchanged" initBakers finalBakers
+    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
     updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be unchanged" initCapDist finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be unchanged" initBakers finalNEBakers
+    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    liftIO $
+        assertEqual
+            "Next-epoch missed rounds should be unchanged after capital distribution rotation"
+            (Map.intersection initMissedRounds finalMissedRounds)
+            (Map.intersection finalMissedRounds initMissedRounds)
   where
     hour = Duration 3_600_000
     startEpoch = 10
@@ -461,8 +476,8 @@ testEpochTransitionPaydayOnly accountConfigs = runTestBlockState @P7 $ do
             ^. cpCooldownParameters . cpUnifiedCooldown
 
 -- | Test an snapshot epoch transition.
-testEpochTransitionSnapshotOnly :: [AccountConfig 'AccountV3] -> Assertion
-testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
+testEpochTransitionSnapshotOnly :: [AccountConfig 'AccountV4] -> Assertion
+testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P8 $ do
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 2
     initCapDist <- bsoGetCurrentCapitalDistribution bs0
     initBakers <- bsoGetCurrentEpochFullBakersEx bs0
@@ -475,7 +490,7 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
                 activeDelegators
     updatedCapitalDistr <- capitalDistributionM
     let mkFullBaker (ref, stake) = do
-            loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
+            loadPersistentBakerInfoRef @_ @'AccountV4 ref <&> \case
                 (BakerInfoExV1 info extra _isSuspended) ->
                     FullBakerInfoEx
                         { _exFullBakerInfo = FullBakerInfo info stake,
@@ -508,11 +523,18 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
     liftIO $ assertEqual "Capital distribution should be unchanged" initCapDist finalCapDist
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be unchanged" initBakers finalBakers
+    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
     updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be updated" updatedCapitalDistr finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be updated" updatedBakerStakes finalNEBakers
+    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    liftIO $
+        assertEqual
+            "Next-epoch missed rounds should be unchanged after capital distribution rotation"
+            (Map.intersection initMissedRounds finalMissedRounds)
+            (Map.intersection finalMissedRounds initMissedRounds)
   where
     hour = Duration 3_600_000
     startEpoch = 10
@@ -520,8 +542,8 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
     chainParams = DummyData.dummyChainParameters @ChainParametersV2
 
 -- | Test two successive epoch transitions where the first is a snapshot and the second is a payday.
-testEpochTransitionSnapshotPayday :: [AccountConfig 'AccountV3] -> Assertion
-testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
+testEpochTransitionSnapshotPayday :: [AccountConfig 'AccountV4] -> Assertion
+testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P8 $ do
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 2
     initCapDist <- bsoGetCurrentCapitalDistribution bs0
     initBakers <- bsoGetCurrentEpochFullBakersEx bs0
@@ -534,7 +556,7 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
                 activeDelegators
     updatedCapitalDistr <- capitalDistributionM
     let mkFullBaker (ref, stake) = do
-            loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
+            loadPersistentBakerInfoRef @_ @'AccountV4 ref <&> \case
                 (BakerInfoExV1 info extra _isSuspended) ->
                     FullBakerInfoEx
                         { _exFullBakerInfo = FullBakerInfo info stake,
@@ -592,11 +614,18 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be updated" updatedBakerStakes finalBakers
 
+    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
     updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be updated" updatedCapitalDistr finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be updated" updatedBakerStakes finalNEBakers
+    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    liftIO $
+        assertEqual
+            "Next-epoch missed rounds should be unchanged after capital distribution rotation"
+            (Map.intersection initMissedRounds finalMissedRounds)
+            (Map.intersection finalMissedRounds initMissedRounds)
   where
     hour = Duration 3_600_000
     startEpoch = 10
@@ -607,8 +636,8 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
 -- | Test epoch transitions for two successive transitions where the payday length is one epoch.
 -- In this case, both the snapshot and payday processing occur on each transition, so this tests
 -- that they are correctly ordered.
-testEpochTransitionSnapshotPaydayCombo :: [AccountConfig 'AccountV3] -> Assertion
-testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ do
+testEpochTransitionSnapshotPaydayCombo :: [AccountConfig 'AccountV4] -> Assertion
+testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P8 $ do
     -- Setup the initial state.
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 1
     initCapDist <- bsoGetCurrentCapitalDistribution bs0
@@ -622,7 +651,7 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ 
                 activeDelegators
     updatedCapitalDistr <- capitalDistributionM
     let mkFullBaker (ref, stake) = do
-            loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
+            loadPersistentBakerInfoRef @_ @'AccountV4 ref <&> \case
                 (BakerInfoExV1 info extra _isSuspended) ->
                     FullBakerInfoEx
                         { _exFullBakerInfo = FullBakerInfo info stake,
@@ -698,11 +727,18 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ 
     liftIO $ assertEqual "Capital distribution should be updated (2)" updatedCapitalDistr finalCapDist
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be updated (2)" updatedBakerStakes finalBakers
+    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
     updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be updated (2)" updatedCapitalDistr finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be updated (2)" updatedBakerStakes finalNEBakers
+    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    liftIO $
+        assertEqual
+            "Next-epoch missed rounds should be unchanged after capital distribution rotation"
+            (Map.intersection initMissedRounds finalMissedRounds)
+            (Map.intersection finalMissedRounds initMissedRounds)
   where
     hour = Duration 3_600_000
     startEpoch = 10
