@@ -166,14 +166,13 @@ computeMissedRounds ::
     FullBakers ->
     -- | Leadership election nonce for the current epoch.
     LeadershipElectionNonce ->
-    -- | Parent round.
-    Round ->
     -- | The current round.
     Round ->
     Map.Map BakerId Word64
-computeMissedRounds mbTc _validators _leNonce _parentRnd _rnd | isAbsent mbTc = Map.empty
-computeMissedRounds _mbTc validators leNonce parentRnd rnd = makeMissedRounds Map.empty parentRnd
+computeMissedRounds Absent _validators _leNonce _rnd = Map.empty
+computeMissedRounds (Present tc) validators leNonce rnd = makeMissedRounds Map.empty parentRnd
   where
+    parentRnd = tcRound tc
     getLeader' = _bakerIdentity . _theBakerInfo . getLeaderFullBakers validators leNonce
     makeMissedRounds !m !r
         | r >= rnd = m
