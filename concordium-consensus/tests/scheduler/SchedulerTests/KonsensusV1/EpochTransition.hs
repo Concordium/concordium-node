@@ -24,6 +24,7 @@ import Test.QuickCheck
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Logger
 import Concordium.Types
+import Concordium.Types.Conditionally
 import Concordium.Types.Option
 import Concordium.Types.SeedState
 
@@ -399,13 +400,15 @@ testEpochTransitionNoPaydayNoSnapshot accountConfigs = runTestBlockState @P8 $ d
     liftIO $ assertEqual "Capital distribution should be unchanged" initCapDist finalCapDist
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be unchanged" initBakers finalBakers
-    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
-    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
+    red <- bsoGetBakerPoolRewardDetails resState
+    let initMissedRounds = Map.fromList $ zip (Map.keys red) [1 ..]
+    updMissedRnds <- bsoUpdateMissedRounds resState initMissedRounds
+    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers updMissedRnds
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be unchanged" initCapDist finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be unchanged" initBakers finalNEBakers
-    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    finalMissedRounds <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails updBakers
     liftIO $
         assertEqual
             "Next-epoch missed rounds should be unchanged after capital distribution rotation"
@@ -455,13 +458,15 @@ testEpochTransitionPaydayOnly accountConfigs = runTestBlockState @P8 $ do
     liftIO $ assertEqual "Capital distribution should be unchanged" initCapDist finalCapDist
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be unchanged" initBakers finalBakers
-    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
-    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
+    red <- bsoGetBakerPoolRewardDetails resState
+    let initMissedRounds = Map.fromList $ zip (Map.keys red) [1 ..]
+    updMissedRnds <- bsoUpdateMissedRounds resState initMissedRounds
+    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers updMissedRnds
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be unchanged" initCapDist finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be unchanged" initBakers finalNEBakers
-    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    finalMissedRounds <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails updBakers
     liftIO $
         assertEqual
             "Next-epoch missed rounds should be unchanged after capital distribution rotation"
@@ -523,18 +528,24 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P8 $ do
     liftIO $ assertEqual "Capital distribution should be unchanged" initCapDist finalCapDist
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be unchanged" initBakers finalBakers
-    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
-    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
+    red <- bsoGetBakerPoolRewardDetails resState
+    let initMissedRounds = Map.fromList $ zip (Map.keys red) [1 ..]
+    updMissedRnds <- bsoUpdateMissedRounds resState initMissedRounds
+    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers updMissedRnds
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be updated" updatedCapitalDistr finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be updated" updatedBakerStakes finalNEBakers
-    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    finalMissedRounds <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails updBakers
     liftIO $
         assertEqual
             "Next-epoch missed rounds should be unchanged after capital distribution rotation"
             (Map.intersection initMissedRounds finalMissedRounds)
             (Map.intersection finalMissedRounds initMissedRounds)
+    liftIO $
+        assertBool
+            "New bakers should have no missed rounds"
+            (all (== 0) $ Map.elems (finalMissedRounds `Map.difference` initMissedRounds))
   where
     hour = Duration 3_600_000
     startEpoch = 10
@@ -614,18 +625,24 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P8 $ do
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be updated" updatedBakerStakes finalBakers
 
-    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
-    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
+    red <- bsoGetBakerPoolRewardDetails resState
+    let initMissedRounds = Map.fromList $ zip (Map.keys red) [1 ..]
+    updMissedRnds <- bsoUpdateMissedRounds resState initMissedRounds
+    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers updMissedRnds
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be updated" updatedCapitalDistr finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be updated" updatedBakerStakes finalNEBakers
-    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    finalMissedRounds <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails updBakers
     liftIO $
         assertEqual
             "Next-epoch missed rounds should be unchanged after capital distribution rotation"
             (Map.intersection initMissedRounds finalMissedRounds)
             (Map.intersection finalMissedRounds initMissedRounds)
+    liftIO $
+        assertBool
+            "New bakers should have no missed rounds"
+            (all (== 0) $ Map.elems (finalMissedRounds `Map.difference` initMissedRounds))
   where
     hour = Duration 3_600_000
     startEpoch = 10
@@ -727,18 +744,24 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P8 $ 
     liftIO $ assertEqual "Capital distribution should be updated (2)" updatedCapitalDistr finalCapDist
     finalBakers <- bsoGetCurrentEpochFullBakersEx resState
     liftIO $ assertEqual "Bakers should be updated (2)" updatedBakerStakes finalBakers
-    initMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
-    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers resState
+    red <- bsoGetBakerPoolRewardDetails resState
+    let initMissedRounds = Map.fromList $ zip (Map.keys red) [1 ..]
+    updMissedRnds <- bsoUpdateMissedRounds resState initMissedRounds
+    updBakers <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers updMissedRnds
     finalNECapDist <- bsoGetCurrentCapitalDistribution updBakers
     liftIO $ assertEqual "Next-epoch capital distribution should be updated (2)" updatedCapitalDistr finalNECapDist
     finalNEBakers <- bsoGetCurrentEpochFullBakersEx updBakers
     liftIO $ assertEqual "Next-epoch bakers should be updated (2)" updatedBakerStakes finalNEBakers
-    finalMissedRounds <- fmap missedRounds <$> bsoGetBakerPoolRewardDetails resState
+    finalMissedRounds <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails updBakers
     liftIO $
         assertEqual
             "Next-epoch missed rounds should be unchanged after capital distribution rotation"
             (Map.intersection initMissedRounds finalMissedRounds)
             (Map.intersection finalMissedRounds initMissedRounds)
+    liftIO $
+        assertBool
+            "New bakers should have no missed rounds"
+            (all (== 0) $ Map.elems (finalMissedRounds `Map.difference` initMissedRounds))
   where
     hour = Duration 3_600_000
     startEpoch = 10
