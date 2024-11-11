@@ -3447,12 +3447,12 @@ extern "C" fn enqueue_bytearray_callback(
     match sender.try_send(Ok(data.to_vec())) {
         Ok(()) => {
             // Do not drop the sender.
-            Box::into_raw(sender);
+            let _ = Box::into_raw(sender);
             0
         }
         Err(e) if e.is_full() => {
             // Do not drop the sender, we will enqueue more things.
-            Box::into_raw(sender);
+            let _ = Box::into_raw(sender);
             -1
         }
         Err(_) => {

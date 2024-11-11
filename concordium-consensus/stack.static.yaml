@@ -1,4 +1,4 @@
-resolver: lts-22.9
+resolver: lts-22.39
 
 packages:
 - .
@@ -9,6 +9,10 @@ extra-deps:
   - proto-lens-setup-0.4.0.7@sha256:acca0b04e033ea0a017f809d91a7dbc942e025ec6bc275fa21647352722c74cc,3122
   - proto-lens-protoc-0.8.0.0@sha256:a146ee8c9af9e445ab05651e688deb0ff849357d320657d6cea5be33cb54b960,2235
   - ghc-source-gen-0.4.4.0@sha256:8499f23c5989c295f3b002ad92784ca5fed5260fd4891dc816f17d30c5ba9cd9,4236
+  # Cabal-3.10.3.0 (from the lts-22.39 snapshot) breaks linking on Windows, but this should be
+  # fixed in newer versions.  This should be removed once we update to an lts that uses a new
+  # enough version of Cabal.
+  - Cabal-3.10.1.0
 
 extra-lib-dirs:
 - ../concordium-base/lib

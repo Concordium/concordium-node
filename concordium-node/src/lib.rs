@@ -30,7 +30,7 @@ pub mod utils;
 
 pub mod consensus_ffi;
 
-#[cfg(any(test, bench, feature = "test_utils"))]
+#[cfg(any(test, feature = "test_utils"))]
 pub mod test_utils;
 
 pub mod flatbuffers_shim;
