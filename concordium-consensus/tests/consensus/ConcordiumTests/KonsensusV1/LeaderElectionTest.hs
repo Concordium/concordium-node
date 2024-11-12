@@ -1,6 +1,5 @@
 {-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
 -- | Tests for the functions in 'Concordium.KonsensusV1.LeaderElection'.
