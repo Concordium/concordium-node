@@ -29,6 +29,7 @@ import Data.Word
 import Concordium.Crypto.SHA256 as Hash
 
 import Concordium.Types
+import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization.Put (MonadPut (..))
@@ -146,10 +147,11 @@ migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
                     { blockCount = Map.findWithDefault 0 bid blockCounts,
                       transactionFeesAccrued = 0,
                       finalizationAwake = False,
-                      missedRounds = 0 <$ missedRounds bprd
+                      missedRounds = conditionally hasValidatorSuspension 0
                     }
         (!newRef, _) <- refFlush =<< refMake bprd
         return newRef
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
 
 -- | Look up the baker capital and reward details for a baker ID.
 lookupBakerCapitalAndRewardDetails ::
