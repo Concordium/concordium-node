@@ -28,7 +28,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Once,
     },
-    u64,
 };
 
 /// A type used in this module to document that a given value is intended

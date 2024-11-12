@@ -67,11 +67,11 @@ fn main() -> anyhow::Result<()> {
                 .arg("--header")
                 .arg("Accept: application/vnd.pagerduty+json;version=2")
                 .arg("--header")
-                .arg(&format!("From: {}", pager_duty_email))
+                .arg(format!("From: {}", pager_duty_email))
                 .arg("--header")
-                .arg(&format!("Authorization: Token token={}", pager_duty_token))
+                .arg(format!("Authorization: Token token={}", pager_duty_token))
                 .arg("-d")
-                .arg(&format!(
+                .arg(format!(
                     "
                     {{
                       \"incident\": {{
