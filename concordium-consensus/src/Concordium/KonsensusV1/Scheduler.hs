@@ -10,6 +10,7 @@ import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.Map as Map
 import Data.Time
+import Data.Word
 import Lens.Micro.Platform
 
 import Concordium.Logger
@@ -40,13 +41,13 @@ import qualified Concordium.TransactionVerification as TVer
 --  epilogue to distribute rewards.
 --
 --  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
-data PaydayParameters = PaydayParameters
+data PaydayParameters (av :: AccountVersion) = PaydayParameters
     { -- | The capital distribution among the baker pools.
       paydayCapitalDistribution :: CapitalDistribution,
       -- | The effective stake distribution among the baker pools.
       paydayBakers :: FullBakersEx,
       -- | The rewards accruing to each baker pool.
-      paydayPoolRewards :: Map.Map BakerId BakerPoolRewardDetails,
+      paydayPoolRewards :: Map.Map BakerId (BakerPoolRewardDetails av),
       -- | The mint rate for the payday.
       paydayMintRate :: MintRate
     }
@@ -78,7 +79,11 @@ data BlockExecutionData (pv :: ProtocolVersion) = BlockExecutionData
       -- | The block baker and QC signatories.
       bedParticipatingBakers :: ParticipatingBakers,
       -- | The block state of the parent block.
-      bedParentState :: PBS.HashedPersistentBlockState pv
+      bedParentState :: PBS.HashedPersistentBlockState pv,
+      -- | Number of rounds a validator has missed (e.g. the validator was
+      --   elected leader but a timeout certificate exist for the round) since the parent
+      --   block.
+      bedMissedRounds :: Map.Map BakerId Word64
     }
 
 -- | Details of the transactions in a block that are used for computing rewards that accrue to the
@@ -107,12 +112,12 @@ data TransactionExecutionResult m = TransactionExecutionResult
 -- | The result of executing the prologue.
 --
 --  This is a short-lived datastructure used for parameter passing, hence its fields are lazy.
-data PrologueResult m = PrologueResult
+data PrologueResult m av = PrologueResult
     { -- | The block state after prologue execution.
       prologueBlockState :: UpdatableBlockState m,
       -- | If the block should pay out for a payday, these parameters determine the pay out.
       --  Otherwise, they are 'Nothing'.
-      prologuePaydayParameters :: Maybe PaydayParameters
+      prologuePaydayParameters :: Maybe (PaydayParameters av)
     }
 
 -- * Block prologue
@@ -181,7 +186,7 @@ doEpochTransition ::
     Duration ->
     -- | State to update
     UpdatableBlockState m ->
-    m (Maybe PaydayParameters, UpdatableBlockState m)
+    m (Maybe (PaydayParameters (AccountVersionFor (MPV m))), UpdatableBlockState m)
 doEpochTransition False _ theState = return (Nothing, theState)
 doEpochTransition True epochDuration theState0 = do
     chainParams <- bsoGetChainParameters theState0
@@ -283,7 +288,7 @@ executeBlockPrologue ::
       IsConsensusV1 pv
     ) =>
     BlockExecutionData pv ->
-    m (PrologueResult m)
+    m (PrologueResult m (AccountVersionFor (MPV m)))
 executeBlockPrologue BlockExecutionData{..} = do
     theState0 <- thawBlockState bedParentState
     -- process the update queues
@@ -350,7 +355,7 @@ processPaydayRewards ::
       BlockStateStorage m,
       IsConsensusV1 pv
     ) =>
-    Maybe PaydayParameters ->
+    Maybe (PaydayParameters (AccountVersionFor (MPV m))) ->
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 processPaydayRewards Nothing theState = return theState
@@ -365,7 +370,9 @@ processPaydayRewards (Just PaydayParameters{..}) theState0 = do
 --  finalizers that signed the QC in the block are awake (and eligible for finalizer rewards).
 --  Distributes the transaction fees to the appropriate reward accounts.
 processBlockRewards ::
+    forall pv m.
     ( pv ~ MPV m,
+      IsProtocolVersion pv,
       BlockStateStorage m,
       IsConsensusV1 pv
     ) =>
@@ -373,31 +380,48 @@ processBlockRewards ::
     ParticipatingBakers ->
     -- | Transaction fees and number of "free" transactions.
     TransactionRewardParameters ->
+    -- | Number of missed rounds per validator.
+    Map.Map BakerId Word64 ->
     -- | Block state.
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
-processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} theState0 = do
-    theState1 <- bsoNotifyBlockBaked theState0 pbBlockBaker
-    theState2 <- bsoMarkFinalizationAwakeBakers theState1 pbQCSignatories
-    doBlockRewardP4 trpTransactionFees trpFreeTransactionCounts pbBlockBaker theState2
+processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} missedRounds theState0 = do
+    -- Note: The order of the following operations is important.
+    --
+    -- The finalization awake bakers are the ones that signed the QC (possibly
+    -- a timeout) for the parent block. If it was a timeout, missed rounds are counted
+    -- between this last timeout round and the round of the block that is baked next. So if
+    -- a validator signed the QC for the parent block, but missed a round in the interim,
+    -- then its missed round counter would be 1. Though if it also baked the new block, it
+    -- would be reset to 0.
+    theState1 <- bsoMarkFinalizationAwakeBakers theState0 pbQCSignatories
+    theState2 <- case hasValidatorSuspension of
+        STrue -> bsoUpdateMissedRounds theState1 missedRounds
+        SFalse -> return theState1
+    theState3 <- bsoNotifyBlockBaked theState2 pbBlockBaker
+    doBlockRewardP4 trpTransactionFees trpFreeTransactionCounts pbBlockBaker theState3
+  where
+    hasValidatorSuspension = sSupportsValidatorSuspension (sAccountVersionFor (protocolVersion @pv))
 
 -- | Execute the block epilogue. This mints and distributes the rewards for a payday if the block is
 --  in a new payday. This also accrues the rewards for the block that will be paid at the next
 --  payday.
 executeBlockEpilogue ::
     ( pv ~ MPV m,
+      IsProtocolVersion pv,
       BlockStateStorage m,
       BlockState m ~ PBS.HashedPersistentBlockState pv,
       IsConsensusV1 pv
     ) =>
     ParticipatingBakers ->
-    Maybe PaydayParameters ->
+    Maybe (PaydayParameters (AccountVersionFor (MPV m))) ->
     TransactionRewardParameters ->
+    Map.Map BakerId Word64 ->
     UpdatableBlockState m ->
     m (PBS.HashedPersistentBlockState pv)
-executeBlockEpilogue participants paydayParams transactionRewardParams theState0 = do
+executeBlockEpilogue participants paydayParams transactionRewardParams missedRounds theState0 = do
     theState1 <- processPaydayRewards paydayParams theState0
-    theState2 <- processBlockRewards participants transactionRewardParams theState1
+    theState2 <- processBlockRewards participants transactionRewardParams missedRounds theState1
     freezeBlockState theState2
 
 -- * Transactions
@@ -568,6 +592,7 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
                         bedParticipatingBakers
                         prologuePaydayParameters
                         terTransactionRewardParameters
+                        bedMissedRounds
                         terBlockState
                 return (endState, terEnergyUsed)
 
@@ -622,6 +647,7 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
                     bedParticipatingBakers
                     prologuePaydayParameters
                     terTransactionRewardParameters
+                    bedMissedRounds
                     terBlockState
             endTime <- currentTime
             logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)

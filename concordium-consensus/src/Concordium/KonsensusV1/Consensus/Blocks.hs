@@ -722,6 +722,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             rejectBlock
         | otherwise = continue
     checkBlockExecution GenesisMetadata{..} parentBF continue = do
+        let missedRounds =
+                computeMissedRounds
+                    (blockTimeoutCertificate pendingBlock)
+                    (_bfBakers vbBakersAndFinalizers)
+                    vbLeadershipElectionNonce
+                    (blockRound pendingBlock)
         let execData =
                 BlockExecutionData
                     { bedIsNewEpoch = blockEpoch pendingBlock == blockEpoch parent + 1,
@@ -736,7 +742,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 quorumCertificateSigningBakers
                                     (_bfFinalizers parentBF)
                                     (blockQuorumCertificate pendingBlock)
-                            }
+                            },
+                      bedMissedRounds = missedRounds
                     }
         processBlockItems (sbBlock (pbBlock pendingBlock)) parent >>= \case
             Nothing -> do
@@ -1204,6 +1211,12 @@ bakeBlock BakeBlockInputs{..} = do
         gets (getBakersForEpoch (qcEpoch bbiQuorumCertificate)) <&> \case
             Nothing -> error "Invariant violation: could not determine bakers for QC epoch."
             Just bakers -> quorumCertificateSigningBakers (bakers ^. bfFinalizers) bbiQuorumCertificate
+    let missedRounds =
+            computeMissedRounds
+                bbiTimeoutCertificate
+                bbiEpochBakers
+                bbiLeadershipElectionNonce
+                bbiRound
     let executionData =
             BlockExecutionData
                 { bedIsNewEpoch = isPresent bbiEpochFinalizationEntry,
@@ -1215,7 +1228,8 @@ bakeBlock BakeBlockInputs{..} = do
                     ParticipatingBakers
                         { pbBlockBaker = bakerId bbiBakerIdentity,
                           pbQCSignatories = signatories
-                        }
+                        },
+                  bedMissedRounds = missedRounds
                 }
     runtime <- use runtimeParameters
     tt <- use transactionTable

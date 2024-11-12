@@ -5,8 +5,10 @@
 -- | Tests for the functions in 'Concordium.KonsensusV1.LeaderElection'.
 module ConcordiumTests.KonsensusV1.LeaderElectionTest (tests) where
 
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vec
+import Data.Word
 import System.Random
 import Test.HUnit
 import Test.Hspec
@@ -14,10 +16,12 @@ import Test.Hspec
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Types
+import Concordium.Types.Option
 import Concordium.Types.SeedState
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.KonsensusV1.LeaderElection
+import Concordium.KonsensusV1.Types
 import Concordium.Types.Accounts
 
 dummyVRFKeys :: VRF.KeyPair
@@ -50,6 +54,17 @@ dummyFullBakers =
     (Right bek) = decode "\ESC\222==\210(r%dNG\SOHl\161\160w\238\NAKx\205?\180\137=L\156\203\181\\\155\131\232"
     (Right bsk) = decode "\200\SI\250\177\231!\178\142\218\246\152u2\DC1D= b\208\132\245\137\133\206\FS\217)\246q\242\229\235"
     (Right bak) = decode "\x8e\xa8\x59\x44\x28\x81\xdd\xc9\x48\x91\xb1\x99\x3e\x5e\x5d\x18\x44\xe4\x2c\x31\xf1\xf2\x27\x1a\xb4\x50\xff\xb2\x7a\x17\x5b\x42\x39\xaa\xdf\x3c\x4f\xf0\x94\xec\x19\x6e\x5f\xb9\x4f\x73\x7b\x94\x0f\xfb\x0a\x73\x93\x59\x47\x76\xc7\xe6\x7a\x43\x35\x6d\x60\xc8\xf9\x25\x12\x1b\x3b\xf6\x23\xb9\xae\xcb\x4b\x50\xf3\xd9\xe2\xaf\x31\x21\xa1\xd3\xf0\xf8\x7e\xfe\x11\xc5\x83\xf3\x88\xe5\x42\x77"
+
+-- | A dummy `TimeoutCertificate` used for testing.
+dummyTimeoutCertificate :: Word64 -> TimeoutCertificate
+dummyTimeoutCertificate r =
+    TimeoutCertificate
+        { tcRound = Round r,
+          tcMinEpoch = 0,
+          tcFinalizerQCRoundsFirstEpoch = FinalizerRounds Map.empty,
+          tcFinalizerQCRoundsSecondEpoch = FinalizerRounds Map.empty,
+          tcAggregateSignature = mempty
+        }
 
 -- | Serialization test for FullBakers.
 --  Note that we are never deserializing the full bakers in practice,
@@ -138,9 +153,50 @@ testUpdateSeedStateForEpoch =
               ss1ShutdownTriggered = False
             }
 
+testComputeMissedRounds :: Spec
+testComputeMissedRounds =
+    describe "computeMissedRounds" $ do
+        it "no timeout" $
+            ( Map.toList $
+                computeMissedRounds
+                    Absent
+                    dummyFullBakers
+                    (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
+                    6
+            )
+                `shouldBe` []
+        it "timeout present, 1 missed round" $
+            ( Map.toList $
+                computeMissedRounds
+                    (Present $ dummyTimeoutCertificate 5)
+                    dummyFullBakers
+                    (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
+                    6
+            )
+                `shouldBe` [(1, 1)]
+        it "timeout present, 3 missed rounds" $
+            ( Map.toList $
+                computeMissedRounds
+                    (Present $ dummyTimeoutCertificate 5)
+                    dummyFullBakers
+                    (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
+                    8
+            )
+                `shouldBe` [(1, 2), (2, 1)]
+        it "timeout present, 95 missed rounds" $
+            ( Map.toList $
+                computeMissedRounds
+                    (Present $ dummyTimeoutCertificate 5)
+                    dummyFullBakers
+                    (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
+                    100
+            )
+                `shouldBe` [(1, 46), (2, 49)]
+
 tests :: Spec
 tests = describe "KonsensusV1.LeadershipElection" $ do
     testGetLeader
     testUpdateSeedStateForBlock
     testUpdateSeedStateForEpoch
     serializeDeserializeFullBakers
+    testComputeMissedRounds

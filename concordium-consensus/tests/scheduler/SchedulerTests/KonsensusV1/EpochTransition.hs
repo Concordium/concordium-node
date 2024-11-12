@@ -24,6 +24,7 @@ import Test.QuickCheck
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Logger
 import Concordium.Types
+import Concordium.Types.Conditionally
 import Concordium.Types.Option
 import Concordium.Types.SeedState
 
@@ -31,6 +32,7 @@ import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.CapitalDistribution
 import Concordium.GlobalState.CooldownQueue
 import qualified Concordium.GlobalState.DummyData as DummyData
 import Concordium.GlobalState.Persistent.Account
@@ -43,6 +45,7 @@ import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
 import qualified Concordium.GlobalState.Persistent.Cooldown as Cooldown
 import qualified Concordium.GlobalState.Persistent.ReleaseSchedule as ReleaseSchedule
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
+import Concordium.GlobalState.PoolRewards
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.Scheduler
 import Concordium.Kontrol.Bakers
@@ -710,6 +713,56 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ 
     chainParams = DummyData.dummyChainParameters @ChainParametersV2
     cooldownDuration = chainParams ^. cpCooldownParameters . cpUnifiedCooldown
 
+-- | Test that missed rounds are carried over when rotating current capital distribution.
+testMissedRoundsUpdate :: [AccountConfig 'AccountV4] -> Assertion
+testMissedRoundsUpdate accountConfigs = runTestBlockState @P8 $ do
+    bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 2
+    bprd <- bsoGetBakerPoolRewardDetails bs0
+    let missedRounds0 = Map.fromList $ zip (Map.keys bprd) [1 ..]
+    bs1 <- bsoUpdateMissedRounds bs0 missedRounds0
+    missedRounds1 <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails bs1
+    liftIO $
+        assertEqual
+            "Current epoch missed rounds should be updated as expeceted."
+            missedRounds0
+            missedRounds1
+    chainParams <- bsoGetChainParameters bs1
+    (activeBakers, passiveDelegators) <- bsoGetActiveBakersAndDelegators bs1
+    let BakerStakesAndCapital{..} = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers passiveDelegators
+    CapitalDistribution{..} <- capitalDistributionM
+    let n = Vec.length bakerPoolCapital `div` 2
+    let newBakerStake = take n bakerStakes
+    bids <- Set.fromList <$> mapM (loadBakerId . fst) newBakerStake
+    let newPoolCapital = Vec.filter (\bpc -> bcBakerId bpc `Set.member` bids) bakerPoolCapital
+    bs2 <- bsoSetNextEpochBakers bs1 newBakerStake (chainParams ^. cpFinalizationCommitteeParameters)
+    bs3 <- bsoSetNextCapitalDistribution bs2 CapitalDistribution{bakerPoolCapital = newPoolCapital, ..}
+    bs4 <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers bs3
+    missedRounds2 <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails bs4
+    liftIO $
+        assertEqual
+            "Missed rounds should be carried over when rotating current capital distribution with new validators"
+            (Map.intersection missedRounds1 missedRounds2)
+            (Map.intersection missedRounds2 missedRounds1)
+    liftIO $
+        assertBool
+            "Missed rounds for new validators should all be zero"
+            (all (== 0) $ Map.elems $ missedRounds2 `Map.difference` missedRounds1)
+    bs5 <- bsoSetNextEpochBakers bs4 bakerStakes (chainParams ^. cpFinalizationCommitteeParameters)
+    bs6 <- bsoSetNextCapitalDistribution bs5 CapitalDistribution{..}
+    missedRounds3 <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails bs6
+    liftIO $
+        assertEqual
+            "Missed rounds should be carried over when rotating current capital distribution with new validators"
+            (Map.intersection missedRounds3 missedRounds2)
+            (Map.intersection missedRounds2 missedRounds3)
+    liftIO $
+        assertBool
+            "Missed rounds for new validators should all be zero"
+            (all (== 0) $ Map.elems $ missedRounds3 `Map.difference` missedRounds2)
+  where
+    startEpoch = 10
+    startTriggerTime = 1000
+
 tests :: Spec
 tests = parallel $ describe "EpochTransition" $ do
     it "testEpochTransitionNoPaydayNoSnapshot" $
@@ -722,3 +775,5 @@ tests = parallel $ describe "EpochTransition" $ do
         forAll (genAccountConfigs False) testEpochTransitionSnapshotPayday
     it "testEpochTransitionSnapshotPaydayCombo" $
         forAll (genAccountConfigs False) testEpochTransitionSnapshotPaydayCombo
+    it "testMissedRoundsUpdate" $
+        forAll (genAccountConfigs False) testMissedRoundsUpdate

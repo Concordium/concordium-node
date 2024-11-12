@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 
@@ -10,15 +11,23 @@ module Concordium.KonsensusV1.LeaderElection (
     updateSeedStateForBlock,
     updateSeedStateForEpoch,
     nonceForNewEpoch,
+
+    -- * Missed rounds
+    computeMissedRounds,
 ) where
 
+import qualified Data.Map.Strict as Map
 import Data.Serialize
 import qualified Data.Vector as Vec
+import Data.Word
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.KonsensusV1.Types
 import Concordium.Types
+import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Types.SeedState
 
 import Concordium.Crypto.VRF (proofToHash)
@@ -147,3 +156,24 @@ updateSeedStateForEpoch newBakers epochDuration ss =
         }
   where
     newNonce = nonceForNewEpoch newBakers ss
+
+-- | Compute the missed rounds for each validator. Starts from the given parent
+--   block up to (not including) the given final round.
+computeMissedRounds ::
+    -- | Optional timeout certificate for the round of the parent block.
+    Option TimeoutCertificate ->
+    -- | Validators participating in the current epoch.
+    FullBakers ->
+    -- | Leadership election nonce for the current epoch.
+    LeadershipElectionNonce ->
+    -- | The current round.
+    Round ->
+    Map.Map BakerId Word64
+computeMissedRounds Absent _validators _leNonce _rnd = Map.empty
+computeMissedRounds (Present tc) validators leNonce rnd = makeMissedRounds Map.empty parentRnd
+  where
+    parentRnd = tcRound tc
+    getLeader' = _bakerIdentity . _theBakerInfo . getLeaderFullBakers validators leNonce
+    makeMissedRounds !m !r
+        | r >= rnd = m
+        | otherwise = makeMissedRounds (Map.insertWith (+) (getLeader' r) 1 m) (r + 1)

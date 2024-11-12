@@ -571,7 +571,7 @@ consEpochBlock b hebbs = do
 
 data BlockRewardDetails' (av :: AccountVersion) (bhv :: BlockHashVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails' 'AccountV0 bhv
-    BlockRewardDetailsV1 :: (AVSupportsDelegation av) => !(HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv)) -> BlockRewardDetails' av bhv
+    BlockRewardDetailsV1 :: (AVSupportsDelegation av) => !(HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv av)) -> BlockRewardDetails' av bhv
 
 type BlockRewardDetails pv = BlockRewardDetails' (AccountVersionFor pv) (BlockHashVersionFor pv)
 
@@ -632,7 +632,7 @@ migrateBlockRewardDetails StateMigrationParametersP7ToP8{} _ _ (SomeParam TimePa
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
 
 instance
-    (MonadBlobStore m, IsBlockHashVersion bhv) =>
+    (MonadBlobStore m, IsBlockHashVersion bhv, IsAccountVersion av) =>
     MHashableTo m (Rewards.BlockRewardDetailsHash' av bhv) (BlockRewardDetails' av bhv)
     where
     getHashM (BlockRewardDetailsV0 heb) = return $ Rewards.BlockRewardDetailsHashV0 (getHash heb)
@@ -645,7 +645,7 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BlockRewardD
         SAVDelegationNotSupported -> fmap (fmap BlockRewardDetailsV0) load
         SAVDelegationSupported -> fmap (fmap BlockRewardDetailsV1) load
 
-instance (MonadBlobStore m, IsBlockHashVersion bhv) => Cacheable m (BlockRewardDetails' av bhv) where
+instance (MonadBlobStore m, IsBlockHashVersion bhv, IsAccountVersion av) => Cacheable m (BlockRewardDetails' av bhv) where
     cache (BlockRewardDetailsV0 heb) = BlockRewardDetailsV0 <$> cache heb
     cache (BlockRewardDetailsV1 hpr) = BlockRewardDetailsV1 <$> cache hpr
 
@@ -927,7 +927,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
 bspPoolRewards ::
     (PVSupportsDelegation pv, bhv ~ BlockHashVersionFor pv) =>
     BlockStatePointers pv ->
-    HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv)
+    HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv (AccountVersionFor pv))
 bspPoolRewards bsp = case bspRewardDetails bsp of
     BlockRewardDetailsV1 pr -> pr
 
@@ -2747,7 +2747,7 @@ doRewardAccount pbs ai reward = do
         (_, newActiveBkrsMap) <- Trie.adjust adj bid activeBkrsMap
         return $! activeBkrs & activeBakers .~ newActiveBkrsMap
 
-doGetBakerPoolRewardDetails :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> m (Map.Map BakerId BakerPoolRewardDetails)
+doGetBakerPoolRewardDetails :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> m (Map.Map BakerId (BakerPoolRewardDetails (AccountVersionFor pv)))
 doGetBakerPoolRewardDetails pbs = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
@@ -3464,6 +3464,27 @@ doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 doIsProtocolUpdateEffective :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Bool
 doIsProtocolUpdateEffective = isProtocolUpdateEffective . bspUpdates <=< loadPBS
 
+doUpdateMissedRounds ::
+    ( PVSupportsDelegation pv,
+      SupportsPersistentState pv m
+    ) =>
+    PersistentBlockState pv ->
+    Map.Map BakerId Word64 ->
+    m (PersistentBlockState pv)
+doUpdateMissedRounds pbs rds = do
+    bsp <- loadPBS pbs
+    bsp' <-
+        foldM
+            ( \bsp0 (bId, newMissedRounds) ->
+                modifyBakerPoolRewardDetailsInPoolRewards
+                    bsp0
+                    bId
+                    (\bprd -> bprd{missedRounds = (+ newMissedRounds) <$> missedRounds bprd})
+            )
+            bsp
+            (Map.toList rds)
+    storePBS pbs bsp'
+
 doProcessUpdateQueues ::
     forall pv m.
     (SupportsPersistentState pv m) =>
@@ -3627,7 +3648,7 @@ doGetEpochBlocksBaked pbs = do
 
 -- | This function updates the baker pool rewards details of a baker. It is a precondition that
 --  the given baker is active.
-modifyBakerPoolRewardDetailsInPoolRewards :: (SupportsPersistentAccount pv m, PVSupportsDelegation pv) => BlockStatePointers pv -> BakerId -> (BakerPoolRewardDetails -> BakerPoolRewardDetails) -> m (BlockStatePointers pv)
+modifyBakerPoolRewardDetailsInPoolRewards :: (SupportsPersistentAccount pv m, PVSupportsDelegation pv) => BlockStatePointers pv -> BakerId -> ((BakerPoolRewardDetails (AccountVersionFor pv)) -> (BakerPoolRewardDetails (AccountVersionFor pv))) -> m (BlockStatePointers pv)
 modifyBakerPoolRewardDetailsInPoolRewards bsp bid f = do
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     pr <- refLoad hpr
@@ -3657,7 +3678,11 @@ doNotifyBlockBaked pbs bid = do
             newBlockRewardDetails <- consBlockRewardDetails bid (bspRewardDetails bsp)
             storePBS pbs bsp{bspRewardDetails = newBlockRewardDetails}
         SAVDelegationSupported ->
-            let incBPR bpr = bpr{blockCount = blockCount bpr + 1}
+            let incBPR bpr =
+                    bpr
+                        { blockCount = blockCount bpr + 1,
+                          missedRounds = 0 <$ missedRounds bpr
+                        }
             in  storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
 
 doUpdateAccruedTransactionFeesBaker :: forall pv m. (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> BakerId -> AmountDelta -> m (PersistentBlockState pv)
@@ -3692,7 +3717,14 @@ doMarkFinalizationAwakeBakers pbs bids = do
                         error "Invariant violation: unable to find baker in baker pool reward details tree"
                     Just ((), newBPRs) ->
                         return newBPRs
-    setAwake bpr = return ((), bpr{finalizationAwake = True})
+    setAwake bpr =
+        return
+            ( (),
+              bpr
+                { finalizationAwake = True,
+                  missedRounds = 0 <$ missedRounds bpr
+                }
+            )
 
 doUpdateAccruedTransactionFeesPassive :: forall pv m. (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesPassive pbs delta = do
@@ -4341,6 +4373,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
+    bsoUpdateMissedRounds = doUpdateMissedRounds
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS

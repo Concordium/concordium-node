@@ -1344,7 +1344,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Function 'bsoGetBakerPoolRewardDetails' returns a map with the 'BakerPoolRewardDetails' for each
     --  current-epoch baker (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
-    bsoGetBakerPoolRewardDetails :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (Map.Map BakerId BakerPoolRewardDetails)
+    bsoGetBakerPoolRewardDetails :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (Map.Map BakerId (BakerPoolRewardDetails (AccountVersionFor (MPV m))))
 
     -- | Update the transaction fee rewards accruing to a baker pool by the specified delta. It is a
     --  precondition that the given baker is a current-epoch baker.
@@ -1353,9 +1353,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoUpdateAccruedTransactionFeesBaker :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
 
     -- | Mark that the given bakers have signed a finalization proof included in a block during the
-    --  reward period. Any baker ids that are not current-epoch bakers will be ignored.
-    --  (This is significant, as the finalization record in a block may be signed by a finalizer that
-    --  has since been removed as a baker.)
+    --  reward period and clear their missed rounds. Any baker ids that are not current-epoch bakers
+    --  will be ignored. (This is significant, as the finalization record in a block may be signed by
+    --  a finalizer that has since been removed as a baker.)
     --  Note, the finalization-awake status is reset by 'bsoRotateCurrentCapitalDistribution'.
     bsoMarkFinalizationAwakeBakers :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [BakerId] -> m (UpdatableBlockState m)
 
@@ -1479,7 +1479,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoGetEpochBlocksBaked :: UpdatableBlockState m -> m (Word64, [(BakerId, Word64)])
 
     -- | Record that the given baker has baked a block in the current epoch. It is a precondition that
-    --  the given baker is a current-epoch baker.
+    --  the given baker is a current-epoch baker. This also clears the missed rounds for a baker.
     bsoNotifyBlockBaked :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
     -- | Clear the tracking of baked blocks in the current epoch.
@@ -1508,6 +1508,11 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Get whether a protocol update is effective
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
+
+    -- | Update the count of missed rounds for given validators by the given
+    --  delta. Rounds are `missed` by a validator, if it has been elected leader but the
+    --  round did timeout.
+    bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Map.Map BakerId Word64 -> m (UpdatableBlockState m)
 
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
@@ -1820,6 +1825,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
+    bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -1876,6 +1882,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetRewardAccounts #-}
     {-# INLINE bsoGetCurrentEpochBakers #-}
     {-# INLINE bsoIsProtocolUpdateEffective #-}
+    {-# INLINE bsoUpdateMissedRounds #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 
