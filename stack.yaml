@@ -1,7 +1,7 @@
 # This should be kept in line with concordium-consensus/stack.yaml and
 # concordium-base/stack.yaml
 
-resolver: lts-22.9
+resolver: lts-22.39
 
 packages:
 - ./concordium-base
@@ -12,6 +12,13 @@ extra-deps:
 - proto-lens-setup-0.4.0.7@sha256:acca0b04e033ea0a017f809d91a7dbc942e025ec6bc275fa21647352722c74cc,3122
 - proto-lens-protoc-0.8.0.0@sha256:a146ee8c9af9e445ab05651e688deb0ff849357d320657d6cea5be33cb54b960,2235
 - ghc-source-gen-0.4.4.0@sha256:8499f23c5989c295f3b002ad92784ca5fed5260fd4891dc816f17d30c5ba9cd9,4236
+# lts-22.39 uses Cabal-3.10.3.0, which includes a fix (https://github.com/haskell/cabal/pull/9554)
+# that unfortunately breaks linking on Windows by adding -rpath linker flags. It appears this
+# is fixed as of Cabal-3.12.1.0 (and maybe 3.12.0.0), but that is not fully compatible with the
+# dependencies of other packages in lts-22.39. So we use Cabal-3.10.1.0 instead, as this is the
+# least disruptive approach. Once we update to an lts that uses a new enough version of Cabal,
+# we should remove this dependency (which shadows the one from the snapshot).
+- Cabal-3.10.1.0
 
 extra-lib-dirs:
 - ./concordium-base/lib

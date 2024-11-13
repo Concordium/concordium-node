@@ -5,6 +5,8 @@
 - Add support for suspend/resume to validator configuration updates.
 - Add `GetConsensusDetailedStatus` gRPC endpoint for getting detailed information on the status
   of the consensus, at consensus version 1.
+- Update Rust version to 1.82.
+- Update GHC version to 9.6.6 (LTS-22.39).
 
 ## 7.0.5
 

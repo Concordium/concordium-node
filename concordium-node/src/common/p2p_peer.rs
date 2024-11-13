@@ -50,7 +50,7 @@ pub struct RemotePeerId {
 impl Distribution<RemotePeerId> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> RemotePeerId {
         RemotePeerId {
-            remote_peer_id: Uniform::new(0, usize::max_value()).sample(rng),
+            remote_peer_id: Uniform::new(0, usize::MAX).sample(rng),
         }
     }
 }

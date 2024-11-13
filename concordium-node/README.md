@@ -2,7 +2,7 @@
 
 ## Dependencies to build the project
 
-- Rust (stable 1.73 for using static libraries)
+- Rust (stable 1.82 for using static libraries)
 - binutils >= 2.22
   - For macOS one should use the binutils provided by Xcode.
 - cmake >= 3.8.0
@@ -45,7 +45,7 @@ The package supports the following features related to linking with the Haskell 
   mkdir out
   docker run -v $(pwd)/out:/out concordium/static-libraries
   mkdir -p concordium-node/deps/static-libs/linux
-  tar -xf out/static-consensus-9.6.4.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
+  tar -xf out/static-consensus-9.6.6.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
   ```
 
   (this is assuming a GNU version of tar)
@@ -151,8 +151,8 @@ Before building the node, you should install the following dependencies:
 
 - Haskell [stack](https://docs.haskellstack.org/en/stable/install_and_upgrade/)
 - [Rust](https://www.rust-lang.org/tools/install)
-  - For building the node, the toolchain `1.73-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.73-x86_64-pc-windows-gnu`.
-  - For building the node runner service (optional), the toolchain `1.73-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.73-x86_64-pc-windows-msvc`.
+  - For building the node, the toolchain `1.82-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.82-x86_64-pc-windows-gnu`.
+  - For building the node runner service (optional), the toolchain `1.82-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.82-x86_64-pc-windows-msvc`.
 - GCC is required for building some library dependencies. [WinLibs](https://winlibs.com/) provides a standalone build of GCC with MinGW-w64. Download the latest release version (Win64, without LLVM) and extract it (e.g. to `C:\mingw64`) and ensure that the `bin` directory is on the path. (Installing `gcc` under `stack`'s `msys2` installation does not seem to work when building the node.)
 - [flatc](https://github.com/google/flatbuffers/releases/tag/v22.12.06) 22.12.06 (should be in the path)
 - [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.15
