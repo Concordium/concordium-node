@@ -333,10 +333,9 @@ makeInitialState accs seedState rpLen = withIsAuthorizationsVersionForPV (protoc
             chainParams
     let pbs0 = hpbsPointers initialBS
     (activeBakers, passiveDelegators) <- bsoGetActiveBakersAndDelegators pbs0
-    let BakerStakesAndCapital{..} = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers passiveDelegators
+    let BakerStakesAndCapital{..} = computeBakerStakesAndCapital @m (chainParams ^. cpPoolParameters) activeBakers passiveDelegators
     pbs1 <- bsoSetNextEpochBakers pbs0 bakerStakes (chainParams ^. cpFinalizationCommitteeParameters)
-    capDist <- capitalDistributionM
-    pbs2 <- bsoSetNextCapitalDistribution pbs1 capDist
+    pbs2 <- bsoSetNextCapitalDistribution pbs1 capitalDistribution
     pbs <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers pbs2
 
     bsp <- loadPBS pbs
@@ -464,7 +463,11 @@ testEpochTransitionPaydayOnly accountConfigs = runTestBlockState @P7 $ do
             ^. cpCooldownParameters . cpUnifiedCooldown
 
 -- | Test an snapshot epoch transition.
-testEpochTransitionSnapshotOnly :: [AccountConfig 'AccountV3] -> Assertion
+testEpochTransitionSnapshotOnly ::
+    forall m.
+    (m ~ PersistentBlockStateMonad P7 (PersistentBlockStateContext P7) (BlobStoreT (PersistentBlockStateContext P7) (LoggerT IO))) =>
+    [AccountConfig 'AccountV3] ->
+    Assertion
 testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 2
     initCapDist <- bsoGetCurrentCapitalDistribution bs0
@@ -472,11 +475,11 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
     bs1 <- bsoSetPaydayEpoch bs0 (startEpoch + 2)
     (activeBakers, activeDelegators) <- bsoGetActiveBakersAndDelegators bs1
     let BakerStakesAndCapital{..} =
-            computeBakerStakesAndCapital
+            computeBakerStakesAndCapital @m
                 (chainParams ^. cpPoolParameters)
                 activeBakers
                 activeDelegators
-    updatedCapitalDistr <- capitalDistributionM
+    let updatedCapitalDistr = capitalDistribution
     let mkFullBaker (ref, stake) = do
             loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
                 (BakerInfoExV1 info extra _isSuspended) ->
@@ -523,7 +526,11 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
     chainParams = DummyData.dummyChainParameters @ChainParametersV2
 
 -- | Test two successive epoch transitions where the first is a snapshot and the second is a payday.
-testEpochTransitionSnapshotPayday :: [AccountConfig 'AccountV3] -> Assertion
+testEpochTransitionSnapshotPayday ::
+    forall m.
+    (m ~ PersistentBlockStateMonad P7 (PersistentBlockStateContext P7) (BlobStoreT (PersistentBlockStateContext P7) (LoggerT IO))) =>
+    [AccountConfig 'AccountV3] ->
+    Assertion
 testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 2
     initCapDist <- bsoGetCurrentCapitalDistribution bs0
@@ -531,11 +538,11 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
     bs1 <- bsoSetPaydayEpoch bs0 (startEpoch + 2)
     (activeBakers, activeDelegators) <- bsoGetActiveBakersAndDelegators bs1
     let BakerStakesAndCapital{..} =
-            computeBakerStakesAndCapital
+            computeBakerStakesAndCapital @m
                 (chainParams ^. cpPoolParameters)
                 activeBakers
                 activeDelegators
-    updatedCapitalDistr <- capitalDistributionM
+    let updatedCapitalDistr = capitalDistribution
     let mkFullBaker (ref, stake) = do
             loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
                 (BakerInfoExV1 info extra _isSuspended) ->
@@ -610,7 +617,11 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
 -- | Test epoch transitions for two successive transitions where the payday length is one epoch.
 -- In this case, both the snapshot and payday processing occur on each transition, so this tests
 -- that they are correctly ordered.
-testEpochTransitionSnapshotPaydayCombo :: [AccountConfig 'AccountV3] -> Assertion
+testEpochTransitionSnapshotPaydayCombo ::
+    forall m.
+    (m ~ PersistentBlockStateMonad P7 (PersistentBlockStateContext P7) (BlobStoreT (PersistentBlockStateContext P7) (LoggerT IO))) =>
+    [AccountConfig 'AccountV3] ->
+    Assertion
 testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ do
     -- Setup the initial state.
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 1
@@ -619,11 +630,11 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ 
     bs1 <- bsoSetPaydayEpoch bs0 (startEpoch + 1)
     (activeBakers, activeDelegators) <- bsoGetActiveBakersAndDelegators bs1
     let BakerStakesAndCapital{..} =
-            computeBakerStakesAndCapital
+            computeBakerStakesAndCapital @m
                 (chainParams ^. cpPoolParameters)
                 activeBakers
                 activeDelegators
-    updatedCapitalDistr <- capitalDistributionM
+    let updatedCapitalDistr = capitalDistribution
     let mkFullBaker (ref, stake) = do
             loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
                 (BakerInfoExV1 info extra _isSuspended) ->
@@ -714,7 +725,11 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ 
     cooldownDuration = chainParams ^. cpCooldownParameters . cpUnifiedCooldown
 
 -- | Test that missed rounds are carried over when rotating current capital distribution.
-testMissedRoundsUpdate :: [AccountConfig 'AccountV4] -> Assertion
+testMissedRoundsUpdate ::
+    forall m.
+    (m ~ PersistentBlockStateMonad P8 (PersistentBlockStateContext P8) (BlobStoreT (PersistentBlockStateContext P8) (LoggerT IO))) =>
+    [AccountConfig 'AccountV4] ->
+    Assertion
 testMissedRoundsUpdate accountConfigs = runTestBlockState @P8 $ do
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 2
     bprd <- bsoGetBakerPoolRewardDetails bs0
@@ -728,8 +743,8 @@ testMissedRoundsUpdate accountConfigs = runTestBlockState @P8 $ do
             missedRounds1
     chainParams <- bsoGetChainParameters bs1
     (activeBakers, passiveDelegators) <- bsoGetActiveBakersAndDelegators bs1
-    let BakerStakesAndCapital{..} = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers passiveDelegators
-    CapitalDistribution{..} <- capitalDistributionM
+    let BakerStakesAndCapital{..} = computeBakerStakesAndCapital @m (chainParams ^. cpPoolParameters) activeBakers passiveDelegators
+    let CapitalDistribution{..} = capitalDistribution
     let n = Vec.length bakerPoolCapital `div` 2
     let newBakerStake = take n bakerStakes
     bids <- Set.fromList <$> mapM (loadBakerId . fst) newBakerStake

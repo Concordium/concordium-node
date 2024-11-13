@@ -1338,8 +1338,18 @@ doGetActiveBakersAndDelegators pbs = do
                           activeBakerPendingChange =
                             BaseAccounts.pendingChangeEffectiveTimestamp <$> theBaker ^. BaseAccounts.bakerPendingChange,
                           activeBakerDelegators = abd,
-                          activeBakerIsSuspended = fromCondDef (BaseAccounts._bieAccountIsSuspended $ BaseAccounts._accountBakerInfo $ theBaker) False,
-                          activeBakerId = BaseAccounts._bakerIdentity $ BaseAccounts._bieBakerInfo $ BaseAccounts._accountBakerInfo $ theBaker
+                          activeBakerIsSuspended =
+                            fromCondDef
+                                ( BaseAccounts._bieAccountIsSuspended $
+                                    BaseAccounts._accountBakerInfo $
+                                        theBaker
+                                )
+                                False,
+                          activeBakerId =
+                            BaseAccounts._bakerIdentity $
+                                BaseAccounts._bieBakerInfo $
+                                    BaseAccounts._accountBakerInfo $
+                                        theBaker
                         }
     mkActiveDelegatorInfo :: BlockStatePointers pv -> DelegatorId -> m ActiveDelegatorInfo
     mkActiveDelegatorInfo bsp activeDelegatorId@(DelegatorId acct) =
