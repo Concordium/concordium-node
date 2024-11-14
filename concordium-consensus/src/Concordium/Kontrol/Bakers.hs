@@ -167,7 +167,7 @@ effectiveTest' genData paydayEpoch = (<= paydayEpochTime)
 --  constructing them together can avoid unnecessary duplication of work.
 data BakerStakesAndCapital m = BakerStakesAndCapital
     { -- | The baker info and stake for each baker.
-      bakerStakes :: [(BakerInfoRef m, Amount)],
+      bakerStakes :: [(bakerInfoRef, Amount)],
       -- | Determine the capital distribution.
       capitalDistribution :: CapitalDistribution
     }
