@@ -1,9 +1,9 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
 -- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -191,16 +191,15 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
     capLimit = takeFraction (theCapitalBound capitalBound) totalCapital
     makeBakerStake ActiveBakerInfo{..} poolCap =
         ( activeBakerInfoRef,
-          if activeBakerIsSuspended
-            then 0
-            else
-                minimum
-                    [ poolCap,
-                      applyLeverageFactor leverage activeBakerEquityCapital,
-                      capLimit
-                    ]
+          minimum
+            [ poolCap,
+              applyLeverageFactor leverage activeBakerEquityCapital,
+              capLimit
+            ]
         )
-    bakerStakes = zipWith makeBakerStake activeBakers poolCapitals
+    activeBakers' = [abi | abi@ActiveBakerInfo{..} <- activeBakers, not activeBakerIsSuspended]
+    poolCapitals' = poolCapital <$> activeBakers'
+    bakerStakes = zipWith makeBakerStake activeBakers' poolCapitals'
     delegatorCapital ActiveDelegatorInfo{..} = DelegatorCapital activeDelegatorId activeDelegatorStake
     bakerCapital ActiveBakerInfo{..} =
         BakerCapital
@@ -208,7 +207,7 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
               bcBakerEquityCapital = activeBakerEquityCapital,
               bcDelegatorCapital = Vec.fromList $ delegatorCapital <$> activeBakerDelegators
             }
-    bakerPoolCapital = Vec.fromList $ bakerCapital <$> activeBakers
+    bakerPoolCapital = Vec.fromList $ bakerCapital <$> activeBakers'
     passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
     capitalDistribution = CapitalDistribution{..}
 
