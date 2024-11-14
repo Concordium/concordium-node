@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 -- We suppress redundant constraint warnings since GHC does not detect when a constraint is used
 -- for pattern matching. (See: https://gitlab.haskell.org/ghc/ghc/-/issues/20896)
 {-# OPTIONS_GHC -Wno-redundant-constraints #-}
@@ -165,7 +166,7 @@ effectiveTest' genData paydayEpoch = (<= paydayEpochTime)
 -- | A helper datatype for computing the stake and capital distribution.
 --  This is intentionally lazy, as the caller may not wish to evaluate all of the fields, but
 --  constructing them together can avoid unnecessary duplication of work.
-data BakerStakesAndCapital m = BakerStakesAndCapital
+data BakerStakesAndCapital bakerInfoRef = BakerStakesAndCapital
     { -- | The baker info and stake for each baker.
       bakerStakes :: [(bakerInfoRef, Amount)],
       -- | Determine the capital distribution.
@@ -179,7 +180,7 @@ computeBakerStakesAndCapital ::
     PoolParameters' 'PoolParametersVersion1 ->
     [ActiveBakerInfo m] ->
     [ActiveDelegatorInfo] ->
-    BakerStakesAndCapital m
+    BakerStakesAndCapital (BakerInfoRef m)
 computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerStakesAndCapital{..}
   where
     leverage = poolParams ^. ppLeverageBound
