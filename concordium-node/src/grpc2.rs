@@ -676,6 +676,14 @@ struct ServiceConfig {
     #[serde(default)]
     get_next_update_sequence_numbers: bool,
     #[serde(default)]
+    get_scheduled_release_accounts: bool,
+    #[serde(default)]
+    get_cooldown_accounts: bool,
+    #[serde(default)]
+    get_pre_cooldown_accounts: bool,
+    #[serde(default)]
+    get_pre_pre_cooldown_accounts: bool,
+    #[serde(default)]
     get_block_chain_parameters: bool,
     #[serde(default)]
     get_block_finalization_summary: bool,
@@ -758,6 +766,10 @@ impl ServiceConfig {
             get_block_special_events: true,
             get_block_pending_updates: true,
             get_next_update_sequence_numbers: true,
+            get_scheduled_release_accounts: true,
+            get_cooldown_accounts: true,
+            get_pre_cooldown_accounts: true,
+            get_pre_pre_cooldown_accounts: true,
             get_block_chain_parameters: true,
             get_block_finalization_summary: true,
             shutdown: true,
@@ -1332,6 +1344,18 @@ pub mod server {
         type GetBlockItemsStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetBlockPendingUpdates' method.
         type GetBlockPendingUpdatesStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetScheduledReleaseAccounts' method.
+        type GetScheduledReleaseAccountsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetCooldownAccounts' method.
+        type GetCooldownAccountsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPreCooldownAccounts' method.
+        type GetPreCooldownAccountsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPrePreCooldowneleaseAccounts' method.
+        type GetPrePreCooldownAccountsStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetBlockSpecialEvents' method.
         type GetBlockSpecialEventsStream =
@@ -2097,6 +2121,86 @@ pub mod server {
                 })
                 .await?;
             let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_scheduled_release_accounts(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetScheduledReleaseAccountsStream>, tonic::Status> {
+            if !self.service_config.get_scheduled_release_accounts {
+                return Err(tonic::Status::unimplemented(
+                    "`GetScheduledReleaseAccounts` is not enabled.",
+                ));
+            }
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_scheduled_release_accounts_v2(request.get_ref(), sender)
+                })
+                .await?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_cooldown_accounts(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetCooldownAccountsStream>, tonic::Status> {
+            if !self.service_config.get_cooldown_accounts {
+                return Err(tonic::Status::unimplemented(
+                    "`GetCooldownAccounts` is not enabled.",
+                ));
+            }
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_cooldown_accounts_v2(request.get_ref(), sender)
+                })
+                .await?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_pre_cooldown_accounts(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetPreCooldownAccountsStream>, tonic::Status> {
+            if !self.service_config.get_pre_cooldown_accounts {
+                return Err(tonic::Status::unimplemented(
+                    "`GetPreCooldownAccounts` is not enabled.",
+                ));
+            }
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_pre_cooldown_accounts_v2(request.get_ref(), sender)
+                })
+                .await?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_pre_pre_cooldown_accounts(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetPrePreCooldownAccountsStream>, tonic::Status> {
+            if !self.service_config.get_pre_pre_cooldown_accounts {
+                return Err(tonic::Status::unimplemented(
+                    "`GetPrePreCooldownAccounts` is not enabled.",
+                ));
+            }
+            let (sender, receiver) = futures::channel::mpsc::channel(10);
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_pre_pre_cooldown_accounts_v2(request.get_ref(), sender)
+                })
+                .await?;
+            let mut response = tonic::Response::new(receiver);
             add_hash(&mut response, hash)?;
             Ok(response)
         }

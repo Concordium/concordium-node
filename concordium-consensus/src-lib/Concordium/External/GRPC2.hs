@@ -944,6 +944,78 @@ getNextUpdateSequenceNumbersV2 cptr blockType blockHashPtr outHash outVec copier
     result <- runMVR (Q.getNextUpdateSequenceNumbers bhi) mvr
     returnMessageWithBlock (copier outVec) outHash result
 
+getScheduledReleaseAccountsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getScheduledReleaseAccountsV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    response <- runMVR (Q.getScheduledReleaseAccounts bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
+
+getCooldownAccountsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getCooldownAccountsV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    response <- runMVR (Q.getCooldownAccounts bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
+
+getPreCooldownAccountsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getPreCooldownAccountsV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    response <- runMVR (Q.getPreCooldownAccounts bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
+
+getPrePreCooldownAccountsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getPrePreCooldownAccountsV2 cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    response <- runMVR (Q.getPrePreCooldownAccounts bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
+
 getBlockChainParametersV2 ::
     StablePtr Ext.ConsensusRunner ->
     -- | Block type.
@@ -1665,6 +1737,58 @@ foreign export ccall
         Ptr Word8 ->
         Ptr ReceiverVec ->
         FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getScheduledReleaseAccountsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getCooldownAccountsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getPreCooldownAccountsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getPrePreCooldownAccountsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
         IO Int64
 
 foreign export ccall

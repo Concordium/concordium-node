@@ -1299,6 +1299,107 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get all accounts that have scheduled releases, with the timestamp of the
+    /// first pending scheduled release for that account.
+    /// The stream will end when all the accounts that have scheduled releases
+    /// have been returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getScheduledReleaseAccountsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get all accounts that have stake in cooldown, with the timestamp of the
+    /// first pending cooldown expiry for each account.
+    /// The stream will end when all the accounts that have stake in cooldown
+    /// have been returned.
+    /// Prior to protocol version 7, the resulting stream will always be empty.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getCooldownAccountsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get all accounts (by account index) that have stake in pre-cooldown.
+    /// The stream will end when all the accounts that have stake in
+    /// pre-cooldown have been returned.
+    /// Prior to protocol version 7, the resulting stream will always be empty.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getPreCooldownAccountsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get all accounts (by account index) that have stake in pre-pre-cooldown.
+    /// The stream will end when all the accounts that have stake in
+    /// pre-pre-cooldown have been returned.
+    /// Prior to protocol version 7, the resulting stream will always be empty.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getPrePreCooldownAccountsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
     /// Get the chain parameters that are in effect in the given block.
     ///
     /// * `consensus` - Pointer to the current consensus.
@@ -3198,6 +3299,121 @@ impl ConsensusContainer {
         .try_into()?;
         response.ensure_ok("block")?;
         Ok((out_hash, out_data))
+    }
+
+    /// Get accounts with scheduled releases at the end of a given block.
+    /// The stream will end when all accounts with scheduled releases have been
+    /// returned.
+    pub fn get_scheduled_release_accounts_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getScheduledReleaseAccountsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get accounts in cooldown at the end of a given block.
+    /// The stream will end when all accounts in cooldown have been returned.
+    pub fn get_cooldown_accounts_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getCooldownAccountsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get accounts in pre-cooldown at the end of a given block.
+    /// The stream will end when all accounts in pre-cooldown have been
+    /// returned.
+    pub fn get_pre_cooldown_accounts_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getPreCooldownAccountsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get accounts in pre-pre-cooldown at the end of a given block.
+    /// The stream will end when all accounts in pre-pre-cooldown have been
+    /// returned.
+    pub fn get_pre_pre_cooldown_accounts_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getPrePreCooldownAccountsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
     }
 
     /// Get chain parameters for the given block.

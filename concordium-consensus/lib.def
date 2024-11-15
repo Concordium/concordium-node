@@ -56,6 +56,10 @@ EXPORTS
  getBlockTransactionEventsV2
  getBlockSpecialEventsV2
  getBlockPendingUpdatesV2
+ getScheduledReleaseAccountsV2
+ getCooldownAccountsV2
+ getPreCooldownAccountsV2
+ getPrePreCooldownAccountsV2
  getNextUpdateSequenceNumbersV2
  getBlockChainParametersV2
  getBlockFinalizationSummaryV2
