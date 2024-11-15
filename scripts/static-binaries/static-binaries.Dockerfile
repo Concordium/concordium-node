@@ -1,8 +1,8 @@
-ARG ubuntu_version
-ARG static_libraries_image_tag
+ARG ubuntu_version=latest
+ARG static_libraries_image_tag=latest
 
 # Build static consensus libraries.
-FROM concordium/static-libraries:${static_libraries_image_tag} as static-builder
+FROM concordium/static-libraries:${static_libraries_image_tag} AS static-builder
 COPY . /build
 ARG ghc_version
 WORKDIR /build
