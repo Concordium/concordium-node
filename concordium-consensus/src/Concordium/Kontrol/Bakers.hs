@@ -195,9 +195,9 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
               capLimit
             ]
         )
-    activeBakers' = [abi | abi@ActiveBakerInfo{..} <- activeBakers, not activeBakerIsSuspended]
-    poolCapitals' = poolCapital <$> activeBakers'
-    bakerStakes = zipWith makeBakerStake activeBakers' poolCapitals'
+    filteredActiveBakers = [abi | abi@ActiveBakerInfo{..} <- activeBakers, not activeBakerIsSuspended]
+    filteredPoolCapitals = poolCapital <$> filteredActiveBakers
+    bakerStakes = zipWith makeBakerStake filteredActiveBakers filteredPoolCapitals
     delegatorCapital ActiveDelegatorInfo{..} = DelegatorCapital activeDelegatorId activeDelegatorStake
     bakerCapital ActiveBakerInfo{..} =
         BakerCapital
@@ -205,7 +205,7 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
               bcBakerEquityCapital = activeBakerEquityCapital,
               bcDelegatorCapital = Vec.fromList $ delegatorCapital <$> activeBakerDelegators
             }
-    bakerPoolCapital = Vec.fromList $ bakerCapital <$> activeBakers'
+    bakerPoolCapital = Vec.fromList $ bakerCapital <$> filteredActiveBakers
     passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
     capitalDistribution = CapitalDistribution{..}
 
