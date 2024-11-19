@@ -1,4 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -175,12 +174,11 @@ data BakerStakesAndCapital bakerInfoRef = BakerStakesAndCapital
 
 -- | Compute the baker stakes and capital distribution.
 computeBakerStakesAndCapital ::
-    forall m.
-    (AccountOperations m) =>
+    forall bakerInfoRef.
     PoolParameters' 'PoolParametersVersion1 ->
-    [ActiveBakerInfo m] ->
+    [ActiveBakerInfo' bakerInfoRef] ->
     [ActiveDelegatorInfo] ->
-    BakerStakesAndCapital (BakerInfoRef m)
+    BakerStakesAndCapital bakerInfoRef
 computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerStakesAndCapital{..}
   where
     leverage = poolParams ^. ppLeverageBound
@@ -239,7 +237,7 @@ generateNextBakers paydayEpoch bs0 = do
     -- are no blocks in this epoch, 'getSlotBakersP4' does not apply any updates.)
     cps <- bsoGetChainParameters bs0
     let BakerStakesAndCapital{..} =
-            computeBakerStakesAndCapital @m
+            computeBakerStakesAndCapital
                 (cps ^. cpPoolParameters)
                 activeBakers
                 passiveDelegators
@@ -391,7 +389,7 @@ getSlotBakersP4 genData bs slot =
                                         ePoolParams pp' updates
                                 ePoolParams pp _ = pp
                                 effectivePoolParameters = ePoolParams (chainParams ^. cpPoolParameters) pendingPoolParams
-                                bsc = computeBakerStakesAndCapital @m effectivePoolParameters activeBakers passiveDelegators
+                                bsc = computeBakerStakesAndCapital effectivePoolParameters activeBakers passiveDelegators
                             let mkFullBaker (biRef, _bakerStake) = do
                                     _theBakerInfo <- derefBakerInfo biRef
                                     return FullBakerInfo{..}

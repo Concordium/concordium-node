@@ -235,7 +235,7 @@ doEpochTransition True epochDuration theState0 = do
                     applyPendingChanges av (<= epochEnd)
                         <$> bsoGetActiveBakersAndDelegators theState7
                 let BakerStakesAndCapital{..} =
-                        computeBakerStakesAndCapital @m
+                        computeBakerStakesAndCapital
                             (chainParams ^. cpPoolParameters)
                             activeBakers
                             passiveDelegators
