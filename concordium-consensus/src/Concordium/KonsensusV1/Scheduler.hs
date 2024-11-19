@@ -9,6 +9,7 @@ module Concordium.KonsensusV1.Scheduler where
 import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Time
 import Data.Word
 import Lens.Micro.Platform
@@ -16,13 +17,15 @@ import Lens.Micro.Platform
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
+import Concordium.Types.Accounts (bakerIdentity)
+import Concordium.Types.Conditionally
 import Concordium.Types.SeedState
 
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
-import Concordium.GlobalState.PoolRewards (BakerPoolRewardDetails)
+import Concordium.GlobalState.PoolRewards (BakerPoolRewardDetails (..), SuspensionInfo (..), emptySuspensionInfo)
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Types
 import Concordium.KonsensusV1.LeaderElection
@@ -117,7 +120,11 @@ data PrologueResult m av = PrologueResult
       prologueBlockState :: UpdatableBlockState m,
       -- | If the block should pay out for a payday, these parameters determine the pay out.
       --  Otherwise, they are 'Nothing'.
-      prologuePaydayParameters :: Maybe (PaydayParameters av)
+      prologuePaydayParameters :: Maybe (PaydayParameters av),
+      -- | If the block triggered an epoch transition and the new epoch is a
+      --  snapshot,this field contains the validator ids that are newly suspended.
+      -- Otherwise, this is `Nothing`.
+      prologueSuspendedBids :: Maybe (Set.Set BakerId)
     }
 
 -- * Block prologue
@@ -146,6 +153,16 @@ paydayHandleCooldowns = case sSupportsFlexibleCooldown (sAccountVersionFor (prot
     STrue -> \triggerTime cooldownParams theState0 -> do
         let cooldownTime = triggerTime `addDurationSeconds` (cooldownParams ^. cpUnifiedCooldown)
         bsoProcessCooldowns theState0 triggerTime cooldownTime
+
+-- | Result of the epoch transition used for parameter passing.
+data EpochTransitionResult m = EpochTransitionResult
+    { -- If the epoch transition was a payday, this contains the payday
+      -- parameters.
+      mPaydayParams :: Maybe (PaydayParameters (AccountVersionFor (MPV m))),
+      -- If the epoch transition was a snapshot, this contains the set of
+      -- validator ids that will  be newly suspended.
+      mSnapshotSuspendedIds :: Maybe (Set.Set BakerId)
+    }
 
 -- | Update the state to reflect an epoch transition.  If the block is not the first in a new epoch
 --  then this does nothing.  Otherwise, it makes the following changes:
@@ -186,8 +203,8 @@ doEpochTransition ::
     Duration ->
     -- | State to update
     UpdatableBlockState m ->
-    m (Maybe (PaydayParameters (AccountVersionFor (MPV m))), UpdatableBlockState m)
-doEpochTransition False _ theState = return (Nothing, theState)
+    m (EpochTransitionResult m, UpdatableBlockState m)
+doEpochTransition False _ theState = return (EpochTransitionResult Nothing Nothing, theState)
 doEpochTransition True epochDuration theState0 = do
     chainParams <- bsoGetChainParameters theState0
     oldSeedState <- bsoGetSeedState theState0
@@ -225,9 +242,16 @@ doEpochTransition True epochDuration theState0 = do
     newBakers <- bsoGetCurrentEpochBakers theState6
     let newSeedState = updateSeedStateForEpoch newBakers epochDuration oldSeedState
     theState7 <- bsoSetSeedState theState6 newSeedState
-    theState9 <-
-        if newEpoch + 1 == newNextPayday
+    let isSnapshot = newEpoch + 1 == newNextPayday
+    (suspendedBids, theState8) <- do
+        if isSnapshot
             then do
+                snapshotPoolRewards <- bsoGetBakerPoolRewardDetails theState7
+                -- account indexes that will be suspended
+                let suspendedBids =
+                        Set.fromList
+                            [ bid | (bid, rd) <- Map.toList snapshotPoolRewards, primedForSuspension $ fromCondDef (suspensionInfo rd) emptySuspensionInfo
+                            ]
                 -- This is the start of the last epoch of a payday, so take a baker snapshot.
                 let epochEnd = newSeedState ^. triggerBlockTime
                 let av = accountVersionFor (demoteProtocolVersion (protocolVersion @(MPV m)))
@@ -239,6 +263,7 @@ doEpochTransition True epochDuration theState0 = do
                             (chainParams ^. cpPoolParameters)
                             activeBakers
                             passiveDelegators
+                            suspendedBids
                 theState8 <-
                     bsoSetNextEpochBakers
                         theState7
@@ -248,10 +273,10 @@ doEpochTransition True epochDuration theState0 = do
                 -- From P7 onwards, we transition pre-pre-cooldowns into pre-cooldowns, so that
                 -- at the next payday they will enter cooldown.
                 case sSupportsFlexibleCooldown (sAccountVersionFor (protocolVersion @(MPV m))) of
-                    STrue -> bsoProcessPrePreCooldowns theState9
-                    SFalse -> return theState9
-            else return theState7
-    return (mPaydayParams, theState9)
+                    STrue -> (Just suspendedBids,) <$> bsoProcessPrePreCooldowns theState9
+                    SFalse -> return (Just suspendedBids, theState9)
+            else return (Nothing, theState7)
+    return (EpochTransitionResult mPaydayParams suspendedBids, theState8)
 
 -- | Update the seed state to account for a block.
 --  See 'updateSeedStateForBlock' for details of what this entails.
@@ -303,13 +328,14 @@ executeBlockPrologue BlockExecutionData{..} = do
     -- unlock the scheduled releases that have expired
     theState3 <- bsoProcessReleaseSchedule theState2 bedTimestamp
     -- transition the epoch if necessary
-    (mPaydayParms, theState4) <- doEpochTransition bedIsNewEpoch bedEpochDuration theState3
+    (EpochTransitionResult{..}, theState4) <- doEpochTransition bedIsNewEpoch bedEpochDuration theState3
     -- update the seed state using the block time and block nonce
     theState5 <- doUpdateSeedStateForBlock bedTimestamp bedBlockNonce theState4
     return
         PrologueResult
             { prologueBlockState = theState5,
-              prologuePaydayParameters = mPaydayParms
+              prologuePaydayParameters = mPaydayParams,
+              prologueSuspendedBids = mSnapshotSuspendedIds
             }
 
 -- * Block epilogue
@@ -350,9 +376,11 @@ doMintingP6 mintRate foundationAddr theState0 = do
 
 -- | If a payday has elapsed, this mints and distributes rewards for the payday.
 processPaydayRewards ::
+    forall pv m.
     ( pv ~ MPV m,
       BlockStateStorage m,
-      IsConsensusV1 pv
+      IsConsensusV1 pv,
+      IsProtocolVersion pv
     ) =>
     Maybe (PaydayParameters (AccountVersionFor (MPV m))) ->
     UpdatableBlockState m ->
@@ -363,7 +391,18 @@ processPaydayRewards (Just PaydayParameters{..}) theState0 = do
     -- in which the rewards are distributed.
     foundationAddr <- getAccountCanonicalAddress =<< bsoGetFoundationAccount theState0
     theState1 <- doMintingP6 paydayMintRate foundationAddr theState0
-    distributeRewards foundationAddr paydayCapitalDistribution paydayBakers paydayPoolRewards theState1
+    theState2 <- distributeRewards foundationAddr paydayCapitalDistribution paydayBakers paydayPoolRewards theState1
+    case hasValidatorSuspension of
+        SFalse -> return theState2
+        STrue -> do
+            cps <- bsoGetChainParameters theState1
+            case _cpValidatorScoreParameters cps of
+                NoParam -> return theState1
+                SomeParam (ValidatorScoreParameters{..}) -> do
+                    (bids, theState3) <- bsoPrimeForSuspension theState2 _vspMaxMissedRounds (bakerInfoExs paydayBakers ^.. each . bakerIdentity)
+                    foldM bsoAddSpecialTransactionOutcome theState3 (ValidatorPrimedForSuspension <$> bids)
+  where
+    hasValidatorSuspension = sSupportsValidatorSuspension (sAccountVersionFor (protocolVersion @pv))
 
 -- | Records that the baker baked this block (so it is eligible for baking rewards) and that the
 --  finalizers that signed the QC in the block are awake (and eligible for finalizer rewards).
@@ -402,10 +441,26 @@ processBlockRewards ParticipatingBakers{..} TransactionRewardParameters{..} miss
   where
     hasValidatorSuspension = sSupportsValidatorSuspension (sAccountVersionFor (protocolVersion @pv))
 
+-- | Suspend the given set of validators. Logs the suspension of a validator in
+--  a special transaction outcome.
+processSuspensions ::
+    forall pv m.
+    ( pv ~ MPV m,
+      BlockStateStorage m,
+      PVSupportsValidatorSuspension pv
+    ) =>
+    Set.Set BakerId ->
+    UpdatableBlockState m ->
+    m (UpdatableBlockState m)
+processSuspensions snapshotSuspendedBids bs0 = do
+    (ais', bs1) <- bsoSuspendValidators bs0 [ai | BakerId ai <- Set.toList snapshotSuspendedBids]
+    foldM bsoAddSpecialTransactionOutcome bs1 (ValidatorSuspended . BakerId <$> ais')
+
 -- | Execute the block epilogue. This mints and distributes the rewards for a payday if the block is
 --  in a new payday. This also accrues the rewards for the block that will be paid at the next
 --  payday.
 executeBlockEpilogue ::
+    forall pv m.
     ( pv ~ MPV m,
       IsProtocolVersion pv,
       BlockStateStorage m,
@@ -416,12 +471,20 @@ executeBlockEpilogue ::
     Maybe (PaydayParameters (AccountVersionFor (MPV m))) ->
     TransactionRewardParameters ->
     Map.Map BakerId Word64 ->
+    Maybe (Set.Set BakerId) ->
     UpdatableBlockState m ->
     m (PBS.HashedPersistentBlockState pv)
-executeBlockEpilogue participants paydayParams transactionRewardParams missedRounds theState0 = do
+executeBlockEpilogue participants paydayParams transactionRewardParams missedRounds snapshotSuspendedBids theState0 = do
     theState1 <- processPaydayRewards paydayParams theState0
     theState2 <- processBlockRewards participants transactionRewardParams missedRounds theState1
-    freezeBlockState theState2
+    theState3 <- case hasValidatorSuspension of
+        STrue
+            | Just suspendedBids <- snapshotSuspendedBids -> processSuspensions suspendedBids theState2
+            | otherwise -> return theState2
+        SFalse -> return theState2
+    freezeBlockState theState3
+  where
+    hasValidatorSuspension = sSupportsValidatorSuspension (sAccountVersionFor (protocolVersion @pv))
 
 -- * Transactions
 
@@ -592,6 +655,7 @@ executeBlockState execData@BlockExecutionData{..} transactions = do
                         prologuePaydayParameters
                         terTransactionRewardParameters
                         bedMissedRounds
+                        prologueSuspendedBids
                         terBlockState
                 return (endState, terEnergyUsed)
 
@@ -647,6 +711,7 @@ constructBlockState runtimeParams transactionTable pendingTable execData@BlockEx
                     prologuePaydayParameters
                     terTransactionRewardParameters
                     bedMissedRounds
+                    prologueSuspendedBids
                     terBlockState
             endTime <- currentTime
             logEvent Scheduler LLInfo $ "Constructed a block in " ++ show (diffUTCTime endTime startTime)

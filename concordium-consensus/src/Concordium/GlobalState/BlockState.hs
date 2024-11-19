@@ -1518,6 +1518,16 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  round did timeout.
     bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Map.Map BakerId Word64 -> m (UpdatableBlockState m)
 
+    -- | Mark given validators for possible suspension at the next snapshot epoch.
+    bsoPrimeForSuspension :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Word64 -> [BakerId] -> m ([BakerId], UpdatableBlockState m)
+
+    -- \| Suspend validators with the given account indices, if
+    --  1) the account index points to an existing account
+    --  2) the account belongs to a validator
+    --  3) the account was not already suspended
+    --  Returns the subset of account indices that were suspended.
+    bsoSuspendValidators :: (PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [AccountIndex] -> m ([AccountIndex], UpdatableBlockState m)
+
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -1830,6 +1840,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
     bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
+    bsoPrimeForSuspension s t = lift . bsoPrimeForSuspension s t
+    bsoSuspendValidators s = lift . bsoSuspendValidators s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -1887,6 +1899,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoGetCurrentEpochBakers #-}
     {-# INLINE bsoIsProtocolUpdateEffective #-}
     {-# INLINE bsoUpdateMissedRounds #-}
+    {-# INLINE bsoPrimeForSuspension #-}
+    {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 
