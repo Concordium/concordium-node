@@ -12,6 +12,7 @@ module Concordium.Kontrol.Bakers where
 
 import Data.Maybe
 import Data.Monoid
+import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
@@ -178,8 +179,9 @@ computeBakerStakesAndCapital ::
     PoolParameters' 'PoolParametersVersion1 ->
     [ActiveBakerInfo' bakerInfoRef] ->
     [ActiveDelegatorInfo] ->
+    Set.Set BakerId ->
     BakerStakesAndCapital bakerInfoRef
-computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerStakesAndCapital{..}
+computeBakerStakesAndCapital poolParams activeBakers passiveDelegators snapshotSuspendedBids = BakerStakesAndCapital{..}
   where
     leverage = poolParams ^. ppLeverageBound
     capitalBound = poolParams ^. ppCapitalBound
@@ -195,7 +197,7 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
               capLimit
             ]
         )
-    filteredActiveBakers = [abi | abi@ActiveBakerInfo{..} <- activeBakers, not activeBakerIsSuspended]
+    filteredActiveBakers = [abi | abi@ActiveBakerInfo{..} <- activeBakers, not (activeBakerIsSuspended || activeBakerId `Set.member` snapshotSuspendedBids)]
     filteredPoolCapitals = poolCapital <$> filteredActiveBakers
     bakerStakes = zipWith makeBakerStake filteredActiveBakers filteredPoolCapitals
     delegatorCapital ActiveDelegatorInfo{..} = DelegatorCapital activeDelegatorId activeDelegatorStake
@@ -219,9 +221,10 @@ generateNextBakers ::
     ) =>
     -- | The payday epoch
     Epoch ->
+    Set.Set BakerId ->
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
-generateNextBakers paydayEpoch bs0 = do
+generateNextBakers paydayEpoch suspendedBids bs0 = do
     isEffective <- effectiveTest paydayEpoch
     -- Determine the bakers and delegators for the next reward period, accounting for any
     -- stake reductions that are currently pending on active bakers with effective time at
@@ -241,6 +244,7 @@ generateNextBakers paydayEpoch bs0 = do
                 (cps ^. cpPoolParameters)
                 activeBakers
                 passiveDelegators
+                suspendedBids
     bs1 <- bsoSetNextEpochBakers bs0 bakerStakes NoParam
     bsoSetNextCapitalDistribution bs1 capitalDistribution
 
@@ -389,7 +393,7 @@ getSlotBakersP4 genData bs slot =
                                         ePoolParams pp' updates
                                 ePoolParams pp _ = pp
                                 effectivePoolParameters = ePoolParams (chainParams ^. cpPoolParameters) pendingPoolParams
-                                bsc = computeBakerStakesAndCapital effectivePoolParameters activeBakers passiveDelegators
+                                bsc = computeBakerStakesAndCapital effectivePoolParameters activeBakers passiveDelegators Set.empty
                             let mkFullBaker (biRef, _bakerStake) = do
                                     _theBakerInfo <- derefBakerInfo biRef
                                     return FullBakerInfo{..}
