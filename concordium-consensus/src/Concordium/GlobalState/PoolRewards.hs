@@ -15,6 +15,28 @@ import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
 
+-- | Information needed to determine whether to suspend a validator.
+data SuspensionInfo = SuspensionInfo
+    { -- | The number of missed rounds since the validator most recently
+      --  became a (non-suspended) member of the validator committee.
+      missedRounds :: !Word64,
+      -- | Flag indicating that the validator should be suspended at the coming
+      --  snapshot epoch, because its missed rounds have crossed the threshold
+      --  given in the chain parameters in the previous reward period.
+      primedForSuspension :: !Bool
+    }
+    deriving (Eq, Show)
+
+emptySuspensionInfo :: SuspensionInfo
+emptySuspensionInfo = SuspensionInfo{missedRounds = 0, primedForSuspension = False}
+
+instance Serialize SuspensionInfo where
+    put SuspensionInfo{..} = do
+        putWord64be missedRounds
+        putBool primedForSuspension
+    get =
+        SuspensionInfo <$> get <*> getBool
+
 -- | 'BakerPoolRewardDetails' tracks the rewards that have been earned by a baker pool in the current
 --  reward period. These are used to pay out the rewards at the payday.
 data BakerPoolRewardDetails (av :: AccountVersion) = BakerPoolRewardDetails
@@ -24,8 +46,8 @@ data BakerPoolRewardDetails (av :: AccountVersion) = BakerPoolRewardDetails
       transactionFeesAccrued :: !Amount,
       -- | Whether the pool contributed to a finalization proof in the reward period
       finalizationAwake :: !Bool,
-      -- | The number of missed rounds in the reward period
-      missedRounds :: !(Conditionally (SupportsValidatorSuspension av) Word64)
+      -- | Information for deciding whether a validator will be suspended the next snapshot epoch.
+      suspensionInfo :: !(Conditionally (SupportsValidatorSuspension av) SuspensionInfo)
     }
     deriving (Eq, Show)
 
@@ -34,7 +56,7 @@ instance forall av. (IsAccountVersion av) => Serialize (BakerPoolRewardDetails a
         putWord64be blockCount
         put transactionFeesAccrued
         putBool finalizationAwake
-        mapM_ putWord64be missedRounds
+        mapM_ put suspensionInfo
 
     get =
         BakerPoolRewardDetails
@@ -55,7 +77,8 @@ emptyBakerPoolRewardDetails =
         { blockCount = 0,
           transactionFeesAccrued = 0,
           finalizationAwake = False,
-          missedRounds = conditionally (sSupportsValidatorSuspension (accountVersion @av)) 0
+          suspensionInfo =
+            conditionally (sSupportsValidatorSuspension (accountVersion @av)) emptySuspensionInfo
         }
 
 -- | Migrate BakerPoolRewardDetails with different account versions.
@@ -66,9 +89,9 @@ migrateBakerPoolRewardDetails ::
     BakerPoolRewardDetails av1
 migrateBakerPoolRewardDetails BakerPoolRewardDetails{..} =
     BakerPoolRewardDetails
-        { missedRounds =
+        { suspensionInfo =
             conditionally
                 (sSupportsValidatorSuspension (accountVersion @av1))
-                (fromCondDef missedRounds 0),
+                (fromCondDef suspensionInfo emptySuspensionInfo),
           ..
         }

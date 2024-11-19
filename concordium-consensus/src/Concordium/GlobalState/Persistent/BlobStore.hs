@@ -1563,6 +1563,7 @@ instance (MonadBlobStore m, IsCooldownParametersVersion cpv) => BlobStorable m (
 instance (MonadBlobStore m) => BlobStorable m Parameters.TimeParameters
 instance (MonadBlobStore m) => BlobStorable m Parameters.TimeoutParameters
 instance (MonadBlobStore m) => BlobStorable m Parameters.FinalizationCommitteeParameters
+instance (MonadBlobStore m) => BlobStorable m Parameters.ValidatorScoreParameters
 instance (MonadBlobStore m) => BlobStorable m Duration
 instance (MonadBlobStore m) => BlobStorable m Energy
 instance (MonadBlobStore m) => BlobStorable m (Map AccountAddress Timestamp)

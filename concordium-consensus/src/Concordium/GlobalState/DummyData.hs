@@ -364,6 +364,14 @@ dummyFinalizationCommitteeParameters =
           _fcpFinalizerRelativeStakeThreshold = PartsPerHundredThousands 10000
         }
 
+-- | Validator score parameters for the second consensus protocol.
+dummyValidatorScoreParameters :: ValidatorScoreParameters
+dummyValidatorScoreParameters =
+    ValidatorScoreParameters
+        { -- Maximal number of missed rounds before a validator gets suspended.
+          _vspMaxMissedRounds = 1
+        }
+
 dummyChainParameters :: forall cpv. (IsChainParametersVersion cpv) => ChainParameters' cpv
 dummyChainParameters = case chainParametersVersion @cpv of
     SChainParametersV0 ->
@@ -382,7 +390,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                 PoolParametersV0
                     { _ppBakerStakeThreshold = 300000000000
                     },
-              _cpFinalizationCommitteeParameters = NoParam
+              _cpFinalizationCommitteeParameters = NoParam,
+              _cpValidatorScoreParameters = NoParam
             }
     SChainParametersV1 ->
         ChainParameters
@@ -420,7 +429,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                               _transactionCommissionRange = fullRange
                             }
                     },
-              _cpFinalizationCommitteeParameters = NoParam
+              _cpFinalizationCommitteeParameters = NoParam,
+              _cpValidatorScoreParameters = NoParam
             }
     SChainParametersV2 ->
         ChainParameters
@@ -458,7 +468,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                               _transactionCommissionRange = fullRange
                             }
                     },
-              _cpFinalizationCommitteeParameters = SomeParam dummyFinalizationCommitteeParameters
+              _cpFinalizationCommitteeParameters = SomeParam dummyFinalizationCommitteeParameters,
+              _cpValidatorScoreParameters = NoParam
             }
     SChainParametersV3 ->
         ChainParameters
@@ -496,7 +507,8 @@ dummyChainParameters = case chainParametersVersion @cpv of
                               _transactionCommissionRange = fullRange
                             }
                     },
-              _cpFinalizationCommitteeParameters = SomeParam dummyFinalizationCommitteeParameters
+              _cpFinalizationCommitteeParameters = SomeParam dummyFinalizationCommitteeParameters,
+              _cpValidatorScoreParameters = SomeParam dummyValidatorScoreParameters
             }
   where
     fullRange = InclusiveRange (makeAmountFraction 0) (makeAmountFraction 100000)
