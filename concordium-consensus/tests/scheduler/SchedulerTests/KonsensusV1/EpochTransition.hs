@@ -764,7 +764,7 @@ testMissedRoundsUpdate accountConfigs = runTestBlockState @P8 $ do
     startEpoch = 10
     startTriggerTime = 1000
 
--- Test that suspended validators have zero stake.
+-- | Test that suspended validators have zero stake.
 testComputeBakerStakesAndCapital :: [AccountConfig 'AccountV4] -> Assertion
 testComputeBakerStakesAndCapital accountConfigs = runTestBlockState @P8 $ do
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 24
