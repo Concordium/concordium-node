@@ -165,21 +165,20 @@ effectiveTest' genData paydayEpoch = (<= paydayEpochTime)
 -- | A helper datatype for computing the stake and capital distribution.
 --  This is intentionally lazy, as the caller may not wish to evaluate all of the fields, but
 --  constructing them together can avoid unnecessary duplication of work.
-data BakerStakesAndCapital m = BakerStakesAndCapital
+data BakerStakesAndCapital bakerInfoRef = BakerStakesAndCapital
     { -- | The baker info and stake for each baker.
-      bakerStakes :: [(BakerInfoRef m, Amount)],
+      bakerStakes :: [(bakerInfoRef, Amount)],
       -- | Determine the capital distribution.
-      capitalDistributionM :: m CapitalDistribution
+      capitalDistribution :: CapitalDistribution
     }
 
 -- | Compute the baker stakes and capital distribution.
 computeBakerStakesAndCapital ::
-    forall m.
-    (AccountOperations m) =>
+    forall bakerInfoRef.
     PoolParameters' 'PoolParametersVersion1 ->
-    [ActiveBakerInfo m] ->
+    [ActiveBakerInfo' bakerInfoRef] ->
     [ActiveDelegatorInfo] ->
-    BakerStakesAndCapital m
+    BakerStakesAndCapital bakerInfoRef
 computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerStakesAndCapital{..}
   where
     leverage = poolParams ^. ppLeverageBound
@@ -196,20 +195,19 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
               capLimit
             ]
         )
-    bakerStakes = zipWith makeBakerStake activeBakers poolCapitals
+    filteredActiveBakers = [abi | abi@ActiveBakerInfo{..} <- activeBakers, not activeBakerIsSuspended]
+    filteredPoolCapitals = poolCapital <$> filteredActiveBakers
+    bakerStakes = zipWith makeBakerStake filteredActiveBakers filteredPoolCapitals
     delegatorCapital ActiveDelegatorInfo{..} = DelegatorCapital activeDelegatorId activeDelegatorStake
-    bakerCapital ActiveBakerInfo{..} = do
-        bid <- _bakerIdentity <$> derefBakerInfo activeBakerInfoRef
-        return
-            BakerCapital
-                { bcBakerId = bid,
-                  bcBakerEquityCapital = activeBakerEquityCapital,
-                  bcDelegatorCapital = Vec.fromList $ delegatorCapital <$> activeBakerDelegators
-                }
-    capitalDistributionM = do
-        bakerPoolCapital <- Vec.fromList <$> mapM bakerCapital activeBakers
-        let passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
-        return CapitalDistribution{..}
+    bakerCapital ActiveBakerInfo{..} =
+        BakerCapital
+            { bcBakerId = activeBakerId,
+              bcBakerEquityCapital = activeBakerEquityCapital,
+              bcDelegatorCapital = Vec.fromList $ delegatorCapital <$> activeBakerDelegators
+            }
+    bakerPoolCapital = Vec.fromList $ bakerCapital <$> filteredActiveBakers
+    passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
+    capitalDistribution = CapitalDistribution{..}
 
 -- | Generate and set the next epoch bakers and next capital based on the current active bakers.
 generateNextBakers ::
@@ -244,8 +242,7 @@ generateNextBakers paydayEpoch bs0 = do
                 activeBakers
                 passiveDelegators
     bs1 <- bsoSetNextEpochBakers bs0 bakerStakes NoParam
-    capDist <- capitalDistributionM
-    bsoSetNextCapitalDistribution bs1 capDist
+    bsoSetNextCapitalDistribution bs1 capitalDistribution
 
 -- | Compute the epoch of the last payday at or before the given epoch.
 --  This accounts for changes to the reward period length.
@@ -392,7 +389,7 @@ getSlotBakersP4 genData bs slot =
                                         ePoolParams pp' updates
                                 ePoolParams pp _ = pp
                                 effectivePoolParameters = ePoolParams (chainParams ^. cpPoolParameters) pendingPoolParams
-                                bsc = computeBakerStakesAndCapital @m effectivePoolParameters activeBakers passiveDelegators
+                                bsc = computeBakerStakesAndCapital effectivePoolParameters activeBakers passiveDelegators
                             let mkFullBaker (biRef, _bakerStake) = do
                                     _theBakerInfo <- derefBakerInfo biRef
                                     return FullBakerInfo{..}

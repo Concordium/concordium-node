@@ -335,8 +335,7 @@ makeInitialState accs seedState rpLen = withIsAuthorizationsVersionForPV (protoc
     (activeBakers, passiveDelegators) <- bsoGetActiveBakersAndDelegators pbs0
     let BakerStakesAndCapital{..} = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers passiveDelegators
     pbs1 <- bsoSetNextEpochBakers pbs0 bakerStakes (chainParams ^. cpFinalizationCommitteeParameters)
-    capDist <- capitalDistributionM
-    pbs2 <- bsoSetNextCapitalDistribution pbs1 capDist
+    pbs2 <- bsoSetNextCapitalDistribution pbs1 capitalDistribution
     pbs <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers pbs2
 
     bsp <- loadPBS pbs
@@ -476,7 +475,7 @@ testEpochTransitionSnapshotOnly accountConfigs = runTestBlockState @P7 $ do
                 (chainParams ^. cpPoolParameters)
                 activeBakers
                 activeDelegators
-    updatedCapitalDistr <- capitalDistributionM
+    let updatedCapitalDistr = capitalDistribution
     let mkFullBaker (ref, stake) = do
             loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
                 (BakerInfoExV1 info extra _isSuspended) ->
@@ -535,7 +534,7 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
                 (chainParams ^. cpPoolParameters)
                 activeBakers
                 activeDelegators
-    updatedCapitalDistr <- capitalDistributionM
+    let updatedCapitalDistr = capitalDistribution
     let mkFullBaker (ref, stake) = do
             loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
                 (BakerInfoExV1 info extra _isSuspended) ->
@@ -610,7 +609,9 @@ testEpochTransitionSnapshotPayday accountConfigs = runTestBlockState @P7 $ do
 -- | Test epoch transitions for two successive transitions where the payday length is one epoch.
 -- In this case, both the snapshot and payday processing occur on each transition, so this tests
 -- that they are correctly ordered.
-testEpochTransitionSnapshotPaydayCombo :: [AccountConfig 'AccountV3] -> Assertion
+testEpochTransitionSnapshotPaydayCombo ::
+    [AccountConfig 'AccountV3] ->
+    Assertion
 testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ do
     -- Setup the initial state.
     bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 1
@@ -623,7 +624,7 @@ testEpochTransitionSnapshotPaydayCombo accountConfigs = runTestBlockState @P7 $ 
                 (chainParams ^. cpPoolParameters)
                 activeBakers
                 activeDelegators
-    updatedCapitalDistr <- capitalDistributionM
+    let updatedCapitalDistr = capitalDistribution
     let mkFullBaker (ref, stake) = do
             loadPersistentBakerInfoRef @_ @'AccountV3 ref <&> \case
                 (BakerInfoExV1 info extra _isSuspended) ->
@@ -729,7 +730,7 @@ testMissedRoundsUpdate accountConfigs = runTestBlockState @P8 $ do
     chainParams <- bsoGetChainParameters bs1
     (activeBakers, passiveDelegators) <- bsoGetActiveBakersAndDelegators bs1
     let BakerStakesAndCapital{..} = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers passiveDelegators
-    CapitalDistribution{..} <- capitalDistributionM
+    let CapitalDistribution{..} = capitalDistribution
     let n = Vec.length bakerPoolCapital `div` 2
     let newBakerStake = take n bakerStakes
     bids <- Set.fromList <$> mapM (loadBakerId . fst) newBakerStake
@@ -763,6 +764,74 @@ testMissedRoundsUpdate accountConfigs = runTestBlockState @P8 $ do
     startEpoch = 10
     startTriggerTime = 1000
 
+-- | Test that suspended validators have zero stake.
+testComputeBakerStakesAndCapital :: [AccountConfig 'AccountV4] -> Assertion
+testComputeBakerStakesAndCapital accountConfigs = runTestBlockState @P8 $ do
+    bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 24
+    chainParams <- bsoGetChainParameters bs0
+    (activeBakers0, passiveDelegators0) <- bsoGetActiveBakersAndDelegators bs0
+    let bakerStakesAndCapital0 = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers0 passiveDelegators0
+    let capitalDistribution0 = capitalDistribution bakerStakesAndCapital0
+    let passiveDelegatorCapital0 = passiveDelegatorsCapital capitalDistribution0
+    liftIO $
+        assertBool
+            "With no validators suspended, baker stakes are not empty."
+            (not $ null $ bakerStakes bakerStakesAndCapital0)
+    liftIO $
+        assertBool
+            "With no validators suspended, baker pool capital is not empty."
+            (not $ Vec.null $ bakerPoolCapital capitalDistribution0)
+    validatorIxs <-
+        filterM
+            ( \i -> do
+                mbAcc <- bsoGetAccountByIndex bs0 i
+                case mbAcc of
+                    Nothing -> return False
+                    Just acc -> isJust <$> getAccountBakerInfoRef acc
+            )
+            [acAccountIndex ac | ac <- accountConfigs]
+    bs1 <-
+        foldM
+            ( \bs i -> do
+                bsErr <- bsoUpdateValidator bs (Timestamp 1000) i suspendValidator
+                case bsErr of
+                    Left err -> liftIO $ assertFailure $ "Failed to suspend validator: " ++ show err
+                    Right (_, bs') -> return bs'
+            )
+            bs0
+            validatorIxs
+    (activeBakers1, passiveDelegators1) <- bsoGetActiveBakersAndDelegators bs1
+    let bakerStakesAndCapital1 = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers1 passiveDelegators1
+    liftIO $
+        assertBool
+            "With all validators suspended, baker stakes are empty."
+            (null $ bakerStakes bakerStakesAndCapital1)
+    let capitalDistribution1 = capitalDistribution bakerStakesAndCapital1
+    let passiveDelegatorCapital1 = passiveDelegatorsCapital capitalDistribution1
+    liftIO $
+        assertBool
+            "With all validators suspended, baker pool capital is empty."
+            (Vec.null $ bakerPoolCapital capitalDistribution1)
+    liftIO $
+        assertBool
+            "Passive delegator capital is unchanged"
+            (passiveDelegatorCapital0 == passiveDelegatorCapital1)
+  where
+    startEpoch = 10
+    startTriggerTime = 1000
+    suspendValidator =
+        ValidatorUpdate
+            { vuKeys = Nothing,
+              vuCapital = Nothing,
+              vuRestakeEarnings = Nothing,
+              vuOpenForDelegation = Nothing,
+              vuMetadataURL = Nothing,
+              vuTransactionFeeCommission = Nothing,
+              vuBakingRewardCommission = Nothing,
+              vuFinalizationRewardCommission = Nothing,
+              vuSuspend = Just True
+            }
+
 tests :: Spec
 tests = parallel $ describe "EpochTransition" $ do
     it "testEpochTransitionNoPaydayNoSnapshot" $
@@ -777,3 +846,5 @@ tests = parallel $ describe "EpochTransition" $ do
         forAll (genAccountConfigs False) testEpochTransitionSnapshotPaydayCombo
     it "testMissedRoundsUpdate" $
         forAll (genAccountConfigs False) testMissedRoundsUpdate
+    it "testComputeBakerStakesAndCapital" $
+        forAll (genAccountConfigs False) testComputeBakerStakesAndCapital

@@ -157,40 +157,40 @@ testComputeMissedRounds :: Spec
 testComputeMissedRounds =
     describe "computeMissedRounds" $ do
         it "no timeout" $
-            ( Map.toList $
-                computeMissedRounds
+            Map.toList
+                ( computeMissedRounds
                     Absent
                     dummyFullBakers
                     (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
                     6
-            )
+                )
                 `shouldBe` []
         it "timeout present, 1 missed round" $
-            ( Map.toList $
-                computeMissedRounds
+            Map.toList
+                ( computeMissedRounds
                     (Present $ dummyTimeoutCertificate 5)
                     dummyFullBakers
                     (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
                     6
-            )
+                )
                 `shouldBe` [(1, 1)]
         it "timeout present, 3 missed rounds" $
-            ( Map.toList $
-                computeMissedRounds
+            Map.toList
+                ( computeMissedRounds
                     (Present $ dummyTimeoutCertificate 5)
                     dummyFullBakers
                     (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
                     8
-            )
+                )
                 `shouldBe` [(1, 2), (2, 1)]
         it "timeout present, 95 missed rounds" $
-            ( Map.toList $
-                computeMissedRounds
+            Map.toList
+                ( computeMissedRounds
                     (Present $ dummyTimeoutCertificate 5)
                     dummyFullBakers
                     (read "ba3aba3b6c31fb6b0251a19c83666cd90da9a0835a2b54dc4f01c6d451ab24e8")
                     100
-            )
+                )
                 `shouldBe` [(1, 46), (2, 49)]
 
 tests :: Spec
