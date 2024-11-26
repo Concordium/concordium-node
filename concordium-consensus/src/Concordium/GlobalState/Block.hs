@@ -14,6 +14,7 @@ module Concordium.GlobalState.Block (
 import Control.Monad
 import qualified Data.ByteString as ByteString
 import Data.Kind
+import Data.Maybe (listToMaybe)
 import Data.Serialize
 import Data.Time
 
@@ -22,6 +23,7 @@ import qualified Concordium.Crypto.BlockSignature as Sig
 import Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Parameters
 import Concordium.Types
+import Concordium.Types.Execution (TransactionIndex)
 import Concordium.Types.HashableTo
 import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
@@ -113,6 +115,9 @@ class (BlockMetadata (BlockFieldType b)) => BlockData b where
 
     -- | The transactions in a block in the variant they are currently stored in the block.
     blockTransactions :: b -> [BlockItem]
+
+    -- | Get the transaction at a given index, if it exists.
+    blockTransaction :: TransactionIndex -> b -> Maybe BlockItem
 
     -- | The hash of the TransactionOutcomes resulting from executing this block
     blockTransactionOutcomesHash :: b -> TransactionOutcomesHash
@@ -255,6 +260,7 @@ instance BlockData BakedBlock where
     blockTransactionOutcomesHash = bbTransactionOutcomesHash
     {-# INLINE blockTransactionOutcomesHash #-}
     blockTransactions = bbTransactions
+    blockTransaction i b = listToMaybe $ drop (fromIntegral i) (blockTransactions b)
     blockSignature = Just . bbSignature
     verifyBlockSignature b = Sig.verify (bfBlockBakerKey (bbFields b)) (Hash.hashToByteString (blockHash (getHash b))) (bbSignature b)
 
@@ -334,6 +340,9 @@ instance forall pv. (IsProtocolVersion pv) => BlockData (Block pv) where
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock bb) = blockTransactions bb
 
+    blockTransaction _ GenesisBlock{} = Nothing
+    blockTransaction i (NormalBlock bb) = blockTransaction i bb
+
     -- move into gendata?
     blockTransactionOutcomesHash GenesisBlock{} =
         toTransactionOutcomesHash $
@@ -396,12 +405,14 @@ instance BlockData PendingBlock where
     blockSlot = blockSlot . pbBlock
     blockFields = blockFields . pbBlock
     blockTransactions = blockTransactions . pbBlock
+    blockTransaction i = blockTransaction i . pbBlock
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . pbBlock
     blockSignature = blockSignature . pbBlock
     verifyBlockSignature = verifyBlockSignature . pbBlock
     {-# INLINE blockSlot #-}
     {-# INLINE blockFields #-}
     {-# INLINE blockTransactions #-}
+    {-# INLINE blockTransaction #-}
     {-# INLINE blockTransactionOutcomesHash #-}
 
 instance BlockPendingData PendingBlock where

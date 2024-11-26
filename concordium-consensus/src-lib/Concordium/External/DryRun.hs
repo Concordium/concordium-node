@@ -693,7 +693,7 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
         let dummySignature = TransactionSignature sigMap
         let signatureCount = getTransactionNumSigs dummySignature
 
-        res <- runWithEBlockStateContext shiMVR shiBSC $ \drsRef -> do
+        res <- runWithEBlockStateContext shiMVR shiBSC $ \(drsRef :: IORef (DryRunState pv)) -> do
             drs@DryRunState{..} <- liftIO $ readIORef drsRef
             let context =
                     Scheduler.ContextState
@@ -760,10 +760,16 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                                     let newQuotaRem = shiQuotaRem - tsEnergyCost res
                                     lift . lift . liftIO $
                                         writeIORef shiQuotaRef newQuotaRem
-
-                                    return $! case toProto (DryRunResponse res newQuotaRem) of
-                                        Left _ -> Left InternalError
-                                        Right r -> Right r
+                                    let mInitParam = do
+                                            let spv = protocolVersion @pv
+                                            InitContract{..} <- decodePayload spv payload ^? _Right
+                                            return icParam
+                                    case supplementEvents (addInitializeParameter mInitParam) res of
+                                        Nothing -> return $ Left InternalError
+                                        Just res' -> do
+                                            return $! case toProto (DryRunResponse res' newQuotaRem) of
+                                                Left _ -> Left InternalError
+                                                Right r -> Right r
             (res, ss) <- Scheduler.runSchedulerT exec context schedulerState
             liftIO $ writeIORef drsRef (drs{drsBlockState = ss ^. Scheduler.ssBlockState})
             return res

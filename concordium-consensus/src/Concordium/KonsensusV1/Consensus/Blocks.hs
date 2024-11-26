@@ -78,6 +78,7 @@ instance BlockData (VerifiedBlock pv) where
     blockTimestamp = blockTimestamp . vbBlock
     blockBakedData = blockBakedData . vbBlock
     blockTransactions = blockTransactions . vbBlock
+    blockTransaction i = blockTransaction i . vbBlock
     blockTransactionCount = blockTransactionCount . vbBlock
 
 -- * Receiving blocks

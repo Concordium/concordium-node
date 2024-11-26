@@ -165,6 +165,7 @@ instance BlockData (BlockPointer pv) where
     blockTimestamp = blockTimestamp . bpBlock
     blockBakedData = blockBakedData . bpBlock
     blockTransactions = blockTransactions . bpBlock
+    blockTransaction i = blockTransaction i . bpBlock
     blockTransactionCount = blockTransactionCount . bpBlock
 
 instance Show (BlockPointer pv) where
@@ -201,6 +202,7 @@ instance BlockData (PendingBlock pv) where
     blockTimestamp = blockTimestamp . pbBlock
     blockBakedData = blockBakedData . pbBlock
     blockTransactions = blockTransactions . pbBlock
+    blockTransaction i = blockTransaction i . pbBlock
     blockTransactionCount = blockTransactionCount . pbBlock
 
 instance BakedBlockData (PendingBlock pv) where

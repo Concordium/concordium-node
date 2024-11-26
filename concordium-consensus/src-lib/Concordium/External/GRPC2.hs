@@ -881,7 +881,11 @@ getBlockTransactionEventsV2 cptr channel blockType blockHashPtr outHash cbk = do
     copyHashTo outHash response
     case response of
         Q.BQRNoBlock -> return (queryResultCode QRNotFound)
-        Q.BQRBlock bh events -> case traverse toProto events of
+        Q.BQRBlock bh (Left err) -> do
+            mvLog mvr Logger.External Logger.LLError $
+                "Failed getting transaction summaries for block '" ++ show bh ++ "': " ++ err
+            return $ queryResultCode QRInternalError
+        Q.BQRBlock bh (Right events) -> case traverse toProto events of
             Left e -> do
                 mvLog mvr Logger.External Logger.LLError $ "Internal conversion error occured for block '" ++ show bh ++ "': " ++ show e
                 return $ queryResultCode QRInternalError

@@ -73,6 +73,7 @@ instance BlockData (StoredBlock pv) where
     blockTimestamp = blockTimestamp . stbBlock
     blockBakedData = blockBakedData . stbBlock
     blockTransactions = blockTransactions . stbBlock
+    blockTransaction i = blockTransaction i . stbBlock
     blockTransactionCount = blockTransactionCount . stbBlock
 
 instance HashableTo BlockHash (StoredBlock pv) where
