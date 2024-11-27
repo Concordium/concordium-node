@@ -785,6 +785,11 @@ getBlockItems :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse
 getBlockItems = liftSkovQueryBHI (return . blockTransactions) (return . SkovV1.blockTransactions)
 
 -- | Get the transaction outcomes in the block.
+--  The return value is either an error message or a vector of outcomes in the corresponding order
+--  of the transactions in the block.
+--  Errors should not be possible, as they would indicate an invariant violation, such as the
+--  transaction outcomes not matching the transactions in the block, or an initialization event
+--  occuring for a transaction that does not decode to 'InitContract'.
 getBlockTransactionSummaries ::
     forall finconf.
     BlockHashInput ->
