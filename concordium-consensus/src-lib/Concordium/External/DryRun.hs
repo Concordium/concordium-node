@@ -765,11 +765,22 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                                             InitContract{..} <- decodePayload spv payload ^? _Right
                                             return icParam
                                     case supplementEvents (addInitializeParameter mInitParam) res of
-                                        Nothing -> return $ Left InternalError
-                                        Just res' -> do
-                                            return $! case toProto (DryRunResponse res' newQuotaRem) of
-                                                Left _ -> Left InternalError
-                                                Right r -> Right r
+                                        Nothing -> do
+                                            -- This should not occur, since 'mInitParam' is only
+                                            -- needed if the transaction is an 'InitContract', in
+                                            -- which case, 'mInitParam' will not be 'Nothing'.
+                                            lift . logEvent External LLError $
+                                                "DryRun: a contract initialization parameter was \
+                                                \expected but not found"
+                                            return $ Left InternalError
+                                        Just res' -> case toProto (DryRunResponse res' newQuotaRem) of
+                                            Left err -> do
+                                                lift . logEvent External LLError $
+                                                    "DryRun: failed to serialize response: "
+                                                        ++ show err
+                                                return $ Left InternalError
+                                            Right r ->
+                                                return $ Right r
             (res, ss) <- Scheduler.runSchedulerT exec context schedulerState
             liftIO $ writeIORef drsRef (drs{drsBlockState = ss ^. Scheduler.ssBlockState})
             return res
