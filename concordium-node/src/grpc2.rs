@@ -1345,18 +1345,6 @@ pub mod server {
         /// Return type for the 'GetBlockPendingUpdates' method.
         type GetBlockPendingUpdatesStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        /// Return type for the 'GetScheduledReleaseAccounts' method.
-        type GetScheduledReleaseAccountsStream =
-            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        /// Return type for the 'GetCooldownAccounts' method.
-        type GetCooldownAccountsStream =
-            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        /// Return type for the 'GetPreCooldownAccounts' method.
-        type GetPreCooldownAccountsStream =
-            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        /// Return type for the 'GetPrePreCooldowneleaseAccounts' method.
-        type GetPrePreCooldownAccountsStream =
-            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetBlockSpecialEvents' method.
         type GetBlockSpecialEventsStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
@@ -1366,6 +1354,9 @@ pub mod server {
         /// Return type for the 'Blocks' method.
         type GetBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
+        /// Return type for the 'GetCooldownAccounts' method.
+        type GetCooldownAccountsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'FinalizedBlocks' method.
         type GetFinalizedBlocksStream =
             tokio_stream::wrappers::ReceiverStream<Result<Arc<[u8]>, tonic::Status>>;
@@ -1392,6 +1383,15 @@ pub mod server {
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetPoolDelegators' method.
         type GetPoolDelegatorsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPreCooldownAccounts' method.
+        type GetPreCooldownAccountsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetPrePreCooldowneleaseAccounts' method.
+        type GetPrePreCooldownAccountsStream =
+            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetScheduledReleaseAccounts' method.
+        type GetScheduledReleaseAccountsStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetWinningBakersEpoch' method.
         type GetWinningBakersEpochStream =
@@ -2128,7 +2128,8 @@ pub mod server {
         async fn get_scheduled_release_accounts(
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
-        ) -> Result<tonic::Response<Self::GetScheduledReleaseAccountsStream>, tonic::Status> {
+        ) -> Result<tonic::Response<Self::GetScheduledReleaseAccountsStream>, tonic::Status>
+        {
             if !self.service_config.get_scheduled_release_accounts {
                 return Err(tonic::Status::unimplemented(
                     "`GetScheduledReleaseAccounts` is not enabled.",
@@ -2150,9 +2151,7 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetCooldownAccountsStream>, tonic::Status> {
             if !self.service_config.get_cooldown_accounts {
-                return Err(tonic::Status::unimplemented(
-                    "`GetCooldownAccounts` is not enabled.",
-                ));
+                return Err(tonic::Status::unimplemented("`GetCooldownAccounts` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(10);
             let hash = self
