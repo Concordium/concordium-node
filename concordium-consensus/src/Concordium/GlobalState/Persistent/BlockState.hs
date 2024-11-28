@@ -4118,6 +4118,59 @@ doSetRewardAccounts pbs rewards = do
     bsp <- loadPBS pbs
     storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.rewardAccounts .~ rewards}
 
+-- | Get the index of accounts with scheduled releases.
+doGetScheduledReleaseAccounts :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (Map.Map Timestamp (Set.Set AccountIndex))
+doGetScheduledReleaseAccounts pbs = do
+    bsp <- loadPBS pbs
+    let resolveAddress addr = do
+            mIndex <- Accounts.getAccountIndex addr (bspAccounts bsp)
+            case mIndex of
+                Just index -> return index
+                Nothing -> error "Invariant violation: account address not found"
+    releasesMap resolveAddress (bspReleaseSchedule bsp)
+
+-- | Get the index of accounts with stake in cooldown.
+doGetCooldownAccounts ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    m (Map.Map Timestamp (Set.Set AccountIndex))
+doGetCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
+    STrue -> do
+        bsp <- loadPBS pbs
+        newReleasesMap (bspAccountsInCooldown bsp ^. accountsInCooldown . cooldown)
+    SFalse -> return Map.empty
+  where
+    sav = sAccountVersionFor (protocolVersion @pv)
+
+-- | Get the index of accounts in pre-cooldown.
+doGetPreCooldownAccounts ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    m [AccountIndex]
+doGetPreCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
+    STrue -> do
+        bsp <- loadPBS pbs
+        loadAccountList $ bspAccountsInCooldown bsp ^. accountsInCooldown . preCooldown
+    SFalse -> return []
+  where
+    sav = sAccountVersionFor (protocolVersion @pv)
+
+-- | Get the index of accounts in pre-pre-cooldown.
+doGetPrePreCooldownAccounts ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    m [AccountIndex]
+doGetPrePreCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
+    STrue -> do
+        bsp <- loadPBS pbs
+        loadAccountList $ bspAccountsInCooldown bsp ^. accountsInCooldown . prePreCooldown
+    SFalse -> return []
+  where
+    sav = sAccountVersionFor (protocolVersion @pv)
+
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext
     { -- | The 'BlobStore' used for storing the persistent state.
@@ -4251,6 +4304,10 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
     getPassiveDelegationStatus = doGetPassiveDelegationStatus . hpbsPointers
+    getScheduledReleaseAccounts = doGetScheduledReleaseAccounts . hpbsPointers
+    getCooldownAccounts = doGetCooldownAccounts . hpbsPointers
+    getPreCooldownAccounts = doGetPreCooldownAccounts . hpbsPointers
+    getPrePreCooldownAccounts = doGetPrePreCooldownAccounts . hpbsPointers
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
     thawContractState (Instances.InstanceStateV0 inst) = return inst

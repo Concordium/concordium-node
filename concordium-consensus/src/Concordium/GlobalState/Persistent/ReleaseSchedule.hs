@@ -426,6 +426,9 @@ releasesMap ::
 releasesMap resolveAddr (ReleaseScheduleP0 rsRef) = do
     LegacyReleaseSchedule{..} <- refLoad rsRef
     forM lrsMap $ fmap Set.fromList . mapM resolveAddr . Set.toList
-releasesMap _ (ReleaseScheduleP5 rs) = do
+releasesMap _ (ReleaseScheduleP5 rs) = newReleasesMap rs
+
+newReleasesMap :: (MonadBlobStore m) => NewReleaseSchedule -> m (Map Timestamp (Set AccountIndex))
+newReleasesMap rs = do
     m <- Trie.toMap (nrsMap rs)
     return (theAccountSet <$> m)

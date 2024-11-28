@@ -1001,6 +1001,46 @@ getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
         updates <- BS.getUpdates bs
         return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
 
+-- | Get the index of accounts with scheduled releases.
+getScheduledReleaseAccounts ::
+    forall finconf.
+    BlockHashInput ->
+    MVR finconf (BHIQueryResponse [AccountPending])
+getScheduledReleaseAccounts = liftSkovQueryStateBHI query
+  where
+    query bs = do
+        releases <- BS.getScheduledReleaseAccounts bs
+        let processAtTimestamp ts accs = ([AccountPending acc ts | acc <- Set.toList accs] ++)
+        return $ Map.foldrWithKey processAtTimestamp [] releases
+
+-- | Get the index of accounts with stake in cooldown.
+getCooldownAccounts ::
+    forall finconf.
+    BlockHashInput ->
+    MVR finconf (BHIQueryResponse [AccountPending])
+getCooldownAccounts = liftSkovQueryStateBHI query
+  where
+    query bs = do
+        cooldowns <- BS.getCooldownAccounts bs
+        let processAtTimestamp ts accs = ([AccountPending acc ts | acc <- Set.toList accs] ++)
+        -- Right-fold here ensures that the set at each timestamp is converted lazily as
+        -- the resulting list is consumed.
+        return $ Map.foldrWithKey processAtTimestamp [] cooldowns
+
+-- | Get the index of accounts in pre-cooldown.
+getPreCooldownAccounts ::
+    forall finconf.
+    BlockHashInput ->
+    MVR finconf (BHIQueryResponse [AccountIndex])
+getPreCooldownAccounts = liftSkovQueryStateBHI BS.getPreCooldownAccounts
+
+-- | Get the index of accounts in pre-pre-cooldown.
+getPrePreCooldownAccounts ::
+    forall finconf.
+    BlockHashInput ->
+    MVR finconf (BHIQueryResponse [AccountIndex])
+getPrePreCooldownAccounts = liftSkovQueryStateBHI BS.getPrePreCooldownAccounts
+
 -- | Get the total amount of CCD in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR finconf (BHIQueryResponse RewardStatus)
 getRewardStatus =
