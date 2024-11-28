@@ -13,6 +13,8 @@
 - Add `GetCooldownAccounts`, `GetPreCooldownAccounts` and `GetPrePreCooldownAccounts`
   endpoints for querying the lists of accounts that have pending cooldowns in protocol
   version 7 onwards.
+- gRPC endpoints `DryRun`, `GetBlockItemStatus` and `GetBlockTransactionEvents` now report the
+  parameter used to initialize a smart contract instance as part of a `ContractInitializedEvent`.
 
 ## 7.0.5
 

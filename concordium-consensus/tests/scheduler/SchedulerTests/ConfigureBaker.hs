@@ -253,6 +253,7 @@ testDelegatorToBakerOk spv pvString =
         doBlockStateAssertions
   where
     stakeAmount = 300_000_000_000
+    events :: BakerKeysWithProofs -> [Event]
     events keysWithProofs =
         [ DelegationRemoved{edrDelegatorId = 1, edrAccount = delegator1Address},
           BakerAdded

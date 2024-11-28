@@ -179,6 +179,7 @@ instance (IsProtocolVersion pv) => BlockData (BlockPointer pv p s) where
     blockSlot = blockSlot . _bpBlock
     blockFields = blockFields . _bpBlock
     blockTransactions = blockTransactions . _bpBlock
+    blockTransaction i = blockTransaction i . _bpBlock
     blockTransactionOutcomesHash = blockTransactionOutcomesHash . _bpBlock
     blockSignature = blockSignature . _bpBlock
     verifyBlockSignature = verifyBlockSignature . _bpBlock

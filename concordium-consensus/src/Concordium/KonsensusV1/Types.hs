@@ -36,6 +36,7 @@ import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBT
 import qualified Concordium.MerkleProofs as Merkle
 import Concordium.Types
 import Concordium.Types.Block (AbsoluteBlockHeight)
+import Concordium.Types.Execution (TransactionIndex)
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.Parameters (IsConsensusV1)
@@ -1036,6 +1037,9 @@ class BlockData b where
     -- | The list of transactions in the block.
     blockTransactions :: b -> [BlockItem]
 
+    -- | The transaction at a given index in the block, if it exists.
+    blockTransaction :: TransactionIndex -> b -> Maybe BlockItem
+
     -- | The number of transactions in the block.
     --  prop> blockTransactionCount b = length (blockTransactions b)
     blockTransactionCount :: b -> Int
@@ -1224,6 +1228,7 @@ instance BlockData (SignedBlock pv) where
     blockBakedData = Present
     blockTransactions = Vector.toList . bbTransactions . sbBlock
     {-# INLINE blockTransactions #-}
+    blockTransaction i b = bbTransactions (sbBlock b) Vector.!? fromIntegral i
     blockTransactionCount = Vector.length . bbTransactions . sbBlock
 
 instance HashableTo BlockHash (SignedBlock pv) where
@@ -1555,6 +1560,8 @@ instance BlockData (Block pv) where
     blockTransactions GenesisBlock{} = []
     blockTransactions (NormalBlock b) = blockTransactions b
     {-# INLINE blockTransactions #-}
+    blockTransaction _ GenesisBlock{} = Nothing
+    blockTransaction i (NormalBlock b) = blockTransaction i b
     blockTransactionCount GenesisBlock{} = 0
     blockTransactionCount (NormalBlock b) = blockTransactionCount b
 
