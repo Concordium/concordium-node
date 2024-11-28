@@ -244,8 +244,7 @@ doEpochTransition True epochDuration theState0 = do
                         theState7
                         bakerStakes
                         (chainParams ^. cpFinalizationCommitteeParameters)
-                capDist <- capitalDistributionM
-                theState9 <- bsoSetNextCapitalDistribution theState8 capDist
+                theState9 <- bsoSetNextCapitalDistribution theState8 capitalDistribution
                 -- From P7 onwards, we transition pre-pre-cooldowns into pre-cooldowns, so that
                 -- at the next payday they will enter cooldown.
                 case sSupportsFlexibleCooldown (sAccountVersionFor (protocolVersion @(MPV m))) of

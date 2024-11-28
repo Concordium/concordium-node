@@ -746,7 +746,11 @@ data ActiveBakerInfo' bakerInfoRef = ActiveBakerInfo
       activeBakerPendingChange :: !(StakePendingChange' Timestamp),
       -- | Information about the delegators to the baker in ascending order of 'DelegatorId'.
       --  (There must be no duplicate 'DelegatorId's.)
-      activeBakerDelegators :: ![ActiveDelegatorInfo]
+      activeBakerDelegators :: ![ActiveDelegatorInfo],
+      -- | A flag indicating whether the baker is suspended.
+      activeBakerIsSuspended :: !Bool,
+      -- | The id of the baker.
+      activeBakerId :: !BakerId
     }
     deriving (Eq, Show)
 

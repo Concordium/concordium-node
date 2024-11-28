@@ -84,6 +84,7 @@ import Concordium.Types
 import Concordium.Types.Accounts (AccountBaker (..))
 import qualified Concordium.Types.Accounts as BaseAccounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
+import Concordium.Types.Conditionally
 import Concordium.Types.Execution (DelegationTarget (..), TransactionIndex, TransactionSummary)
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.Types.HashableTo
@@ -1336,7 +1337,19 @@ doGetActiveBakersAndDelegators pbs = do
                           activeBakerEquityCapital = theBaker ^. BaseAccounts.stakedAmount,
                           activeBakerPendingChange =
                             BaseAccounts.pendingChangeEffectiveTimestamp <$> theBaker ^. BaseAccounts.bakerPendingChange,
-                          activeBakerDelegators = abd
+                          activeBakerDelegators = abd,
+                          activeBakerIsSuspended =
+                            fromCondDef
+                                ( BaseAccounts._bieAccountIsSuspended $
+                                    BaseAccounts._accountBakerInfo $
+                                        theBaker
+                                )
+                                False,
+                          activeBakerId =
+                            BaseAccounts._bakerIdentity $
+                                BaseAccounts._bieBakerInfo $
+                                    BaseAccounts._accountBakerInfo $
+                                        theBaker
                         }
     mkActiveDelegatorInfo :: BlockStatePointers pv -> DelegatorId -> m ActiveDelegatorInfo
     mkActiveDelegatorInfo bsp activeDelegatorId@(DelegatorId acct) =
