@@ -8,6 +8,11 @@
   of the consensus, at consensus version 1.
 - Update Rust version to 1.82.
 - Update GHC version to 9.6.6 (LTS-22.39).
+- Add `GetScheduledReleaseAccounts` endpoint for querying the list of accounts that
+  have scheduled releases.
+- Add `GetCooldownAccounts`, `GetPreCooldownAccounts` and `GetPrePreCooldownAccounts`
+  endpoints for querying the lists of accounts that have pending cooldowns in protocol
+  version 7 onwards.
 
 ## 7.0.5
 

@@ -497,6 +497,46 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_scheduled_release_accounts")
+                .route_name("GetScheduledReleaseAccounts")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_cooldown_accounts")
+                .route_name("GetCooldownAccounts")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_pre_cooldown_accounts")
+                .route_name("GetPreCooldownAccounts")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_pre_pre_cooldown_accounts")
+                .route_name("GetPrePreCooldownAccounts")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_baker_earliest_win_time")
                 .route_name("GetBakerEarliestWinTime")
                 .input_type("crate::grpc2::types::BakerId")

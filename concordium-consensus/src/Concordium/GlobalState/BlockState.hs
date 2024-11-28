@@ -663,6 +663,18 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
         BlockState m ->
         m PassiveDelegationStatus
 
+    -- | Get the index of accounts with scheduled releases.
+    getScheduledReleaseAccounts :: BlockState m -> m (Map.Map Timestamp (Set.Set AccountIndex))
+
+    -- | Get the index of accounts with stake in cooldown.
+    getCooldownAccounts :: BlockState m -> m (Map.Map Timestamp (Set.Set AccountIndex))
+
+    -- | Get the index of accounts in pre-cooldown.
+    getPreCooldownAccounts :: BlockState m -> m [AccountIndex]
+
+    -- | Get the index of accounts in pre-pre-cooldown.
+    getPrePreCooldownAccounts :: BlockState m -> m [AccountIndex]
+
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
     { -- | Minted amount allocated to the BakingRewardAccount
@@ -1669,6 +1681,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
     getPassiveDelegationStatus = lift . getPassiveDelegationStatus
+    getScheduledReleaseAccounts = lift . getScheduledReleaseAccounts
+    getCooldownAccounts = lift . getCooldownAccounts
+    getPreCooldownAccounts = lift . getPreCooldownAccounts
+    getPrePreCooldownAccounts = lift . getPrePreCooldownAccounts
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE accountExists #-}
@@ -1703,6 +1719,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getUpdateKeysCollection #-}
     {-# INLINE getExchangeRates #-}
     {-# INLINE getChainParameters #-}
+    {-# INLINE getScheduledReleaseAccounts #-}
+    {-# INLINE getCooldownAccounts #-}
+    {-# INLINE getPreCooldownAccounts #-}
+    {-# INLINE getPrePreCooldownAccounts #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
