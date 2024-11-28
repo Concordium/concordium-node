@@ -8,6 +8,8 @@
   of the consensus, at consensus version 1.
 - Update Rust version to 1.82.
 - Update GHC version to 9.6.6 (LTS-22.39).
+- gRPC endpoints `DryRun`, `GetBlockItemStatus` and `GetBlockTransactionEvents` now report the
+  parameter used to initialize a smart contract instance as part of a `ContractInitializedEvent`.
 
 ## 7.0.5
 
