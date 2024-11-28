@@ -956,6 +956,8 @@ getCooldownAccounts = liftSkovQueryStateBHI query
     query bs = do
         cooldowns <- BS.getCooldownAccounts bs
         let processAtTimestamp ts accs = ([AccountPending acc ts | acc <- Set.toList accs] ++)
+        -- Right-fold here ensures that the set at each timestamp is converted lazily as
+        -- the resulting list is consumed.
         return $ Map.foldrWithKey processAtTimestamp [] cooldowns
 
 -- | Get the index of accounts in pre-cooldown.
