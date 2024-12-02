@@ -3509,6 +3509,9 @@ doUpdateMissedRounds pbs rds = do
             (Map.toList rds)
     storePBS pbs bsp'
 
+-- | Prime validators for suspension. Returns the subset of the given validator
+--  ids whose missed rounds exceeded the given threshold and are now primed for
+--  suspension.
 doPrimeForSuspension ::
     ( PVSupportsDelegation pv,
       SupportsPersistentState pv m

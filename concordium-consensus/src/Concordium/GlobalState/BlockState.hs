@@ -1530,7 +1530,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  round did timeout.
     bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Map.Map BakerId Word64 -> m (UpdatableBlockState m)
 
-    -- | Mark given validators for possible suspension at the next snapshot epoch.
+    -- | Mark given validators for possible suspension at the next snapshot
+    --  epoch. Returns the subset of the given validator ids whose missed rounds
+    --  exceeded the given threshold and are now priMed for suspension.
     bsoPrimeForSuspension :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Word64 -> [BakerId] -> m ([BakerId], UpdatableBlockState m)
 
     -- \| Suspend validators with the given account indices, if
