@@ -796,6 +796,25 @@ testComputeBakerStakesAndCapital accountConfigs = runTestBlockState @P8 $ do
                     Just acc -> isJust <$> getAccountBakerInfoRef acc
             )
             [acAccountIndex ac | ac <- accountConfigs]
+
+    -- suspension at snapshot epoch transition
+    let bakerStakesAndCapital1 = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers0 passiveDelegators0 (Set.fromList [BakerId aix | aix <- validatorIxs])
+    liftIO $
+        assertBool
+            "With all validators suspended at snapshot, baker stakes are empty."
+            (null $ bakerStakes bakerStakesAndCapital1)
+    let capitalDistribution1 = capitalDistribution bakerStakesAndCapital1
+    let passiveDelegatorCapital1 = passiveDelegatorsCapital capitalDistribution1
+    liftIO $
+        assertBool
+            "With all validators suspended at snapshot, baker pool capital is empty."
+            (Vec.null $ bakerPoolCapital capitalDistribution1)
+    liftIO $
+        assertBool
+            "Passive delegator capital is unchanged"
+            (passiveDelegatorCapital0 == passiveDelegatorCapital1)
+
+    -- suspension of already suspended validators
     bs1 <-
         foldM
             ( \bs i -> do
@@ -807,21 +826,21 @@ testComputeBakerStakesAndCapital accountConfigs = runTestBlockState @P8 $ do
             bs0
             validatorIxs
     (activeBakers1, passiveDelegators1) <- bsoGetActiveBakersAndDelegators bs1
-    let bakerStakesAndCapital1 = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers1 passiveDelegators1 Set.empty
+    let bakerStakesAndCapital2 = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers1 passiveDelegators1 Set.empty
     liftIO $
         assertBool
             "With all validators suspended, baker stakes are empty."
-            (null $ bakerStakes bakerStakesAndCapital1)
-    let capitalDistribution1 = capitalDistribution bakerStakesAndCapital1
-    let passiveDelegatorCapital1 = passiveDelegatorsCapital capitalDistribution1
+            (null $ bakerStakes bakerStakesAndCapital2)
+    let capitalDistribution2 = capitalDistribution bakerStakesAndCapital2
+    let passiveDelegatorCapital2 = passiveDelegatorsCapital capitalDistribution2
     liftIO $
         assertBool
             "With all validators suspended, baker pool capital is empty."
-            (Vec.null $ bakerPoolCapital capitalDistribution1)
+            (Vec.null $ bakerPoolCapital capitalDistribution2)
     liftIO $
         assertBool
             "Passive delegator capital is unchanged"
-            (passiveDelegatorCapital0 == passiveDelegatorCapital1)
+            (passiveDelegatorCapital0 == passiveDelegatorCapital2)
   where
     startEpoch = 10
     startTriggerTime = 1000
