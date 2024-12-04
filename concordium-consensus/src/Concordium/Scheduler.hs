@@ -2241,8 +2241,8 @@ handleConfigureBaker
                         BakerSetBakingRewardCommission bid senderAddress bakingRewardCommission
                     BI.BakerConfigureFinalizationRewardCommission finalizationRewardCommission ->
                         BakerSetFinalizationRewardCommission bid senderAddress finalizationRewardCommission
-                    BI.BakerConfigureSuspended -> BakerSuspended bid
-                    BI.BakerConfigureResumed -> BakerResumed bid
+                    BI.BakerConfigureSuspended -> BakerSuspended bid senderAddress
+                    BI.BakerConfigureResumed -> BakerResumed bid senderAddress
         rejectResult failure =
             TxReject $! case failure of
                 BI.VCFStakeUnderThreshold -> StakeUnderMinimumThresholdForBaking

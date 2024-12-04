@@ -1311,8 +1311,8 @@ testUpdateBakerSuspendResumeOk spv pvString suspendOrResume accM =
     accountBaker _ x = pure x
     events =
         [ if suspendOrResume == Suspend
-            then BakerSuspended{ebsBakerId = 4}
-            else BakerResumed{ebrBakerId = 4}
+            then BakerSuspended{ebsBakerId = 4, ebsAccount = baker4Address}
+            else BakerResumed{ebrBakerId = 4, ebrAccount = baker4Address}
         ]
 
 tests :: Spec
