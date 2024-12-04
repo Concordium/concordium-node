@@ -9,6 +9,7 @@ module Concordium.KonsensusV1.Scheduler where
 import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.Map as Map
+import Data.Maybe
 import qualified Data.Set as Set
 import Data.Time
 import Data.Word
@@ -400,7 +401,22 @@ processPaydayRewards (Just PaydayParameters{..}) theState0 = do
                 NoParam -> return theState1
                 SomeParam (ValidatorScoreParameters{..}) -> do
                     (bids, theState3) <- bsoPrimeForSuspension theState2 _vspMaxMissedRounds (bakerInfoExs paydayBakers ^.. each . bakerIdentity)
-                    foldM bsoAddSpecialTransactionOutcome theState3 (ValidatorPrimedForSuspension <$> bids)
+                    let addOutcome :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+                        addOutcome theState bid = do
+                            -- The account must exist, since it is a validator, so this can't fail
+                            account <-
+                                fromJust
+                                    <$> bsoGetAccountByIndex
+                                        theState
+                                        (bakerAccountIndex bid)
+                            address <- getAccountCanonicalAddress account
+                            let outcome =
+                                    ValidatorPrimedForSuspension
+                                        { vpfsBakerId = bid,
+                                          vpfsAccount = address
+                                        }
+                            bsoAddSpecialTransactionOutcome theState outcome
+                    foldM addOutcome theState3 bids
   where
     hasValidatorSuspension = sSupportsValidatorSuspension (sAccountVersionFor (protocolVersion @pv))
 
@@ -454,7 +470,14 @@ processSuspensions ::
     m (UpdatableBlockState m)
 processSuspensions snapshotSuspendedBids bs0 = do
     (ais', bs1) <- bsoSuspendValidators bs0 [ai | BakerId ai <- Set.toList snapshotSuspendedBids]
-    foldM bsoAddSpecialTransactionOutcome bs1 (ValidatorSuspended . BakerId <$> ais')
+    let addOutcome bs (accIndex, accAddr) = do
+            let outcome =
+                    ValidatorSuspended
+                        { vsBakerId = BakerId accIndex,
+                          vsAccount = accAddr
+                        }
+            bsoAddSpecialTransactionOutcome bs outcome
+    foldM addOutcome bs1 ais'
 
 -- | Execute the block epilogue. This mints and distributes the rewards for a payday if the block is
 --  in a new payday. This also accrues the rewards for the block that will be paid at the next

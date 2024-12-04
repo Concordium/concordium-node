@@ -1535,12 +1535,13 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  exceeded the given threshold and are now priMed for suspension.
     bsoPrimeForSuspension :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Word64 -> [BakerId] -> m ([BakerId], UpdatableBlockState m)
 
-    -- \| Suspend validators with the given account indices, if
+    -- | Suspend validators with the given account indices, if
     --  1) the account index points to an existing account
     --  2) the account belongs to a validator
     --  3) the account was not already suspended
-    --  Returns the subset of account indices that were suspended.
-    bsoSuspendValidators :: (PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [AccountIndex] -> m ([AccountIndex], UpdatableBlockState m)
+    --  Returns the subset of account indices that were suspended together with their canonical
+    --  addresses.
+    bsoSuspendValidators :: (PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [AccountIndex] -> m ([(AccountIndex, AccountAddress)], UpdatableBlockState m)
 
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m

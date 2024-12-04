@@ -3548,14 +3548,15 @@ doPrimeForSuspension pbs threshold bids = do
 --  1) the account index points to an existing account
 --  2) the account belongs to a validator
 --  3) the account was not already suspended
---  Returns the subset of account indeces that were suspended.
+--  Returns the subset of account indices that were suspended together with their canonical account
+--  addresses.
 doSuspendValidators ::
     forall pv m.
     ( SupportsPersistentState pv m
     ) =>
     PersistentBlockState pv ->
     [AccountIndex] ->
-    m ([AccountIndex], PersistentBlockState pv)
+    m ([(AccountIndex, AccountAddress)], PersistentBlockState pv)
 doSuspendValidators pbs ais =
     case hasValidatorSuspension of
         STrue -> do
@@ -3576,7 +3577,8 @@ doSuspendValidators pbs ais =
                                             uncond $ BaseAccounts._bieAccountIsSuspended $ _accountBakerInfo ba -> do
                                             newAcc <- setAccountValidatorSuspended True acc
                                             newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
-                                            return (ai : aisSusp, bsp{bspAccounts = newAccounts})
+                                            address <- accountCanonicalAddress newAcc
+                                            return ((ai, address) : aisSusp, bsp{bspAccounts = newAccounts})
                                         -- The validator is already suspended, nothing to do
                                         | otherwise -> return res
                     )
