@@ -46,7 +46,7 @@ data BakerPoolRewardDetails (av :: AccountVersion) = BakerPoolRewardDetails
       transactionFeesAccrued :: !Amount,
       -- | Whether the pool contributed to a finalization proof in the reward period
       finalizationAwake :: !Bool,
-      -- | Information for deciding whether a validator will be suspended the next snapshot epoch.
+      -- | Information for deciding whether a validator will be suspended at the next snapshot epoch.
       suspensionInfo :: !(Conditionally (SupportsValidatorSuspension av) SuspensionInfo)
     }
     deriving (Eq, Show)
