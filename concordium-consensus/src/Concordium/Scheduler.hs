@@ -2745,6 +2745,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                 FinalizationCommitteeParametersUpdatePayload u -> case sIsSupported SPTFinalizationCommitteeParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVFinalizationCommitteeParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                ValidatorScoreParametersUpdatePayload u -> case sIsSupported SPTValidatorScoreParameters scpv of
+                                    STrue -> checkSigAndEnqueue $ UVValidatorScoreParameters u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion

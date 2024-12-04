@@ -1613,6 +1613,11 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                 (pure minUpdateSequenceNumber)
                 (fmap uqNextSequenceNumber . refLoad)
                 (pFinalizationCommitteeParametersQueue pendingUpdates)
+        UpdateValidatorScoreParameters ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pValidatorScoreParametersQueue pendingUpdates)
 
 -- | Enqueue an update in the appropriate queue.
 enqueueUpdate ::
@@ -1665,6 +1670,10 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
             SomeParam q ->
                 enqueue effectiveTime v q
                     <&> \newQ -> p{pFinalizationCommitteeParametersQueue = SomeParam newQ}
+        UVValidatorScoreParameters v -> case pValidatorScoreParametersQueue of
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pValidatorScoreParametersQueue = SomeParam newQ}
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- | Overwrite the election difficulty with the specified value and remove
