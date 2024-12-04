@@ -364,7 +364,7 @@ dummyFinalizationCommitteeParameters =
           _fcpFinalizerRelativeStakeThreshold = PartsPerHundredThousands 10000
         }
 
--- | Validator score parameters for the second consensus protocol.
+-- | Dummy validator score parameters for the second consensus protocol.
 dummyValidatorScoreParameters :: ValidatorScoreParameters
 dummyValidatorScoreParameters =
     ValidatorScoreParameters
