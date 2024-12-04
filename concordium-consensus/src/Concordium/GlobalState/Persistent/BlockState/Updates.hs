@@ -1324,6 +1324,38 @@ processFinalizationCommitteeParametersUpdates t bu = do
                               pendingUpdates = pendingUpdates{pFinalizationCommitteeParametersQueue = SomeParam newpQ}
                             }
 
+-- | Process validator score parameters updates.
+--  If the validator score parameters are supported then
+--  update them (if an update was enqueued and its time is now)
+--  and update the 'pendingUpdates' accordingly.
+processValidationScoreParametersUpdates ::
+    forall m cpv.
+    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    Timestamp ->
+    BufferedRef (Updates' cpv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
+processValidationScoreParametersUpdates t bu = do
+    u@Updates{..} <- refLoad bu
+    case pValidatorScoreParametersQueue pendingUpdates of
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
+            oldQ <- refLoad qref
+            processValueUpdates t oldQ (return (Map.empty, bu)) $ \newBELp newQ m ->
+                (UVValidatorScoreParameters <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized oldCP <- refLoad currentParameters
+                    StoreSerialized newValidatorScoreParameters <- refLoad newBELp
+                    newParameters <-
+                        refMake $
+                            StoreSerialized $
+                                oldCP
+                                    & (cpValidatorScoreParameters . supportedOParam .~ newValidatorScoreParameters)
+                    refMake
+                        u
+                            { currentParameters = newParameters,
+                              pendingUpdates = pendingUpdates{pValidatorScoreParametersQueue = SomeParam newpQ}
+                            }
+
 -- | Process the add anonymity revoker update queue.
 --   Ignores updates with duplicate ARs.
 processAddAnonymityRevokerUpdates ::
@@ -1474,7 +1506,8 @@ processUpdateQueues t (u0, ars, ips) = do
               processTimeoutParametersUpdates t,
               processMinBlockTimeUpdates t,
               processBlockEnergyLimitUpdates t,
-              processFinalizationCommitteeParametersUpdates t
+              processFinalizationCommitteeParametersUpdates t,
+              processValidationScoreParametersUpdates t
             ]
 
     -- AR and IP updates are handled separately to avoid adding the large objects to the 'Updates' types.
