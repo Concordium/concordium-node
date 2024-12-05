@@ -798,7 +798,12 @@ testComputeBakerStakesAndCapital accountConfigs = runTestBlockState @P8 $ do
             [acAccountIndex ac | ac <- accountConfigs]
 
     -- suspension at snapshot epoch transition
-    let bakerStakesAndCapital1 = computeBakerStakesAndCapital (chainParams ^. cpPoolParameters) activeBakers0 passiveDelegators0 (Set.fromList [BakerId aix | aix <- validatorIxs])
+    let bakerStakesAndCapital1 =
+            computeBakerStakesAndCapital
+                (chainParams ^. cpPoolParameters)
+                activeBakers0
+                passiveDelegators0
+                (Set.fromList [BakerId aix | aix <- validatorIxs])
     liftIO $
         assertBool
             "With all validators suspended at snapshot, baker stakes are empty."
@@ -866,13 +871,13 @@ testPrimeForSuspension accountConfigs = runTestBlockState @P8 $ do
     bs1 <- bsoUpdateMissedRounds bs0 missedRounds
     (primedBakers, _bs2) <- bsoPrimeForSuspension bs1 0 activeBakerIds0
     liftIO $
-        assertEqual 
-            "Current active bakers should be primed for suspension as expected" 
+        assertEqual
+            "Current active bakers should be primed for suspension as expected"
             (Set.fromList activeBakerIds0)
             (Set.fromList primedBakers)
     (primedBakers1, _bs2) <- bsoPrimeForSuspension bs1 5 activeBakerIds0
     liftIO $
-        assertEqual 
+        assertEqual
             "Current active bakers should be primed for suspension as expected"
             (Set.fromList $ drop 5 activeBakerIds0)
             (Set.fromList $ primedBakers1)
@@ -887,15 +892,15 @@ testSuspendPrimedNoPaydayNoSnapshot accountConfigs = runTestBlockState @P8 $ do
     let activeBakerIds0 = Map.keys bprd0
     let missedRounds = Map.fromList $ zip activeBakerIds0 [2 ..]
     bs1 <- bsoUpdateMissedRounds bs0 missedRounds
-    -- The maximum missed rounds threshold in the dummy chain parameters are set to 1.
-    (primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1 activeBakerIds0
+    -- The maximum missed rounds threshold in the dummy chain parameters is set to 1.
+    (_primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1 activeBakerIds0
     bs3 <- bsoSetPaydayEpoch bs2 (startEpoch + 10)
     (res1, _bs4) <- doEpochTransition True hour bs3
     liftIO $
         assertEqual
-        "No validators are getting suspended if epoch transition is not at snapshot"
-        Nothing
-        (mSnapshotSuspendedIds res1)
+            "No validators are getting suspended if epoch transition is not at snapshot"
+            Nothing
+            (mSnapshotSuspendedIds res1)
   where
     hour = Duration 3_600_000
     startEpoch = 10
@@ -908,15 +913,42 @@ testSuspendPrimedSnapshotOnly accountConfigs = runTestBlockState @P8 $ do
     let activeBakerIds0 = Map.keys bprd0
     let missedRounds = Map.fromList $ zip activeBakerIds0 [2 ..]
     bs1 <- bsoUpdateMissedRounds bs0 missedRounds
-    -- The maximum missed rounds threshold in the dummy chain parameters are set to 1.
+    -- The maximum missed rounds threshold in the dummy chain parameters is set to 1.
     (primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1 activeBakerIds0
     bs4 <- bsoSetPaydayEpoch bs2 (startEpoch + 2)
     (res2, _bs5) <- doEpochTransition True hour bs4
     liftIO $
         assertEqual
-        "Primed validators are suspended at snapshot"
-        (Just $ Set.fromList primedBakers1)
-        (mSnapshotSuspendedIds res2)
+            "Primed validators are suspended at snapshot"
+            (Just $ Set.fromList primedBakers1)
+            (mSnapshotSuspendedIds res2)
+  where
+    hour = Duration 3_600_000
+    startEpoch = 10
+    startTriggerTime = 1000
+
+testSuspendPrimedSnapshotPaydayCombo :: [AccountConfig 'AccountV4] -> Assertion
+testSuspendPrimedSnapshotPaydayCombo accountConfigs = runTestBlockState @P8 $ do
+    bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 1
+    bprd0 <- bsoGetBakerPoolRewardDetails bs0
+    let activeBakerIds0 = Map.keys bprd0
+    let missedRounds = Map.fromList $ zip activeBakerIds0 [2 ..]
+    bs1 <- bsoUpdateMissedRounds bs0 missedRounds
+    -- The maximum missed rounds threshold in the dummy chain parameters is set to 1.
+    (primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1 activeBakerIds0
+    bs4 <- bsoSetPaydayEpoch bs2 (startEpoch + 1)
+    (EpochTransitionResult{..}, _bs5) <- doEpochTransition True hour bs4
+    liftIO $
+        assertEqual
+            "Primed validators are suspended at snapshot"
+            (Just $ Set.fromList primedBakers1)
+            mSnapshotSuspendedIds
+    -- We can't compare newly primed validators to the ones of the previous
+    -- epoch, because they get rotated.
+    liftIO $
+        assertBool
+            "Validators are primed after previously primed validators got suspended."
+            (isJust mPaydayParams)
   where
     hour = Duration 3_600_000
     startEpoch = 10
@@ -944,3 +976,5 @@ tests = parallel $ describe "EpochTransition" $ do
         forAll (genAccountConfigs False) testSuspendPrimedNoPaydayNoSnapshot
     it "testSuspendPrimedSnapshotOnly" $
         forAll (genAccountConfigs False) testSuspendPrimedSnapshotOnly
+    it "testSuspendPrimedSnapshotPaydayCombo" $
+        forAll (genAccountConfigs False) testSuspendPrimedSnapshotPaydayCombo
