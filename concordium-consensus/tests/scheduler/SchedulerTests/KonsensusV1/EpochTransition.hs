@@ -897,10 +897,9 @@ testSuspendPrimedNoPaydayNoSnapshot accountConfigs = runTestBlockState @P8 $ do
     bs3 <- bsoSetPaydayEpoch bs2 (startEpoch + 10)
     (res1, _bs4) <- doEpochTransition True hour bs3
     liftIO $
-        assertEqual
+        assertBool
             "No validators are getting suspended if epoch transition is not at snapshot"
-            Nothing
-            (mSnapshotSuspendedIds res1)
+            (isNothing $ mSnapshotSuspendedIds res1)
   where
     hour = Duration 3_600_000
     startEpoch = 10
@@ -916,12 +915,12 @@ testSuspendPrimedSnapshotOnly accountConfigs = runTestBlockState @P8 $ do
     -- The maximum missed rounds threshold in the dummy chain parameters is set to 1.
     (primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1 activeBakerIds0
     bs4 <- bsoSetPaydayEpoch bs2 (startEpoch + 2)
-    (res2, _bs5) <- doEpochTransition True hour bs4
+    (res, _bs5) <- doEpochTransition True hour bs4
     liftIO $
         assertEqual
             "Primed validators are suspended at snapshot"
             (Just $ Set.fromList primedBakers1)
-            (mSnapshotSuspendedIds res2)
+            (mSnapshotSuspendedIds res)
   where
     hour = Duration 3_600_000
     startEpoch = 10
