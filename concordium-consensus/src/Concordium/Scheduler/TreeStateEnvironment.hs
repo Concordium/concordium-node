@@ -20,6 +20,7 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Ratio
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 import Data.Time
 import qualified Data.Vector as Vec
 import Data.Word
@@ -1110,7 +1111,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
                     processPaydays pd mrps0 bspp0 = do
                         bspp1 <-
                             if oldSeedState ^. epoch < pd - 1 && pd - 1 <= newSeedState ^. epoch
-                                then generateNextBakers pd bspp0
+                                then generateNextBakers pd Set.empty bspp0
                                 else return bspp0
                         if pd <= newSeedState ^. epoch
                             then do
