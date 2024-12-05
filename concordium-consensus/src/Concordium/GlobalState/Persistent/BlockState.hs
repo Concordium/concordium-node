@@ -71,6 +71,7 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 import Concordium.GlobalState.Persistent.PoolRewards
 import Concordium.GlobalState.Persistent.ReleaseSchedule
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
+import Concordium.GlobalState.PoolRewards
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.TransactionTable as TransactionTable
 import Concordium.GlobalState.Types
@@ -1867,7 +1868,11 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
             case sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)) of
                 STrue -> do
                     acc1 <- setAccountValidatorSuspended suspend acc
-                    MTL.tell [if suspend then BakerConfigureSuspended else BakerConfigureResumed]
+                    MTL.tell
+                        [ if suspend
+                            then BakerConfigureSuspended
+                            else BakerConfigureResumed
+                        ]
                     return (bsp, acc1)
                 SFalse -> return (bsp, acc)
     updateKeys oldBaker = ifPresent vuKeys $ \keys (bsp, acc) -> do
@@ -3492,7 +3497,13 @@ doUpdateMissedRounds pbs rds = do
                 modifyBakerPoolRewardDetailsInPoolRewards
                     bsp0
                     bId
-                    (\bprd -> bprd{missedRounds = (+ newMissedRounds) <$> missedRounds bprd})
+                    ( \bprd ->
+                        bprd
+                            { suspensionInfo =
+                                (\SuspensionInfo{..} -> SuspensionInfo{missedRounds = missedRounds + newMissedRounds, ..})
+                                    <$> suspensionInfo bprd
+                            }
+                    )
             )
             bsp
             (Map.toList rds)
@@ -3694,7 +3705,7 @@ doNotifyBlockBaked pbs bid = do
             let incBPR bpr =
                     bpr
                         { blockCount = blockCount bpr + 1,
-                          missedRounds = 0 <$ missedRounds bpr
+                          suspensionInfo = emptySuspensionInfo <$ suspensionInfo bpr
                         }
             in  storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
 
@@ -3735,7 +3746,7 @@ doMarkFinalizationAwakeBakers pbs bids = do
             ( (),
               bpr
                 { finalizationAwake = True,
-                  missedRounds = 0 <$ missedRounds bpr
+                  suspensionInfo = emptySuspensionInfo <$ suspensionInfo bpr
                 }
             )
 

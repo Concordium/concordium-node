@@ -721,7 +721,8 @@ testMissedRoundsUpdate accountConfigs = runTestBlockState @P8 $ do
     bprd <- bsoGetBakerPoolRewardDetails bs0
     let missedRounds0 = Map.fromList $ zip (Map.keys bprd) [1 ..]
     bs1 <- bsoUpdateMissedRounds bs0 missedRounds0
-    missedRounds1 <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails bs1
+    missedRounds1 <-
+        fmap (missedRounds . uncond . suspensionInfo) <$> bsoGetBakerPoolRewardDetails bs1
     liftIO $
         assertEqual
             "Current epoch missed rounds should be updated as expeceted."
@@ -738,7 +739,8 @@ testMissedRoundsUpdate accountConfigs = runTestBlockState @P8 $ do
     bs2 <- bsoSetNextEpochBakers bs1 newBakerStake (chainParams ^. cpFinalizationCommitteeParameters)
     bs3 <- bsoSetNextCapitalDistribution bs2 CapitalDistribution{bakerPoolCapital = newPoolCapital, ..}
     bs4 <- bsoRotateCurrentCapitalDistribution =<< bsoRotateCurrentEpochBakers bs3
-    missedRounds2 <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails bs4
+    missedRounds2 <-
+        fmap (missedRounds . uncond . suspensionInfo) <$> bsoGetBakerPoolRewardDetails bs4
     liftIO $
         assertEqual
             "Missed rounds should be carried over when rotating current capital distribution with new validators"
@@ -750,7 +752,8 @@ testMissedRoundsUpdate accountConfigs = runTestBlockState @P8 $ do
             (all (== 0) $ Map.elems $ missedRounds2 `Map.difference` missedRounds1)
     bs5 <- bsoSetNextEpochBakers bs4 bakerStakes (chainParams ^. cpFinalizationCommitteeParameters)
     bs6 <- bsoSetNextCapitalDistribution bs5 CapitalDistribution{..}
-    missedRounds3 <- fmap (uncond . missedRounds) <$> bsoGetBakerPoolRewardDetails bs6
+    missedRounds3 <-
+        fmap (missedRounds . uncond . suspensionInfo) <$> bsoGetBakerPoolRewardDetails bs6
     liftIO $
         assertEqual
             "Missed rounds should be carried over when rotating current capital distribution with new validators"

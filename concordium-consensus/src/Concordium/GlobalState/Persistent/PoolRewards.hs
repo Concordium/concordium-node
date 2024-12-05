@@ -147,7 +147,7 @@ migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
                     { blockCount = Map.findWithDefault 0 bid blockCounts,
                       transactionFeesAccrued = 0,
                       finalizationAwake = False,
-                      missedRounds = conditionally hasValidatorSuspension 0
+                      suspensionInfo = conditionally hasValidatorSuspension emptySuspensionInfo
                     }
         (!newRef, _) <- refFlush =<< refMake bprd
         return newRef
@@ -295,7 +295,7 @@ rotateCapitalDistribution oldPoolRewards = do
         buildRewardDetails (newId : newIds) (oldId : oldIds) (r : rs) = case compare newId oldId of
             LT -> emptyBakerPoolRewardDetails : buildRewardDetails newIds (oldId : oldIds) (r : rs)
             EQ ->
-                (emptyBakerPoolRewardDetails @av){missedRounds = missedRounds r}
+                (emptyBakerPoolRewardDetails @av){suspensionInfo = suspensionInfo r}
                     : buildRewardDetails newIds oldIds rs
             GT -> buildRewardDetails (newId : newIds) oldIds rs
         buildRewardDetails _ _ _ =

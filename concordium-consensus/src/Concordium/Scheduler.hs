@@ -2241,8 +2241,8 @@ handleConfigureBaker
                         BakerSetBakingRewardCommission bid senderAddress bakingRewardCommission
                     BI.BakerConfigureFinalizationRewardCommission finalizationRewardCommission ->
                         BakerSetFinalizationRewardCommission bid senderAddress finalizationRewardCommission
-                    BI.BakerConfigureSuspended -> BakerSuspended bid
-                    BI.BakerConfigureResumed -> BakerResumed bid
+                    BI.BakerConfigureSuspended -> BakerSuspended bid senderAddress
+                    BI.BakerConfigureResumed -> BakerResumed bid senderAddress
         rejectResult failure =
             TxReject $! case failure of
                 BI.VCFStakeUnderThreshold -> StakeUnderMinimumThresholdForBaking
@@ -2744,6 +2744,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                     SGASRewardsVersion1 -> checkSigAndEnqueue $ UVGASRewards u
                                 FinalizationCommitteeParametersUpdatePayload u -> case sIsSupported SPTFinalizationCommitteeParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVFinalizationCommitteeParameters u
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                ValidatorScoreParametersUpdatePayload u -> case sIsSupported SPTValidatorScoreParameters scpv of
+                                    STrue -> checkSigAndEnqueue $ UVValidatorScoreParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
