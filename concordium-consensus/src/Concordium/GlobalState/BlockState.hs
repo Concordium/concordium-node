@@ -1532,7 +1532,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Mark given validators for possible suspension at the next snapshot
     --  epoch. Returns the subset of the given validator ids whose missed rounds
-    --  exceeded the given threshold and are now priMed for suspension.
+    --  exceeded the given threshold and are now primed for suspension.
     bsoPrimeForSuspension :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Word64 -> [BakerId] -> m ([BakerId], UpdatableBlockState m)
 
     -- | Suspend validators with the given account indices, if

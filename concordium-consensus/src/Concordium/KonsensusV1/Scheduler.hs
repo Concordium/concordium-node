@@ -123,7 +123,7 @@ data PrologueResult m av = PrologueResult
       --  Otherwise, they are 'Nothing'.
       prologuePaydayParameters :: Maybe (PaydayParameters av),
       -- | If the block triggered an epoch transition and the new epoch is a
-      --  snapshot,this field contains the validator ids that are newly suspended.
+      --  snapshot, this field contains the validator ids that are newly suspended.
       -- Otherwise, this is `Nothing`.
       prologueSuspendedBids :: Maybe (Set.Set BakerId)
     }
@@ -161,7 +161,7 @@ data EpochTransitionResult m = EpochTransitionResult
       -- parameters.
       mPaydayParams :: Maybe (PaydayParameters (AccountVersionFor (MPV m))),
       -- If the epoch transition was a snapshot, this contains the set of
-      -- validator ids that will  be newly suspended.
+      -- validator ids that will be newly suspended.
       mSnapshotSuspendedIds :: Maybe (Set.Set BakerId)
     }
 
@@ -400,7 +400,11 @@ processPaydayRewards (Just PaydayParameters{..}) theState0 = do
             case _cpValidatorScoreParameters cps of
                 NoParam -> return theState1
                 SomeParam (ValidatorScoreParameters{..}) -> do
-                    (bids, theState3) <- bsoPrimeForSuspension theState2 _vspMaxMissedRounds (bakerInfoExs paydayBakers ^.. each . bakerIdentity)
+                    (bids, theState3) <-
+                        bsoPrimeForSuspension
+                            theState2
+                            _vspMaxMissedRounds
+                            (bakerInfoExs paydayBakers ^.. each . bakerIdentity)
                     let addOutcome :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
                         addOutcome theState bid = do
                             -- The account must exist, since it is a validator, so this can't fail
