@@ -157,11 +157,11 @@ paydayHandleCooldowns = case sSupportsFlexibleCooldown (sAccountVersionFor (prot
 
 -- | Result of the epoch transition used for parameter passing.
 data EpochTransitionResult m = EpochTransitionResult
-    { -- If the epoch transition was a payday, this contains the payday
-      -- parameters.
+    { -- | If the epoch transition was a payday, this contains the payday
+      --  parameters.
       mPaydayParams :: Maybe (PaydayParameters (AccountVersionFor (MPV m))),
-      -- If the epoch transition was a snapshot, this contains the set of
-      -- validator ids that will be newly suspended.
+      -- | If the epoch transition was a snapshot, this contains the set of
+      --  validator ids that will be newly suspended.
       mSnapshotSuspendedIds :: Maybe (Set.Set BakerId)
     }
 
