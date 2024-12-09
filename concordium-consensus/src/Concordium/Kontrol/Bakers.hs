@@ -176,9 +176,15 @@ data BakerStakesAndCapital bakerInfoRef = BakerStakesAndCapital
 -- | Compute the baker stakes and capital distribution.
 computeBakerStakesAndCapital ::
     forall bakerInfoRef.
+    -- | Pool parameters
     PoolParameters' 'PoolParametersVersion1 ->
+    -- | Active validators
     [ActiveBakerInfo' bakerInfoRef] ->
+    -- | Passive delegators
     [ActiveDelegatorInfo] ->
+    -- | Validator ids that will be suspended during the snapshot transition
+    --  because they are primed, but are not yet marked as suspended in their
+    --  `ActiveBakerInfo`.
     Set.Set BakerId ->
     BakerStakesAndCapital bakerInfoRef
 computeBakerStakesAndCapital poolParams activeBakers passiveDelegators snapshotSuspendedBids = BakerStakesAndCapital{..}
