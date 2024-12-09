@@ -64,7 +64,7 @@ makeTestBakerV1FromSeed amount stake bakerId seed suspend = do
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. theBakerInfo,
                   _bieBakerPoolInfo = poolInfo,
-                  _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @av)) suspend
+                  _bieIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @av)) suspend
                 }
     BS.addAccountBakerV1 bakerInfoEx stake True account
   where
@@ -338,7 +338,7 @@ testDelegatorToBakerOk spv pvString =
                               _transactionCommission = makeAmountFraction 1_000
                             }
                     },
-              _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
+              _bieIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
             }
     updateStaking keysWithProofs = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
         SFalse -> id
@@ -604,7 +604,7 @@ testAddBakerOk spv pvString =
                               _transactionCommission = makeAmountFraction 1_000
                             }
                     },
-              _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
+              _bieIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
             }
     updateStaking keysWithProofs =
         ( Transient.accountStaking
@@ -1304,7 +1304,7 @@ testUpdateBakerSuspendResumeOk spv pvString suspendOrResume accM =
             Transient.accountStaking
                 . accountBaker
                 . accountBakerInfo
-                . bieAccountIsSuspended
+                . bieIsSuspended
                 .~ (suspendOrResume == Suspend)
         SFalse -> id
     accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
