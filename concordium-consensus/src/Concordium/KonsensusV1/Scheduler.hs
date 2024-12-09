@@ -11,6 +11,7 @@ import Data.Bool.Singletons
 import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
+import Data.Singletons
 import Data.Time
 import Data.Word
 import Lens.Micro.Platform
@@ -196,8 +197,8 @@ data EpochTransitionResult m = EpochTransitionResult
 --  a catastrophic invariant violation. (This does not apply from protocol version 7 onwards, as
 --  cooldowns are processed differently.)
 doEpochTransition ::
-    forall m.
-    (BlockStateOperations m, MonadProtocolVersion m, IsConsensusV1 (MPV m)) =>
+    forall m pv.
+    (pv ~ MPV m, BlockStateOperations m, MonadProtocolVersion m, IsConsensusV1 (MPV m)) =>
     -- | Whether the block is the first in a new epoch
     Bool ->
     -- | The epoch duration
@@ -249,10 +250,12 @@ doEpochTransition True epochDuration theState0 = do
             then do
                 snapshotPoolRewards <- bsoGetBakerPoolRewardDetails theState7
                 -- account indexes that will be suspended
-                let suspendedBids =
-                        Set.fromList
-                            [ bid | (bid, rd) <- Map.toList snapshotPoolRewards, primedForSuspension $ fromCondDef (suspensionInfo rd) emptySuspensionInfo
-                            ]
+                let suspendedBids
+                        | hasValidatorSuspension =
+                            Set.fromList
+                                [ bid | (bid, rd) <- Map.toList snapshotPoolRewards, primedForSuspension $ fromCondDef (suspensionInfo rd) emptySuspensionInfo
+                                ]
+                        | otherwise = Set.empty
                 -- This is the start of the last epoch of a payday, so take a baker snapshot.
                 let epochEnd = newSeedState ^. triggerBlockTime
                 let av = accountVersionFor (demoteProtocolVersion (protocolVersion @(MPV m)))
@@ -278,6 +281,8 @@ doEpochTransition True epochDuration theState0 = do
                     SFalse -> return (Just suspendedBids, theState9)
             else return (Nothing, theState7)
     return (EpochTransitionResult mPaydayParams suspendedBids, theState8)
+  where
+    hasValidatorSuspension = fromSing $ sSupportsValidatorSuspension (sAccountVersionFor (protocolVersion @pv))
 
 -- | Update the seed state to account for a block.
 --  See 'updateSeedStateForBlock' for details of what this entails.
