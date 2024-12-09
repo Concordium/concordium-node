@@ -211,7 +211,8 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators snapshotS
     passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
     capitalDistribution = CapitalDistribution{..}
 
--- | Generate and set the next epoch bakers and next capital based on the current active bakers.
+-- | Generate and set the next epoch bakers and next capital based on the
+--  current active bakers. This assumes that no validators are suspended.
 generateNextBakers ::
     forall m.
     ( TreeStateMonad m,
@@ -221,10 +222,9 @@ generateNextBakers ::
     ) =>
     -- | The payday epoch
     Epoch ->
-    Set.Set BakerId ->
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
-generateNextBakers paydayEpoch suspendedBids bs0 = do
+generateNextBakers paydayEpoch bs0 = do
     isEffective <- effectiveTest paydayEpoch
     -- Determine the bakers and delegators for the next reward period, accounting for any
     -- stake reductions that are currently pending on active bakers with effective time at
@@ -244,7 +244,7 @@ generateNextBakers paydayEpoch suspendedBids bs0 = do
                 (cps ^. cpPoolParameters)
                 activeBakers
                 passiveDelegators
-                suspendedBids
+                Set.empty
     bs1 <- bsoSetNextEpochBakers bs0 bakerStakes NoParam
     bsoSetNextCapitalDistribution bs1 capitalDistribution
 
