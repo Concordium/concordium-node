@@ -400,35 +400,51 @@ processPaydayRewards (Just PaydayParameters{..}) theState0 = do
     foundationAddr <- getAccountCanonicalAddress =<< bsoGetFoundationAccount theState0
     theState1 <- doMintingP6 paydayMintRate foundationAddr theState0
     theState2 <- distributeRewards foundationAddr paydayCapitalDistribution paydayBakers paydayPoolRewards theState1
+    primeInactiveValidators (bakerInfoExs paydayBakers ^.. each . bakerIdentity) theState2
+
+-- | If the protocol version supports validator suspension, prime the given
+--  bakers for suspension and log a special transaction outcome.
+primeInactiveValidators ::
+    forall pv m.
+    ( pv ~ MPV m,
+      BlockStateStorage m,
+      IsConsensusV1 pv,
+      IsProtocolVersion pv
+    ) =>
+    [BakerId] ->
+    UpdatableBlockState m ->
+    m (UpdatableBlockState m)
+primeInactiveValidators paydayBakerIds theState1 =
     case hasValidatorSuspension of
-        SFalse -> return theState2
+        SFalse -> return theState1
         STrue -> do
             cps <- bsoGetChainParameters theState1
             case _cpValidatorScoreParameters cps of
                 NoParam -> return theState1
                 SomeParam (ValidatorScoreParameters{..}) -> do
-                    (bids, theState3) <-
+                    (bids, theState2) <-
                         bsoPrimeForSuspension
-                            theState2
+                            theState1
                             _vspMaxMissedRounds
-                            (bakerInfoExs paydayBakers ^.. each . bakerIdentity)
-                    let addOutcome :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
-                        addOutcome theState bid = do
-                            -- The account must exist, since it is a validator, so this can't fail
-                            account <-
-                                fromJust
-                                    <$> bsoGetAccountByIndex
-                                        theState
-                                        (bakerAccountIndex bid)
-                            address <- getAccountCanonicalAddress account
-                            let outcome =
-                                    ValidatorPrimedForSuspension
-                                        { vpfsBakerId = bid,
-                                          vpfsAccount = address
-                                        }
-                            bsoAddSpecialTransactionOutcome theState outcome
-                    foldM addOutcome theState3 bids
+                            paydayBakerIds
+
+                    foldM addOutcome theState2 bids
   where
+    addOutcome :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
+    addOutcome theState bid = do
+        -- The account must exist, since it is a validator, so this can't fail
+        account <-
+            fromJust
+                <$> bsoGetAccountByIndex
+                    theState
+                    (bakerAccountIndex bid)
+        address <- getAccountCanonicalAddress account
+        let outcome =
+                ValidatorPrimedForSuspension
+                    { vpfsBakerId = bid,
+                      vpfsAccount = address
+                    }
+        bsoAddSpecialTransactionOutcome theState outcome
     hasValidatorSuspension = sSupportsValidatorSuspension (sAccountVersionFor (protocolVersion @pv))
 
 -- | Records that the baker baked this block (so it is eligible for baking rewards) and that the
