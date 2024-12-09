@@ -19,7 +19,6 @@ import Lens.Micro.Platform
 import Concordium.Logger
 import Concordium.TimeMonad
 import Concordium.Types
-import Concordium.Types.Accounts (bakerIdentity)
 import Concordium.Types.Conditionally
 import Concordium.Types.SeedState
 
@@ -400,7 +399,7 @@ processPaydayRewards (Just PaydayParameters{..}) theState0 = do
     foundationAddr <- getAccountCanonicalAddress =<< bsoGetFoundationAccount theState0
     theState1 <- doMintingP6 paydayMintRate foundationAddr theState0
     theState2 <- distributeRewards foundationAddr paydayCapitalDistribution paydayBakers paydayPoolRewards theState1
-    primeInactiveValidators (bakerInfoExs paydayBakers ^.. each . bakerIdentity) theState2
+    primeInactiveValidators theState2
 
 -- | If the protocol version supports validator suspension, prime the given
 --  bakers for suspension and log a special transaction outcome.
@@ -411,10 +410,9 @@ primeInactiveValidators ::
       IsConsensusV1 pv,
       IsProtocolVersion pv
     ) =>
-    [BakerId] ->
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
-primeInactiveValidators paydayBakerIds theState1 =
+primeInactiveValidators theState1 =
     case hasValidatorSuspension of
         SFalse -> return theState1
         STrue -> do
@@ -426,7 +424,6 @@ primeInactiveValidators paydayBakerIds theState1 =
                         bsoPrimeForSuspension
                             theState1
                             _vspMaxMissedRounds
-                            paydayBakerIds
 
                     foldM addOutcome theState2 bids
   where

@@ -1531,17 +1531,16 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Map.Map BakerId Word64 -> m (UpdatableBlockState m)
 
     -- | Mark given validators for possible suspension at the next snapshot
-    --  epoch. Returns the subset of the given validator ids whose missed rounds
-    --  exceeded the given threshold and are now primed for suspension.
+    --  epoch. Returns the subset of the current epoch validator ids whose
+    --  missed rounds exceeded the given threshold and are now primed for
+    --  suspension.
     bsoPrimeForSuspension ::
         (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) =>
         UpdatableBlockState m ->
         -- | The threshold for maximal missed rounds
         Word64 ->
-        -- | The set of validators that are considered for suspension. This
-        --  should be the current payday validators.
-        [BakerId] ->
-        -- | Returns the subset of primed validator ids and the updated block state
+        -- | Returns the subset of primed validator ids of the current epoch
+        --  validators and the updated block state
         m ([BakerId], UpdatableBlockState m)
 
     -- | Suspend validators with the given account indices, if
@@ -1872,7 +1871,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
     bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
-    bsoPrimeForSuspension s t = lift . bsoPrimeForSuspension s t
+    bsoPrimeForSuspension s = lift . bsoPrimeForSuspension s
     bsoSuspendValidators s = lift . bsoSuspendValidators s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState

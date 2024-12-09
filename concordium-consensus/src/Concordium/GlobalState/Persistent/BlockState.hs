@@ -3518,29 +3518,25 @@ doPrimeForSuspension ::
     ) =>
     PersistentBlockState pv ->
     Word64 ->
-    [BakerId] ->
     m ([BakerId], PersistentBlockState pv)
-doPrimeForSuspension pbs threshold bids = do
+doPrimeForSuspension pbs threshold = do
     bprds <- doGetBakerPoolRewardDetails pbs
     bsp0 <- loadPBS pbs
     (bidsUpd, bsp') <- do
         foldM
-            ( \res@(acc, bsp) bId -> do
-                let mBprd = Map.lookup bId bprds
-                case mBprd of
-                    Just bprd
-                        | CTrue SuspensionInfo{..} <- suspensionInfo bprd,
-                          missedRounds > threshold -> do
-                            bsp' <-
-                                modifyBakerPoolRewardDetailsInPoolRewards
-                                    bsp
-                                    bId
-                                    (\bpr -> bpr{suspensionInfo = (\suspInfo -> suspInfo{primedForSuspension = True}) <$> suspensionInfo bpr})
-                            return (bId : acc, bsp')
+            ( \res@(acc, bsp) (bId, bprd) -> do
+                case suspensionInfo bprd of
+                    CTrue SuspensionInfo{..} | missedRounds > threshold -> do
+                        bsp' <-
+                            modifyBakerPoolRewardDetailsInPoolRewards
+                                bsp
+                                bId
+                                (\bpr -> bpr{suspensionInfo = (\suspInfo -> suspInfo{primedForSuspension = True}) <$> suspensionInfo bpr})
+                        return (bId : acc, bsp')
                     _otherwise -> return res
             )
             ([], bsp0)
-            bids
+            (Map.toList bprds)
     pbs' <- storePBS pbs bsp'
     return (bidsUpd, pbs')
 
