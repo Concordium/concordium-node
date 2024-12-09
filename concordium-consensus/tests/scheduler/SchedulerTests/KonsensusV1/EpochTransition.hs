@@ -232,7 +232,7 @@ makePersistentAccountStakeEnduring StakeDetailsBaker{..} ai = do
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. bakerInfo,
                   _bieBakerPoolInfo = poolInfo,
-                  _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+                  _bieIsSuspended = conditionally hasValidatorSuspension False
                 }
     return
         ( SV1.PersistentAccountStakeEnduringBaker

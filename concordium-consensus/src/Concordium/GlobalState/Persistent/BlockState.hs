@@ -1341,7 +1341,7 @@ doGetActiveBakersAndDelegators pbs = do
                           activeBakerDelegators = abd,
                           activeBakerIsSuspended =
                             fromCondDef
-                                ( BaseAccounts._bieAccountIsSuspended $
+                                ( BaseAccounts._bieIsSuspended $
                                     BaseAccounts._accountBakerInfo $
                                         theBaker
                                 )
@@ -1632,7 +1632,7 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
             BaseAccounts.BakerInfoExV1
                 { _bieBakerPoolInfo = poolInfo,
                   _bieBakerInfo = bakerInfo,
-                  _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+                  _bieIsSuspended = conditionally hasValidatorSuspension False
                 }
     -- The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
@@ -3570,7 +3570,7 @@ doSuspendValidators pbs ais =
                                     Just ba
                                         -- The validator is not yet suspended
                                         | False <-
-                                            uncond $ BaseAccounts._bieAccountIsSuspended $ _accountBakerInfo ba -> do
+                                            uncond $ BaseAccounts._bieIsSuspended $ _accountBakerInfo ba -> do
                                             newAcc <- setAccountValidatorSuspended True acc
                                             newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
                                             address <- accountCanonicalAddress newAcc
