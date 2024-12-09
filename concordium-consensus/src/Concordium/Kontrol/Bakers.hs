@@ -12,6 +12,7 @@ module Concordium.Kontrol.Bakers where
 
 import Data.Maybe
 import Data.Monoid
+import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
@@ -175,11 +176,18 @@ data BakerStakesAndCapital bakerInfoRef = BakerStakesAndCapital
 -- | Compute the baker stakes and capital distribution.
 computeBakerStakesAndCapital ::
     forall bakerInfoRef.
+    -- | Pool parameters
     PoolParameters' 'PoolParametersVersion1 ->
+    -- | Active validators
     [ActiveBakerInfo' bakerInfoRef] ->
+    -- | Passive delegators
     [ActiveDelegatorInfo] ->
+    -- | Validator ids that will be suspended during the snapshot transition
+    --  because they are primed, but are not yet marked as suspended in their
+    --  `ActiveBakerInfo`.
+    Set.Set BakerId ->
     BakerStakesAndCapital bakerInfoRef
-computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerStakesAndCapital{..}
+computeBakerStakesAndCapital poolParams activeBakers passiveDelegators snapshotSuspendedBids = BakerStakesAndCapital{..}
   where
     leverage = poolParams ^. ppLeverageBound
     capitalBound = poolParams ^. ppCapitalBound
@@ -195,7 +203,7 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
               capLimit
             ]
         )
-    filteredActiveBakers = [abi | abi@ActiveBakerInfo{..} <- activeBakers, not activeBakerIsSuspended]
+    filteredActiveBakers = [abi | abi@ActiveBakerInfo{..} <- activeBakers, not (activeBakerIsSuspended || activeBakerId `Set.member` snapshotSuspendedBids)]
     filteredPoolCapitals = poolCapital <$> filteredActiveBakers
     bakerStakes = zipWith makeBakerStake filteredActiveBakers filteredPoolCapitals
     delegatorCapital ActiveDelegatorInfo{..} = DelegatorCapital activeDelegatorId activeDelegatorStake
@@ -209,7 +217,8 @@ computeBakerStakesAndCapital poolParams activeBakers passiveDelegators = BakerSt
     passiveDelegatorsCapital = Vec.fromList $ delegatorCapital <$> passiveDelegators
     capitalDistribution = CapitalDistribution{..}
 
--- | Generate and set the next epoch bakers and next capital based on the current active bakers.
+-- | Generate and set the next epoch bakers and next capital based on the
+--  current active bakers. This assumes that no validators are suspended.
 generateNextBakers ::
     forall m.
     ( TreeStateMonad m,
@@ -241,6 +250,7 @@ generateNextBakers paydayEpoch bs0 = do
                 (cps ^. cpPoolParameters)
                 activeBakers
                 passiveDelegators
+                Set.empty
     bs1 <- bsoSetNextEpochBakers bs0 bakerStakes NoParam
     bsoSetNextCapitalDistribution bs1 capitalDistribution
 
@@ -389,7 +399,7 @@ getSlotBakersP4 genData bs slot =
                                         ePoolParams pp' updates
                                 ePoolParams pp _ = pp
                                 effectivePoolParameters = ePoolParams (chainParams ^. cpPoolParameters) pendingPoolParams
-                                bsc = computeBakerStakesAndCapital effectivePoolParameters activeBakers passiveDelegators
+                                bsc = computeBakerStakesAndCapital effectivePoolParameters activeBakers passiveDelegators Set.empty
                             let mkFullBaker (biRef, _bakerStake) = do
                                     _theBakerInfo <- derefBakerInfo biRef
                                     return FullBakerInfo{..}
