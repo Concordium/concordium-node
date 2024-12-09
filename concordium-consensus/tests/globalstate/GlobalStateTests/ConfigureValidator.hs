@@ -189,7 +189,7 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                                           _poolMetadataUrl = vaMetadataURL va,
                                           _poolCommissionRates = vaCommissionRates va
                                         },
-                                  _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))) False
+                                  _bieIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))) False
                                 }
                         }
             bkr <- getAccountBaker (fromJust acc)

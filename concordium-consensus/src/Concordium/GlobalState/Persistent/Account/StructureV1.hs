@@ -121,7 +121,7 @@ migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = migrateReference
         (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'False, Monad m') =>
         BakerInfoEx av1 ->
         m' (BakerInfoEx av2)
-    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieAccountIsSuspended = CFalse, ..}
+    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CFalse, ..}
 migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = error "TODO(drsk) github #1220. Implement migratePersistenBakerInfoEx p7 -> p8"
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
@@ -1489,7 +1489,7 @@ setValidatorSuspended ::
 setValidatorSuspended isSusp = updateStake $ \case
     baker@PersistentAccountStakeEnduringBaker{} -> do
         oldInfo <- refLoad (paseBakerInfo baker)
-        let newInfo = oldInfo & bieAccountIsSuspended .~ isSusp
+        let newInfo = oldInfo & bieIsSuspended .~ isSusp
         newInfoRef <- refMake $! newInfo
         return $! baker{paseBakerInfo = newInfoRef}
     PersistentAccountStakeEnduringDelegator{} ->
