@@ -124,7 +124,7 @@ data PrologueResult m av = PrologueResult
       prologuePaydayParameters :: Maybe (PaydayParameters av),
       -- | If the block triggered an epoch transition and the new epoch is a
       --  snapshot, this field contains the validator ids that are newly suspended.
-      -- Otherwise, this is `Nothing`.
+      --  Otherwise, this is `Nothing`.
       prologueSuspendedBids :: Maybe (Set.Set BakerId)
     }
 
