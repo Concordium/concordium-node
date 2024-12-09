@@ -376,6 +376,8 @@ doMintingP6 mintRate foundationAddr theState0 = do
             }
 
 -- | If a payday has elapsed, this mints and distributes rewards for the payday.
+--  If the protocol version >= 8, all validators of the past payday whose missed rounds
+--  exceed the threshold given in the chain parameters are primed for suspension.
 processPaydayRewards ::
     forall pv m.
     ( pv ~ MPV m,
