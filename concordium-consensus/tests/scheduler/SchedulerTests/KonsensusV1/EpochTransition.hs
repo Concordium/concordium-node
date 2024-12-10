@@ -869,13 +869,13 @@ testPrimeForSuspension accountConfigs = runTestBlockState @P8 $ do
     let activeBakerIds0 = Map.keys bprd
     let missedRounds = Map.fromList $ zip activeBakerIds0 [1 ..]
     bs1 <- bsoUpdateMissedRounds bs0 missedRounds
-    (primedBakers, _bs2) <- bsoPrimeForSuspension bs1 0 activeBakerIds0
+    (primedBakers, _bs2) <- bsoPrimeForSuspension bs1 0
     liftIO $
         assertEqual
             "Current active bakers should be primed for suspension as expected"
             (Set.fromList activeBakerIds0)
             (Set.fromList primedBakers)
-    (primedBakers1, _bs2) <- bsoPrimeForSuspension bs1 5 activeBakerIds0
+    (primedBakers1, _bs2) <- bsoPrimeForSuspension bs1 5
     liftIO $
         assertEqual
             "Current active bakers should be primed for suspension as expected"
@@ -893,7 +893,7 @@ testSuspendPrimedNoPaydayNoSnapshot accountConfigs = runTestBlockState @P8 $ do
     let missedRounds = Map.fromList $ zip activeBakerIds0 [2 ..]
     bs1 <- bsoUpdateMissedRounds bs0 missedRounds
     -- The maximum missed rounds threshold in the dummy chain parameters is set to 1.
-    (_primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1 activeBakerIds0
+    (_primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1
     bs3 <- bsoSetPaydayEpoch bs2 (startEpoch + 10)
     (res1, _bs4) <- doEpochTransition True hour bs3
     liftIO $
@@ -913,7 +913,7 @@ testSuspendPrimedSnapshotOnly accountConfigs = runTestBlockState @P8 $ do
     let missedRounds = Map.fromList $ zip activeBakerIds0 [2 ..]
     bs1 <- bsoUpdateMissedRounds bs0 missedRounds
     -- The maximum missed rounds threshold in the dummy chain parameters is set to 1.
-    (primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1 activeBakerIds0
+    (primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1
     bs4 <- bsoSetPaydayEpoch bs2 (startEpoch + 2)
     (res, _bs5) <- doEpochTransition True hour bs4
     liftIO $
@@ -934,7 +934,7 @@ testSuspendPrimedSnapshotPaydayCombo accountConfigs = runTestBlockState @P8 $ do
     let missedRounds = Map.fromList $ zip activeBakerIds0 [2 ..]
     bs1 <- bsoUpdateMissedRounds bs0 missedRounds
     -- The maximum missed rounds threshold in the dummy chain parameters is set to 1.
-    (primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1 activeBakerIds0
+    (primedBakers1, bs2) <- bsoPrimeForSuspension bs1 1
     bs4 <- bsoSetPaydayEpoch bs2 (startEpoch + 1)
     (EpochTransitionResult{..}, _bs5) <- doEpochTransition True hour bs4
     liftIO $
