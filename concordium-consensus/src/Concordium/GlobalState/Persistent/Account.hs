@@ -750,7 +750,7 @@ migratePersistentAccount m@StateMigrationParametersP3ToP4{} (PAV0 acc) = PAV1 <$
 migratePersistentAccount m@StateMigrationParametersP4ToP5{} (PAV1 acc) = PAV2 <$> V1.migratePersistentAccountFromV0 m acc
 migratePersistentAccount m@StateMigrationParametersP5ToP6{} (PAV2 acc) = PAV2 <$> V1.migratePersistentAccount m acc
 migratePersistentAccount m@StateMigrationParametersP6ToP7{} (PAV2 acc) = PAV3 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount StateMigrationParametersP7ToP8{} (PAV3 _acc) = error "TODO(drsk) github #1222. Implement migratePersistentAccount for p7 -> p8"
+migratePersistentAccount m@StateMigrationParametersP7ToP8{} (PAV3 acc) = PAV4 <$> V1.migratePersistentAccount m acc
 
 -- | Migrate a 'PersistentBakerInfoRef' between protocol versions according to a state migration.
 migratePersistentBakerInfoRef ::
