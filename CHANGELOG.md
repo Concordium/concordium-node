@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Automatically suspend validators from the consensus that missed too many
+  rounds in the previous payday.
 - Add support for suspend/resume to validator configuration updates.
 - Validators that are suspended are paused from participating in the consensus algorithm.
 - Add `GetConsensusDetailedStatus` gRPC endpoint for getting detailed information on the status

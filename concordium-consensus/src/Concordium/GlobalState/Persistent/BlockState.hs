@@ -3509,6 +3509,83 @@ doUpdateMissedRounds pbs rds = do
             (Map.toList rds)
     storePBS pbs bsp'
 
+-- | Prime validators for suspension. Returns the subset of the given validator
+--  ids whose missed rounds exceeded the given threshold and are now primed for
+--  suspension.
+doPrimeForSuspension ::
+    ( PVSupportsDelegation pv,
+      SupportsPersistentState pv m
+    ) =>
+    PersistentBlockState pv ->
+    Word64 ->
+    m ([BakerId], PersistentBlockState pv)
+doPrimeForSuspension pbs threshold = do
+    bprds <- doGetBakerPoolRewardDetails pbs
+    bsp0 <- loadPBS pbs
+    (bidsUpd, bsp') <- do
+        foldM
+            ( \res@(acc, bsp) (bId, bprd) -> do
+                case suspensionInfo bprd of
+                    CTrue SuspensionInfo{..} | missedRounds > threshold -> do
+                        bsp' <-
+                            modifyBakerPoolRewardDetailsInPoolRewards
+                                bsp
+                                bId
+                                (\bpr -> bpr{suspensionInfo = (\suspInfo -> suspInfo{primedForSuspension = True}) <$> suspensionInfo bpr})
+                        return (bId : acc, bsp')
+                    _otherwise -> return res
+            )
+            ([], bsp0)
+            (Map.toList bprds)
+    pbs' <- storePBS pbs bsp'
+    return (bidsUpd, pbs')
+
+-- | Suspend validators with the given account indices, if
+--  1) the account index points to an existing account
+--  2) the account belongs to a validator
+--  3) the account was not already suspended
+--  Returns the subset of account indices that were suspended together with their canonical account
+--  addresses.
+doSuspendValidators ::
+    forall pv m.
+    ( SupportsPersistentState pv m
+    ) =>
+    PersistentBlockState pv ->
+    [AccountIndex] ->
+    m ([(AccountIndex, AccountAddress)], PersistentBlockState pv)
+doSuspendValidators pbs ais =
+    case hasValidatorSuspension of
+        STrue -> do
+            bsp0 <- loadPBS pbs
+            (aisSusp, bspUpd) <-
+                foldM
+                    ( \res@(aisSusp, bsp) ai -> do
+                        mAcc <- Accounts.indexedAccount ai (bspAccounts bsp)
+                        case mAcc of
+                            Nothing -> return res
+                            Just acc -> do
+                                mValidatorExists <- accountBaker acc
+                                case mValidatorExists of
+                                    Nothing -> return res
+                                    Just ba
+                                        -- The validator is not yet suspended
+                                        | False <-
+                                            uncond $ BaseAccounts._bieAccountIsSuspended $ _accountBakerInfo ba -> do
+                                            newAcc <- setAccountValidatorSuspended True acc
+                                            newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
+                                            address <- accountCanonicalAddress newAcc
+                                            return ((ai, address) : aisSusp, bsp{bspAccounts = newAccounts})
+                                        -- The validator is already suspended, nothing to do
+                                        | otherwise -> return res
+                    )
+                    ([], bsp0)
+                    ais
+            pbsUpd <- storePBS pbs bspUpd
+            return (aisSusp, pbsUpd)
+        SFalse -> return ([], pbs)
+  where
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
+
 doProcessUpdateQueues ::
     forall pv m.
     (SupportsPersistentState pv m) =>
@@ -4455,6 +4532,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoSetRewardAccounts = doSetRewardAccounts
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
     bsoUpdateMissedRounds = doUpdateMissedRounds
+    bsoPrimeForSuspension = doPrimeForSuspension
+    bsoSuspendValidators = doSuspendValidators
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS

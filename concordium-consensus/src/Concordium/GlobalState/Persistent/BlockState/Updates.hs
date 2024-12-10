@@ -493,6 +493,7 @@ instance
         hMinBlockTimeQueue <- hashWhenSupported pMinBlockTimeQueue
         hBlockEnergyLimitQueue <- hashWhenSupported pBlockEnergyLimitQueue
         hFinalizationCommitteeParametersQueue <- hashWhenSupported pFinalizationCommitteeParametersQueue
+        hValidatorScoreParametersQueue <- hashWhenSupported pValidatorScoreParametersQueue
         return $!
             H.hash $
                 hRootKeysUpdateQueue
@@ -515,6 +516,7 @@ instance
                     <> hMinBlockTimeQueue
                     <> hBlockEnergyLimitQueue
                     <> hFinalizationCommitteeParametersQueue
+                    <> hValidatorScoreParametersQueue
       where
         hashWhenSupported :: (MHashableTo m H.Hash a) => OParam pt cpv a -> m BS.ByteString
         hashWhenSupported = maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM)
