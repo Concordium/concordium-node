@@ -122,7 +122,13 @@ migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = migrateReference
         BakerInfoEx av1 ->
         m' (BakerInfoEx av2)
     migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CFalse, ..}
-migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = error "TODO(drsk) github #1220. Implement migratePersistenBakerInfoEx p7 -> p8"
+migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = migrateReference migrateBakerInfoExV1
+  where
+    migrateBakerInfoExV1 ::
+        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'True, Monad m') =>
+        BakerInfoEx av1 ->
+        m' (BakerInfoEx av2)
+    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CTrue False, ..}
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 --  See documentation of @migratePersistentBlockState@.
@@ -2100,7 +2106,7 @@ migrateV4ToV4 acc = do
               ..
             }
 
--- | Migration for 'PersistentAccount'. Supports 'AccountV2' and 'AccountV3'.
+-- | Migration for 'PersistentAccount'. Supports 'AccountV2', 'AccountV3', 'AccountV4'.
 --
 --  When migrating P6->P7 (account version 2 to 3), the 'AccountMigration' interface is used as
 --  follows:
