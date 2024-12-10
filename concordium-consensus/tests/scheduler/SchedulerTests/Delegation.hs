@@ -62,7 +62,7 @@ makeTestBakerV1FromSeed amount stake bakerId seed = do
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. theBakerInfo,
                   _bieBakerPoolInfo = poolInfo,
-                  _bieAccountIsSuspended =
+                  _bieIsSuspended =
                     conditionally (sSupportsValidatorSuspension (accountVersion @av)) False
                 }
     BS.addAccountBakerV1 bakerInfoEx stake True account

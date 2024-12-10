@@ -147,7 +147,7 @@ dummyBakerStake compStake accIndex pc =
                               _bakerAggregationVerifyKey =
                                 Bls.derivePublicKey (bakerAggregationKey seed)
                             },
-                      _bieAccountIsSuspended = CFalse
+                      _bieIsSuspended = CFalse
                     }
             }
   where

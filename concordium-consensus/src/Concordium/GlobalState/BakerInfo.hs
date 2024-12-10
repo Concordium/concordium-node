@@ -393,5 +393,5 @@ genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
                       _poolMetadataUrl = emptyUrlText,
                       _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
                     },
-              _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
+              _bieIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
             }
