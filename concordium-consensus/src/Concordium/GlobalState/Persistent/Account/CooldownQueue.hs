@@ -123,7 +123,7 @@ initialPrePreCooldownQueue target =
                 }
 
 -- | Migrate a cooldown queue unchanged.
-migrateCooldownQueue :: forall m t av. (SupportMigration m t) => CooldownQueue av -> t m (CooldownQueue av)
+migrateCooldownQueue :: forall m t av1 av2. (SupportMigration m t, AVSupportsFlexibleCooldown av2) => CooldownQueue av1 -> t m (CooldownQueue av2)
 migrateCooldownQueue EmptyCooldownQueue = return EmptyCooldownQueue
 migrateCooldownQueue (CooldownQueue queueRef) =
     CooldownQueue <$> migrateEagerBufferedRef return queueRef
