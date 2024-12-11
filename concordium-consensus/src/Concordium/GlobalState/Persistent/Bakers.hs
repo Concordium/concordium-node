@@ -152,9 +152,11 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
             StateMigrationParametersP2P3 -> NoParam
             StateMigrationParametersP3ToP4{} -> NoParam
             StateMigrationParametersP4ToP5 -> NoParam
-            (StateMigrationParametersP5ToP6 P6.StateMigrationData{..}) -> SomeParam $ P6.updateFinalizationCommitteeParameters migrationProtocolUpdateData
+            (StateMigrationParametersP5ToP6 P6.StateMigrationData{..}) ->
+                SomeParam $ P6.updateFinalizationCommitteeParameters migrationProtocolUpdateData
             StateMigrationParametersP6ToP7{} -> _bakerFinalizationCommitteeParameters
-            StateMigrationParametersP7ToP8{} -> error "TODO(drsk). github #1223. Implement migratePersistentEpochBakers p7 -> p8"
+            StateMigrationParametersP7ToP8{} ->
+                SomeParam $ unOParam $ _bakerFinalizationCommitteeParameters
     return
         PersistentEpochBakers
             { _bakerInfos = newBakerInfos,
