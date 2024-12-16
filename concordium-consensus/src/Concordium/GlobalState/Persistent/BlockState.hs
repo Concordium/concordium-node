@@ -1632,7 +1632,7 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
             BaseAccounts.BakerInfoExV1
                 { _bieBakerPoolInfo = poolInfo,
                   _bieBakerInfo = bakerInfo,
-                  _bieIsSuspended = conditionally hasValidatorSuspension False
+                  _bieIsSuspended = conditionally hasValidatorSuspension vaSuspended
                 }
     -- The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)

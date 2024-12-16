@@ -142,7 +142,8 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                             { _finalizationCommission = makeAmountFraction $ if vcFinalizationRewardNotInRange then 100 else 300,
                               _bakingCommission = makeAmountFraction $ if vcBakingRewardNotInRange then 100 else 500,
                               _transactionCommission = makeAmountFraction $ if vcTransactionFeeNotInRange then 300 else 100
-                            }
+                            },
+                      vaSuspended = False
                     }
         initialAccounts <- mapM makeDummyAccount (addValidatorTestAccounts withCooldown)
         initialBS <- mkInitialState initialAccounts
