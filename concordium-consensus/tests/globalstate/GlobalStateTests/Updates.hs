@@ -143,7 +143,8 @@ addBakerWith am (bs, ai) = do
                         { _transactionCommission = makeAmountFraction 0,
                           _finalizationCommission = makeAmountFraction 0,
                           _bakingCommission = makeAmountFraction 0
-                        }
+                        },
+                  vaSuspended = False
                 }
     res <- bsoAddValidator bs ai conf
     return ((,ai) <$> res)
