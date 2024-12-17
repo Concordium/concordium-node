@@ -141,8 +141,6 @@ jobs:
           repositories: |
             concordium-infra-images
 
-
-
   build-static-binaries:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest-8core
