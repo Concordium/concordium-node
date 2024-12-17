@@ -618,7 +618,7 @@ jobs:
             genesis_ref=main
             genesis_path=${{ matrix.node.genesis_path }}
             environment=${{ matrix.node.env }}
-  remote-git-changes:
+  notify-remote-repositories:
     runs-on: ubuntu-latest
     needs: [ node-linux, validate-preconditions ]
     if: contains(fromJSON('["rc", "alpha"]'), needs.validate-preconditions.outputs.release_type)
