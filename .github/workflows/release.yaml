@@ -129,6 +129,7 @@ jobs:
   authenticate-aws:
     runs-on: ubuntu-latest
     environment: release
+    needs: [build-static-binaries] # Has a TTL of 1h only
     outputs:
       access_token: ${{ steps.app-token.outputs.token }}
     steps:
