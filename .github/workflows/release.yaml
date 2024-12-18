@@ -621,6 +621,7 @@ jobs:
   notify-immutable-infrastructure:
     runs-on: ubuntu-latest
     needs: [ node-linux, validate-preconditions ]
+    environment: release
     if: contains(fromJSON('["rc", "alpha"]'), needs.validate-preconditions.outputs.release_type)
     steps:
       - uses: actions/create-github-app-token@v1
