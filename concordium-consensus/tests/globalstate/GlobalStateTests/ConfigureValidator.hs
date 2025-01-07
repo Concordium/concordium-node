@@ -105,10 +105,12 @@ testAddValidatorAllCases ::
     Spec
 testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
     forM_ validatorConditions $ \vc -> do
-        it (show vc) $ runTest False vc
-        when supportCooldown $ it (show vc <> " with cooldown") $ runTest True vc
+        it (show vc) $ runTest False False vc
+        when supportCooldown $ it (show vc <> " with cooldown") $ runTest True False vc
+        when supportSuspension $ it (show vc <> " with suspended validator") $ runTest True True vc
   where
     supportCooldown = supportsFlexibleCooldown $ accountVersionFor $ demoteProtocolVersion (protocolVersion @pv)
+    supportSuspension = supportsValidatorSuspension $ accountVersionFor $ demoteProtocolVersion (protocolVersion @pv)
     minEquity = 1_000_000_000
     chainParams =
         DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
@@ -129,7 +131,7 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                 DummyData.dummyArs
                 (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
                 chainParams
-    runTest withCooldown ValidatorConditions{..} = runTestBlockState @pv $ do
+    runTest withCooldown suspended ValidatorConditions{..} = runTestBlockState @pv $ do
         let va =
                 ValidatorAdd
                     { vaKeys = if vcAggregationKeyDuplicate then badKeys else goodKeys,
@@ -143,7 +145,7 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                               _bakingCommission = makeAmountFraction $ if vcBakingRewardNotInRange then 100 else 500,
                               _transactionCommission = makeAmountFraction $ if vcTransactionFeeNotInRange then 300 else 100
                             },
-                      vaSuspended = False
+                      vaSuspended = suspended
                     }
         initialAccounts <- mapM makeDummyAccount (addValidatorTestAccounts withCooldown)
         initialBS <- mkInitialState initialAccounts
@@ -190,7 +192,7 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                                           _poolMetadataUrl = vaMetadataURL va,
                                           _poolCommissionRates = vaCommissionRates va
                                         },
-                                  _bieIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))) False
+                                  _bieIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))) suspended
                                 }
                         }
             bkr <- getAccountBaker (fromJust acc)
@@ -578,3 +580,7 @@ tests lvl = parallel $ describe "Validator" $ do
         testAddValidatorAllCases SP7
         testUpdateValidator SP7 (lvl > 1)
         testUpdateValidatorOverlappingCommissions SP7
+    describe "P8" $ do
+        testAddValidatorAllCases SP8
+        testUpdateValidator SP8 (lvl > 1)
+        testUpdateValidatorOverlappingCommissions SP8
