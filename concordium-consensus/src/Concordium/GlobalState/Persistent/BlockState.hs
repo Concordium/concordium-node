@@ -1783,7 +1783,13 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --
 --        (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
 --
---  8. If the capital is supplied: if there is a pending change to the baker's capital, return
+--  8. (>= P8) If the suspended/resumed flag is set:
+
+--        (1) Suspend/resume the validator according to the flag.
+
+--        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
+--
+--  9. If the capital is supplied: if there is a pending change to the baker's capital, return
 --     @VCFChangePending@; otherwise:
 --
 --       * if the capital is 0
@@ -1820,12 +1826,6 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --         index by adding the difference between the new and old capital) and append
 --         @BakerConfigureStakeIncreased capital@ to @events@.
 
---  9. (>= P8) If the suspended/resumed flag is set:
-
---        (1) Suspend/resume the validator according to the flag.
-
---        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
---
 --  10. Return @events@ with the updated block state.
 newUpdateValidator ::
     forall pv m.
@@ -1853,8 +1853,11 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
             updateKeys existingBaker (bsp, acc)
                 >>= updateRestakeEarnings
                 >>= updatePoolInfo existingBaker
-                >>= updateCapital existingBaker
+                -- NOTE: updateSuspend needs to be executed before updateCapital.
+                -- Because if we update the stake to 0, the validator gets
+                -- removed. After this, a call to updateSuspend will error.
                 >>= updateSuspend
+                >>= updateCapital existingBaker
         newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts newBSP)
         return newBSP{bspAccounts = newAccounts}
     (events,) <$> storePBS pbs newBSP

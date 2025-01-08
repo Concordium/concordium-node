@@ -491,6 +491,11 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                 forM_ (vuTransactionFeeCommission vu) $ \fee -> tell [BakerConfigureTransactionFeeCommission fee]
                 forM_ (vuBakingRewardCommission vu) $ \fee -> tell [BakerConfigureBakingRewardCommission fee]
                 forM_ (vuFinalizationRewardCommission vu) $ \fee -> tell [BakerConfigureFinalizationRewardCommission fee]
+                forM_ (vuSuspend vu) $ \suspended ->
+                    tell
+                        [ if suspended then BakerConfigureSuspended else BakerConfigureResumed
+                          | STrue <- [hasValidatorSuspension]
+                        ]
                 forM_ (vuCapital vu) $ \capital ->
                     tell $
                         if capital >= initialStakedAmount
@@ -529,6 +534,9 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                         .~ (if newCapital == 0 then RemoveStake else ReduceStake newCapital)
                             (PendingChangeEffectiveV1 (24 * 60 * 60 * 1000 + 1000))
                 | otherwise = stakedAmount .~ newCapital
+        let updateSuspended suspend
+                | STrue <- hasValidatorSuspension = accountBakerInfo . bieIsSuspended .~ suspend
+                | otherwise = id
         let expectedAccountBaker
                 | STrue <- flexibleCooldown, vuCapital vu == Just 0 = Nothing
                 | otherwise =
@@ -549,10 +557,12 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                             & maybe id (poolCommissionRates . finalizationCommission .~) (vuFinalizationRewardCommission vu)
                             & maybe id (poolCommissionRates . bakingCommission .~) (vuBakingRewardCommission vu)
                             & maybe id (poolCommissionRates . transactionCommission .~) (vuTransactionFeeCommission vu)
+                            & maybe id updateSuspended (vuSuspend vu)
         actualAccountBaker <- getAccountBaker acc0
         liftIO $ actualAccountBaker `shouldBe` expectedAccountBaker
   where
     flexibleCooldown = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
     minEquity = 1_000_000_000
     chainParams =
         DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
