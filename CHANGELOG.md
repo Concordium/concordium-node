@@ -7,6 +7,7 @@
   rounds in the previous payday.
 - Add support for suspend/resume to validator configuration updates.
 - Validators that are suspended are paused from participating in the consensus algorithm.
+- Add suspension info to `BakerPoolStatus` / `CurrentPaydayBakerPoolStatus` query results.
 - Add `GetConsensusDetailedStatus` gRPC endpoint for getting detailed information on the status
   of the consensus, at consensus version 1.
 - Update Rust version to 1.82.
