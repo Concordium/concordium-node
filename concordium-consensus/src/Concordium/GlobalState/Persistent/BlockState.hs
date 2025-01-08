@@ -3346,7 +3346,7 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                                         ++ " is present in the current epoch bakers, but not \
                                            \the current epoch capital distribution."
                             Just (bc, BakerPoolRewardDetails{..}) -> do
-                                return $
+                                return
                                     ( Just
                                         CurrentPaydayBakerPoolStatus
                                             { bpsBlocksBaked = blockCount,
