@@ -3362,9 +3362,9 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                                                 currentEpochBaker
                                                     ^. BaseAccounts.bieBakerPoolInfo
                                                         . BaseAccounts.poolCommissionRates,
-                                              bpsIsPrimedForSuspension = 
+                                              bpsIsPrimedForSuspension =
                                                 fromCondDef (fmap (Just . primedForSuspension) suspensionInfo) Nothing,
-                                              bpsMissedRounds = 
+                                              bpsMissedRounds =
                                                 fromCondDef (fmap (Just . missedRounds) suspensionInfo) Nothing
                                             },
                                       isSuspended
