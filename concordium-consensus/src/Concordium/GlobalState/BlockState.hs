@@ -1084,8 +1084,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --        (2) update the account's finalization reward commission rate to the the supplied value @frc@;
     --
     --        (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
+
+    --  7. (>= P8) If the suspended/resumed flag is set:
+
+    --        (1) Suspend/resume the validator according to the flag.
+
+    --        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
     --
-    --  7. If the capital is supplied: if there is a pending change to the baker's capital, return
+    --
+    --  8. If the capital is supplied: if there is a pending change to the baker's capital, return
     --     @VCFChangePending@; otherwise:
     --
     --       * if the capital is 0
@@ -1120,12 +1127,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --         @BakerConfigureStakeIncreased capital@ to @events@. From P7, the increase in stake
     --         is (preferentially) reactivated from the inactive stake, updating the global indices
     --         accordingly.
-    --
-    --  8. (>= P8) If the suspended/resumed flag is set:
-
-    --        (1) Suspend/resume the validator according to the flag.
-
-    --        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
     --
     --  9. Return @events@ with the updated block state.
     bsoUpdateValidator ::
