@@ -6,6 +6,7 @@
 - Automatically suspend validators from the consensus that missed too many
   rounds in the previous payday.
 - Add support for suspend/resume to validator configuration updates.
+- Add support to add a validator in a suspended state.
 - Validators that are suspended are paused from participating in the consensus algorithm.
 - Add suspension info to `BakerPoolStatus` / `CurrentPaydayBakerPoolStatus` query results.
 - Add `GetConsensusDetailedStatus` gRPC endpoint for getting detailed information on the status

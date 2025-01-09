@@ -2114,6 +2114,7 @@ handleConfigureBaker
             let vaCommissionRates = CommissionRates{..}
             vaOpenForDelegation <- cbOpenForDelegation
             vaMetadataURL <- cbMetadataURL
+            let vaSuspended = fromMaybe False cbSuspend
             return
                 CBCAdd
                     { cbcRemoveDelegator = removeDelegator,
