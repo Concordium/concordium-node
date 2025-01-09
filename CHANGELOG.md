@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 8.0.0
+
 - Add P7 -> P8 update.
 - Automatically suspend validators from the consensus that missed too many
   rounds in the previous payday.
