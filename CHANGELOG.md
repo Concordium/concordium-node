@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug in computing the number of missed rounds in the event of a timeout.
+
 ## 8.0.0
 
 - Add P7 -> P8 update.
