@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug where the suspended status of a baker pool would be omitted when it was suspended.
+
 ## 8.0.0
 
 - Add P7 -> P8 update.
