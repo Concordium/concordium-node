@@ -3331,15 +3331,17 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                     let abpsPoolInfo = baker ^. BaseAccounts.bakerPoolInfo
                     let abpsBakerStakePendingChange =
                             makePoolPendingChange $ BaseAccounts.pendingChangeEffectiveTimestamp <$> (baker ^. BaseAccounts.bakerPendingChange)
+                    let abpsIsSuspended =
+                            fromCondDef
+                                (Just <$> BaseAccounts._bieIsSuspended (baker ^. BaseAccounts.accountBakerInfo))
+                                Nothing
                     return $! ActiveBakerPoolStatus{..}
                 epochBakers <- refLoad (_birkCurrentEpochBakers $ bspBirkParameters bsp)
                 mepochBaker <- epochBaker psBakerId epochBakers
-                (psCurrentPaydayStatus, psIsSuspended) <- case mepochBaker of
-                    Nothing -> return (Nothing, Nothing)
+                psCurrentPaydayStatus <- case mepochBaker of
+                    Nothing -> return Nothing
                     Just (currentEpochBaker, effectiveStake) -> do
                         poolRewards <- refLoad (bspPoolRewards bsp)
-                        let isSuspended =
-                                fromCondDef (Just <$> BaseAccounts._bieIsSuspended currentEpochBaker) Nothing
                         mbcr <- lookupBakerCapitalAndRewardDetails psBakerId poolRewards
                         case mbcr of
                             Nothing ->
@@ -3349,8 +3351,8 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                                         ++ " is present in the current epoch bakers, but not \
                                            \the current epoch capital distribution."
                             Just (bc, BakerPoolRewardDetails{..}) -> do
-                                return
-                                    ( Just
+                                return $
+                                    Just
                                         CurrentPaydayBakerPoolStatus
                                             { bpsBlocksBaked = blockCount,
                                               bpsFinalizationLive = finalizationAwake,
@@ -3369,9 +3371,7 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                                                 fromCondDef (fmap (Just . primedForSuspension) suspensionInfo) Nothing,
                                               bpsMissedRounds =
                                                 fromCondDef (fmap (Just . missedRounds) suspensionInfo) Nothing
-                                            },
-                                      isSuspended
-                                    )
+                                            }
                 if isJust psActiveStatus || isJust psCurrentPaydayStatus
                     then return $ Just BakerPoolStatus{..}
                     else return Nothing
