@@ -157,23 +157,26 @@ updateSeedStateForEpoch newBakers epochDuration ss =
   where
     newNonce = nonceForNewEpoch newBakers ss
 
--- | Compute the missed rounds for each validator. Starts from the given parent
---   block up to (not including) the given final round.
+-- | Compute the missed rounds for each validator.
+--  The missed rounds consist of every round in @[qcRound qc + 1 .. tcRound tc]@ where @qc@ is the
+--  quorum certificate for the parent block and @tc@ is the timeout certificate for the previous
+--  round.
 computeMissedRounds ::
-    -- | Optional timeout certificate for the round of the parent block.
+    -- | Quorum certificate for the parent block.
+    QuorumCertificate ->
+    -- | Optional timeout certificate for the previous round.
     Option TimeoutCertificate ->
     -- | Validators participating in the current epoch.
     FullBakers ->
     -- | Leadership election nonce for the current epoch.
     LeadershipElectionNonce ->
-    -- | The current round.
-    Round ->
     Map.Map BakerId Word64
-computeMissedRounds Absent _validators _leNonce _rnd = Map.empty
-computeMissedRounds (Present tc) validators leNonce rnd = makeMissedRounds Map.empty parentRnd
+computeMissedRounds _qc Absent _validators _leNonce = Map.empty
+computeMissedRounds qc (Present tc) validators leNonce = makeMissedRounds Map.empty firstMissedRound
   where
-    parentRnd = tcRound tc
+    firstMissedRound = qcRound qc + 1
+    lastMissedRound = tcRound tc
     getLeader' = _bakerIdentity . _theBakerInfo . getLeaderFullBakers validators leNonce
     makeMissedRounds !m !r
-        | r >= rnd = m
+        | r > lastMissedRound = m
         | otherwise = makeMissedRounds (Map.insertWith (+) (getLeader' r) 1 m) (r + 1)
