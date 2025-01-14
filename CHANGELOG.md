@@ -6,6 +6,8 @@
 
 - Fix a bug in computing the number of missed rounds in the event of a timeout.
 - Fix a bug where the suspended status of a baker pool would be omitted when it was suspended.
+- Fix a bug where `GetBlockChainParameters` returns a `ChainParametersV2` in cases where it should
+  return `ChainParametersV3`.
 
 ## 8.0.0
 
