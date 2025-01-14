@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 8.0.1
+
 - Fix a bug in computing the number of missed rounds in the event of a timeout.
 - Fix a bug where the suspended status of a baker pool would be omitted when it was suspended.
 
