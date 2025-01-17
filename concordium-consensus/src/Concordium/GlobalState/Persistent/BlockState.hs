@@ -628,10 +628,10 @@ migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimePa
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
-migrateBlockRewardDetails StateMigrationParametersP7ToP8{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
+migrateBlockRewardDetails StateMigrationParametersP7ToP8{} _ _ (SomeParam TimeParametersV1{..}) oldEpoch = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
-            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+            <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
 
 instance
     (MonadBlobStore m, IsBlockHashVersion bhv, IsAccountVersion av) =>
