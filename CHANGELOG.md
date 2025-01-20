@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+## 8.0.2
+
+- Fix a bug where the P7->P8 protocol update affects payday timing.
+
 ## 8.0.1
 
 - Fix a bug in computing the number of missed rounds in the event of a timeout.

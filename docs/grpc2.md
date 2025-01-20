@@ -64,6 +64,7 @@ If these are enabled then the following options become available
   instance_state_lookup = true
   get_next_account_sequence_number = true
   get_consensus_info = true
+  get_consensus_detailed_status = true
   get_ancestors = true
   get_block_item_status = true
   invoke_instance = true
