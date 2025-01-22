@@ -181,8 +181,9 @@ loadSkovData ::
     RuntimeParameters ->
     -- | Set to 'True' if a rollback occurred before loading the skov
     Bool ->
-    -- | The 'SkovData' and, if the consensus is shutdown, the effective protocol update.
-    m (SkovData pv, Maybe ProtocolUpdate)
+    -- | The 'SkovData' and, if the consensus is shutdown, the effective protocol update and
+    --  relative block height of the terminal block.
+    m (SkovData pv, Maybe (ProtocolUpdate, BlockHeight))
 loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
     _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
     mLatestFinEntry <- LowLevel.lookupLatestFinalizationEntry
@@ -238,10 +239,6 @@ loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
     -- seedstate, the consensus is shutdown, so we determine the shutdown trigger block, which
     -- will be the terminal block. The terminal block may differ from the last finalized block.
     let consensusIsShutdown = lastFinSeedState ^. shutdownTriggered
-    _terminalBlock <-
-        if consensusIsShutdown
-            then Present <$> findShutdownTriggerBlock lastFinBlock
-            else return Absent
     (currentEpoch, lastEpochFinEntry) <-
         if lastFinSeedState ^. epochTransitionTriggered
             && not consensusIsShutdown
@@ -288,16 +285,18 @@ loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
                   _focusBlock = lastFinBlock
                 }
     let _statistics = Stats.initialConsensusStatistics
-    protocolUpdate <-
+    (_terminalBlock, protocolUpdate) <-
         if consensusIsShutdown
             then do
                 getProtocolUpdateStatus (bpState lastFinBlock) >>= \case
-                    ProtocolUpdated pu -> return $ Just pu
+                    ProtocolUpdated pu -> do
+                        termBlock <- findShutdownTriggerBlock lastFinBlock
+                        return (Present termBlock, Just (pu, blockHeight termBlock))
                     PendingProtocolUpdates{} ->
                         throwM . TreeStateInvariantViolation $
                             "Consensus is shut down, but no effective protocol update was present \
                             \in the last finalized block."
-            else return Nothing
+            else return (Absent, Nothing)
     return (SkovData{..}, protocolUpdate)
 
 -- | Load the certified blocks from the low-level database into the tree state.
@@ -454,7 +453,7 @@ loadCertifiedBlocks = do
                     Nothing -> liftIO DiffMap.newEmptyReference
                     Just diffMapReference -> return diffMapReference
         newDifferenceMap <- reconstructAccountDifferenceMap (bpState blockPointer) parentDiffMapReference accountsToInsert
-        -- append to the accummulator with this new difference map reference
+        -- append to the accumulator with this new difference map reference
         let loadedBlocks' = HM.insert (getHash storedBlock) newDifferenceMap loadedBlocks
 
         cacheBlockState (bpState blockPointer)

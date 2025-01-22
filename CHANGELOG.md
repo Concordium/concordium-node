@@ -2,6 +2,13 @@
 
 ## Unreleased changes
 
+## 8.0.3
+
+- Fix a bug where, after a protocol update in consensus version 1 (P6 onwards), a node may
+  miscalculate the absolute height of blocks when it is restarted. (#1319)
+- Fix a bug where `GetBlockInfo` reports the parent block of a genesis block to be the last
+  finalized block of the previous genesis index, instead of the terminal block.
+
 ## 8.0.2
 
 - Fix a bug where the P7->P8 protocol update affects payday timing.

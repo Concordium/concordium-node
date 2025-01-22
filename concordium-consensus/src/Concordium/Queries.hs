@@ -754,13 +754,20 @@ getBlockInfo =
                         -- The block is the genesis block of a non-initial chain, so we use the
                         -- hash of the last finalized block of the previous chain as the parent block.
                         -- Since the genesis index is non-zero, we know that there will be a previous
-                        -- chain, and that it will be shut down with the last finalized block being
-                        -- terminal.
+                        -- chain, and that it will be shut down. For consensus version 0, the last
+                        -- finalized block will be the terminal block. For consensus version 1, we
+                        -- explicitly get the terminal block (which may not be the last finalized
+                        -- block).
+                        let errorNoTerminal = error "Updated consensus is missing terminal block."
                         lift $
                             liftSkovQueryAtGenesisIndex
                                 (biGenesisIndex - 1)
                                 (getHash <$> lastFinalizedBlock)
-                                (use (SkovV1.lastFinalized . to getHash))
+                                ( use
+                                    ( SkovV1.terminalBlock
+                                        . to (getHash . fromOption errorNoTerminal)
+                                    )
+                                )
                     else getHash <$> bpParent bp
             biBlockLastFinalized <- getHash <$> bpLastFinalized bp
             let biBlockHeight = localToAbsoluteBlockHeight (vc1GenesisHeight vc) (SkovV1.blockHeight bp)
