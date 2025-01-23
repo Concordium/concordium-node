@@ -1366,7 +1366,7 @@ startupSkov genesis = do
                                 activateConfiguration (newVersionV1 newEConfig)
                                 liftSkovV1Update newEConfig checkForProtocolUpdateV1
                         case esProtocolUpdate of
-                            Just protocolUpdate
+                            Just (protocolUpdate, terminalBlockHeight)
                                 | Right upd <- ProtocolUpdateV1.checkUpdate @pv protocolUpdate -> do
                                     let nextSPV = ProtocolUpdateV1.updateNextProtocolVersion upd
                                     -- A protocol update has occurred for this configuration, so
@@ -1377,7 +1377,7 @@ startupSkov genesis = do
                                         nextSPV
                                         activateThis
                                         (genIndex + 1)
-                                        (localToAbsoluteBlockHeight genHeight esLastFinalizedHeight + 1)
+                                        (localToAbsoluteBlockHeight genHeight terminalBlockHeight + 1)
                             _ -> do
                                 -- This is still the current configuration (i.e. no protocol update
                                 -- has occurred, or the protocol update is not supported), so
