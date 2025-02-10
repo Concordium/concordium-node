@@ -3823,13 +3823,21 @@ doMarkFinalizationAwakeBakers pbs bids = do
         case binarySearchI bcBakerId bpc bid of
             Nothing -> return bprs
             Just (i, _) -> do
-                mBPRs <- LFMBT.update setAwake (fromIntegral i) bprs
+                mBPRs <- MTL.runExceptT $ LFMBT.update setAwake (fromIntegral i) bprs
                 case mBPRs of
-                    Nothing ->
+                    -- error is used to signal that there is no change
+                    Left () -> return bprs
+                    Right Nothing ->
                         error "Invariant violation: unable to find baker in baker pool reward details tree"
-                    Just ((), newBPRs) ->
+                    Right (Just ((), newBPRs)) ->
                         return newBPRs
-    setAwake bpr =
+    setAwake bpr = do
+        -- If there's nothing to do, use throwError to skip the update.
+        when
+            ( finalizationAwake bpr
+                && all (== emptySuspensionInfo) (suspensionInfo bpr)
+            )
+            $ MTL.throwError ()
         return
             ( (),
               bpr
