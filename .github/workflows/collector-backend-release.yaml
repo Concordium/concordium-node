@@ -1,13 +1,11 @@
 on:
   push:
-    branches:
-      - ekw/SRE-988/migrate-collector-backend
     tags:
       - collector-backend/*
 
 jobs:
   release-collector-backend:
-    uses: concordium/.github/.github/workflows/docker-release-workflow.yaml@ekw/SRE-998/Use-custom-registry
+    uses: concordium/.github/.github/workflows/docker-release-workflow.yaml@main
     with:
       SERVICE_NAME: "collector-backend"
       BUILD_ARGS: |
@@ -16,6 +14,3 @@ jobs:
       CARGO_FILE_PATH: collector-backend/Cargo.toml
       AWS_ACCOUNT: "192549843005"
       AWS_ROLE: "arn:aws:iam::192549843005:role/github_collector-backend"
-    secrets:
-      DOCKERHUB_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-      DOCKERHUB_TOKEN: ${{ secrets.DOCKER_TOKEN }}
