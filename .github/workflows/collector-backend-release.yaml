@@ -12,5 +12,4 @@ jobs:
         base_image_tag="latest"
       DOCKER_FILE_PATH: collector-backend/Dockerfile
       CARGO_FILE_PATH: collector-backend/Cargo.toml
-      AWS_ACCOUNT: "192549843005"
       AWS_ROLE: "arn:aws:iam::192549843005:role/github_collector-backend"
