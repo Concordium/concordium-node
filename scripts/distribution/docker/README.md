@@ -4,7 +4,7 @@ This directory contains both a [Dockerfile](./builder.Dockerfile) for building
 the distribution image for different environments, as well as two sample
 configuration files for running mainnet/testnet nodes.
 
-The builder is used by a [jenkins job](../../../jenkinsfiles/distribution-image.Jenkinsfile) to build and publish
+The builder is used by a Github action build.
 the official distribution images on dockerhub.
 
 The image may also be built directly by using
