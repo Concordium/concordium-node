@@ -52,8 +52,6 @@ cloning this repository, or after changing branches.
 
 ## Configurations and scripts
 
-- The [jenkinsfiles](./jenkinsfiles/) directory contains Jenkins configurations
-  for deployment and testing.
 - The [scripts](./scripts/) directory contains a variety of bash scripts,
   Dockerfiles, and similar, to build different configurations of the node for
   testing and deployment.

@@ -1,8 +1,7 @@
 # Static libraries scripts
 
 Static libraries are built using an fPIC GHC created with
-[these](https://github.com/Concordium/concordium-infra-devops/tree/master/fpic) scripts by
-[this](http://jenkins.internal.concordium.com/job/fpic-ghc_jenkinsfile/) job.
+[these](https://github.com/Concordium/concordium-infra-devops/tree/master/fpic)
 
 The script is consumed by various Docker build jobs, usually as a designated "build static libraries" stage
 before the "actual" build stage:
