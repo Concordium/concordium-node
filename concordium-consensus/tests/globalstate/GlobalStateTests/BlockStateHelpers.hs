@@ -112,7 +112,7 @@ setAccountStakeDetails ai StakeDetailsBaker{..} mPoolInfo acc =
         BakerInfoExV1
             { _bieBakerInfo = fulBaker ^. bakerInfo,
               _bieBakerPoolInfo = poolInfo,
-              _bieAccountIsSuspended = conditionally hasValidatorSuspension False
+              _bieIsSuspended = conditionally hasValidatorSuspension False
             }
     fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
     poolInfo = fromMaybe dummyBakerPoolInfo mPoolInfo

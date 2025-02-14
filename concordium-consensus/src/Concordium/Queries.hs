@@ -11,13 +11,13 @@ module Concordium.Queries where
 
 import Control.Monad
 import Control.Monad.Reader
+import qualified Control.Monad.Trans.State.Strict as State
 import Data.Bifunctor (second)
 import Data.Bool.Singletons
 import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
-import Data.Maybe
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
@@ -33,7 +33,15 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
-import Concordium.Types.Execution (TransactionSummary)
+import Concordium.Types.Execution (
+    Payload (..),
+    SupplementEvents (..),
+    SupplementedTransactionSummary,
+    TransactionIndex,
+    TransactionSummary,
+    addInitializeParameter,
+    decodePayload,
+ )
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Parameters
@@ -746,13 +754,20 @@ getBlockInfo =
                         -- The block is the genesis block of a non-initial chain, so we use the
                         -- hash of the last finalized block of the previous chain as the parent block.
                         -- Since the genesis index is non-zero, we know that there will be a previous
-                        -- chain, and that it will be shut down with the last finalized block being
-                        -- terminal.
+                        -- chain, and that it will be shut down. For consensus version 0, the last
+                        -- finalized block will be the terminal block. For consensus version 1, we
+                        -- explicitly get the terminal block (which may not be the last finalized
+                        -- block).
+                        let errorNoTerminal = error "Updated consensus is missing terminal block."
                         lift $
                             liftSkovQueryAtGenesisIndex
                                 (biGenesisIndex - 1)
                                 (getHash <$> lastFinalizedBlock)
-                                (use (SkovV1.lastFinalized . to getHash))
+                                ( use
+                                    ( SkovV1.terminalBlock
+                                        . to (getHash . fromOption errorNoTerminal)
+                                    )
+                                )
                     else getHash <$> bpParent bp
             biBlockLastFinalized <- getHash <$> bpLastFinalized bp
             let biBlockHeight = localToAbsoluteBlockHeight (vc1GenesisHeight vc) (SkovV1.blockHeight bp)
@@ -777,8 +792,67 @@ getBlockItems :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse
 getBlockItems = liftSkovQueryBHI (return . blockTransactions) (return . SkovV1.blockTransactions)
 
 -- | Get the transaction outcomes in the block.
-getBlockTransactionSummaries :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Vec.Vector TransactionSummary))
-getBlockTransactionSummaries = liftSkovQueryStateBHI BS.getOutcomes
+--  The return value is either an error message or a vector of outcomes in the corresponding order
+--  of the transactions in the block.
+--  Errors should not be possible, as they would indicate an invariant violation, such as the
+--  transaction outcomes not matching the transactions in the block, or an initialization event
+--  occuring for a transaction that does not decode to 'InitContract'.
+getBlockTransactionSummaries ::
+    forall finconf.
+    BlockHashInput ->
+    MVR finconf (BHIQueryResponse (Either String (Vec.Vector SupplementedTransactionSummary)))
+getBlockTransactionSummaries =
+    liftSkovQueryBHI
+        getBTSv0
+        getBTSv1
+  where
+    getBTSv0 ::
+        forall (pv :: ProtocolVersion).
+        (SkovMonad (VersionedSkovV0M finconf pv)) =>
+        BlockPointerType (VersionedSkovV0M finconf pv) ->
+        VersionedSkovV0M finconf pv (Either String (Vec.Vector SupplementedTransactionSummary))
+    getBTSv0 bp = do
+        outcomes <- BS.getOutcomes =<< blockState bp
+        let transactions = blockTransactions bp
+        return $! supplementOutcomes (protocolVersion @pv) outcomes transactions
+    getBTSv1 ::
+        forall (pv :: ProtocolVersion).
+        (IsProtocolVersion pv) =>
+        SkovV1.BlockPointer pv ->
+        VersionedSkovV1M finconf pv (Either String (Vec.Vector SupplementedTransactionSummary))
+    getBTSv1 bp = do
+        outcomes <- BS.getOutcomes =<< blockState bp
+        let transactions = SkovV1.blockTransactions bp
+        return $! supplementOutcomes (protocolVersion @pv) outcomes transactions
+    supplementOutcomes ::
+        SProtocolVersion pv ->
+        Vec.Vector TransactionSummary ->
+        [BlockItem] ->
+        Either String (Vec.Vector SupplementedTransactionSummary)
+    supplementOutcomes spv outcomes transactions =
+        case State.runStateT (Vec.mapM (supplement spv) outcomes) transactions of
+            Left err -> Left err
+            Right (res, []) -> Right res
+            Right (_, _) -> Left "Block has more transactions than outcomes"
+    supplement ::
+        SProtocolVersion pv ->
+        TransactionSummary ->
+        State.StateT [BlockItem] (Either String) SupplementedTransactionSummary
+    supplement spv ts = do
+        items <- State.get
+        case items of
+            [] -> lift $ Left "Transaction summary missing transaction"
+            (item : items') -> do
+                State.put items'
+                let mInitParam = do
+                        accTransaction <- case wmdData item of
+                            NormalTransaction t -> return t
+                            _ -> Left "Initialization event is not for an account transaction"
+                        decoded <- decodePayload spv (atrPayload accTransaction)
+                        case decoded of
+                            InitContract{..} -> return icParam
+                            _ -> Left "Initialization event is not for a contract initialization"
+                lift $ supplementEvents (addInitializeParameter mInitParam) ts
 
 -- | Get the transaction outcomes in the block.
 getBlockSpecialEvents :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Seq.Seq SpecialTransactionOutcome))
@@ -852,6 +926,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
                 `merge` queueMapperOptional PUEMinBlockTime _pMinBlockTimeQueue
                 `merge` queueMapperOptional PUEBlockEnergyLimit _pBlockEnergyLimitQueue
                 `merge` queueMapperOptional PUEFinalizationCommitteeParameters _pFinalizationCommitteeParametersQueue
+                `merge` queueMapperOptional PUEValidatorScoreParameters _pValidatorScoreParametersQueue
           where
             cpv :: SChainParametersVersion cpv
             cpv = chainParametersVersion
@@ -933,6 +1008,46 @@ getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
     query bs = do
         updates <- BS.getUpdates bs
         return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
+
+-- | Get the index of accounts with scheduled releases.
+getScheduledReleaseAccounts ::
+    forall finconf.
+    BlockHashInput ->
+    MVR finconf (BHIQueryResponse [AccountPending])
+getScheduledReleaseAccounts = liftSkovQueryStateBHI query
+  where
+    query bs = do
+        releases <- BS.getScheduledReleaseAccounts bs
+        let processAtTimestamp ts accs = ([AccountPending acc ts | acc <- Set.toList accs] ++)
+        return $ Map.foldrWithKey processAtTimestamp [] releases
+
+-- | Get the index of accounts with stake in cooldown.
+getCooldownAccounts ::
+    forall finconf.
+    BlockHashInput ->
+    MVR finconf (BHIQueryResponse [AccountPending])
+getCooldownAccounts = liftSkovQueryStateBHI query
+  where
+    query bs = do
+        cooldowns <- BS.getCooldownAccounts bs
+        let processAtTimestamp ts accs = ([AccountPending acc ts | acc <- Set.toList accs] ++)
+        -- Right-fold here ensures that the set at each timestamp is converted lazily as
+        -- the resulting list is consumed.
+        return $ Map.foldrWithKey processAtTimestamp [] cooldowns
+
+-- | Get the index of accounts in pre-cooldown.
+getPreCooldownAccounts ::
+    forall finconf.
+    BlockHashInput ->
+    MVR finconf (BHIQueryResponse [AccountIndex])
+getPreCooldownAccounts = liftSkovQueryStateBHI BS.getPreCooldownAccounts
+
+-- | Get the index of accounts in pre-pre-cooldown.
+getPrePreCooldownAccounts ::
+    forall finconf.
+    BlockHashInput ->
+    MVR finconf (BHIQueryResponse [AccountIndex])
+getPrePreCooldownAccounts = liftSkovQueryStateBHI BS.getPrePreCooldownAccounts
 
 -- | Get the total amount of CCD in existence and status of the reward accounts.
 getRewardStatus :: BlockHashInput -> MVR finconf (BHIQueryResponse RewardStatus)
@@ -1415,7 +1530,7 @@ getWinningBakersEpoch (EpochOfBlock blockInput) = do
 -- ** Transaction indexed
 
 -- | Get the status of a transaction specified by its hash.
-getTransactionStatus :: forall finconf. TransactionHash -> MVR finconf (Maybe TransactionStatus)
+getTransactionStatus :: forall finconf. TransactionHash -> MVR finconf (Maybe SupplementedTransactionStatus)
 getTransactionStatus trHash =
     liftSkovQueryLatestResult
         ( queryTransactionStatus trHash >>= \case
@@ -1426,16 +1541,14 @@ getTransactionStatus trHash =
                     resolveBlock bh >>= \case
                         Nothing -> return (bh, Nothing) -- should not happen
                         Just bp -> do
-                            bs <- blockState bp
-                            outcome <- BS.getTransactionOutcome bs idx
+                            outcome <- v0TransactionOutcome bp idx
                             return (bh, outcome)
                 return $ Just $ Committed (Map.fromList outcomes)
             Just TS.Finalized{..} ->
                 resolveBlock ftsBlockHash >>= \case
                     Nothing -> return Nothing -- should not happen
                     Just bp -> do
-                        bs <- blockState bp
-                        outcome <- BS.getTransactionOutcome bs ftsFinResult
+                        outcome <- v0TransactionOutcome bp ftsFinResult
                         return $ Just $ Finalized ftsBlockHash outcome
         )
         ( do
@@ -1448,84 +1561,50 @@ getTransactionStatus trHash =
                         case SkovV1.getLiveBlock bh sd of
                             Nothing -> return (bh, Nothing) -- should not happen
                             Just bp -> do
-                                bs <- blockState bp
-                                outcome <- BS.getTransactionOutcome bs idx
+                                outcome <- v1TransactionOutcome bp idx
                                 return (bh, outcome)
                     return $ Just $ Committed (Map.fromList outcomes)
                 Just (SkovV1.Finalized SkovV1.FinalizedTransactionStatus{..}) ->
                     SkovV1.getFinalizedBlockAtHeight ftsBlockHeight >>= \case
                         Nothing -> return Nothing -- should not happen
                         Just bp -> do
-                            bs <- blockState bp
-                            outcome <- BS.getTransactionOutcome bs ftsIndex
+                            outcome <- v1TransactionOutcome bp ftsIndex
                             return $ Just $ Finalized (getHash bp) outcome
         )
-
--- | Get the status of a transaction within a particular block.
---
---  Note that, since this does not acquire the write lock, it is possible that
---  'queryTransactionStatus' reports that the transaction is finalized even if it does not occur in
---  any block currently visible in the state.
-getTransactionStatusInBlock :: TransactionHash -> BlockHash -> MVR finconf BlockTransactionStatus
-getTransactionStatusInBlock trHash blockHash =
-    fromMaybe BTSNotInBlock
-        <$> liftSkovQueryLatestResult
-            ( queryTransactionStatus trHash >>= \case
-                Nothing ->
-                    resolveBlock blockHash >>= \case
-                        -- If the block is unknown in this skov version, then try earlier versions.
-                        Nothing -> return Nothing
-                        -- If the block is known, then we can return BTSNotInBlock already.
-                        Just _ -> return $ Just BTSNotInBlock
-                Just (TS.Live TT.Received{}) -> return $ Just BTSReceived
-                Just (TS.Live TT.Committed{..}) -> case HM.lookup blockHash tsResults of
-                    Nothing -> return $ Just BTSNotInBlock
-                    Just idx ->
-                        resolveBlock blockHash >>= \case
-                            Nothing -> return $ Just BTSNotInBlock -- should not happen
-                            Just bp -> do
-                                bs <- blockState bp
-                                outcome <- BS.getTransactionOutcome bs idx
-                                return $ Just $ BTSCommitted outcome
-                Just TS.Finalized{..} ->
-                    if ftsBlockHash == blockHash
-                        then
-                            resolveBlock blockHash >>= \case
-                                Nothing -> return $ Just BTSNotInBlock -- unlikely but possible
-                                Just bp -> do
-                                    bs <- blockState bp
-                                    outcome <- BS.getTransactionOutcome bs ftsFinResult
-                                    return $ Just $ BTSFinalized outcome
-                        else return $ Just BTSNotInBlock
-            )
-            ( do
-                sd <- get
-                SkovV1.lookupTransaction trHash sd >>= \case
-                    Nothing ->
-                        SkovV1.getRecentBlockStatus blockHash sd >>= \case
-                            -- If the block is unknown in this skov version, then try earlier versions.
-                            SkovV1.RecentBlock SkovV1.BlockUnknown -> return Nothing
-                            -- If the block is known, then we can return BTSNotInBlock already.
-                            _ -> return $ Just BTSNotInBlock
-                    Just (SkovV1.Live TT.Received{}) -> return $ Just BTSReceived
-                    Just (SkovV1.Live TT.Committed{..}) -> case HM.lookup blockHash tsResults of
-                        Nothing -> return $ Just BTSNotInBlock
-                        Just idx ->
-                            case SkovV1.getLiveBlock blockHash sd of
-                                Nothing -> return $ Just BTSNotInBlock -- should not happen
-                                Just bp -> do
-                                    bs <- blockState bp
-                                    outcome <- BS.getTransactionOutcome bs idx
-                                    return $ Just $ BTSCommitted outcome
-                    Just (SkovV1.Finalized SkovV1.FinalizedTransactionStatus{..}) ->
-                        SkovV1.getFinalizedBlockAtHeight ftsBlockHeight >>= \case
-                            Just bp
-                                | getHash bp == blockHash -> do
-                                    bs <- blockState bp
-                                    outcome <- BS.getTransactionOutcome bs ftsIndex
-                                    return $ Just $ BTSFinalized outcome
-                            _ -> return $ Just BTSNotInBlock
-            )
+  where
+    -- Get the outcome of a transaction in consensus version 0.
+    v0TransactionOutcome ::
+        forall m.
+        (BlockPointerMonad m, BS.BlockStateQuery m, MonadProtocolVersion m, BlockData (BlockPointerType m)) =>
+        BlockPointerType m ->
+        TransactionIndex ->
+        m (Maybe SupplementedTransactionSummary)
+    v0TransactionOutcome bp idx = do
+        bs <- blockState bp
+        outcome <- BS.getTransactionOutcome bs idx
+        return $ supplementTransactionSummary (protocolVersion @(MPV m)) (blockTransaction idx bp) outcome
+    -- Get the outcome of a transaction in consensus version 1.
+    v1TransactionOutcome ::
+        forall m.
+        (BlockPointerMonad m, BS.BlockStateQuery m, MonadProtocolVersion m, SkovV1.BlockData (BlockPointerType m)) =>
+        BlockPointerType m ->
+        TransactionIndex ->
+        m (Maybe SupplementedTransactionSummary)
+    v1TransactionOutcome bp idx = do
+        bs <- blockState bp
+        outcome <- BS.getTransactionOutcome bs idx
+        return $ supplementTransactionSummary (protocolVersion @(MPV m)) (SkovV1.blockTransaction idx bp) outcome
+    -- Helper to convert a 'TransactionSummary' to a 'SupplementedTransactionSummary' given the
+    -- 'BlockItem' corresponding to the originating transaction.
+    supplementTransactionSummary ::
+        SProtocolVersion pv -> Maybe BlockItem -> Maybe TransactionSummary -> Maybe SupplementedTransactionSummary
+    supplementTransactionSummary spv mbi mts = do
+        ts <- mts
+        let mip = do
+                (NormalTransaction acctTransaction) <- wmdData <$> mbi
+                (InitContract{..}) <- decodePayload spv (atrPayload acctTransaction) ^? _Right
+                return icParam
+        supplementEvents (addInitializeParameter mip) ts
 
 -- * Smart contract invocations
 invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR finconf (BHIQueryResponse InvokeContract.InvokeContractResult)

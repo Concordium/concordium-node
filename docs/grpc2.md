@@ -64,6 +64,7 @@ If these are enabled then the following options become available
   instance_state_lookup = true
   get_next_account_sequence_number = true
   get_consensus_info = true
+  get_consensus_detailed_status = true
   get_ancestors = true
   get_block_item_status = true
   invoke_instance = true
@@ -87,6 +88,10 @@ If these are enabled then the following options become available
   get_block_special_events = true
   get_block_pending_updates = true
   get_next_update_sequence_numbers = true
+  get_scheduled_release_accounts = true
+  get_cooldown_accounts = true
+  get_pre_cooldown_accounts = true
+  get_pre_pre_cooldown_accounts = true
   get_block_chain_parameters = true
   get_block_finalization_summary = true
   get_baker_earliest_win_time = true

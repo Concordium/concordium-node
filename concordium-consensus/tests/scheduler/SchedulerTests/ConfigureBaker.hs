@@ -64,7 +64,7 @@ makeTestBakerV1FromSeed amount stake bakerId seed suspend = do
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. theBakerInfo,
                   _bieBakerPoolInfo = poolInfo,
-                  _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @av)) suspend
+                  _bieIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @av)) suspend
                 }
     BS.addAccountBakerV1 bakerInfoEx stake True account
   where
@@ -253,6 +253,7 @@ testDelegatorToBakerOk spv pvString =
         doBlockStateAssertions
   where
     stakeAmount = 300_000_000_000
+    events :: BakerKeysWithProofs -> [Event]
     events keysWithProofs =
         [ DelegationRemoved{edrDelegatorId = 1, edrAccount = delegator1Address},
           BakerAdded
@@ -337,7 +338,7 @@ testDelegatorToBakerOk spv pvString =
                               _transactionCommission = makeAmountFraction 1_000
                             }
                     },
-              _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
+              _bieIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
             }
     updateStaking keysWithProofs = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
         SFalse -> id
@@ -603,7 +604,7 @@ testAddBakerOk spv pvString =
                               _transactionCommission = makeAmountFraction 1_000
                             }
                     },
-              _bieAccountIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
+              _bieIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
             }
     updateStaking keysWithProofs =
         ( Transient.accountStaking
@@ -1303,15 +1304,15 @@ testUpdateBakerSuspendResumeOk spv pvString suspendOrResume accM =
             Transient.accountStaking
                 . accountBaker
                 . accountBakerInfo
-                . bieAccountIsSuspended
+                . bieIsSuspended
                 .~ (suspendOrResume == Suspend)
         SFalse -> id
     accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
     accountBaker _ x = pure x
     events =
         [ if suspendOrResume == Suspend
-            then BakerSuspended{ebsBakerId = 4}
-            else BakerResumed{ebrBakerId = 4}
+            then BakerSuspended{ebsBakerId = 4, ebsAccount = baker4Address}
+            else BakerResumed{ebrBakerId = 4, ebrAccount = baker4Address}
         ]
 
 tests :: Spec

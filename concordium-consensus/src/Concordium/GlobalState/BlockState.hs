@@ -663,6 +663,18 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
         BlockState m ->
         m PassiveDelegationStatus
 
+    -- | Get the index of accounts with scheduled releases.
+    getScheduledReleaseAccounts :: BlockState m -> m (Map.Map Timestamp (Set.Set AccountIndex))
+
+    -- | Get the index of accounts with stake in cooldown.
+    getCooldownAccounts :: BlockState m -> m (Map.Map Timestamp (Set.Set AccountIndex))
+
+    -- | Get the index of accounts in pre-cooldown.
+    getPreCooldownAccounts :: BlockState m -> m [AccountIndex]
+
+    -- | Get the index of accounts in pre-pre-cooldown.
+    getPrePreCooldownAccounts :: BlockState m -> m [AccountIndex]
+
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
     { -- | Minted amount allocated to the BakingRewardAccount
@@ -734,7 +746,11 @@ data ActiveBakerInfo' bakerInfoRef = ActiveBakerInfo
       activeBakerPendingChange :: !(StakePendingChange' Timestamp),
       -- | Information about the delegators to the baker in ascending order of 'DelegatorId'.
       --  (There must be no duplicate 'DelegatorId's.)
-      activeBakerDelegators :: ![ActiveDelegatorInfo]
+      activeBakerDelegators :: ![ActiveDelegatorInfo],
+      -- | A flag indicating whether the baker is suspended.
+      activeBakerIsSuspended :: !Bool,
+      -- | The id of the baker.
+      activeBakerId :: !BakerId
     }
     deriving (Eq, Show)
 
@@ -1068,8 +1084,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --        (2) update the account's finalization reward commission rate to the the supplied value @frc@;
     --
     --        (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
+
+    --  7. (>= P8) If the suspended/resumed flag is set:
+
+    --        (1) Suspend/resume the validator according to the flag.
+
+    --        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
     --
-    --  7. If the capital is supplied: if there is a pending change to the baker's capital, return
+    --
+    --  8. If the capital is supplied: if there is a pending change to the baker's capital, return
     --     @VCFChangePending@; otherwise:
     --
     --       * if the capital is 0
@@ -1104,12 +1127,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --         @BakerConfigureStakeIncreased capital@ to @events@. From P7, the increase in stake
     --         is (preferentially) reactivated from the inactive stake, updating the global indices
     --         accordingly.
-    --
-    --  8. (>= P8) If the suspended/resumed flag is set:
-
-    --        (1) Suspend/resume the validator according to the flag.
-
-    --        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
     --
     --  9. Return @events@ with the updated block state.
     bsoUpdateValidator ::
@@ -1344,7 +1361,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Function 'bsoGetBakerPoolRewardDetails' returns a map with the 'BakerPoolRewardDetails' for each
     --  current-epoch baker (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
-    bsoGetBakerPoolRewardDetails :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (Map.Map BakerId BakerPoolRewardDetails)
+    bsoGetBakerPoolRewardDetails :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (Map.Map BakerId (BakerPoolRewardDetails (AccountVersionFor (MPV m))))
 
     -- | Update the transaction fee rewards accruing to a baker pool by the specified delta. It is a
     --  precondition that the given baker is a current-epoch baker.
@@ -1353,9 +1370,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoUpdateAccruedTransactionFeesBaker :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
 
     -- | Mark that the given bakers have signed a finalization proof included in a block during the
-    --  reward period. Any baker ids that are not current-epoch bakers will be ignored.
-    --  (This is significant, as the finalization record in a block may be signed by a finalizer that
-    --  has since been removed as a baker.)
+    --  reward period and clear their missed rounds. Any baker ids that are not current-epoch bakers
+    --  will be ignored. (This is significant, as the finalization record in a block may be signed by
+    --  a finalizer that has since been removed as a baker.)
     --  Note, the finalization-awake status is reset by 'bsoRotateCurrentCapitalDistribution'.
     bsoMarkFinalizationAwakeBakers :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [BakerId] -> m (UpdatableBlockState m)
 
@@ -1479,7 +1496,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoGetEpochBlocksBaked :: UpdatableBlockState m -> m (Word64, [(BakerId, Word64)])
 
     -- | Record that the given baker has baked a block in the current epoch. It is a precondition that
-    --  the given baker is a current-epoch baker.
+    --  the given baker is a current-epoch baker. This also clears the missed rounds for a baker.
     bsoNotifyBlockBaked :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
     -- | Clear the tracking of baked blocks in the current epoch.
@@ -1508,6 +1525,32 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Get whether a protocol update is effective
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
+
+    -- | Update the count of missed rounds for given validators by the given
+    --  delta. Rounds are `missed` by a validator, if it has been elected leader but the
+    --  round did timeout.
+    bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Map.Map BakerId Word64 -> m (UpdatableBlockState m)
+
+    -- | Mark given validators for possible suspension at the next snapshot
+    --  epoch. Returns the subset of the current epoch validator ids whose
+    --  missed rounds exceeded the given threshold and are now primed for
+    --  suspension.
+    bsoPrimeForSuspension ::
+        (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | The threshold for maximal missed rounds
+        Word64 ->
+        -- | Returns the subset of primed validator ids of the current epoch
+        --  validators and the updated block state
+        m ([BakerId], UpdatableBlockState m)
+
+    -- | Suspend validators with the given account indices, if
+    --  1) the account index points to an existing account
+    --  2) the account belongs to a validator
+    --  3) the account was not already suspended
+    --  Returns the subset of account indices that were suspended together with their canonical
+    --  addresses.
+    bsoSuspendValidators :: (PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [AccountIndex] -> m ([(AccountIndex, AccountAddress)], UpdatableBlockState m)
 
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
@@ -1660,6 +1703,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
     getPassiveDelegationStatus = lift . getPassiveDelegationStatus
+    getScheduledReleaseAccounts = lift . getScheduledReleaseAccounts
+    getCooldownAccounts = lift . getCooldownAccounts
+    getPreCooldownAccounts = lift . getPreCooldownAccounts
+    getPrePreCooldownAccounts = lift . getPrePreCooldownAccounts
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE accountExists #-}
@@ -1694,6 +1741,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getUpdateKeysCollection #-}
     {-# INLINE getExchangeRates #-}
     {-# INLINE getChainParameters #-}
+    {-# INLINE getScheduledReleaseAccounts #-}
+    {-# INLINE getCooldownAccounts #-}
+    {-# INLINE getPreCooldownAccounts #-}
+    {-# INLINE getPrePreCooldownAccounts #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
@@ -1820,6 +1871,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
+    bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
+    bsoPrimeForSuspension s = lift . bsoPrimeForSuspension s
+    bsoSuspendValidators s = lift . bsoSuspendValidators s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -1876,6 +1930,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetRewardAccounts #-}
     {-# INLINE bsoGetCurrentEpochBakers #-}
     {-# INLINE bsoIsProtocolUpdateEffective #-}
+    {-# INLINE bsoUpdateMissedRounds #-}
+    {-# INLINE bsoPrimeForSuspension #-}
+    {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 

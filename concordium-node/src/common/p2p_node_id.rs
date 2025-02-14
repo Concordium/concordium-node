@@ -17,7 +17,7 @@ pub struct P2PNodeId(pub PeerId);
 
 impl Distribution<P2PNodeId> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> P2PNodeId {
-        P2PNodeId(Uniform::new(0, PeerId::max_value()).sample(rng))
+        P2PNodeId(Uniform::new(0, PeerId::MAX).sample(rng))
     }
 }
 

@@ -187,6 +187,8 @@ data UpdateValue (cpv :: ChainParametersVersion) where
     UVBlockEnergyLimit :: (IsSupported 'PTBlockEnergyLimit cpv ~ 'True) => !Energy -> UpdateValue cpv
     -- | Updates to the finalization committee parameters for chain parameters version 2.
     UVFinalizationCommitteeParameters :: (IsSupported 'PTFinalizationCommitteeParameters cpv ~ 'True) => !FinalizationCommitteeParameters -> UpdateValue cpv
+    -- | Updates to the validator score parameters for chain parameters version 3.
+    UVValidatorScoreParameters :: (IsSupported 'PTValidatorScoreParameters cpv ~ 'True) => !ValidatorScoreParameters -> UpdateValue cpv
 
 deriving instance Eq (UpdateValue cpv)
 deriving instance Show (UpdateValue cpv)

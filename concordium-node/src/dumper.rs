@@ -74,7 +74,7 @@ pub fn create_dump_thread(
                 }
                 let new_path = base_dir.join(&new_path);
                 // Create directory
-                let _ = std::fs::create_dir(&new_path.clone());
+                let _ = std::fs::create_dir(&new_path);
 
                 // Create and start pretty dump file
                 let mut pretty_dump_file = std::fs::File::create(

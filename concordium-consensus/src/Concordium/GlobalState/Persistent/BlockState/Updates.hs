@@ -242,7 +242,9 @@ data PendingUpdates (cpv :: ChainParametersVersion) = PendingUpdates
       -- | Block energy limit (CPV2 onwards).
       pBlockEnergyLimitQueue :: !(HashedBufferedRefO 'PTBlockEnergyLimit cpv (UpdateQueue Energy)),
       -- | Finalization committee parameters (CPV2 onwards).
-      pFinalizationCommitteeParametersQueue :: !(HashedBufferedRefO 'PTFinalizationCommitteeParameters cpv (UpdateQueue FinalizationCommitteeParameters))
+      pFinalizationCommitteeParametersQueue :: !(HashedBufferedRefO 'PTFinalizationCommitteeParameters cpv (UpdateQueue FinalizationCommitteeParameters)),
+      -- | Validators score parameters (CPV3 onwards).
+      pValidatorScoreParametersQueue :: !(HashedBufferedRefO 'PTValidatorScoreParameters cpv (UpdateQueue ValidatorScoreParameters))
     }
 
 -- | See documentation of @migratePersistentBlockState@.
@@ -422,6 +424,25 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
         StateMigrationParametersP7ToP8{} -> case pFinalizationCommitteeParametersQueue of
             SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+    newValidatorScoreParametersQueue <- case migration of
+        StateMigrationParametersTrivial -> case pValidatorScoreParametersQueue of
+            NoParam -> return NoParam
+            SomeParam hbr -> SomeParam <$> migrateHashedBufferedRef (migrateUpdateQueue id) hbr
+        StateMigrationParametersP1P2 -> case pValidatorScoreParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP2P3 -> case pValidatorScoreParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP3ToP4{} -> case pValidatorScoreParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP4ToP5{} -> case pValidatorScoreParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP5ToP6{} -> case pValidatorScoreParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP6ToP7{} -> case pValidatorScoreParametersQueue of
+            NoParam -> return NoParam
+        StateMigrationParametersP7ToP8{} -> do
+            (!hbr, _) <- refFlush =<< refMake emptyUpdateQueue
+            return (SomeParam hbr)
     return $!
         PendingUpdates
             { pRootKeysUpdateQueue = newRootKeys,
@@ -443,7 +464,8 @@ migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainPa
               pTimeoutParametersQueue = newTimeoutParameters,
               pMinBlockTimeQueue = newMinBlockTimeQueue,
               pBlockEnergyLimitQueue = newBlockEnergyLimitQueue,
-              pFinalizationCommitteeParametersQueue = newFinalizationCommitteeParametersQueue
+              pFinalizationCommitteeParametersQueue = newFinalizationCommitteeParametersQueue,
+              pValidatorScoreParametersQueue = newValidatorScoreParametersQueue
             }
 
 instance
@@ -471,6 +493,7 @@ instance
         hMinBlockTimeQueue <- hashWhenSupported pMinBlockTimeQueue
         hBlockEnergyLimitQueue <- hashWhenSupported pBlockEnergyLimitQueue
         hFinalizationCommitteeParametersQueue <- hashWhenSupported pFinalizationCommitteeParametersQueue
+        hValidatorScoreParametersQueue <- hashWhenSupported pValidatorScoreParametersQueue
         return $!
             H.hash $
                 hRootKeysUpdateQueue
@@ -493,6 +516,7 @@ instance
                     <> hMinBlockTimeQueue
                     <> hBlockEnergyLimitQueue
                     <> hFinalizationCommitteeParametersQueue
+                    <> hValidatorScoreParametersQueue
       where
         hashWhenSupported :: (MHashableTo m H.Hash a) => OParam pt cpv a -> m BS.ByteString
         hashWhenSupported = maybeWhenSupported (return mempty) (fmap H.hashToByteString . getHashM)
@@ -522,6 +546,7 @@ instance
         (putMinBlockTimeQueue, newMinBlockTimeQueue) <- storeUpdate pMinBlockTimeQueue
         (putBlockEnergyLimitQueue, newBlockEnergyLimitQueue) <- storeUpdate pBlockEnergyLimitQueue
         (putFinalizationCommitteeParametersQueue, newFinalizationCommitteeParametersQueue) <- storeUpdate pFinalizationCommitteeParametersQueue
+        (putValidatorScoreParametersQueue, newValidatorScoreParametersQueue) <- storeUpdate pValidatorScoreParametersQueue
         let newPU =
                 PendingUpdates
                     { pRootKeysUpdateQueue = rkQ,
@@ -543,7 +568,8 @@ instance
                       pTimeoutParametersQueue = newTimeoutParametersQueue,
                       pMinBlockTimeQueue = newMinBlockTimeQueue,
                       pBlockEnergyLimitQueue = newBlockEnergyLimitQueue,
-                      pFinalizationCommitteeParametersQueue = newFinalizationCommitteeParametersQueue
+                      pFinalizationCommitteeParametersQueue = newFinalizationCommitteeParametersQueue,
+                      pValidatorScoreParametersQueue = newValidatorScoreParametersQueue
                     }
         let putPU =
                 pRKQ
@@ -566,6 +592,7 @@ instance
                     >> putMinBlockTimeQueue
                     >> putBlockEnergyLimitQueue
                     >> putFinalizationCommitteeParametersQueue
+                    >> putValidatorScoreParametersQueue
         return (putPU, newPU)
     load = withCPVConstraints (chainParametersVersion @cpv) $ do
         mRKQ <- label "Root keys update queue" load
@@ -588,6 +615,7 @@ instance
         mMinBlockTimeQueue <- label "Minimum block time update queue" load
         mBlockEnergyLimitQueue <- label "Block energy limit update queue" load
         mFinalizationCommitteeParametersQueue <- label "Finalization committee parameters update queue" load
+        mValidatorScoreParametersQueue <- label "Validator score parameters update queue" load
         return $! do
             pRootKeysUpdateQueue <- mRKQ
             pLevel1KeysUpdateQueue <- mL1KQ
@@ -609,6 +637,7 @@ instance
             pMinBlockTimeQueue <- mMinBlockTimeQueue
             pBlockEnergyLimitQueue <- mBlockEnergyLimitQueue
             pFinalizationCommitteeParametersQueue <- mFinalizationCommitteeParametersQueue
+            pValidatorScoreParametersQueue <- mValidatorScoreParametersQueue
             return PendingUpdates{..}
 
 instance
@@ -638,6 +667,7 @@ instance
                 <*> cache pMinBlockTimeQueue
                 <*> cache pBlockEnergyLimitQueue
                 <*> cache pFinalizationCommitteeParametersQueue
+                <*> cache pValidatorScoreParametersQueue
       where
         cpv = chainParametersVersion @cpv
 
@@ -646,7 +676,7 @@ emptyPendingUpdates ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
     m (PendingUpdates cpv)
-emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> whenSupportedA e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e
+emptyPendingUpdates = PendingUpdates <$> e <*> e <*> e <*> e <*> whenSupportedA e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e <*> whenSupportedA e
   where
     e :: m (HashedBufferedRef (UpdateQueue a))
     e = makeHashedBufferedRef emptyUpdateQueue
@@ -678,6 +708,7 @@ makePersistentPendingUpdates UQ.PendingUpdates{..} = withCPVConstraints (chainPa
     pMinBlockTimeQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pMinBlockTimeQueue
     pBlockEnergyLimitQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pBlockEnergyLimitQueue
     pFinalizationCommitteeParametersQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pFinalizationCommitteeParametersQueue
+    pValidatorScoreParametersQueue <- mapM (refMake <=< makePersistentUpdateQueue) _pValidatorScoreParametersQueue
     return PendingUpdates{..}
 
 -- | Convert a persistent 'PendingUpdates' to an in-memory 'UQ.PendingUpdates'.
@@ -707,6 +738,7 @@ makeBasicPendingUpdates PendingUpdates{..} = withCPVConstraints (chainParameters
     _pMinBlockTimeQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pMinBlockTimeQueue
     _pBlockEnergyLimitQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pBlockEnergyLimitQueue
     _pFinalizationCommitteeParametersQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pFinalizationCommitteeParametersQueue
+    _pValidatorScoreParametersQueue <- mapM (makeBasicUpdateQueue <=< refLoad) pValidatorScoreParametersQueue
     return UQ.PendingUpdates{..}
 
 -- | Current state of updatable parameters and update queues.
@@ -1294,6 +1326,38 @@ processFinalizationCommitteeParametersUpdates t bu = do
                               pendingUpdates = pendingUpdates{pFinalizationCommitteeParametersQueue = SomeParam newpQ}
                             }
 
+-- | Process validator score parameters updates.
+--  If the validator score parameters are supported then
+--  update them (if an update was enqueued and its time is now)
+--  and update the 'pendingUpdates' accordingly.
+processValidationScoreParametersUpdates ::
+    forall m cpv.
+    (MonadBlobStore m, IsChainParametersVersion cpv) =>
+    Timestamp ->
+    BufferedRef (Updates' cpv) ->
+    m (Map.Map TransactionTime (UpdateValue cpv), BufferedRef (Updates' cpv))
+processValidationScoreParametersUpdates t bu = do
+    u@Updates{..} <- refLoad bu
+    case pValidatorScoreParametersQueue pendingUpdates of
+        NoParam -> return (Map.empty, bu)
+        SomeParam qref -> do
+            oldQ <- refLoad qref
+            processValueUpdates t oldQ (return (Map.empty, bu)) $ \newBELp newQ m ->
+                (UVValidatorScoreParameters <$> m,) <$> do
+                    newpQ <- refMake newQ
+                    StoreSerialized oldCP <- refLoad currentParameters
+                    StoreSerialized newValidatorScoreParameters <- refLoad newBELp
+                    newParameters <-
+                        refMake $
+                            StoreSerialized $
+                                oldCP
+                                    & (cpValidatorScoreParameters . supportedOParam .~ newValidatorScoreParameters)
+                    refMake
+                        u
+                            { currentParameters = newParameters,
+                              pendingUpdates = pendingUpdates{pValidatorScoreParametersQueue = SomeParam newpQ}
+                            }
+
 -- | Process the add anonymity revoker update queue.
 --   Ignores updates with duplicate ARs.
 processAddAnonymityRevokerUpdates ::
@@ -1444,7 +1508,8 @@ processUpdateQueues t (u0, ars, ips) = do
               processTimeoutParametersUpdates t,
               processMinBlockTimeUpdates t,
               processBlockEnergyLimitUpdates t,
-              processFinalizationCommitteeParametersUpdates t
+              processFinalizationCommitteeParametersUpdates t,
+              processValidationScoreParametersUpdates t
             ]
 
     -- AR and IP updates are handled separately to avoid adding the large objects to the 'Updates' types.
@@ -1583,6 +1648,11 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                 (pure minUpdateSequenceNumber)
                 (fmap uqNextSequenceNumber . refLoad)
                 (pFinalizationCommitteeParametersQueue pendingUpdates)
+        UpdateValidatorScoreParameters ->
+            maybeWhenSupported
+                (pure minUpdateSequenceNumber)
+                (fmap uqNextSequenceNumber . refLoad)
+                (pValidatorScoreParametersQueue pendingUpdates)
 
 -- | Enqueue an update in the appropriate queue.
 enqueueUpdate ::
@@ -1635,6 +1705,10 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
             SomeParam q ->
                 enqueue effectiveTime v q
                     <&> \newQ -> p{pFinalizationCommitteeParametersQueue = SomeParam newQ}
+        UVValidatorScoreParameters v -> case pValidatorScoreParametersQueue of
+            SomeParam q ->
+                enqueue effectiveTime v q
+                    <&> \newQ -> p{pValidatorScoreParametersQueue = SomeParam newQ}
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- | Overwrite the election difficulty with the specified value and remove

@@ -1097,7 +1097,7 @@ impl AppPreferences {
 
     fn calculate_config_file_path(config_path: &Path, key: &str) -> PathBuf {
         let mut new_path = config_path.to_path_buf();
-        new_path.push(&format!("{}.json", key));
+        new_path.push(format!("{}.json", key));
         new_path
     }
 
@@ -1105,7 +1105,7 @@ impl AppPreferences {
     pub fn set_config<X: ToString>(&mut self, key: &str, value: Option<X>) -> bool {
         match value {
             Some(val) => self.preferences_map.insert(key.to_string(), val.to_string()),
-            _ => self.preferences_map.remove(&key.to_string()),
+            _ => self.preferences_map.remove(key),
         };
         let file_path =
             Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);

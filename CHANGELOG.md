@@ -1,10 +1,47 @@
 # Changelog
 
 ## Unreleased changes
+- Replace `BufferedRef` with `HashedBufferedRef` in `PoolRewards`
+  `bakerPoolRewardDetails::LFMBTree` field to cache computed hashes.
 
+## 8.0.3
+
+- Fix a bug where, after a protocol update in consensus version 1 (P6 onwards), a node may
+  miscalculate the absolute height of blocks when it is restarted. (#1319)
+- Fix a bug where `GetBlockInfo` reports the parent block of a genesis block to be the last
+  finalized block of the previous genesis index, instead of the terminal block.
+
+## 8.0.2
+
+- Fix a bug where the P7->P8 protocol update affects payday timing.
+
+## 8.0.1
+
+- Fix a bug in computing the number of missed rounds in the event of a timeout.
+- Fix a bug where the suspended status of a baker pool would be omitted when it was suspended.
+- Fix a bug where `GetBlockChainParameters` returns a `ChainParametersV2` in cases where it should
+  return `ChainParametersV3`.
+
+## 8.0.0
+
+- Add P7 -> P8 update.
+- Automatically suspend validators from the consensus that missed too many
+  rounds in the previous payday.
 - Add support for suspend/resume to validator configuration updates.
+- Add support to add a validator in a suspended state.
+- Validators that are suspended are paused from participating in the consensus algorithm.
+- Add suspension info to `BakerPoolStatus` / `CurrentPaydayBakerPoolStatus` query results.
 - Add `GetConsensusDetailedStatus` gRPC endpoint for getting detailed information on the status
   of the consensus, at consensus version 1.
+- Update Rust version to 1.82.
+- Update GHC version to 9.6.6 (LTS-22.39).
+- Add `GetScheduledReleaseAccounts` endpoint for querying the list of accounts that
+  have scheduled releases.
+- Add `GetCooldownAccounts`, `GetPreCooldownAccounts` and `GetPrePreCooldownAccounts`
+  endpoints for querying the lists of accounts that have pending cooldowns in protocol
+  version 7 onwards.
+- gRPC endpoints `DryRun`, `GetBlockItemStatus` and `GetBlockTransactionEvents` now report the
+  parameter used to initialize a smart contract instance as part of a `ContractInitializedEvent`.
 
 ## 7.0.5
 

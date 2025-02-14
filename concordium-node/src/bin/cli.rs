@@ -350,8 +350,8 @@ fn instantiate_node(
 /// 1. Try connect to the provided "given_nodes" if configured.
 /// 2. Try connect to the peers that the node was last connected to (if any).
 /// 3. Try connect to the bootstrapper configured (if any) in order to advertise
-/// ourselves such that the boostrapper node can provide us to freshly joining
-/// peers.
+///    ourselves such that the boostrapper node can provide us to freshly
+///    joining peers.
 fn establish_connections(conf: &config::Config, node: &Arc<P2PNode>) -> anyhow::Result<()> {
     info!("Starting the P2P layer");
     connect_to_config_nodes(node);

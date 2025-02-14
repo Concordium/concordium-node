@@ -3,11 +3,11 @@ use std::{env, path::Path};
 use std::{process::Command, str};
 
 #[cfg(all(not(feature = "static"), target_os = "linux"))]
-const GHC_VARIANT: &str = "x86_64-linux-ghc-9.6.4";
+const GHC_VARIANT: &str = "x86_64-linux-ghc-9.6.6";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "x86_64"))]
-const GHC_VARIANT: &str = "x86_64-osx-ghc-9.6.4";
+const GHC_VARIANT: &str = "x86_64-osx-ghc-9.6.6";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "aarch64"))]
-const GHC_VARIANT: &str = "aarch64-osx-ghc-9.6.4";
+const GHC_VARIANT: &str = "aarch64-osx-ghc-9.6.6";
 
 #[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
@@ -493,6 +493,46 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
                 .input_type("crate::grpc2::types::BlockHashInput")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_scheduled_release_accounts")
+                .route_name("GetScheduledReleaseAccounts")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_cooldown_accounts")
+                .route_name("GetCooldownAccounts")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_pre_cooldown_accounts")
+                .route_name("GetPreCooldownAccounts")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_pre_pre_cooldown_accounts")
+                .route_name("GetPrePreCooldownAccounts")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
                 .build(),
         )
         .method(

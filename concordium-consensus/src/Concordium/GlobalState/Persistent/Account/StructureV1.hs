@@ -121,8 +121,14 @@ migratePersistentBakerInfoEx StateMigrationParametersP6ToP7{} = migrateReference
         (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'False, Monad m') =>
         BakerInfoEx av1 ->
         m' (BakerInfoEx av2)
-    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieAccountIsSuspended = CFalse, ..}
-migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = error "TODO(drsk) github #1220. Implement migratePersistenBakerInfoEx p7 -> p8"
+    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CFalse, ..}
+migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = migrateReference migrateBakerInfoExV1
+  where
+    migrateBakerInfoExV1 ::
+        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'True, Monad m') =>
+        BakerInfoEx av1 ->
+        m' (BakerInfoEx av2)
+    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CTrue False, ..}
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 --  See documentation of @migratePersistentBlockState@.
@@ -342,6 +348,32 @@ migratePersistentAccountStakeEnduringV2toV3 PersistentAccountStakeEnduringDelega
                 NoChange -> do
                     liftStakedBalanceStateTT $ retainDelegator paseDelegatorId oldStake newTarget
                     return $!! (newDelegatorInfo, emptyCooldownQueue)
+
+-- | Migrate PersistentAccountStakeEnduring from AccountV3 to AccountV4. There
+--  are no pending changes to take care of in V3, only the BakerInfoExV1 data
+--  type needs to be migrated by setting the new `_bieIsSuspended` flag to
+--  false.
+migratePersistentAccountStakeEnduringV3toV4 ::
+    (SupportMigration m t, AccountMigration 'AccountV4 (t m)) =>
+    PersistentAccountStakeEnduring 'AccountV3 ->
+    -- | Returns the new 'PersistentAccountStakeEnduring' and 'CooldownQueue'.
+    t m (PersistentAccountStakeEnduring 'AccountV4)
+migratePersistentAccountStakeEnduringV3toV4 PersistentAccountStakeEnduringNone =
+    return PersistentAccountStakeEnduringNone
+migratePersistentAccountStakeEnduringV3toV4 PersistentAccountStakeEnduringBaker{..} = do
+    newBakerInfo <- migrateReference (return . (\BakerInfoExV1{..} -> BakerInfoExV1{_bieIsSuspended = CTrue False, ..})) paseBakerInfo
+    return
+        PersistentAccountStakeEnduringBaker
+            { paseBakerInfo = newBakerInfo,
+              paseBakerPendingChange = NoChange,
+              ..
+            }
+migratePersistentAccountStakeEnduringV3toV4 PersistentAccountStakeEnduringDelegator{..} =
+    return $!
+        PersistentAccountStakeEnduringDelegator
+            { paseDelegatorPendingChange = NoChange,
+              ..
+            }
 
 -- | This relies on the fact that the 'AccountV2' hashing of 'AccountStake' is independent of the
 --  staked amount.
@@ -1489,7 +1521,7 @@ setValidatorSuspended ::
 setValidatorSuspended isSusp = updateStake $ \case
     baker@PersistentAccountStakeEnduringBaker{} -> do
         oldInfo <- refLoad (paseBakerInfo baker)
-        let newInfo = oldInfo & bieAccountIsSuspended .~ isSusp
+        let newInfo = oldInfo & bieIsSuspended .~ isSusp
         newInfoRef <- refMake $! newInfo
         return $! baker{paseBakerInfo = newInfoRef}
     PersistentAccountStakeEnduringDelegator{} ->
@@ -1962,6 +1994,34 @@ migrateEnduringDataV2toV3 ed = do
         paedStake
         paedStakeCooldown
 
+migrateEnduringDataV3toV4 ::
+    (SupportMigration m t, AccountMigration 'AccountV4 (t m), MonadLogger (t m)) =>
+    -- | Current enduring data
+    PersistentAccountEnduringData 'AccountV3 ->
+    -- | New enduring data.
+    t m (PersistentAccountEnduringData 'AccountV4)
+migrateEnduringDataV3toV4 ed = do
+    logEvent GlobalState LLTrace "Migrating persisting data"
+    paedPersistingData <- migrateEagerBufferedRef return (paedPersistingData ed)
+    paedEncryptedAmount <- forM (paedEncryptedAmount ed) $ \e -> do
+        logEvent GlobalState LLTrace "Migrating encrypted amount"
+        migrateReference migratePersistentEncryptedAmount e
+    paedReleaseSchedule <- forM (paedReleaseSchedule ed) $ \(oldRSRef, lockedAmt) -> do
+        logEvent GlobalState LLTrace "Migrating release schedule"
+        newRSRef <- migrateReference migrateAccountReleaseSchedule oldRSRef
+        return (newRSRef, lockedAmt)
+    logEvent GlobalState LLTrace "Migrating stake"
+    paedStake <- migratePersistentAccountStakeEnduringV3toV4 (paedStake ed)
+    logEvent GlobalState LLTrace "Migrating cooldown queue"
+    paedStakeCooldown <- migrateCooldownQueue (paedStakeCooldown ed)
+    logEvent GlobalState LLTrace "Reconstructing account enduring data"
+    makeAccountEnduringDataAV4
+        paedPersistingData
+        paedEncryptedAmount
+        paedReleaseSchedule
+        paedStake
+        paedStakeCooldown
+
 -- | Migration for 'PersistentAccountEnduringData'. Only supports 'AccountV3'.
 --  The data is unchanged in the migration.
 migrateEnduringDataV3toV3 ::
@@ -2075,11 +2135,21 @@ migrateV3ToV3 acc = do
 migrateV3ToV4 ::
     ( MonadBlobStore m,
       MonadBlobStore (t m),
-      MonadTrans t
+      AccountMigration 'AccountV4 (t m),
+      MonadTrans t,
+      MonadLogger (t m)
     ) =>
     PersistentAccount 'AccountV3 ->
     t m (PersistentAccount 'AccountV4)
-migrateV3ToV4 _acc = error "TODO(drsk) github #1221. implement migrateV3ToV4"
+migrateV3ToV4 acc = do
+    (accountEnduringData) <- migrateEagerBufferedRef migrateEnduringDataV3toV4 (accountEnduringData acc)
+    return $!
+        PersistentAccount
+            { accountNonce = accountNonce acc,
+              accountAmount = accountAmount acc,
+              accountStakedAmount = accountStakedAmount acc,
+              ..
+            }
 
 -- | A trivial migration from account version 4 to account version 4.
 --  In particular the data is retained as-is.
@@ -2100,7 +2170,7 @@ migrateV4ToV4 acc = do
               ..
             }
 
--- | Migration for 'PersistentAccount'. Supports 'AccountV2' and 'AccountV3'.
+-- | Migration for 'PersistentAccount'. Supports 'AccountV2', 'AccountV3', 'AccountV4'.
 --
 --  When migrating P6->P7 (account version 2 to 3), the 'AccountMigration' interface is used as
 --  follows:

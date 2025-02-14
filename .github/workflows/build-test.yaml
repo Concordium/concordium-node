@@ -125,8 +125,8 @@ jobs:
     strategy:
       matrix:
         plan:
-        - rust: 1.73
-          ghc: 9.6.4
+        - rust: 1.82
+          ghc: 9.6.6
 
     steps:
     - name: Remove unnecessary files

@@ -465,10 +465,9 @@ data ExistingSkov pv m = ExistingSkov
       esState :: !(SkovV1State pv),
       -- | The hash of the current genesis block.
       esGenesisHash :: !BlockHash,
-      -- | The (relative) height of the last finalized block.
-      esLastFinalizedHeight :: !BlockHeight,
-      -- | The effective protocol update if one has occurred.
-      esProtocolUpdate :: !(Maybe ProtocolUpdate)
+      -- | The effective protocol update if one has occurred, together with the relative
+      --  block height of the terminal block.
+      esProtocolUpdate :: !(Maybe (ProtocolUpdate, BlockHeight))
     }
 
 -- | Internal type used for deriving 'HasDatabaseHandlers' and 'LMDBAccountMap.HasDatabaseHandlers'
@@ -541,8 +540,6 @@ initialiseExistingSkovV1 genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov g
                                           _notifiedProtocolUpdate = Nothing
                                         },
                                   esGenesisHash = initialSkovData ^. currentGenesisHash,
-                                  esLastFinalizedHeight =
-                                    blockHeight (initialSkovData ^. lastFinalized),
                                   esProtocolUpdate = effectiveProtocolUpdate
                                 }
                     return $ Just es
