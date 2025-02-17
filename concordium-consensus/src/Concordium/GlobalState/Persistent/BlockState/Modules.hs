@@ -50,7 +50,6 @@ import Concordium.Wasm
 import Control.Monad.Trans
 import qualified Data.ByteString as BS
 import Data.Coerce
-import Data.Foldable
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
@@ -152,76 +151,85 @@ instance HashableTo Hash Module where
 instance (Monad m) => MHashableTo m Hash Module
 instance (MonadBlobStore m) => Cacheable m Module
 
+-- | Load a module from the underlying storage, without recompiling the artifact.
+loadModuleDirect :: (MonadLogger m, MonadBlobStore m) => BlobRef Module -> m Module
+loadModuleDirect br = do
+    bs <- loadRaw br
+    let getModule = do
+            -- Offset of the start of the module
+            startOffset <- fromIntegral <$> bytesRead
+            -- Header
+            miModuleRef <- get
+            miExposedInit <- getSafeSetOf get
+            miExposedReceive <- getSafeMapOf get (getSafeSetOf get)
+            -- Artifact is serialized as @InstrumentedModule v@.
+            artVersion <- get
+            artLen <- getWord32be
+            -- Offset of the start of the artifact
+            artOffset <- fromIntegral <$> bytesRead
+            -- Skip the actual body of the artifact; we deserialize as a 'BlobPtr' instead.
+            skip (fromIntegral artLen)
+            -- Footer
+            miModuleSize <- getWord64be
+            let miModule :: PersistentInstrumentedModuleV v
+                miModule =
+                    PIMVPtr
+                        BlobPtr
+                            { theBlobPtr =
+                                -- Start of the blob ref
+                                theBlobRef br
+                                    -- Add the size of the length field for the blob ref
+                                    + 8
+                                    -- Add the offset of the artifact
+                                    + artOffset
+                                    -- Subtract the starting offset
+                                    - startOffset,
+                              blobPtrLen = fromIntegral artLen
+                            }
+                moduleVInterface :: GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
+                moduleVInterface = GSWasm.ModuleInterface{..}
+            case artVersion of
+                V0 -> do
+                    moduleVSource <- get
+                    return $! ModuleV0 (ModuleV{..})
+                V1 -> do
+                    moduleVSource <- get
+                    return $! ModuleV1 (ModuleV{..})
+    case runGet getModule bs of
+        Left e -> error (e ++ " :: " ++ show bs)
+        Right mv -> return mv
+
 -- | This instance is based on and should be compatible with the 'Serialize' instance
 --  for 'BasicModuleInterface'.
 instance (MonadLogger m, MonadBlobStore m, MonadProtocolVersion m) => DirectBlobStorable m Module where
-    loadDirect br = do
-        bs <- loadRaw br
-        let getModule = do
-                -- Offset of the start of the module
-                startOffset <- fromIntegral <$> bytesRead
-                -- Header
-                miModuleRef <- get
-                miExposedInit <- getSafeSetOf get
-                miExposedReceive <- getSafeMapOf get (getSafeSetOf get)
-                -- Artifact is serialized as @InstrumentedModule v@.
-                artVersion <- get
-                artLen <- getWord32be
-                -- Offset of the start of the artifact
-                artOffset <- fromIntegral <$> bytesRead
-                -- Skip the actual body of the artifact; we deserialize as a 'BlobPtr' instead.
-                skip (fromIntegral artLen)
-                -- Footer
-                miModuleSize <- getWord64be
-                let miModule :: PersistentInstrumentedModuleV v
-                    miModule =
-                        PIMVPtr
-                            BlobPtr
-                                { theBlobPtr =
-                                    -- Start of the blob ref
-                                    theBlobRef br
-                                        -- Add the size of the length field for the blob ref
-                                        + 8
-                                        -- Add the offset of the artifact
-                                        + artOffset
-                                        -- Subtract the starting offset
-                                        - startOffset,
-                                  blobPtrLen = fromIntegral artLen
-                                }
-                    moduleVInterface :: GSWasm.ModuleInterfaceA (PersistentInstrumentedModuleV v)
-                    moduleVInterface = GSWasm.ModuleInterface{..}
-                case artVersion of
-                    V0 -> do
-                        moduleVSource <- get
-                        return $! ModuleV0 (ModuleV{..})
-                    V1 -> do
-                        moduleVSource <- get
-                        return $! ModuleV1 (ModuleV{..})
-        case runGet getModule bs of
-            Left e -> error (e ++ " :: " ++ show bs)
-            Right mv@(ModuleV0 mv0@(ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = PIMVPtr artPtr, ..}, ..})) | potentialLegacyArtifacts -> do
-                artBS <- loadBlobPtr artPtr
-                if GSWasm.isV0LegacyArtifact artBS
-                    then do
-                        logEvent GlobalState LLTrace $ "Recompiling V0 module " ++ show miModuleRef
-                        source <- loadRef moduleVSource
-                        case WasmV0.compileModule CSV0 source of
-                            Nothing -> error "Stored module that is not valid."
-                            Just (_, compiled) -> do
-                                return $! ModuleV0 mv0{moduleVInterface = (moduleVInterface mv0){GSWasm.miModule = PIMVMem compiled}}
-                    else return mv
-            Right mv@(ModuleV1 mv1@(ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = PIMVPtr artPtr, ..}, ..})) | potentialLegacyArtifacts -> do
-                artBS <- loadBlobPtr artPtr
-                if GSWasm.isV0LegacyArtifact artBS
-                    then do
-                        logEvent GlobalState LLTrace $ "Recompiling V1 module " ++ show miModuleRef
-                        source <- loadRef moduleVSource
-                        case WasmV1.compileModule (WasmV1.validationConfigAllowP1P6 CSV0) source of
-                            Nothing -> error "Stored module that is not valid."
-                            Just (_, compiled) -> do
-                                return $! ModuleV1 mv1{moduleVInterface = (moduleVInterface mv1){GSWasm.miModule = PIMVMem compiled}}
-                    else return mv
-            Right mv -> return mv
+    loadDirect br
+        | potentialLegacyArtifacts = do
+            mv <- loadModuleDirect br
+            case mv of
+                (ModuleV0 mv0@(ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = PIMVPtr artPtr, ..}, ..})) -> do
+                    artBS <- loadBlobPtr artPtr
+                    if GSWasm.isV0LegacyArtifact artBS
+                        then do
+                            logEvent GlobalState LLTrace $ "Recompiling V0 module " ++ show miModuleRef
+                            source <- loadRef moduleVSource
+                            case WasmV0.compileModule CSV0 source of
+                                Nothing -> error "Stored module that is not valid."
+                                Just (_, compiled) -> do
+                                    return $! ModuleV0 mv0{moduleVInterface = (moduleVInterface mv0){GSWasm.miModule = PIMVMem compiled}}
+                        else return mv
+                (ModuleV1 mv1@(ModuleV{moduleVInterface = GSWasm.ModuleInterface{miModule = PIMVPtr artPtr, ..}, ..})) -> do
+                    artBS <- loadBlobPtr artPtr
+                    if GSWasm.isV0LegacyArtifact artBS
+                        then do
+                            logEvent GlobalState LLTrace $ "Recompiling V1 module " ++ show miModuleRef
+                            source <- loadRef moduleVSource
+                            case WasmV1.compileModule (WasmV1.validationConfigAllowP1P6 CSV0) source of
+                                Nothing -> error "Stored module that is not valid."
+                                Just (_, compiled) -> do
+                                    return $! ModuleV1 mv1{moduleVInterface = (moduleVInterface mv1){GSWasm.miModule = PIMVMem compiled}}
+                        else return mv
+                _ -> return mv
+        | otherwise = loadModuleDirect br
       where
         -- When a node is running protocol 6 or lower it might have been started prior to the new notion of Wasm
         -- artifacts, which needs to be recompiled on load.
@@ -270,6 +278,14 @@ instance (MonadLogger m, MonadBlobStore m, MonadProtocolVersion m) => DirectBlob
         mkModule :: SWasmVersion v -> ModuleV v -> Module
         mkModule SV0 = ModuleV0
         mkModule SV1 = ModuleV1
+
+instance (MonadBlobStore m) => DirectBlobHashable m Hash Module where
+    loadHash br = do
+        bs <- loadRaw br
+        -- Decode the module reference only.
+        case decode bs of
+            Left e -> error $ "Could not decode stored module hash: " ++ e
+            Right ModuleRef{..} -> return moduleRef
 
 --------------------------------------------------------------------------------
 
@@ -320,13 +336,14 @@ instance (MonadProtocolVersion m, SupportsPersistentModule m) => BlobStorable m 
         table <- load
         return $ do
             _modulesTable <- table
-            _modulesMap <-
-                foldl'
-                    ( \m (idx, aModule) ->
-                        Map.insert (GSWasm.moduleReference aModule) idx m
+            (_modulesMap, _) <-
+                LFMB.mfoldRef
+                    ( \(m, idx) modHCR -> do
+                        modRef <- ModuleRef <$> getHashM modHCR
+                        return $!! (Map.insert modRef idx m, idx + 1)
                     )
-                    Map.empty
-                    <$> LFMB.toAscPairList _modulesTable
+                    (Map.empty, 0)
+                    _modulesTable
             return Modules{..}
     storeUpdate m@Modules{..} = do
         (pModulesTable, _modulesTable') <- storeUpdate _modulesTable
@@ -390,13 +407,24 @@ getInterface ::
 getInterface ref mods = fmap getModuleInterface <$> getModule ref mods
 
 -- | Get the source of a module by module reference.
+--  This does not cache the module.
 getSource :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe WasmModule)
 getSource ref mods = do
-    m <- getModule ref mods
-    case m of
+    mRef <- getModuleReference ref mods
+    case mRef of
         Nothing -> return Nothing
-        Just (ModuleV0 ModuleV{..}) -> Just . WasmModuleV0 <$> loadRef moduleVSource
-        Just (ModuleV1 ModuleV{..}) -> Just . WasmModuleV1 <$> loadRef moduleVSource
+        Just hcref -> do
+            -- Since we only care about the source of the module, we can use 'loadModuleDirect',
+            -- which will bypass recompiling the artifact. It will also not cache the module,
+            -- but that is likely fine as the source is not cached anyway, and this is only
+            -- ultimately used in GRPC queries.
+            mdl <-
+                openHashedCachedRef hcref >>= \case
+                    Left r -> loadModuleDirect r
+                    Right v -> return v
+            case mdl of
+                (ModuleV0 ModuleV{..}) -> Just . WasmModuleV0 <$> loadRef moduleVSource
+                (ModuleV1 ModuleV{..}) -> Just . WasmModuleV1 <$> loadRef moduleVSource
 
 -- | Get the list of all currently deployed modules.
 --  The order of the list is not specified.
