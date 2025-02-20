@@ -64,6 +64,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     storeUpdateRef,
     loadRef,
     DirectBlobStorable (..),
+    DirectBlobHashable (..),
 
     -- * Nullable
     Nullable (..),
@@ -873,6 +874,23 @@ instance {-# OVERLAPPABLE #-} (MonadBlobStore m, BlobStorable m a) => DirectBlob
     loadDirect = loadRef
     {-# INLINE storeUpdateDirect #-}
     {-# INLINE loadDirect #-}
+
+-- | The @DirectBlobHashable m h a@ class defines an operation for directly loading the hash
+--  of a value of type @a@ from the blob store. This allows for a more efficient implementation
+--  than loading the full value and then computing the hash in cases where loading may be expensive.
+class (MonadBlobStore m) => DirectBlobHashable m h a where
+    -- | Load the hash of a value of type @a@ from the underlying storage.
+    --
+    -- prop> loadHash = getHashM <=< loadDirect
+    loadHash :: BlobRef a -> m h
+
+instance
+    {-# OVERLAPPABLE #-}
+    (DirectBlobStorable m a, MHashableTo m h a) =>
+    DirectBlobHashable m h a
+    where
+    loadHash = getHashM <=< loadDirect
+    {-# INLINE loadHash #-}
 
 instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (a, b) where
     storeUpdate (a, b) = do

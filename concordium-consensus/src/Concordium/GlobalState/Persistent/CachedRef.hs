@@ -9,6 +9,7 @@ module Concordium.GlobalState.Persistent.CachedRef where
 
 import Control.Monad
 import Control.Monad.Trans
+import Data.Functor
 import Data.IORef
 import Data.Proxy
 import Data.Serialize (put)
@@ -437,9 +438,32 @@ makeFlushedHashedCachedRef val = do
     (br, _) <- storeUpdateDirect val
     return $! HCRFlushed br h
 
+-- | Get the value underlying a 'HashedCachedRef' if it is in memory or the cache. Otherwise,
+--  return the 'BlobRef' to the value.
+openHashedCachedRef ::
+    forall m h c a.
+    ( MonadCache c m,
+      Cache c,
+      CacheKey c ~ BlobRef a,
+      CacheValue c ~ a
+    ) =>
+    HashedCachedRef' h c a ->
+    m (Either (BlobRef a) a)
+openHashedCachedRef HCRUnflushed{..} =
+    liftIO (readIORef hcrUnflushed) >>= \case
+        HCRMem val -> return (Right val)
+        HCRMemHashed val _ -> return (Right val)
+        HCRDisk r -> openHashedCachedRef r
+openHashedCachedRef HCRFlushed{..} =
+    lookupCachedValue (Proxy @c) hcrBlob <&> \case
+        Nothing -> Left hcrBlob
+        Just val -> Right val
+
+-- | Loading a 'HashedCachedRef' does not cache the value, but it does load the hash via 'loadHash'.
 instance
     ( MonadCache c m,
       DirectBlobStorable m a,
+      DirectBlobHashable m h a,
       Cache c,
       CacheKey c ~ BlobRef a,
       CacheValue c ~ a,
@@ -455,13 +479,10 @@ instance
         mref <- load
         return $ do
             hcrBlob <- mref
-            val <-
+            hcrHash <-
                 lookupCachedValue (Proxy @c) hcrBlob >>= \case
-                    Nothing -> do
-                        val <- loadDirect hcrBlob
-                        putCachedValue (Proxy @c) hcrBlob val
-                    Just val -> return val
-            hcrHash <- getHashM val
+                    Nothing -> loadHash hcrBlob
+                    Just val -> getHashM val
             return HCRFlushed{..}
 
 -- | Caching a 'HashedCachedRef' does nothing on the principle that it is generally undesirable to

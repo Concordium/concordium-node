@@ -49,6 +49,7 @@ module Concordium.GlobalState.Persistent.LFMBTree (
     fromAscListV,
 
     -- * Traversal
+    mfoldRef,
     mfold,
     mfoldDesc,
     migrateLFMBTree,
@@ -453,6 +454,17 @@ fromAscListNullable l = fromAscList $ go l 0
         | i == ix = Some v : go xs (i + 1)
         | otherwise = (replicate (fromIntegral $ i - ix) Null) ++ go z i
     go [] _ = []
+
+-- | Fold a monadic action over the leaves of the tree in ascending order of index.
+--  This is strict in the intermediate results.
+mfoldRef :: (CanStoreLFMBTree m ref1 l) => (a -> l -> m a) -> a -> LFMBTree' k ref1 l -> m a
+mfoldRef _ a0 Empty = return a0
+mfoldRef f !a0 (NonEmpty _ t) = mfoldT a0 t
+  where
+    mfoldT a (Leaf v) = f a v
+    mfoldT a (Node _ l r) = do
+        !a' <- mfoldT a =<< refLoad l
+        mfoldT a' =<< refLoad r
 
 -- | Fold a monadic action over the tree in ascending order of index.
 -- This is strict in the intermediate results.
