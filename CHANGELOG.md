@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Improvements to the loading of modules. This particularly improves the performance of
+  `GetModuleSource` in certain cases, and can also reduce start-up time.
+
 ## 8.0.3
 
 - Fix a bug where, after a protocol update in consensus version 1 (P6 onwards), a node may
