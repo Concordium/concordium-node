@@ -1608,6 +1608,8 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --
     --  Preconditions:
     --  * This function MUST only be called on a certified block.
+    --  * The block state MUST already be cached (with 'cacheBlockState'). Otherwise the update to
+    --    the difference map may not be retained.
     --  * This function MUST only be called on a block state that does not already
     --    have a difference map.
     --  * The provided list of accounts MUST correspond to the accounts created in the block,

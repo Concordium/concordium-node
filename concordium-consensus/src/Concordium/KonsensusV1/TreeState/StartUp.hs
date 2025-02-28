@@ -25,7 +25,7 @@ import Concordium.Types.Updates
 import Concordium.Utils
 
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
-import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockState as BlockState
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Statistics as Stats
@@ -436,6 +436,11 @@ loadCertifiedBlocks = do
         _ -> Nothing
     loadCertBlock (storedBlock, qc) loadedBlocks = do
         blockPointer <- mkBlockPointer storedBlock
+        let bh = getHash @BlockHash blockPointer
+        -- Cache the block state first, as this is required for reconstructing the account
+        -- difference map.
+        cacheBlockState (bpState blockPointer)
+
         -- As only finalized accounts are stored in the account map, then
         -- we need to reconstruct the 'DiffMap.DifferenceMap' here for the certified block we're loading.
         let accountsToInsert = mapMaybe getAccountAddressFromDeployment (blockTransactions storedBlock)
@@ -456,7 +461,29 @@ loadCertifiedBlocks = do
         -- append to the accumulator with this new difference map reference
         let loadedBlocks' = HM.insert (getHash storedBlock) newDifferenceMap loadedBlocks
 
-        cacheBlockState (bpState blockPointer)
+        -- Validate that the 'accountsToInsert' are now accessible.
+        -- This should never fail, but it is worth verifying here since there are likely to be
+        -- few such accounts and it is better to catch any bug here than end up with a corrupted
+        -- account map.
+        forM_ accountsToInsert $ \addr -> do
+            BlockState.getAccount (bpState blockPointer) addr >>= \case
+                Nothing ->
+                    throwM . TreeStateInvariantViolation $
+                        "Account "
+                            ++ show addr
+                            ++ " not found after loading certified block "
+                            ++ show bh
+                Just (_, acc) -> do
+                    actualAddr <- getAccountCanonicalAddress acc
+                    unless (actualAddr == addr) $
+                        throwM . TreeStateInvariantViolation $
+                            "Account address mismatch ("
+                                ++ show actualAddr
+                                ++ " != "
+                                ++ show addr
+                                ++ ") after loading certified block "
+                                ++ show bh
+
         blockTable . liveMap . at' (getHash blockPointer) ?=! blockPointer
         addToBranches blockPointer
         forM_ (blockTransactions blockPointer) $ \tr -> do
