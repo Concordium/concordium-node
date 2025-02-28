@@ -173,7 +173,7 @@ mkNewChildDifferenceMap accts@Accounts{..} = do
     return accts{accountDiffMapRef = newDiffMapRef}
 
 -- | Create and set the 'DiffMap.DifferenceMap' for the provided @Accounts pv@.
---  This function constructs the difference map for the block such that the assoicated difference map
+--  This function constructs the difference map for the block such that the associated difference map
 --  and lmdb backed account map are consistent with the account table.
 --
 --  The function is highly unsafe and can cause state invariant failures if not all of the
