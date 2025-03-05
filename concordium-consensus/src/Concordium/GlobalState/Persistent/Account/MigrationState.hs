@@ -26,6 +26,7 @@ import Concordium.Types.Conditionally
 import Concordium.Utils
 
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
 import Concordium.GlobalState.Persistent.Accounts
@@ -180,6 +181,7 @@ newtype
           MonadState (AccountMigrationState oldpv pv),
           MonadIO,
           LMDBAccountMap.MonadAccountMapStore,
+          MonadModuleMapStore,
           MonadLogger
         )
 

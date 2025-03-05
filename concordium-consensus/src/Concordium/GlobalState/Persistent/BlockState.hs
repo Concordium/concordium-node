@@ -47,6 +47,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
@@ -949,7 +950,7 @@ initialPersistentState ::
     m (HashedPersistentBlockState pv)
 initialPersistentState seedState cryptoParams accounts ips ars keysCollection chainParams = do
     persistentBirkParameters <- initialBirkParameters accounts seedState (chainParams ^. cpFinalizationCommitteeParameters)
-    modules <- refMake Modules.emptyModules
+    modules <- refMake =<< Modules.emptyModules
     identityProviders <- bufferHashed $ makeHashed ips
     anonymityRevokers <- bufferHashed $ makeHashed ars
     cryptographicParameters <- bufferHashed $ makeHashed cryptoParams
@@ -991,7 +992,7 @@ emptyBlockState ::
     m (PersistentBlockState pv)
 {-# WARNING emptyBlockState "should only be used for testing" #-}
 emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
-    modules <- refMake Modules.emptyModules
+    modules <- refMake =<< Modules.emptyModules
     identityProviders <- refMake IPS.emptyIdentityProviders
     anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
     cryptographicParameters <- refMake cryptParams
@@ -1106,7 +1107,13 @@ doGetModuleList :: (SupportsPersistentState pv m) => PersistentBlockState pv -> 
 doGetModuleList s = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
-    return $ Modules.moduleRefList mods
+    Modules.moduleRefList mods
+
+-- | Get the size of the module table.
+doGetModuleCount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Word64
+doGetModuleCount s = do
+    bsp <- loadPBS s
+    Modules.moduleCount <$> refLoad (bspModules bsp)
 
 doGetModuleSource :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ModuleRef -> m (Maybe Wasm.WasmModule)
 doGetModuleSource s modRef = do
@@ -4347,6 +4354,7 @@ instance (PersistentState av pv r m) => Cache.MonadCache (AccountCache av) (Pers
 instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
 
 deriving via (LMDBAccountMap.AccountMapStoreMonad m) instance (MonadIO m, MonadLogger m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m)
+deriving via (LMDBAccountMap.AccountMapStoreMonad m) instance (MonadIO m, MonadLogger m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) => MonadModuleMapStore (PersistentBlockStateMonad pv r m)
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
@@ -4378,6 +4386,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getAccountByIndex = doGetIndexedAccountByIndex . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
+    getModuleCount = doGetModuleCount . hpbsPointers
     getAccountList = doAccountList . hpbsPointers
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
@@ -4592,6 +4601,10 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         accs <- bspAccounts <$> loadPBS hpbsPointers
         Accounts.reconstructDifferenceMap parentDifferenceMap listOfAccounts accs
 
+    reconstructModuleDifferenceMap HashedPersistentBlockState{..} parentInfo = do
+        mods <- bspModules <$> loadPBS hpbsPointers
+        Modules.reconstructDifferenceMap parentInfo =<< refLoad mods
+
     loadBlockState hpbsHashM ref = do
         hpbsPointers <- liftIO $ newIORef $ blobRefToBufferedRef ref
         case hpbsHashM of
@@ -4608,11 +4621,13 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     cacheBlockState = cacheState
 
     cacheBlockStateAndGetTransactionTable = cacheStateAndGetTransactionTable
-    tryPopulateAccountMap HashedPersistentBlockState{..} = do
+    tryPopulateGlobalMaps HashedPersistentBlockState{..} = do
         -- load the top level references and write the accounts to the LMDB backed
         -- account map (if this has not already been done).
         BlockStatePointers{..} <- loadPBS hpbsPointers
         LMDBAccountMap.tryPopulateLMDBStore bspAccounts
+        -- Write the module map to the LMDB backed module map (if this has not already been done).
+        Modules.tryPopulateModuleLMDB =<< refLoad bspModules
 
 -- | Migrate the block state from the representation used by protocol version
 --  @oldpv@ to the one used by protocol version @pv@. The migration is done gradually,

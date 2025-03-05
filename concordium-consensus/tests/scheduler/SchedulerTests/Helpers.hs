@@ -41,6 +41,7 @@ import qualified Concordium.Wasm as Wasm
 import qualified Concordium.Common.Time as Time
 import qualified Concordium.Cost as Cost
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import qualified Concordium.GlobalState.AccountMap.ModuleMap as ModuleMap
 import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
@@ -109,6 +110,7 @@ deriving instance (Types.IsProtocolVersion pv) => BS.ContractStateOperations (Pe
 deriving instance (Types.IsProtocolVersion pv) => Blob.MonadBlobStore (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => MonadCache BS.ModuleCache (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => LMDBAccountMap.MonadAccountMapStore (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => ModuleMap.MonadModuleMapStore (PersistentBSM pv)
 
 deriving instance
     (Types.AccountVersionFor pv ~ av) =>
