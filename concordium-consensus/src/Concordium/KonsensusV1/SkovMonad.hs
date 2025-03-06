@@ -577,7 +577,7 @@ initialiseNewSkovV1 genData genesisBlockHeightInfo bakerCtx handlerCtx unliftSko
                 Right genState -> return genState
             logEvent GlobalState LLTrace "Writing persistent global state"
             stateRef <- saveBlockState pbs
-            saveAccounts pbs
+            saveGlobalMaps pbs
             logEvent GlobalState LLTrace "Creating persistent global state context"
             let genHash = genesisBlockHash genData
             let genMeta =

@@ -163,7 +163,7 @@ createTestBlockStateWithAccounts accounts = do
             DummyData.dummyChainParameters
     -- save block state and accounts.
     void $ BS.saveBlockState bs
-    void $ BS.saveAccounts bs
+    void $ BS.saveGlobalMaps bs
     return bs
   where
     keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
@@ -393,7 +393,7 @@ reloadBlockState ::
 reloadBlockState persistentState = do
     frozen <- BS.freezeBlockState persistentState
     br <- BS.saveBlockState frozen
-    void $ BS.saveAccounts frozen
+    void $ BS.saveGlobalMaps frozen
     BS.thawBlockState =<< BS.loadBlockState ((Just . BS.hpbsHash) frozen) br
 
 -- | Takes a function for checking the block state, which is then run on the block state, the block

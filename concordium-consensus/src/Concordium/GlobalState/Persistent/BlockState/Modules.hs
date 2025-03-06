@@ -29,6 +29,8 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
     newModuleCache,
     unsafeToModuleV,
     tryPopulateModuleLMDB,
+    writeModulesAdded,
+    mkNewChild,
     reconstructDifferenceMap,
     migrateModules,
 ) where
@@ -344,14 +346,6 @@ instance (MonadProtocolVersion m, SupportsPersistentModule m) => BlobStorable m 
         table <- load
         return $ do
             _modulesTable <- table
-            -- (_modulesMap, _) <-
-            --     LFMB.mfoldRef
-            --         ( \(m, idx) modHCR -> do
-            --             modRef <- ModuleRef <$> getHashM modHCR
-            --             return $!! (Map.insert modRef idx m, idx + 1)
-            --         )
-            --         (Map.empty, 0)
-            --         _modulesTable
             _modulesDifferenceMap <- DiffMap.newEmptyReference
             return Modules{..}
     storeUpdate m@Modules{..} = do
@@ -474,6 +468,26 @@ tryPopulateModuleLMDB mods = do
                 )
                 ([], 0)
                 (mods ^. modulesTable)
+
+-- | Write the modules added since the last finalized block to the LMDB module map.
+--  This is done by traversing the difference map and inserting the new modules into the module map.
+--  The difference map is then cleared.
+--  This function MUST be called whenever a block is finalized.
+writeModulesAdded :: (SupportsPersistentModule m) => Modules -> m ()
+writeModulesAdded mods = do
+    mModulesAdded <- liftIO $ readIORef $ mods ^. modulesDifferenceMap
+    forM_ mModulesAdded $ \diffMap -> do
+        listOfModulesAdded <- liftIO $ DiffMap.flatten diffMap
+        insertModules listOfModulesAdded
+        liftIO $ do
+            DiffMap.clearReferences diffMap
+            atomicWriteIORef (mods ^. modulesDifferenceMap) Absent
+
+-- | Create a new 'Modules' object that is a child of the given 'Modules'.
+--  The new 'Modules' object will have the same modules as the parent, but with a new
+--  difference map that is the child of the parent's difference map.
+mkNewChild :: (SupportsPersistentModule m) => Modules -> m Modules
+mkNewChild = modulesDifferenceMap DiffMap.newChildReference
 
 -- | Reconstruct the difference map from the modules table.
 --  This is based on the assumption that the modules table is an extension of the parent's

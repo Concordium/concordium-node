@@ -1600,11 +1600,12 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- | Ensure that any accounts created in a block are persisted.
+    -- | Add all accounts created and modules added since the last finalized block to the
+    --  global account and module maps.
     --  This should be called when a block is being finalized.
     --
     --  Precondition: The block state must be in memory and it must not have been archived.
-    saveAccounts :: BlockState m -> m ()
+    saveGlobalMaps :: BlockState m -> m ()
 
     -- | Reconstructs the account difference map and return it.
     --  This function is used for blocks that are stored but are not finalized (in particular, certified blocks)
@@ -1973,7 +1974,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
-    saveAccounts = lift . saveAccounts
+    saveGlobalMaps = lift . saveGlobalMaps
     reconstructAccountDifferenceMap bs parentMap = lift . reconstructAccountDifferenceMap bs parentMap
     reconstructModuleDifferenceMap bs = lift . reconstructModuleDifferenceMap bs
     loadBlockState hsh = lift . loadBlockState hsh

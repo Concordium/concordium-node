@@ -4588,14 +4588,18 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         flushStore
         return ref
 
-    saveAccounts HashedPersistentBlockState{..} = do
+    saveGlobalMaps HashedPersistentBlockState{..} = do
         -- this load should be cheap as the blockstate is in memory.
-        accs <- bspAccounts <$> loadPBS hpbsPointers
+        pbs <- loadPBS hpbsPointers
         -- write the accounts that were created in the block and
         -- potentially non-finalized parent blocks.
         -- Note that this also empties the difference map for the
         -- block.
-        void $ Accounts.writeAccountsCreated accs
+        void $ Accounts.writeAccountsCreated (bspAccounts pbs)
+        -- Write the modules that were added in the block and
+        -- potentially non-finalized parent blocks.
+        -- This also empties the module difference maps.
+        void $ Modules.writeModulesAdded =<< refLoad (bspModules pbs)
 
     reconstructAccountDifferenceMap HashedPersistentBlockState{..} parentDifferenceMap listOfAccounts = do
         accs <- bspAccounts <$> loadPBS hpbsPointers
@@ -4778,7 +4782,11 @@ doThawBlockState ::
 doThawBlockState HashedPersistentBlockState{..} = do
     bsp@BlockStatePointers{..} <- loadPBS hpbsPointers
     bspAccounts' <- Accounts.mkNewChildDifferenceMap bspAccounts
-    let bsp' = bsp{bspAccounts = bspAccounts'}
+    -- Since 'Modules.mkNewChild' only affects the difference map, which is not relevant to the
+    -- blob store representation or hashing of the 'Modules', we can exploit 'liftCache' to
+    -- update the reference without creating a new on-disk reference.
+    bspModules' <- liftCache Modules.mkNewChild bspModules
+    let bsp' = bsp{bspAccounts = bspAccounts', bspModules = bspModules'}
     liftIO $ newIORef =<< makeBufferedRef bsp'
 
 -- | Cache the block state.

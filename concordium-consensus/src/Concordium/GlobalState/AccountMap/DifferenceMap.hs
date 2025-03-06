@@ -15,6 +15,7 @@ module Concordium.GlobalState.AccountMap.DifferenceMap (
     newEmptyReference,
     flatten,
     empty,
+    newChildReference,
     lookup,
     refLookup,
     insertFresh,
@@ -104,6 +105,12 @@ empty mParentDifferenceMap =
           dmMapSize = 0,
           dmParentMapRef = mParentDifferenceMap
         }
+
+-- | Create a new 'DifferenceMapReference' that is a child of the provided difference map reference.
+--  The new child difference map is empty, but inherits via reference from the parent
+--  difference map.
+newChildReference :: (MonadIO m) => DifferenceMapReference k v -> m (DifferenceMapReference k v)
+newChildReference = liftIO . newIORef . Present . empty
 
 -- | Lookup an entry in the difference map or any of the parent difference maps.
 --  Returns @Right v@ if the account could be looked up, and otherwise @Left n@,
