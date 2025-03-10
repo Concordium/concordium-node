@@ -240,7 +240,7 @@ runAccountAction Reconstruct (ba, pa) = do
             let ref = DiffMap.dmParentMapRef paDiffMap
                 -- Note that we sort them by ascending account index such that the order
                 -- matches the insertion order.
-                accs = map snd $ sortOn fst $ HM.elems $ DiffMap.dmAccounts paDiffMap
+                accs = map snd $ sortOn fst $ HM.elems $ DiffMap.dmMap paDiffMap
             return (ref, accs)
     -- create pa' which is the same as pa, but with an empty difference map.
     emptyRef <- liftIO DiffMap.newEmptyReference

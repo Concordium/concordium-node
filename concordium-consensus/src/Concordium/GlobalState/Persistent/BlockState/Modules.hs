@@ -25,13 +25,20 @@ module Concordium.GlobalState.Persistent.BlockState.Modules (
     getModuleReference,
     putInterface,
     moduleRefList,
+    moduleCount,
     newModuleCache,
     unsafeToModuleV,
+    tryPopulateModuleLMDB,
+    writeModulesAdded,
+    mkNewChild,
+    reconstructDifferenceMap,
     migrateModules,
 ) where
 
 import Concordium.Crypto.SHA256
 import Concordium.Genesis.Data (StateMigrationParameters (..))
+import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
+import Concordium.GlobalState.AccountMap.ModuleMap
 import Concordium.GlobalState.BlockState (ModulesHash (..))
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.Cache
@@ -44,21 +51,18 @@ import qualified Concordium.Scheduler.WasmIntegration as WasmV0
 import qualified Concordium.Scheduler.WasmIntegration.V1 as WasmV1
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Option
 import Concordium.Utils
 import Concordium.Utils.Serialization
 import Concordium.Wasm
+import Control.Monad
 import Control.Monad.Trans
 import qualified Data.ByteString as BS
 import Data.Coerce
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
+import Data.IORef
 import Data.Serialize
 import Data.Word
 import Lens.Micro.Platform
-
--- | Index of the module in the module table. Reflects when the module was added
---  to the table.
-type ModuleIndex = Word64
 
 --------------------------------------------------------------------------------
 
@@ -306,8 +310,13 @@ newModuleCache :: Int -> IO ModuleCache
 newModuleCache = newCache
 
 -- | Make sure that a monad supports the `MonadBlobStore` and `MonadCache`
---  for the modules cache.
-type SupportsPersistentModule m = (MonadLogger m, MonadBlobStore m, MonadCache ModuleCache m)
+--  for the modules cache, as well having a module map store.
+type SupportsPersistentModule m =
+    ( MonadLogger m,
+      MonadBlobStore m,
+      MonadCache ModuleCache m,
+      MonadModuleMapStore m
+    )
 
 -- | The collection of modules stored in a block state.
 data Modules = Modules
@@ -318,8 +327,9 @@ data Modules = Modules
       --  serves the purpose of not loading the artifact before it is required
       --  by the rust wasm execution engine.
       _modulesTable :: !(LFMBTree' ModuleIndex HashedBufferedRef CachedModule),
-      -- | A map of ModuleRef to ModuleIndex.
-      _modulesMap :: !(Map ModuleRef ModuleIndex)
+      -- | Reference to the difference map that maps module references to module indices for
+      --  modules added since the last finalized block.
+      _modulesDifferenceMap :: !ModuleDifferenceMapReference
     }
 
 makeLenses ''Modules
@@ -336,14 +346,7 @@ instance (MonadProtocolVersion m, SupportsPersistentModule m) => BlobStorable m 
         table <- load
         return $ do
             _modulesTable <- table
-            (_modulesMap, _) <-
-                LFMB.mfoldRef
-                    ( \(m, idx) modHCR -> do
-                        modRef <- ModuleRef <$> getHashM modHCR
-                        return $!! (Map.insert modRef idx m, idx + 1)
-                    )
-                    (Map.empty, 0)
-                    _modulesTable
+            _modulesDifferenceMap <- DiffMap.newEmptyReference
             return Modules{..}
     storeUpdate m@Modules{..} = do
         (pModulesTable, _modulesTable') <- storeUpdate _modulesTable
@@ -357,8 +360,24 @@ instance (MonadProtocolVersion m, SupportsPersistentModule m) => Cacheable m Mod
 --------------------------------------------------------------------------------
 
 -- | The empty collection of modules
-emptyModules :: Modules
-emptyModules = Modules LFMB.empty Map.empty
+emptyModules :: (MonadIO m) => m Modules
+emptyModules = Modules LFMB.empty <$> DiffMap.newEmptyReference
+
+-- | Get the 'ModuleIndex' for a module reference. This first consults the difference map,
+--  and then the LMDB map if the module is not in the difference map.
+getModuleIndex :: (SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe ModuleIndex)
+getModuleIndex ref mods = do
+    -- First, look up in the difference map
+    DiffMap.refLookup ref (mods ^. modulesDifferenceMap) >>= \case
+        Left diffSize -> do
+            -- Not in the difference map, so look up in the LMDB map.
+            lookupModuleIndex ref <&> \mmref -> do
+                mref <- mmref
+                -- The index must be less than the size of the modules table minus the size of
+                -- the difference map, as otherwise it cannot be in the table.
+                guard $ mref < LFMB.size (mods ^. modulesTable) - diffSize
+                return mref
+        Right midx -> return $ Just midx
 
 -- | Try to add interfaces to the module table. If a module with the given
 --  reference exists returns @Nothing@.
@@ -368,35 +387,30 @@ putInterface ::
     Modules ->
     m (Maybe Modules)
 putInterface (modul, src) m =
-    if Map.member mref (m ^. modulesMap)
-        then return Nothing
-        else do
+    getModuleIndex mref m >>= \case
+        Just _ -> return Nothing
+        Nothing -> do
             src' <- storeRef src
             (idx, modulesTable') <- LFMB.append (toModule modul src') $ m ^. modulesTable
-            return $
-                Just $
-                    m
-                        & modulesTable .~ modulesTable'
-                        & modulesMap %~ Map.insert mref idx
+            DiffMap.refInsertFresh mref idx (m ^. modulesDifferenceMap)
+            return $ Just $ m & modulesTable .~ modulesTable'
   where
     mref = GSWasm.moduleReference modul
 
 getModule :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe Module)
 getModule ref mods =
-    let modIdx = Map.lookup ref (mods ^. modulesMap)
-    in  case modIdx of
-            Nothing -> return Nothing
-            Just idx -> LFMB.lookup idx (mods ^. modulesTable)
+    getModuleIndex ref mods >>= \case
+        Nothing -> return Nothing
+        Just idx -> LFMB.lookup idx (mods ^. modulesTable)
 
 -- | Gets the 'HashedCachedRef' to a module as stored in the module table
 --  to be given to instances when associating them with the interface.
 --  The reason we return the reference here is to allow for sharing of the reference.
 getModuleReference :: (MonadProtocolVersion m, SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe CachedModule)
 getModuleReference ref mods =
-    let modIdx = Map.lookup ref (mods ^. modulesMap)
-    in  case modIdx of
-            Nothing -> return Nothing
-            Just idx -> LFMB.lookupRef idx (mods ^. modulesTable)
+    getModuleIndex ref mods >>= \case
+        Nothing -> return Nothing
+        Just idx -> LFMB.lookupRef idx (mods ^. modulesTable)
 
 -- | Get an interface by module reference.
 getInterface ::
@@ -428,8 +442,81 @@ getSource ref mods = do
 
 -- | Get the list of all currently deployed modules.
 --  The order of the list is not specified.
-moduleRefList :: Modules -> [ModuleRef]
-moduleRefList mods = Map.keys (mods ^. modulesMap)
+moduleRefList :: (MonadProtocolVersion m, SupportsPersistentModule m) => Modules -> m [ModuleRef]
+moduleRefList mods =
+    LFMB.mfoldRef (\l m -> (: l) . ModuleRef <$> getHashM m) [] (mods ^. modulesTable)
+
+-- | Get the size of the module table.
+moduleCount :: Modules -> Word64
+moduleCount = LFMB.size . _modulesTable
+
+-- | Initialize the LMDB-backed module map if it is not already initialized.
+--  If the module map contains fewer modules than the module table, it is wiped and repopulated
+--  with the modules in the table. Otherwise, the module map is left unchanged.
+tryPopulateModuleLMDB :: (MonadProtocolVersion m, SupportsPersistentModule m) => Modules -> m ()
+tryPopulateModuleLMDB mods = do
+    lmdbModuleCount <- getNumberOfModules
+    let tableSize = LFMB.size (mods ^. modulesTable)
+    when (lmdbModuleCount < tableSize) $ do
+        logEvent GlobalState LLInfo "Repopulating global module map"
+        reconstruct =<< allModules
+  where
+    allModules =
+        fst
+            <$> LFMB.mfoldRef
+                ( \(l, !idx) modRef -> do
+                    modRef' <- ModuleRef <$> getHashM modRef
+                    return ((modRef', idx) : l, idx + 1)
+                )
+                ([], 0)
+                (mods ^. modulesTable)
+
+-- | Write the modules added since the last finalized block to the LMDB module map.
+--  This is done by traversing the difference map and inserting the new modules into the module map.
+--  The difference map is then cleared.
+--  This function MUST be called whenever a block is finalized.
+writeModulesAdded :: (SupportsPersistentModule m) => Modules -> m ()
+writeModulesAdded mods = do
+    mModulesAdded <- liftIO $ readIORef $ mods ^. modulesDifferenceMap
+    forM_ mModulesAdded $ \diffMap -> do
+        listOfModulesAdded <- liftIO $ DiffMap.flatten diffMap
+        insertModules listOfModulesAdded
+        liftIO $ do
+            DiffMap.clearReferences diffMap
+            atomicWriteIORef (mods ^. modulesDifferenceMap) Absent
+
+-- | Create a new 'Modules' object that is a child of the given 'Modules'.
+--  The new 'Modules' object will have the same modules as the parent, but with a new
+--  difference map that is the child of the parent's difference map.
+mkNewChild :: (SupportsPersistentModule m) => Modules -> m Modules
+mkNewChild = modulesDifferenceMap DiffMap.newChildReference
+
+-- | Reconstruct the difference map from the modules table.
+--  This is based on the assumption that the modules table is an extension of the parent's
+--  modules table, so only modules with index at least the size of the parent's modules table
+--  need to be added to the difference map.
+reconstructDifferenceMap ::
+    forall m.
+    (MonadProtocolVersion m, SupportsPersistentModule m) =>
+    -- | The difference map reference and module table size from the parent block.
+    (ModuleDifferenceMapReference, Word64) ->
+    Modules ->
+    -- | The (updated) difference map reference and the module table size of this block.
+    m (ModuleDifferenceMapReference, Word64)
+reconstructDifferenceMap (parentDiffMap, parentModulesCount) Modules{..} = do
+    -- Tie the difference map to the parent.
+    liftIO $ writeIORef _modulesDifferenceMap $ Present $ DiffMap.empty parentDiffMap
+    -- Traverse from the end of the modules table and insert the new modules in the difference map.
+    LFMB.traverseWhileDescRef trav _modulesTable
+    return (_modulesDifferenceMap, LFMB.size _modulesTable)
+  where
+    trav :: ModuleIndex -> CachedModule -> m Bool
+    trav midx theMod
+        | midx < parentModulesCount = return False
+        | otherwise = do
+            modRef <- ModuleRef <$> getHashM theMod
+            DiffMap.refInsertFresh modRef midx _modulesDifferenceMap
+            return True
 
 --------------------------------------------------------------------------------
 
@@ -449,7 +536,7 @@ migrateModules migration mods = do
     newModulesTable <- LFMB.migrateLFMBTree migrateCachedModule (_modulesTable mods)
     return
         Modules
-            { _modulesMap = _modulesMap mods,
+            { _modulesDifferenceMap = _modulesDifferenceMap mods,
               _modulesTable = newModulesTable
             }
   where

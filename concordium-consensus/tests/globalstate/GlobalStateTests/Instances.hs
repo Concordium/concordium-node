@@ -13,6 +13,9 @@ module GlobalStateTests.Instances where
 
 import Control.Monad
 import Data.FileEmbed
+import Data.Foldable
+import qualified Data.HashMap.Strict as HM
+import Data.IORef
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Serialize
@@ -32,6 +35,7 @@ import qualified Concordium.Wasm as Wasm
 import qualified Data.ByteString as BS
 import qualified Data.FixedByteString as FBS
 
+import Concordium.GlobalState.AccountMap.ModuleMap
 import qualified Concordium.GlobalState.Basic.BlockState.LFMBTree as LFMBTree
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Persistent.BlobStore
@@ -451,18 +455,20 @@ arbitraryMapElement m = do
     ind <- choose (0, Map.size m - 1)
     return (Map.elemAt ind m)
 
+type TestModMapRef = IORef (HM.HashMap ModuleRef ModuleIndex)
+
 -- | A test monad that can be used for performing operations on an instance table.
 --  This uses the in-memory blob store.
-newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad :: ModuleCache -> MemBlobStore -> IO a}
+newtype TestMonad (pv :: ProtocolVersion) a = TestMonad {runTestMonad :: TestModMapRef -> ModuleCache -> MemBlobStore -> IO a}
     deriving
         (Functor, Applicative, Monad, MonadIO, MonadFail)
-        via (ReaderT ModuleCache (ReaderT MemBlobStore IO))
+        via (ReaderT TestModMapRef (ReaderT ModuleCache (ReaderT MemBlobStore IO)))
     deriving
         (MonadBlobStore)
-        via (ReaderT ModuleCache (MemBlobStoreT IO))
+        via (ReaderT TestModMapRef (ReaderT ModuleCache (MemBlobStoreT IO)))
 
 instance MonadCache ModuleCache (TestMonad pv) where
-    getCache = TestMonad $ \c _ -> return c
+    getCache = TestMonad $ \_ c _ -> return c
 
 instance (IsProtocolVersion pv) => MonadProtocolVersion (TestMonad pv) where
     type MPV (TestMonad pv) = pv
@@ -471,11 +477,26 @@ instance (IsProtocolVersion pv) => MonadProtocolVersion (TestMonad pv) where
 instance MonadLogger (TestMonad pv) where
     logEvent _ _ _ = return ()
 
+instance MonadModuleMapStore (TestMonad pv) where
+    insertModules mods = TestMonad $ \r _ _ ->
+        modifyIORef' r $ \m -> foldl' (\m' (k, v) -> HM.insert k v m') m mods
+    lookupModuleIndex ref = TestMonad $ \r _ _ -> do
+        m <- readIORef r
+        return $ HM.lookup ref m
+    getAllModules i = TestMonad $ \r _ _ -> do
+        m <- readIORef r
+        return $ HM.toList $ HM.filter (<= i) m
+    getNumberOfModules = TestMonad $ \r _ _ -> do
+        m <- readIORef r
+        return $ fromIntegral $ HM.size m
+    reconstruct mods = TestMonad $ \r _ _ -> writeIORef r $! HM.fromList mods
+
 -- | Run a 'TestMonad' with a fresh in-memory blob store and an empty 0-sized module cache.
 runTestMonadFresh :: TestMonad pv a -> IO a
 runTestMonadFresh a = bracket newMemBlobStore destroyMemBlobStore $ \mbs -> do
     c <- newModuleCache 0
-    runTestMonad a c mbs
+    ref <- newIORef HM.empty
+    runTestMonad a ref c mbs
 
 -- | Generate a 'TestMonad' action for generating an instance table (by repeated creation and
 --  deletion of instances), and a corresponding model.
