@@ -363,6 +363,8 @@ instance (MonadProtocolVersion m, SupportsPersistentModule m) => Cacheable m Mod
 emptyModules :: (MonadIO m) => m Modules
 emptyModules = Modules LFMB.empty <$> DiffMap.newEmptyReference
 
+-- | Get the 'ModuleIndex' for a module reference. This first consults the difference map,
+--  and then the LMDB map if the module is not in the difference map.
 getModuleIndex :: (SupportsPersistentModule m) => ModuleRef -> Modules -> m (Maybe ModuleIndex)
 getModuleIndex ref mods = do
     -- First, look up in the difference map

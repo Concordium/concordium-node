@@ -500,7 +500,7 @@ activateSkovPersistentData pbsc uninitState =
         logEvent GlobalState LLTrace "Done caching last finalized block"
         -- initialize the account map if it has not already been so.
         logEvent GlobalState LLDebug "Initializing LMDB account map and module map"
-        void $ tryPopulateGlobalMaps bps
+        tryPopulateGlobalMaps bps
         logEvent GlobalState LLDebug "Finished initializing LMDB account map and module map"
         return $! uninitState{_transactionTable = tt}
   where
@@ -731,7 +731,7 @@ instance
             Just (BlockAlive bp) -> do
                 -- Save the block state and write the accounts and modules out to disk.
                 st <- saveBlockState (_bpState bp)
-                void $ saveGlobalMaps (_bpState bp)
+                saveGlobalMaps (_bpState bp)
                 -- NB: Removing the block from the in-memory cache only makes
                 -- sense if no block lookups are done between the call to this
                 -- function and 'wrapUpFinalization'. This is currently the case,

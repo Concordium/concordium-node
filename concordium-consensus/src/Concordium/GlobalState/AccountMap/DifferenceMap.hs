@@ -1,8 +1,15 @@
 {-# LANGUAGE BangPatterns #-}
 
--- | The 'DifferenceMap' stores accounts that have been created in a non-finalized block.
+-- | The 'DifferenceMap' stores accounts or modules that have been created in a non-finalized block.
 --  When a block is finalized then the associated 'DifferenceMap' must be written
---  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insertAccounts'.
+--  to disk via 'Concordium.GlobalState.AccountMap.LMDB.insertAccounts' or
+--  'Concordium.GlobalState.AccountMap.ModuleMap.insertModules'.
+--
+--  The difference map is never written to the blob store. Typically, the blob store contains
+--  finalized blocks, and so the difference map for such blocks will be empty (i.e. the
+--  'DifferenceMapReference' will hold the value 'Absent'). Certified blocks, however, may
+--  have a non-empty difference map and be written to disk. It is thus important that after loading
+--  a certified block that the difference map is correctly reconstructed.
 module Concordium.GlobalState.AccountMap.DifferenceMap (
     -- * Definitions
 
@@ -58,7 +65,7 @@ newEmptyReference = liftIO $ newIORef Absent
 
 -- | A difference map that indicates newly added map entries for
 --  a block that has not yet been finalized.
---  @dmMap@ only contains accounts that were added since the 'dmParentMapRef'.
+--  @dmMap@ only contains entries that were added since the 'dmParentMapRef'.
 data DifferenceMap k v = DifferenceMap
     { -- | The map of entries added in the current block.
       dmMap :: !(HM.HashMap k v),
@@ -73,7 +80,11 @@ data DifferenceMap k v = DifferenceMap
     }
     deriving (Eq)
 
+-- | An updatable reference to an account difference map.
 type AccountDifferenceMapReference = DifferenceMapReference AccountAddressEq (AccountIndex, AccountAddress)
+
+-- | The difference map for accounts maps account addresses (modulo equivalence) to account indices
+--  and the canonical account address.
 type AccountDifferenceMap = DifferenceMap AccountAddressEq (AccountIndex, AccountAddress)
 
 -- | Gather all entries from the provided 'DifferenceMap' and its parent maps.

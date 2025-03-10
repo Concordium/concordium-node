@@ -301,6 +301,9 @@ loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
             else return (Absent, Nothing)
     return (SkovData{..}, protocolUpdate)
 
+-- | The parent block's account difference map reference, module difference map reference, and
+--  module count. This is used to reconstruct the difference maps for a block when loading a
+--  certified block.
 type MapInfo = (DiffMap.AccountDifferenceMapReference, (ModuleDifferenceMapReference, Word64))
 
 -- | Load the certified blocks from the low-level database into the tree state.
