@@ -6,6 +6,7 @@
   `bakerPoolRewardDetails::LFMBTree` field to cache computed hashes.
 - Improvements to the loading of modules. This particularly improves the performance of
   `GetModuleSource` in certain cases, and can also reduce start-up time.
+- Use a persistent LMDB-backed store to track the finalized module map.
 - Fix a bug that affects setting up the account map correctly for non-finalized certified blocks
   that contain account creations (#1329).
 
