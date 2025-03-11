@@ -1,6 +1,12 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
+-- | This module defines types and interfaces for the module map, which maps module references to
+--  module indices. In particular, it defines the 'MonadModuleMapStore' class, which provides
+--  operations for inserting and looking up modules in the LMDB-persisted module map, representing
+--  the finalized modules. Additionally, it defines the 'ModuleDifferenceMapReference' type, which
+--  is used to record the mapping from module references to module indices for modules added since
+--  the last finalized block.
 module Concordium.GlobalState.AccountMap.ModuleMap where
 
 import Control.Monad.Reader
