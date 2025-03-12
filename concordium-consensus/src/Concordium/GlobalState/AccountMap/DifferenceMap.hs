@@ -207,11 +207,7 @@ refInsertFresh k v ref = liftIO $ do
 --  PRECONDITION: The provided 'AccountAddress' MUST be the canonical address, and MUST NOT
 --  be present in the difference map.
 insertFreshAccount :: AccountAddress -> AccountIndex -> AccountDifferenceMap -> AccountDifferenceMap
-insertFreshAccount addr accIndex m =
-    m
-        { dmMap = HM.insert (accountAddressEmbed addr) (accIndex, addr) $ dmMap m,
-          dmMapSize = dmMapSize m + 1
-        }
+insertFreshAccount addr accIndex = insertFresh (accountAddressEmbed addr) (accIndex, addr)
 
 -- | Create an 'AccountDifferenceMap' with the provided parent and list of account addresses and account indices.
 fromAccountList :: IORef (Option AccountDifferenceMap) -> [(AccountAddress, AccountIndex)] -> AccountDifferenceMap
