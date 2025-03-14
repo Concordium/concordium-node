@@ -87,15 +87,7 @@ deriving via
     (MGSTrans (ReaderT w) m)
     instance
         (MonadModuleMapStore m) => MonadModuleMapStore (ReaderT w m)
-
-instance (MonadModuleMapStore m) => MonadModuleMapStore (PutT m) where
-    insertModules mods = lift $ insertModules mods
-    lookupModuleIndex = lift . lookupModuleIndex
-    getAllModules = lift . getAllModules
-    getNumberOfModules = lift getNumberOfModules
-    reconstruct = lift . reconstruct
-    {-# INLINE insertModules #-}
-    {-# INLINE lookupModuleIndex #-}
-    {-# INLINE getAllModules #-}
-    {-# INLINE getNumberOfModules #-}
-    {-# INLINE reconstruct #-}
+deriving via
+    (MGSTrans PutT m)
+    instance
+        (MonadModuleMapStore m) => MonadModuleMapStore (PutT m)

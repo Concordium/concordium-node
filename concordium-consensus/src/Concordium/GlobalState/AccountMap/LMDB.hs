@@ -125,20 +125,7 @@ instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapS
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
-
-instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
-    insertAccounts accs = lift $ insertAccounts accs
-    lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
-    lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
-    getAllAccounts = lift . getAllAccounts
-    getNumberOfAccounts = lift getNumberOfAccounts
-    reconstruct = lift . reconstruct
-    {-# INLINE insertAccounts #-}
-    {-# INLINE lookupAccountIndexViaEquivalence #-}
-    {-# INLINE lookupAccountIndexViaExactness #-}
-    {-# INLINE getAllAccounts #-}
-    {-# INLINE getNumberOfAccounts #-}
-    {-# INLINE reconstruct #-}
+deriving via (MGSTrans PutT m) instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m)
 
 -- * Database stores
 

@@ -4772,9 +4772,10 @@ migrateBlockPointers migration BlockStatePointers{..} = do
 --  This function wraps the underlying 'PersistentBlockState' of the provided 'HashedPersistentBlockState' in a new 'IORef'
 --  such that changes to the thawed block state does not propagate into the parent state.
 --
---  Further the 'DiffMap.DifferenceMap' of the accounts structure in the provided block state is
---  "bumped" in the sense that a new one is created for the new thawed block with a pointer to the parent difference map.
---  The parent difference map is empty if the parent is persisted otherwise it may contain new accounts created in that block.
+--  Further the 'DiffMap.DifferenceMap's of the accounts and modules structures in the provided
+--  block state are "bumped" in the sense that new ones are created for the new thawed block with
+--  a pointer to the parent difference maps. The parent difference map is empty if the parent is
+--  finalized, otherwise it may contain new accounts created in that block.
 doThawBlockState ::
     (SupportsPersistentState pv m) =>
     HashedPersistentBlockState pv ->
