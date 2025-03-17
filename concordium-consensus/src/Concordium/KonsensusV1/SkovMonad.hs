@@ -33,6 +33,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
 import qualified Concordium.GlobalState.BlockState as PBS
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.Account
@@ -418,7 +419,8 @@ newtype InitMonad pv a = InitMonad {runInitMonad' :: InnerInitMonad pv a}
           ModuleQuery,
           MonadBlobStore,
           Cache.MonadCache Modules.ModuleCache,
-          LMDBAccountMap.MonadAccountMapStore
+          LMDBAccountMap.MonadAccountMapStore,
+          MonadModuleMapStore
         )
         via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
 
@@ -575,7 +577,7 @@ initialiseNewSkovV1 genData genesisBlockHeightInfo bakerCtx handlerCtx unliftSko
                 Right genState -> return genState
             logEvent GlobalState LLTrace "Writing persistent global state"
             stateRef <- saveBlockState pbs
-            saveAccounts pbs
+            saveGlobalMaps pbs
             logEvent GlobalState LLTrace "Creating persistent global state context"
             let genHash = genesisBlockHash genData
             let genMeta =
@@ -643,9 +645,9 @@ activateSkovV1State = do
     bps <- use $ lastFinalized . to bpState
     !tt <- cacheBlockStateAndGetTransactionTable bps
     transactionTable .= tt
-    logEvent GlobalState LLDebug "Initializing LMDB account map"
-    void $ PBS.tryPopulateAccountMap bps
-    logEvent GlobalState LLDebug "Finished initializing LMDB account map"
+    logEvent GlobalState LLDebug "Initializing LMDB account map and module map"
+    void $ PBS.tryPopulateGlobalMaps bps
+    logEvent GlobalState LLDebug "Finished initializing LMDB account map and module map"
     logEvent GlobalState LLTrace "Loading certified blocks"
     loadCertifiedBlocks
     logEvent GlobalState LLTrace "Done activating global state"

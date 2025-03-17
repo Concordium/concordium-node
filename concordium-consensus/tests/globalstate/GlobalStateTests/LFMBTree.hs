@@ -21,11 +21,22 @@ import Concordium.Types.ProtocolVersion
 import Control.Monad
 import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
+import Data.IORef
 import qualified Data.Serialize as S
 import Data.Word
 import Test.Hspec
 import Test.QuickCheck
 import Prelude hiding (lookup)
+
+newtype TestVal = TestVal Word64
+    deriving (Eq, Ord, Show, S.Serialize, Arbitrary, Num, Integral, Real, Enum)
+
+instance HashableTo H.Hash TestVal where
+    getHash = H.hash . S.encode
+
+instance (Monad m) => MHashableTo m H.Hash TestVal
+
+instance (MonadBlobStore m) => BlobStorable m TestVal
 
 abcHash, abcorrectHash :: LFMBT.LFMBTreeHashV0
 abcHash = LFMBT.LFMBTreeHash $ H.hashOfHashes (H.hashOfHashes (H.hash "A") (H.hash "B")) (H.hash "C") -- "dbe11e36aa89a963103de7f8ad09c1100c06ccd5c5ad424ca741efb0689dc427"
@@ -87,6 +98,34 @@ testHashAsLFMBTV1 = forAll (fmap BS.pack <$> listOf (vector 10)) $ \bs ->
     LFMBT.hashAsLFMBTV1 (H.hash "EmptyLFMBTree") (getHash <$> bs)
         === LFMBT.theLFMBTreeHash @'BlockHashVersion1 (getHash (LFMBT.fromFoldable @Word64 bs))
 
+testTraverseWhileDescRef :: [TestVal] -> Property
+testTraverseWhileDescRef ws = forAll (chooseBoundedIntegral (0, length ws)) $ \n ->
+    ioProperty $ do
+        runBlobStoreTemp
+            "."
+            ( do
+                (t :: LFMBTree Word64 BufferedRef TestVal) <- fromAscList ws
+                expect <- liftIO $ newIORef $ Just $ take n $ reverse (zip [0 ..] ws)
+                let f i vref = do
+                        expect' <- liftIO $ readIORef expect
+                        case expect' of
+                            Just ((i', v') : rest) -> do
+                                liftIO $ i `shouldBe` i'
+                                v <- refLoad vref
+                                liftIO $ v `shouldBe` v'
+                                liftIO $ writeIORef expect $ Just rest
+                                return True
+                            Just [] -> do
+                                liftIO $ writeIORef expect Nothing
+                                return False
+                            Nothing -> error "Traversed too many elements"
+                traverseWhileDescRef f t
+                expect' <- liftIO $ readIORef expect
+                if n == length ws
+                    then liftIO $ expect' `shouldBe` Just []
+                    else liftIO $ expect' `shouldBe` Nothing
+            )
+
 tests :: Spec
 tests =
     describe "GlobalStateTests.LFMBTree" $ do
@@ -102,3 +141,4 @@ tests =
         it
             "testHashAsLFMBTV1"
             testHashAsLFMBTV1
+        it "testTraverseWhileDescRef" $ property testTraverseWhileDescRef

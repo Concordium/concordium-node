@@ -166,7 +166,7 @@ jobs:
         components: clippy
         target: x86_64-pc-windows-gnu
     - name: Cache cargo dependencies and targets
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
@@ -190,7 +190,7 @@ jobs:
 
     - name: Cache stack global package DB
       id: stack-global
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.stack
         key: ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
@@ -198,14 +198,14 @@ jobs:
           ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}
     - name: Cache stack-installed programs in '~/.local/bin'
       id: stack-programs
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.local/bin
         key: ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
         restore-keys: |
           ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}
     - name: Cache '.stack-work'
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           .stack-work
