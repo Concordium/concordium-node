@@ -1,4 +1,4 @@
-# Workflow triggered by pushes to the main branch and PRs targeting it
+# Workflow triggered by pushes to the main & plt branches and PRs targeting them
 # (as long as the commits contain code changes).
 #
 # Jobs:
@@ -21,7 +21,9 @@ name: Check formatting, build and run tests
 
 on:
   push:
-    branches: main
+    branches:
+        - main
+        - plt
     paths:
     - '.github/workflows/build-test.yaml'
     - '**/Cargo.toml'
@@ -35,7 +37,9 @@ on:
     - 'concordium-node/rustfmt.toml'
 
   pull_request:
-    branches: main
+    branches:
+        - main
+        - plt
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
     - '.github/workflows/build-test.yaml'
