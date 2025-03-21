@@ -2357,7 +2357,7 @@ migrateV4ToV5 acc = do
               ..
             }
 
--- | A trivial migration from account version 4 to account version 4.
+-- | A trivial migration from account version 5 to account version 5.
 --  In particular the data is retained as-is.
 migrateV5ToV5 ::
     ( MonadBlobStore m,
