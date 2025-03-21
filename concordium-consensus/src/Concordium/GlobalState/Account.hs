@@ -294,6 +294,19 @@ data AccountMerkleHashInputs (av :: AccountVersion) where
           amhi4Cooldown :: !(CooldownQueueHash 'AccountV4)
         } ->
         AccountMerkleHashInputs 'AccountV4
+    AccountMerkleHashInputsV5 ::
+        { -- | Hash of the persisting account data.
+          amhi5PersistingAccountDataHash :: !PersistingAccountDataHash,
+          -- | Hash of the account stake.
+          amhi5AccountStakeHash :: !(AccountStakeHash 'AccountV5),
+          -- | Hash of the account's encrypted amount.
+          amhi5EncryptedAmountHash :: !EncryptedAmountHash,
+          -- | Hash of the account's release schedule.
+          amhi5AccountReleaseScheduleHash :: !ARSV1.AccountReleaseScheduleHashV1,
+          -- | Hash of the account's cooldown queue.
+          amhi5Cooldown :: !(CooldownQueueHash 'AccountV5)
+        } ->
+        AccountMerkleHashInputs 'AccountV5
 
 -- | The Merkle hash derived from the seldom-updated parts of an account, namely the persisting
 --  account data, account stake, encrypted amount, and account release schedule.
@@ -341,6 +354,20 @@ instance HashableTo (AccountMerkleHash av) (AccountMerkleHashInputs av) where
                         (theCooldownQueueHash amhi4Cooldown)
                     )
                 )
+    getHash AccountMerkleHashInputsV5{..} =
+        AccountMerkleHash $
+            Hash.hashOfHashes
+                ( Hash.hashOfHashes
+                    (thePersistingAccountDataHash amhi5PersistingAccountDataHash)
+                    (theAccountStakeHash amhi5AccountStakeHash)
+                )
+                ( Hash.hashOfHashes
+                    (theEncryptedAmountHash amhi5EncryptedAmountHash)
+                    ( Hash.hashOfHashes
+                        (ARSV1.theAccountReleaseScheduleHashV1 amhi5AccountReleaseScheduleHash)
+                        (theCooldownQueueHash amhi5Cooldown)
+                    )
+                )
 
 -- | The data used to compute an 'AccountHash' from 'AccountV2' onwards.
 --  While this is common between account versions, the 'AccountMerkleHash' is version-specific,
@@ -386,6 +413,16 @@ makeAccountHashV4 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
     put ahi2StakedBalance
     put ahi2MerkleHash
 
+-- | Generate the hash for an account (for 'AccountV5'), given the
+--  'AccountHashInputsV2'. 'makeAccountHash' should be used in preference to this function.
+makeAccountHashV5 :: AccountHashInputsV2 av -> Hash.Hash
+makeAccountHashV5 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
+    putShortByteString "AC05"
+    put ahi2NextNonce
+    put ahi2AccountBalance
+    put ahi2StakedBalance
+    put ahi2MerkleHash
+
 -- | Inputs for computing the 'AccountHash' for an account.
 data AccountHashInputs (av :: AccountVersion) where
     AHIV0 :: AccountHashInputsV0 'AccountV0 -> AccountHashInputs 'AccountV0
@@ -393,6 +430,7 @@ data AccountHashInputs (av :: AccountVersion) where
     AHIV2 :: AccountHashInputsV2 'AccountV2 -> AccountHashInputs 'AccountV2
     AHIV3 :: AccountHashInputsV2 'AccountV3 -> AccountHashInputs 'AccountV3
     AHIV4 :: AccountHashInputsV2 'AccountV4 -> AccountHashInputs 'AccountV4
+    AHIV5 :: AccountHashInputsV2 'AccountV5 -> AccountHashInputs 'AccountV5
 
 -- | Generate the hash for an account, given the 'AccountHashInputs'.
 makeAccountHash :: AccountHashInputs av -> AccountHash av
@@ -402,6 +440,7 @@ makeAccountHash (AHIV1 ahi) = AccountHash $ makeAccountHashV0 ahi
 makeAccountHash (AHIV2 ahi) = AccountHash $ makeAccountHashV2 ahi
 makeAccountHash (AHIV3 ahi) = AccountHash $ makeAccountHashV3 ahi
 makeAccountHash (AHIV4 ahi) = AccountHash $ makeAccountHashV4 ahi
+makeAccountHash (AHIV5 ahi) = AccountHash $ makeAccountHashV5 ahi
 
 data EncryptedAmountUpdate
     = -- | Replace encrypted amounts less than the given index,

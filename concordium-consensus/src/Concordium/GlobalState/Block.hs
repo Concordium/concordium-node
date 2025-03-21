@@ -143,6 +143,7 @@ blockVersion SP5 = 2
 blockVersion SP6 = 3
 blockVersion SP7 = 3
 blockVersion SP8 = 3
+blockVersion SP9 = 3
 {-# INLINE blockVersion #-}
 
 -- | Type class that supports serialization of a block.
