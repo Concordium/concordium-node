@@ -132,10 +132,10 @@ migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = migrateReference
 migratePersistentBakerInfoEx StateMigrationParametersP8ToP9{} = migrateReference migrateBakerInfoExV1
   where
     migrateBakerInfoExV1 ::
-        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av2 ~ 'True, Monad m') =>
+        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av1 ~ SupportsValidatorSuspension av2, Monad m') =>
         BakerInfoEx av1 ->
         m' (BakerInfoEx av2)
-    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CTrue False, ..}
+    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{..}
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 --  See documentation of @migratePersistentBlockState@.
