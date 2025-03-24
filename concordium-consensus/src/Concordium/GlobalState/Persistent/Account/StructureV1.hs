@@ -129,13 +129,7 @@ migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = migrateReference
         BakerInfoEx av1 ->
         m' (BakerInfoEx av2)
     migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CTrue False, ..}
-migratePersistentBakerInfoEx StateMigrationParametersP8ToP9{} = migrateReference migrateBakerInfoExV1
-  where
-    migrateBakerInfoExV1 ::
-        (AVSupportsDelegation av1, AVSupportsDelegation av2, SupportsValidatorSuspension av1 ~ SupportsValidatorSuspension av2, Monad m') =>
-        BakerInfoEx av1 ->
-        m' (BakerInfoEx av2)
-    migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{..}
+migratePersistentBakerInfoEx StateMigrationParametersP8ToP9{} = migrateReference (return . coerceBakerInfoExV1)
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 --  See documentation of @migratePersistentBlockState@.
@@ -225,20 +219,24 @@ migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringBaker{..} = 
 migratePersistentAccountStakeEnduring PersistentAccountStakeEnduringDelegator{..} =
     return $! PersistentAccountStakeEnduringDelegator{..}
 
-migratePersistentAccountStakeEnduringAV3 ::
+-- | Migrate a 'PersistentAccountStakeEnduring' from one blob store to another, where the both
+-- the old and new account version support delegation and validator suspension. This holds in account
+-- version 4 onwards.
+migratePersistentAccountStakeEnduringAV4 ::
     forall m t av1 av2.
     ( SupportMigration m t,
       IsAccountVersion av1,
       IsAccountVersion av2,
       AVSupportsDelegation av1,
       AVSupportsDelegation av2,
-      AVSupportsValidatorSuspension av1 ~ AVSupportsValidatorSuspension av2
+      AVSupportsValidatorSuspension av1,
+      AVSupportsValidatorSuspension av2
     ) =>
     PersistentAccountStakeEnduring av1 ->
     t m (PersistentAccountStakeEnduring av2)
-migratePersistentAccountStakeEnduringAV3 PersistentAccountStakeEnduringNone =
+migratePersistentAccountStakeEnduringAV4 PersistentAccountStakeEnduringNone =
     return PersistentAccountStakeEnduringNone
-migratePersistentAccountStakeEnduringAV3 PersistentAccountStakeEnduringBaker{..} = do
+migratePersistentAccountStakeEnduringAV4 PersistentAccountStakeEnduringBaker{..} = do
     newBakerInfo <- migrateReference (return . coerceBakerInfoExV1) paseBakerInfo
     return $!
         PersistentAccountStakeEnduringBaker
@@ -246,7 +244,7 @@ migratePersistentAccountStakeEnduringAV3 PersistentAccountStakeEnduringBaker{..}
               paseBakerPendingChange = NoChange,
               ..
             }
-migratePersistentAccountStakeEnduringAV3 PersistentAccountStakeEnduringDelegator{..} =
+migratePersistentAccountStakeEnduringAV4 PersistentAccountStakeEnduringDelegator{..} =
     return $!
         PersistentAccountStakeEnduringDelegator
             { paseDelegatorPendingChange = NoChange,
@@ -2164,7 +2162,7 @@ migrateEnduringDataV4toV5 ed = do
         newRSRef <- migrateReference migrateAccountReleaseSchedule oldRSRef
         return (newRSRef, lockedAmt)
     logEvent GlobalState LLTrace "Migrating stake"
-    paedStake <- migratePersistentAccountStakeEnduringAV3 (paedStake ed)
+    paedStake <- migratePersistentAccountStakeEnduringAV4 (paedStake ed)
     logEvent GlobalState LLTrace "Migrating cooldown queue"
     paedStakeCooldown <- migrateCooldownQueue (paedStakeCooldown ed)
     logEvent GlobalState LLTrace "Reconstructing account enduring data"
