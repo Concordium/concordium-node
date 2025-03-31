@@ -9,6 +9,12 @@
 - Use a persistent LMDB-backed store to track the finalized module map.
 - Fix a bug that affects setting up the account map correctly for non-finalized certified blocks
   that contain account creations (#1329).
+- Fix a bug that can occasionally result in a crash if `GetBlockInfo` is invoked during a protocol
+  update ([#1352](https://github.com/Concordium/concordium-node/issues/1352)). The fix delays
+  executing the on-block and on-finalization handlers until after the state update has been
+  committed. This also should also result in better consistency in the gRPC API (i.e. if a client
+  is notified that a block has arrived, `GetBlockInfo` should not result in `NOT_FOUND` for thatb
+  block).
 
 ## 8.0.3
 
