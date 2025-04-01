@@ -259,7 +259,7 @@ jobs:
           context: .
           push: true
           file: scripts/bootstrapper/Dockerfile
-          tags: build-deb:${{ needs.validate-preconditions.outputs.version }}
+          tags: concordium/bootstrapper:${{ needs.validate-preconditions.outputs.version }}
           no-cache: true
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
@@ -272,7 +272,7 @@ jobs:
 
       - name: Run Docker and Extract Artifacts
         run: |
-          id=$(docker create build-deb:${{ needs.validate-preconditions.outputs.version }}
+          id=$(docker create concordium/bootstrapper:${{ needs.validate-preconditions.outputs.version }}
           docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb .
 
       - name: Configure AWS Credentials
