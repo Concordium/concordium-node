@@ -123,7 +123,7 @@ jobs:
   build:
     needs: [fourmolu, rustfmt]
     # Use fixed OS version because we install packages on the system.
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
     if: ${{ !github.event.pull_request.draft }}
 
     strategy:
