@@ -252,7 +252,7 @@ jobs:
           context: .
           push: false
           file: scripts/bootstrapper/Dockerfile
-          tags: build-deb:${{ github.run_id }}
+          tags: build-deb:${{ needs.validate-preconditions.outputs.version }}
           no-cache: true
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
@@ -265,7 +265,7 @@ jobs:
 
       - name: Run Docker and Extract Artifacts
         run: |
-          id=$(docker create build-deb:${{ github.run_id }})
+          id=$(docker create build-deb:${{ needs.validate-preconditions.outputs.version }}
           docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb .
 
       - name: Configure AWS Credentials
