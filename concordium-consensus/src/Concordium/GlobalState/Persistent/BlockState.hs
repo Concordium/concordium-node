@@ -59,6 +59,7 @@ import Concordium.GlobalState.Persistent.Account.CooldownQueue (NextCooldownChan
 import qualified Concordium.GlobalState.Persistent.Account.MigrationState as MigrationState
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
+import qualified Concordium.GlobalState.Persistent.Tokens as Tokens
 import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
 import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
@@ -799,6 +800,7 @@ emptyTransactionOutcomes Proxy = case transactionOutcomesVersion @(TransactionOu
 --  version.
 data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
     { bspAccounts :: !(Accounts.Accounts pv),
+      bspTokens :: !(Conditionally (SupportsPLT (AccountVersionFor pv)) Tokens.Tokens),
       bspInstances :: !(Instances.Instances pv),
       bspModules :: !(HashedBufferedRef' (ModulesHash pv) Modules.Modules),
       bspBank :: !(Hashed Rewards.BankStatus),

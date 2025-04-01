@@ -28,6 +28,7 @@ import Data.Kind
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Word
+import qualified Data.ByteString as BS
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -1019,6 +1020,8 @@ data PersistentAccount av = PersistentAccount
       -- | The actively staked balance of the account.
       --  INVARIANT: This is 0 if the account is not a baker or delegator.
       accountStakedAmount :: !Amount,
+      -- | The protocol level tokens of the account in ascending order of the TokenIndex.
+      accountTokens :: !(Conditionally (SupportsPLT av) [(TokenIndex, BufferedRef TokenAccountState)]),
       -- | The enduring account data.
       accountEnduringData :: !(EagerBufferedRef (PersistentAccountEnduringData av))
     }
@@ -1105,9 +1108,19 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
         accountAmount <- get
         accountStakedAmount <- get
         mEnduringData <- load
+        let accountTokens = error "TODO(drsk) implement"
         return $ do
             accountEnduringData <- mEnduringData
             return $! PersistentAccount{..}
+
+
+-- * Persistent token account level state.
+---
+-- - -- | The token state at the account level.
+data TokenAccountState = TokenAccountState {
+  tasBalance :: !TokenAmount,
+  tasKVMap :: ![(BS.ByteString, BS.ByteString)] 
+}
 
 -- | Get the enduring data for an account.
 enduringData :: PersistentAccount av -> PersistentAccountEnduringData av
@@ -1913,6 +1926,7 @@ makePersistentAccount Transient.Account{..} = do
                         paedReleaseSchedule
                         paedStake
                         paedStakeCooldown
+    let accountTokens = conditionally (sSupportsPLT (accountVersion @av)) []
     return $!
         PersistentAccount
             { accountNonce = _accountNonce,
@@ -1972,6 +1986,7 @@ newAccount cryptoParams _accountAddress credential = do
                         Null
                         PersistentAccountStakeEnduringNone
                         emptyCooldownQueue
+    let accountTokens = conditionally (sSupportsPLT (accountVersion @av)) []
     return $!
         PersistentAccount
             { accountNonce = minNonce,
@@ -2051,6 +2066,7 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
                         Null
                         stakeEnduring
                         emptyCooldownQueue
+    let accountTokens = conditionally (sSupportsPLT (accountVersion @av)) []
     return $!
         PersistentAccount
             { accountNonce = minNonce,
@@ -2238,6 +2254,7 @@ migrateV2ToV2 acc = do
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
               accountStakedAmount = accountStakedAmount acc,
+              accountTokens = CFalse,
               ..
             }
 
@@ -2276,6 +2293,7 @@ migrateV2ToV3 acc = do
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
               accountStakedAmount = newStakedAmount,
+              accountTokens = CFalse,
               ..
             }
 
@@ -2296,6 +2314,7 @@ migrateV3ToV3 acc = do
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
               accountStakedAmount = accountStakedAmount acc,
+              accountTokens = CFalse,
               ..
             }
 
@@ -2315,6 +2334,7 @@ migrateV3ToV4 acc = do
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
               accountStakedAmount = accountStakedAmount acc,
+              accountTokens = CFalse,
               ..
             }
 
@@ -2334,6 +2354,7 @@ migrateV4ToV4 acc = do
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
               accountStakedAmount = accountStakedAmount acc,
+              accountTokens = CFalse,
               ..
             }
 
@@ -2352,6 +2373,7 @@ migrateV4ToV5 acc = do
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
               accountStakedAmount = accountStakedAmount acc,
+              accountTokens = CTrue [],
               ..
             }
 
@@ -2371,6 +2393,7 @@ migrateV5ToV5 acc = do
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
               accountStakedAmount = accountStakedAmount acc,
+              accountTokens = accountTokens acc,
               ..
             }
 
@@ -2479,6 +2502,7 @@ migratePersistentAccountFromV0 StateMigrationParametersP4ToP5{} V0.PersistentAcc
         PersistentAccount
             { accountNonce = _accountNonce,
               accountAmount = _accountAmount,
+              accountTokens = CFalse,
               ..
             }
 
