@@ -29,6 +29,9 @@
 --  whenever the node starts up and the account map is not populated, then it will be
 --  initialized on startup via the existing ‘PersistentAccountMap’.
 --
+--  The account map database also stores the module map, which maps module references
+--  to their corresponding module indices.
+--
 --  Invariants:
 --      * Only accounts that are in finalized blocks are present in the ‘AccountMap’
 module Concordium.GlobalState.AccountMap.LMDB where
@@ -51,6 +54,7 @@ import Database.LMDB.Raw
 import Lens.Micro.Platform
 import System.Directory
 
+import qualified Concordium.GlobalState.AccountMap.ModuleMap as ModuleMap
 import Concordium.GlobalState.Classes
 import Concordium.GlobalState.LMDB.Helpers
 import Concordium.Logger
@@ -121,20 +125,7 @@ instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapS
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
-
-instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m) where
-    insertAccounts accs = lift $ insertAccounts accs
-    lookupAccountIndexViaEquivalence = lift . lookupAccountIndexViaEquivalence
-    lookupAccountIndexViaExactness = lift . lookupAccountIndexViaExactness
-    getAllAccounts = lift . getAllAccounts
-    getNumberOfAccounts = lift getNumberOfAccounts
-    reconstruct = lift . reconstruct
-    {-# INLINE insertAccounts #-}
-    {-# INLINE lookupAccountIndexViaEquivalence #-}
-    {-# INLINE lookupAccountIndexViaExactness #-}
-    {-# INLINE getAllAccounts #-}
-    {-# INLINE getNumberOfAccounts #-}
-    {-# INLINE reconstruct #-}
+deriving via (MGSTrans PutT m) instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m)
 
 -- * Database stores
 
@@ -149,21 +140,33 @@ instance MDBDatabase AccountMapStore where
     type DBKey AccountMapStore = AccountAddress
     type DBValue AccountMapStore = AccountIndex
 
+-- | Store that retains the module reference -> module index mappings.
+newtype ModuleMapStore = ModuleMapStore MDB_dbi'
+
+-- | Name of the table used for storing the map from module references to module indices.
+moduleMapStoreName :: String
+moduleMapStoreName = "moduleMap"
+
+instance MDBDatabase ModuleMapStore where
+    type DBKey ModuleMapStore = ModuleRef
+    type DBValue ModuleMapStore = ModuleMap.ModuleIndex
+
 -- | Datbase handlers to interact with the account map lmdb
 --  database. Create via 'makeDatabasehandlers'.
 data DatabaseHandlers = DatabaseHandlers
     { -- | The underlying lmdb store environment.
       _dbhStoreEnv :: !StoreEnv,
-      -- | The only store for this lmdb database.
-      --  The account map functions as a persistent @AccountAddress -> Maybe AccountIndex@ mapping.
-      _dbhAccountMapStore :: !AccountMapStore
+      -- | The account map functions as a persistent @AccountAddress -> Maybe AccountIndex@ mapping.
+      _dbhAccountMapStore :: !AccountMapStore,
+      -- | The module map functions as a persistent @ModuleRef -> Maybe ModuleIndex@ mapping.
+      _dbhModuleMapStore :: !ModuleMapStore
     }
 
 makeClassy ''DatabaseHandlers
 
 -- | The number of stores in the LMDB environment for 'DatabaseHandlers'.
 databaseCount :: Int
-databaseCount = 1
+databaseCount = 2
 
 -- | Database growth size increment.
 --  This is currently set at 4MB, and must be a multiple of the page size.
@@ -197,6 +200,12 @@ makeDatabaseHandlers accountMapDir readOnly = do
                 <$> mdb_dbi_open'
                     txn
                     (Just accountMapStoreName)
+                    [MDB_CREATE | not readOnly]
+        _dbhModuleMapStore <-
+            ModuleMapStore
+                <$> mdb_dbi_open'
+                    txn
+                    (Just moduleMapStoreName)
                     [MDB_CREATE | not readOnly]
         return DatabaseHandlers{..}
 
@@ -287,3 +296,47 @@ instance
             deleteAll txn (dbh ^. dbhAccountMapStore)
             forM_ accounts $ \(accAddr, accIndex) -> do
                 storeRecord txn (dbh ^. dbhAccountMapStore) accAddr accIndex
+
+instance
+    ( MonadReader r m,
+      HasDatabaseHandlers r,
+      MonadIO m,
+      MonadLogger m
+    ) =>
+    ModuleMap.MonadModuleMapStore (AccountMapStoreMonad m)
+    where
+    insertModules mods = do
+        dbh <- ask
+        asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> do
+            forM_ mods $ \(modRef, modIndex) -> do
+                storeRecord txn (dbh ^. dbhModuleMapStore) modRef modIndex
+
+    lookupModuleIndex modRef = do
+        dbh <- ask
+        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn ->
+            loadRecord txn (dbh ^. dbhModuleMapStore) modRef
+
+    getAllModules maxModuleIndex = do
+        dbh <- ask
+        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn ->
+            withCursor txn (dbh ^. dbhModuleMapStore) $ \cursor ->
+                let go !accum Nothing = return accum
+                    go !accum (Just (Right mdl@(_, modIdx))) = do
+                        -- We only accumulate modules which have an @ModuleIndex@ at most
+                        -- the provided one.
+                        if modIdx <= maxModuleIndex
+                            then go (mdl : accum) =<< getCursor CursorNext cursor
+                            else go accum =<< getCursor CursorNext cursor
+                    go _ (Just (Left err)) = throwM $ DatabaseInvariantViolation err
+                in  go [] =<< getCursor CursorFirst cursor
+
+    getNumberOfModules = do
+        dbh <- ask
+        asReadTransaction (dbh ^. dbhStoreEnv) $ \txn -> databaseSize txn (dbh ^. dbhModuleMapStore)
+
+    reconstruct mods = do
+        dbh <- ask
+        asWriteTransaction (dbh ^. dbhStoreEnv) $ \txn -> do
+            deleteAll txn (dbh ^. dbhModuleMapStore)
+            forM_ mods $ \(modRef, modIndex) -> do
+                storeRecord txn (dbh ^. dbhModuleMapStore) modRef modIndex

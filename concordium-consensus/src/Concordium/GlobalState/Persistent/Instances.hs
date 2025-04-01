@@ -27,6 +27,7 @@ import Concordium.Types.HashableTo
 import Concordium.Utils
 import qualified Concordium.Wasm as Wasm
 
+import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
 import Concordium.GlobalState.BlockState (
     InstanceInfoType (..),
     InstanceInfoTypeV (..),
@@ -465,7 +466,7 @@ conditionalSetBit :: (Bits a) => Int -> Bool -> a -> a
 conditionalSetBit _ False x = x
 conditionalSetBit b True x = setBit x b
 
-instance (MonadLogger m, MonadProtocolVersion m, IsProtocolVersion pv, MPV m ~ pv, BlobStorable m r, Cache.MonadCache ModuleCache m) => BlobStorable m (IT pv r) where
+instance (MonadLogger m, MonadProtocolVersion m, IsProtocolVersion pv, MPV m ~ pv, BlobStorable m r, Cache.MonadCache ModuleCache m, MonadModuleMapStore m) => BlobStorable m (IT pv r) where
     storeUpdate (Branch{..}) = do
         (pl, l') <- storeUpdate branchLeft
         (pr, r') <- storeUpdate branchRight

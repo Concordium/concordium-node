@@ -10,6 +10,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict
 import qualified Data.Map.Strict as Map
+import Data.Word
 
 import Data.Maybe
 import qualified Data.Sequence as Seq
@@ -25,6 +26,7 @@ import Concordium.Types.Updates
 import Concordium.Utils
 
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
+import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference)
 import Concordium.GlobalState.BlockState as BlockState
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -299,6 +301,11 @@ loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
             else return (Absent, Nothing)
     return (SkovData{..}, protocolUpdate)
 
+-- | The parent block's account difference map reference, module difference map reference, and
+--  module count. This is used to reconstruct the difference maps for a block when loading a
+--  certified block.
+type MapInfo = (DiffMap.AccountDifferenceMapReference, (ModuleDifferenceMapReference, Word64))
+
 -- | Load the certified blocks from the low-level database into the tree state.
 --  This caches their block states, adds them to the block table and branches,
 --  adds their transactions to the transaction table and pending transaction table,
@@ -329,7 +336,7 @@ loadCertifiedBlocks = do
     -- Load all certified blocks
     -- This sets the skov state, puts transactions in the transaction table,
     -- and reconstructs the account map difference maps for the certified blocks.
-    foldM_ (flip loadCertBlock) (HM.empty :: HM.HashMap BlockHash DiffMap.DifferenceMapReference) certBlocks
+    foldM_ (flip loadCertBlock) (HM.empty :: HM.HashMap BlockHash MapInfo) certBlocks
     oLastTimeout <- use $ persistentRoundStatus . prsLatestTimeout
     forM_ oLastTimeout $ \lastTimeout -> do
         curRound <- use $ roundStatus . rsCurrentRound
@@ -434,6 +441,10 @@ loadCertifiedBlocks = do
     getAccountAddressFromDeployment bi = case bi of
         WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} -> (Just . addressFromRegId . credId) credential
         _ -> Nothing
+    loadCertBlock ::
+        (LowLevel.StoredBlock (MPV m), QuorumCertificate) ->
+        HM.HashMap BlockHash MapInfo ->
+        m (HM.HashMap BlockHash MapInfo)
     loadCertBlock (storedBlock, qc) loadedBlocks = do
         blockPointer <- mkBlockPointer storedBlock
         let bh = getHash @BlockHash blockPointer
@@ -444,22 +455,26 @@ loadCertifiedBlocks = do
         -- As only finalized accounts are stored in the account map, then
         -- we need to reconstruct the 'DiffMap.DifferenceMap' here for the certified block we're loading.
         let accountsToInsert = mapMaybe getAccountAddressFromDeployment (blockTransactions storedBlock)
-        --  If a parent cannot be looked up in the @loadedBlocks@ it must mean that parent block is finalized,
-        --  and as a result we simply set the parent reference for the difference map to be empty.
-        -- This is alright as the certified blocks we're folding over are in order of ascending round number.
-        parentDiffMapReference <- case blockBakedData storedBlock of
-            -- If the parent is a genesis block then there is no difference map for it.
-            Absent -> liftIO DiffMap.newEmptyReference
-            Present b -> do
-                let parentHash = qcBlock $ bbQuorumCertificate $ sbBlock b
-                -- If the parent cannot be looked up, then it must be finalized and hence no
-                -- difference map exists.
-                case HM.lookup parentHash loadedBlocks of
-                    Nothing -> liftIO DiffMap.newEmptyReference
-                    Just diffMapReference -> return diffMapReference
-        newDifferenceMap <- reconstructAccountDifferenceMap (bpState blockPointer) parentDiffMapReference accountsToInsert
+
+        parentBP <- gets parentOfLive <*> pure blockPointer
+
+        let parentHash = getHash parentBP
+        (parentADMRef, parentMDMInfo) <- case HM.lookup parentHash loadedBlocks of
+            Nothing -> do
+                -- If a parent cannot be looked up in the @loadedBlocks@ it must mean that parent
+                -- block is finalized, and as a result we simply set the parent reference for the
+                -- difference map to be empty. This is alright as the certified blocks we're
+                -- folding over are in order of ascending round number.
+                parentADMRef <- liftIO DiffMap.newEmptyReference
+                parentMDMRef <- liftIO DiffMap.newEmptyReference
+                parentModCount <- getModuleCount (bpState parentBP)
+                return (parentADMRef, (parentMDMRef, parentModCount))
+            Just mapInfo -> return mapInfo
+        newADMRef <- reconstructAccountDifferenceMap (bpState blockPointer) parentADMRef accountsToInsert
+        newMDMInfo <- reconstructModuleDifferenceMap (bpState blockPointer) parentMDMInfo
+
         -- append to the accumulator with this new difference map reference
-        let loadedBlocks' = HM.insert (getHash storedBlock) newDifferenceMap loadedBlocks
+        let loadedBlocks' = HM.insert (getHash storedBlock) (newADMRef, newMDMInfo) loadedBlocks
 
         -- Validate that the 'accountsToInsert' are now accessible.
         -- This should never fail, but it is worth verifying here since there are likely to be

@@ -179,7 +179,7 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                                   _nextPayday = payday
                                 }
                     genStateRef <- saveBlockState genState
-                    void $ saveAccounts genState
+                    void $ saveGlobalMaps genState
                     return (genState, genStateRef, initTT, genTimeoutBase, genEpochBakers)
         let genMetadata =
                 GenesisMetadata

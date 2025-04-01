@@ -1,12 +1,13 @@
 {-# LANGUAGE BangPatterns #-}
 
--- | A module that tests the functionality of the 'DiffMap.DifferenceMap'.
+-- | A module that tests the functionality of the 'DiffMap.AccountDifferenceMap'.
 --  * Insert and lookup operations.
---  * Flattening the 'DiffMap.DifferenceMap'.
+--  * Flattening the 'DiffMap.AccountDifferenceMap'.
 module GlobalStateTests.DifferenceMap where
 
 import Concordium.ID.Types (accountAddressSize, randomAccountAddress)
 import Concordium.Types
+import Control.Arrow
 import Control.Monad
 import Control.Monad.IO.Class
 import qualified Data.FixedByteString as FBS
@@ -28,18 +29,18 @@ dummyPair seed = (fst $ randomAccountAddress (mkStdGen seed), AccountIndex $ fro
 --  Precondition: The provided @AccountAddress@ MUST be the canonical address,
 --  and it should be present in the underlying store.
 --  The equivalence lookup always looks up by an alias.
-testDoLookup :: (MonadIO m) => AccountAddress -> DiffMap.DifferenceMap -> m (Either Int AccountIndex)
+testDoLookup :: (MonadIO m) => AccountAddress -> DiffMap.AccountDifferenceMap -> m (Either Int AccountIndex)
 testDoLookup accAddr diffMap = do
-    res1 <- DiffMap.lookupViaEquivalenceClass (accountAddressEmbed $ createAlias accAddr 42) diffMap
-    res2 <- DiffMap.lookupExact accAddr diffMap
+    res1 <- DiffMap.lookupAccountEquiv (accountAddressEmbed $ createAlias accAddr 42) diffMap
+    res2 <- DiffMap.lookupAccountExact accAddr diffMap
     liftIO $ assertEqual "results should be the same" res1 res2
-    return res1
+    return $ left fromIntegral res1
 
--- | Test that an account can be inserted and looked up in the 'DiffMap.DifferenceMap'.
+-- | Test that an account can be inserted and looked up in the 'DiffMap.AccountDifferenceMap'.
 testInsertLookupAccount :: Assertion
 testInsertLookupAccount = do
     emptyParentMap <- liftIO DiffMap.newEmptyReference
-    let diffMap = uncurry DiffMap.insert acc $ DiffMap.empty emptyParentMap
+    let diffMap = uncurry DiffMap.insertFreshAccount acc $ DiffMap.empty emptyParentMap
     testDoLookup (fst acc) diffMap >>= \case
         Left _ -> assertFailure "account should be present in diff map"
         Right accIdx -> assertEqual "account should be there" (snd acc) accIdx
@@ -47,18 +48,18 @@ testInsertLookupAccount = do
     acc = dummyPair 1
 
 -- | Create a parent pointer for the provided difference map.
-mkParentPointer :: Option DiffMap.DifferenceMap -> IO (IORef (Option DiffMap.DifferenceMap))
+mkParentPointer :: Option DiffMap.AccountDifferenceMap -> IO (IORef (Option DiffMap.AccountDifferenceMap))
 mkParentPointer diffMap = newIORef diffMap >>= return
 
 -- | Testing lookups in flat and nested difference maps.
 testLookups :: Assertion
 testLookups = do
     emptyParentMap <- liftIO DiffMap.newEmptyReference
-    let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyParentMap
+    let diffMap1 = uncurry DiffMap.insertFreshAccount (dummyPair 1) $ DiffMap.empty emptyParentMap
     diffMap1Pointer <- mkParentPointer $ Present diffMap1
-    let diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty diffMap1Pointer)
+    let diffMap2 = uncurry DiffMap.insertFreshAccount (dummyPair 2) (DiffMap.empty diffMap1Pointer)
     diffMap2Pointer <- mkParentPointer $ Present diffMap2
-    let diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty diffMap2Pointer)
+    let diffMap3 = uncurry DiffMap.insertFreshAccount (dummyPair 3) (DiffMap.empty diffMap2Pointer)
     checkExists (dummyPair 1) diffMap1
     checkExists (dummyPair 1) diffMap2
     checkExists (dummyPair 2) diffMap2
@@ -75,12 +76,12 @@ testLookups = do
 testFlatten :: Assertion
 testFlatten = do
     emptyParentMap <- liftIO DiffMap.newEmptyReference
-    let diffMap1 = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyParentMap
+    let diffMap1 = uncurry DiffMap.insertFreshAccount (dummyPair 1) $ DiffMap.empty emptyParentMap
     diffMap1Pointer <- mkParentPointer $ Present diffMap1
-    let diffMap2 = uncurry DiffMap.insert (dummyPair 2) (DiffMap.empty diffMap1Pointer)
+    let diffMap2 = uncurry DiffMap.insertFreshAccount (dummyPair 2) (DiffMap.empty diffMap1Pointer)
     diffMap2Pointer <- mkParentPointer $ Present diffMap2
-    let diffMap3 = uncurry DiffMap.insert (dummyPair 3) (DiffMap.empty diffMap2Pointer)
-    assertEqual "accounts should be the same" (map dummyPair [1 .. 3]) =<< DiffMap.flatten diffMap3
+    let diffMap3 = uncurry DiffMap.insertFreshAccount (dummyPair 3) (DiffMap.empty diffMap2Pointer)
+    assertEqual "accounts should be the same" (map dummyPair [1 .. 3]) =<< DiffMap.flattenAccounts diffMap3
 
 -- | Make the reference map for comparing lookups.
 makeReference :: [(AccountAddress, AccountIndex)] -> HM.HashMap AccountAddress AccountIndex
@@ -129,11 +130,11 @@ insertionsAndLookups = it "insertions and lookups" $
     -- return the generated difference map(s)
     populateDiffMap [] _ !accum = return accum
     -- dump any remaining accounts at the top most difference map.
-    populateDiffMap ((accAddr, accIdx) : rest) 0 !accum = populateDiffMap rest 0 $ DiffMap.insert accAddr accIdx accum
+    populateDiffMap ((accAddr, accIdx) : rest) 0 !accum = populateDiffMap rest 0 $ DiffMap.insertFreshAccount accAddr accIdx accum
     -- create a new layer and insert an account.
     populateDiffMap ((accAddr, accIdx) : rest) remaining !accum = do
         pRef <- mkParentPointer (Present accum)
-        let accumDiffMap'' = DiffMap.insert accAddr accIdx $ DiffMap.empty pRef
+        let accumDiffMap'' = DiffMap.insertFreshAccount accAddr accIdx $ DiffMap.empty pRef
         populateDiffMap rest (remaining - 1) accumDiffMap''
 
 -- | A test that makes sure if multiple difference maps are
@@ -143,12 +144,12 @@ testMultipleChildrenDifferenceMaps :: Assertion
 testMultipleChildrenDifferenceMaps = do
     emptyRoot <- liftIO DiffMap.newEmptyReference
     -- The common parent
-    let parent = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyRoot
+    let parent = uncurry DiffMap.insertFreshAccount (dummyPair 1) $ DiffMap.empty emptyRoot
     parentReference <- mkParentPointer $ Present parent
     -- First branch
-    let branch0 = uncurry DiffMap.insert (dummyPair 2) $ DiffMap.empty parentReference
+    let branch0 = uncurry DiffMap.insertFreshAccount (dummyPair 2) $ DiffMap.empty parentReference
     -- Second branch
-    let branch1 = uncurry DiffMap.insert (dummyPair 3) $ DiffMap.empty parentReference
+    let branch1 = uncurry DiffMap.insertFreshAccount (dummyPair 3) $ DiffMap.empty parentReference
 
     -- Account from common parent should exist in both branches.
     checkExists (fst $ dummyPair 1) (snd $ dummyPair 1) branch0
@@ -174,10 +175,10 @@ testFromList = do
     emptyRoot <- liftIO DiffMap.newEmptyReference
     -- check creating from empty list
     let emptyDiffMap = DiffMap.empty emptyRoot
-    liftIO $ assertBool "fromList on empty list should yield the empty difference map" (emptyDiffMap == DiffMap.fromList emptyRoot [])
+    liftIO $ assertBool "fromList on empty list should yield the empty difference map" (emptyDiffMap == DiffMap.fromAccountList emptyRoot [])
     -- check for a difference map with 1 element.
-    let nonEmptyDiffMap = uncurry DiffMap.insert (dummyPair 1) $ DiffMap.empty emptyRoot
-    liftIO $ assertBool "fromList on empty list should yield the empty difference map" (nonEmptyDiffMap == DiffMap.fromList emptyRoot [dummyPair 1])
+    let nonEmptyDiffMap = uncurry DiffMap.insertFreshAccount (dummyPair 1) $ DiffMap.empty emptyRoot
+    liftIO $ assertBool "fromList on empty list should yield the empty difference map" (nonEmptyDiffMap == DiffMap.fromAccountList emptyRoot [dummyPair 1])
 
 tests :: Spec
 tests = describe "AccountMap.DifferenceMap" $ do
