@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 8.1.0
+
 - Replace `BufferedRef` with `HashedBufferedRef` in `PoolRewards`
   `bakerPoolRewardDetails::LFMBTree` field to cache computed hashes.
 - Improvements to the loading of modules. This particularly improves the performance of
