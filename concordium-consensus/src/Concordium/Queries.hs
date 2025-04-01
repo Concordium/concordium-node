@@ -1241,8 +1241,7 @@ getAccountInfoHelper getASI getCooldowns acct bs = do
         aiAccountAddress <- BS.getAccountCanonicalAddress acc
         aiAccountCooldowns <- getCooldowns acc
         aiAccountAvailableAmount <- BS.getAccountAvailableAmount acc
-        -- TODO: Get the actual protocol layer tokens. Issue #1342
-        let aiTokens = []
+        let aiAccountTokens = error "TODO: Github #1342. Implement PLT queries"
         return AccountInfo{..}
 
 -- | Get the details of a smart contract instance in the block state.

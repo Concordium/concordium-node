@@ -64,6 +64,8 @@ instance (MonadBlobStore m) => BlobStorable m TokenRawAmount
 newtype TokenIndex = TokenIndex {theTokenIndex :: Word64}
     deriving newtype (Eq, Ord, Serialize, Show, Num, Real, Enum, Integral, Bounded, Bits)
 
+instance (MonadBlobStore m) => BlobStorable m TokenIndex
+
 -- | A hash that identifies the specific implementation to use for a token.
 newtype TokenModuleRef = TokenModuleRef {theTokenModuleRef :: SHA256.Hash}
     deriving newtype (Eq, Ord, Serialize, Show)
@@ -324,3 +326,36 @@ createToken config plts = do
     (tokIndex, newTable) <- LFMBTree.append plt (_pltTable plts)
     let newMap = Map.insert (_pltTokenId config) tokIndex (_pltMap plts)
     return (tokIndex, ProtocolLevelTokens{_pltTable = newTable, _pltMap = newMap})
+
+-- | The table of PLTs of a given account. The table is indexed by the token
+--  index into the global token table.
+newtype TokenAccountStateTable = TokenAccountStateTable
+    { tokenAccountStateTable :: [(TokenIndex, TokenAccountState)]
+    }
+    deriving newtype (Eq, Ord, Show, Serialize)
+
+instance (MonadBlobStore m) => BlobStorable m TokenAccountStateTable
+
+-- | The empty token account state table.
+emptyTokenAccountStateTable :: TokenAccountStateTable
+emptyTokenAccountStateTable = TokenAccountStateTable []
+
+-- | Token state at the account level
+data TokenAccountState = TokenAccountState
+    { -- | The available balance for the account.
+      tasBalance :: !TokenRawAmount,
+      -- | The token module state for the account, represented as a key-value map.
+      tasModuleState :: ![(SBS.ShortByteString, BS.ByteString)]
+    }
+    deriving (Eq, Show, Ord)
+
+instance Serialize TokenAccountState where
+    put TokenAccountState{..} = do
+        put tasBalance
+        put tasModuleState
+    get = do
+        tasBalance <- get
+        tasModuleState <- get
+        return TokenAccountState{..}
+
+instance (MonadBlobStore m) => BlobStorable m TokenAccountState
