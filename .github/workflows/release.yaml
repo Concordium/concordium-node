@@ -272,7 +272,7 @@ jobs:
 
       - name: Run Docker and Extract Artifacts
         run: |
-          id=$(docker create concordium/bootstrapper:${{ needs.validate-preconditions.outputs.version }}
+          id=$(docker create concordium/bootstrapper:${{ needs.validate-preconditions.outputs.version }})
           docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb .
 
       - name: Configure AWS Credentials
