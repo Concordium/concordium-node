@@ -130,7 +130,7 @@ accountHashInputsV2 Account{..} =
               amhi2AccountReleaseScheduleHash = getHash _accountReleaseSchedule
             }
 
--- | Generate hash inputs from an account for 'AccountV2'.
+-- | Generate hash inputs from an account for 'AccountV3'.
 accountHashInputsV3 :: Account 'AccountV3 -> AccountHashInputsV2 'AccountV3
 accountHashInputsV3 Account{..} =
     AccountHashInputsV2
@@ -154,7 +154,7 @@ accountHashInputsV3 Account{..} =
               amhi3Cooldown = CooldownQueueHash $ getHash $ uncond _accountStakeCooldown
             }
 
--- | Generate hash inputs from an account for 'AccountV2'.
+-- | Generate hash inputs from an account for 'AccountV4'.
 accountHashInputsV4 :: Account 'AccountV4 -> AccountHashInputsV2 'AccountV4
 accountHashInputsV4 Account{..} =
     AccountHashInputsV2
@@ -178,6 +178,30 @@ accountHashInputsV4 Account{..} =
               amhi4Cooldown = CooldownQueueHash $ getHash $ uncond _accountStakeCooldown
             }
 
+-- | Generate hash inputs from an account for 'AccountV5'.
+accountHashInputsV5 :: Account 'AccountV5 -> AccountHashInputsV2 'AccountV5
+accountHashInputsV5 Account{..} =
+    AccountHashInputsV2
+        { ahi2NextNonce = _accountNonce,
+          ahi2AccountBalance = _accountAmount,
+          ahi2StakedBalance = stakedBalance,
+          ahi2MerkleHash = getHash merkleInputs
+        }
+  where
+    stakedBalance = case _accountStaking of
+        AccountStakeNone -> 0
+        AccountStakeBaker AccountBaker{..} -> _stakedAmount
+        AccountStakeDelegate AccountDelegationV1{..} -> _delegationStakedAmount
+    merkleInputs :: AccountMerkleHashInputs 'AccountV5
+    merkleInputs =
+        AccountMerkleHashInputsV5
+            { amhi5PersistingAccountDataHash = getHash _accountPersisting,
+              amhi5AccountStakeHash = getHash _accountStaking,
+              amhi5EncryptedAmountHash = getHash _accountEncryptedAmount,
+              amhi5AccountReleaseScheduleHash = getHash _accountReleaseSchedule,
+              amhi5Cooldown = CooldownQueueHash $ getHash $ uncond _accountStakeCooldown
+            }
+
 instance (IsAccountVersion av) => HashableTo (AccountHash av) (Account av) where
     getHash acc = makeAccountHash $ case accountVersion @av of
         SAccountV0 -> AHIV0 (accountHashInputsV0 acc)
@@ -185,6 +209,7 @@ instance (IsAccountVersion av) => HashableTo (AccountHash av) (Account av) where
         SAccountV2 -> AHIV2 (accountHashInputsV2 acc)
         SAccountV3 -> AHIV3 (accountHashInputsV3 acc)
         SAccountV4 -> AHIV4 (accountHashInputsV4 acc)
+        SAccountV5 -> AHIV5 (accountHashInputsV5 acc)
 
 instance forall av. (IsAccountVersion av) => HashableTo Hash.Hash (Account av) where
     getHash = coerce @(AccountHash av) . getHash

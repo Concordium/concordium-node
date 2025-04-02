@@ -76,6 +76,11 @@ dummyCooldownAccount ai amt cooldowns = do
             cq <- CooldownQueue.makeCooldownQueue cooldowns
             newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
             return $ PAV4 acc{SV1.accountEnduringData = newEnduring}
+        PAV5 acc -> do
+            let ed = SV1.enduringData acc
+            cq <- CooldownQueue.makeCooldownQueue cooldowns
+            newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
+            return $ PAV5 acc{SV1.accountEnduringData = newEnduring}
 
 -- | Run a test block state computation with a temporary directory for the block state.
 runTestBlockState ::
@@ -300,6 +305,17 @@ makeDummyAccount AccountConfig{..} = do
             return $
                 PAV4
                     acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
+        PAV5 acc -> do
+            let ed = SV1.enduringData acc
+            cq <- CooldownQueue.makeCooldownQueue acCooldowns
+            (staking, stakeAmount) <- makePersistentAccountStakeEnduring acInitialStaking acAccountIndex
+            newEnduring <-
+                refMake
+                    =<< SV1.rehashAccountEnduringData
+                        ed{SV1.paedStakeCooldown = cq, SV1.paedStake = staking}
+            return $
+                PAV5
+                    acc{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = stakeAmount}
 
 -- | Construct an initial state for testing based on the account configuration provided.
 makeInitialState ::
@@ -355,6 +371,11 @@ makeInitialState accs seedState rpLen = withIsAuthorizationsVersionForPV (protoc
             let ed = SV1.enduringData pa
             newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStake = staking}
             return $ PAV4 pa{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = newStakeAmount}
+        updateAccountStake AccountConfig{..} (PAV5 pa) = do
+            (staking, newStakeAmount) <- makePersistentAccountStakeEnduring acUpdatedStaking acAccountIndex
+            let ed = SV1.enduringData pa
+            newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStake = staking}
+            return $ PAV5 pa{SV1.accountEnduringData = newEnduring, SV1.accountStakedAmount = newStakeAmount}
     newAccounts <-
         foldM
             (\a ac -> updateAccountsAtIndex' (updateAccountStake ac) (acAccountIndex ac) a)

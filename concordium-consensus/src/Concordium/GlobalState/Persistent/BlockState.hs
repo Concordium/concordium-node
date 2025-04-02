@@ -182,6 +182,7 @@ migrateSeedState (StateMigrationParametersP5ToP6 (P6.StateMigrationData _ time))
     in  initialSeedStateV1 seed time
 migrateSeedState StateMigrationParametersP6ToP7{} ss = migrateSeedStateV1Trivial ss
 migrateSeedState StateMigrationParametersP7ToP8{} ss = migrateSeedStateV1Trivial ss
+migrateSeedState StateMigrationParametersP8ToP9{} ss = migrateSeedStateV1Trivial ss
 
 -- | Trivial migration of a 'SeedStateV1' between protocol versions.
 migrateSeedStateV1Trivial :: SeedState 'SeedStateVersion1 -> SeedState 'SeedStateVersion1
@@ -630,6 +631,10 @@ migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimePa
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
 migrateBlockRewardDetails StateMigrationParametersP7ToP8{} _ _ (SomeParam TimeParametersV1{..}) oldEpoch = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
+migrateBlockRewardDetails StateMigrationParametersP8ToP9{} _ _ (SomeParam TimeParametersV1{..}) oldEpoch = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
@@ -2827,6 +2832,7 @@ doGetRewardStatus pbs = do
         SP6 -> rewardsV1
         SP7 -> rewardsV1
         SP8 -> rewardsV1
+        SP9 -> rewardsV1
 
 doRewardFoundationAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
 doRewardFoundationAccount pbs reward = do
@@ -2954,6 +2960,7 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
                     SP6 -> return _auIndex
                     SP7 -> return _auIndex
                     SP8 -> return _auIndex
+                    SP9 -> return _auIndex
                 !oldRel <- accountNextReleaseTimestamp acc
                 !newRel <- accountNextReleaseTimestamp acc'
                 return (acctRef :: RSAccountRef pv, oldRel, newRel)
@@ -3657,6 +3664,7 @@ doProcessReleaseSchedule pbs ts = do
                     SP6 -> processAccountP5
                     SP7 -> processAccountP5
                     SP8 -> processAccountP5
+                    SP9 -> processAccountP5
             (newAccs, newRS) <- foldM processAccount (bspAccounts bsp, remRS) affectedAccounts
             storePBS pbs (bsp{bspAccounts = newAccs, bspReleaseSchedule = newRS})
 
@@ -4701,6 +4709,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
             StateMigrationParametersP7ToP8{} -> RSMNewToNew
+            StateMigrationParametersP8ToP9{} -> RSMNewToNew
     logEvent GlobalState LLTrace "Migrating release schedule"
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     pab <- lift . refLoad $ bspBirkParameters ^. birkActiveBakers

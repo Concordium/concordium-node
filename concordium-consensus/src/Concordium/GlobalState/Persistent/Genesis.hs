@@ -19,6 +19,7 @@ import qualified Concordium.Genesis.Data.P5 as P5
 import qualified Concordium.Genesis.Data.P6 as P6
 import qualified Concordium.Genesis.Data.P7 as P7
 import qualified Concordium.Genesis.Data.P8 as P8
+import qualified Concordium.Genesis.Data.P9 as P9
 import qualified Concordium.GlobalState.CapitalDistribution as CapDist
 import qualified Concordium.GlobalState.Persistent.Account as Account
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
@@ -84,6 +85,9 @@ genesisState gd = MTL.runExceptT $ case Types.protocolVersion @pv of
             buildGenesisBlockState (CGPV1 genesisCore) genesisInitialState
     Types.SP8 -> case gd of
         GenesisData.GDP8 P8.GDP8Initial{..} ->
+            buildGenesisBlockState (CGPV1 genesisCore) genesisInitialState
+    Types.SP9 -> case gd of
+        GenesisData.GDP9 P9.GDP9Initial{..} ->
             buildGenesisBlockState (CGPV1 genesisCore) genesisInitialState
 
 -------- Types -----------
