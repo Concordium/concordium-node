@@ -1,5 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens where
 
@@ -13,15 +15,17 @@ import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Types.HashableTo
+import Concordium.Types.ProtocolVersion
 import Concordium.Utils
 import Concordium.Utils.Serialization
 
+import Concordium.GlobalState.Basic.BlockState.LFMBTree (LFMBTreeHash' (..))
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBTree
 
 -- | Represents the raw amount of a token. This is the amount of the token in its smallest unit.
 newtype TokenRawAmount = TokenRawAmount {theTokenRawAmount :: Word64}
-    deriving newtype (Eq, Ord, Show)
+    deriving newtype (Eq, Ord, Show, Num, Real)
 
 -- | Serialization of 'TokenRawAmount' is as a variable length quantity (VLQ). We disallow
 --  0-padding to enforce canonical serialization.
@@ -51,6 +55,9 @@ instance Serialize TokenRawAmount where
 instance (MonadBlobStore m) => BlobStorable m TokenRawAmount
 
 -- FIXME: Refactor to base.
+
+-- | A token ID is a short byte string that identifies a token. It is expected to be unique.
+--  The byte string must be at most 255 bytes long and be a valid UTF-8 string.
 newtype TokenId = TokenId SBS.ShortByteString
     deriving newtype (Eq, Ord, Serialize, Show)
 
@@ -88,6 +95,7 @@ instance (MonadBlobStore m) => BlobStorable m PLTConfiguration
 
 instance (MonadBlobStore m) => Cacheable m PLTConfiguration
 
+-- | The hash of a 'PLTConfiguration'.
 newtype PLTConfigurationHash = PLTConfigurationHash SHA256.Hash
     deriving newtype (Eq, Ord, Show, Serialize)
 
@@ -174,6 +182,24 @@ instance (MonadBlobStore m) => Cacheable m ProtocolLevelTokens where
     cache ProtocolLevelTokens{..} = do
         pltTable' <- cache _pltTable
         return ProtocolLevelTokens{_pltTable = pltTable', ..}
+
+-- | The hash of a 'ProtocolLevelTokens'. This is the hash of the LFMBTree holding the
+--  'PLT's. The hash is computed using the 'BlockHashVersion1' algorithm.
+newtype ProtocolLevelTokensHash = ProtocolLevelTokensHash {theProtocolLevelTokensHash :: SHA256.Hash}
+    deriving newtype (Eq, Ord, Show, Serialize)
+
+instance (MonadBlobStore m) => MHashableTo m ProtocolLevelTokensHash ProtocolLevelTokens where
+    getHashM ProtocolLevelTokens{..} =
+        ProtocolLevelTokensHash . theLFMBTreeHash @BlockHashVersion1
+            <$> getHashM _pltTable
+
+-- | An empty 'ProtocolLevelTokens' structure.
+emptyProtocolLevelTokens :: ProtocolLevelTokens
+emptyProtocolLevelTokens =
+    ProtocolLevelTokens
+        { _pltTable = LFMBTree.empty,
+          _pltMap = Map.empty
+        }
 
 -- | Get the 'TokenIndex' for a 'TokenId'. Returns @Nothing@ if there is no token with the given
 -- 'TokenId'.
