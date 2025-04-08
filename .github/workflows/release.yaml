@@ -47,7 +47,7 @@ env:
       \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}\"
     }'
   REGISTRY: docker.io
-  SERVICE: "0.0.1-0-rc"
+  SERVICE: "${{ inputs.service }}"
 
 permissions:
   id-token: write
@@ -72,7 +72,7 @@ jobs:
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           if [ -z "${{ env.SERVICE }}" ]; then
-            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ github.ref_name }}"
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "0.0.1-0-rc"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
               echo "::error::${CARGO_VERSION} does not match ${VERSION}."
               exit 1
