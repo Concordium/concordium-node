@@ -67,13 +67,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ValidatePreconditionsSession
-          aws-region: "eu-west-1"
-
       - name: Validate version
         id: versions_derivation
         run: |
