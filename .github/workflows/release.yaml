@@ -136,7 +136,6 @@ jobs:
     needs: [validate-preconditions]
     runs-on: ubuntu-latest
     if: contains(fromJSON('["rc", "alpha", "database-exporter"]'), needs.validate-preconditions.outputs.release_type)
-    environment: release
     steps:
 
       - name: Checkout Repository
@@ -168,22 +167,9 @@ jobs:
           id=$(docker create build-deb:${{ github.run_id }})
           docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb .
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ${{ env.PROJECT_NAME }}Session
-          aws-region: "eu-west-1"
-
-      - name: Publish
-        run: |
-          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"]')
-          aws s3 cp "${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
-            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   p2p-bootstrapper:
     runs-on: ubuntu-latest
-    environment: release
     if: contains(fromJSON('["rc", "alpha", "p2p-bootstrapper"]'), needs.validate-preconditions.outputs.release_type)
     needs: [build-static-binaries, validate-preconditions]
     steps:
@@ -200,16 +186,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Precheck - Validate Version and Check S3 for existing files
-        run: |
-          # Check if the file already exists in S3
-          OUTFILE="s3://distribution.concordium.software/tools/linux/p2p-bootstrapper_${{ needs.validate-preconditions.outputs.version }}.deb"
-          totalFoundObjects=$(aws s3 ls "$OUTFILE" --summarize | grep "Total Objects: " | sed "s/[^0-9]*//g")
-          if [ "$totalFoundObjects" -ne "0" ]; then
-            echo "error: $OUTFILE already exists"
-            exit 1
-          fi
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
@@ -233,24 +209,10 @@ jobs:
           id=$(docker create build-deb:${{ github.run_id }})
           docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb .
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ${{ github.job }}Session
-          aws-region: "eu-west-1"
-
-      - name: Publish
-        run: |
-          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"]')
-          aws s3 cp "${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb" \
-            "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-
   node-windows:
     runs-on: windows-latest
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
-    environment: release
     defaults:
       run:
         shell: pwsh
@@ -314,25 +276,10 @@ jobs:
       - name: Build Windows Node
         run: ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ env.RUST_VERSION }}
 
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ${{ github.job }}Session
-          aws-region: "eu-west-1"
-
-      - name: Publish
-        shell: bash
-        run: |
-          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"]')
-          aws s3 cp ./service/windows/installer/Node.msi \
-            "$OUTFILE" --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-macos"]'), needs.validate-preconditions.outputs.release_type)
-    environment: release
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -369,19 +316,6 @@ jobs:
       - name: Build macOS Package
         run: |
           printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ${{ github.job }}Session
-          aws-region: "eu-west-1"
-
-      - name: Publish
-        run: |
-          OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"]')
-          aws s3 cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}-unsigned.pkg \
-            "$OUTFILE" --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
 
   generate-matrix:
     runs-on: ubuntu-latest
@@ -437,7 +371,6 @@ jobs:
 
   node-linux:
      runs-on: ubuntu-latest
-     environment: release
      if: contains(fromJSON('["rc", "alpha", "node-linux"]'), needs.validate-preconditions.outputs.release_type)
      needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
      env:
@@ -507,24 +440,10 @@ jobs:
              build_listen_port=${{ matrix.node.listen_port }}
              build_bootstrap=bootstrap.${{ env.DOMAIN }}:8888
 
-       - name: Configure AWS Credentials
-         uses: aws-actions/configure-aws-credentials@v4
-         with:
-           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-           role-session-name: ${{ env.PROJECT_NAME }}Session
-           aws-region: "eu-west-1"
-
        - name: Run Docker and Extract Artifacts
          run: |
            id=$(docker create ${{ matrix.node.env }}-deb)
            docker cp $id:/out/concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb .
-
-       - name: Publish
-         run: |
-           OUTFILE=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ env.PROJECT_NAME }}"]')
-           aws s3 cp concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb \
-             "$OUTFILE" --grants=read=uri=http://acs.amazonaws.com/groups/global/AllUsers
-
 
   docker:
     runs-on: ubuntu-latest
