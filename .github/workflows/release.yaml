@@ -15,6 +15,8 @@ on:
           - database-exporter
 
   push:
+    branches:
+      - 'SRE-1067/concordium-client-release-flow'
     tags:
      - '*.*.*-*-rc'
      - '*.*.*-*-alpha'
@@ -45,7 +47,7 @@ env:
       \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}\"
     }'
   REGISTRY: docker.io
-  SERVICE: "${{ inputs.service }}"
+  SERVICE: "0.0.1-0-rc"
 
 permissions:
   id-token: write
@@ -97,35 +99,6 @@ jobs:
           export VERSION="${{ steps.versions_derivation.outputs.version }}"
           echo "s3_arns=${{ env.S3_ARN_TEMPLATES }}" >> $GITHUB_OUTPUT
           echo "docker_tags=${{ env.DOCKER_TAGS_TEMPLATES }}" >> $GITHUB_OUTPUT
-
-      - name: Validate whether s3 artifacts are not existing
-        if: contains(fromJSON('["rc", "alpha"]'), steps.versions_derivation.outputs.release_type)
-        run: |
-          set +e
-          echo '${{ steps.render.outputs.s3_arns }}' | jq -r '. | to_entries[] | .value' | while read -r ARN; do
-            echo "Checking for object at: $ARN"
-            S3_OUTPUT=$(aws s3 ls "$ARN" --summarize 2>&1)
-            EXIT_CODE=$?
-            if [ $EXIT_CODE -eq 1 ]; then
-              echo "No object found for $ARN, proceeding."
-            elif [ $EXIT_CODE -eq 0 ]; then
-              echo "::error::item for $ARN already exists."
-              exit 1
-            else
-              echo "::error::Unexpected exit code: $EXIT_CODE for $ARN."
-              exit 1
-            fi
-          done
-      - name: Validate whether docker tags are not existing
-        if: contains(fromJSON('["rc", "alpha"]'), steps.versions_derivation.outputs.release_type)
-        run: |
-          echo '${{ steps.render.outputs.docker_tags }}' | jq -r '. | to_entries[] | .value' | while read -r TAG; do
-            echo "Checking for object at: $TAG"
-            if docker manifest inspect $TAG > /dev/null; then
-              echo "::error::$TAG already exists"
-              exit 1
-            fi
-          done
 
   build-static-binaries:
     needs: [validate-preconditions]
