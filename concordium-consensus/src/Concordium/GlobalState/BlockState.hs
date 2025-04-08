@@ -91,6 +91,9 @@ import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.CooldownQueue (Cooldowns)
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
+    ProtocolLevelTokensHash (..),
+ )
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
@@ -126,7 +129,10 @@ data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs
       bshAccounts :: AccountsHash pv,
       bshInstances :: InstancesHash pv,
       bshUpdates :: H.Hash,
-      bshBlockRewardDetails :: BlockRewardDetailsHash pv
+      bshBlockRewardDetails :: BlockRewardDetailsHash pv,
+      -- | The protocol level tokens hash is present from protocol version 9.
+      bshProtocolLevelTokens ::
+        Conditionally (SupportsPLT (AccountVersionFor pv)) ProtocolLevelTokensHash
     }
     deriving (Show)
 
@@ -145,10 +151,12 @@ makeBlockStateHash BlockStateHashInputs{..} =
                     (H.hashOfHashes (theAccountsHash bshAccounts) (theInstancesHash bshInstances))
                 )
             )
-            ( H.hashOfHashes
-                bshUpdates
-                (brdHash bshBlockRewardDetails)
-            )
+            hash2
+  where
+    updatesAndBRDHash = H.hashOfHashes bshUpdates (brdHash bshBlockRewardDetails)
+    hash2 = case bshProtocolLevelTokens of
+        CFalse -> updatesAndBRDHash
+        CTrue pltHash -> H.hashOfHashes updatesAndBRDHash (theProtocolLevelTokensHash pltHash)
 
 -- | Constraint that a protocol version supports transaction outcomes.
 type SupportsTransactionOutcomes (pv :: ProtocolVersion) = (IsTransactionOutcomesVersion (TransactionOutcomesVersionFor pv))
