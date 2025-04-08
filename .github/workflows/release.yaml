@@ -57,7 +57,6 @@ jobs:
 
   validate-preconditions:
     runs-on: ubuntu-latest
-    environment: release
     outputs:
       s3_arns: ${{ steps.render.outputs.s3_arns }}
       docker_tags: ${{ steps.render.outputs.docker_tags }}
