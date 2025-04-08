@@ -345,7 +345,7 @@ jobs:
           path: ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}-unsigned.pkg
           retention-days: 3
 
-  generate-matrix:
+  generate-node-matrix:
     runs-on: ubuntu-latest
     needs: [validate-preconditions]
     outputs:
@@ -400,12 +400,12 @@ jobs:
   node-linux:
      runs-on: ubuntu-latest
      if: contains(fromJSON('["rc", "alpha", "node-linux"]'), needs.validate-preconditions.outputs.release_type)
-     needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
+     needs: [ build-static-binaries, validate-preconditions, generate-node-matrix ]
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
      strategy:
        matrix:
-         node: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+         node: ${{ fromJSON(needs.generate-node-matrix.outputs.matrix) }}
      steps:
        - name: Download artifact
          uses: actions/download-artifact@v4
@@ -476,18 +476,31 @@ jobs:
        - name: Upload artifact
          uses: actions/upload-artifact@v4
          with:
-           name: ${{ github.job }}
+           name: node-${{ matrix.node.env }}-linux
            path: concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb
            retention-days: 3
+
+  generate-s3-release-matrix:
+    runs-on: ubuntu-latest
+    needs: [ node-linux, node-macos, node-windows, p2p-bootstrapper, database-exporter, validate-preconditions ]
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+
+      - name: Initialize Matrix with alpha environments
+        run: |
+          MATRIX_JSON=$(echo '[
+          ]' | jq -c)
+          echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
 
   docker:
     runs-on: ubuntu-latest
     environment: release
     if: contains(fromJSON('["rc", "alpha", "docker"]'), needs.validate-preconditions.outputs.release_type)
-    needs: [ build-static-binaries, validate-preconditions, generate-matrix ]
+    needs: [ build-static-binaries, validate-preconditions, generate-node-matrix ]
     strategy:
       matrix:
-        node: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+        node: ${{ fromJSON(needs.generate-node-matrix.outputs.matrix) }}
         exclude:
           - node:
               env: flynet
