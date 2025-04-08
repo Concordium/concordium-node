@@ -14,6 +14,7 @@ import Data.Serialize
 import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as SHA256
+import Concordium.Types
 import Concordium.Types.HashableTo
 import Concordium.Types.ProtocolVersion
 import Concordium.Utils
@@ -29,6 +30,10 @@ newtype TokenRawAmount = TokenRawAmount {theTokenRawAmount :: Word64}
 
 -- | Serialization of 'TokenRawAmount' is as a variable length quantity (VLQ). We disallow
 --  0-padding to enforce canonical serialization.
+--
+--  The VLQ encoding represents a value in big-endian base 128. Each byte of the encoding uses
+--  the high-order bit to indicate if further bytes follow (when set). The remaining bits represent
+--  the positional value in base 128.  See https://en.wikipedia.org/wiki/Variable-length_quantity
 instance Serialize TokenRawAmount where
     put (TokenRawAmount amt) = do
         mapM_ putWord8 (chunk amt [])
@@ -45,6 +50,8 @@ instance Serialize TokenRawAmount where
             b <- getWord8
             when (b == 0x80 && accum == 0) $
                 fail "Padding bytes are not allowed"
+            -- The following test ensures that @accum * 128 <= maxBound@, i.e. the shift in
+            -- computing @accum'@ will not overflow.
             when (accum > maxBound `shiftR` 7) $
                 fail "Value out of range"
             let accum' = accum `shiftL` 7 .|. fromIntegral (b .&. 0x7f)
@@ -53,13 +60,6 @@ instance Serialize TokenRawAmount where
                 else return accum'
 
 instance (MonadBlobStore m) => BlobStorable m TokenRawAmount
-
--- FIXME: Refactor to base.
-
--- | A token ID is a short byte string that identifies a token. It is expected to be unique.
---  The byte string must be at most 255 bytes long and be a valid UTF-8 string.
-newtype TokenId = TokenId SBS.ShortByteString
-    deriving newtype (Eq, Ord, Serialize, Show)
 
 -- | A token index is the index of a token in the 'ProtocolLevelTokens' table.
 newtype TokenIndex = TokenIndex {theTokenIndex :: Word64}

@@ -21,7 +21,7 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 genTokenRawAmount :: Gen TokenRawAmount
 genTokenRawAmount = TokenRawAmount <$> arbitrary
 
--- | Deserialize a value, ensuring that the input it fully consumed.
+-- | Deserialize a value, ensuring that the input is fully consumed.
 decodeFull :: (Serialize a) => BS.ByteString -> Either String a
 decodeFull =
     runGet
