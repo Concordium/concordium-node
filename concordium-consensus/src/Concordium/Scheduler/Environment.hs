@@ -45,6 +45,7 @@ import Control.Exception (assert)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
+import qualified Concordium.Types.Queries.Tokens as Tokens
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
@@ -357,6 +358,9 @@ class
     --  and any queued updates of the given type with a later effective
     --  time are cancelled.
     enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) -> m ()
+
+    -- | Process the chain update to create a new protocol level token (PLT).
+    createPLTUpdate :: Tokens.CreatePLT -> m ()
 
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the

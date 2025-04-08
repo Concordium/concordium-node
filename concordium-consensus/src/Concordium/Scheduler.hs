@@ -2664,7 +2664,7 @@ handleChainUpdate ::
     (SchedulerMonad m) =>
     TVer.ChainUpdateWithStatus ->
     m TxResult
-handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes) = do
+handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVerificationResult) = do
     cm <- getChainMetadata
     -- check that payload si
     if not (validatePayloadSize (protocolVersion @(MPV m)) (updatePayloadSize uiHeader))
@@ -2750,12 +2750,20 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                 ValidatorScoreParametersUpdatePayload u -> case sIsSupported SPTValidatorScoreParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVValidatorScoreParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                CreatePLTUpdatePayload payload ->
+                                    if supportsProtocolLevelTokens (protocolVersion @(MPV m))
+                                        then do
+                                            -- TODO Check signature when relevant update keys are introduced.
+                                            -- Process update
+                                            createPLTUpdate payload
+                                            buildValidTxSummary
+                                        else return $ TxInvalid NotSupportedAtCurrentProtocolVersion
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
-        case mVerRes of
+        case maybeVerificationResult of
             Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do
                 currentKeys <- getUpdateKeyCollection
                 -- If the keys have not changed then the signature remains valid.
@@ -2778,6 +2786,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                     Right _ -> enqueue change
     enqueue change = do
         enqueueUpdate (updateEffectiveTime uiHeader) change
+        buildValidTxSummary
+    -- Construct the transaction summary and signal the transaction is valid.
+    buildValidTxSummary = do
         tsIndex <- bumpTransactionIndex
         return $
             TxValid
