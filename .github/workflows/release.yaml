@@ -72,7 +72,7 @@ jobs:
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           if [ -z "${{ env.SERVICE }}" ]; then
-            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "0.0.1-0-rc"
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "7.0.6-0-rc"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
               echo "::error::${CARGO_VERSION} does not match ${VERSION}."
               exit 1
