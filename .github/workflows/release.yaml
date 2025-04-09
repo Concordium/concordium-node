@@ -563,7 +563,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: docker-${{ matrix.node.env }}
-          path: /tmp/${{ ARTIFACT_FILE_NAME }}.tar
+          path: /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
           retention-days: 3
 
   s3_publish:
