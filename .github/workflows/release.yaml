@@ -30,6 +30,7 @@ env:
   GHC_VERSION: '9.6.6'
   PROTOC_VERSION: '28.3'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
+  ARTIFACT_FILE_NAME: 'artifact-file'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_ARN_TEMPLATES: '{
       \"database-exporter\": \"s3://distribution.concordium.software/tools/linux/database-exporter_${VERSION}.deb\",
@@ -173,7 +174,6 @@ jobs:
           name: ${{ github.job }}
           path: ${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb
           retention-days: 3
-
 
   p2p-bootstrapper:
     runs-on: ubuntu-latest
@@ -509,34 +509,8 @@ jobs:
           json_intersection=$(echo "$intersection" | jq -R -s -c 'split("\n")')
           echo "intersection=$json_intersection" >> $GITHUB_OUTPUT
 
-  s3_publish:
+  docker-build:
     runs-on: ubuntu-latest
-    environment: release
-    needs: [generate-release-matrixes]
-    strategy:
-      matrix:
-        artifact_name: ${{ fromJSON(needs.generate-release-matrixes.outputs.s3_names) }}
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: /tmp
-
-      - name: Test content
-        run: |
-          ls /tmp
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
-          role-session-name: ValidatePreconditionsSession
-          aws-region: "eu-west-1"
-
-  docker:
-    runs-on: ubuntu-latest
-    environment: release
     if: contains(fromJSON('["rc", "alpha", "docker"]'), needs.validate-preconditions.outputs.release_type)
     needs: [ build-static-binaries, validate-preconditions, generate-node-matrix ]
     strategy:
@@ -565,15 +539,8 @@ jobs:
         env:
           GENESIS_DATA_KEY: ${{ secrets.GENESIS_DATA_KEY }}
 
-      - name: Log in to the Container registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
-
       - name: Set tag
-        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["${{ github.job }}-${{ matrix.node.env }}"]')" >> $GITHUB_ENV
+        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["docker-${{ matrix.node.env }}"]')" >> $GITHUB_ENV
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
@@ -582,7 +549,7 @@ jobs:
           file: scripts/distribution/docker/builder.Dockerfile
           tags: ${{ env.TAG }}
           no-cache: true
-          push: true
+          push: false
           ssh: |
             default=./id_rsa
           build-args: |
@@ -591,3 +558,63 @@ jobs:
             genesis_ref=main
             genesis_path=${{ matrix.node.genesis_path }}
             environment=${{ matrix.node.env }}
+          outputs: type=docker,dest=/tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-${{ matrix.node.env }}
+          path: /tmp/${{ ARTIFACT_FILE_NAME }}.tar
+          retention-days: 3
+
+  s3_publish:
+    runs-on: ubuntu-latest
+    environment: release
+    needs: [generate-release-matrixes]
+    strategy:
+      matrix:
+        artifact_name: ${{ fromJSON(needs.generate-release-matrixes.outputs.s3_names) }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: /tmp
+
+      - name: Test content
+        run: |
+          ls /tmp
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: ValidatePreconditionsSession
+          aws-region: "eu-west-1"
+
+  docker_publish:
+    runs-on: ubuntu-latest
+    environment: release
+    needs: [generate-release-matrixes]
+    strategy:
+      matrix:
+        artifact_name: ${{ fromJSON(needs.generate-release-matrixes.outputs.docker_names) }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: /tmp
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Load image
+        run: docker load --input /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
+
+      - name: Push image
+        run: docker images
+
