@@ -12,6 +12,7 @@ import Test.Hspec
 import Test.QuickCheck as QuickCheck
 
 import qualified Concordium.Crypto.SHA256 as SHA256
+import Concordium.Types
 import Concordium.Types.HashableTo
 
 import Concordium.GlobalState.Persistent.BlobStore
