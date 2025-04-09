@@ -132,7 +132,11 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
     {
         let types = format!("{}/v2/concordium/types.proto", proto_root_input);
         println!("cargo:rerun-if-changed={}", types);
-        prost_build::compile_protos(&[types], &[proto_root_input])?;
+        let plts = format!("{}/v2/concordium/protocol-level-tokens.proto", proto_root_input);
+        println!("cargo:rerun-if-changed={}", plts);
+        let kernel = format!("{}/v2/concordium/kernel.proto", proto_root_input);
+        println!("cargo:rerun-if-changed={}", kernel);
+        prost_build::compile_protos(&[kernel, plts, types], &[proto_root_input])?;
     }
 
     // Because we serialize messages in Haskell we need to construct the service
