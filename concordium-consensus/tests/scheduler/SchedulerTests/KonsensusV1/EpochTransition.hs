@@ -953,6 +953,29 @@ testSuspendPrimedSnapshotPaydayCombo accountConfigs = runTestBlockState @P8 $ do
     startEpoch = 10
     startTriggerTime = 1000
 
+testMarkFinalizationAwakeBakers :: [AccountConfig 'AccountV3] -> Assertion
+testMarkFinalizationAwakeBakers accountConfigs = runTestBlockState @P7 $ do
+    bs0 <- makeInitialState accountConfigs (transitionalSeedState startEpoch startTriggerTime) 1
+    bprd0 <- bsoGetBakerPoolRewardDetails bs0
+    let activeBakerIds0 = Map.keys bprd0
+    -- `bsoMarkFinalizationAwakeBakers` should update reward details only on change
+    -- of their finalizationAwake / suspensionInfo field. Hence, the operation
+    -- should be idempotent. This also checks, that the early return in the
+    -- implementation of `markFinalizerAwake` works.
+    bs1 <- bsoMarkFinalizationAwakeBakers bs0 activeBakerIds0
+    bs2 <- bsoMarkFinalizationAwakeBakers bs1 activeBakerIds0
+    bprd1 <- bsoGetBakerPoolRewardDetails bs1
+    bprd2 <- bsoGetBakerPoolRewardDetails bs2
+    liftIO $
+        assertBool
+            "bsoMarkFinalizationAwakeBakers updates reward details"
+            (bprd0 /= bprd1)
+    liftIO $
+        assertEqual "bsoMarkFinalizationAwakeBakers is idempotent" bprd1 bprd2
+  where
+    startEpoch = 10
+    startTriggerTime = 1000
+
 tests :: Spec
 tests = parallel $ describe "EpochTransition" $ do
     it "testEpochTransitionNoPaydayNoSnapshot" $
@@ -977,3 +1000,5 @@ tests = parallel $ describe "EpochTransition" $ do
         forAll (genAccountConfigs False) testSuspendPrimedSnapshotOnly
     it "testSuspendPrimedSnapshotPaydayCombo" $
         forAll (genAccountConfigs False) testSuspendPrimedSnapshotPaydayCombo
+    it "testMarkFinalizationAwakeBakers" $
+        forAll (genAccountConfigs False) testMarkFinalizationAwakeBakers

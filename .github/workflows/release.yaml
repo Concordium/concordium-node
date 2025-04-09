@@ -569,7 +569,7 @@ jobs:
   s3_publish:
     runs-on: ubuntu-latest
     environment: release
-    needs: [generate-release-matrixes]
+    needs: [generate-release-matrixes, validate-preconditions ]
     strategy:
       matrix:
         artifact_name: ${{ fromJSON(needs.generate-release-matrixes.outputs.s3_names) }}
@@ -590,6 +590,28 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           role-session-name: ValidatePreconditionsSession
           aws-region: "eu-west-1"
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+#      - uses: actions/create-github-app-token@v1
+#        id: app-token
+#        with:
+#          app-id: ${{ vars.APP_ID }}
+#          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+#          owner: ${{ github.repository_owner }}
+#          repositories: |
+#            concordium-infra-images
+#      - name: Invoke immutable node release flow
+#        run: |
+#          curl -X POST --fail \
+#            -H "Authorization: Bearer ${{ steps.app-token.outputs.token }}" \
+#            -H "Accept: application/vnd.github.v3+json" \
+#            https://api.github.com/repos/Concordium/concordium-infra-images/actions/workflows/release-node-images.yaml/dispatches \
+#            -d '{"ref":"main", "inputs":{"node_version": "${{ needs.validate-preconditions.outputs.version }}", "release_type": "${{ needs.validate-preconditions.outputs.release_type }}"}}'
 
   docker_publish:
     runs-on: ubuntu-latest
@@ -617,4 +639,3 @@ jobs:
 
       - name: Push image
         run: docker images
-

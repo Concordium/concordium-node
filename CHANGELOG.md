@@ -2,10 +2,49 @@
 
 ## Unreleased changes
 
+## 8.1.0
+
+- Replace `BufferedRef` with `HashedBufferedRef` in `PoolRewards`
+  `bakerPoolRewardDetails::LFMBTree` field to cache computed hashes.
+- Improvements to the loading of modules. This particularly improves the performance of
+  `GetModuleSource` in certain cases, and can also reduce start-up time.
+- Use a persistent LMDB-backed store to track the finalized module map.
+- Fix a bug that affects setting up the account map correctly for non-finalized certified blocks
+  that contain account creations (#1329).
+- Fix a bug that can occasionally result in a crash if `GetBlockInfo` is invoked during a protocol
+  update ([#1352](https://github.com/Concordium/concordium-node/issues/1352)). The fix delays
+  executing the on-block and on-finalization handlers until after the state update has been
+  committed. This also should also result in better consistency in the gRPC API (i.e. if a client
+  is notified that a block has arrived, `GetBlockInfo` should not result in `NOT_FOUND` for thatb
+  block).
+
+## 8.0.3
+
+- Fix a bug where, after a protocol update in consensus version 1 (P6 onwards), a node may
+  miscalculate the absolute height of blocks when it is restarted. (#1319)
+- Fix a bug where `GetBlockInfo` reports the parent block of a genesis block to be the last
+  finalized block of the previous genesis index, instead of the terminal block.
+
+## 8.0.2
+
+- Fix a bug where the P7->P8 protocol update affects payday timing.
+
+## 8.0.1
+
+- Fix a bug in computing the number of missed rounds in the event of a timeout.
+- Fix a bug where the suspended status of a baker pool would be omitted when it was suspended.
+- Fix a bug where `GetBlockChainParameters` returns a `ChainParametersV2` in cases where it should
+  return `ChainParametersV3`.
+
+## 8.0.0
+
+- Add P7 -> P8 update.
 - Automatically suspend validators from the consensus that missed too many
   rounds in the previous payday.
 - Add support for suspend/resume to validator configuration updates.
+- Add support to add a validator in a suspended state.
 - Validators that are suspended are paused from participating in the consensus algorithm.
+- Add suspension info to `BakerPoolStatus` / `CurrentPaydayBakerPoolStatus` query results.
 - Add `GetConsensusDetailedStatus` gRPC endpoint for getting detailed information on the status
   of the consensus, at consensus version 1.
 - Update Rust version to 1.82.

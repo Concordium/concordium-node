@@ -128,7 +128,7 @@ data Accounts (pv :: ProtocolVersion) = Accounts
       --  added in blocks which are not yet finalized.
       --  In particular the difference map retains accounts created, but not
       --  yet stored in the LMDB backed account map.
-      accountDiffMapRef :: !DiffMap.DifferenceMapReference
+      accountDiffMapRef :: !DiffMap.AccountDifferenceMapReference
     }
 
 instance (IsProtocolVersion pv) => Show (Accounts pv) where
@@ -156,7 +156,7 @@ writeAccountsCreated :: (SupportsPersistentAccount pv m) => Accounts pv -> m ()
 writeAccountsCreated Accounts{..} = do
     mAccountsCreated <- liftIO $ readIORef accountDiffMapRef
     forM_ mAccountsCreated $ \accountsCreated -> do
-        listOfAccountsCreated <- liftIO $ DiffMap.flatten accountsCreated
+        listOfAccountsCreated <- liftIO $ DiffMap.flattenAccounts accountsCreated
         -- Write all accounts from the difference map to the lmdb backed account map.
         LMDBAccountMap.insertAccounts listOfAccountsCreated
         -- Finally, clear the difference map for this block state and all parent block states.
@@ -173,7 +173,7 @@ mkNewChildDifferenceMap accts@Accounts{..} = do
     return accts{accountDiffMapRef = newDiffMapRef}
 
 -- | Create and set the 'DiffMap.DifferenceMap' for the provided @Accounts pv@.
---  This function constructs the difference map for the block such that the assoicated difference map
+--  This function constructs the difference map for the block such that the associated difference map
 --  and lmdb backed account map are consistent with the account table.
 --
 --  The function is highly unsafe and can cause state invariant failures if not all of the
@@ -186,20 +186,22 @@ mkNewChildDifferenceMap accts@Accounts{..} = do
 reconstructDifferenceMap ::
     (SupportsPersistentAccount pv m) =>
     -- | Reference to the parent difference map.
-    DiffMap.DifferenceMapReference ->
+    DiffMap.AccountDifferenceMapReference ->
     -- | Account addresses to add to the difference map.
     --  The list MUST be in ascending order of 'AccountIndex'.
     [AccountAddress] ->
     -- | The accounts to write difference map to.
     Accounts pv ->
     -- | Reference to the newly created difference map.
-    m DiffMap.DifferenceMapReference
+    m DiffMap.AccountDifferenceMapReference
 reconstructDifferenceMap parentRef listOfAccounts Accounts{..} = do
     -- As it is presumed that the account table already yields any accounts added, then
     -- in order to the obtain the account indices we subtract the number of accounts missing
     -- missing in the lmdb account map from the total number of accounts, hence obtaining the first @AccountIndex@
     -- to use for adding new accounts to the lmdb backed account map.
-    let diffMap' = DiffMap.fromList parentRef $ zip listOfAccounts [AccountIndex (L.size accountTable - fromIntegral (length listOfAccounts)) ..]
+    let diffMap' =
+            DiffMap.fromAccountList parentRef $
+                zip listOfAccounts [AccountIndex (L.size accountTable - fromIntegral (length listOfAccounts)) ..]
     liftIO $ atomicWriteIORef accountDiffMapRef $ Present diffMap'
     return accountDiffMapRef
 
@@ -282,10 +284,10 @@ putNewAccount !acct a0@Accounts{..} = do
                 Absent -> do
                     -- create a difference map for this block state with an @Absent@ as the parent.
                     freshDifferenceMap <- liftIO DiffMap.newEmptyReference
-                    return $ DiffMap.insert addr accIdx $ DiffMap.empty freshDifferenceMap
+                    return $ DiffMap.insertFreshAccount addr accIdx $ DiffMap.empty freshDifferenceMap
                 Present accDiffMap -> do
                     -- reuse the already existing difference map for this block state.
-                    return $ DiffMap.insert addr accIdx accDiffMap
+                    return $ DiffMap.insertFreshAccount addr accIdx accDiffMap
             liftIO $ atomicWriteIORef accountDiffMapRef (Present accountDiffMap')
             return (Just accIdx, a0{accountTable = newAccountTable})
 
@@ -323,11 +325,11 @@ getAccountIndex addr Accounts{..} = do
         Present accDiffMap ->
             if supportsAccountAliases (protocolVersion @pv)
                 then
-                    DiffMap.lookupViaEquivalenceClass (accountAddressEmbed addr) accDiffMap >>= \case
+                    DiffMap.lookupAccountEquiv (accountAddressEmbed addr) accDiffMap >>= \case
                         Right accIdx -> return $ Just accIdx
                         Left diffMapSize -> lookupDisk $ fromIntegral diffMapSize
                 else
-                    DiffMap.lookupExact addr accDiffMap >>= \case
+                    DiffMap.lookupAccountExact addr accDiffMap >>= \case
                         Right accIdx -> return $ Just accIdx
                         Left diffMapSize -> lookupDisk $ fromIntegral diffMapSize
   where
@@ -450,7 +452,7 @@ allAccounts accounts = do
         Absent -> LMDBAccountMap.getAllAccounts $ (AccountIndex . L.size) (accountTable accounts) - 1
         Present accDiffMap -> do
             -- Get all persisted accounts from the account map up to and including the last account of the account table minus what we found the in the difference map.
-            flattenedDiffMapAccounts <- DiffMap.flatten accDiffMap
+            flattenedDiffMapAccounts <- DiffMap.flattenAccounts accDiffMap
             persistedAccs <- LMDBAccountMap.getAllAccounts . AccountIndex $ L.size (accountTable accounts) - (1 + fromIntegral (length flattenedDiffMapAccounts))
             return $! persistedAccs <> flattenedDiffMapAccounts
 

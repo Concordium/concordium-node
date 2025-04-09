@@ -222,7 +222,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                                 }
 
     -- Module
-    modules <- Blob.refMakeFlushed Modules.emptyModules
+    modules <- Blob.refMakeFlushed =<< Modules.emptyModules
 
     -- Identity providers and anonymity revokers
     identityProviders <- Blob.bufferHashed $ Types.makeHashed genesisIdentityProviders

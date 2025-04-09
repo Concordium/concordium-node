@@ -725,10 +725,10 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
     checkBlockExecution GenesisMetadata{..} parentBF continue = do
         let missedRounds =
                 computeMissedRounds
+                    (blockQuorumCertificate pendingBlock)
                     (blockTimeoutCertificate pendingBlock)
                     (_bfBakers vbBakersAndFinalizers)
                     vbLeadershipElectionNonce
-                    (blockRound pendingBlock)
         let execData =
                 BlockExecutionData
                     { bedIsNewEpoch = blockEpoch pendingBlock == blockEpoch parent + 1,
@@ -1214,10 +1214,10 @@ bakeBlock BakeBlockInputs{..} = do
             Just bakers -> quorumCertificateSigningBakers (bakers ^. bfFinalizers) bbiQuorumCertificate
     let missedRounds =
             computeMissedRounds
+                bbiQuorumCertificate
                 bbiTimeoutCertificate
                 bbiEpochBakers
                 bbiLeadershipElectionNonce
-                bbiRound
     let executionData =
             BlockExecutionData
                 { bedIsNewEpoch = isPresent bbiEpochFinalizationEntry,

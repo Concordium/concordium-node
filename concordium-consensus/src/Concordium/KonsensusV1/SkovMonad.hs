@@ -21,6 +21,7 @@ import Control.Monad
 import Control.Monad.Catch
 import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Reader hiding (ask)
+import qualified Data.Sequence as Seq
 import Lens.Micro.Platform
 
 import Concordium.Types
@@ -33,6 +34,7 @@ import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
 
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
 import qualified Concordium.GlobalState.BlockState as PBS
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.Account
@@ -59,8 +61,15 @@ import Concordium.TimerMonad
 
 -- * 'SkovV1T'
 
+-- | A 'HandlerEvent' is used to execute a handler after the current update has been processed.
+data HandlerEvent pv
+    = -- | Trigger the event handler for a block arriving.
+      OnBlock !(BlockPointer pv)
+    | -- | Trigger the event handler for a finalization.
+      OnFinalize !(FinalizationEntry pv) ![BlockPointer pv]
+
 -- | The inner type of the 'SkovV1T' monad.
-type InnerSkovV1T pv m = RWST (SkovV1Context pv m) () (SkovV1State pv) m
+type InnerSkovV1T pv m = RWST (SkovV1Context pv m) (Seq.Seq (HandlerEvent pv)) (SkovV1State pv) m
 
 -- | A type-alias that is used for deriving block state monad implementations for 'SkovV1T'.
 --  @PersistentBlockStateMonadHelper pv m a@ is representationally equivalent to @SkovV1T pv m a@.
@@ -118,16 +127,23 @@ newtype SkovV1T pv m a = SkovV1T
         (BlockStateTypes, ContractStateOperations, ModuleQuery)
         via (PersistentBlockStateMonadHelper pv m)
 
--- | Run a 'SkovV1T' operation, given the context and state, returning the updated state.
-runSkovT :: (Monad m) => SkovV1T pv m a -> SkovV1Context pv m -> SkovV1State pv -> m (a, SkovV1State pv)
+-- | Run a 'SkovV1T' operation, given the context and state, returning the updated state and any
+--  handler events that were generated.
+runSkovT ::
+    (Monad m) =>
+    SkovV1T pv m a ->
+    SkovV1Context pv m ->
+    SkovV1State pv ->
+    m (a, SkovV1State pv, Seq.Seq (HandlerEvent pv))
 runSkovT comp ctx st = do
-    (ret, st', _) <- runRWST (runSkovT' comp) ctx st
-    return (ret, st')
+    (ret, st', evs) <- runRWST (runSkovT' comp) ctx st
+    return (ret, st', evs)
 
--- | Run a 'SkovV1T' operation, given the context and state, discarding the updated state.
---  This can be used for queries, but should generally not be used when the state is updated as
---  changes to the 'SkovData' will be discarded, but changes to the disk-backed databases will
---  persist.
+-- | Run a 'SkovV1T' operation, given the context and state, discarding the updated state and any
+--  handler events that were generated. This can be used for queries, but should generally not be
+--  used when the state is updated as changes to the 'SkovData' will be discarded, but changes to
+--  the disk-backed databases will persist. It is also expected that no handler events should be
+--  generated.
 evalSkovT :: (Monad m) => SkovV1T pv m a -> SkovV1Context pv m -> SkovV1State pv -> m a
 evalSkovT comp ctx st = do
     (ret, _) <- evalRWST (runSkovT' comp) ctx st
@@ -151,18 +167,7 @@ data HandlerContext (pv :: ProtocolVersion) m = HandlerContext
       -- | Handler to broadcast a quorum message.
       _sendQuorumHandler :: QuorumMessage -> m (),
       -- | Handler to broadcast a block.
-      _sendBlockHandler :: SignedBlock pv -> m (),
-      -- | An event handler called when a block becomes live.
-      _onBlockHandler :: BlockPointer pv -> m (),
-      -- | An event handler called per finalization. It is called with the
-      --  finalization entry, and the list of all blocks finalized by the entry
-      --  in increasing order of block height. It returns a `SkovV1T pv m ()` in order to have
-      --  access to the state, in particular whether consensus has shutdown.
-      _onFinalizeHandler :: FinalizationEntry pv -> [BlockPointer pv] -> SkovV1T pv m (),
-      -- | An event handler called when a pending block becomes live. This is intended to trigger
-      --  sending a catch-up status message to peers, as pending blocks are not relayed when they
-      --  are first received.
-      _onPendingLiveHandler :: m ()
+      _sendBlockHandler :: SignedBlock pv -> m ()
     }
 
 -- | Context used by the 'SkovV1T' monad.
@@ -293,12 +298,8 @@ instance (Monad m) => MonadBroadcast (SkovV1T pv m) where
         lift $ handler sb
 
 instance (Monad m) => MonadConsensusEvent (SkovV1T pv m) where
-    onBlock bp = do
-        handler <- view onBlockHandler
-        lift $ handler bp
-    onFinalize fe bp = do
-        handler <- view onFinalizeHandler
-        handler fe bp
+    onBlock bp = SkovV1T $ tell $ Seq.singleton $ OnBlock bp
+    onFinalize fe bp = SkovV1T $ tell $ Seq.singleton $ OnFinalize fe bp
 
 instance (MonadIO m, MonadLogger m, MonadCatch m) => TimerMonad (SkovV1T pv m) where
     type Timer (SkovV1T pv m) = ThreadTimer
@@ -418,7 +419,8 @@ newtype InitMonad pv a = InitMonad {runInitMonad' :: InnerInitMonad pv a}
           ModuleQuery,
           MonadBlobStore,
           Cache.MonadCache Modules.ModuleCache,
-          LMDBAccountMap.MonadAccountMapStore
+          LMDBAccountMap.MonadAccountMapStore,
+          MonadModuleMapStore
         )
         via (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
 
@@ -465,10 +467,9 @@ data ExistingSkov pv m = ExistingSkov
       esState :: !(SkovV1State pv),
       -- | The hash of the current genesis block.
       esGenesisHash :: !BlockHash,
-      -- | The (relative) height of the last finalized block.
-      esLastFinalizedHeight :: !BlockHeight,
-      -- | The effective protocol update if one has occurred.
-      esProtocolUpdate :: !(Maybe ProtocolUpdate)
+      -- | The effective protocol update if one has occurred, together with the relative
+      --  block height of the terminal block.
+      esProtocolUpdate :: !(Maybe (ProtocolUpdate, BlockHeight))
     }
 
 -- | Internal type used for deriving 'HasDatabaseHandlers' and 'LMDBAccountMap.HasDatabaseHandlers'
@@ -541,8 +542,6 @@ initialiseExistingSkovV1 genesisBlockHeightInfo bakerCtx handlerCtx unliftSkov g
                                           _notifiedProtocolUpdate = Nothing
                                         },
                                   esGenesisHash = initialSkovData ^. currentGenesisHash,
-                                  esLastFinalizedHeight =
-                                    blockHeight (initialSkovData ^. lastFinalized),
                                   esProtocolUpdate = effectiveProtocolUpdate
                                 }
                     return $ Just es
@@ -578,7 +577,7 @@ initialiseNewSkovV1 genData genesisBlockHeightInfo bakerCtx handlerCtx unliftSko
                 Right genState -> return genState
             logEvent GlobalState LLTrace "Writing persistent global state"
             stateRef <- saveBlockState pbs
-            saveAccounts pbs
+            saveGlobalMaps pbs
             logEvent GlobalState LLTrace "Creating persistent global state context"
             let genHash = genesisBlockHash genData
             let genMeta =
@@ -646,9 +645,9 @@ activateSkovV1State = do
     bps <- use $ lastFinalized . to bpState
     !tt <- cacheBlockStateAndGetTransactionTable bps
     transactionTable .= tt
-    logEvent GlobalState LLDebug "Initializing LMDB account map"
-    void $ PBS.tryPopulateAccountMap bps
-    logEvent GlobalState LLDebug "Finished initializing LMDB account map"
+    logEvent GlobalState LLDebug "Initializing LMDB account map and module map"
+    void $ PBS.tryPopulateGlobalMaps bps
+    logEvent GlobalState LLDebug "Finished initializing LMDB account map and module map"
     logEvent GlobalState LLTrace "Loading certified blocks"
     loadCertifiedBlocks
     logEvent GlobalState LLTrace "Done activating global state"

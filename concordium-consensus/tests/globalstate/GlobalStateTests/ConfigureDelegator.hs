@@ -531,3 +531,6 @@ tests = parallel $ describe "Configure delegator" $ do
     describe "P7" $ do
         it "bsoAddDelegator" $ testAddDelegator SP7
         it "bsoUpdateDelegator" $ testUpdateDelegator SP7
+    describe "P8" $ do
+        it "bsoAddDelegator" $ testAddDelegator SP8
+        it "bsoUpdateDelegator" $ testUpdateDelegator SP8

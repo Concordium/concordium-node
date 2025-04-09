@@ -87,6 +87,7 @@ import Concordium.Types.Transactions hiding (BareBlockItem (..))
 import qualified Concordium.Types.UpdateQueues as UQ
 
 import Concordium.Crypto.EncryptedTransfers
+import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference)
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.CooldownQueue (Cooldowns)
@@ -522,6 +523,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
 
     -- | Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
+
+    -- | Get the size of the module table.
+    getModuleCount :: BlockState m -> m Word64
 
     -- | Get the list of account addresses existing in the given block state.
     --  This returns the canonical addresses.
@@ -1084,8 +1088,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --        (2) update the account's finalization reward commission rate to the the supplied value @frc@;
     --
     --        (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
+
+    --  7. (>= P8) If the suspended/resumed flag is set:
+
+    --        (1) Suspend/resume the validator according to the flag.
+
+    --        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
     --
-    --  7. If the capital is supplied: if there is a pending change to the baker's capital, return
+    --
+    --  8. If the capital is supplied: if there is a pending change to the baker's capital, return
     --     @VCFChangePending@; otherwise:
     --
     --       * if the capital is 0
@@ -1120,12 +1131,6 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --         @BakerConfigureStakeIncreased capital@ to @events@. From P7, the increase in stake
     --         is (preferentially) reactivated from the inactive stake, updating the global indices
     --         accordingly.
-    --
-    --  8. (>= P8) If the suspended/resumed flag is set:
-
-    --        (1) Suspend/resume the validator according to the flag.
-
-    --        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
     --
     --  9. Return @events@ with the updated block state.
     bsoUpdateValidator ::
@@ -1595,11 +1600,12 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- | Ensure that any accounts created in a block are persisted.
+    -- | Add all accounts created and modules added since the last finalized block to the
+    --  global account and module maps.
     --  This should be called when a block is being finalized.
     --
     --  Precondition: The block state must be in memory and it must not have been archived.
-    saveAccounts :: BlockState m -> m ()
+    saveGlobalMaps :: BlockState m -> m ()
 
     -- | Reconstructs the account difference map and return it.
     --  This function is used for blocks that are stored but are not finalized (in particular, certified blocks)
@@ -1607,6 +1613,8 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --
     --  Preconditions:
     --  * This function MUST only be called on a certified block.
+    --  * The block state MUST already be cached (with 'cacheBlockState'). Otherwise the update to
+    --    the difference map may not be retained.
     --  * This function MUST only be called on a block state that does not already
     --    have a difference map.
     --  * The provided list of accounts MUST correspond to the accounts created in the block,
@@ -1619,11 +1627,32 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
         -- | The block state to reconstruct the difference map for.
         BlockState m ->
         -- | The difference map reference from the parent block's state.
-        DiffMap.DifferenceMapReference ->
+        DiffMap.AccountDifferenceMapReference ->
         -- | The account addresses created in the block, in order of creation.
         [AccountAddress] ->
         -- | Reference to the new difference map for the block.
-        m DiffMap.DifferenceMapReference
+        m DiffMap.AccountDifferenceMapReference
+
+    -- | Reconstruct the module difference map and return it.
+    --  This function is used for blocks that are stored but are not finalized (in particular,
+    --  certified blocks) since only the modules for finalized blocks are stored in the LMDB store.
+    --
+    --  Preconditions:
+    --  * This function MUST only be called on a certified block.
+    --  * This function MUST only be called on a block state that does not already have
+    --    a difference map.
+    --  * The provided difference map reference MUST be the one of the parent block.
+    --
+    --  This function should only be used when starting from an already initialized state, and hence
+    --  we need to reconstruct the difference map since the modules are not yet finalized.
+    reconstructModuleDifferenceMap ::
+        -- | The block state to reconstruct the difference map for.
+        BlockState m ->
+        -- | The difference map reference from the parent block's state, and size of its
+        --  module table.
+        (ModuleDifferenceMapReference, Word64) ->
+        -- | Reference to the new difference map for the block, and size of its module table.
+        m (ModuleDifferenceMapReference, Word64)
 
     -- | Load a block state from a reference, given its state hash if provided,
     --  otherwise calculate the state hash upon loading.
@@ -1646,11 +1675,14 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --  the next "update sequence numbers".
     cacheBlockStateAndGetTransactionTable :: BlockState m -> m TransactionTable
 
-    -- | Populate the LMDB account map if it has not already been initialized.
-    --  If the lmdb store has already been initialized, then this function does nothing.
-    --  Otherwise this function populates the lmdb backed account map with the accounts
-    --  present in the account table of the block state.
-    tryPopulateAccountMap :: BlockState m -> m ()
+    -- | Populate the LMDB account map and module map if they are not already initialized.
+    --  If either map contains fewer entries than the corresponding table in the block state,
+    --  then the map is reconstructed afresh from the table.
+    --
+    --  The provided block is expected to be the last finalized block. It is assumed that
+    --  any entries in the existing maps are based on finalized accounts and modules, and
+    --  hence will be correct for all future blocks.
+    tryPopulateGlobalMaps :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m) where
     getModuleArtifact = lift . getModuleArtifact
@@ -1670,6 +1702,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getBakerAccount s = lift . getBakerAccount s
     getContractInstance s = lift . getContractInstance s
     getModuleList = lift . getModuleList
+    getModuleCount = lift . getModuleCount
     getAccountList = lift . getAccountList
     getContractInstanceList = lift . getContractInstanceList
     getSeedState = lift . getSeedState
@@ -1714,6 +1747,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getBakerAccount #-}
     {-# INLINE getContractInstance #-}
     {-# INLINE getModuleList #-}
+    {-# INLINE getModuleCount #-}
     {-# INLINE getAccountList #-}
     {-# INLINE getContractInstanceList #-}
     {-# INLINE getSeedState #-}
@@ -1942,14 +1976,15 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
-    saveAccounts = lift . saveAccounts
+    saveGlobalMaps = lift . saveGlobalMaps
     reconstructAccountDifferenceMap bs parentMap = lift . reconstructAccountDifferenceMap bs parentMap
+    reconstructModuleDifferenceMap bs = lift . reconstructModuleDifferenceMap bs
     loadBlockState hsh = lift . loadBlockState hsh
     blockStateLoadCallback = lift blockStateLoadCallback
     collapseCaches = lift collapseCaches
     cacheBlockState = lift . cacheBlockState
     cacheBlockStateAndGetTransactionTable = lift . cacheBlockStateAndGetTransactionTable
-    tryPopulateAccountMap = lift . tryPopulateAccountMap
+    tryPopulateGlobalMaps = lift . tryPopulateGlobalMaps
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -1957,12 +1992,13 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE archiveBlockState #-}
     {-# INLINE saveBlockState #-}
     {-# INLINE reconstructAccountDifferenceMap #-}
+    {-# INLINE reconstructModuleDifferenceMap #-}
     {-# INLINE loadBlockState #-}
     {-# INLINE blockStateLoadCallback #-}
     {-# INLINE collapseCaches #-}
     {-# INLINE cacheBlockState #-}
     {-# INLINE cacheBlockStateAndGetTransactionTable #-}
-    {-# INLINE tryPopulateAccountMap #-}
+    {-# INLINE tryPopulateGlobalMaps #-}
 
 deriving via (MGSTrans MaybeT m) instance (BlockStateQuery m) => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperations (MaybeT m)

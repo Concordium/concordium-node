@@ -55,7 +55,7 @@ data PoolRewards (bhv :: BlockHashVersion) (av :: AccountVersion) = PoolRewards
       currentCapital :: !(CapitalDistributionRef bhv),
       -- | The details of rewards accruing to baker pools.
       --  These are indexed by the index of the baker in the capital distribution (_not_ the BakerId).
-      bakerPoolRewardDetails :: !(LFMBT.LFMBTree Word64 BufferedRef (BakerPoolRewardDetails av)),
+      bakerPoolRewardDetails :: !(LFMBT.LFMBTree Word64 HashedBufferedRef (BakerPoolRewardDetails av)),
       -- | The transaction reward amount accruing to the passive delegators.
       passiveDelegationTransactionRewards :: !Amount,
       -- | The transaction reward fraction accruing to the foundation.
@@ -140,7 +140,7 @@ migratePoolRewardsP1 curBakers nextBakers blockCounts npEpoch npMintRate = do
                   passiveDelegatorsCapital = Vec.empty
                 }
     makeBakerCapital (bid, amt) = BakerCapital bid amt Vec.empty
-    makePRD :: (BakerId, a) -> m (BufferedRef (BakerPoolRewardDetails av))
+    makePRD :: (BakerId, a) -> m (HashedBufferedRef (BakerPoolRewardDetails av))
     makePRD (bid, _) = do
         let bprd =
                 BakerPoolRewardDetails

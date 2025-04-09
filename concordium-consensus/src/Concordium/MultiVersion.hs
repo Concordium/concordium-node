@@ -258,11 +258,9 @@ data Callbacks = Callbacks
 --  be populated with a configuration for the genesis index prior to calling this function.
 skovV1Handlers ::
     forall pv finconf.
-    (IsConsensusV1 pv, IsProtocolVersion pv) =>
     GenesisIndex ->
-    AbsoluteBlockHeight ->
     SkovV1.HandlerContext pv (MVR finconf)
-skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
+skovV1Handlers gi = SkovV1.HandlerContext{..}
   where
     _sendTimeoutHandler timeoutMsg = MVR $ \mvr -> do
         broadcastFinalizationMessage
@@ -280,50 +278,63 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
             gi
             (runPut (KonsensusV1.putSignedBlock block))
 
-    _onBlockHandler :: SkovV1.BlockPointer pv -> MVR finconf ()
-    _onBlockHandler block = do
-        -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
-        -- baker ID of this node and it could be the case that the block was not baked by this node,
-        -- if another node using the same baker ID.
-        -- The information is used to count the number of baked blocks exposed by a prometheus metric.
-        -- An alternative implementation would be to extend the @onBlock@ handler (part of @OnSkov@)
-        -- to take an extra argument indicating whether the block was just baked or processed as part of a received
-        -- block. This would mean that only blocks baked since start by this node would be counted,
-        -- not blocks received as part of catchup. However the same cannot be done for finalized blocks as easily
-        -- and so for consistency between these two methods we chose to also count blocks received as part of catchup
-        -- in both.
-        asks (notifyBlockArrived . mvCallbacks) >>= \case
+-- | Handler for a block arriving. This is used to notify the network layer that a block has
+--  arrived. This ultimately calls @notify_callback@, which is used to notify any gRPC clients
+--  listening for block arrivals, and to update metrics.
+skovV1BlockHandler ::
+    -- | Height of the genesis block
+    AbsoluteBlockHeight ->
+    -- | The newly-arrived block.
+    SkovV1.BlockPointer pv ->
+    MVR finconf ()
+skovV1BlockHandler genHeight block = do
+    -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
+    -- baker ID of this node and it could be the case that the block was not baked by this node,
+    -- if another node using the same baker ID.
+    -- The information is used to count the number of baked blocks exposed by a prometheus metric.
+    -- An alternative implementation would be to extend the @onBlock@ handler (part of @OnSkov@)
+    -- to take an extra argument indicating whether the block was just baked or processed as part of a received
+    -- block. This would mean that only blocks baked since start by this node would be counted,
+    -- not blocks received as part of catchup. However the same cannot be done for finalized blocks as easily
+    -- and so for consistency between these two methods we chose to also count blocks received as part of catchup
+    -- in both.
+    asks (notifyBlockArrived . mvCallbacks) >>= \case
+        Nothing -> return ()
+        Just notifyCallback -> do
+            let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight block)
+            nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
+            let isHomeBaked = case nodeBakerIdMaybe of
+                    Nothing -> False
+                    Just nodeBakerId ->
+                        Present nodeBakerId
+                            == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData block)
+            liftIO (notifyCallback (getHash block) height isHomeBaked)
+
+-- | Handler for block finalization. This first notifies the network layer, ultimately calling
+--  @notify_callback@, which is used to notify any gRPC clients listening for block finalizations,
+--  and to update metrics. It then checks for protocol updates.
+skovV1FinalizeHandler ::
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
+    -- | Height of the genesis block
+    AbsoluteBlockHeight ->
+    KonsensusV1.FinalizationEntry pv ->
+    [SkovV1.BlockPointer pv] ->
+    VersionedSkovV1M finconf pv ()
+skovV1FinalizeHandler genHeight _ finalizedBlocks = do
+    lift $
+        asks (notifyBlockFinalized . mvCallbacks) >>= \case
             Nothing -> return ()
             Just notifyCallback -> do
-                let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight block)
                 nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
-                let isHomeBaked = case nodeBakerIdMaybe of
-                        Nothing -> False
-                        Just nodeBakerId ->
-                            Present nodeBakerId
-                                == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData block)
-                liftIO (notifyCallback (getHash block) height isHomeBaked)
-
-    _onFinalizeHandler _ finalizedBlocks = do
-        lift $
-            asks (notifyBlockFinalized . mvCallbacks) >>= \case
-                Nothing -> return ()
-                Just notifyCallback -> do
-                    nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
-                    forM_ finalizedBlocks $ \bp -> do
-                        let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight bp)
-                        let isHomeBaked = case nodeBakerIdMaybe of
-                                Nothing -> False
-                                Just nodeBakerId ->
-                                    Present nodeBakerId
-                                        == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
-                        liftIO (notifyCallback (getHash bp) height isHomeBaked)
-        checkForProtocolUpdateV1
-
-    _onPendingLiveHandler = do
-        -- Notify peers of our catch-up status, since they may not be aware of the now-live pending
-        -- blocks.
-        bufferedSendCatchUpStatus
+                forM_ finalizedBlocks $ \bp -> do
+                    let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight bp)
+                    let isHomeBaked = case nodeBakerIdMaybe of
+                            Nothing -> False
+                            Just nodeBakerId ->
+                                Present nodeBakerId
+                                    == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
+                    liftIO (notifyCallback (getHash bp) height isHomeBaked)
+    checkForProtocolUpdateV1
 
 -- | Baker identity and baking thread 'MVar'.
 data Baker = Baker
@@ -740,7 +751,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                         unliftSkov a = do
                             config <- readMVar configRef
                             runMVR (runSkovV1Transaction config a) mvr
-                    let !handlers = skovV1Handlers vc1Index genesisHeight
+                    let !handlers = skovV1Handlers vc1Index
                     let genesisBlockHeightInfo =
                             KonsensusV1.GenesisBlockHeightInfo
                                 { gbhiAbsoluteHeight = genesisHeight,
@@ -864,7 +875,7 @@ checkForProtocolUpdateV0 = liftSkov body
                             unliftSkov a = do
                                 config <- readMVar configRef
                                 runMVR (runSkovV1Transaction config a) mvr
-                        let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
+                        let !handlers = skovV1Handlers vc1Index
                         -- get the last finalized block state
                         lastFinBlockState <- Skov.queryBlockState =<< Skov.lastFinalizedBlock
                         -- the existing persistent block state context.
@@ -1039,7 +1050,7 @@ checkForProtocolUpdateV1 = body
                             unliftSkov a = do
                                 config <- readMVar configRef
                                 runMVR (runSkovV1Transaction config a) mvr
-                        let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
+                        let !handlers = skovV1Handlers vc1Index
                         let genesisBlockHeightInfo =
                                 KonsensusV1.GenesisBlockHeightInfo
                                     { gbhiAbsoluteHeight = vc1GenesisHeight,
@@ -1317,7 +1328,7 @@ startupSkov genesis = do
                                 loadLoop nextSPV activateThis (genIndex + 1) (lastFinalizedHeight + 1)
                     Nothing -> activateLast
             ConsensusV1 -> do
-                let !handlers = skovV1Handlers genIndex genHeight
+                let !handlers = skovV1Handlers genIndex
                 let genesisBlockHeightInfo =
                         KonsensusV1.GenesisBlockHeightInfo
                             { gbhiAbsoluteHeight = genHeight,
@@ -1366,7 +1377,7 @@ startupSkov genesis = do
                                 activateConfiguration (newVersionV1 newEConfig)
                                 liftSkovV1Update newEConfig checkForProtocolUpdateV1
                         case esProtocolUpdate of
-                            Just protocolUpdate
+                            Just (protocolUpdate, terminalBlockHeight)
                                 | Right upd <- ProtocolUpdateV1.checkUpdate @pv protocolUpdate -> do
                                     let nextSPV = ProtocolUpdateV1.updateNextProtocolVersion upd
                                     -- A protocol update has occurred for this configuration, so
@@ -1377,7 +1388,7 @@ startupSkov genesis = do
                                         nextSPV
                                         activateThis
                                         (genIndex + 1)
-                                        (localToAbsoluteBlockHeight genHeight esLastFinalizedHeight + 1)
+                                        (localToAbsoluteBlockHeight genHeight terminalBlockHeight + 1)
                             _ -> do
                                 -- This is still the current configuration (i.e. no protocol update
                                 -- has occurred, or the protocol update is not supported), so
@@ -1552,14 +1563,26 @@ liftSkovV0Update vc a = MVR $ \mvr -> do
 --  'VersionedConfigurationV1'. Note that this does not acquire the write lock: the caller must
 --  ensure that the lock is held.
 liftSkovV1Update ::
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
     VersionedConfigurationV1 finconf pv ->
     VersionedSkovV1M finconf pv a ->
     MVR finconf a
 liftSkovV1Update vc a = MVR $ \mvr -> do
     oldState <- readIORef (vc1State vc)
-    (res, newState) <- runMVR (SkovV1.runSkovT a (vc1Context vc) oldState) mvr
+    (res, newState, evs) <- runMVR (SkovV1.runSkovT a (vc1Context vc) oldState) mvr
     writeIORef (vc1State vc) $! newState
+    let
+        handleEvent st (SkovV1.OnBlock bp) = do
+            runMVR (skovV1BlockHandler genHeight bp) mvr
+            return st
+        handleEvent st (SkovV1.OnFinalize finEntry bp) = do
+            (_, st', _) <- runMVR (SkovV1.runSkovT (skovV1FinalizeHandler genHeight finEntry bp) (vc1Context vc) st) mvr
+            writeIORef (vc1State vc) $! st'
+            return st'
+    foldM_ handleEvent newState evs
     return $! res
+  where
+    genHeight = vc1GenesisHeight vc
 
 -- | Run a version-0 consensus transaction that may affect the state.
 --  This acquires the write lock for the duration of the operation.
@@ -1576,6 +1599,7 @@ runSkovV0Transaction vc a = withWriteLock $ liftSkovV0Update vc a
 --  If the action throws an exception, the state will not be updated,
 --  but the lock is guaranteed to be released.
 runSkovV1Transaction ::
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
     VersionedConfigurationV1 finconf pv ->
     VersionedSkovV1M finconf pv a ->
     MVR finconf a
