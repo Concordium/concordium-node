@@ -2751,7 +2751,7 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                     STrue -> checkSigAndEnqueue $ UVValidatorScoreParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 CreatePLTUpdatePayload payload ->
-                                    if supportsProtocolLevelTokens (protocolVersion @(MPV m))
+                                    if protocolSupportsPLT (protocolVersion @(MPV m))
                                         then do
                                             -- TODO Check signature when relevant update keys are introduced.
                                             -- Process update

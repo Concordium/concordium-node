@@ -1669,6 +1669,9 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                 (pure minUpdateSequenceNumber)
                 (fmap uqNextSequenceNumber . refLoad)
                 (pValidatorScoreParametersQueue pendingUpdates)
+        -- TODO First iteration we only allow a single PLT, meaning we can just return a fixed sequence number.
+        -- To support multiple tokens we must track this sequence number.
+        UpdateCreatePLT -> pure minUpdateSequenceNumber
 
 -- | Enqueue an update in the appropriate queue.
 enqueueUpdate ::

@@ -421,10 +421,7 @@ instance
         ssBlockState .= s'
 
     {-# INLINE createPLTUpdate #-}
-    createPLTUpdate payload = do
-        s <- use ssBlockState
-        s' <- undefined -- TODO Use block state operation when introduced.
-        ssBlockState .= s'
+    createPLTUpdate = error "Not implemented yet. Relevant block state operation will be introduced in a separate PR"
 
 -- | Execute the computation using the provided context and scheduler state.
 -- The return value is the value produced by the computation and the updated state of the scheduler.
