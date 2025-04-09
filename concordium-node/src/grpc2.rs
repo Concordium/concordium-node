@@ -25,6 +25,10 @@ pub mod types {
     use concordium_base::{common::Versioned, transactions::PayloadLike};
     use std::convert::{TryFrom, TryInto};
 
+    /// Types generated from the protocol-level-tokens.proto file.
+    pub mod plt {
+        include!(concat!(env!("OUT_DIR"), "/concordium.v2.plt.rs"));
+    }
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
     /// Convert an account address to a pointer to the content. The length of

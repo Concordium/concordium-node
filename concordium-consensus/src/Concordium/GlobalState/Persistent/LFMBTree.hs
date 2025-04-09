@@ -379,7 +379,7 @@ appendV value (NonEmpty s t) = do
 
 -- | Update a value at a given key.
 --
--- If the key is not present in the tree, the same tree is returned.
+-- If the key is not present in the tree, @Nothing@ is returned.
 -- Otherwise, the value is loaded, modified with the given function and stored again.
 --
 -- @update@ will also recompute the hashes on the way up to the root.
