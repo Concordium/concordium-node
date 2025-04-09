@@ -57,7 +57,6 @@ processCertifiedBlock ::
       MonadThrow m,
       MonadConsensusEvent m,
       MonadLogger m,
-      MonadProtocolVersion m,
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>

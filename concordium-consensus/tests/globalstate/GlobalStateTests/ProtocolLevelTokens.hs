@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -87,9 +88,12 @@ configDEF =
           _pltDecimals = 0
         }
 
+emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForPV 'P9)
+emptyPLTPV = emptyProtocolLevelTokensForPV
+
 testCreateToken :: Assertion
 testCreateToken = runBlobStore $ do
-    (idx, tokens) <- createToken configABC emptyProtocolLevelTokens
+    (idx, tokens) <- createToken configABC =<< emptyPLTPV
     checks0 idx tokens
     (idx', tokens') <- createToken configDEF tokens
     checks1 idx idx' tokens'
@@ -123,7 +127,7 @@ testCreateToken = runBlobStore $ do
 
 testSetTokenCirculatingSupply :: Assertion
 testSetTokenCirculatingSupply = runBlobStore $ do
-    (idxABC, tokens0) <- createToken configABC emptyProtocolLevelTokens
+    (idxABC, tokens0) <- createToken configABC =<< emptyPLTPV
     (idxDEF, tokens1) <- createToken configDEF tokens0
     tokens2 <- setTokenCirculatingSupply idxABC 100 tokens1
     lift . assertEqual "getTokenCirculatingSupply for ABC returns expected amount" 100
@@ -158,7 +162,7 @@ testSetTokenCirculatingSupply = runBlobStore $ do
 
 testSetTokenState :: Assertion
 testSetTokenState = runBlobStore $ do
-    (idxABC, tokens0) <- createToken configABC emptyProtocolLevelTokens
+    (idxABC, tokens0) <- createToken configABC =<< emptyPLTPV
     (idxDEF, tokens1) <- createToken configDEF tokens0
     lift . assertEqual "getTokenState for ABC \"TestKey1\"" Nothing
         =<< getTokenState idxABC "TestKey1" tokens1

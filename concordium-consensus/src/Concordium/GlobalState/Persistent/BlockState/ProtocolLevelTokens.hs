@@ -235,6 +235,12 @@ instance
     getHashM (ProtocolLevelTokensForPV CFalse) = return CFalse
     getHashM (ProtocolLevelTokensForPV (CTrue ref)) = CTrue <$> getHashM ref
 
+instance
+    (MonadBlobStore m, PVSupportsPLT pv) =>
+    MHashableTo m ProtocolLevelTokensHash (ProtocolLevelTokensForPV pv)
+    where
+    getHashM (ProtocolLevelTokensForPV (CTrue ref)) = getHashM ref
+
 instance (MonadBlobStore m) => Cacheable m (ProtocolLevelTokensForPV pv) where
     cache (ProtocolLevelTokensForPV (CTrue pltsRef)) =
         ProtocolLevelTokensForPV . CTrue <$> cache pltsRef
