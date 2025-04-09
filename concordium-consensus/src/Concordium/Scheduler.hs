@@ -2751,13 +2751,16 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                     STrue -> checkSigAndEnqueue $ UVValidatorScoreParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 CreatePLTUpdatePayload payload ->
-                                    if protocolSupportsPLT (protocolVersion @(MPV m))
-                                        then do
-                                            -- TODO Check signature when relevant update keys are introduced.
-                                            -- Process update
-                                            createPLTUpdate payload
-                                            buildValidTxSummary
-                                        else return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    if not $ protocolSupportsPLT (protocolVersion @(MPV m))
+                                        then return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                        else
+                                            if updateEffectiveTime uiHeader /= 0
+                                                then return $ TxInvalid InvalidUpdateTime
+                                                else do
+                                                    -- TODO Check signature and sequence number when relevant update keys are introduced.
+                                                    -- Process update
+                                                    createPLTUpdate payload
+                                                    buildValidTxSummary
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
