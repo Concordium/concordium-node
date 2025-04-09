@@ -271,6 +271,12 @@ emptyProtocolLevelTokensForPV ::
     m (ProtocolLevelTokensForPV pv)
 emptyProtocolLevelTokensForPV = conditionallyStorePLTs emptyProtocolLevelTokens
 
+-- | Get the list of all existing protocol-level tokens by their 'TokenId's.
+--  This returns the empty list when the protocol version does not support PLTs.
+getPLTList :: (MonadBlobStore m) => ProtocolLevelTokensForPV pv -> m [TokenId]
+getPLTList (ProtocolLevelTokensForPV CFalse) = return []
+getPLTList (ProtocolLevelTokensForPV (CTrue plts)) = Map.keys . _pltMap <$> refLoad plts
+
 -- | Get the 'TokenIndex' for a 'TokenId'. Returns @Nothing@ if there is no token with the given
 -- 'TokenId'.
 getTokenIndex ::
@@ -299,7 +305,7 @@ lookupPLT index pvPLTs = do
 -- | Get the state of a token for a given 'TokenStateKey'. Returns @Nothing@ if the token does not
 --  have a state for the given key.
 --
--- PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
+--  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
 getTokenState ::
     (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->

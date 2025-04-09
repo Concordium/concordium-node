@@ -63,7 +63,7 @@ import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
 import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
-import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as PLT
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Cooldown
@@ -815,7 +815,7 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       --  used for rewarding bakers at the end of epochs.
       bspRewardDetails :: !(BlockRewardDetails pv),
       -- | The global state of protocol-level tokens.
-      bspProtocolLevelTokens :: !(ProtocolLevelTokensForPV pv)
+      bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForPV pv)
     }
 
 -- | Lens for accessing the birk parameters of a 'BlockStatePointers' structure.
@@ -974,7 +974,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     releaseSchedule <- emptyReleaseSchedule
     acctsInCooldown <- initialAccountsInCooldown accounts
     red <- emptyBlockRewardDetails
-    plts <- emptyProtocolLevelTokensForPV
+    plts <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -1016,7 +1016,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bspReleaseSchedule <- emptyReleaseSchedule
     bspRewardDetails <- emptyBlockRewardDetails
     bspAccounts <- Accounts.emptyAccounts
-    bspProtocolLevelTokens <- emptyProtocolLevelTokensForPV
+    bspProtocolLevelTokens <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -4393,6 +4393,31 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
 instance (PersistentState av pv r m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
     getModuleArtifact = doGetModuleArtifact
 
+instance
+    (IsProtocolVersion pv, PersistentState av pv r m) =>
+    PLTQuery (PersistentBlockState pv) (PersistentBlockStateMonad pv r m)
+    where
+    getPLTList =
+        PLT.getPLTList . bspProtocolLevelTokens <=< loadPBS
+    getTokenIndex bs tokIx =
+        PLT.getTokenIndex tokIx . bspProtocolLevelTokens =<< loadPBS bs
+    getTokenState bs tokIx key =
+        PLT.getTokenState tokIx key . bspProtocolLevelTokens =<< loadPBS bs
+    getTokenConfiguration bs tokIx =
+        PLT.getTokenConfiguration tokIx . bspProtocolLevelTokens =<< loadPBS bs
+    getTokenCirculatingSupply bs tokIx =
+        PLT.getTokenCirculatingSupply tokIx . bspProtocolLevelTokens =<< loadPBS bs
+
+instance
+    (IsProtocolVersion pv, PersistentState av pv r m) =>
+    PLTQuery (HashedPersistentBlockState pv) (PersistentBlockStateMonad pv r m)
+    where
+    getPLTList = getPLTList . hpbsPointers
+    getTokenIndex = getTokenIndex . hpbsPointers
+    getTokenState = getTokenState . hpbsPointers
+    getTokenConfiguration = getTokenConfiguration . hpbsPointers
+    getTokenCirculatingSupply = getTokenCirculatingSupply . hpbsPointers
+
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
     getModuleInterface pbs mref = doGetModule (hpbsPointers pbs) mref
@@ -4771,7 +4796,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     logEvent GlobalState LLTrace "Migrating reward details"
     newRewardDetails <-
         migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails
-    newProtocolLevelTokens <- migrateProtocolLevelTokensForPV migration bspProtocolLevelTokens
+    newProtocolLevelTokens <- PLT.migrateProtocolLevelTokensForPV migration bspProtocolLevelTokens
     return $!
         BlockStatePointers
             { bspAccounts = newAccounts,
