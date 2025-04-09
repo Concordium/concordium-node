@@ -16,7 +16,6 @@ import Data.Word
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Types
 import Concordium.Types.HashableTo
-import Concordium.Types.ProtocolVersion
 import Concordium.Utils
 import Concordium.Utils.Serialization
 
@@ -104,7 +103,10 @@ instance HashableTo PLTConfigurationHash PLTConfiguration where
 
 instance (Monad m) => MHashableTo m PLTConfigurationHash PLTConfiguration
 
+-- | The type of keys in the token state key-value map.
 type TokenStateKey = SBS.ShortByteString
+
+-- | The type of values in the token state key-value map.
 type TokenStateValue = BS.ByteString
 
 -- | The state of a particular protocol-level token.
@@ -112,7 +114,7 @@ data PLT = PLT
     { -- | The token configuration.
       _pltConfiguration :: !(HashedBufferedRef' PLTConfigurationHash PLTConfiguration),
       -- | The token-level state of the PLT.
-      -- TODO: Replace with trie-based state.
+      -- TODO: Replace with trie-based state. https://linear.app/concordium/issue/NOD-700/switch-plt-key-value-maps-to-trie-implementation
       _pltState :: !(Map.Map TokenStateKey TokenStateValue),
       -- | The total amount of the token that exists in circulation.
       _pltCirculatingSupply :: !TokenRawAmount
