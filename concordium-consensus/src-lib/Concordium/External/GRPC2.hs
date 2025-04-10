@@ -150,6 +150,19 @@ getAccountListV2 ::
     IO Int64
 getAccountListV2 = blockStreamHelper Q.getAccountList
 
+getTokenListV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
+    IO Int64
+getTokenListV2 = blockStreamHelper Q.getAccountList
+
 getModuleListV2 ::
     StablePtr Ext.ConsensusRunner ->
     Ptr SenderChannel ->
@@ -1233,6 +1246,19 @@ foreign export ccall
 
 foreign export ccall
     getAccountListV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
+        IO Int64
+
+foreign export ccall
+    getTokenListV2 ::
         StablePtr Ext.ConsensusRunner ->
         Ptr SenderChannel ->
         -- | Block type.
