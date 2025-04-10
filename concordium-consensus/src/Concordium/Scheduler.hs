@@ -2766,23 +2766,21 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                                             TxInvalid $
                                                                 NonExistentAccount governanceAccountAddress
                                                     Just _governanceAccountState -> do
-                                                      -- -- verify the token module exists and fetch the artifact and interface of the module.
-    -- maybeTokenInterface <- getTokenModuleInterface (payload ^. cpltTokenModule)
-    -- case maybeTokenInterface of
-    --     Nothing ->
-    --         return $
-    --             TxInvalid $
-    --                 NonExistentAccount governanceAccountAddress
-    --     Just tokenModuleInterface -> do
-    --         -- Create new PLT in token state with initial state.
-    --         tokenState <- createToken tokenModuleInterface governanceAccountState
-    --         -- Invoke the initialization call of token module with init state and the initialization parameter.
-    --         invokeInitializeToken tokenState
-    --         buildValidTxSummary
+                                                        -- -- verify the token module exists and fetch the artifact and interface of the module.
+                                                        -- maybeTokenInterface <- getTokenModuleInterface (payload ^. cpltTokenModule)
+                                                        -- case maybeTokenInterface of
+                                                        --     Nothing ->
+                                                        --         return $
+                                                        --             TxInvalid $
+                                                        --                 NonExistentAccount governanceAccountAddress
+                                                        --     Just tokenModuleInterface -> do
+                                                        --         -- Create new PLT in token state with initial state.
+                                                        --         tokenState <- createToken tokenModuleInterface governanceAccountState
+                                                        --         -- Invoke the initialization call of token module with init state and the initialization parameter.
+                                                        --         invokeInitializeToken tokenState
+                                                        --         buildValidTxSummary
                                                         error "Not implemented yet"
   where
-    
-
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
