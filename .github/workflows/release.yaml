@@ -255,6 +255,7 @@ jobs:
         run: |
           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].name')
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+        shell: bash
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
