@@ -1440,12 +1440,11 @@ updateAccount !upd !acc0 = do
     let acc2 = case upd ^. auNonce of
             Nothing -> acc1
             Just n -> acc1{accountNonce = n}
-    let !acc3 =
-            acc2
-                { accountAmount =
-                    applyAmountDelta (additionalLocked + upd ^. auAmount . non 0) (accountAmount acc2)
-                }
-    return acc3
+    return
+        acc2
+            { accountAmount =
+                applyAmountDelta (additionalLocked + upd ^. auAmount . non 0) (accountAmount acc2)
+            }
 
 -- | Helper function. Apply an update to the 'PersistentAccountEnduringData' on an account,
 --  recomputing the hash.

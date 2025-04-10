@@ -2837,17 +2837,19 @@ handleCreatePLT updateHeader payload =
                                               _pltGovernanceAccountIndex = governanceAccountIndex
                                             }
                                 tokenIx <- createPLT config
-                                runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
-                            return $ Right $ case createResult of
-                                Left (TokenModule.ITEDeserializationFailure _) ->
-                                    -- FIXME: Dummy RejectReason.
-                                    TxReject PoolWouldBecomeOverDelegated
-                                Left (TokenModule.ITEInvalidMintAmount) ->
-                                    -- FIXME: Dummy RejectReason.
-                                    TxReject StakeOverMaximumThresholdForPool
-                                Right () -> do
-                                    -- FIXME: Dummy event.
-                                    TxSuccess [UpdateEnqueued (updateEffectiveTime updateHeader) (CreatePLTUpdatePayload payload)]
+                                runPLT tokenIx $ undefined -- TokenModule.initializeToken (payload ^. cpltInitializationParameters)
+                            return undefined
+
+-- return $ Right $ case createResult of
+--     Left (TokenModule.ITEDeserializationFailure _) ->
+--         -- FIXME: Dummy RejectReason.
+--         TxReject PoolWouldBecomeOverDelegated
+--     Left (TokenModule.ITEInvalidMintAmount) ->
+--         -- FIXME: Dummy RejectReason.
+--         TxReject StakeOverMaximumThresholdForPool
+--     Right () -> do
+--         -- FIXME: Dummy event.
+--         TxSuccess [UpdateEnqueued (updateEffectiveTime updateHeader) (CreatePLTUpdatePayload payload)]
 
 handleUpdateCredentials ::
     (SchedulerMonad m) =>

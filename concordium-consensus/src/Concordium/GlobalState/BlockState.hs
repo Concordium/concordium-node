@@ -1656,6 +1656,24 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
         -- | The index of the new token and the updated block state.
         m (TokenIndex, UpdatableBlockState m)
 
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    --
+    bsoUpdateTokenAccountModuleState ::
+        (PVSupportsPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        TokenIndex ->
+        AccountIndex ->
+        [(TokenAccountStateKey, TokenAccountStateValueDelta)] ->
+        m (UpdatableBlockState m)
+
+    bsoUpdateTokenAccountBalance ::
+        (PVSupportsPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        TokenIndex ->
+        AccountIndex ->
+        TokenAmountDelta ->
+        m (UpdatableBlockState m)
+
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -2017,6 +2035,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetTokenState s tokIx key = lift . bsoSetTokenState s tokIx key
     bsoSetTokenCirculatingSupply s tokIx = lift . bsoSetTokenCirculatingSupply s tokIx
     bsoCreateToken s = lift . bsoCreateToken s
+    bsoUpdateTokenAccountModuleState s tokIx accIx = lift . bsoUpdateTokenAccountModuleState s tokIx accIx
+    bsoUpdateTokenAccountBalance s tokIx accIx = lift . bsoUpdateTokenAccountBalance s tokIx accIx
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -2078,6 +2098,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetTokenState #-}
     {-# INLINE bsoSetTokenCirculatingSupply #-}
     {-# INLINE bsoCreateToken #-}
+    {-# INLINE bsoUpdateTokenAccountModuleState #-}
+    {-# INLINE bsoUpdateTokenAccountBalance #-}
     {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}

@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -522,13 +523,35 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
     setAccountState _ _ _ = do
         -- TODO: implement
         return ()
-    transfer _ _ _ _ = do
-        -- TODO: implement
-        return False
+    transfer (accIxFrom, _accFrom) (accIxTo, _accTo) amount _mbMemo = do
+        -- TODO (drsk: the memo should be emitted in an event)
+        tIx <- ask
+        bs <- use ssBlockState
+        bs' <- lift $ BS.bsoUpdateTokenAccountBalance bs tIx accIxFrom (TokenAmountDelta (negate $ fromIntegral (theTokenRawAmount amount)))
+        bs'' <- lift $ BS.bsoUpdateTokenAccountBalance bs' tIx accIxTo (TokenAmountDelta (fromIntegral (theTokenRawAmount amount)))
+        ssBlockState .= bs''
+        return True
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
-    mint _ _ = return False -- TODO: implement
-    burn _ _ = return False -- TODO: implement
+    mint (accIx, _acc) amount = do
+        tIx <- ask
+        bs <- use ssBlockState
+        newBs <-
+            lift $
+                BS.bsoUpdateTokenAccountBalance
+                    bs
+                    tIx
+                    accIx
+                    ( TokenAmountDelta (fromIntegral (theTokenRawAmount amount))
+                    )
+        ssBlockState .= newBs
+        return True
+    burn (accIx, _acc) amount = do
+        tIx <- ask
+        bs <- use ssBlockState
+        newBs <- lift $ BS.bsoUpdateTokenAccountBalance bs tIx accIx (TokenAmountDelta (negate $ fromIntegral (theTokenRawAmount amount)))
+        ssBlockState .= newBs
+        return True
 
 instance (Monad m) => (PLTKernelFail fail (KernelT fail ret m)) where
     -- To abort, we simply drop the continuation and return the error.

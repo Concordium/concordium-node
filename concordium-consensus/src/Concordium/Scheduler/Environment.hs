@@ -32,6 +32,7 @@ import Concordium.GlobalState.Account (AccountUpdate (..), EncryptedAmountUpdate
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState (AccountOperations (..), ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), ModuleQuery (..), NewInstanceData, UpdatableContractState, iiBalance)
 import Concordium.GlobalState.Classes (MGSTrans (..))
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Logger
@@ -44,7 +45,6 @@ import qualified Concordium.TransactionVerification as TVer
 import Control.Exception (assert)
 
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
-import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration, TokenIndex)
 import qualified Concordium.ID.Types as ID
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTKernelFail, PLTKernelPrivilegedUpdate)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
