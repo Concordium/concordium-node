@@ -502,6 +502,7 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" | jq -r -c '.artifacts | map(.name) | @json')
           echo "ARTIFACT_NAMES=$ARTIFACTS" >> $GITHUB_ENV
       - name: s3-matrix
+        id: s3-matrix
         run: |
           intersection=$(jq -n -c \
             --argjson s3 '${{ env.S3_CANDIDATES }}' \
@@ -509,6 +510,7 @@ jobs:
             '$s3 - ($s3 - $artifacts)')
           echo "intersection=$intersection" >> $GITHUB_OUTPUT
       - name: docker-matrix
+        id: docker-matrix
         run: |
           intersection=$(jq -n -c \
             --argjson docker '${{ env.DOCKER_CANDIDATES }}' \
@@ -546,11 +548,10 @@ jobs:
       - name: Set tag
         run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["docker-${{ matrix.node.env }}"]')" >> $GITHUB_ENV
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Load image
-        run: docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+        run: |
+          docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+          docker images
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
@@ -568,7 +569,10 @@ jobs:
             genesis_ref=main
             genesis_path=${{ matrix.node.genesis_path }}
             environment=${{ matrix.node.env }}
-          outputs: type=docker,dest=/tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
+
+      - name: Save image
+        run: docker save -o /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar ${{ env.TAG }}
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
