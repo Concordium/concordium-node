@@ -10,6 +10,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -144,6 +145,7 @@ import Data.IORef
 import Data.Kind (Type)
 import Data.Map (Map)
 import Data.Serialize
+import Data.Singletons
 import Data.Word
 import Foreign.ForeignPtr (finalizeForeignPtr)
 import Foreign.Ptr
@@ -1599,6 +1601,12 @@ instance (MonadBlobStore m) => BlobStorable m DelegatorCapital
 instance (MonadBlobStore m) => BlobStorable m BakerCapital
 instance (MonadBlobStore m) => BlobStorable m CapitalDistribution
 instance (MonadBlobStore m) => BlobStorable m SpecialTransactionOutcome -- use the serialize instance
+instance (MonadBlobStore m, BlobStorable m a, SingI b) => BlobStorable m (Conditionally b a) where
+    load = conditionallyA (sing @b) <$> load
+    storeUpdate CFalse = return (pure (), CFalse)
+    storeUpdate (CTrue a) = do
+        (pA, newA) <- storeUpdate a
+        return (pA, CTrue newA)
 
 newtype StoreSerialized a = StoreSerialized {unStoreSerialized :: a}
     deriving newtype (Serialize)
