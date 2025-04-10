@@ -4306,7 +4306,7 @@ doGetPrePreCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
     sav = sAccountVersionFor (protocolVersion @pv)
 
 -- | Set the token-level state of a token for a given 'TokenStateKey'. If the value is
---  @Nothing@, the key removed from the token state. Otherwise the key is mapped to the
+--  @Nothing@, the key is removed from the token state. Otherwise the key is mapped to the
 --  specified value.
 --
 --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.

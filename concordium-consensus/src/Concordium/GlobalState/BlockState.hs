@@ -1607,7 +1607,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     bsoSuspendValidators :: (PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [AccountIndex] -> m ([(AccountIndex, AccountAddress)], UpdatableBlockState m)
 
     -- | Set the token-level state of a token for a given 'TokenStateKey'. If the value is
-    --  @Nothing@, the key removed from the token state. Otherwise the key is mapped to the
+    --  @Nothing@, the key is removed from the token state. Otherwise the key is mapped to the
     --  specified value.
     --
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
