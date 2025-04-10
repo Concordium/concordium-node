@@ -33,14 +33,14 @@ env:
   ARTIFACT_FILE_NAME: 'artifact-file'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_ARN_TEMPLATES: '{
-      \"database-exporter\": {\"bucket\": \"distribution.concordium.software\", \"directory\": \"tools/linux\", \"filename\": \"database-exporter_${VERSION}.deb\"},
-      \"p2p-bootstrapper\": {\"bucket\": \"distribution.concordium.software\", \"directory\": \"tools/linux\", \"filename\": \"p2p-bootstrapper_${VERSION}.deb\"},
-      \"node-stagenet-linux\": {\"bucket\": \"distribution.stagenet.concordium.com\", \"directory\": \"deb\", \"filename\": \"concordium-stagenet-node_${VERSION}_amd64.deb\"},
-      \"node-flynet-linux\": {\"bucket\": \"distribution.flynet.concordium.com\", \"directory\": \"deb\", \"filename\": \"concordium-flynet-node_${VERSION}_amd64.deb\"},
-      \"node-testnet-linux\": {\"bucket\": \"distribution.testnet.concordium.com\", \"directory\": \"deb\", \"filename\": \"concordium-testnet-node_${VERSION}_amd64.deb\"},
-      \"node-mainnet-linux\": {\"bucket\": \"distribution.mainnet.concordium.software\", \"directory\": \"deb\", \"filename\": \"concordium-mainnet-node_${VERSION}_amd64.deb\"},
-      \"node-macos\": {\"bucket\": \"distribution.concordium.software\", \"directory\": \"macos\", \"filename\": \"concordium-node-${VERSION}.pkg\"},
-      \"node-windows\": {\"bucket\": \"distribution.concordium.software\", \"directory\": \"windows\", \"filename\": \"Node-${VERSION}.msi\"}
+      \"database-exporter\": {\"bucket\": \"distribution.concordium.software\", \"path\": \"tools/linux/database-exporter_${VERSION}.deb\"},
+      \"p2p-bootstrapper\": {\"bucket\": \"distribution.concordium.software\", \"path\": \"tools/linux/p2p-bootstrapper_${VERSION}.deb\"},
+      \"node-stagenet-linux\": {\"bucket\": \"distribution.stagenet.concordium.com\", \"path\": \"deb/concordium-stagenet-node_${VERSION}_amd64.deb\"},
+      \"node-flynet-linux\": {\"bucket\": \"distribution.flynet.concordium.com\", \"path\": \"deb/concordium-flynet-node_${VERSION}_amd64.deb\"},
+      \"node-testnet-linux\": {\"bucket\": \"distribution.testnet.concordium.com\", \"path\": \"deb/concordium-testnet-node_${VERSION}_amd64.deb\"},
+      \"node-mainnet-linux\": {\"bucket\": \"distribution.mainnet.concordium.software\", \"path\": \"deb/concordium-mainnet-node_${VERSION}_amd64.deb\"},
+      \"node-macos\": {\"bucket\": \"distribution.concordium.software\", \"path\": \"macos/concordium-node-${VERSION}.pkg\"},
+      \"node-windows\": {\"bucket\": \"distribution.concordium.software\", \"path\": \"windows/Node-${VERSION}.msi\"}
     }'
   DOCKER_TAGS_TEMPLATES: '{
       \"docker-stagenet\": \"concordium/stagenet-node:${VERSION}\",
@@ -73,7 +73,7 @@ jobs:
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           if [ -z "${{ env.SERVICE }}" ]; then
-            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "8.1.0-1-rc"
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "8.1.0-2-rc"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
               echo "::error::${CARGO_VERSION} does not match ${VERSION}."
               exit 1
@@ -144,11 +144,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Extrapolate artifact name
-        run: |
-          ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].filename')
-          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
-
       - name: Build Database Exporter
         uses: docker/build-push-action@v6
         with:
@@ -171,13 +166,13 @@ jobs:
       - name: Run Docker and Extract Artifacts
         run: |
           id=$(docker create build-deb:${{ github.run_id }})
-          docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb ./${{ env.ARTIFACT_NAME }}
+          docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb ./${{ env.ARTIFACT_FILE_NAME }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.job }}
-          path: ./${{ env.ARTIFACT_NAME }}
+          path: ./${{ env.ARTIFACT_FILE_NAME }}
           retention-days: 3
 
   p2p-bootstrapper:
@@ -190,11 +185,6 @@ jobs:
         with:
           name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
           path: /tmp
-
-      - name: Extrapolate artifact name
-        run: |
-          ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].filename')
-          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
       - name: Load image
         run: docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
@@ -224,13 +214,13 @@ jobs:
       - name: Run Docker and Extract Artifacts
         run: |
           id=$(docker create build-deb:${{ github.run_id }})
-          docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb ./${{ env.ARTIFACT_NAME }}
+          docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb ./${{ env.ARTIFACT_FILE_NAME }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.job }}
-          path: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_FILE_NAME }}
           retention-days: 3
 
   node-windows:
@@ -249,12 +239,6 @@ jobs:
       - name: Install dependencies
         run: |
           choco install yq jq -y
-        shell: bash
-
-      - name: Extrapolate artifact name
-        run: |
-          ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].filename')
-          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
         shell: bash
 
       - name: Install Rust
@@ -306,13 +290,13 @@ jobs:
       - name: Build Windows Node
         run: |
           ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ env.RUST_VERSION }}
-          cp ./service/windows/installer/Node.msi ./${{ env.ARTIFACT_NAME }}
+          cp ./service/windows/installer/Node.msi ./${{ env.ARTIFACT_FILE_NAME }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.job }}
-          path: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_FILE_NAME }}
           retention-days: 3
 
   node-macos:
@@ -324,11 +308,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Extrapolate artifact name
-        run: |
-          ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].filename')
-          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -360,13 +339,13 @@ jobs:
       - name: Build macOS Package
         run: |
           printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
-          cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}-unsigned.pkg ./${{ env.ARTIFACT_NAME }}
+          cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}-unsigned.pkg ./${{ env.ARTIFACT_FILE_NAME }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ github.job }}
-          path: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.ARTIFACT_FILE_NAME }}
           retention-days: 3
 
   generate-node-matrix:
@@ -436,11 +415,6 @@ jobs:
          with:
            name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
            path: /tmp
-
-       - name: Extrapolate artifact name
-         run: |
-           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].filename')
-            echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
        - name: Load image
          run: |
@@ -525,7 +499,7 @@ jobs:
       - name: Find released artifacts
         run: |
           ARTIFACTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" | jq -r -c '.artifacts[].name')
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" | jq -r -c '.artifacts | map(.name) | @json')
           echo "ARTIFACT_NAMES=$ARTIFACTS" >> $GITHUB_ENV
       - name: s3-matrix
         run: |
@@ -559,9 +533,6 @@ jobs:
           name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
           path: /tmp
 
-      - name: Load image
-        run: docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
-
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -577,6 +548,9 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Load image
+        run: docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
 
       - name: Build Docker Image
         uses: docker/build-push-action@v6
@@ -616,6 +590,12 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: /tmp
 
+      - name: Extrapolate artifact name and bucket
+        run: |
+          read S3_PATH S3_BUCKET < <(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"] | "\(.path) \(.bucket)"')
+          echo "S3_PATH=${S3_PATH}" >> $GITHUB_ENV
+          echo "S3_BUCKET=${S3_BUCKET}" >> $GITHUB_ENV
+
       - name: Test content
         run: |
           ls /tmp
@@ -627,12 +607,10 @@ jobs:
           role-session-name: ValidatePreconditionsSession
           aws-region: "eu-west-1"
 
-      - name: Log in to the Container registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
+#      - name: Upload artifact
+#        run: |
+#          aws s3api put-object --bucket=${{ env.S3_BUCKET }} --key=${{ env.S3_PATH }} --body=/tmp/${{ env.ARTIFACT_FILE_NAME }} --if-none-match='*'
+
 #      - uses: actions/create-github-app-token@v1
 #        id: app-token
 #        with:
