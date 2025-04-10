@@ -2750,18 +2750,39 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                 ValidatorScoreParametersUpdatePayload u -> case sIsSupported SPTValidatorScoreParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVValidatorScoreParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                CreatePLTUpdatePayload payload ->
-                                    if not $ protocolSupportsPLT (protocolVersion @(MPV m))
-                                        then return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                        else
-                                            if updateEffectiveTime uiHeader /= 0
-                                                then return $ TxInvalid InvalidUpdateTime
-                                                else do
-                                                    -- TODO Check signature and sequence number when relevant update keys are introduced.
-                                                    -- Process update
-                                                    createPLTUpdate payload
-                                                    buildValidTxSummary
+                                CreatePLTUpdatePayload payload -> case sIsSupported SPTProtocolLevelTokensParameters scpv of
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    STrue ->
+                                        if updateEffectiveTime uiHeader /= 0
+                                            then return $ TxInvalid InvalidUpdateTime
+                                            else do
+                                                -- TODO Check signature when relevant update keys are introduced.
+                                                -- verify the governance account exists.
+                                                let governanceAccountAddress = payload ^. cpltGovernanceAccount
+                                                maybeGovernanceAccount <- getStateAccount governanceAccountAddress
+                                                case maybeGovernanceAccount of
+                                                    Nothing ->
+                                                        return $
+                                                            TxInvalid $
+                                                                NonExistentAccount governanceAccountAddress
+                                                    Just _governanceAccountState -> do
+                                                      -- -- verify the token module exists and fetch the artifact and interface of the module.
+    -- maybeTokenInterface <- getTokenModuleInterface (payload ^. cpltTokenModule)
+    -- case maybeTokenInterface of
+    --     Nothing ->
+    --         return $
+    --             TxInvalid $
+    --                 NonExistentAccount governanceAccountAddress
+    --     Just tokenModuleInterface -> do
+    --         -- Create new PLT in token state with initial state.
+    --         tokenState <- createToken tokenModuleInterface governanceAccountState
+    --         -- Invoke the initialization call of token module with init state and the initialization parameter.
+    --         invokeInitializeToken tokenState
+    --         buildValidTxSummary
+                                                        error "Not implemented yet"
   where
+    
+
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult

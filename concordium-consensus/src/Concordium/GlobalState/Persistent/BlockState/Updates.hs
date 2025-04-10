@@ -766,7 +766,9 @@ data Updates' (cpv :: ChainParametersVersion) = Updates
       -- | Current chain parameters.
       currentParameters :: !(HashedBufferedRef (StoreSerialized (ChainParameters' cpv))),
       -- | Pending updates.
-      pendingUpdates :: !(PendingUpdates cpv)
+      pendingUpdates :: !(PendingUpdates cpv),
+      -- | Sequence number for updates to the protocol level tokens (PLT).
+      pltUpdateSequenceNumber :: !(OParam 'PTProtocolLevelTokensParameters cpv UpdateSequenceNumber)
     }
 
 -- | See documentation of @migratePersistentBlockState@.
@@ -793,6 +795,17 @@ migrateUpdates migration Updates{..} = do
                     (return . StoreSerialized . migrateKeysCollection . unStoreSerialized)
                     currentKeyCollection
     newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
+
+    let newPltUpdateSequenceNumber = case migration of
+            StateMigrationParametersTrivial -> pltUpdateSequenceNumber
+            StateMigrationParametersP1P2 -> NoParam
+            StateMigrationParametersP2P3 -> NoParam
+            StateMigrationParametersP3ToP4 _ -> NoParam
+            StateMigrationParametersP4ToP5 -> NoParam
+            StateMigrationParametersP5ToP6 _ -> NoParam
+            StateMigrationParametersP6ToP7 -> NoParam
+            StateMigrationParametersP7ToP8 _ -> NoParam
+            StateMigrationParametersP8ToP9 -> SomeParam minUpdateSequenceNumber
     return
         Updates
             { currentKeyCollection = newKeyCollection,
@@ -801,7 +814,8 @@ migrateUpdates migration Updates{..} = do
               -- We always clear the current protocol update upon migration.
               -- Prior to the P5->P6 migration, this was already done before migration, but from
               -- P5->P6 and future updates, we require it to be done as part of the state migration.
-              currentProtocolUpdate = Null
+              currentProtocolUpdate = Null,
+              pltUpdateSequenceNumber = newPltUpdateSequenceNumber
             }
 
 type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv)
@@ -834,14 +848,16 @@ instance
         (pCPU, cPU) <- storeUpdate currentProtocolUpdate
         (pCP, cP) <- storeUpdate currentParameters
         (pPU, pU) <- storeUpdate pendingUpdates
+        (pPLTUpdateSequenceNumber, updatedPLTSequenceNumber) <- storeUpdate (StoreSerialized pltUpdateSequenceNumber)
         let newUpdates =
                 Updates
                     { currentKeyCollection = kC,
                       currentProtocolUpdate = cPU,
                       currentParameters = cP,
-                      pendingUpdates = pU
+                      pendingUpdates = pU,
+                      pltUpdateSequenceNumber = unStoreSerialized updatedPLTSequenceNumber
                     }
-        return (pKC >> pCPU >> pCP >> pPU, newUpdates)
+        return (pKC >> pCPU >> pCP >> pPU >> pPLTUpdateSequenceNumber, newUpdates)
     load = do
         mKC <-
             withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
@@ -849,11 +865,13 @@ instance
         mCPU <- label "Current protocol update" load
         mCP <- label "Current parameters" load
         mPU <- label "Pending updates" load
+        mPLTSequenceNumber <- label "PLT sequence number" load
         return $! do
             currentKeyCollection <- mKC
             currentProtocolUpdate <- mCPU
             currentParameters <- mCP
             pendingUpdates <- mPU
+            pltUpdateSequenceNumber <- unStoreSerialized <$> mPLTSequenceNumber
             return Updates{..}
 
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => Cacheable m (Updates' cpv) where
@@ -863,6 +881,7 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv) => Cacheable m (Update
             <*> cache currentProtocolUpdate
             <*> cache currentParameters
             <*> cache pendingUpdates
+            <*> return pltUpdateSequenceNumber
 
 -- | An initial 'Updates' with the given initial 'Authorizations'
 --  and 'ChainParameters'.
@@ -876,6 +895,7 @@ initialUpdates initialKeyCollection chainParams = do
     let currentProtocolUpdate = Null
     currentParameters <- makeHashedBufferedRef (StoreSerialized chainParams)
     pendingUpdates <- emptyPendingUpdates
+    let pltUpdateSequenceNumber = whenSupported minUpdateSequenceNumber
     return Updates{..}
 
 -- | Make a persistent 'Updates' from an in-memory one.
@@ -891,6 +911,7 @@ makePersistentUpdates UQ.Updates{..} = withIsAuthorizationsVersionFor (chainPara
         Just pu -> Some <$> refMake (StoreSerialized pu)
     currentParameters <- refMake (StoreSerialized _currentParameters)
     pendingUpdates <- makePersistentPendingUpdates _pendingUpdates
+    let pltUpdateSequenceNumber = _pltUpdateSequenceNumber
     return Updates{..}
 
 -- | Convert a persistent 'Updates' to an in-memory 'UQ.Updates'.
@@ -908,6 +929,7 @@ makeBasicUpdates Updates{..} = withIsAuthorizationsVersionFor (chainParametersVe
         Some pu -> Just . unStoreSerialized <$> refLoad pu
     _currentParameters <- unStoreSerialized <$> refLoad currentParameters
     _pendingUpdates <- makeBasicPendingUpdates pendingUpdates
+    let _pltUpdateSequenceNumber = pltUpdateSequenceNumber
     return UQ.Updates{..}
 
 -- | Process the update queue to determine the new value of a parameter (or the authorizations).
@@ -1669,9 +1691,12 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                 (pure minUpdateSequenceNumber)
                 (fmap uqNextSequenceNumber . refLoad)
                 (pValidatorScoreParametersQueue pendingUpdates)
-        -- TODO First iteration we only allow a single PLT, meaning we can just return a fixed sequence number.
-        -- To support multiple tokens we must track this sequence number.
-        UpdateCreatePLT -> pure minUpdateSequenceNumber
+        UpdateCreatePLT ->
+            return $
+                maybeWhenSupported
+                    minUpdateSequenceNumber
+                    id
+                    pltUpdateSequenceNumber
 
 -- | Enqueue an update in the appropriate queue.
 enqueueUpdate ::

@@ -358,9 +358,6 @@ class
     --  time are cancelled.
     enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) -> m ()
 
-    -- | Process the chain update to create a new protocol level token (PLT).
-    createPLTUpdate :: CreatePLT -> m ()
-
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the
 --  state since this might not be needed.
