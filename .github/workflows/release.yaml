@@ -524,9 +524,9 @@ jobs:
           echo "DOCKER_CANDIDATES=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r -c 'keys')" >> $GITHUB_ENV
       - name: Find released artifacts
         run: |
-          ARTIFACTS_JSON=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts")
-          echo "ARTIFACT_NAMES=$(echo "$ARTIFACTS_JSON" | jq -r -c '.artifacts[].name')" >> $GITHUB_ENV
+          ARTIFACTS=$(curl -s -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" | jq -r -c '.artifacts[].name')
+          echo "ARTIFACT_NAMES=$ARTIFACTS" >> $GITHUB_ENV
       - name: s3-matrix
         run: |
           intersection=$(jq -n -c \
@@ -584,7 +584,7 @@ jobs:
           context: .
           file: scripts/distribution/docker/builder.Dockerfile
           tags: ${{ env.TAG }}
-          no-cache: true
+          pull: false
           push: false
           ssh: |
             default=./id_rsa
