@@ -1606,6 +1606,55 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     --  addresses.
     bsoSuspendValidators :: (PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [AccountIndex] -> m ([(AccountIndex, AccountAddress)], UpdatableBlockState m)
 
+    -- | Set the token-level state of a token for a given 'TokenStateKey'. If the value is
+    --  @Nothing@, the key removed from the token state. Otherwise the key is mapped to the
+    --  specified value.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoSetTokenState ::
+        (PVSupportsPLT (MPV m)) =>
+        -- | The current block state.
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The key to set or remove.
+        TokenStateKey ->
+        -- | The value to set.
+        Maybe TokenStateValue ->
+        -- | The updated block state.
+        m (UpdatableBlockState m)
+
+    -- | Set the recorded total circulating supply for a protocol-level token.
+    --  This should always be kept up-to-date with the total balance held in accounts
+    --  (and smart contracts).
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoSetTokenCirculatingSupply ::
+        (PVSupportsPLT (MPV m)) =>
+        -- | The current block state.
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The new total circulating supply for the token.
+        TokenRawAmount ->
+        -- | The updated block state.
+        m (UpdatableBlockState m)
+
+    -- | Create a new token with the given configuration. The initial state will be empty
+    --  and the initial supply will be 0. Returns the token index and the updated state.
+    --
+    --  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already be in use
+    --  by a protocol-level token, i.e. @getTokenIndex s (_pltTokenId cfg)@ should return
+    --  @Nothing@.
+    bsoCreateToken ::
+        (PVSupportsPLT (MPV m)) =>
+        -- | The current block state @s@.
+        UpdatableBlockState m ->
+        -- | The configuration for the token @cfg@.
+        PLTConfiguration ->
+        -- | The index of the new token and the updated block state.
+        m (TokenIndex, UpdatableBlockState m)
+
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -1964,6 +2013,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
     bsoPrimeForSuspension s = lift . bsoPrimeForSuspension s
     bsoSuspendValidators s = lift . bsoSuspendValidators s
+    bsoSetTokenState s tokIx key = lift . bsoSetTokenState s tokIx key
+    bsoSetTokenCirculatingSupply s tokIx = lift . bsoSetTokenCirculatingSupply s tokIx
+    bsoCreateToken s = lift . bsoCreateToken s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -2022,6 +2074,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoIsProtocolUpdateEffective #-}
     {-# INLINE bsoUpdateMissedRounds #-}
     {-# INLINE bsoPrimeForSuspension #-}
+    {-# INLINE bsoSetTokenState #-}
+    {-# INLINE bsoSetTokenCirculatingSupply #-}
+    {-# INLINE bsoCreateToken #-}
     {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}

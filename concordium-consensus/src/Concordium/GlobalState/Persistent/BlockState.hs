@@ -4305,6 +4305,58 @@ doGetPrePreCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
   where
     sav = sAccountVersionFor (protocolVersion @pv)
 
+-- | Set the token-level state of a token for a given 'TokenStateKey'. If the value is
+--  @Nothing@, the key removed from the token state. Otherwise the key is mapped to the
+--  specified value.
+--
+--  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+doSetTokenState ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    PLT.TokenStateKey ->
+    Maybe PLT.TokenStateValue ->
+    m (PersistentBlockState pv)
+doSetTokenState pbs tokIx key mValue = do
+    bsp <- loadPBS pbs
+    newPLTs <- PLT.setTokenState tokIx key mValue (bspProtocolLevelTokens bsp)
+    storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
+-- | Set the recorded total circulating supply for a protocol-level token.
+--  This should always be kept up-to-date with the total balance held in accounts
+--  (and smart contracts).
+--
+--  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+doSetTokenCirculatingSupply ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    PLT.TokenRawAmount ->
+    m (PersistentBlockState pv)
+doSetTokenCirculatingSupply pbs tokIx newSupply = do
+    bsp <- loadPBS pbs
+    newPLTs <- PLT.setTokenCirculatingSupply tokIx newSupply (bspProtocolLevelTokens bsp)
+    storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
+-- | Create a new token with the given configuration. The initial state will be empty
+--  and the initial supply will be 0. Returns the token index and the updated state.
+--
+--  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already be in use
+--  by a protocol-level token, i.e. @getTokenIndex s (_pltTokenId cfg)@ should return
+--  @Nothing@.
+doCreateToken ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.PLTConfiguration ->
+    m (PLT.TokenIndex, PersistentBlockState pv)
+doCreateToken pbs tokenConfig = do
+    bsp <- loadPBS pbs
+    (tokIx, newPLTs) <- PLT.createToken tokenConfig (bspProtocolLevelTokens bsp)
+    (tokIx,) <$> storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext
     { -- | The 'BlobStore' used for storing the persistent state.
@@ -4607,6 +4659,9 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoUpdateMissedRounds = doUpdateMissedRounds
     bsoPrimeForSuspension = doPrimeForSuspension
     bsoSuspendValidators = doSuspendValidators
+    bsoSetTokenState = doSetTokenState
+    bsoSetTokenCirculatingSupply = doSetTokenCirculatingSupply
+    bsoCreateToken = doCreateToken
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
