@@ -80,3 +80,24 @@ instance HashableTo Hash.Hash TokenAccountState where
 instance (Monad m) => MHashableTo m Hash.Hash TokenAccountState
 
 instance (MonadBlobStore m) => BlobStorable m TokenAccountState
+
+-- | An update to the token account state.
+data TokenAccountStateDelta = TokenAccountStateDelta
+    { -- | A change to the token balance.
+      tasBalanceDelta :: !(Maybe TokenAmountDelta),
+      -- | A change to the token module state.
+      tasModuleStateDelta :: ![(TokenStateKey, TokenAccountStateValueDelta)]
+    }
+    deriving (Eq, Show)
+
+newtype TokenAmountDelta = TokenAmountDelta {tokenAmountDelta :: Integer} deriving (Eq, Show)
+
+-- | The possible update actions of a token module state.
+data TokenAccountStateValueDelta
+    = -- | Delete the state.
+      TASVDelete
+    | -- | Create a new state.
+      TASVCreate TokenStateValue
+    | -- | Update the state to a new value.
+      TASVUpdate TokenStateValue
+    deriving (Eq, Show)

@@ -131,6 +131,7 @@ import qualified Control.Monad.Catch as MonadCatch
 import Control.Monad.Reader.Class
 import Control.Monad.Trans
 import Control.Monad.Trans.Except (ExceptT)
+import Control.Monad.Trans.Maybe (MaybeT)
 import Control.Monad.Trans.Reader (ReaderT (..))
 import Control.Monad.Trans.State.Strict (StateT)
 import Control.Monad.Trans.Writer.Strict (WriterT)
@@ -661,6 +662,11 @@ deriving via
     (LiftMonadBlobStore (ExceptT e) m)
     instance
         (MonadBlobStore m) => MonadBlobStore (ExceptT e m)
+
+deriving via
+    (LiftMonadBlobStore MaybeT m)
+    instance
+        (MonadBlobStore m) => MonadBlobStore (MaybeT m)
 
 -- | This instance lifts a 'MonadBlobStore' over a 'ReaderT' transformer.
 --  This is used to implement a 'Cacheable' instance for the persistent

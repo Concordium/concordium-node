@@ -13,6 +13,7 @@ module Concordium.Scheduler.EnvironmentImplementation where
 import Control.Monad
 import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Reader (ReaderT (..))
 import Data.Either
 import Data.HashMap.Strict as Map
@@ -22,6 +23,7 @@ import Lens.Micro.Platform
 import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..), TokenIndex)
 import Concordium.GlobalState.TreeState
 import Concordium.Logger
@@ -534,13 +536,61 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
     setAccountState _ _ _ = do
         -- TODO: implement
         return ()
-    transfer _ _ _ _ = do
-        -- TODO: implement
-        return False
+    transfer (accIxFrom, _accFrom) (accIxTo, _accTo) amount _mbMemo = do
+        -- TODO: the memo should be emitted in an event
+        tokenIx <- ask
+        bs <- use ssBlockState
+        mbBs'' <- runMaybeT $ do
+            bs' <-
+                MaybeT $
+                    lift $
+                        BS.bsoUpdateTokenAccountBalance
+                            bs
+                            tokenIx
+                            accIxFrom
+                            (TokenAmountDelta (negate $ fromIntegral (theTokenRawAmount amount)))
+            MaybeT $
+                lift $
+                    BS.bsoUpdateTokenAccountBalance
+                        bs'
+                        tokenIx
+                        accIxTo
+                        (TokenAmountDelta (fromIntegral (theTokenRawAmount amount)))
+
+        case mbBs'' of
+            Nothing -> return False
+            Just bs'' -> do
+                ssBlockState .= bs''
+                return True
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
-    mint _ _ = return False -- TODO: implement
-    burn _ _ = return False -- TODO: implement
+    mint (accIx, _acc) amount = do
+        tokenIx <- ask
+        bs <- use ssBlockState
+        mbNewBs <-
+            lift $
+                BS.bsoUpdateTokenAccountBalance
+                    bs
+                    tokenIx
+                    accIx
+                    ( TokenAmountDelta (fromIntegral (theTokenRawAmount amount))
+                    )
+        case mbNewBs of
+            Nothing -> return False
+            Just newBs -> do
+                ssBlockState .= newBs
+                return True
+    burn (accIx, _acc) amount = do
+        tokenIx <- ask
+        bs <- use ssBlockState
+        mbNewBs <-
+            lift $
+                BS.bsoUpdateTokenAccountBalance bs tokenIx accIx (TokenAmountDelta (negate $ fromIntegral (theTokenRawAmount amount)))
+        case mbNewBs of
+            Nothing -> return False
+            Just newBs -> do
+                ssBlockState .= newBs
+                return True
 
 instance (Monad m) => (PLTKernelFail fail (KernelT fail ret m)) where
     -- To abort, we simply drop the continuation and return the error.
