@@ -101,7 +101,7 @@ instance (BS.BlockStateQuery m) => StaticInformation (InvokeContractMonad m) whe
 -- | Invoke the contract in the given context.
 invokeContract ::
     forall m.
-    (MonadProtocolVersion m, BS.BlockStateQuery m) =>
+    (BS.BlockStateQuery m) =>
     -- | Context in which to invoke the contract.
     ContractContext ->
     -- | Chain metadata corresponding to the block state.

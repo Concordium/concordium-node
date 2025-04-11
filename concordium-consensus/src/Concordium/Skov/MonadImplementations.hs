@@ -80,6 +80,8 @@ deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => GlobalStateTypes (
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ContractStateOperations (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => AccountOperations (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ModuleQuery (GlobalStateM pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => PLTQuery (PersistentBlockState pv) (GlobalStateM pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => PLTQuery (HashedPersistentBlockState pv) (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateQuery (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateOperations (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateStorage (GlobalStateM pv)
@@ -530,6 +532,22 @@ instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDataba
 
 instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDatabaseHandlers (SkovTContext h (SkovContext c)) where
     databaseHandlers = lens srContext (\s v -> s{srContext = v}) . LMDBAccountMap.databaseHandlers
+
+deriving instance
+    ( IsProtocolVersion pv,
+      MonadIO m,
+      MonadLogger m,
+      c ~ SkovConfig pv finconfig handlerconfig
+    ) =>
+    PLTQuery (PersistentBlockState pv) (SkovT pv h c m)
+
+deriving instance
+    ( IsProtocolVersion pv,
+      MonadIO m,
+      MonadLogger m,
+      c ~ SkovConfig pv finconfig handlerconfig
+    ) =>
+    PLTQuery (HashedPersistentBlockState pv) (SkovT pv h c m)
 
 deriving instance
     ( IsProtocolVersion pv,

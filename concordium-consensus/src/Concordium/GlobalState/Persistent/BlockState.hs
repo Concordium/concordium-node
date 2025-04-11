@@ -63,6 +63,7 @@ import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
 import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as PLT
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Cooldown
@@ -812,7 +813,9 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       bspTransactionOutcomes :: !(PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)),
       -- | Details of bakers that baked blocks in the current epoch. This is
       --  used for rewarding bakers at the end of epochs.
-      bspRewardDetails :: !(BlockRewardDetails pv)
+      bspRewardDetails :: !(BlockRewardDetails pv),
+      -- | The global state of protocol-level tokens.
+      bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForPV pv)
     }
 
 -- | Lens for accessing the birk parameters of a 'BlockStatePointers' structure.
@@ -855,6 +858,7 @@ instance (SupportsPersistentState pv m) => MHashableTo m StateHash (BlockStatePo
         bshInstances <- getHashM bspInstances
         bshUpdates <- getHashM bspUpdates
         bshBlockRewardDetails <- getHashM bspRewardDetails
+        bshProtocolLevelTokens <- getHashM bspProtocolLevelTokens
         return $ makeBlockStateHash @pv BlockStateHashInputs{..}
 
 instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv) where
@@ -871,6 +875,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         (preleases, bspReleaseSchedule') <- storeUpdate bspReleaseSchedule
         (pAccountsInCooldown, bspAccountInCooldown') <- storeUpdate bspAccountsInCooldown
         (pRewardDetails, bspRewardDetails') <- storeUpdate bspRewardDetails
+        (pProtocolLevelTokens, bspProtocolLevelTokens') <- storeUpdate bspProtocolLevelTokens
         let putBSP = do
                 paccts
                 pinsts
@@ -885,6 +890,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                 preleases
                 pAccountsInCooldown
                 pRewardDetails
+                pProtocolLevelTokens
         return
             ( putBSP,
               bsp0
@@ -899,7 +905,8 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                   bspUpdates = bspUpdates',
                   bspReleaseSchedule = bspReleaseSchedule',
                   bspAccountsInCooldown = bspAccountInCooldown',
-                  bspRewardDetails = bspRewardDetails'
+                  bspRewardDetails = bspRewardDetails',
+                  bspProtocolLevelTokens = bspProtocolLevelTokens'
                 }
             )
     load = do
@@ -916,6 +923,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         mReleases <- label "Release schedule" load
         mAccountsInCooldown <- label "Accounts in cooldown" load
         mRewardDetails <- label "Epoch blocks" load
+        mProtocolLevelTokens <- label "Protocol-level tokens" load
         return $! do
             bspAccounts <- maccts
             bspInstances <- minsts
@@ -929,6 +937,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
             bspReleaseSchedule <- mReleases
             bspAccountsInCooldown <- mAccountsInCooldown
             bspRewardDetails <- mRewardDetails
+            bspProtocolLevelTokens <- mProtocolLevelTokens
             return $! BlockStatePointers{..}
 
 -- | Accessor for getting the pool rewards when supported by the protocol version.
@@ -965,6 +974,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     releaseSchedule <- emptyReleaseSchedule
     acctsInCooldown <- initialAccountsInCooldown accounts
     red <- emptyBlockRewardDetails
+    plts <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -980,7 +990,8 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
                   bspUpdates = updates,
                   bspReleaseSchedule = releaseSchedule,
                   bspAccountsInCooldown = acctsInCooldown,
-                  bspRewardDetails = red
+                  bspRewardDetails = red,
+                  bspProtocolLevelTokens = plts
                 }
     bps <- liftIO $ newIORef $! bsp
     hashBlockState bps
@@ -1005,6 +1016,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bspReleaseSchedule <- emptyReleaseSchedule
     bspRewardDetails <- emptyBlockRewardDetails
     bspAccounts <- Accounts.emptyAccounts
+    bspProtocolLevelTokens <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -4293,6 +4305,58 @@ doGetPrePreCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
   where
     sav = sAccountVersionFor (protocolVersion @pv)
 
+-- | Set the token-level state of a token for a given 'TokenStateKey'. If the value is
+--  @Nothing@, the key is removed from the token state. Otherwise the key is mapped to the
+--  specified value.
+--
+--  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+doSetTokenState ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    PLT.TokenStateKey ->
+    Maybe PLT.TokenStateValue ->
+    m (PersistentBlockState pv)
+doSetTokenState pbs tokIx key mValue = do
+    bsp <- loadPBS pbs
+    newPLTs <- PLT.setTokenState tokIx key mValue (bspProtocolLevelTokens bsp)
+    storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
+-- | Set the recorded total circulating supply for a protocol-level token.
+--  This should always be kept up-to-date with the total balance held in accounts
+--  (and smart contracts).
+--
+--  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+doSetTokenCirculatingSupply ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    PLT.TokenRawAmount ->
+    m (PersistentBlockState pv)
+doSetTokenCirculatingSupply pbs tokIx newSupply = do
+    bsp <- loadPBS pbs
+    newPLTs <- PLT.setTokenCirculatingSupply tokIx newSupply (bspProtocolLevelTokens bsp)
+    storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
+-- | Create a new token with the given configuration. The initial state will be empty
+--  and the initial supply will be 0. Returns the token index and the updated state.
+--
+--  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already be in use
+--  by a protocol-level token, i.e. @getTokenIndex s (_pltTokenId cfg)@ should return
+--  @Nothing@.
+doCreateToken ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.PLTConfiguration ->
+    m (PLT.TokenIndex, PersistentBlockState pv)
+doCreateToken pbs tokenConfig = do
+    bsp <- loadPBS pbs
+    (tokIx, newPLTs) <- PLT.createToken tokenConfig (bspProtocolLevelTokens bsp)
+    (tokIx,) <$> storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext
     { -- | The 'BlobStore' used for storing the persistent state.
@@ -4380,6 +4444,31 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
 
 instance (PersistentState av pv r m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
     getModuleArtifact = doGetModuleArtifact
+
+instance
+    (IsProtocolVersion pv, PersistentState av pv r m) =>
+    PLTQuery (PersistentBlockState pv) (PersistentBlockStateMonad pv r m)
+    where
+    getPLTList =
+        PLT.getPLTList . bspProtocolLevelTokens <=< loadPBS
+    getTokenIndex bs tokIx =
+        PLT.getTokenIndex tokIx . bspProtocolLevelTokens =<< loadPBS bs
+    getTokenState bs tokIx key =
+        PLT.getTokenState tokIx key . bspProtocolLevelTokens =<< loadPBS bs
+    getTokenConfiguration bs tokIx =
+        PLT.getTokenConfiguration tokIx . bspProtocolLevelTokens =<< loadPBS bs
+    getTokenCirculatingSupply bs tokIx =
+        PLT.getTokenCirculatingSupply tokIx . bspProtocolLevelTokens =<< loadPBS bs
+
+instance
+    (IsProtocolVersion pv, PersistentState av pv r m) =>
+    PLTQuery (HashedPersistentBlockState pv) (PersistentBlockStateMonad pv r m)
+    where
+    getPLTList = getPLTList . hpbsPointers
+    getTokenIndex = getTokenIndex . hpbsPointers
+    getTokenState = getTokenState . hpbsPointers
+    getTokenConfiguration = getTokenConfiguration . hpbsPointers
+    getTokenCirculatingSupply = getTokenCirculatingSupply . hpbsPointers
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
@@ -4570,6 +4659,9 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoUpdateMissedRounds = doUpdateMissedRounds
     bsoPrimeForSuspension = doPrimeForSuspension
     bsoSuspendValidators = doSuspendValidators
+    bsoSetTokenState = doSetTokenState
+    bsoSetTokenCirculatingSupply = doSetTokenCirculatingSupply
+    bsoCreateToken = doCreateToken
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
@@ -4759,7 +4851,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     logEvent GlobalState LLTrace "Migrating reward details"
     newRewardDetails <-
         migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails
-
+    newProtocolLevelTokens <- PLT.migrateProtocolLevelTokensForPV migration bspProtocolLevelTokens
     return $!
         BlockStatePointers
             { bspAccounts = newAccounts,
@@ -4774,7 +4866,8 @@ migrateBlockPointers migration BlockStatePointers{..} = do
               bspReleaseSchedule = newReleaseSchedule,
               bspAccountsInCooldown = newAccountsInCooldown,
               bspTransactionOutcomes = newTransactionOutcomes,
-              bspRewardDetails = newRewardDetails
+              bspRewardDetails = newRewardDetails,
+              bspProtocolLevelTokens = newProtocolLevelTokens
             }
 
 -- | Thaw the block state, making it ready for modification.
@@ -4822,6 +4915,7 @@ cacheState hpbs = do
     rels <- cache bspReleaseSchedule
     cdowns <- cache bspAccountsInCooldown
     red <- cache bspRewardDetails
+    plts <- cache bspProtocolLevelTokens
     _ <-
         storePBS (hpbsPointers hpbs) $!
             BlockStatePointers
@@ -4837,7 +4931,8 @@ cacheState hpbs = do
                   bspReleaseSchedule = rels,
                   bspAccountsInCooldown = cdowns,
                   bspTransactionOutcomes = bspTransactionOutcomes,
-                  bspRewardDetails = red
+                  bspRewardDetails = red,
+                  bspProtocolLevelTokens = plts
                 }
     return ()
 
@@ -4878,6 +4973,7 @@ cacheStateAndGetTransactionTable hpbs = do
     rels <- cache bspReleaseSchedule
     cdowns <- cache bspAccountsInCooldown
     red <- cache bspRewardDetails
+    plts <- cache bspProtocolLevelTokens
     _ <-
         storePBS
             (hpbsPointers hpbs)
@@ -4894,6 +4990,7 @@ cacheStateAndGetTransactionTable hpbs = do
                   bspReleaseSchedule = rels,
                   bspAccountsInCooldown = cdowns,
                   bspTransactionOutcomes = bspTransactionOutcomes,
-                  bspRewardDetails = red
+                  bspRewardDetails = red,
+                  bspProtocolLevelTokens = plts
                 }
     return tt

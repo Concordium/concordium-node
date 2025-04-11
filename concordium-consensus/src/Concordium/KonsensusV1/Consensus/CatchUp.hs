@@ -429,7 +429,6 @@ processCatchUpTerminalData ::
       MonadState (SkovData (MPV m)) m,
       TimeMonad m,
       TimerMonad m,
-      MonadProtocolVersion m,
       MonadIO m,
       LowLevel.MonadTreeStateStore m,
       BlockStateStorage m,

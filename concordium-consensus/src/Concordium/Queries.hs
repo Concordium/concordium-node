@@ -864,7 +864,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
   where
     query ::
         forall m.
-        (MonadProtocolVersion m, BS.BlockStateQuery m) =>
+        (BS.BlockStateQuery m) =>
         ( BlockState m ->
           m [(TransactionTime, PendingUpdateEffect)]
         )
@@ -1098,7 +1098,7 @@ getBlockBirkParameters =
             return BlockBirkParameters{..}
         )
   where
-    getED :: forall m. (BS.BlockStateQuery m, MonadProtocolVersion m) => BlockState m -> m (Maybe ElectionDifficulty)
+    getED :: forall m. (BS.BlockStateQuery m) => BlockState m -> m (Maybe ElectionDifficulty)
     getED bs = case sConsensusParametersVersionFor (sChainParametersVersionFor (protocolVersion @(MPV m))) of
         SConsensusParametersVersion0 -> Just <$> BS.getCurrentElectionDifficulty bs
         SConsensusParametersVersion1 -> return Nothing -- There is no election difficulty in consensus version 1
@@ -1182,7 +1182,6 @@ getAccountInfoV0 = getAccountInfoHelper getASIv0 getCooldownsV0
 getAccountInfoV1 ::
     forall m.
     ( BS.BlockStateQuery m,
-      MonadProtocolVersion m,
       MonadState (SkovV1.SkovData (MPV m)) m,
       IsConsensusV1 (MPV m)
     ) =>
@@ -1315,7 +1314,7 @@ getPoolStatus blockHashInput mbid = do
   where
     poolStatus ::
         forall m.
-        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        (BS.BlockStateQuery m) =>
         BlockState m ->
         m (Maybe BakerPoolStatus)
     poolStatus bs = case delegationSupport @(AccountVersionFor (MPV m)) of
@@ -1329,7 +1328,7 @@ getPassiveDelegationStatus blockHashInput = do
   where
     poolStatus ::
         forall m.
-        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        (BS.BlockStateQuery m) =>
         BlockState m ->
         m (Maybe PassiveDelegationStatus)
     poolStatus bs = case delegationSupport @(AccountVersionFor (MPV m)) of
@@ -1360,7 +1359,7 @@ getDelegators bhi maybeBakerId = do
   where
     getter ::
         forall m.
-        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        (BS.BlockStateQuery m) =>
         BlockState m ->
         m (Either GetDelegatorsError [DelegatorInfo])
     getter bs = case delegationSupport @(AccountVersionFor (MPV m)) of
@@ -1384,7 +1383,7 @@ getDelegatorsRewardPeriod bhi maybeBakerId = do
   where
     getter ::
         forall m.
-        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        (BS.BlockStateQuery m) =>
         BlockState m ->
         m (Either GetDelegatorsError [DelegatorRewardPeriodInfo])
     getter bs = case delegationSupport @(AccountVersionFor (MPV m)) of
@@ -1577,7 +1576,7 @@ getTransactionStatus trHash =
     -- Get the outcome of a transaction in consensus version 0.
     v0TransactionOutcome ::
         forall m.
-        (BlockPointerMonad m, BS.BlockStateQuery m, MonadProtocolVersion m, BlockData (BlockPointerType m)) =>
+        (BlockPointerMonad m, BS.BlockStateQuery m, BlockData (BlockPointerType m)) =>
         BlockPointerType m ->
         TransactionIndex ->
         m (Maybe SupplementedTransactionSummary)
@@ -1588,7 +1587,7 @@ getTransactionStatus trHash =
     -- Get the outcome of a transaction in consensus version 1.
     v1TransactionOutcome ::
         forall m.
-        (BlockPointerMonad m, BS.BlockStateQuery m, MonadProtocolVersion m, SkovV1.BlockData (BlockPointerType m)) =>
+        (BlockPointerMonad m, BS.BlockStateQuery m, SkovV1.BlockData (BlockPointerType m)) =>
         BlockPointerType m ->
         TransactionIndex ->
         m (Maybe SupplementedTransactionSummary)

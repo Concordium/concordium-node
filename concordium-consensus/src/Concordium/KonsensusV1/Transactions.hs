@@ -53,6 +53,7 @@ deriving via (MGSTrans AccountNonceQueryT m) instance (MonadProtocolVersion m) =
 
 -- Instances required in order to use the 'AccountNonceQueryT' monad from within a block state context.
 deriving via (MGSTrans AccountNonceQueryT m) instance GSTypes.BlockStateTypes (AccountNonceQueryT m)
+deriving via (MGSTrans AccountNonceQueryT m) instance (PLTQuery bs m) => PLTQuery bs (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (BlockStateQuery m) => BlockStateQuery (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (ContractStateOperations m) => ContractStateOperations (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (AccountOperations m) => AccountOperations (AccountNonceQueryT m)
@@ -72,7 +73,6 @@ instance
 -- | Verify a block item. This wraps 'TVer.verify'.
 verifyBlockItem ::
     ( BlockStateQuery m,
-      MonadProtocolVersion m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       MonadState (Impl.SkovData (MPV m)) m
     ) =>
@@ -142,8 +142,7 @@ addPendingTransaction bi = do
 --  in 'Received' state where the associated 'CommitPoint' will be set to zero.
 --  Return the resulting 'AddBlockItemResult'.
 processBlockItem ::
-    ( MonadProtocolVersion m,
-      IsConsensusV1 (MPV m),
+    ( IsConsensusV1 (MPV m),
       MonadState (Impl.SkovData (MPV m)) m,
       TimeMonad m,
       BlockStateQuery m,
@@ -197,7 +196,6 @@ processBlockItem bi = do
 --  This does not add the transaction to the transaction table, or otherwise modify the state.
 preverifyTransaction ::
     ( BlockStateQuery m,
-      MonadProtocolVersion m,
       MonadState (Impl.SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m),
       IsConsensusV1 (MPV m),
@@ -266,8 +264,7 @@ addPreverifiedTransaction bi okRes = do
 --  the block to avoid duplication.
 processBlockItems ::
     forall m pv.
-    ( MonadProtocolVersion m,
-      IsConsensusV1 pv,
+    ( IsConsensusV1 pv,
       MonadState (Impl.SkovData pv) m,
       BlockStateQuery m,
       TimeMonad m,
