@@ -15,8 +15,6 @@ on:
           - database-exporter
 
   push:
-    branches:
-      - 'SRE-1054/fix-node-build-prevent-multiple-approvals'
     tags:
      - '*.*.*-*-rc'
      - '*.*.*-*-alpha'
@@ -73,7 +71,7 @@ jobs:
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           if [ -z "${{ env.SERVICE }}" ]; then
-            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "8.1.0-2-alpha"
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ github.ref_name }}"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
               echo "::error::${CARGO_VERSION} does not match ${VERSION}."
               exit 1
