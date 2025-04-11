@@ -27,6 +27,7 @@ import qualified Concordium.GlobalState.Persistent.Bakers as Bakers
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as PLT
 import qualified Concordium.GlobalState.Persistent.BlockState.Updates as Updates
 import qualified Concordium.GlobalState.Persistent.Cooldown as Cooldown
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
@@ -238,6 +239,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
     updates <- Blob.refMakeFlushed persistentUpdates
 
     releaseSchedule <- ReleaseSchedule.emptyReleaseSchedule
+    protocolLevelTokens <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         Blob.refMakeFlushed $
             BS.BlockStatePointers
@@ -253,7 +255,8 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                   bspUpdates = updates,
                   bspReleaseSchedule = releaseSchedule,
                   bspAccountsInCooldown = Cooldown.emptyAccountsInCooldownForPV,
-                  bspRewardDetails = rewardDetails
+                  bspRewardDetails = rewardDetails,
+                  bspProtocolLevelTokens = protocolLevelTokens
                 }
     bps <- MTL.liftIO $ newIORef $! bsp
     hashedBlockState <- BS.hashBlockState bps

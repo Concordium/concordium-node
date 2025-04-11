@@ -1,12 +1,17 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens where
 
 import Control.Monad
+import Control.Monad.Trans.Class
 import Data.Bits
+import Data.Bool.Singletons
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
 import qualified Data.Map.Strict as Map
@@ -14,7 +19,9 @@ import Data.Serialize
 import Data.Word
 
 import qualified Concordium.Crypto.SHA256 as SHA256
+import Concordium.Genesis.Data
 import Concordium.Types
+import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
 import Concordium.Utils
 import Concordium.Utils.Serialization
@@ -203,16 +210,98 @@ emptyProtocolLevelTokens =
           _pltMap = Map.empty
         }
 
+-- | Protocol level tokens where supported by the protocol version.
+--  The 'ProtocolLevelTokens' structure is stored under a 'HashedBufferedRef''.
+newtype ProtocolLevelTokensForPV (pv :: ProtocolVersion) = ProtocolLevelTokensForPV
+    { theProtocolLevelTokensForPV ::
+        (Conditionally (SupportsPLT (AccountVersionFor pv)))
+            (HashedBufferedRef' ProtocolLevelTokensHash ProtocolLevelTokens)
+    }
+
+instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (ProtocolLevelTokensForPV pv) where
+    load = case sSupportsPLT (accountVersion @(AccountVersionFor pv)) of
+        SFalse -> return (return (ProtocolLevelTokensForPV CFalse))
+        STrue -> fmap (ProtocolLevelTokensForPV . CTrue) <$> load
+    storeUpdate pltPV@(ProtocolLevelTokensForPV CFalse) = do
+        return (return (), pltPV)
+    storeUpdate (ProtocolLevelTokensForPV (CTrue pltRef)) = do
+        (ppltRef, pltRef') <- storeUpdate pltRef
+        return (ppltRef, ProtocolLevelTokensForPV (CTrue pltRef'))
+
+instance
+    (MonadBlobStore m, b ~ SupportsPLT (AccountVersionFor pv)) =>
+    MHashableTo m (Conditionally b ProtocolLevelTokensHash) (ProtocolLevelTokensForPV pv)
+    where
+    getHashM (ProtocolLevelTokensForPV CFalse) = return CFalse
+    getHashM (ProtocolLevelTokensForPV (CTrue ref)) = CTrue <$> getHashM ref
+
+instance
+    (MonadBlobStore m, PVSupportsPLT pv) =>
+    MHashableTo m ProtocolLevelTokensHash (ProtocolLevelTokensForPV pv)
+    where
+    getHashM (ProtocolLevelTokensForPV (CTrue ref)) = getHashM ref
+
+instance (MonadBlobStore m) => Cacheable m (ProtocolLevelTokensForPV pv) where
+    cache (ProtocolLevelTokensForPV (CTrue pltsRef)) =
+        ProtocolLevelTokensForPV . CTrue <$> cache pltsRef
+    cache pvPLTs = pure pvPLTs
+
+-- | Load a 'ProtocolLevelTokens' from a 'ProtocolLevelTokensForPV'.
+loadPLTs ::
+    (PVSupportsPLT pv, MonadBlobStore m) =>
+    ProtocolLevelTokensForPV pv ->
+    m ProtocolLevelTokens
+loadPLTs = refLoad . uncond . theProtocolLevelTokensForPV
+
+-- | Store a 'ProtocolLevelTokens' in a 'ProtocolLevelTokensForPV'.
+storePLTs ::
+    (PVSupportsPLT pv, MonadBlobStore m) =>
+    ProtocolLevelTokens ->
+    m (ProtocolLevelTokensForPV pv)
+storePLTs = fmap (ProtocolLevelTokensForPV . CTrue) . refMake
+
+-- | Store a 'ProtocolLevelTokens' in a 'ProtocolLevelTokensForPV' if the protocol version supports
+--  protocol-level tokens.
+conditionallyStorePLTs ::
+    forall m pv.
+    (IsProtocolVersion pv, MonadBlobStore m) =>
+    ProtocolLevelTokens ->
+    m (ProtocolLevelTokensForPV pv)
+conditionallyStorePLTs = case sSupportsPLT (accountVersion @(AccountVersionFor pv)) of
+    STrue -> storePLTs
+    SFalse -> const (return $ ProtocolLevelTokensForPV CFalse)
+
+-- | An empty 'ProtocolLevelTokensForPV' with no tokens.
+emptyProtocolLevelTokensForPV ::
+    (IsProtocolVersion pv, MonadBlobStore m) =>
+    m (ProtocolLevelTokensForPV pv)
+emptyProtocolLevelTokensForPV = conditionallyStorePLTs emptyProtocolLevelTokens
+
+-- | Get the list of all existing protocol-level tokens by their 'TokenId's.
+--  This returns the empty list when the protocol version does not support PLTs.
+getPLTList :: (MonadBlobStore m) => ProtocolLevelTokensForPV pv -> m [TokenId]
+getPLTList (ProtocolLevelTokensForPV CFalse) = return []
+getPLTList (ProtocolLevelTokensForPV (CTrue plts)) = Map.keys . _pltMap <$> refLoad plts
+
 -- | Get the 'TokenIndex' for a 'TokenId'. Returns @Nothing@ if there is no token with the given
 -- 'TokenId'.
-getTokenIndex :: (MonadBlobStore m) => TokenId -> ProtocolLevelTokens -> m (Maybe TokenIndex)
-getTokenIndex tokId plts = return $ Map.lookup tokId (_pltMap plts)
+getTokenIndex ::
+    (PVSupportsPLT pv, MonadBlobStore m) =>
+    TokenId ->
+    ProtocolLevelTokensForPV pv ->
+    m (Maybe TokenIndex)
+getTokenIndex tokId = fmap (Map.lookup tokId . _pltMap) . loadPLTs
 
 -- | Get the 'PLT' with the given 'TokenIndex'.
 --
---  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokens'.
-lookupPLT :: (MonadBlobStore m) => TokenIndex -> ProtocolLevelTokens -> m PLT
-lookupPLT index plts = do
+--  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
+lookupPLT ::
+    (PVSupportsPLT pv, MonadBlobStore m) =>
+    TokenIndex ->
+    ProtocolLevelTokensForPV pv ->
+    m PLT
+lookupPLT index pvPLTs = do
+    plts <- loadPLTs pvPLTs
     mPLT <- LFMBTree.lookup index (_pltTable plts)
     case mPLT of
         Just plt -> return plt
@@ -222,35 +311,36 @@ lookupPLT index plts = do
 -- | Get the state of a token for a given 'TokenStateKey'. Returns @Nothing@ if the token does not
 --  have a state for the given key.
 --
--- PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokens'.
+--  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
 getTokenState ::
-    (MonadBlobStore m) =>
+    (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->
     TokenStateKey ->
-    ProtocolLevelTokens ->
+    ProtocolLevelTokensForPV pv ->
     m (Maybe TokenStateValue)
-getTokenState index key plts = do
-    plt <- lookupPLT index plts
+getTokenState index key pvPLTs = do
+    plt <- lookupPLT index pvPLTs
     return $ Map.lookup key (_pltState plt)
 
 -- | Set the state of a token for a given 'TokenStateKey'. If the value is @Nothing@, the key is
 --  removed from the token state. Otherwise, the key is set to the given value.
---  Returns the updated 'ProtocolLevelTokens'.
+--  Returns the updated 'ProtocolLevelTokensForPV'.
 --
--- PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokens'.
+-- PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
 setTokenState ::
-    (MonadBlobStore m) =>
+    (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->
     TokenStateKey ->
     Maybe TokenStateValue ->
-    ProtocolLevelTokens ->
-    m ProtocolLevelTokens
-setTokenState index key mValue plts = do
+    ProtocolLevelTokensForPV pv ->
+    m (ProtocolLevelTokensForPV pv)
+setTokenState index key mValue pvPLTs = do
+    plts <- loadPLTs pvPLTs
     LFMBTree.update upd index (_pltTable plts) >>= \case
         Nothing ->
             error $
                 "setTokenState: TokenIndex (" ++ show index ++ ") not found in ProtocolLevelTokens"
-        Just (_, newTable) -> return plts{_pltTable = newTable}
+        Just (_, newTable) -> storePLTs plts{_pltTable = newTable}
   where
     upd plt = do
         let !newState = case mValue of
@@ -260,60 +350,62 @@ setTokenState index key mValue plts = do
 
 -- | Get the configuration data of a token for a given 'TokenIndex'.
 --
---  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokens'.
+--  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
 getTokenConfiguration ::
-    (MonadBlobStore m) =>
+    (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->
-    ProtocolLevelTokens ->
+    ProtocolLevelTokensForPV pv ->
     m PLTConfiguration
-getTokenConfiguration index plts = do
-    plt <- lookupPLT index plts
+getTokenConfiguration index pvPLTs = do
+    plt <- lookupPLT index pvPLTs
     refLoad (_pltConfiguration plt)
 
 -- | Get the circulating supply of a token for a given 'TokenIndex'.
 --
---  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokens'.
+--  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
 getTokenCirculatingSupply ::
-    (MonadBlobStore m) =>
+    (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->
-    ProtocolLevelTokens ->
+    ProtocolLevelTokensForPV pv ->
     m TokenRawAmount
-getTokenCirculatingSupply index plts = do
-    plt <- lookupPLT index plts
+getTokenCirculatingSupply index pvPLTs = do
+    plt <- lookupPLT index pvPLTs
     return $ _pltCirculatingSupply plt
 
 -- | Set the circulating supply of a token for a given 'TokenIndex'.
---  Returns the updated 'ProtocolLevelTokens'.
+--  Returns the updated 'ProtocolLevelTokensForPV'.
 --
--- PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokens'.
+-- PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
 setTokenCirculatingSupply ::
-    (MonadBlobStore m) =>
+    (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->
     TokenRawAmount ->
-    ProtocolLevelTokens ->
-    m ProtocolLevelTokens
-setTokenCirculatingSupply index newSupply plts = do
+    ProtocolLevelTokensForPV pv ->
+    m (ProtocolLevelTokensForPV pv)
+setTokenCirculatingSupply index newSupply pvPLTs = do
+    plts <- loadPLTs pvPLTs
     LFMBTree.update upd index (_pltTable plts) >>= \case
         Nothing ->
             error $
                 "setTokenCirculatingSupply: TokenIndex ("
                     ++ show index
                     ++ ") not found in ProtocolLevelTokens"
-        Just (_, newTable) -> return plts{_pltTable = newTable}
+        Just (_, newTable) -> storePLTs plts{_pltTable = newTable}
   where
     upd plt = return ((), plt{_pltCirculatingSupply = newSupply})
 
 -- | Create a new token with the given configuration. The initial state will be empty and the
---  initial supply will be 0. Returns the token index and the updated 'ProtocolLevelTokens'.
+--  initial supply will be 0. Returns the token index and the updated 'ProtocolLevelTokensForPV'.
 --
 --  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already exist in the
---  'ProtocolLevelTokens'.
+--  'ProtocolLevelTokensForPV'.
 createToken ::
-    (MonadBlobStore m) =>
+    (PVSupportsPLT pv, MonadBlobStore m) =>
     PLTConfiguration ->
-    ProtocolLevelTokens ->
-    m (TokenIndex, ProtocolLevelTokens)
-createToken config plts = do
+    ProtocolLevelTokensForPV pv ->
+    m (TokenIndex, ProtocolLevelTokensForPV pv)
+createToken config pvPLTs = do
+    plts <- loadPLTs pvPLTs
     newConfigRef <- refMake config
     let plt =
             PLT
@@ -323,4 +415,44 @@ createToken config plts = do
                 }
     (tokIndex, newTable) <- LFMBTree.append plt (_pltTable plts)
     let newMap = Map.insert (_pltTokenId config) tokIndex (_pltMap plts)
-    return (tokIndex, ProtocolLevelTokens{_pltTable = newTable, _pltMap = newMap})
+    pvPLTs' <- storePLTs ProtocolLevelTokens{_pltTable = newTable, _pltMap = newMap}
+    return (tokIndex, pvPLTs')
+
+-- | Migrate 'ProtocolLevelTokens' unchanged.
+migrateProtocolLevelTokens ::
+    forall t m.
+    (SupportMigration m t) =>
+    ProtocolLevelTokens ->
+    t m ProtocolLevelTokens
+migrateProtocolLevelTokens ProtocolLevelTokens{..} = do
+    newTable <- LFMBTree.migrateLFMBTree (migrateHashedBufferedRef migratePLT) _pltTable
+    return ProtocolLevelTokens{_pltTable = newTable, _pltMap = _pltMap}
+  where
+    migratePLT PLT{..} = do
+        newConfig <- migrateHashedBufferedRefKeepHash _pltConfiguration
+        return PLT{_pltConfiguration = newConfig, ..}
+
+-- | Migrate 'ProtocolLevelTokensForPV'. Where the old protocol version did not support PLTs, and
+--  the new protocol version does, this initializes the empty 'ProtocolLevelTokens'. Otherwise,
+--  the PLTs are unchanged in the migration.
+migrateProtocolLevelTokensForPV ::
+    forall t m.
+    ( SupportMigration m t,
+      MonadProtocolVersion (t m)
+    ) =>
+    StateMigrationParameters (MPV m) (MPV (t m)) ->
+    ProtocolLevelTokensForPV (MPV m) ->
+    t m (ProtocolLevelTokensForPV (MPV (t m)))
+migrateProtocolLevelTokensForPV _ (ProtocolLevelTokensForPV CFalse) = do
+    -- When migrating from a version where there are no protocol-level tokens, we use the
+    -- empty protocol level tokens (if the new state supports LTS).
+    emptyProtocolLevelTokensForPV
+migrateProtocolLevelTokensForPV migration oldPLTsPV@(ProtocolLevelTokensForPV (CTrue _)) =
+    case sSupportsPLT (accountVersion @(AccountVersionFor (MPV (t m)))) of
+        STrue -> do
+            oldPLTs <- lift $ loadPLTs oldPLTsPV
+            newPLTs <- migrateProtocolLevelTokens oldPLTs
+            storePLTs newPLTs
+        SFalse ->
+            -- There are no migrations that remove PLTs altogether.
+            case migration of {}

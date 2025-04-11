@@ -91,6 +91,14 @@ import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.CooldownQueue (Cooldowns)
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
+    PLTConfiguration,
+    ProtocolLevelTokensHash (..),
+    TokenIndex,
+    TokenRawAmount,
+    TokenStateKey,
+    TokenStateValue,
+ )
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
@@ -126,7 +134,10 @@ data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs
       bshAccounts :: AccountsHash pv,
       bshInstances :: InstancesHash pv,
       bshUpdates :: H.Hash,
-      bshBlockRewardDetails :: BlockRewardDetailsHash pv
+      bshBlockRewardDetails :: BlockRewardDetailsHash pv,
+      -- | The protocol level tokens hash is present from protocol version 9.
+      bshProtocolLevelTokens ::
+        Conditionally (SupportsPLT (AccountVersionFor pv)) ProtocolLevelTokensHash
     }
     deriving (Show)
 
@@ -145,10 +156,12 @@ makeBlockStateHash BlockStateHashInputs{..} =
                     (H.hashOfHashes (theAccountsHash bshAccounts) (theInstancesHash bshInstances))
                 )
             )
-            ( H.hashOfHashes
-                bshUpdates
-                (brdHash bshBlockRewardDetails)
-            )
+            hash2
+  where
+    updatesAndBRDHash = H.hashOfHashes bshUpdates (brdHash bshBlockRewardDetails)
+    hash2 = case bshProtocolLevelTokens of
+        CFalse -> updatesAndBRDHash
+        CTrue pltHash -> H.hashOfHashes updatesAndBRDHash (theProtocolLevelTokensHash pltHash)
 
 -- | Constraint that a protocol version supports transaction outcomes.
 type SupportsTransactionOutcomes (pv :: ProtocolVersion) = (IsTransactionOutcomesVersion (TransactionOutcomesVersionFor pv))
@@ -468,10 +481,47 @@ instance (MonadBlobStore m, MonadProtocolVersion m) => BlobStorable m Transactio
 -- Generic instance based on the HashableTo instance
 instance (Monad m) => MHashableTo m H.Hash TransactionSummaryV1
 
+-- | Protocol-level token state query interface.
+--  Note, to avoid having duplicative @getX@ and @bsoGetX@ operations, this class is parametrised
+--  by the block state type, which can either be @BlockState m@ (for @getX@) or
+--  @UpdateableBlockState m@ (for @bsoGetX@).
+class (MonadProtocolVersion m, Monad m) => PLTQuery bs m where
+    -- | Get the 'TokenId's of all protocol-level tokens registered on the chain.
+    --  If the protocol version does not support protocol-level tokens, this will return the empty
+    --  list.
+    getPLTList :: bs -> m [TokenId]
+
+    -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
+    getTokenIndex :: (PVSupportsPLT (MPV m)) => bs -> TokenId -> m (Maybe TokenIndex)
+
+    -- | Get the state of a token for a given 'TokenStateKey'. Returns @Nothing@ if the token
+    --  does not have a state for the given key.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getTokenState ::
+        (PVSupportsPLT (MPV m)) =>
+        bs ->
+        TokenIndex ->
+        TokenStateKey ->
+        m (Maybe TokenStateValue)
+
+    -- | Get the configuration of a protocol-level token.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getTokenConfiguration :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m PLTConfiguration
+
+    -- | Get the circulating supply of a protocol-level token.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getTokenCirculatingSupply :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m TokenRawAmount
+
 -- | The block query methods can query block state. They are needed by
 --  consensus itself to compute stake, get a list of and information about
 --  bakers, finalization committee, etc.
-class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockStateQuery m where
+class
+    (ContractStateOperations m, AccountOperations m, ModuleQuery m, PLTQuery (BlockState m) m) =>
+    BlockStateQuery m
+    where
     -- | Get the module source from the module table as deployed to the chain.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
 
@@ -764,7 +814,7 @@ type ActiveBakerInfo m = ActiveBakerInfo' (BakerInfoRef m)
 -- | Block state update operations parametrized by a monad. The operations which
 --  mutate the state all also return an 'UpdatableBlockState' handle. This is to
 --  support different implementations, from pure ones to stateful ones.
-class (BlockStateQuery m) => BlockStateOperations m where
+class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOperations m where
     -- | Get the module from the module table of the state instance.
     bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface (InstrumentedModuleRef m)))
 
@@ -1556,6 +1606,55 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --  addresses.
     bsoSuspendValidators :: (PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [AccountIndex] -> m ([(AccountIndex, AccountAddress)], UpdatableBlockState m)
 
+    -- | Set the token-level state of a token for a given 'TokenStateKey'. If the value is
+    --  @Nothing@, the key is removed from the token state. Otherwise the key is mapped to the
+    --  specified value.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoSetTokenState ::
+        (PVSupportsPLT (MPV m)) =>
+        -- | The current block state.
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The key to set or remove.
+        TokenStateKey ->
+        -- | The value to set.
+        Maybe TokenStateValue ->
+        -- | The updated block state.
+        m (UpdatableBlockState m)
+
+    -- | Set the recorded total circulating supply for a protocol-level token.
+    --  This should always be kept up-to-date with the total balance held in accounts
+    --  (and smart contracts).
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoSetTokenCirculatingSupply ::
+        (PVSupportsPLT (MPV m)) =>
+        -- | The current block state.
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The new total circulating supply for the token.
+        TokenRawAmount ->
+        -- | The updated block state.
+        m (UpdatableBlockState m)
+
+    -- | Create a new token with the given configuration. The initial state will be empty
+    --  and the initial supply will be 0. Returns the token index and the updated state.
+    --
+    --  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already be in use
+    --  by a protocol-level token, i.e. @getTokenIndex s (_pltTokenId cfg)@ should return
+    --  @Nothing@.
+    bsoCreateToken ::
+        (PVSupportsPLT (MPV m)) =>
+        -- | The current block state @s@.
+        UpdatableBlockState m ->
+        -- | The configuration for the token @cfg@.
+        PLTConfiguration ->
+        -- | The index of the new token and the updated block state.
+        m (TokenIndex, UpdatableBlockState m)
+
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -1687,6 +1786,13 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
 instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m) where
     getModuleArtifact = lift . getModuleArtifact
     {-# INLINE getModuleArtifact #-}
+
+instance (Monad (t m), MonadTrans t, PLTQuery bs m) => PLTQuery bs (MGSTrans t m) where
+    getPLTList = lift . getPLTList
+    getTokenIndex bs = lift . getTokenIndex bs
+    getTokenState bs ti = lift . getTokenState bs ti
+    getTokenConfiguration bs = lift . getTokenConfiguration bs
+    getTokenCirculatingSupply bs = lift . getTokenCirculatingSupply bs
 
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
     getModule s = lift . getModule s
@@ -1907,6 +2013,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
     bsoPrimeForSuspension s = lift . bsoPrimeForSuspension s
     bsoSuspendValidators s = lift . bsoSuspendValidators s
+    bsoSetTokenState s tokIx key = lift . bsoSetTokenState s tokIx key
+    bsoSetTokenCirculatingSupply s tokIx = lift . bsoSetTokenCirculatingSupply s tokIx
+    bsoCreateToken s = lift . bsoCreateToken s
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -1965,6 +2074,9 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoIsProtocolUpdateEffective #-}
     {-# INLINE bsoUpdateMissedRounds #-}
     {-# INLINE bsoPrimeForSuspension #-}
+    {-# INLINE bsoSetTokenState #-}
+    {-# INLINE bsoSetTokenCirculatingSupply #-}
+    {-# INLINE bsoCreateToken #-}
     {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
@@ -2000,6 +2112,7 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE cacheBlockStateAndGetTransactionTable #-}
     {-# INLINE tryPopulateGlobalMaps #-}
 
+deriving via (MGSTrans MaybeT m) instance (PLTQuery bs m) => PLTQuery bs (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateQuery m) => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (ContractStateOperations m) => ContractStateOperations (MaybeT m)
@@ -2007,6 +2120,7 @@ deriving via (MGSTrans MaybeT m) instance (ModuleQuery m) => ModuleQuery (MaybeT
 deriving via (MGSTrans MaybeT m) instance (BlockStateOperations m) => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateStorage m) => BlockStateStorage (MaybeT m)
 
+deriving via (MGSTrans (ExceptT e) m) instance (PLTQuery bs m) => PLTQuery bs (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (BlockStateQuery m) => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (AccountOperations m) => AccountOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (ContractStateOperations m) => ContractStateOperations (ExceptT e m)

@@ -141,7 +141,7 @@ data PrologueResult m av = PrologueResult
 --  @triggerTime + cooldownDuration@.
 paydayHandleCooldowns ::
     forall m.
-    (BlockStateOperations m, MonadProtocolVersion m, IsConsensusV1 (MPV m)) =>
+    (BlockStateOperations m, IsConsensusV1 (MPV m)) =>
     -- | The trigger time of the previous epoch.
     Timestamp ->
     -- | The current cooldown parameters.
@@ -197,7 +197,7 @@ data EpochTransitionResult m = EpochTransitionResult
 --  cooldowns are processed differently.)
 doEpochTransition ::
     forall m pv.
-    (pv ~ MPV m, BlockStateOperations m, MonadProtocolVersion m, IsConsensusV1 (MPV m)) =>
+    (pv ~ MPV m, BlockStateOperations m, IsConsensusV1 (MPV m)) =>
     -- | Whether the block is the first in a new epoch
     Bool ->
     -- | The epoch duration
@@ -313,7 +313,6 @@ executeBlockPrologue ::
     ( pv ~ MPV m,
       BlockStateStorage m,
       BlockState m ~ PBS.HashedPersistentBlockState pv,
-      MonadProtocolVersion m,
       IsConsensusV1 pv
     ) =>
     BlockExecutionData pv ->
@@ -547,8 +546,7 @@ constructBlockTransactions ::
     ( BlockStateStorage m,
       IsConsensusV1 (MPV m),
       TimeMonad m,
-      MonadLogger m,
-      MonadProtocolVersion m
+      MonadLogger m
     ) =>
     RuntimeParameters ->
     -- | Time at start of block construction.
@@ -602,7 +600,7 @@ constructBlockTransactions runtimeParams startTime transTable pendingTable block
 --  indicates that the block energy limit was succeeded, and otherwise a result of @Left (Just fk)@
 --  indicates the failure kind of the first failed transaction.
 executeBlockTransactions ::
-    (BlockStateStorage m, IsConsensusV1 (MPV m), MonadLogger m, MonadProtocolVersion m) =>
+    (BlockStateStorage m, IsConsensusV1 (MPV m), MonadLogger m) =>
     Timestamp ->
     [(BlockItem, TVer.VerificationResult)] ->
     UpdatableBlockState m ->
@@ -672,8 +670,7 @@ executeBlockState ::
       BlockStateStorage m,
       BlockState m ~ PBS.HashedPersistentBlockState pv,
       IsConsensusV1 pv,
-      MonadLogger m,
-      MonadProtocolVersion m
+      MonadLogger m
     ) =>
     BlockExecutionData pv ->
     [(BlockItem, TVer.VerificationResult)] ->
@@ -723,8 +720,7 @@ constructBlockState ::
       BlockState m ~ PBS.HashedPersistentBlockState pv,
       IsConsensusV1 pv,
       TimeMonad m,
-      MonadLogger m,
-      MonadProtocolVersion m
+      MonadLogger m
     ) =>
     RuntimeParameters ->
     TransactionTable ->

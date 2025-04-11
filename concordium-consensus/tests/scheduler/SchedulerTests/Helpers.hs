@@ -101,6 +101,8 @@ newtype PersistentBSM pv a = PersistentBSM
         )
 
 deriving instance (Types.IsProtocolVersion pv) => BS.AccountOperations (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.PersistentBlockState pv) (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.HashedPersistentBlockState pv) (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateOperations (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateQuery (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => Types.MonadProtocolVersion (PersistentBSM pv)
