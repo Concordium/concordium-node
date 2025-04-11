@@ -73,7 +73,7 @@ jobs:
         run: |
           CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
           if [ -z "${{ env.SERVICE }}" ]; then
-            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "8.1.0-2-rc"
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "8.1.0-2-alpha"
             if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
               echo "::error::${CARGO_VERSION} does not match ${VERSION}."
               exit 1
@@ -439,7 +439,7 @@ jobs:
 
        - name: Extrapolate artifact name
          run: |
-           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].name')
+           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["node-${{ matrix.node.env }}-linux"].name')
            echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
        - name: Load image
@@ -634,29 +634,25 @@ jobs:
           role-session-name: ValidatePreconditionsSession
           aws-region: "eu-west-1"
 
-      - name: Test content
+      - name: Upload artifact
         run: |
-          ls /tmp
+          aws s3api put-object --bucket=${{ env.S3_BUCKET }} --key=${{ env.S3_DIR }}/${{ env.S3_FILENAME }} --body=/tmp/${{ env.S3_FILENAME }} --if-none-match='*'
 
-#      - name: Upload artifact
-#        run: |
-#          aws s3api put-object --bucket=${{ env.S3_BUCKET }} --key=${{ env.S3_DIR }}/${{ env.S3_FILENAME }} --body=/tmp/${{ env.S3_FILENAME }} --if-none-match='*'
-
-#      - uses: actions/create-github-app-token@v1
-#        id: app-token
-#        with:
-#          app-id: ${{ vars.APP_ID }}
-#          private-key: ${{ secrets.APP_PRIVATE_KEY }}
-#          owner: ${{ github.repository_owner }}
-#          repositories: |
-#            concordium-infra-images
-#      - name: Invoke immutable node release flow
-#        run: |
-#          curl -X POST --fail \
-#            -H "Authorization: Bearer ${{ steps.app-token.outputs.token }}" \
-#            -H "Accept: application/vnd.github.v3+json" \
-#            https://api.github.com/repos/Concordium/concordium-infra-images/actions/workflows/release-node-images.yaml/dispatches \
-#            -d '{"ref":"main", "inputs":{"node_version": "${{ needs.validate-preconditions.outputs.version }}", "release_type": "${{ needs.validate-preconditions.outputs.release_type }}"}}'
+      - uses: actions/create-github-app-token@v1
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: |
+            concordium-infra-images
+      - name: Invoke immutable node release flow
+        run: |
+          curl -X POST --fail \
+            -H "Authorization: Bearer ${{ steps.app-token.outputs.token }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            https://api.github.com/repos/Concordium/concordium-infra-images/actions/workflows/release-node-images.yaml/dispatches \
+            -d '{"ref":"main", "inputs":{"node_version": "${{ needs.validate-preconditions.outputs.version }}", "release_type": "${{ needs.validate-preconditions.outputs.release_type }}"}}'
 
   docker_publish:
     runs-on: ubuntu-latest
@@ -672,6 +668,9 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: /tmp
 
+      - name: Set tag
+        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["${{ matrix.artifact_name }}"]')" >> $GITHUB_ENV
+
       - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
@@ -683,4 +682,4 @@ jobs:
         run: docker load --input /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
 
       - name: Push image
-        run: docker images
+        run: docker push ${{ env.TAG }}
