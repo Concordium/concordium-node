@@ -157,7 +157,8 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
             StateMigrationParametersP6ToP7{} -> _bakerFinalizationCommitteeParameters
             StateMigrationParametersP7ToP8{} ->
                 SomeParam $ unOParam _bakerFinalizationCommitteeParameters
-            StateMigrationParametersP8ToP9{} -> _bakerFinalizationCommitteeParameters
+            StateMigrationParametersP8ToP9{} ->
+                SomeParam $ unOParam _bakerFinalizationCommitteeParameters
     return
         PersistentEpochBakers
             { _bakerInfos = newBakerInfos,
