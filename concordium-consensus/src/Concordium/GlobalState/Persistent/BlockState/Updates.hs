@@ -848,16 +848,15 @@ instance
         (pCPU, cPU) <- storeUpdate currentProtocolUpdate
         (pCP, cP) <- storeUpdate currentParameters
         (pPU, pU) <- storeUpdate pendingUpdates
-        (pPLTUpdateSequenceNumber, updatedPLTSequenceNumber) <- storeUpdate (StoreSerialized pltUpdateSequenceNumber)
         let newUpdates =
                 Updates
                     { currentKeyCollection = kC,
                       currentProtocolUpdate = cPU,
                       currentParameters = cP,
                       pendingUpdates = pU,
-                      pltUpdateSequenceNumber = unStoreSerialized updatedPLTSequenceNumber
+                      pltUpdateSequenceNumber = pltUpdateSequenceNumber
                     }
-        return (pKC >> pCPU >> pCP >> pPU >> pPLTUpdateSequenceNumber, newUpdates)
+        return (pKC >> pCPU >> pCP >> pPU >> put pltUpdateSequenceNumber, newUpdates)
     load = do
         mKC <-
             withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $
@@ -865,13 +864,12 @@ instance
         mCPU <- label "Current protocol update" load
         mCP <- label "Current parameters" load
         mPU <- label "Pending updates" load
-        mPLTSequenceNumber <- label "PLT sequence number" load
+        pltUpdateSequenceNumber <- label "PLT sequence number" get
         return $! do
             currentKeyCollection <- mKC
             currentProtocolUpdate <- mCPU
             currentParameters <- mCP
             pendingUpdates <- mPU
-            pltUpdateSequenceNumber <- unStoreSerialized <$> mPLTSequenceNumber
             return Updates{..}
 
 instance (MonadBlobStore m, IsChainParametersVersion cpv) => Cacheable m (Updates' cpv) where
