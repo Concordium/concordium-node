@@ -16,7 +16,7 @@ on:
 
   push:
     branches:
-      - 'SRE-1067/concordium-client-release-flow'
+      - 'SRE-1054/fix-node-build-prevent-multiple-approvals'
     tags:
      - '*.*.*-*-rc'
      - '*.*.*-*-alpha'
