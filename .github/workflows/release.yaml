@@ -611,7 +611,7 @@ jobs:
           name: ${{ matrix.artifact_name }}
           path: /tmp
 
-      - name: Extrapolate artifact name and bucket
+      - name: Extrapolate artifact information
         run: |
           read S3_DIR S3_FILENAME S3_BUCKET < <(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ matrix.artifact_name }}"] | "\(.dir)\t\(.name)\t\(.bucket)"')
           echo "S3_FILENAME=${S3_FILENAME}" >> $GITHUB_ENV
