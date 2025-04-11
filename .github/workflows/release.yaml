@@ -682,4 +682,9 @@ jobs:
         run: docker load --input /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
 
       - name: Push image
-        run: docker push ${{ env.TAG }}
+        run: |
+          if docker manifest inspect "${{ env.TAG }}" > /dev/null 2>&1; then
+            echo "Error: Image ${{ env.TAG }} already exists in the registry." >&2
+            exit 1
+          fi
+          docker push ${{ env.TAG }}
