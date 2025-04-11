@@ -161,7 +161,7 @@ getTokenListV2 ::
     Ptr Word8 ->
     FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
     IO Int64
-getTokenListV2 = blockStreamHelper Q.getAccountList
+getTokenListV2 = blockStreamHelper Q.getTokenList
 
 getModuleListV2 ::
     StablePtr Ext.ConsensusRunner ->
