@@ -129,7 +129,6 @@ jobs:
         with:
           name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
           path: /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
-          retention-days: 14
 
   database-exporter:
     needs: [validate-preconditions]
@@ -176,7 +175,6 @@ jobs:
         with:
           name: ${{ github.job }}
           path: ./${{ env.ARTIFACT_NAME }}
-          retention-days: 3
 
   p2p-bootstrapper:
     runs-on: ubuntu-latest
@@ -229,7 +227,6 @@ jobs:
         with:
           name: ${{ github.job }}
           path: ${{ env.ARTIFACT_NAME }}
-          retention-days: 3
 
   node-windows:
     runs-on: windows-latest
@@ -311,7 +308,6 @@ jobs:
         with:
           name: ${{ github.job }}
           path: ${{ env.ARTIFACT_NAME }}
-          retention-days: 3
 
   node-macos:
     runs-on: macos-latest-large
@@ -365,7 +361,6 @@ jobs:
         with:
           name: ${{ github.job }}
           path: ${{ env.ARTIFACT_NAME }}
-          retention-days: 3
 
   generate-node-matrix:
     runs-on: ubuntu-latest
@@ -505,7 +500,6 @@ jobs:
          with:
            name: node-${{ matrix.node.env }}-linux
            path: ${{ env.ARTIFACT_NAME }}
-           retention-days: 3
 
   generate-release-matrixes:
     runs-on: ubuntu-latest
@@ -602,7 +596,6 @@ jobs:
         with:
           name: docker-${{ matrix.node.env }}
           path: /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
-          retention-days: 3
 
   s3_publish:
     runs-on: ubuntu-latest
