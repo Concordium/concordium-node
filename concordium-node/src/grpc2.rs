@@ -1489,7 +1489,7 @@ pub mod server {
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
         ) -> Result<tonic::Response<Self::GetTokenListStream>, tonic::Status> {
-            if !self.service_config.get_account_list {
+            if !self.service_config.get_token_list {
                 return Err(tonic::Status::unimplemented("`GetTokenList` is not enabled."));
             }
             let (sender, receiver) = futures::channel::mpsc::channel(100);
