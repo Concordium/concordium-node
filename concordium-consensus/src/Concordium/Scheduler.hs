@@ -2664,7 +2664,7 @@ handleChainUpdate ::
     (SchedulerMonad m) =>
     TVer.ChainUpdateWithStatus ->
     m TxResult
-handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes) = do
+handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVerificationResult) = do
     cm <- getChainMetadata
     -- check that payload si
     if not (validatePayloadSize (protocolVersion @(MPV m)) (updatePayloadSize uiHeader))
@@ -2750,12 +2750,15 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                 ValidatorScoreParametersUpdatePayload u -> case sIsSupported SPTValidatorScoreParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVValidatorScoreParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                CreatePLTUpdatePayload payload -> case sIsSupported SPTProtocolLevelTokensParameters scpv of
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    STrue -> handleCreatePLT uiHeader payload
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
     checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
-        case mVerRes of
+        case maybeVerificationResult of
             Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do
                 currentKeys <- getUpdateKeyCollection
                 -- If the keys have not changed then the signature remains valid.
@@ -2778,6 +2781,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                     Right _ -> enqueue change
     enqueue change = do
         enqueueUpdate (updateEffectiveTime uiHeader) change
+        buildValidTxSummary
+    -- Construct the transaction summary and signal the transaction is valid.
+    buildValidTxSummary = do
         tsIndex <- bumpTransactionIndex
         return $
             TxValid
@@ -2790,6 +2796,41 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                       tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
                       ..
                     }
+
+-- | Handler for processing chain update creating a new protocol level token.
+--
+-- Unlike the other chain updates there is no support for queuing the update and the effective time
+-- is required to be zero.
+handleCreatePLT :: (SchedulerMonad m) => UpdateHeader -> CreatePLT -> m TxResult
+handleCreatePLT updateHeader payload =
+    if updateEffectiveTime updateHeader /= 0
+        then return $ TxInvalid InvalidUpdateTime
+        else do
+            -- TODO Check signature when relevant update keys are introduced (Issue https://linear.app/concordium/issue/NOD-701).
+            -- TODO Verify the TokenId not already exists.
+            -- verify the governance account exists.
+            let governanceAccountAddress = payload ^. cpltGovernanceAccount
+            maybeGovernanceAccount <- getStateAccount governanceAccountAddress
+            case maybeGovernanceAccount of
+                Nothing ->
+                    return $
+                        TxInvalid $
+                            NonExistentAccount governanceAccountAddress
+                Just _governanceAccountState -> do
+                    -- -- verify the token module exists and fetch the artifact and interface of the module.
+                    -- maybeTokenInterface <- getTokenModuleInterface (payload ^. cpltTokenModule)
+                    -- case maybeTokenInterface of
+                    --     Nothing ->
+                    --         return $
+                    --             TxInvalid $
+                    --                 NonExistentAccount governanceAccountAddress
+                    --     Just tokenModuleInterface -> do
+                    --         -- Create new PLT in token state with initial state.
+                    --         tokenState <- createToken tokenModuleInterface governanceAccountState
+                    --         -- Invoke the initialization call of token module with init state and the initialization parameter and collect the events for the summary.
+                    --         invokeInitializeToken tokenState
+                    --         buildValidTxSummary
+                    error "Not implemented yet"
 
 handleUpdateCredentials ::
     (SchedulerMonad m) =>

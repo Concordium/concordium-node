@@ -71,10 +71,6 @@ instance (MonadBlobStore m) => BlobStorable m TokenRawAmount
 newtype TokenIndex = TokenIndex {theTokenIndex :: Word64}
     deriving newtype (Eq, Ord, Serialize, Show, Num, Real, Enum, Integral, Bounded, Bits)
 
--- | A hash that identifies the specific implementation to use for a token.
-newtype TokenModuleRef = TokenModuleRef {theTokenModuleRef :: SHA256.Hash}
-    deriving newtype (Eq, Ord, Serialize, Show)
-
 -- | The configuration of a protocol-level token that is generally not expected to change.
 data PLTConfiguration = PLTConfiguration
     { -- | The token ID.
