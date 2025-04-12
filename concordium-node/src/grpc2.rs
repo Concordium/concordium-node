@@ -1400,11 +1400,10 @@ pub mod server {
         /// Return type for the 'GetScheduledReleaseAccounts' method.
         type GetScheduledReleaseAccountsStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetTokenList' method.
+        type GetTokenListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetWinningBakersEpoch' method.
         type GetWinningBakersEpochStream =
-            futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
-        /// Return type for the 'GetTokenList' method.
-        type GetTokenListStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
 
         async fn get_blocks(
