@@ -231,7 +231,7 @@ jobs:
   node-windows:
     runs-on: windows-latest
     needs: [validate-preconditions]
-    if: contains(fromJSON('["alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
+    if: contains(fromJSON('["rc", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
     defaults:
       run:
         shell: pwsh
@@ -312,7 +312,7 @@ jobs:
   node-macos:
     runs-on: macos-latest-large
     needs: [validate-preconditions]
-    if: contains(fromJSON('["alpha", "node-macos"]'), needs.validate-preconditions.outputs.release_type)
+    if: contains(fromJSON('["rc", "node-macos"]'), needs.validate-preconditions.outputs.release_type)
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
