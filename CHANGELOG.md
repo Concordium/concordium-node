@@ -9,6 +9,7 @@
 - Use a persistent LMDB-backed store to track the finalized module map.
 - Fix a bug that affects setting up the account map correctly for non-finalized certified blocks
   that contain account creations (#1329).
+- Add `GetTokenList` query for getting a list of all protocol level tokens.
 
 ## 8.0.3
 
