@@ -383,6 +383,27 @@ data AccountHashInputsV2 (av :: AccountVersion) = AccountHashInputsV2
       ahi2MerkleHash :: !(AccountMerkleHash av)
     }
 
+-- | The data used to compute an 'AccountHash' from 'AccountV3' onwards.
+--  While this is common between account versions, the 'AccountMerkleHash' is
+--  version-specific, as is the mode of computing the account hash. Version 3
+--  adds the token state table hash as a new input.
+data AccountHashInputsV3 (av :: AccountVersion) = AccountHashInputsV3
+    { -- | The next nonce for the account.
+      ahi3NextNonce :: !Nonce,
+      -- | The account balance.
+      ahi3AccountBalance :: !Amount,
+      -- | The actively staked balance.
+      ahi3StakedBalance :: !Amount,
+      -- | Hash derived from the seldom-updated parts of the account.
+      ahi3MerkleHash :: !(AccountMerkleHash av),
+      -- | Hash derived from the token state table of the account.
+      ahi3TokenStateTableHash :: !TokenStateTableHash
+    }
+
+-- | The hash of the token state table of an account.
+newtype TokenStateTableHash = TokenStateTableHash {theTokenStateTableHash :: Hash.Hash}
+    deriving (Eq, Ord, Show, Serialize)
+
 -- | Generate the hash for an account (for 'AccountV2'), given the
 --  'AccountHashInputsV2'. 'makeAccountHash' should be used in preference to this function.
 makeAccountHashV2 :: AccountHashInputsV2 av -> Hash.Hash
@@ -415,13 +436,14 @@ makeAccountHashV4 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
 
 -- | Generate the hash for an account (for 'AccountV5'), given the
 --  'AccountHashInputsV2'. 'makeAccountHash' should be used in preference to this function.
-makeAccountHashV5 :: AccountHashInputsV2 av -> Hash.Hash
-makeAccountHashV5 AccountHashInputsV2{..} = Hash.hashLazy $ runPutLazy $ do
+makeAccountHashV5 :: AccountHashInputsV3 av -> Hash.Hash
+makeAccountHashV5 AccountHashInputsV3{..} = Hash.hashLazy $ runPutLazy $ do
     putShortByteString "AC05"
-    put ahi2NextNonce
-    put ahi2AccountBalance
-    put ahi2StakedBalance
-    put ahi2MerkleHash
+    put ahi3NextNonce
+    put ahi3AccountBalance
+    put ahi3StakedBalance
+    put ahi3MerkleHash
+    put ahi3TokenStateTableHash
 
 -- | Inputs for computing the 'AccountHash' for an account.
 data AccountHashInputs (av :: AccountVersion) where
@@ -430,7 +452,7 @@ data AccountHashInputs (av :: AccountVersion) where
     AHIV2 :: AccountHashInputsV2 'AccountV2 -> AccountHashInputs 'AccountV2
     AHIV3 :: AccountHashInputsV2 'AccountV3 -> AccountHashInputs 'AccountV3
     AHIV4 :: AccountHashInputsV2 'AccountV4 -> AccountHashInputs 'AccountV4
-    AHIV5 :: AccountHashInputsV2 'AccountV5 -> AccountHashInputs 'AccountV5
+    AHIV5 :: AccountHashInputsV3 'AccountV5 -> AccountHashInputs 'AccountV5
 
 -- | Generate the hash for an account, given the 'AccountHashInputs'.
 makeAccountHash :: AccountHashInputs av -> AccountHash av
