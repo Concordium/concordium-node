@@ -101,7 +101,6 @@ import Lens.Micro.Platform
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData (rrdCurrentState))
 import Concordium.Types.Accounts
-import Concordium.Types.Execution (RejectReason (..))
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
