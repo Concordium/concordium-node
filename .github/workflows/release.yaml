@@ -684,4 +684,3 @@ jobs:
             -H "Accept: application/vnd.github.v3+json" \
             https://api.github.com/repos/Concordium/concordium-infra-images/actions/workflows/release-node-images.yaml/dispatches \
             -d '{"ref":"main", "inputs":{"node_version": "${{ needs.validate-preconditions.outputs.version }}", "release_type": "${{ needs.validate-preconditions.outputs.release_type }}"}}'
-    
