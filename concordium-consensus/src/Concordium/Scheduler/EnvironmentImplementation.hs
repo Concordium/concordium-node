@@ -420,6 +420,16 @@ instance
         s' <- lift (BS.bsoEnqueueUpdate s tt p)
         ssBlockState .= s'
 
+    {-# INLINE getTokenIndex #-}
+    getTokenIndex tokenId = do
+        blockState <- use ssBlockState
+        lift (BS.getTokenIndex blockState tokenId)
+
+    {-# INLINE getTokenConfiguration #-}
+    getTokenConfiguration tokenIndex = do
+        blockState <- use ssBlockState
+        lift (BS.getTokenConfiguration blockState tokenIndex)
+
 -- | Execute the computation using the provided context and scheduler state.
 -- The return value is the value produced by the computation and the updated state of the scheduler.
 runSchedulerT ::

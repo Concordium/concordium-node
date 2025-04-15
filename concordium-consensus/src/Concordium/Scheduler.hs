@@ -75,6 +75,7 @@ import Concordium.GlobalState.BlockState (
     ModuleQuery (..),
     NewInstanceData (..),
  )
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Token
 import Concordium.GlobalState.Types
 
 import Concordium.Logger
@@ -100,6 +101,7 @@ import Lens.Micro.Platform
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData (rrdCurrentState))
 import Concordium.Types.Accounts
+import Concordium.Types.Execution (RejectReason (..))
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
 import Data.Proxy
@@ -378,6 +380,9 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                         ConfigureDelegation{..} ->
                             onlyWithDelegation $
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
+                        TokenHolder{..} ->
+                            onlyWithPLT $
+                                handleTokenHolder (mkWTC TTTokenHolder) thTokenSymbol thOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -400,6 +405,10 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
     onlyWithDelegation c = case delegationSupport @(AccountVersionFor (MPV m)) of
         SAVDelegationNotSupported -> error "Operation unsupported at this protocol version."
         SAVDelegationSupported -> c
+    onlyWithPLT :: ((PVSupportsPLT (MPV m)) => a) -> a
+    onlyWithPLT c = case sSupportsPLT (accountVersion @(AccountVersionFor (MPV m))) of
+        SFalse -> error "Operation unsupported at this protocol version."
+        STrue -> c
 
 handleTransferWithSchedule ::
     forall m.
@@ -2655,6 +2664,49 @@ handleUpdateCredentialKeys wtc cid keys sigs =
         chargeExecutionCost senderAccount energyCost
         updateCredentialKeys (fst senderAccount) index keys
         return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
+
+-- | Handler for a token holder transaction.
+handleTokenHolder ::
+    ( PVSupportsPLT (MPV m),
+      SchedulerMonad m
+    ) =>
+    WithDepositContext m ->
+    -- | Token symbol identifying the token to receive the operations.
+    TokenId ->
+    -- | Operations for the token.
+    TokenParameter ->
+    m (Maybe TransactionSummary)
+handleTokenHolder depositContext tokenId tokenOperations =
+    withDeposit depositContext computeTransaction commitTransaction
+  where
+    senderAccount = depositContext ^. wtcSenderAccount
+    -- Execute the transaction in a modified environment
+    computeTransaction = do
+        -- Charge the base cost for this transaction type
+        tickEnergy Cost.tokenHolderBaseCost
+        -- Fetch the token from state
+        tokenIndex <-
+            lift (getTokenIndex tokenId) >>= \case
+                Just tokenIndex -> return tokenIndex
+                Nothing -> rejectTransaction $ NonExistentTokenId tokenId
+        -- Fetch the token configuration to find the reference for the token module.
+        configuration <- lift $ getTokenConfiguration tokenIndex
+        let moduleRef = Token._pltModule configuration
+        -- TODO Tick energy for loading the module into memory based on the module size.
+        -- Invoke the token module with operations.
+        events <- invokeTokenHolderOperations moduleRef tokenIndex senderAccount tokenOperations
+        -- Map the produced events adding the token ID.
+        let tokenModuleEvents = uncurry (TokenEvent tokenId) <$> events
+        return tokenModuleEvents
+    -- Process the successful transaction computation.
+    commitTransaction computeState computeResult = do
+        (usedEnergy, energyCost) <- computeExecutionCharge (depositContext ^. wtcEnergyAmount) (computeState ^. energyLeft)
+        chargeExecutionCost senderAccount energyCost
+        let events = TokenModuleEvent <$> computeResult
+        return (TxSuccess events, energyCost, usedEnergy)
+    -- Call the module of the token with the operations and return the events emitted from the token module.
+    invokeTokenHolderOperations :: TokenModuleRef -> Token.TokenIndex -> IndexedAccount m -> TokenParameter -> m [(TokenEventType, TokenEventDetails)]
+    invokeTokenHolderOperations = error "Not implement yet. This should be implemented as part of https://linear.app/concordium/issue/NOD-677"
 
 -- * Chain updates
 
