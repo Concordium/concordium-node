@@ -1645,7 +1645,8 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     --
     --  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already be in use
     --  by a protocol-level token, i.e. @getTokenIndex s (_pltTokenId cfg)@ should return
-    --  @Nothing@.
+    --  @Nothing@. The 'PLTConfiguration' MUST be valid, and in particular the
+    --  '_pltGovernanceAccountIndex' MUST reference a valid account.
     bsoCreateToken ::
         (PVSupportsPLT (MPV m)) =>
         -- | The current block state @s@.
