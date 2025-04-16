@@ -810,6 +810,32 @@ extern "C" {
         ) -> i32,
     ) -> i64;
 
+    /// Get the list of tokens in a given block and, if the block exists,
+    /// enqueue them into the provided [Sender](futures::channel::mpsc::Sender).
+    ///
+    /// Individual protocol level tokens are enqueued using the provided
+    /// callback.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getTokenListV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
     /// Get an information about a specific block item.
     ///
     /// * `consensus` - Pointer to the current consensus.
@@ -2396,6 +2422,42 @@ impl ConsensusContainer {
         let sender_ptr = Box::into_raw(sender);
         let response: ConsensusQueryResponse = unsafe {
             getAccountListV2(
+                consensus,
+                sender_ptr,
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        if let Err(e) = response.ensure_ok("block") {
+            let _ = unsafe { Box::from_raw(sender_ptr) }; // deallocate sender since it is unused by Haskell.
+            Err(e)
+        } else {
+            Ok(buf)
+        }
+    }
+
+    /// Look up tokens in the given block, and return a stream of their
+    /// token ids.
+    ///
+    /// The return value is a block hash used for the query. If the requested
+    /// block does not exist a [tonic::Status::not_found] is returned.
+    pub fn get_token_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let sender_ptr = Box::into_raw(sender);
+        let response: ConsensusQueryResponse = unsafe {
+            getTokenListV2(
                 consensus,
                 sender_ptr,
                 block_id_type,

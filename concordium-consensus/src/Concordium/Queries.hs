@@ -1141,6 +1141,10 @@ getAncestors bhi count =
 getAccountList :: BlockHashInput -> MVR finconf (BHIQueryResponse [AccountAddress])
 getAccountList = liftSkovQueryStateBHI BS.getAccountList
 
+-- | Get a list of protocol level tokens that exist in the block state.
+getTokenList :: BlockHashInput -> MVR finconf (BHIQueryResponse [TokenId])
+getTokenList = liftSkovQueryStateBHI BS.getPLTList
+
 -- | Get a list of all smart contract instances in the block state.
 getInstanceList :: BlockHashInput -> MVR finconf (BHIQueryResponse [ContractAddress])
 getInstanceList = liftSkovQueryStateBHI BS.getContractInstanceList

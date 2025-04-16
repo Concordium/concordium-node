@@ -24,6 +24,7 @@ EXPORTS
 
  getAccountInfoV2
  getAccountListV2
+ getTokenListV2
  getModuleListV2
  getModuleSourceV2
  getInstanceListV2
