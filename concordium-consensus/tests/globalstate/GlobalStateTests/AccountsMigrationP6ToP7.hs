@@ -88,7 +88,7 @@ dummyAccountEncryptedAmount =
 --  The balance of the account is set to 1 billion CCD (10^15 uCCD).
 testAccount ::
     forall av.
-    (IsAccountVersion av) =>
+    (IsAccountVersion av, SupportsPLT av ~ 'False) =>
     PersistingAccountData ->
     AccountStake av ->
     Transient.Account av
@@ -100,7 +100,8 @@ testAccount persisting stake =
           _accountEncryptedAmount = dummyAccountEncryptedAmount,
           _accountReleaseSchedule = Transient.emptyAccountReleaseSchedule,
           _accountStaking = stake,
-          _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av)
+          _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av),
+          _accountTokenStateTable = CFalse
         }
 
 -- | Initial stake for a test account, set to 500 million CCD plus @2^accountIndex@ uCCD.
