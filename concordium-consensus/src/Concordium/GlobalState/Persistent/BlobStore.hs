@@ -157,7 +157,8 @@ import Concordium.GlobalState.Persistent.MonadicRecursive
 
 -- Imports for providing instances
 import Concordium.Common.Time
-import Concordium.GlobalState.Account
+
+-- import Concordium.GlobalState.Account
 import Concordium.GlobalState.CapitalDistribution
 import qualified Concordium.GlobalState.Parameters as Parameters
 import Concordium.GlobalState.PoolRewards
@@ -1572,7 +1573,8 @@ instance (MonadBlobStore m) => BlobStorable m Word32
 instance (MonadBlobStore m) => BlobStorable m Word64
 
 instance (MonadBlobStore m) => BlobStorable m AccountEncryptedAmount
-instance (MonadBlobStore m) => BlobStorable m PersistingAccountData
+
+-- instance (MonadBlobStore m) => BlobStorable m PersistingAccountData
 instance (MonadBlobStore m, IsAuthorizationsVersion auv) => BlobStorable m (Authorizations auv)
 instance (MonadBlobStore m, IsAccountVersion av, AVSupportsDelegation av) => BlobStorable m (AccountDelegation av)
 instance (MonadBlobStore m) => BlobStorable m (HigherLevelKeys a)
@@ -1911,7 +1913,8 @@ instance (Applicative m) => Cacheable m () where
 instance (Applicative m) => Cacheable m EncryptedAmount
 instance (Applicative m) => Cacheable m (Map AccountAddress Timestamp)
 instance (Applicative m) => Cacheable m WasmModule
-instance (Applicative m) => Cacheable m PersistingAccountData
+
+-- instance (Applicative m) => Cacheable m PersistingAccountData
 instance (IsAccountVersion av, Applicative m) => Cacheable m (BakerInfoEx av)
 instance (IsAccountVersion av, Applicative m) => Cacheable m (AccountDelegation av)
 
