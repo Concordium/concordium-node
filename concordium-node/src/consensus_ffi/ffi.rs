@@ -2456,7 +2456,7 @@ impl ConsensusContainer {
         let (block_id_type, block_hash) = bhi.to_ptr();
         let sender_ptr = Box::into_raw(sender);
         let response: ConsensusQueryResponse = unsafe {
-            getAccountListV2(
+            getTokenListV2(
                 consensus,
                 sender_ptr,
                 block_id_type,
