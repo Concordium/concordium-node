@@ -813,7 +813,8 @@ extern "C" {
     /// Get the list of tokens in a given block and, if the block exists,
     /// enqueue them into the provided [Sender](futures::channel::mpsc::Sender).
     ///
-    /// Individual protocol level tokens are enqueued using the provided callback.
+    /// Individual protocol level tokens are enqueued using the provided
+    /// callback.
     ///
     /// * `consensus` - Pointer to the current consensus.
     /// * `stream` - Pointer to the response stream.
