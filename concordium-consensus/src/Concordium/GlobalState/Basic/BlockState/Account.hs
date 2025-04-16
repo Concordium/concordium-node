@@ -16,7 +16,6 @@ module Concordium.GlobalState.Basic.BlockState.Account (
 
 import Data.Coerce
 import qualified Data.Map.Strict as Map
-import Data.Serialize
 import GHC.Stack (HasCallStack)
 import Lens.Micro.Platform
 
@@ -24,7 +23,6 @@ import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
 import Concordium.GlobalState.CooldownQueue
-import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types.HashableTo
@@ -41,24 +39,6 @@ type AccountPersisting = Hashed' PersistingAccountDataHash PersistingAccountData
 makeAccountPersisting :: PersistingAccountData -> AccountPersisting
 makeAccountPersisting = makeHashed
 {-# INLINE makeAccountPersisting #-}
-
--- | The account token table, with all references loaded. TODO (drsk) I'd like
--- to move this to Persistent/GlobalState/ProtocolLevelTokens.hs, but this
--- would result in cyclig imports.
-newtype InMemoryTokenStateTable = InMemoryTokenStateTable
-    { inMemoryTokenStateTable :: Map.Map TokenIndex TokenAccountState
-    }
-    deriving (Eq, Show)
-
-instance HashableTo TokenStateTableHash InMemoryTokenStateTable where
-    getHash (InMemoryTokenStateTable m) =
-        TokenStateTableHash $
-            Hash.hashLazy $
-                runPutLazy $
-                    put
-                        [ Hash.hashOfHashes (getHash tIx) (getHash tS)
-                          | (tIx, tS) <- Map.toAscList m
-                        ]
 
 -- | An (in-memory) account.
 data Account (av :: AccountVersion) = Account
