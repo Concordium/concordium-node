@@ -1445,7 +1445,33 @@ updateAccount !upd !acc0 = do
                 { accountAmount =
                     applyAmountDelta (additionalLocked + upd ^. auAmount . non 0) (accountAmount acc2)
                 }
-    return acc3
+    case upd ^. auTokenAccountStateTableDelta of
+        Nothing -> return acc3
+        Just deltas -> do
+            case accountTokenStateTable acc3 of
+                CFalse -> return acc3
+                CTrue ref -> do
+                    TokenAccountStateTable tst0 <- refLoad ref
+                    tst' <-
+                        foldM
+                            ( \tst (tIx, tasDelta) ->
+                                Map.alterF
+                                    ( \case
+                                        Nothing -> return Nothing
+                                        Just sRef -> do
+                                            s <- refLoad sRef
+                                            fmap Just $ refMake $ applyTokenAccountStateDelta tasDelta s
+                                    )
+                                    tIx
+                                    tst
+                            )
+                            tst0
+                            deltas
+                    newTst <- refMake $ TokenAccountStateTable{tokenAccountStateTable = tst'}
+                    return $
+                        acc3
+                            { accountTokenStateTable = CTrue newTst
+                            }
 
 -- | Helper function. Apply an update to the 'PersistentAccountEnduringData' on an account,
 --  recomputing the hash.

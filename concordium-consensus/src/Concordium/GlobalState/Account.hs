@@ -20,6 +20,7 @@ import qualified Data.Sequence as Seq
 import Data.Serialize
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
+import Data.Word
 
 import Concordium.Constants
 import Concordium.Crypto.EncryptedTransfers
@@ -134,6 +135,43 @@ instance HashableTo TokenStateTableHash InMemoryTokenStateTable where
                         [ Hash.hashOfHashes (getHash tIx) (getHash tS)
                           | (tIx, tS) <- Map.toAscList m
                         ]
+
+data TokenAccountStateDelta = TokenAccountStateDelta
+    { tasBalanceDelta :: !(Maybe TokenAmountDelta),
+      tasModuleStateDelta :: ![(TokenAccountStateKey, TokenAccountStateValueDelta)]
+    }
+    deriving (Eq, Show)
+
+newtype TokenAmountDelta = TokenAmountDelta {tokenAmountDelta :: Integer} deriving (Eq, Show)
+
+data TokenAccountStateValueDelta
+    = TASVDelete
+    | TASVCreate TokenAccountStateValue
+    | TASVUpdate TokenAccountStateValue
+    deriving (Eq, Show)
+
+applyTokenAccountStateDelta :: TokenAccountStateDelta -> TokenAccountState -> TokenAccountState
+applyTokenAccountStateDelta TokenAccountStateDelta{..} TokenAccountState{..} = tasFinal
+  where
+    tasFinal = TokenAccountState{tasBalance = newBalance, tasModuleState = newModuleState}
+    newBalance = case tasBalanceDelta of
+        Nothing -> tasBalance
+        Just (TokenAmountDelta d)
+            | fromIntegral (theTokenRawAmount tasBalance) + d > fromIntegral (maxBound :: Word64) -> error "TODO (drsk) implement error handling"
+            | fromIntegral (theTokenRawAmount tasBalance) + d < 0 -> error "TODO (drsk) implement error handling"
+            | otherwise -> tasBalance + fromIntegral d 
+    newModuleState =
+        foldl'
+            ( \m (k, d) -> case d of
+                TASVDelete -> Map.delete k m
+                TASVCreate v -> Map.alter (\case
+                    Nothing -> Just v
+                    Just _ -> error "TODO (drsk) implement error handling"
+                    ) k m
+                TASVUpdate v -> Map.insert k v m
+            )
+            tasModuleState
+            tasModuleStateDelta
 
 -- | The hash derived from an account's cooldown queue.
 newtype CooldownQueueHash (av :: AccountVersion) = CooldownQueueHash {theCooldownQueueHash :: Hash.Hash}
@@ -601,14 +639,16 @@ data AccountUpdate = AccountUpdate
       -- | Optionally update the locked stake on the account by adding scheduled releases.
       --  Each entry in the list MUST have a non-empty list of releases, and the releases must be
       --  in ascending order of timestamp.
-      _auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)])
+      _auReleaseSchedule :: !(Maybe [([(Timestamp, Amount)], TransactionHash)]),
+      -- | Optionally update the PLT state of an account.
+      _auTokenAccountStateTableDelta :: !(Maybe [(TokenIndex, TokenAccountStateDelta)])
     }
     deriving (Eq, Show)
 
 makeLenses ''AccountUpdate
 
 emptyAccountUpdate :: AccountIndex -> AccountUpdate
-emptyAccountUpdate ai = AccountUpdate ai Nothing Nothing Nothing Nothing
+emptyAccountUpdate ai = AccountUpdate ai Nothing Nothing Nothing Nothing Nothing
 
 updateAccountInformation :: AccountThreshold -> Map.Map CredentialIndex AccountCredential -> [CredentialIndex] -> AccountInformation -> AccountInformation
 updateAccountInformation threshold addCreds remove (AccountInformation oldCredKeys _) =

@@ -27,10 +27,11 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.EncryptedTransfers
-import Concordium.GlobalState.Account (AccountUpdate (..), EncryptedAmountUpdate (..), auAmount, auEncrypted, auReleaseSchedule, emptyAccountUpdate)
+import Concordium.GlobalState.Account (AccountUpdate (..), EncryptedAmountUpdate (..), TokenAccountStateDelta (..), auAmount, auEncrypted, auReleaseSchedule, auTokenAccountStateTableDelta, emptyAccountUpdate)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState (AccountOperations (..), ContractStateOperations (..), InstanceInfo, InstanceInfoType (..), InstanceInfoTypeV (iiParameters, iiState), ModuleQuery (..), NewInstanceData, UpdatableContractState, iiBalance)
 import Concordium.GlobalState.Classes (MGSTrans (..))
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Wasm as GSWasm
 import Concordium.Logger
@@ -680,6 +681,12 @@ addAmountToCS' ai !amnt !cs =
                                 )
                         Nothing -> Just (emptyAccountUpdate ai & auAmount ?~ amnt)
                    )
+
+-- | Record an updaet to the PLT state in the changeset.
+{-# INLINE updatePLTState #-}
+updatePLTState :: (Monad m) => AccountIndex -> [(TokenIndex, TokenAccountStateDelta)] -> ChangeSet m -> m (ChangeSet m)
+updatePLTState ai !upd !cs =
+    return $ cs & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auTokenAccountStateTableDelta ?~ upd)
 
 -- | Record a list of scheduled releases that has to be pushed into the global map and into the map of the account.
 --
