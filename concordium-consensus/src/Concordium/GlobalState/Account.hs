@@ -75,7 +75,7 @@ instance (MonadBlobStore m) => BlobStorable m TokenAccountStateTable where
 
     storeUpdate TokenAccountStateTable{..} = do
         let ss = Map.toAscList tokenAccountStateTable
-        let pLength = putLength $ length ss
+        let pLength = putLength $ Map.size tokenAccountStateTable
         (p, xs) <- go ss (pLength, [])
         return (p, TokenAccountStateTable $ Map.fromDescList xs)
       where
