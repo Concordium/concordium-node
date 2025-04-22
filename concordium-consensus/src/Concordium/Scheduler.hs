@@ -2691,7 +2691,7 @@ handleTokenHolder depositContext tokenId tokenOperations =
         -- Fetch the token configuration to find the reference for the token module.
         configuration <- lift $ getTokenConfiguration tokenIndex
         let moduleRef = Token._pltModule configuration
-        -- TODO Tick energy for loading the module into memory based on the module size.
+        -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
         -- Invoke the token module with operations.
         events <- invokeTokenHolderOperations moduleRef tokenIndex senderAccount tokenOperations
         -- Map the produced events adding the token ID.
