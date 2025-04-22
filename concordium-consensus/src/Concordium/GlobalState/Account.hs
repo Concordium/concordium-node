@@ -77,7 +77,7 @@ instance (MonadBlobStore m) => BlobStorable m TokenAccountStateTable where
         let ss = Map.toAscList tokenAccountStateTable
         let pLength = putLength $ length ss
         (p, xs) <- go ss (pLength, [])
-        return (p, TokenAccountStateTable $ Map.fromAscList $ reverse xs)
+        return (p, TokenAccountStateTable $ Map.fromDescList xs)
       where
         go [] acc = return acc
         go ((tIx, stateRef) : ys) (pAcc, xs) = do
