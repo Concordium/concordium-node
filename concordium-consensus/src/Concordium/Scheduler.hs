@@ -382,6 +382,9 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                         TokenHolder{..} ->
                             onlyWithPLT $
                                 handleTokenHolder (mkWTC TTTokenHolder) thTokenSymbol thOperations
+                        TokenGovernance{..} ->
+                            onlyWithPLT $
+                                handleTokenGovernance (mkWTC TTTokenHolder) tgTokenSymbol tgOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -2706,6 +2709,55 @@ handleTokenHolder depositContext tokenId tokenOperations =
     -- Call the module of the token with the operations and return the events emitted from the token module.
     invokeTokenHolderOperations :: TokenModuleRef -> Token.TokenIndex -> IndexedAccount m -> TokenParameter -> m [(TokenEventType, TokenEventDetails)]
     invokeTokenHolderOperations = error "Not implement yet. This should be implemented as part of https://linear.app/concordium/issue/NOD-677"
+
+-- | Handler for a token governance transaction.
+handleTokenGovernance ::
+    ( PVSupportsPLT (MPV m),
+      SchedulerMonad m
+    ) =>
+    WithDepositContext m ->
+    -- | Token symbol identifying the token to receive the operations.
+    TokenId ->
+    -- | Operations for the token.
+    TokenParameter ->
+    m (Maybe TransactionSummary)
+handleTokenGovernance depositContext tokenId tokenOperations =
+    withDeposit depositContext computeTransaction commitTransaction
+  where
+    senderAccount = depositContext ^. wtcSenderAccount
+    -- Execute the transaction in a modified environment
+    computeTransaction = do
+        -- Charge the base cost for this transaction type
+        tickEnergy Cost.tokenGovernanceBaseCost
+        -- Fetch the token from state
+        tokenIndex <-
+            lift (getTokenIndex tokenId) >>= \case
+                Just tokenIndex -> return tokenIndex
+                Nothing -> rejectTransaction $ NonExistentTokenId tokenId
+        -- Ensure the sender is authorized, i.e. is the governance account for this token.
+        governanceAccountIndex <- lift $ getTokenGovernanceAccount tokenIndex
+        when (governanceAccountIndex /= fst senderAccount) $ rejectTransaction $ UnauthorizedTokenGovernance tokenId
+        -- Fetch the token configuration to find the reference for the token module.
+        configuration <- lift $ getTokenConfiguration tokenIndex
+        let moduleRef = Token._pltModule configuration
+        -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
+        -- Invoke the token module with operations.
+        events <- invokeTokenGovernanceOperations moduleRef tokenIndex senderAccount tokenOperations
+        -- Map the produced events adding the token ID.
+        let tokenModuleEvents = uncurry (TokenEvent tokenId) <$> events
+        return tokenModuleEvents
+    -- Process the successful transaction computation.
+    commitTransaction computeState computeResult = do
+        (usedEnergy, energyCost) <-
+            computeExecutionCharge
+                (depositContext ^. wtcEnergyAmount)
+                (computeState ^. energyLeft)
+        chargeExecutionCost senderAccount energyCost
+        let events = TokenModuleEvent <$> computeResult
+        return (TxSuccess events, energyCost, usedEnergy)
+    -- Call the module of the token with the operations and return the events emitted from the token module.
+    invokeTokenGovernanceOperations :: TokenModuleRef -> Token.TokenIndex -> IndexedAccount m -> TokenParameter -> m [(TokenEventType, TokenEventDetails)]
+    invokeTokenGovernanceOperations = error "Not implement yet. This should be implemented as part of https://linear.app/concordium/issue/COR-687"
 
 -- * Chain updates
 

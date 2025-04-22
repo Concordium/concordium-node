@@ -367,6 +367,11 @@ class
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     getTokenConfiguration :: (PVSupportsPLT (MPV m)) => Token.TokenIndex -> m Token.PLTConfiguration
 
+    -- | Get the account currently governing a protocol-level token.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getTokenGovernanceAccount :: (PVSupportsPLT (MPV m)) => Token.TokenIndex -> m AccountIndex
+
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the
 --  state since this might not be needed.
