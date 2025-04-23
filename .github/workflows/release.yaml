@@ -226,6 +226,15 @@ jobs:
           id=$(docker create ${{ env.TAG }})
           docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb ./${{ env.ARTIFACT_NAME }}
 
+      - name: Save image
+        run: docker save -o /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar ${{ env.TAG }}
+  
+      - name: Upload docker artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-${{ matrix.node.env }}
+          path: /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -636,7 +645,7 @@ jobs:
   docker_publish:
     runs-on: ubuntu-latest
     environment: release
-    needs: [generate-release-matrixes, validate-preconditions, p2p-bootstrapper]
+    needs: [generate-release-matrixes, validate-preconditions]
     strategy:
       matrix:
         artifact_name: ${{ fromJSON(needs.generate-release-matrixes.outputs.docker_names) }}
