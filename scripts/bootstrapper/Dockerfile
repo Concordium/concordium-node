@@ -18,4 +18,3 @@ RUN VERSION="${version}" \
 RUN apt -y install /build/p2p-bootstrapper_${version}.deb
 
 RUN mkdir -p /var/lib/concordium/data /var/lib/concordium/config
-CMD p2p-bootstrapper --data-dir /var/lib/concordium/data --config-dir /var/lib/concordium/config
