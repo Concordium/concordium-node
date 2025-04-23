@@ -11,8 +11,6 @@
 module Concordium.GlobalState.Account where
 
 import Data.Bits
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Short as SBS
 import Data.Foldable
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -26,114 +24,12 @@ import Concordium.Crypto.EncryptedTransfers
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 as ARSV0
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 as ARSV1
-import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.ID.Types
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Utils.Serialization
-
--- | The hash of the token state table of an account.
-newtype TokenStateTableHash = TokenStateTableHash {theTokenStateTableHash :: Hash.Hash}
-    deriving (Eq, Ord, Show, Serialize)
-
--- | The table of PLTs account states. The table is indexed by the token index
---  into the global token table.
-newtype TokenAccountStateTable = TokenAccountStateTable
-    { tokenAccountStateTable :: Map.Map TokenIndex (HashedBufferedRef TokenAccountState)
-    }
-    deriving newtype (Show)
-
-instance (MonadBlobStore m) => MHashableTo m Hash.Hash TokenAccountStateTable where
-    getHashM (TokenAccountStateTable tast) = do
-        bs <-
-            mapM
-                ( \(tIx, ref) -> do
-                    h <- getHashM ref
-                    return (Hash.hashOfHashes (getHash tIx) h)
-                )
-                $ Map.toAscList tast
-        return $ Hash.hashLazy $ runPutLazy $ put bs
-
-instance (MonadBlobStore m) => BlobStorable m TokenAccountStateTable where
-    load = do
-        l <- getLength
-        m <- go l (return [])
-        return $ TokenAccountStateTable . Map.fromAscList <$> m
-      where
-        go 0 accM = return accM
-        go s accM = do
-            tIx <- get
-            mRef <- load
-            let accM' = do
-                    xs <- accM
-                    ref <- mRef
-                    return $ (tIx, ref) : xs
-            go (s - 1) accM'
-
-    storeUpdate TokenAccountStateTable{..} = do
-        let ss = Map.toAscList tokenAccountStateTable
-        let pLength = putLength $ Map.size tokenAccountStateTable
-        (p, xs) <- go ss (pLength, [])
-        return (p, TokenAccountStateTable $ Map.fromDescList xs)
-      where
-        go [] acc = return acc
-        go ((tIx, stateRef) : ys) (pAcc, xs) = do
-            (pRef, newRef) <- storeUpdate stateRef
-            go ys (pAcc >> put tIx >> pRef, (tIx, newRef) : xs)
-
--- | The empty token account state table.
-emptyTokenAccountStateTable :: TokenAccountStateTable
-emptyTokenAccountStateTable = TokenAccountStateTable{tokenAccountStateTable = Map.empty}
-
--- | The type of keys in the token state key-value map.
-type TokenAccountStateKey = SBS.ShortByteString
-
--- | The type of values in the token state key-value map.
-type TokenAccountStateValue = BS.ByteString
-
--- | Token state at the account level
-data TokenAccountState = TokenAccountState
-    { -- | The available balance for the account.
-      tasBalance :: !TokenRawAmount,
-      -- | The token module state for the account, represented as a key-value map.
-      tasModuleState :: !(Map.Map TokenAccountStateKey TokenAccountStateValue)
-    }
-    deriving (Eq, Show, Ord)
-
-instance Serialize TokenAccountState where
-    put TokenAccountState{..} = do
-        put tasBalance
-        put tasModuleState
-    get = do
-        tasBalance <- get
-        tasModuleState <- get
-        return TokenAccountState{..}
-
-instance HashableTo Hash.Hash TokenAccountState where
-    getHash = Hash.hashLazy . runPutLazy . put
-
-instance (Monad m) => MHashableTo m Hash.Hash TokenAccountState
-
-instance (MonadBlobStore m) => BlobStorable m TokenAccountState
-
--- | The account token table, with all references loaded.
-newtype InMemoryTokenStateTable = InMemoryTokenStateTable
-    { inMemoryTokenStateTable :: Map.Map TokenIndex TokenAccountState
-    }
-    deriving (Eq, Show)
-
-instance HashableTo TokenStateTableHash InMemoryTokenStateTable where
-    getHash (InMemoryTokenStateTable m) =
-        TokenStateTableHash $
-            Hash.hashLazy $
-                runPutLazy $
-                    put
-                        [ Hash.hashOfHashes (getHash tIx) (getHash tS)
-                          | (tIx, tS) <- Map.toAscList m
-                        ]
 
 -- | The hash derived from an account's cooldown queue.
 newtype CooldownQueueHash (av :: AccountVersion) = CooldownQueueHash {theCooldownQueueHash :: Hash.Hash}
@@ -185,6 +81,10 @@ emptyHashedRemovedCredentials :: Hashed RemovedCredentials
 emptyHashedRemovedCredentials = makeHashed EmptyRemovedCredentials
 {-# NOINLINE emptyHashedRemovedCredentials #-}
 
+-- | The hash of the empty token account state table.
+emptyTokenAccountStateTableHash :: Hash.Hash
+emptyTokenAccountStateTableHash = Hash.hash "EmptyTokenAccountStateTable"
+
 -- | Data about an account that is unlikely to change very frequently.
 data PersistingAccountData = PersistingAccountData
     { -- | Address of the account
@@ -213,9 +113,6 @@ makeClassy ''PersistingAccountData
 
 newtype PersistingAccountDataHash = PersistingAccountDataHash {thePersistingAccountDataHash :: Hash.Hash}
     deriving (Eq, Ord, Show, Serialize)
-
-instance (MonadBlobStore m) => BlobStorable m PersistingAccountData
-instance (Applicative m) => Cacheable m PersistingAccountData
 
 -- | Hashing of 'PersistingAccountData'.
 --
@@ -507,6 +404,10 @@ data AccountHashInputsV3 (av :: AccountVersion) = AccountHashInputsV3
       ahi3TokenStateTableHash :: !TokenStateTableHash
     }
 
+-- | The hash of the token state table of an account.
+newtype TokenStateTableHash = TokenStateTableHash {theTokenStateTableHash :: Hash.Hash}
+    deriving (Eq, Ord, Show, Serialize)
+
 -- | Generate the hash for an account (for 'AccountV2'), given the
 --  'AccountHashInputsV2'. 'makeAccountHash' should be used in preference to this function.
 makeAccountHashV2 :: AccountHashInputsV2 av -> Hash.Hash
@@ -545,8 +446,10 @@ makeAccountHashV5 AccountHashInputsV3{..} = Hash.hashLazy $ runPutLazy $ do
     put ahi3NextNonce
     put ahi3AccountBalance
     put ahi3StakedBalance
-    put ahi3MerkleHash
-    put ahi3TokenStateTableHash
+    put $
+        Hash.hashOfHashes
+            (theMerkleHash ahi3MerkleHash)
+            (theTokenStateTableHash ahi3TokenStateTableHash)
 
 -- | Inputs for computing the 'AccountHash' for an account.
 data AccountHashInputs (av :: AccountVersion) where

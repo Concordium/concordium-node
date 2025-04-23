@@ -16,13 +16,17 @@ module Concordium.GlobalState.Basic.BlockState.Account (
 
 import Data.Coerce
 import qualified Data.Map.Strict as Map
+import Data.Serialize
 import GHC.Stack (HasCallStack)
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBTV1)
 import Concordium.GlobalState.CooldownQueue
+import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types.HashableTo
@@ -30,6 +34,21 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Conditionally
+
+-- | The account token table, with all references loaded.
+newtype InMemoryTokenStateTable = InMemoryTokenStateTable
+    { inMemoryTokenStateTable :: Map.Map TokenIndex TokenAccountState
+    }
+    deriving (Eq, Show)
+
+instance HashableTo TokenStateTableHash InMemoryTokenStateTable where
+    getHash (InMemoryTokenStateTable m) =
+        TokenStateTableHash $
+            hashAsLFMBTV1
+                emptyTokenAccountStateTableHash
+                [ Hash.hashLazy . runPutLazy $ put tokIx >> put (getHash tokState :: Hash.Hash)
+                  | (tokIx, tokState) <- Map.toAscList m
+                ]
 
 -- | Type for how a 'PersistingAccountData' value is stored as part of
 --  an account. This is stored with its hash.

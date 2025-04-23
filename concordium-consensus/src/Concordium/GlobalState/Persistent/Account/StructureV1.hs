@@ -53,6 +53,7 @@ import Concordium.GlobalState.CooldownQueue (Cooldowns (..))
 import Concordium.GlobalState.Persistent.Account.CooldownQueue as CooldownQueue
 import Concordium.GlobalState.Persistent.Account.EncryptedAmount
 import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
+import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
@@ -1022,7 +1023,7 @@ data PersistentAccount av = PersistentAccount
       --  INVARIANT: This is 0 if the account is not a baker or delegator.
       accountStakedAmount :: !Amount,
       -- | The state table of the protocol level tokens of the account in ascending order of the TokenIndex.
-      accountTokenStateTable :: !(Conditionally (SupportsPLT av) (HashedBufferedRef TokenAccountStateTable)),
+      accountTokenStateTable :: !(Conditionally (SupportsPLT av) (HashedBufferedRef' TokenStateTableHash TokenAccountStateTable)),
       -- | The enduring account data.
       accountEnduringData :: !(EagerBufferedRef (PersistentAccountEnduringData av))
     }
@@ -1075,7 +1076,7 @@ instance (MonadBlobStore m) => MHashableTo m (AccountHash 'AccountV5) (Persisten
                           ahi3AccountBalance = accountAmount,
                           ahi3StakedBalance = accountStakedAmount,
                           ahi3MerkleHash = getHash accountEnduringData,
-                          ahi3TokenStateTableHash = TokenStateTableHash h
+                          ahi3TokenStateTableHash = h
                         }
 
 instance HashableTo Hash.Hash (PersistentAccount 'AccountV2) where
@@ -1096,12 +1097,12 @@ instance (MonadBlobStore m) => MHashableTo m Hash.Hash (PersistentAccount 'Accou
 
 instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAccount av) where
     storeUpdate acc@PersistentAccount{..} = do
-        (pEnduringData, newEnduringData) <- storeUpdate accountEnduringData
         (pAccountTokenStateTable :: Put, newAccountTokenStateTable) <- case accountTokenStateTable of
             CFalse -> return (return (), CFalse)
             CTrue tokens -> do
                 (pTokens, newTokens) <- storeUpdate tokens
                 return (pTokens, CTrue newTokens)
+        (pEnduringData, newEnduringData) <- storeUpdate accountEnduringData
         let p = do
                 put accountNonce
                 put accountAmount
@@ -1113,7 +1114,11 @@ instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (PersistentAc
         accountNonce <- get
         accountAmount <- get
         accountStakedAmount <- get
-        mAccountTokenStateTable <- conditionallyA (sSupportsPLT (accountVersion @av)) <$> load
+        mAccountTokenStateTable <- case sSupportsPLT (accountVersion @av) of
+            STrue -> do
+                mAccountStateTable <- load
+                return $ CTrue <$> mAccountStateTable
+            SFalse -> return $ return CFalse
         mEnduringData <- load
         return $ do
             accountTokenStateTable <- mAccountTokenStateTable
@@ -1372,13 +1377,10 @@ getTokenStateTable ::
     (MonadBlobStore m) =>
     PersistentAccount av ->
     m (Conditionally (SupportsPLT av) (Map.Map TokenIndex TokenAccountState))
-getTokenStateTable acc = do
-    traverse
-        ( \ref -> do
-            TokenAccountStateTable tast <- refLoad ref
-            forM tast refLoad
-        )
-        (accountTokenStateTable acc)
+getTokenStateTable acc = forM (accountTokenStateTable acc) $
+    \ref -> do
+        TokenAccountStateTable tast <- refLoad ref
+        forM tast refLoad
 
 -- ** Updates
 
@@ -1937,8 +1939,12 @@ makePersistentAccount Transient.Account{..} = do
                         paedReleaseSchedule
                         paedStake
                         paedStakeCooldown
-    tastRef <- makeHashedBufferedRef emptyTokenAccountStateTable
-    let accountTokenStateTable = conditionally (sSupportsPLT (accountVersion @av)) tastRef
+    accountTokenStateTable <- forM _accountTokenStateTable $ \inMemoryTast -> do
+        tast <-
+            traverse makeHashedBufferedRef $
+                Transient.inMemoryTokenStateTable $
+                    _unhashed inMemoryTast
+        makeHashedBufferedRef $ TokenAccountStateTable{tokenAccountStateTable = tast}
     return $!
         PersistentAccount
             { accountNonce = _accountNonce,
@@ -1998,8 +2004,9 @@ newAccount cryptoParams _accountAddress credential = do
                         Null
                         PersistentAccountStakeEnduringNone
                         emptyCooldownQueue
-    tastRef <- makeHashedBufferedRef emptyTokenAccountStateTable
-    let accountTokenStateTable = conditionally (sSupportsPLT (accountVersion @av)) tastRef
+    accountTokenStateTable <-
+        conditionallyA (sSupportsPLT (accountVersion @av)) $
+            makeHashedBufferedRef emptyTokenAccountStateTable
     return $!
         PersistentAccount
             { accountNonce = minNonce,
@@ -2079,8 +2086,9 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
                         Null
                         stakeEnduring
                         emptyCooldownQueue
-    tastRef <- makeHashedBufferedRef emptyTokenAccountStateTable
-    let accountTokenStateTable = conditionally (sSupportsPLT (accountVersion @av)) tastRef
+    accountTokenStateTable <-
+        conditionallyA (sSupportsPLT (accountVersion @av)) $
+            makeHashedBufferedRef emptyTokenAccountStateTable
     return $!
         PersistentAccount
             { accountNonce = minNonce,

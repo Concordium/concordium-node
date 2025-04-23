@@ -1,6 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE MonoLocalBinds #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -33,17 +34,20 @@ import qualified Concordium.Crypto.VRF as VRF
 import Concordium.Genesis.Data
 import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.Basic.BlockState.Account
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
 import qualified Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule as Transient
 import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Persistent.Account
 import qualified Concordium.GlobalState.Persistent.Account.MigrationState as MigrationState
+import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
 import Concordium.GlobalState.Persistent.Accounts
 import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as M
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.GlobalState.Persistent.Cooldown
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
 import Concordium.ID.Types
@@ -84,11 +88,31 @@ dummyAccountEncryptedAmount =
         { _selfAmount = encryptAmountZeroRandomness dummyCryptographicParameters 10
         }
 
+-- | A dummy-in memory token account state table.
+dummyTokenAccountStateTable :: (Hashed' TokenStateTableHash InMemoryTokenStateTable)
+dummyTokenAccountStateTable =
+    makeHashed $
+        InMemoryTokenStateTable
+            { inMemoryTokenStateTable =
+                Map.fromList
+                    [   ( TokenIndex 1,
+                          TokenAccountState
+                            { tasModuleState =
+                                Map.fromList
+                                    [ ("state_key1", "state_value1"),
+                                      ("state_key2", "state_value2")
+                                    ],
+                              tasBalance = TokenRawAmount 100
+                            }
+                        )
+                    ]
+            }
+
 -- | Create a test account with the given persisting data and stake.
 --  The balance of the account is set to 1 billion CCD (10^15 uCCD).
 testAccount ::
     forall av.
-    (IsAccountVersion av, SupportsPLT av ~ 'False) =>
+    (IsAccountVersion av) =>
     PersistingAccountData ->
     AccountStake av ->
     Transient.Account av
@@ -101,7 +125,7 @@ testAccount persisting stake =
           _accountReleaseSchedule = Transient.emptyAccountReleaseSchedule,
           _accountStaking = stake,
           _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av),
-          _accountTokenStateTable = CFalse
+          _accountTokenStateTable = conditionally (sSupportsPLT (accountVersion @av)) dummyTokenAccountStateTable
         }
 
 -- | Initial stake for a test account, set to 500 million CCD plus @2^accountIndex@ uCCD.
