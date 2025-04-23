@@ -30,7 +30,6 @@ dependencies:
 - base >= 4.7 && < 5
 - bytestring >= 0.10
 - random >= 1.1
-- cborg >= 0.2
 - cereal >= 0.5.7
 - data-fix >= 0.3
 - exceptions >= 0.10

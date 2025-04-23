@@ -15,6 +15,7 @@ import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 data InitializeTokenError
     = ITEDeserializationFailure !String
     | ITEInvalidMintAmount
+    deriving (Eq, Show)
 
 toTokenRawAmount :: (PLTKernelQuery m, Monad m) => TokenAmount -> m (Maybe TokenRawAmount)
 toTokenRawAmount TokenAmount{..} = do
