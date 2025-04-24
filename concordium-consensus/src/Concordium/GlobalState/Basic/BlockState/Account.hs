@@ -16,13 +16,17 @@ module Concordium.GlobalState.Basic.BlockState.Account (
 
 import Data.Coerce
 import qualified Data.Map.Strict as Map
+import Data.Serialize
 import GHC.Stack (HasCallStack)
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.AccountReleaseSchedule
+import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBTV1)
 import Concordium.GlobalState.CooldownQueue
+import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types.HashableTo
@@ -30,6 +34,21 @@ import Concordium.Types.HashableTo
 import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.Conditionally
+
+-- | The account token table, with all references loaded.
+newtype InMemoryTokenStateTable = InMemoryTokenStateTable
+    { inMemoryTokenStateTable :: Map.Map TokenIndex TokenAccountState
+    }
+    deriving (Eq, Show)
+
+instance HashableTo TokenStateTableHash InMemoryTokenStateTable where
+    getHash (InMemoryTokenStateTable m) =
+        TokenStateTableHash $
+            hashAsLFMBTV1
+                emptyTokenAccountStateTableHash
+                [ Hash.hashLazy . runPutLazy $ put tokIx >> put (getHash tokState :: Hash.Hash)
+                  | (tokIx, tokState) <- Map.toAscList m
+                ]
 
 -- | Type for how a 'PersistingAccountData' value is stored as part of
 --  an account. This is stored with its hash.
@@ -58,7 +77,9 @@ data Account (av :: AccountVersion) = Account
       -- | The baker or delegation associated with the account (if any).
       _accountStaking :: !(AccountStake av),
       -- | The cooldown on the account.
-      _accountStakeCooldown :: !(Conditionally (SupportsFlexibleCooldown av) Cooldowns)
+      _accountStakeCooldown :: !(Conditionally (SupportsFlexibleCooldown av) Cooldowns),
+      -- | The token state table of the account.
+      _accountTokenStateTable :: !(Conditionally (SupportsPLT av) (Hashed' TokenStateTableHash InMemoryTokenStateTable))
     }
     deriving (Eq, Show)
 
@@ -179,13 +200,14 @@ accountHashInputsV4 Account{..} =
             }
 
 -- | Generate hash inputs from an account for 'AccountV5'.
-accountHashInputsV5 :: Account 'AccountV5 -> AccountHashInputsV2 'AccountV5
+accountHashInputsV5 :: Account 'AccountV5 -> AccountHashInputsV3 'AccountV5
 accountHashInputsV5 Account{..} =
-    AccountHashInputsV2
-        { ahi2NextNonce = _accountNonce,
-          ahi2AccountBalance = _accountAmount,
-          ahi2StakedBalance = stakedBalance,
-          ahi2MerkleHash = getHash merkleInputs
+    AccountHashInputsV3
+        { ahi3NextNonce = _accountNonce,
+          ahi3AccountBalance = _accountAmount,
+          ahi3StakedBalance = stakedBalance,
+          ahi3MerkleHash = getHash merkleInputs,
+          ahi3TokenStateTableHash = getHash $ uncond $ _accountTokenStateTable
         }
   where
     stakedBalance = case _accountStaking of
@@ -247,7 +269,11 @@ newAccountMultiCredential cryptoParams threshold _accountAddress cs =
           _accountEncryptedAmount = initialAccountEncryptedAmount,
           _accountReleaseSchedule = emptyAccountReleaseSchedule,
           _accountStaking = AccountStakeNone,
-          _accountStakeCooldown = emptyCooldownQueue (accountVersion @av)
+          _accountStakeCooldown = emptyCooldownQueue (accountVersion @av),
+          _accountTokenStateTable =
+            conditionally
+                (sSupportsPLT (accountVersion @av))
+                (makeHashed (InMemoryTokenStateTable{inMemoryTokenStateTable = Map.empty}))
         }
 
 -- | Create an empty account with the given public key, address and credential.
