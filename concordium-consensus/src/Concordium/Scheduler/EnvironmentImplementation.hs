@@ -425,6 +425,16 @@ instance
         s' <- lift (BS.bsoEnqueueUpdate s tt p)
         ssBlockState .= s'
 
+    {-# INLINE getTokenIndex #-}
+    getTokenIndex tokenId = do
+        blockState <- use ssBlockState
+        lift (BS.getTokenIndex blockState tokenId)
+
+    {-# INLINE getTokenConfiguration #-}
+    getTokenConfiguration tokenIndex = do
+        blockState <- use ssBlockState
+        lift (BS.getTokenConfiguration blockState tokenIndex)
+
     withBlockStateRollback op = do
         s0 <- use ssBlockState
         snapshot <- lift $ BS.bsoSnapshotState s0
@@ -438,11 +448,7 @@ instance
     runPLT tokenIx op = do
         runKernelT op tokenIx
 
-    getPLTIndex tokenId = do
-        s <- use ssBlockState
-        lift $ BS.getTokenIndex s tokenId
-
-    createPLT pltConfig = do
+    createToken pltConfig = do
         s <- use ssBlockState
         (tokenIx, s') <- lift $ BS.bsoCreateToken s pltConfig
         ssBlockState .= s'
