@@ -2820,18 +2820,17 @@ handleCreatePLT updateHeader payload =
             maybeGovernanceAccount <- getStateAccount governanceAccountAddress
             case maybeGovernanceAccount of
                 Nothing -> do
-                    -- FIXME: Should this be a reject rather than an invalid result?
-                    return $ Left $ NonExistentAccount governanceAccountAddress
+                    return $ Right $ TxReject $ InvalidAccountReference governanceAccountAddress
                 Just (governanceAccountIndex, _governanceAccount) -> do
-                    getPLTIndex (payload ^. cpltTokenSymbol) >>= \case
+                    let tokenSymbol = payload ^. cpltTokenSymbol
+                    getPLTIndex tokenSymbol >>= \case
                         Just _existingTokenIndex -> do
-                            -- FIXME: Dummy RejectReason.
-                            return $ Right $ TxReject PoolClosed
+                            return $ Right $ TxReject $ TokenExists $ tokenSymbol
                         Nothing -> do
                             createResult <- withBlockStateRollback $ do
                                 let config =
                                         PLTConfiguration
-                                            { _pltTokenId = payload ^. cpltTokenSymbol,
+                                            { _pltTokenId = tokenSymbol,
                                               _pltModule = payload ^. cpltTokenModule,
                                               _pltDecimals = payload ^. cpltDecimals,
                                               _pltGovernanceAccountIndex = governanceAccountIndex
@@ -2839,14 +2838,11 @@ handleCreatePLT updateHeader payload =
                                 tokenIx <- createPLT config
                                 runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
                             return $ Right $ case createResult of
-                                Left (TokenModule.ITEDeserializationFailure _) ->
-                                    -- FIXME: Dummy RejectReason.
-                                    TxReject PoolWouldBecomeOverDelegated
-                                Left (TokenModule.ITEInvalidMintAmount) ->
-                                    -- FIXME: Dummy RejectReason.
-                                    TxReject StakeOverMaximumThresholdForPool
+                                Left (reason :: TokenModule.InitializeTokenError) ->
+                                    TxReject . TokenModuleInitializeFailed $
+                                        TokenModule.makeTokenModuleRejectReason tokenSymbol reason
                                 Right () -> do
-                                    -- FIXME: Dummy event.
+                                    -- FIXME: Dummy event. https://linear.app/concordium/issue/COR-705/event-logging
                                     TxSuccess [UpdateEnqueued (updateEffectiveTime updateHeader) (CreatePLTUpdatePayload payload)]
 
 handleUpdateCredentials ::
