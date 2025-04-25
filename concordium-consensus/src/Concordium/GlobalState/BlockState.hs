@@ -1523,7 +1523,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
 
     -- | Increment the update sequence number for Protocol Level Tokens (PLT).
     -- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
-    bsoIncrementPltUpdateSequenceNumber :: UpdatableBlockState m -> m (UpdatableBlockState m)
+    bsoIncrementPLTUpdateSequenceNumber :: UpdatableBlockState m -> m (UpdatableBlockState m)
 
     -- | Overwrite the election difficulty, removing any queued election difficulty updates.
     --  This is intended to be used for protocol updates that affect the election difficulty in
@@ -2002,7 +2002,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetUpdateKeyCollection = lift . bsoGetUpdateKeyCollection
     bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
     bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
-    bsoIncrementPltUpdateSequenceNumber = lift . bsoIncrementPltUpdateSequenceNumber
+    bsoIncrementPLTUpdateSequenceNumber = lift . bsoIncrementPLTUpdateSequenceNumber
     bsoOverwriteElectionDifficulty s = lift . bsoOverwriteElectionDifficulty s
     bsoClearProtocolUpdate = lift . bsoClearProtocolUpdate
     bsoGetExchangeRates = lift . bsoGetExchangeRates

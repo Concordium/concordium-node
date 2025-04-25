@@ -1756,12 +1756,12 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
 
 -- | Increment the update sequence number for Protocol Level Tokens (PLT).
 -- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
-incrementPltUpdateSequenceNumber ::
+incrementPLTUpdateSequenceNumber ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv, IsSupported 'PTProtocolLevelTokensParameters cpv ~ 'True) =>
     BufferedRef (Updates' cpv) ->
     m (BufferedRef (Updates' cpv))
-incrementPltUpdateSequenceNumber updatesRef = do
+incrementPLTUpdateSequenceNumber updatesRef = do
     currentUpdates <- refLoad updatesRef
     let currentSequenceNumber = unOParam $ pltUpdateSequenceNumber currentUpdates
     refMake currentUpdates{pltUpdateSequenceNumber = SomeParam $ currentSequenceNumber + 1}

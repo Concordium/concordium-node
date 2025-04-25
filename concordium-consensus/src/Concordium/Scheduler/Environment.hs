@@ -364,7 +364,7 @@ class
     -- | Increment the update sequence number for Protocol Level Tokens (PLT).
     -- Unlike the other chain updates this is a separate function,
     -- since there is no queue associated with PLTs.
-    incrementPltUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => m ()
+    incrementPLTUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => m ()
 
     -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
     getTokenIndex :: (PVSupportsPLT (MPV m)) => TokenId -> m (Maybe Token.TokenIndex)
