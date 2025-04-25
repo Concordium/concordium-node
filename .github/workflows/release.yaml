@@ -28,7 +28,7 @@ env:
   GHC_VERSION: '9.6.6'
   PROTOC_VERSION: '28.3'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
-  ARTIFACT_FILE_NAME: 'image'
+  DOCKER_ARTIFACT_NAME: 'image'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_ARN_TEMPLATES: '{
       \"database-exporter\": {\"bucket\": \"distribution.concordium.software\", \"dir\": \"tools/linux\", \"name\": \"database-exporter_${VERSION}.deb\"},
@@ -203,7 +203,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      
+
       - name: Build Docker Image
         uses: docker/build-push-action@v6
         with:
@@ -227,13 +227,13 @@ jobs:
           docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb ./${{ env.ARTIFACT_NAME }}
 
       - name: Save image
-        run: docker save -o /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar ${{ env.TAG }}
+        run: docker save -o /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar ${{ env.TAG }}
   
       - name: Upload docker artifact
         uses: actions/upload-artifact@v4
         with:
-          name: docker-${{ matrix.node.env }}
-          path: /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
+          name: docker-bootstrapper
+          path: /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -602,13 +602,13 @@ jobs:
             environment=${{ matrix.node.env }}
 
       - name: Save image
-        run: docker save -o /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar ${{ env.TAG }}
+        run: docker save -o /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar ${{ env.TAG }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: docker-${{ matrix.node.env }}
-          path: /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
+          path: /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar
 
   s3_publish:
     runs-on: ubuntu-latest
@@ -667,7 +667,7 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Load image
-        run: docker load --input /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
+        run: docker load --input /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar
 
       - name: Push image
         run: |
