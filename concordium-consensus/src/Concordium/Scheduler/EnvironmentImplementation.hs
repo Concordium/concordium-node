@@ -425,6 +425,12 @@ instance
         s' <- lift (BS.bsoEnqueueUpdate s tt p)
         ssBlockState .= s'
 
+    {-# INLINE incrementPLTUpdateSequenceNumber #-}
+    incrementPLTUpdateSequenceNumber = do
+        s <- use ssBlockState
+        s' <- lift (BS.bsoIncrementPLTUpdateSequenceNumber s)
+        ssBlockState .= s'
+
     {-# INLINE getTokenIndex #-}
     getTokenIndex tokenId = do
         blockState <- use ssBlockState

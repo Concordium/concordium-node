@@ -2861,7 +2861,7 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
 -- is required to be zero.
 handleCreatePLT :: (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
 handleCreatePLT updateHeader payload = runExceptT $ do
-    unless (updateEffectiveTime updateHeader == 0) $ throwError $ InvalidUpdateTime
+    unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
     -- TODO: Check signature when relevant update keys are introduced (Issue https://linear.app/concordium/issue/NOD-701).
     let governanceAccountAddress = payload ^. cpltGovernanceAccount
     (governanceAccountIndex, _governanceAccount) <-
@@ -2884,6 +2884,7 @@ handleCreatePLT updateHeader payload = runExceptT $ do
     case createResult of
         Left (e :: TokenModule.InitializeTokenError) -> throwError $ TokenInitializeFailure (show e)
         Right () -> do
+            lift incrementPLTUpdateSequenceNumber
             -- FIXME: Dummy event. https://linear.app/concordium/issue/COR-705/event-logging
             return $ TxSuccess [UpdateEnqueued (updateEffectiveTime updateHeader) (CreatePLTUpdatePayload payload)]
 

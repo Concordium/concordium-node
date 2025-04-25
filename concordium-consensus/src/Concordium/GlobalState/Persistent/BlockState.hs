@@ -3702,6 +3702,19 @@ doEnqueueUpdate pbs effectiveTime payload = do
     u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
     storePBS pbs bsp{bspUpdates = u'}
 
+doIncrementPLTUpdateSequenceNumber ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    m (PersistentBlockState pv)
+doIncrementPLTUpdateSequenceNumber pbs =
+    case sIsSupported SPTProtocolLevelTokensParameters (sChainParametersVersionFor (protocolVersion @pv)) of
+        SFalse -> case protocolVersion @pv of {}
+        STrue -> do
+            bsp <- loadPBS pbs
+            u' <- incrementPLTUpdateSequenceNumber (bspUpdates bsp)
+            storePBS pbs bsp{bspUpdates = u'}
+
 doOverwriteElectionDifficulty ::
     ( SupportsPersistentState pv m,
       ConsensusParametersVersionFor
@@ -4633,6 +4646,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetUpdateKeyCollection = doGetUpdateKeyCollection
     bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     bsoEnqueueUpdate = doEnqueueUpdate
+    bsoIncrementPLTUpdateSequenceNumber = doIncrementPLTUpdateSequenceNumber
     bsoOverwriteElectionDifficulty = doOverwriteElectionDifficulty
     bsoClearProtocolUpdate = doClearProtocolUpdate
     bsoSetNextCapitalDistribution = doSetNextCapitalDistribution
