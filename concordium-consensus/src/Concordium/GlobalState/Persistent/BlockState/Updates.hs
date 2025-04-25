@@ -1696,7 +1696,8 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                     id
                     pltUpdateSequenceNumber
 
--- | Enqueue an update in the appropriate queue.
+-- | Enqueue an update in the appropriate queue, incrementing the sequence number of this queue.
+-- Note that incrementing the sequence number of updates to protocol level tokens is handled separately.
 enqueueUpdate ::
     forall m cpv.
     (MonadBlobStore m, IsChainParametersVersion cpv) =>
@@ -1752,6 +1753,18 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
                 enqueue effectiveTime v q
                     <&> \newQ -> p{pValidatorScoreParametersQueue = SomeParam newQ}
     refMake u{pendingUpdates = newPendingUpdates}
+
+-- | Increment the update sequence number for Protocol Level Tokens (PLT).
+-- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
+incrementPltUpdateSequenceNumber ::
+    forall m cpv.
+    (MonadBlobStore m, IsChainParametersVersion cpv, IsSupported 'PTProtocolLevelTokensParameters cpv ~ 'True) =>
+    BufferedRef (Updates' cpv) ->
+    m (BufferedRef (Updates' cpv))
+incrementPltUpdateSequenceNumber updatesRef = do
+    currentUpdates <- refLoad updatesRef
+    let currentSequenceNumber = unOParam $ pltUpdateSequenceNumber currentUpdates
+    refMake currentUpdates{pltUpdateSequenceNumber = SomeParam $ currentSequenceNumber + 1}
 
 -- | Overwrite the election difficulty with the specified value and remove
 --  any pending updates to the election difficulty from the queue.
