@@ -12,30 +12,17 @@ import Concordium.Types.Tokens
 
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 
--- | Class for constructing a 'TokenModuleRejectReason' given the 'TokenId'.
-class MakeTokenModuleRejectReason e where
-    -- | Construct a 'TokenModuleRejectReason'.
-    makeTokenModuleRejectReason :: TokenId -> e -> TokenModuleRejectReason
-
 -- | Represents the reasons why 'initializeToken' can fail.
 data InitializeTokenError
     = ITEDeserializationFailure !String
     | ITEInvalidMintAmount
-    deriving (Eq, Show)
+    deriving (Eq)
 
-instance MakeTokenModuleRejectReason InitializeTokenError where
-    makeTokenModuleRejectReason tmrrTokenSymbol (ITEDeserializationFailure _) =
-        TokenModuleRejectReason
-            { tmrrType = TokenEventType "parameterDeserializationFailure",
-              tmrrDetails = Nothing,
-              ..
-            }
-    makeTokenModuleRejectReason tmrrTokenSymbol ITEInvalidMintAmount =
-        TokenModuleRejectReason
-            { tmrrType = TokenEventType "invalidMintAmount",
-              tmrrDetails = Nothing,
-              ..
-            }
+instance Show InitializeTokenError where
+    show (ITEDeserializationFailure reason) =
+        "Token initialization parameters could not be deserialized: " ++ reason
+    show ITEInvalidMintAmount =
+        "The initial mint amount was outside of the representable range."
 
 -- | Try to convert a 'TokenAmount' to a 'TokenRawAmount'. The latter is represented in the
 --  smallest subdivision allowed for the current token.

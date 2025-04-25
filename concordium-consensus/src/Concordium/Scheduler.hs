@@ -2860,41 +2860,32 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
 -- Unlike the other chain updates there is no support for queuing the update and the effective time
 -- is required to be zero.
 handleCreatePLT :: (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
-handleCreatePLT updateHeader payload =
-    if updateEffectiveTime updateHeader /= 0
-        then return $ Left InvalidUpdateTime -- TODO: Since this is invalid, the transaction verifier should be updated to reject this
-        else do
-            -- TODO Check signature when relevant update keys are introduced (Issue https://linear.app/concordium/issue/NOD-701).
-            -- TODO Verify the TokenId not already exists.
-            -- verify the governance account exists.
-            let governanceAccountAddress = payload ^. cpltGovernanceAccount
-            maybeGovernanceAccount <- getStateAccount governanceAccountAddress
-            case maybeGovernanceAccount of
-                Nothing -> do
-                    return $ Right $ TxReject $ InvalidAccountReference governanceAccountAddress
-                Just (governanceAccountIndex, _governanceAccount) -> do
-                    let tokenSymbol = payload ^. cpltTokenSymbol
-                    getTokenIndex tokenSymbol >>= \case
-                        Just _existingTokenIndex -> do
-                            return $ Right $ TxReject $ TokenExists $ tokenSymbol
-                        Nothing -> do
-                            createResult <- withBlockStateRollback $ do
-                                let config =
-                                        PLTConfiguration
-                                            { _pltTokenId = tokenSymbol,
-                                              _pltModule = payload ^. cpltTokenModule,
-                                              _pltDecimals = payload ^. cpltDecimals,
-                                              _pltGovernanceAccountIndex = governanceAccountIndex
-                                            }
-                                tokenIx <- createToken config
-                                runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
-                            return $ Right $ case createResult of
-                                Left (reason :: TokenModule.InitializeTokenError) ->
-                                    TxReject . TokenModuleInitializeFailed $
-                                        TokenModule.makeTokenModuleRejectReason tokenSymbol reason
-                                Right () -> do
-                                    -- FIXME: Dummy event. https://linear.app/concordium/issue/COR-705/event-logging
-                                    TxSuccess [UpdateEnqueued (updateEffectiveTime updateHeader) (CreatePLTUpdatePayload payload)]
+handleCreatePLT updateHeader payload = runExceptT $ do
+    unless (updateEffectiveTime updateHeader == 0) $ throwError $ InvalidUpdateTime
+    -- TODO: Check signature when relevant update keys are introduced (Issue https://linear.app/concordium/issue/NOD-701).
+    let governanceAccountAddress = payload ^. cpltGovernanceAccount
+    (governanceAccountIndex, _governanceAccount) <-
+        lift (getStateAccount governanceAccountAddress) >>= \case
+            Nothing -> throwError $ UnknownAccount governanceAccountAddress
+            Just govAcct -> return govAcct
+    let tokenSymbol = payload ^. cpltTokenSymbol
+    maybeExistingToken <- lift $ getTokenIndex tokenSymbol
+    when (isJust maybeExistingToken) $ throwError $ DuplicateTokenId tokenSymbol
+    createResult <- lift . withBlockStateRollback $ do
+        let config =
+                PLTConfiguration
+                    { _pltTokenId = tokenSymbol,
+                      _pltModule = payload ^. cpltTokenModule,
+                      _pltDecimals = payload ^. cpltDecimals,
+                      _pltGovernanceAccountIndex = governanceAccountIndex
+                    }
+        tokenIx <- createToken config
+        runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
+    case createResult of
+        Left (e :: TokenModule.InitializeTokenError) -> throwError $ TokenInitializeFailure (show e)
+        Right () -> do
+            -- FIXME: Dummy event. https://linear.app/concordium/issue/COR-705/event-logging
+            return $ TxSuccess [UpdateEnqueued (updateEffectiveTime updateHeader) (CreatePLTUpdatePayload payload)]
 
 handleUpdateCredentials ::
     (SchedulerMonad m) =>
