@@ -77,7 +77,8 @@ configABC =
     PLTConfiguration
         { _pltTokenId = tokenABC,
           _pltModule = TokenModuleRef (SHA256.hash "abc"),
-          _pltDecimals = 6
+          _pltDecimals = 6,
+          _pltGovernanceAccountIndex = 0
         }
 
 configDEF :: PLTConfiguration
@@ -85,7 +86,8 @@ configDEF =
     PLTConfiguration
         { _pltTokenId = tokenDEF,
           _pltModule = TokenModuleRef (SHA256.hash "def"),
-          _pltDecimals = 0
+          _pltDecimals = 0,
+          _pltGovernanceAccountIndex = 0
         }
 
 emptyPLTPV :: (MonadBlobStore m) => m (ProtocolLevelTokensForPV 'P9)
