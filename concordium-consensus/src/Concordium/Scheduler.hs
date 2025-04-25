@@ -2884,7 +2884,7 @@ handleCreatePLT updateHeader payload = runExceptT $ do
     case createResult of
         Left (e :: TokenModule.InitializeTokenError) -> throwError $ TokenInitializeFailure (show e)
         Right () -> do
-            incrementPLTUpdateSequenceNumber
+            lift incrementPLTUpdateSequenceNumber
             -- FIXME: Dummy event. https://linear.app/concordium/issue/COR-705/event-logging
             return $ TxSuccess [UpdateEnqueued (updateEffectiveTime updateHeader) (CreatePLTUpdatePayload payload)]
 

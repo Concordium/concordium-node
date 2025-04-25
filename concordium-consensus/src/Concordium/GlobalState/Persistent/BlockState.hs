@@ -3703,13 +3703,17 @@ doEnqueueUpdate pbs effectiveTime payload = do
     storePBS pbs bsp{bspUpdates = u'}
 
 doIncrementPLTUpdateSequenceNumber ::
-    (SupportsPersistentState pv m, IsSupported 'PTProtocolLevelTokensParameters (ChainParametersVersionFor pv) ~ 'True) =>
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
     PersistentBlockState pv ->
     m (PersistentBlockState pv)
-doIncrementPLTUpdateSequenceNumber pbs = do
-    bsp <- loadPBS pbs
-    u' <- incrementPLTUpdateSequenceNumber (bspUpdates bsp)
-    storePBS pbs bsp{bspUpdates = u'}
+doIncrementPLTUpdateSequenceNumber pbs =
+    case sIsSupported SPTProtocolLevelTokensParameters (sChainParametersVersionFor (protocolVersion @pv)) of
+        SFalse -> case protocolVersion @pv of {}
+        STrue -> do
+            bsp <- loadPBS pbs
+            u' <- incrementPLTUpdateSequenceNumber (bspUpdates bsp)
+            storePBS pbs bsp{bspUpdates = u'}
 
 doOverwriteElectionDifficulty ::
     ( SupportsPersistentState pv m,
