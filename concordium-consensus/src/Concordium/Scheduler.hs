@@ -99,6 +99,8 @@ import qualified Concordium.TransactionVerification as TVer
 import Lens.Micro.Platform
 
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..))
+import qualified Concordium.Scheduler.ProtocolLevelTokens.Module as TokenModule
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData (rrdCurrentState))
 import Concordium.Types.Accounts
 import Concordium.Wasm (IsWasmVersion)
@@ -2801,9 +2803,12 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                 ValidatorScoreParametersUpdatePayload u -> case sIsSupported SPTValidatorScoreParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVValidatorScoreParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                CreatePLTUpdatePayload payload -> case sIsSupported SPTProtocolLevelTokensParameters scpv of
+                                CreatePLTUpdatePayload payload -> case sSupportsPLT (sAccountVersionFor (protocolVersion @(MPV m))) of
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                    STrue -> handleCreatePLT uiHeader payload
+                                    STrue ->
+                                        handleCreatePLT uiHeader payload >>= \case
+                                            Left invalidReason -> return $ TxInvalid invalidReason
+                                            Right valid -> buildValidTxSummary' valid
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
@@ -2834,7 +2839,10 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
         enqueueUpdate (updateEffectiveTime uiHeader) change
         buildValidTxSummary
     -- Construct the transaction summary and signal the transaction is valid.
-    buildValidTxSummary = do
+    buildValidTxSummary =
+        buildValidTxSummary' $
+            TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload]
+    buildValidTxSummary' tsResult = do
         tsIndex <- bumpTransactionIndex
         return $
             TxValid
@@ -2844,7 +2852,6 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                       tsCost = 0,
                       tsEnergyCost = 0,
                       tsType = TSTUpdateTransaction $ updateType uiPayload,
-                      tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
                       ..
                     }
 
@@ -2852,36 +2859,33 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
 --
 -- Unlike the other chain updates there is no support for queuing the update and the effective time
 -- is required to be zero.
-handleCreatePLT :: (SchedulerMonad m) => UpdateHeader -> CreatePLT -> m TxResult
-handleCreatePLT updateHeader payload =
-    if updateEffectiveTime updateHeader /= 0
-        then return $ TxInvalid InvalidUpdateTime
-        else do
-            -- TODO Check signature when relevant update keys are introduced (Issue https://linear.app/concordium/issue/NOD-701).
-            -- TODO Verify the TokenId not already exists.
-            -- verify the governance account exists.
-            let governanceAccountAddress = payload ^. cpltGovernanceAccount
-            maybeGovernanceAccount <- getStateAccount governanceAccountAddress
-            case maybeGovernanceAccount of
-                Nothing ->
-                    return $
-                        TxInvalid $
-                            NonExistentAccount governanceAccountAddress
-                Just _governanceAccountState -> do
-                    -- -- verify the token module exists and fetch the artifact and interface of the module.
-                    -- maybeTokenInterface <- getTokenModuleInterface (payload ^. cpltTokenModule)
-                    -- case maybeTokenInterface of
-                    --     Nothing ->
-                    --         return $
-                    --             TxInvalid $
-                    --                 NonExistentAccount governanceAccountAddress
-                    --     Just tokenModuleInterface -> do
-                    --         -- Create new PLT in token state with initial state.
-                    --         tokenState <- createToken tokenModuleInterface governanceAccountState
-                    --         -- Invoke the initialization call of token module with init state and the initialization parameter and collect the events for the summary.
-                    --         invokeInitializeToken tokenState
-                    --         buildValidTxSummary
-                    error "Not implemented yet"
+handleCreatePLT :: (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
+handleCreatePLT updateHeader payload = runExceptT $ do
+    unless (updateEffectiveTime updateHeader == 0) $ throwError $ InvalidUpdateTime
+    -- TODO: Check signature when relevant update keys are introduced (Issue https://linear.app/concordium/issue/NOD-701).
+    let governanceAccountAddress = payload ^. cpltGovernanceAccount
+    (governanceAccountIndex, _governanceAccount) <-
+        lift (getStateAccount governanceAccountAddress) >>= \case
+            Nothing -> throwError $ UnknownAccount governanceAccountAddress
+            Just govAcct -> return govAcct
+    let tokenSymbol = payload ^. cpltTokenSymbol
+    maybeExistingToken <- lift $ getTokenIndex tokenSymbol
+    when (isJust maybeExistingToken) $ throwError $ DuplicateTokenId tokenSymbol
+    createResult <- lift . withBlockStateRollback $ do
+        let config =
+                PLTConfiguration
+                    { _pltTokenId = tokenSymbol,
+                      _pltModule = payload ^. cpltTokenModule,
+                      _pltDecimals = payload ^. cpltDecimals,
+                      _pltGovernanceAccountIndex = governanceAccountIndex
+                    }
+        tokenIx <- createToken config
+        runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
+    case createResult of
+        Left (e :: TokenModule.InitializeTokenError) -> throwError $ TokenInitializeFailure (show e)
+        Right () -> do
+            -- FIXME: Dummy event. https://linear.app/concordium/issue/COR-705/event-logging
+            return $ TxSuccess [UpdateEnqueued (updateEffectiveTime updateHeader) (CreatePLTUpdatePayload payload)]
 
 handleUpdateCredentials ::
     (SchedulerMonad m) =>

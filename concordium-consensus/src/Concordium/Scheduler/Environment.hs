@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -45,6 +46,7 @@ import Control.Exception (assert)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Token
 import qualified Concordium.ID.Types as ID
+import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTKernelFail, PLTKernelPrivilegedUpdate)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
@@ -366,6 +368,29 @@ class
     --
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     getTokenConfiguration :: (PVSupportsPLT (MPV m)) => Token.TokenIndex -> m Token.PLTConfiguration
+
+    -- | Take a snapshot of the current block state, and run the given computation. If the result
+    --  is @Left e@, then the block state is reverted to the snapshot. Otherwise, any changes to
+    --  the block state are retained. The return value is the result of the computation.
+    withBlockStateRollback :: m (Either e a) -> m (Either e a)
+
+    -- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel.
+    --
+    --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
+    runPLT ::
+        (PVSupportsPLT (MPV m)) =>
+        Token.TokenIndex ->
+        (forall m1. (Monad m1, PLTKernelPrivilegedUpdate m1, PLTKernelFail e m1) => m1 a) ->
+        m (Either e a)
+
+    -- | Create a new protocol-layer token with the given 'PLTConfiguration'.
+    --
+    --  PRECONDITION: There MUST NOT already be a token with the specified token ID.
+    --  The governance account index MUST reference a valid account.
+    createToken ::
+        (PVSupportsPLT (MPV m)) =>
+        Token.PLTConfiguration ->
+        m Token.TokenIndex
 
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the
