@@ -88,6 +88,7 @@ import Concordium.Skov as Skov (
     evalSkovT,
  )
 import Concordium.Types.Option
+import Concordium.Types.Updates (minUpdateSequenceNumber)
 import Control.Monad.State.Class
 import Data.Time
 
@@ -1007,7 +1008,10 @@ getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
   where
     query bs = do
         updates <- BS.getUpdates bs
-        return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
+        return
+            $ updateQueuesNextSequenceNumbers
+                (UQ._pendingUpdates updates)
+            $ maybeWhenSupported minUpdateSequenceNumber id (UQ._pltUpdateSequenceNumber updates)
 
 -- | Get the index of accounts with scheduled releases.
 getScheduledReleaseAccounts ::
