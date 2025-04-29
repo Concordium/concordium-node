@@ -91,6 +91,7 @@ import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.CooldownQueue (Cooldowns)
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as GSAccount
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
     PLTConfiguration,
     ProtocolLevelTokensHash (..),
@@ -266,6 +267,10 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
         (PVSupportsFlexibleCooldown (MPV m)) =>
         Account m ->
         m (Maybe Cooldowns)
+
+    -- | Get the protocol level tokens owned by an account. This is only available at account versions that
+    -- support protocol level tokens.
+    getAccountTokens :: (PVSupportsPLT (MPV m)) => Account m -> m (Map.Map TokenIndex GSAccount.TokenAccountState)
 
 -- * Active, current and next bakers/delegators
 
@@ -1910,6 +1915,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     derefBakerInfo = lift . derefBakerInfo
     getAccountHash = lift . getAccountHash
     getAccountCooldowns = lift . getAccountCooldowns
+    getAccountTokens = lift . getAccountTokens
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1925,6 +1931,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE derefBakerInfo #-}
     {-# INLINE getAccountHash #-}
     {-# INLINE getAccountCooldowns #-}
+    {-# INLINE getAccountTokens #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState
