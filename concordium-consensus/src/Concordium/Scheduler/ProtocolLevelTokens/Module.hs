@@ -52,7 +52,15 @@ toTokenRawAmount actualDecimals TokenAmount{..} =
             factor = 10 ^ (fromIntegral actualDecimals - nrDecimals)
             rawAmountInteger = factor * toInteger digits
 
-toTokenAmount :: Word8 -> TokenRawAmount -> TokenAmount
+-- | Convert a 'TokenRawAmount' to a 'TokenAmount' given the number of decimals in the
+--  representation.
+toTokenAmount ::
+    -- | Number of decimals
+    Word8 ->
+    -- | Amount to convert
+    TokenRawAmount ->
+    -- | Converted amount
+    TokenAmount
 toTokenAmount decimals (TokenRawAmount rawAmount) =
     TokenAmount
         { digits = rawAmount,
@@ -87,6 +95,8 @@ initializeToken tokenParam = do
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
 
+-- | A pre-processed token-holder operation. This has the transfer amount converted to a
+--  'TokenRawAmount' and unwraps the metadata associated with the recipient and memo.
 data PreprocessedTokenHolderOperation = PTHOTransfer
     { -- | The raw amount to transfer.
       pthoAmount :: !TokenRawAmount,
@@ -98,6 +108,8 @@ data PreprocessedTokenHolderOperation = PTHOTransfer
       pthoUnprocessed :: !TokenTransferBody
     }
 
+-- | Convert 'TokenAmount's to 'TokenRawAmount's, checking that they are within the representable
+--  range.
 preprocessTokenHolderTransaction ::
     (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     Word8 ->
@@ -116,6 +128,15 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
                 pthoMemo = untaggedMemo <$> ttMemo
                 pthoUnprocessed = ttb
 
+-- | Execute a token-holder transaction. The process is as follows:
+--
+--   - Decode the transaction CBOR parameter.
+--   - Check that amounts are within the representable range.
+--   - For each transfer operation:
+--
+--       - Check that the recipient is valid.
+--       - Transfer the amount from the sender to the recipient, if the sender's balance is
+--         sufficient.
 executeTokenHolderTransaction ::
     (PLTKernelUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     PLTAccount m ->

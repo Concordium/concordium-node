@@ -2698,9 +2698,6 @@ handleTokenHolder depositContext tokenId tokenOperations =
         -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
         -- Invoke the token module with operations.
         lift $ invokeTokenHolderOperations moduleRef tokenIndex senderAccount tokenOperations
-    -- Map the produced events adding the token ID.
-    -- let tokenModuleEvents = uncurry (TokenEvent tokenId) <$> events
-    -- return tokenModuleEvents
     -- Process the successful transaction computation.
     commitTransaction computeState computeResult = do
         (usedEnergy, energyCost) <- computeExecutionCharge (depositContext ^. wtcEnergyAmount) (computeState ^. energyLeft)
@@ -2721,6 +2718,7 @@ handleTokenHolder depositContext tokenId tokenOperations =
     invokeTokenHolderOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
             runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction sender parameter
+        -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
         return ((\() -> []) <$> result)
 
 -- * Chain updates
