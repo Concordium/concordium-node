@@ -54,4 +54,4 @@ class (PLTKernelUpdate m) => PLTKernelPrivilegedUpdate m where
 
 class PLTKernelFail e m where
     -- | Abort the current operation by raising an error.
-    pltError :: e -> m ()
+    pltError :: e -> m a

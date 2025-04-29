@@ -1,10 +1,15 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Concordium.Scheduler.ProtocolLevelTokens.Module where
 
 import Control.Monad
 import qualified Data.ByteString.Builder as BS.Builder
+import Data.Maybe
+import qualified Data.Sequence as Seq
+import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
+import Data.Word
 
 import Concordium.Types
 import Concordium.Types.ProtocolLevelTokens.CBOR
@@ -15,14 +20,14 @@ import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 -- | Represents the reasons why 'initializeToken' can fail.
 data InitializeTokenError
     = ITEDeserializationFailure !String
-    | ITEInvalidMintAmount
+    | ITEInvalidMintAmount !String
     deriving (Eq)
 
 instance Show InitializeTokenError where
     show (ITEDeserializationFailure reason) =
         "Token initialization parameters could not be deserialized: " ++ reason
-    show ITEInvalidMintAmount =
-        "The initial mint amount was outside of the representable range."
+    show (ITEInvalidMintAmount reason) =
+        "The initial mint amount was outside of the representable range: " ++ reason
 
 -- | Try to convert a 'TokenAmount' to a 'TokenRawAmount'. The latter is represented in the
 --  smallest subdivision allowed for the current token.
@@ -30,18 +35,29 @@ instance Show InitializeTokenError where
 --
 --   - The token amount specifies more decimals than the token allows in its representation.
 --   - The amount would be outside of the representable range as a 'TokenRawAmount'.
-toTokenRawAmount :: (PLTKernelQuery m, Monad m) => TokenAmount -> m (Maybe TokenRawAmount)
-toTokenRawAmount TokenAmount{..} = do
-    actualDecimals <- getDecimals
+toTokenRawAmount ::
+    -- | The number of decimals in the token representation.
+    Word8 ->
+    TokenAmount ->
+    Either String TokenRawAmount
+toTokenRawAmount actualDecimals TokenAmount{..} =
     case compare nrDecimals (fromIntegral actualDecimals) of
-        EQ -> return (Just (TokenRawAmount digits))
-        GT -> return Nothing
-        LT -> do
-            let factor = 10 ^ (fromIntegral actualDecimals - nrDecimals)
-            let rawAmountInteger = factor * toInteger digits
-            if rawAmountInteger > fromIntegral (maxBound :: TokenRawAmount)
-                then return Nothing
-                else return (Just (fromIntegral rawAmountInteger))
+        EQ -> Right (TokenRawAmount digits)
+        GT -> Left "Token amount precision exceeds representable precision"
+        LT
+            | rawAmountInteger > fromIntegral (maxBound :: TokenRawAmount) ->
+                Left "Token amount exceeds maximum representable amount"
+            | otherwise -> Right (fromIntegral rawAmountInteger)
+          where
+            factor = 10 ^ (fromIntegral actualDecimals - nrDecimals)
+            rawAmountInteger = factor * toInteger digits
+
+toTokenAmount :: Word8 -> TokenRawAmount -> TokenAmount
+toTokenAmount decimals (TokenRawAmount rawAmount) =
+    TokenAmount
+        { digits = rawAmount,
+          nrDecimals = fromIntegral decimals
+        }
 
 -- | Initialize a PLT by recording the relevant configuration parameters in the state and
 --  (if necessary) minting the initial supply to the token governance account.
@@ -60,12 +76,78 @@ initializeToken tokenParam = do
             when tipMintable $ setTokenState "mintable" (Just "")
             when tipBurnable $ setTokenState "burnable" (Just "")
             forM_ tipInitialSupply $ \initSupply -> do
-                toTokenRawAmount initSupply >>= \case
-                    Nothing -> pltError ITEInvalidMintAmount
-                    Just amt -> do
+                decimals <- getDecimals
+                case toTokenRawAmount decimals initSupply of
+                    Left reason -> pltError (ITEInvalidMintAmount reason)
+                    Right amt -> do
                         govAccount <- getGovernanceAccount
                         mintOK <- mint govAccount amt
-                        unless mintOK $ pltError ITEInvalidMintAmount
+                        unless mintOK $ pltError (ITEInvalidMintAmount "Kernel failed to mint")
   where
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
+
+data PreprocessedTokenHolderOperation = PTHOTransfer
+    { -- | The raw amount to transfer.
+      pthoAmount :: !TokenRawAmount,
+      -- | The recipient account address.
+      pthoRecipient :: !AccountAddress,
+      -- | The (optional) memo.
+      pthoMemo :: !(Maybe Memo),
+      -- | The original, unprocessed, 'TokenTransferBody'.
+      pthoUnprocessed :: !TokenTransferBody
+    }
+
+preprocessTokenHolderTransaction ::
+    (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    Word8 ->
+    TokenHolderTransaction ->
+    m (Seq.Seq PreprocessedTokenHolderOperation)
+preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactions
+  where
+    preproc (TokenHolderTransfer ttb@(TokenTransferBody{..})) =
+        case toTokenRawAmount decimals ttAmount of
+            Left err ->
+                pltError . encodeTokenHolderFailure . DeserializationFailure . Just . Text.pack $
+                    "Token amount outside representable range: " ++ err
+            Right pthoAmount -> return PTHOTransfer{..}
+              where
+                pthoRecipient = receiverAccountAddress ttRecipient
+                pthoMemo = untaggedMemo <$> ttMemo
+                pthoUnprocessed = ttb
+
+executeTokenHolderTransaction ::
+    (PLTKernelUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    PLTAccount m ->
+    TokenParameter ->
+    m ()
+executeTokenHolderTransaction sender tokenParam = do
+    case tokenHolderTransactionFromBytes tokenParamLBS of
+        Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
+        Right parsedTransaction -> do
+            decimals <- getDecimals
+            operations <- preprocessTokenHolderTransaction decimals parsedTransaction
+            let handleOperation !opIndex PTHOTransfer{..} = do
+                    getAccount pthoRecipient >>= \case
+                        Nothing ->
+                            failTH
+                                RecipientNotFound
+                                    { thfTransactionIndex = opIndex,
+                                      thfRecipient = ttRecipient pthoUnprocessed
+                                    }
+                        Just recipientAccount -> do
+                            success <- transfer sender recipientAccount pthoAmount pthoMemo
+                            unless success $ do
+                                availableBalance <- fromMaybe 0 <$> getAccountBalance sender
+                                failTH
+                                    TokenBalanceInsufficient
+                                        { thfTransactionIndex = opIndex,
+                                          thfAvailableBalance = toTokenAmount decimals availableBalance,
+                                          thfRequiredBalance = ttAmount pthoUnprocessed
+                                        }
+                            return (opIndex + 1)
+            foldM_ handleOperation 0 operations
+  where
+    tokenParamLBS =
+        BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
+    failTH = pltError . encodeTokenHolderFailure
