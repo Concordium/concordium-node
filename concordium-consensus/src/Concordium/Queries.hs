@@ -47,6 +47,7 @@ import Concordium.Types.IdentityProviders
 import Concordium.Types.Parameters
 import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
 import qualified Concordium.Types.Queries.KonsensusV1 as QueriesKonsensusV1
+import qualified Concordium.Types.Queries.Tokens as Tokens
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
@@ -67,8 +68,10 @@ import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.Finalization
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as BlockState
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as BlockState
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.TreeState as TS
@@ -1221,6 +1224,7 @@ getAccountInfoV1 ai bs = getAccountInfoHelper getASIv1 getCooldownsV1 ai bs
 -- | Helper for getting the details of an account, given a function for getting the staking
 --  information.
 getAccountInfoHelper ::
+    forall m.
     (BS.BlockStateQuery m) =>
     (Account m -> m AccountStakingInfo) ->
     (Account m -> m [Cooldown]) ->
@@ -1244,8 +1248,28 @@ getAccountInfoHelper getASI getCooldowns acct bs = do
         aiAccountAddress <- BS.getAccountCanonicalAddress acc
         aiAccountCooldowns <- getCooldowns acc
         aiAccountAvailableAmount <- BS.getAccountAvailableAmount acc
-        -- TODO: Get the actual protocol layer tokens. Issue #1342
-        let aiAccountTokens = []
+        aiAccountTokens <- case sSupportsPLT (sAccountVersionFor (protocolVersion @(MPV m))) of
+            STrue -> do
+                tokenStatesMap <- BS.getAccountTokens acc
+                forM (Map.toList tokenStatesMap) $ \(tokenIndex, tokenState) -> do
+                    pltConfiguration <- BS.getTokenConfiguration bs tokenIndex
+                    let accountBalance =
+                            Tokens.TokenAmount
+                                { digits = fromIntegral $ BlockState.tasBalance tokenState,
+                                  nrDecimals = fromIntegral $ BlockState._pltDecimals pltConfiguration
+                                }
+                    return
+                        Tokens.Token
+                            { tokenId = BlockState._pltTokenId pltConfiguration,
+                              tokenAccountState =
+                                Tokens.TokenAccountState
+                                    { balance = accountBalance,
+                                      -- TODO Support allow/deny list state in account info query (Issue https://linear.app/concordium/issue/COR-1349)
+                                      memberAllowList = False,
+                                      memberDenyList = False
+                                    }
+                            }
+            SFalse -> return []
         return AccountInfo{..}
 
 -- | Get the details of a smart contract instance in the block state.

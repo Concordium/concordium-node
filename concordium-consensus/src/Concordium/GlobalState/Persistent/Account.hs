@@ -30,12 +30,15 @@ import Concordium.GlobalState.BlockState (AccountAllowance)
 import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.Persistent.Account.CooldownQueue (NextCooldownChange)
 import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as BlockState
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
 import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as V1
 import Concordium.GlobalState.Persistent.BlobStore
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as BlockState
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Persistent.CachedRef
 import Concordium.Logger
+import Concordium.Types.Conditionally (uncond)
 
 -- * Account types
 
@@ -342,6 +345,14 @@ accountCooldowns ::
 accountCooldowns (PAV3 acc) = V1.getCooldowns acc
 accountCooldowns (PAV4 acc) = V1.getCooldowns acc
 accountCooldowns (PAV5 acc) = V1.getCooldowns acc
+
+-- | Get the state of protocol level tokens owned by an account. This is only available at account
+-- versions that support protocol level tokens.
+accountTokens ::
+    (MonadBlobStore m, AVSupportsPLT av) =>
+    PersistentAccount av ->
+    m (Map.Map BlockState.TokenIndex BlockState.TokenAccountState)
+accountTokens (PAV5 acc) = uncond <$> V1.getTokenStateTable acc
 
 -- | Determine if an account has a pre-pre-cooldown.
 accountHasPrePreCooldown ::
