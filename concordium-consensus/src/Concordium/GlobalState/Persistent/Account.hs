@@ -4,6 +4,9 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
+-- Some interfaces in this module have deliberate redundant constraints (e.g. to constrain
+-- protocol versions). As such, we suppress the redundant constraints warning.
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- | This module provides an interface for operating on peristent accounts.
 module Concordium.GlobalState.Persistent.Account where
