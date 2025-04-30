@@ -32,7 +32,7 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBTree
 
 -- | Represents the raw amount of a token. This is the amount of the token in its smallest unit.
 newtype TokenRawAmount = TokenRawAmount {theTokenRawAmount :: Word64}
-    deriving newtype (Eq, Ord, Show, Num, Real)
+    deriving newtype (Eq, Ord, Show, Num, Real, Bounded, Enum, Integral)
 
 -- | Serialization of 'TokenRawAmount' is as a variable length quantity (VLQ). We disallow
 --  0-padding to enforce canonical serialization.
@@ -71,6 +71,11 @@ instance (MonadBlobStore m) => BlobStorable m TokenRawAmount
 newtype TokenIndex = TokenIndex {theTokenIndex :: Word64}
     deriving newtype (Eq, Ord, Serialize, Show, Num, Real, Enum, Integral, Bounded, Bits)
 
+instance (MonadBlobStore m) => BlobStorable m TokenIndex
+
+instance HashableTo SHA256.Hash TokenIndex where
+    getHash = SHA256.hash . runPut . put . theTokenIndex
+
 -- | The configuration of a protocol-level token that is generally not expected to change.
 data PLTConfiguration = PLTConfiguration
     { -- | The token ID.
@@ -78,7 +83,9 @@ data PLTConfiguration = PLTConfiguration
       -- | The token module reference.
       _pltModule :: !TokenModuleRef,
       -- | The number of decimal places used in the representation of the token.
-      _pltDecimals :: !Word8
+      _pltDecimals :: !Word8,
+      -- | The index of the account authorized to perform token governance operations.
+      _pltGovernanceAccountIndex :: !AccountIndex
     }
     deriving (Eq, Ord, Show)
 
@@ -87,10 +94,12 @@ instance Serialize PLTConfiguration where
         put _pltTokenId
         put _pltModule
         put _pltDecimals
+        put _pltGovernanceAccountIndex
     get = do
         _pltTokenId <- get
         _pltModule <- get
         _pltDecimals <- get
+        _pltGovernanceAccountIndex <- get
         return PLTConfiguration{..}
 
 instance (MonadBlobStore m) => BlobStorable m PLTConfiguration

@@ -12,6 +12,9 @@ module Concordium.Scheduler.EnvironmentImplementation where
 
 import Control.Monad
 import Control.Monad.RWS.Strict
+import Control.Monad.Trans.Cont
+import Control.Monad.Trans.Reader (ReaderT (..))
+import Data.Either
 import Data.HashMap.Strict as Map
 import qualified Data.Kind as DK
 import Lens.Micro.Platform
@@ -19,9 +22,11 @@ import Lens.Micro.Platform
 import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..), TokenIndex)
 import Concordium.GlobalState.TreeState
 import Concordium.Logger
 import Concordium.Scheduler.Environment
+import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.Types
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
@@ -420,6 +425,12 @@ instance
         s' <- lift (BS.bsoEnqueueUpdate s tt p)
         ssBlockState .= s'
 
+    {-# INLINE incrementPLTUpdateSequenceNumber #-}
+    incrementPLTUpdateSequenceNumber = do
+        s <- use ssBlockState
+        s' <- lift (BS.bsoIncrementPLTUpdateSequenceNumber s)
+        ssBlockState .= s'
+
     {-# INLINE getTokenIndex #-}
     getTokenIndex tokenId = do
         blockState <- use ssBlockState
@@ -429,6 +440,25 @@ instance
     getTokenConfiguration tokenIndex = do
         blockState <- use ssBlockState
         lift (BS.getTokenConfiguration blockState tokenIndex)
+
+    withBlockStateRollback op = do
+        s0 <- use ssBlockState
+        snapshot <- lift $ BS.bsoSnapshotState s0
+        res <- op
+        when (isLeft res) $ do
+            s1 <- use ssBlockState
+            s2 <- lift $ BS.bsoRollback s1 snapshot
+            ssBlockState .= s2
+        return res
+
+    runPLT tokenIx op = do
+        runKernelT op tokenIx
+
+    createToken pltConfig = do
+        s <- use ssBlockState
+        (tokenIx, s') <- lift $ BS.bsoCreateToken s pltConfig
+        ssBlockState .= s'
+        return tokenIx
 
     {-# INLINE getTokenGovernanceAccount #-}
     getTokenGovernanceAccount _tokenIndex = error "Not implemented yet"
@@ -444,3 +474,77 @@ runSchedulerT ::
 runSchedulerT computation contextState initialState = do
     (value, resultingState, ()) <- runRWST (_runSchedulerT computation) contextState initialState
     return (value, resultingState)
+
+newtype KernelT fail ret m a = KernelT {runKernelT' :: ReaderT TokenIndex (ContT (Either fail ret) (SchedulerT m)) a}
+    deriving
+        ( Functor,
+          Applicative,
+          Monad,
+          MonadState (SchedulerState m),
+          MonadReader TokenIndex
+        )
+
+runKernelT :: (Monad m) => KernelT fail a m a -> TokenIndex -> SchedulerT m (Either fail a)
+runKernelT a tokenIx = runContT (runReaderT (runKernelT' a) tokenIx) (return . Right)
+
+instance MonadTrans (KernelT fail ret) where
+    lift = KernelT . lift . lift . lift
+
+-- | The block state types for `KernelT fail ret m` are derived from the base monad `m`.
+deriving via (MGSTrans (KernelT fail ret) m) instance BlockStateTypes (KernelT fail ret m)
+
+instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (KernelT fail ret m) where
+    type PLTAccount (KernelT fail ret m) = IndexedAccount m
+    getTokenState key = do
+        tokenIx <- ask
+        bs <- use ssBlockState
+        lift $ BS.getTokenState bs tokenIx key
+    getAccount addr = do
+        bs <- use ssBlockState
+        lift $ BS.bsoGetAccount bs addr
+    getAccountBalance _acct = do
+        -- TODO: implement
+        return Nothing
+    getAccountState _acct _key = do
+        -- TODO: implement
+        return Nothing
+    getAccountCanonicalAddress acct = do
+        lift $ BS.getAccountCanonicalAddress (snd acct)
+    getGovernanceAccount = do
+        tokenIx <- ask
+        bs <- use ssBlockState
+        lift $ do
+            config <- BS.getTokenConfiguration bs tokenIx
+            let govIndex = _pltGovernanceAccountIndex config
+            BS.bsoGetAccountByIndex bs govIndex >>= \case
+                Nothing -> error "getGovernanceAccount: Governance account does not exist"
+                Just acc -> return (govIndex, acc)
+    getCirculatingSupply = do
+        tokenIx <- ask
+        bs <- use ssBlockState
+        lift $ BS.getTokenCirculatingSupply bs tokenIx
+    getDecimals = do
+        tokenIx <- ask
+        bs <- use ssBlockState
+        lift $ _pltDecimals <$> BS.getTokenConfiguration bs tokenIx
+
+instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (KernelT fail ret m) where
+    setTokenState key mValue = do
+        tokenIx <- ask
+        bs <- use ssBlockState
+        newBS <- lift $ BS.bsoSetTokenState bs tokenIx key mValue
+        ssBlockState .= newBS
+    setAccountState _ _ _ = do
+        -- TODO: implement
+        return ()
+    transfer _ _ _ _ = do
+        -- TODO: implement
+        return False
+
+instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
+    mint _ _ = return False -- TODO: implement
+    burn _ _ = return False -- TODO: implement
+
+instance (Monad m) => (PLTKernelFail fail (KernelT fail ret m)) where
+    -- To abort, we simply drop the continuation and return the error.
+    pltError err = KernelT $ ReaderT $ \_ -> ContT $ \_ -> return (Left err)

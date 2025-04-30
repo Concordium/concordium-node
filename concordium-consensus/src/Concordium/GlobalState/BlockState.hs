@@ -91,6 +91,7 @@ import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.CooldownQueue (Cooldowns)
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as GSAccount
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
     PLTConfiguration,
     ProtocolLevelTokensHash (..),
@@ -266,6 +267,10 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
         (PVSupportsFlexibleCooldown (MPV m)) =>
         Account m ->
         m (Maybe Cooldowns)
+
+    -- | Get the protocol level tokens owned by an account. This is only available at account versions that
+    -- support protocol level tokens.
+    getAccountTokens :: (PVSupportsPLT (MPV m)) => Account m -> m (Map.Map TokenIndex GSAccount.TokenAccountState)
 
 -- * Active, current and next bakers/delegators
 
@@ -1521,6 +1526,10 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
         (UpdateValue (ChainParametersVersionFor (MPV m))) ->
         m (UpdatableBlockState m)
 
+    -- | Increment the update sequence number for Protocol Level Tokens (PLT).
+    -- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
+    bsoIncrementPLTUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> m (UpdatableBlockState m)
+
     -- | Overwrite the election difficulty, removing any queued election difficulty updates.
     --  This is intended to be used for protocol updates that affect the election difficulty in
     --  tandem with the slot duration.
@@ -1645,7 +1654,8 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     --
     --  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already be in use
     --  by a protocol-level token, i.e. @getTokenIndex s (_pltTokenId cfg)@ should return
-    --  @Nothing@.
+    --  @Nothing@. The 'PLTConfiguration' MUST be valid, and in particular the
+    --  '_pltGovernanceAccountIndex' MUST reference a valid account.
     bsoCreateToken ::
         (PVSupportsPLT (MPV m)) =>
         -- | The current block state @s@.
@@ -1905,6 +1915,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     derefBakerInfo = lift . derefBakerInfo
     getAccountHash = lift . getAccountHash
     getAccountCooldowns = lift . getAccountCooldowns
+    getAccountTokens = lift . getAccountTokens
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1920,6 +1931,7 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE derefBakerInfo #-}
     {-# INLINE getAccountHash #-}
     {-# INLINE getAccountCooldowns #-}
+    {-# INLINE getAccountTokens #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState
@@ -1997,6 +2009,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetUpdateKeyCollection = lift . bsoGetUpdateKeyCollection
     bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
     bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
+    bsoIncrementPLTUpdateSequenceNumber = lift . bsoIncrementPLTUpdateSequenceNumber
     bsoOverwriteElectionDifficulty s = lift . bsoOverwriteElectionDifficulty s
     bsoClearProtocolUpdate = lift . bsoClearProtocolUpdate
     bsoGetExchangeRates = lift . bsoGetExchangeRates

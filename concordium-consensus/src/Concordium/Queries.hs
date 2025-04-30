@@ -44,12 +44,16 @@ import Concordium.Types.Execution (
  )
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
 import qualified Concordium.Types.Queries.KonsensusV1 as QueriesKonsensusV1
+import qualified Concordium.Types.Queries.Tokens as Tokens
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
+import Concordium.Types.Updates (minUpdateSequenceNumber)
+import qualified Concordium.Types.Updates as U
 import qualified Concordium.Wasm as Wasm
 import qualified Proto.V2.Concordium.Types as Proto
 
@@ -67,8 +71,10 @@ import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.Finalization
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as BlockState
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as BlockState
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.TreeState as TS
@@ -87,7 +93,7 @@ import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
-import Concordium.Types.Option
+
 import Control.Monad.State.Class
 import Data.Time
 
@@ -1005,9 +1011,38 @@ getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM (\_ -> return 
 getNextUpdateSequenceNumbers :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse NextUpdateSequenceNumbers)
 getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
   where
+    -- Get the next sequence number or minUpdateSequenceNumber (1), if not supported.
+    mNextSequenceNumber :: UQ.OUpdateQueue pt cpv e -> U.UpdateSequenceNumber
+    mNextSequenceNumber NoParam = minUpdateSequenceNumber
+    mNextSequenceNumber (SomeParam q) = UQ._uqNextSequenceNumber q
     query bs = do
         updates <- BS.getUpdates bs
-        return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
+        let UQ.PendingUpdates{..} = UQ._pendingUpdates updates
+        return
+            NextUpdateSequenceNumbers
+                { _nusnRootKeys = UQ._uqNextSequenceNumber _pRootKeysUpdateQueue,
+                  _nusnLevel1Keys = UQ._uqNextSequenceNumber _pLevel1KeysUpdateQueue,
+                  _nusnLevel2Keys = UQ._uqNextSequenceNumber _pLevel2KeysUpdateQueue,
+                  _nusnProtocol = UQ._uqNextSequenceNumber _pProtocolQueue,
+                  _nusnElectionDifficulty = mNextSequenceNumber _pElectionDifficultyQueue,
+                  _nusnEuroPerEnergy = UQ._uqNextSequenceNumber _pEuroPerEnergyQueue,
+                  _nusnMicroCCDPerEuro = UQ._uqNextSequenceNumber _pMicroGTUPerEuroQueue,
+                  _nusnFoundationAccount = UQ._uqNextSequenceNumber _pFoundationAccountQueue,
+                  _nusnMintDistribution = UQ._uqNextSequenceNumber _pMintDistributionQueue,
+                  _nusnTransactionFeeDistribution = UQ._uqNextSequenceNumber _pTransactionFeeDistributionQueue,
+                  _nusnGASRewards = UQ._uqNextSequenceNumber _pGASRewardsQueue,
+                  _nusnPoolParameters = UQ._uqNextSequenceNumber _pPoolParametersQueue,
+                  _nusnAddAnonymityRevoker = UQ._uqNextSequenceNumber _pAddAnonymityRevokerQueue,
+                  _nusnAddIdentityProvider = UQ._uqNextSequenceNumber _pAddIdentityProviderQueue,
+                  _nusnCooldownParameters = mNextSequenceNumber _pCooldownParametersQueue,
+                  _nusnTimeParameters = mNextSequenceNumber _pTimeParametersQueue,
+                  _nusnTimeoutParameters = mNextSequenceNumber _pTimeoutParametersQueue,
+                  _nusnMinBlockTime = mNextSequenceNumber _pMinBlockTimeQueue,
+                  _nusnBlockEnergyLimit = mNextSequenceNumber _pBlockEnergyLimitQueue,
+                  _nusnFinalizationCommitteeParameters = mNextSequenceNumber _pFinalizationCommitteeParametersQueue,
+                  _nusnValidatorScoreParameters = mNextSequenceNumber _pValidatorScoreParametersQueue,
+                  _nusnProtocolLevelTokensParameters = maybeWhenSupported minUpdateSequenceNumber id (UQ._pltUpdateSequenceNumber updates)
+                }
 
 -- | Get the index of accounts with scheduled releases.
 getScheduledReleaseAccounts ::
@@ -1221,6 +1256,7 @@ getAccountInfoV1 ai bs = getAccountInfoHelper getASIv1 getCooldownsV1 ai bs
 -- | Helper for getting the details of an account, given a function for getting the staking
 --  information.
 getAccountInfoHelper ::
+    forall m.
     (BS.BlockStateQuery m) =>
     (Account m -> m AccountStakingInfo) ->
     (Account m -> m [Cooldown]) ->
@@ -1244,8 +1280,28 @@ getAccountInfoHelper getASI getCooldowns acct bs = do
         aiAccountAddress <- BS.getAccountCanonicalAddress acc
         aiAccountCooldowns <- getCooldowns acc
         aiAccountAvailableAmount <- BS.getAccountAvailableAmount acc
-        -- TODO: Get the actual protocol layer tokens. Issue #1342
-        let aiAccountTokens = []
+        aiAccountTokens <- case sSupportsPLT (sAccountVersionFor (protocolVersion @(MPV m))) of
+            STrue -> do
+                tokenStatesMap <- BS.getAccountTokens acc
+                forM (Map.toList tokenStatesMap) $ \(tokenIndex, tokenState) -> do
+                    pltConfiguration <- BS.getTokenConfiguration bs tokenIndex
+                    let accountBalance =
+                            Tokens.TokenAmount
+                                { digits = fromIntegral $ BlockState.tasBalance tokenState,
+                                  nrDecimals = fromIntegral $ BlockState._pltDecimals pltConfiguration
+                                }
+                    return
+                        Tokens.Token
+                            { tokenId = BlockState._pltTokenId pltConfiguration,
+                              tokenAccountState =
+                                Tokens.TokenAccountState
+                                    { balance = accountBalance,
+                                      -- TODO Support allow/deny list state in account info query (Issue https://linear.app/concordium/issue/COR-1349)
+                                      memberAllowList = False,
+                                      memberDenyList = False
+                                    }
+                            }
+            SFalse -> return []
         return AccountInfo{..}
 
 -- | Get the details of a smart contract instance in the block state.
