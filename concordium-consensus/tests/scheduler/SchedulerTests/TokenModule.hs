@@ -1,10 +1,12 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
@@ -24,10 +26,17 @@ import Test.Hspec
 import Concordium.Types
 
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
+import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
-import Concordium.Scheduler.ProtocolLevelTokens.Module (InitializeTokenError (..), initializeToken)
+import Concordium.Scheduler.ProtocolLevelTokens.Module (
+    InitializeTokenError (..),
+    executeTokenHolderTransaction,
+    initializeToken,
+ )
 import Concordium.Types.ProtocolLevelTokens.CBOR
 import Concordium.Types.Tokens
+import qualified Data.Sequence as Seq
+import System.Random
 
 -- | A value of type @PLTKernelQueryCall acct ret@ represents an invocation of an operation
 --  in a 'PLTKernelQuery' monad where @PLTAccount m ~ acct@. The parameter @ret@ is the type
@@ -69,7 +78,7 @@ deriving instance (Eq acct) => Eq (PLTKernelPrivilegedUpdateCall acct ret)
 -- | A value of type @PLTKernelFailCall e ret@ represents an invocation of an operation in a
 --  @PLTKernelFail e@ monad. The parameter @ret@ is the type of the return value expected.
 data PLTKernelFailCall e ret where
-    PLTError :: e -> PLTKernelFailCall e ()
+    PLTError :: e -> PLTKernelFailCall e a
 
 deriving instance (Show e) => Show (PLTKernelFailCall e ret)
 deriving instance (Eq e) => Eq (PLTKernelFailCall e ret)
@@ -193,7 +202,7 @@ checkTrace expected op = runTraceM op Left (Right ()) checkDone expected
 --  existentially quantified in the trace. This is necessary, since we wish to model operations with
 --  different return types.
 handleEvent ::
-    (Eq (call a), Show (call a), Typeable call, Typeable ret, Typeable a, Show ret) =>
+    (Eq (call a), Show (call a), Typeable call, Typeable a, Show ret) =>
     call a ->
     TraceM call res ret a
 handleEvent actualCall = TraceM $ \except abort cont -> \case
@@ -238,7 +247,17 @@ instance
     (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
     PLTKernelFail e (TraceM (PLTCall e acct) res ret)
     where
-    pltError e = handleEvent $ PLTF $ PLTError e
+    pltError e = TraceM $ \except abort _ -> \case
+        (expectedCall :-> _ :>>: _) ->
+            except $ "Expected trace call " ++ show expectedCall ++ " but saw " ++ show actualCall
+        (Abort (AbortCall expectedCall)) -> case cast expectedCall of
+            Just expectedCall' | expectedCall' == actualCall -> abort
+            _ -> except $ "Expected trace call " ++ show expectedCall ++ " but saw " ++ show actualCall
+        (Done r) ->
+            except $ "Trace should end (with result" ++ show r ++ "). But saw event: " ++ show actualCall
+      where
+        actualCall :: PLTCall e acct ret
+        actualCall = PLTF $ PLTError e
 
 -- | Assert that calling a given operation results in the given trace.
 assertTrace :: (Eq ret, Show ret) => TraceM call (Either TraceException ()) ret ret -> Trace call ret -> IO ()
@@ -247,8 +266,8 @@ assertTrace op trace = case checkTrace trace op of
     Right () -> return ()
 
 -- | Helper to generate a trace that aborts as a result of a 'PLTError' call.
-abortPLTError :: (Show e, Show acct, Typeable e, Typeable acct) => e -> Trace (PLTCall e acct) ret
-abortPLTError = Abort . AbortCall . PLTF . PLTError
+abortPLTError :: forall e acct ret. (Show e, Show acct, Typeable e, Typeable acct, Typeable ret) => e -> Trace (PLTCall e acct) ret
+abortPLTError = Abort . AbortCall @_ @ret . PLTF . PLTError
 
 -- | Tests for 'initializeToken'.
 testInitializeToken :: Spec
@@ -326,7 +345,7 @@ testInitializeToken = describe "intializeToken" $ do
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
                     :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
                     :>>: (PLTQ GetDecimals :-> 50)
-                    :>>: abortPLTError ITEInvalidMintAmount
+                    :>>: abortPLTError (ITEInvalidMintAmount "Token amount exceeds maximum representable amount")
         assertTrace (initializeToken tokenParam) trace
     -- In this test, the Kernel responds to the minting request indicating that it failed.
     it "mint fails" $ do
@@ -348,7 +367,7 @@ testInitializeToken = describe "intializeToken" $ do
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: (PLTQ GetGovernanceAccount :-> AccountIndex 2)
                     :>>: (PLTPU (Mint (AccountIndex 2) (TokenRawAmount 500000)) :-> False)
-                    :>>: abortPLTError ITEInvalidMintAmount
+                    :>>: abortPLTError (ITEInvalidMintAmount "Kernel failed to mint")
         assertTrace (initializeToken tokenParam) trace
     -- In this example, the parameters specify an initial supply with higher precision than the
     -- token allows. (nrDecimals is 6, but GetDecimals returns 2.)
@@ -369,10 +388,182 @@ testInitializeToken = describe "intializeToken" $ do
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
                     :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
                     :>>: (PLTQ GetDecimals :-> 2)
-                    :>>: abortPLTError ITEInvalidMintAmount
+                    :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision exceeds representable precision")
         assertTrace (initializeToken tokenParam) trace
+
+dummyAccountAddress :: Int -> AccountAddress
+dummyAccountAddress seed = fst $ randomAccountAddress (mkStdGen seed)
+
+testExecuteTokenHolderTransaction :: Spec
+testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ do
+    it "invalid transaction" $ do
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                abortPLTError . encodeTokenHolderFailure $
+                    DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
+        assertTrace
+            (executeTokenHolderTransaction 0 (TokenParameter mempty))
+            trace
+    it "empty operations" $ do
+        let transaction = TokenHolderTransaction Seq.empty
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 2)
+                    :>>: Done ()
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "transfer OK" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
+                    :>>: Done ()
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "transfer OK: long memo, max amount" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amtMax receiver2 (Just (UntaggedMemo longMemo))]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 0)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 4)
+                    :>>: (PLTU (Transfer 0 4 maxBound (Just longMemo)) :-> True)
+                    :>>: Done ()
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "invalid memo" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amtMax receiver2 (Just (UntaggedMemo badMemo))]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                abortPLTError . encodeTokenHolderFailure $
+                    DeserializationFailure (Just "DeserialiseFailure 277 \"Size of the memo (257 bytes) exceeds maximum allowed size (256 bytes).\"")
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    -- In this test, although the amount deserializes successfully, it is too large because of
+    -- the number of decimals in the token representation.
+    it "amount too large" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amtMax receiver2 (Just (UntaggedMemo longMemo))]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 2)
+                    :>>: ( abortPLTError . encodeTokenHolderFailure $
+                            DeserializationFailure (Just "Token amount outside representable range: Token amount exceeds maximum representable amount")
+                         )
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "two transfers" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [ mkTransferOp amt10'000 receiver1 (Just (CBORMemo cborMemo)),
+                      mkTransferOp amt50 receiver2 (Just (UntaggedMemo simpleMemo))
+                    ]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 121)
+                    :>>: (PLTU (Transfer 0 121 50_000_000 (Just simpleMemo)) :-> True)
+                    :>>: Done ()
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "two transfers - first fails (insufficient funds)" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [ mkTransferOp amt10'000 receiver1 (Just (CBORMemo cborMemo)),
+                      mkTransferOp amt50 receiver2 (Just (UntaggedMemo simpleMemo))
+                    ]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> False)
+                    :>>: (PLTQ (GetAccountBalance 0) :-> Nothing)
+                    :>>: ( abortPLTError . encodeTokenHolderFailure $
+                            TokenBalanceInsufficient
+                                { thfOperationIndex = 0,
+                                  thfAvailableBalance = TokenAmount 0 6,
+                                  thfRequiredBalance = amt10'000
+                                }
+                         )
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "two transfers - second fails (insufficient funds)" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [ mkTransferOp amt10'000 receiver1 (Just (CBORMemo cborMemo)),
+                      mkTransferOp amt50 receiver2 (Just (UntaggedMemo simpleMemo))
+                    ]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 16)
+                    :>>: (PLTU (Transfer 0 16 50_000_000 (Just simpleMemo)) :-> False)
+                    :>>: (PLTQ (GetAccountBalance 0) :-> Just 5_000_000)
+                    :>>: ( abortPLTError . encodeTokenHolderFailure $
+                            TokenBalanceInsufficient
+                                { thfOperationIndex = 1,
+                                  thfAvailableBalance = TokenAmount 5_000_000 6,
+                                  thfRequiredBalance = amt50
+                                }
+                         )
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "two transfers - second fails (invalid recipient)" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [ mkTransferOp amt10'000 receiver1 (Just (CBORMemo cborMemo)),
+                      mkTransferOp amt50 receiver2 (Just (UntaggedMemo simpleMemo))
+                    ]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Nothing)
+                    :>>: ( abortPLTError . encodeTokenHolderFailure $
+                            RecipientNotFound
+                                { thfOperationIndex = 1,
+                                  thfRecipient = receiver2
+                                }
+                         )
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "5000 transfers" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [ mkTransferOp
+                        amt10'000
+                        (ReceiverAccount (dummyAccountAddress i) Nothing)
+                        Nothing
+                      | i <- [1 .. 5000]
+                    ]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace = (PLTQ GetDecimals :-> 3) :>>: traceLoop 1
+            traceLoop n
+                | n > 5000 = Done ()
+                | otherwise =
+                    (PLTQ (GetAccount (dummyAccountAddress (fromIntegral n))) :-> Just n)
+                        :>>: (PLTU (Transfer 123_456 n 10_000 Nothing) :-> True)
+                        :>>: traceLoop (n + 1)
+        assertTrace (executeTokenHolderTransaction 123_456 (encodeTransaction transaction)) trace
+  where
+    receiver1 = ReceiverAccount (dummyAccountAddress 1) Nothing
+    receiver2 = ReceiverAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
+    amt10'000 = TokenAmount 10_000 3
+    amtMax = TokenAmount maxBound 0
+    amt50 = TokenAmount 50 0
+    simpleMemo = Memo "Test"
+    cborMemo = Memo "dTest"
+    longMemo = Memo $ SBS.replicate maxMemoSize 60
+    badMemo = Memo $ SBS.replicate (maxMemoSize + 1) 60
+    mkTransferOp ttAmount ttRecipient ttMemo = TokenHolderTransfer TokenTransferBody{..}
+    encodeTransaction = TokenParameter . SBS.toShort . tokenHolderTransactionToBytes
 
 -- | Tests for the Token Module implementation.
 tests :: Spec
 tests = parallel $ describe "TokenModule" $ do
     testInitializeToken
+    testExecuteTokenHolderTransaction
