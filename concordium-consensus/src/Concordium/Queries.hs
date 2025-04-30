@@ -44,6 +44,7 @@ import Concordium.Types.Execution (
  )
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
 import qualified Concordium.Types.Queries.KonsensusV1 as QueriesKonsensusV1
@@ -51,6 +52,8 @@ import qualified Concordium.Types.Queries.Tokens as Tokens
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
+import Concordium.Types.Updates (minUpdateSequenceNumber)
+import qualified Concordium.Types.Updates as U
 import qualified Concordium.Wasm as Wasm
 import qualified Proto.V2.Concordium.Types as Proto
 
@@ -90,7 +93,7 @@ import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
-import Concordium.Types.Option
+
 import Control.Monad.State.Class
 import Data.Time
 
@@ -1008,9 +1011,38 @@ getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM (\_ -> return 
 getNextUpdateSequenceNumbers :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse NextUpdateSequenceNumbers)
 getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
   where
+    -- Get the next sequence number or minUpdateSequenceNumber (1), if not supported.
+    mNextSequenceNumber :: UQ.OUpdateQueue pt cpv e -> U.UpdateSequenceNumber
+    mNextSequenceNumber NoParam = minUpdateSequenceNumber
+    mNextSequenceNumber (SomeParam q) = UQ._uqNextSequenceNumber q
     query bs = do
         updates <- BS.getUpdates bs
-        return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
+        let UQ.PendingUpdates{..} = UQ._pendingUpdates updates
+        return
+            NextUpdateSequenceNumbers
+                { _nusnRootKeys = UQ._uqNextSequenceNumber _pRootKeysUpdateQueue,
+                  _nusnLevel1Keys = UQ._uqNextSequenceNumber _pLevel1KeysUpdateQueue,
+                  _nusnLevel2Keys = UQ._uqNextSequenceNumber _pLevel2KeysUpdateQueue,
+                  _nusnProtocol = UQ._uqNextSequenceNumber _pProtocolQueue,
+                  _nusnElectionDifficulty = mNextSequenceNumber _pElectionDifficultyQueue,
+                  _nusnEuroPerEnergy = UQ._uqNextSequenceNumber _pEuroPerEnergyQueue,
+                  _nusnMicroCCDPerEuro = UQ._uqNextSequenceNumber _pMicroGTUPerEuroQueue,
+                  _nusnFoundationAccount = UQ._uqNextSequenceNumber _pFoundationAccountQueue,
+                  _nusnMintDistribution = UQ._uqNextSequenceNumber _pMintDistributionQueue,
+                  _nusnTransactionFeeDistribution = UQ._uqNextSequenceNumber _pTransactionFeeDistributionQueue,
+                  _nusnGASRewards = UQ._uqNextSequenceNumber _pGASRewardsQueue,
+                  _nusnPoolParameters = UQ._uqNextSequenceNumber _pPoolParametersQueue,
+                  _nusnAddAnonymityRevoker = UQ._uqNextSequenceNumber _pAddAnonymityRevokerQueue,
+                  _nusnAddIdentityProvider = UQ._uqNextSequenceNumber _pAddIdentityProviderQueue,
+                  _nusnCooldownParameters = mNextSequenceNumber _pCooldownParametersQueue,
+                  _nusnTimeParameters = mNextSequenceNumber _pTimeParametersQueue,
+                  _nusnTimeoutParameters = mNextSequenceNumber _pTimeoutParametersQueue,
+                  _nusnMinBlockTime = mNextSequenceNumber _pMinBlockTimeQueue,
+                  _nusnBlockEnergyLimit = mNextSequenceNumber _pBlockEnergyLimitQueue,
+                  _nusnFinalizationCommitteeParameters = mNextSequenceNumber _pFinalizationCommitteeParametersQueue,
+                  _nusnValidatorScoreParameters = mNextSequenceNumber _pValidatorScoreParametersQueue,
+                  _nusnProtocolLevelTokensParameters = maybeWhenSupported minUpdateSequenceNumber id (UQ._pltUpdateSequenceNumber updates)
+                }
 
 -- | Get the index of accounts with scheduled releases.
 getScheduledReleaseAccounts ::
