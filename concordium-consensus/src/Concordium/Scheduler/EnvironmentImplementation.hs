@@ -548,7 +548,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
                             bs
                             tokenIx
                             accIxFrom
-                            (TokenAmountDelta (negate $ fromIntegral (theTokenRawAmount amount)))
+                            (TokenAmountDelta (negate $ fromIntegral amount))
             MaybeT $
                 lift $
                     BS.bsoUpdateTokenAccountBalance
@@ -567,30 +567,40 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
     mint (accIx, _acc) amount = do
         tokenIx <- ask
         bs <- use ssBlockState
-        mbNewBs <-
-            lift $
-                BS.bsoUpdateTokenAccountBalance
-                    bs
-                    tokenIx
-                    accIx
-                    ( TokenAmountDelta (fromIntegral (theTokenRawAmount amount))
-                    )
-        case mbNewBs of
-            Nothing -> return False
-            Just newBs -> do
-                ssBlockState .= newBs
-                return True
+        currentSupply <- lift $ BS.getTokenCirculatingSupply bs tokenIx
+        if maxBound - amount < currentSupply
+            then return False -- Minting would overflow the circulating supply.
+            else do
+                bs' <- lift $ BS.bsoSetTokenCirculatingSupply bs tokenIx (currentSupply + amount)
+                mbNewBs <-
+                    lift $
+                        BS.bsoUpdateTokenAccountBalance
+                            bs'
+                            tokenIx
+                            accIx
+                            ( TokenAmountDelta (fromIntegral (theTokenRawAmount amount))
+                            )
+                case mbNewBs of
+                    Nothing -> return False
+                    Just newBs -> do
+                        ssBlockState .= newBs
+                        return True
     burn (accIx, _acc) amount = do
         tokenIx <- ask
         bs <- use ssBlockState
-        mbNewBs <-
-            lift $
-                BS.bsoUpdateTokenAccountBalance bs tokenIx accIx (TokenAmountDelta (negate $ fromIntegral (theTokenRawAmount amount)))
-        case mbNewBs of
-            Nothing -> return False
-            Just newBs -> do
-                ssBlockState .= newBs
-                return True
+        currentSupply <- lift $ BS.getTokenCirculatingSupply bs tokenIx
+        if currentSupply < amount
+            then return False
+            else do
+                bs' <- lift $ BS.bsoSetTokenCirculatingSupply bs tokenIx (currentSupply - amount)
+                mbNewBs <-
+                    lift $
+                        BS.bsoUpdateTokenAccountBalance bs' tokenIx accIx (TokenAmountDelta (negate $ fromIntegral (theTokenRawAmount amount)))
+                case mbNewBs of
+                    Nothing -> return False
+                    Just newBs -> do
+                        ssBlockState .= newBs
+                        return True
 
 instance (Monad m) => (PLTKernelFail fail (KernelT fail ret m)) where
     -- To abort, we simply drop the continuation and return the error.

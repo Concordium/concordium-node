@@ -56,6 +56,14 @@ instance (MonadBlobStore m) => BlobStorable m TokenAccountStateTable where
 emptyTokenAccountStateTable :: TokenAccountStateTable
 emptyTokenAccountStateTable = TokenAccountStateTable{tokenAccountStateTable = Map.empty}
 
+-- | The empty token account state.
+emptyTokenAccountState :: TokenAccountState
+emptyTokenAccountState =
+    TokenAccountState
+        { tasBalance = TokenRawAmount 0,
+          tasModuleState = Map.empty
+        }
+
 -- | Token state at the account level
 data TokenAccountState = TokenAccountState
     { -- | The available balance for the account.
@@ -96,8 +104,6 @@ newtype TokenAmountDelta = TokenAmountDelta {tokenAmountDelta :: Integer} derivi
 data TokenAccountStateValueDelta
     = -- | Delete the state.
       TASVDelete
-    | -- | Create a new state.
-      TASVCreate TokenStateValue
-    | -- | Update the state to a new value.
+    | -- | Update the state to a new value or create it if it doesn't already exist.
       TASVUpdate TokenStateValue
     deriving (Eq, Show)

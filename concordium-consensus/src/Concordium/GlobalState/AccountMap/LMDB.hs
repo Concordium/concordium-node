@@ -126,6 +126,7 @@ instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapS
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
 deriving via (MGSTrans MaybeT m) instance (MonadAccountMapStore m) => MonadAccountMapStore (MaybeT m)
+deriving via (MGSTrans IdentityT m) instance (MonadAccountMapStore m) => MonadAccountMapStore (IdentityT m)
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
 deriving via (MGSTrans PutT m) instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m)
 

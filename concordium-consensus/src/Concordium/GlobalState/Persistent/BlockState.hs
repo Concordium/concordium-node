@@ -119,6 +119,7 @@ import qualified Control.Monad.Catch as MonadCatch
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
+import Control.Monad.Trans.Identity
 import Control.Monad.Trans.Maybe
 import qualified Control.Monad.Writer.Strict as MTL
 import Data.Bool.Singletons
@@ -4379,24 +4380,26 @@ updateTokenAccountStateTable ::
     (Monad m, MonadBlobStore m, Reference m ref TokenAccountStateTable) =>
     ref TokenAccountStateTable ->
     PLT.TokenIndex ->
-    (TokenAccountState -> Maybe TokenAccountState) ->
-    MaybeT m (ref TokenAccountStateTable)
+    (TokenAccountState -> m TokenAccountState) ->
+    m (ref TokenAccountStateTable)
 updateTokenAccountStateTable ref tokIx update = do
-    TokenAccountStateTable tst <- lift $ refLoad ref
+    TokenAccountStateTable tst <- refLoad ref
     tst' <-
         Map.alterF
             ( \case
-                Nothing -> return Nothing
+                Nothing -> do
+                    newState <- update emptyTokenAccountState
+                    Just <$> refMake newState
                 Just sRef -> do
-                    s <- lift $ refLoad sRef
-                    s' <- hoistMaybe $ update s
+                    s <- refLoad sRef
+                    s' <- update s
                     Just <$> refMake s'
             )
             tokIx
             tst
-    lift $ refMake $ TokenAccountStateTable{tokenAccountStateTable = tst'}
+    refMake $ TokenAccountStateTable{tokenAccountStateTable = tst'}
 
--- | Update the token module state.
+-- | Update the token module state. This batch-updates multiple keys.
 doUpdateTokenAccountModuleState ::
     forall pv m.
     (SupportsPersistentState pv m, PVSupportsPLT pv) =>
@@ -4404,35 +4407,28 @@ doUpdateTokenAccountModuleState ::
     PLT.TokenIndex ->
     AccountIndex ->
     [(PLT.TokenStateKey, TokenAccountStateValueDelta)] ->
-    m (Maybe (PersistentBlockState pv))
-doUpdateTokenAccountModuleState pbs tokIx accIx delta = runMaybeT $ do
+    m (PersistentBlockState pv)
+doUpdateTokenAccountModuleState pbs tokIx accIx delta = runIdentityT $ do
     bsp <- lift $ loadPBS pbs
     newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
-    storePBS pbs bsp{bspAccounts = newAccounts}
+    lift $ storePBS pbs bsp{bspAccounts = newAccounts}
   where
     upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
         CTrue ref -> do
             ref' <- updateTokenAccountStateTable ref tokIx updateModuleState
             pure (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue ref'})
 
+    updateModuleState :: TokenAccountState -> IdentityT m TokenAccountState
     updateModuleState modState = do
         newModState <-
             foldl'
                 ( \mbM (k, d) -> do
                     m <- mbM
                     case d of
-                        TASVDelete -> Just $ Map.delete k m
-                        TASVCreate v ->
-                            Map.alterF
-                                ( \case
-                                    Nothing -> Just $ Just v
-                                    Just _ -> Nothing -- TODO: emit an error event
-                                )
-                                k
-                                m
-                        TASVUpdate v -> Just $ Map.insert k v m
+                        TASVDelete -> return $ Map.delete k m
+                        TASVUpdate v -> return $ Map.insert k v m
                 )
-                (Just $ tasModuleState modState)
+                (return $ tasModuleState modState)
                 delta
         return $
             modState
@@ -4457,11 +4453,13 @@ doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT
         CTrue ref -> do
             ref' <- updateTokenAccountStateTable ref tokIx updateBalance
             return (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue ref'})
-
+    updateBalance :: TokenAccountState -> MaybeT m TokenAccountState
     updateBalance tas
-        | fromIntegral (PLT.theTokenRawAmount $ tasBalance tas) + delta > fromIntegral (maxBound :: Word64) = Nothing -- TODO: emit en error event
-        | fromIntegral (PLT.theTokenRawAmount $ tasBalance tas) + delta < 0 = Nothing -- TODO: emit en error event
-        | otherwise = Just $ tas{tasBalance = tasBalance tas + fromIntegral delta}
+        | newBalanceInteger > fromIntegral (maxBound :: Word64) = hoistMaybe Nothing
+        | newBalanceInteger < 0 = hoistMaybe Nothing
+        | otherwise = hoistMaybe $ Just $ tas{tasBalance = fromIntegral newBalanceInteger}
+      where
+        newBalanceInteger = fromIntegral (tasBalance tas) + delta
 
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext

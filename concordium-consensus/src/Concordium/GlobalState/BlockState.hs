@@ -1665,7 +1665,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
         -- | The index of the new token and the updated block state.
         m (TokenIndex, UpdatableBlockState m)
 
-    -- | Update the token module state. If the update is not succesful, this returns Nothing.
+    -- | Update the token module state.
     --
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     bsoUpdateTokenAccountModuleState ::
@@ -1677,9 +1677,10 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
         AccountIndex ->
         -- | The list of updates to the module state.
         [(TokenStateKey, GSAccount.TokenAccountStateValueDelta)] ->
-        m (Maybe (UpdatableBlockState m))
+        m (UpdatableBlockState m)
 
-    -- Update the token balance. If the update is not succesful, this returns Nothing.
+    -- Update the token balance. Returns 'Nothing' if the update would overflow or underflow
+    -- the token balance on the account.
     --
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     bsoUpdateTokenAccountBalance ::
