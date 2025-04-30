@@ -153,7 +153,7 @@ executeTokenHolderTransaction sender tokenParam = do
                         Nothing ->
                             failTH
                                 RecipientNotFound
-                                    { thfTransactionIndex = opIndex,
+                                    { thfOperationIndex = opIndex,
                                       thfRecipient = ttRecipient pthoUnprocessed
                                     }
                         Just recipientAccount -> do
@@ -162,7 +162,7 @@ executeTokenHolderTransaction sender tokenParam = do
                                 availableBalance <- fromMaybe 0 <$> getAccountBalance sender
                                 failTH
                                     TokenBalanceInsufficient
-                                        { thfTransactionIndex = opIndex,
+                                        { thfOperationIndex = opIndex,
                                           thfAvailableBalance = toTokenAmount decimals availableBalance,
                                           thfRequiredBalance = ttAmount pthoUnprocessed
                                         }

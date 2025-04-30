@@ -484,7 +484,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccountBalance 0) :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenHolderFailure $
                             TokenBalanceInsufficient
-                                { thfTransactionIndex = 0,
+                                { thfOperationIndex = 0,
                                   thfAvailableBalance = TokenAmount 0 6,
                                   thfRequiredBalance = amt10'000
                                 }
@@ -506,7 +506,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccountBalance 0) :-> Just 5_000_000)
                     :>>: ( abortPLTError . encodeTokenHolderFailure $
                             TokenBalanceInsufficient
-                                { thfTransactionIndex = 1,
+                                { thfOperationIndex = 1,
                                   thfAvailableBalance = TokenAmount 5_000_000 6,
                                   thfRequiredBalance = amt50
                                 }
@@ -526,7 +526,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenHolderFailure $
                             RecipientNotFound
-                                { thfTransactionIndex = 1,
+                                { thfOperationIndex = 1,
                                   thfRecipient = receiver2
                                 }
                          )
