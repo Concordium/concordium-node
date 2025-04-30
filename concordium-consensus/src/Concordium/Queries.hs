@@ -1008,9 +1008,9 @@ getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM (\_ -> return 
 getNextUpdateSequenceNumbers :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse NextUpdateSequenceNumbers)
 getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
   where
-    -- Get the next sequence number or 1, if not supported.
+    -- Get the next sequence number or minUpdateSequenceNumber (1), if not supported.
     mNextSequenceNumber :: UQ.OUpdateQueue pt cpv e -> U.UpdateSequenceNumber
-    mNextSequenceNumber NoParam = 1
+    mNextSequenceNumber NoParam = minUpdateSequenceNumber
     mNextSequenceNumber (SomeParam q) = UQ._uqNextSequenceNumber q
     query bs = do
         updates <- BS.getUpdates bs
