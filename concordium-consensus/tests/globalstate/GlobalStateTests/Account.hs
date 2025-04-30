@@ -1,31 +1,31 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 module GlobalStateTests.Account where
 
-import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.Basic.BlockState.Account
-import qualified Concordium.GlobalState.Persistent.Account as PA
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
 import Concordium.GlobalState.Persistent.BlobStore
-import Concordium.GlobalState.Persistent.BlockState
-import qualified Concordium.GlobalState.Persistent.BlockState.Modules as M
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
-import Concordium.Types
 import Concordium.Types.HashableTo
-import Control.Exception (bracket)
 import Control.Monad.IO.Class
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
 import qualified Data.Map.Strict as Map
 import Data.Serialize
-import System.FilePath
-import System.IO.Temp
 import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck
 
-type PV = 'P9
+-- Blobstore testing infrastructure
+-----------------------------------
+
+-- | Run an action in the 'MemBlobStoreT' monad transformer from an empty store.
+runBlobStore :: MemBlobStoreT IO a -> IO a
+runBlobStore a = do
+    mbs <- newMemBlobStore
+    runMemBlobStoreT a mbs
 
 -- Arbitrary data
 -----------------
@@ -77,13 +77,13 @@ persistentToInMemoryTST TokenAccountStateTable{..} = InMemoryTokenStateTable <$>
 -- | Test the BlobStorable instance for TokenAccountStateTable.
 -- Verifies that a TokenAccountStateTable can be serialized to blob storage and
 -- then deserialized back to its original state without any data loss or corruption.
-testBlobStorableTokenAccountState :: Word -> SpecWith (PersistentBlockStateContext PV)
+testBlobStorableTokenAccountState :: Word -> Spec
 testBlobStorableTokenAccountState lvl =
-    it "BlobStorable instance for TokenAccountStateTable" $ \blobstore ->
+    it "BlobStorable instance for TokenAccountStateTable" $
         withMaxSuccess (1000 * fromIntegral lvl) $
             property $ do
                 inMemoryTST <- arbitraryInMemoryTokenStateTable
-                return $ ioProperty $ flip runBlobStoreT blobstore $ do
+                return $ ioProperty $ runBlobStore $ do
                     tst <- inMemoryToPersistentTST inMemoryTST
                     (ref, _tst) <- storeUpdateDirect tst
                     tst' <- loadDirect ref
@@ -91,13 +91,13 @@ testBlobStorableTokenAccountState lvl =
                     liftIO $ assertEqual "stored then loaded token account state table should be equal" inMemoryTST' inMemoryTST
 
 -- | Verify hash consistency between in-memory and persisted TokenStateTable.
-testInMemoryEqualsPersistentHash :: Word -> SpecWith (PersistentBlockStateContext PV)
+testInMemoryEqualsPersistentHash :: Word -> Spec
 testInMemoryEqualsPersistentHash lvl =
-    it "Hash of in-memory token account state table equals hash of persisted token account state table" $ \blobstore ->
+    it "Hash of in-memory token account state table equals hash of persisted token account state table" $
         withMaxSuccess (1000 * fromIntegral lvl) $
             property $ do
                 inMemoryTST <- arbitraryInMemoryTokenStateTable
-                return $ ioProperty $ flip runBlobStoreT blobstore $ do
+                return $ ioProperty $ runBlobStore $ do
                     let h :: TokenStateTableHash = getHash inMemoryTST
                     tst <- inMemoryToPersistentTST inMemoryTST
                     h' :: TokenStateTableHash <- getHashM tst
@@ -120,24 +120,6 @@ tests lvl = do
     describe "GlobalStateTests.Account" $
         do
             testSerializeTokenAccountState lvl
-            -- tests that need access to a temporary blockstate
-            around
-                ( \kont ->
-                    withTempDirectory "." "blockstate" $ \dir ->
-                        bracket
-                            ( do
-                                pbscBlobStore <- createBlobStore (dir </> "blockstate.dat")
-                                pbscAccountCache <- PA.newAccountCache 100
-                                pbscModuleCache <- M.newModuleCache 100
-                                pbscAccountMap <- LMDBAccountMap.openDatabase (dir </> "accountmap")
-                                return PersistentBlockStateContext{..}
-                            )
-                            ( \PersistentBlockStateContext{..} -> do
-                                closeBlobStore pbscBlobStore
-                                LMDBAccountMap.closeDatabase pbscAccountMap
-                            )
-                            kont
-                )
-                $ do
-                    testBlobStorableTokenAccountState lvl
-                    testInMemoryEqualsPersistentHash lvl
+            -- tests that need access to an in-memory blockstate
+            testInMemoryEqualsPersistentHash lvl
+            testBlobStorableTokenAccountState lvl
