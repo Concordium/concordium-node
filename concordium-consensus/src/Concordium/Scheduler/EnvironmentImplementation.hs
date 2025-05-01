@@ -541,7 +541,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
     setAccountState _ _ _ = do
         -- TODO: implement
         return ()
-    transfer (accIxFrom, _accFrom) (accIxTo, _accTo) amount _mbMemo = do
+    transfer accIxFrom accIxTo amount _mbMemo = do
         -- TODO: the memo should be emitted in an event
         tokenIx <- ask
         bs0 <- use ssBlockState
@@ -570,7 +570,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
                 return True
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
-    mint (accIx, _acc) amount = do
+    mint accIx amount = do
         tokenIx <- ask
         bs <- use ssBlockState
         currentSupply <- lift $ BS.getTokenCirculatingSupply bs tokenIx
@@ -595,7 +595,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                     Just newBs -> do
                         ssBlockState .= newBs
                         return True
-    burn (accIx, _acc) amount = do
+    burn accIx amount = do
         tokenIx <- ask
         bs0 <- use ssBlockState
         mbs1 <- lift $ BS.bsoUpdateTokenAccountBalance bs0 tokenIx accIx (negativeTokenAmountDelta amount)
