@@ -491,31 +491,37 @@ instance MonadTrans (KernelT fail ret) where
 deriving via (MGSTrans (KernelT fail ret) m) instance BlockStateTypes (KernelT fail ret m)
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (KernelT fail ret m) where
-    type PLTAccount (KernelT fail ret m) = IndexedAccount m
+    type PLTAccount (KernelT fail ret m) = AccountIndex
     getTokenState key = do
         tokenIx <- ask
         bs <- use ssBlockState
         lift $ BS.getTokenState bs tokenIx key
     getAccount addr = do
         bs <- use ssBlockState
-        lift $ BS.bsoGetAccount bs addr
-    getAccountBalance _acct = do
-        -- TODO: implement
-        return Nothing
+        lift $ fmap fst <$> BS.bsoGetAccount bs addr
+    getAccountBalance acctIndex = do
+        tokenIx <- ask
+        bs <- use ssBlockState
+        lift $
+            BS.bsoGetAccountByIndex bs acctIndex >>= \case
+                Nothing -> error "getAccountBalance: Account does not exist"
+                Just acct -> BS.getAccountTokenBalance acct tokenIx
     getAccountState _acct _key = do
         -- TODO: implement
         return Nothing
-    getAccountCanonicalAddress acct = do
-        lift $ BS.getAccountCanonicalAddress (snd acct)
+    getAccountCanonicalAddress acctIndex = do
+        bs <- use ssBlockState
+        lift $
+            BS.bsoGetAccountByIndex bs acctIndex >>= \case
+                Nothing -> error "getAccountCanonicalAddress: Account does not exist"
+                Just acct -> BS.getAccountCanonicalAddress acct
     getGovernanceAccount = do
         tokenIx <- ask
         bs <- use ssBlockState
         lift $ do
             config <- BS.getTokenConfiguration bs tokenIx
             let govIndex = _pltGovernanceAccountIndex config
-            BS.bsoGetAccountByIndex bs govIndex >>= \case
-                Nothing -> error "getGovernanceAccount: Governance account does not exist"
-                Just acc -> return (govIndex, acc)
+            return govIndex
     getCirculatingSupply = do
         tokenIx <- ask
         bs <- use ssBlockState

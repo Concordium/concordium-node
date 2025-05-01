@@ -159,7 +159,7 @@ executeTokenHolderTransaction sender tokenParam = do
                         Just recipientAccount -> do
                             success <- transfer sender recipientAccount pthoAmount pthoMemo
                             unless success $ do
-                                availableBalance <- fromMaybe 0 <$> getAccountBalance sender
+                                availableBalance <- getAccountBalance sender
                                 failTH
                                     TokenBalanceInsufficient
                                         { thfOperationIndex = opIndex,

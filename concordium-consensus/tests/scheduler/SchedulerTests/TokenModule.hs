@@ -44,7 +44,7 @@ import System.Random
 data PLTKernelQueryCall acct ret where
     GetTokenState :: TokenStateKey -> PLTKernelQueryCall acct (Maybe TokenStateValue)
     GetAccount :: AccountAddress -> PLTKernelQueryCall acct (Maybe acct)
-    GetAccountBalance :: acct -> PLTKernelQueryCall acct (Maybe TokenRawAmount)
+    GetAccountBalance :: acct -> PLTKernelQueryCall acct TokenRawAmount
     GetAccountState :: acct -> TokenStateKey -> PLTKernelQueryCall acct (Maybe TokenStateValue)
     GetAccountCanonicalAddress :: acct -> PLTKernelQueryCall acct AccountAddress
     GetGovernanceAccount :: PLTKernelQueryCall acct acct
@@ -271,7 +271,7 @@ abortPLTError = Abort . AbortCall @_ @ret . PLTF . PLTError
 
 -- | Tests for 'initializeToken'.
 testInitializeToken :: Spec
-testInitializeToken = describe "intializeToken" $ do
+testInitializeToken = describe "initializeToken" $ do
     -- In this example, the parameters are not a valid encoding.
     it "invalid parameters" $ do
         let trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -481,7 +481,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> False)
-                    :>>: (PLTQ (GetAccountBalance 0) :-> Nothing)
+                    :>>: (PLTQ (GetAccountBalance 0) :-> 0)
                     :>>: ( abortPLTError . encodeTokenHolderFailure $
                             TokenBalanceInsufficient
                                 { thfOperationIndex = 0,
@@ -503,7 +503,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 16)
                     :>>: (PLTU (Transfer 0 16 50_000_000 (Just simpleMemo)) :-> False)
-                    :>>: (PLTQ (GetAccountBalance 0) :-> Just 5_000_000)
+                    :>>: (PLTQ (GetAccountBalance 0) :-> 5_000_000)
                     :>>: ( abortPLTError . encodeTokenHolderFailure $
                             TokenBalanceInsufficient
                                 { thfOperationIndex = 1,

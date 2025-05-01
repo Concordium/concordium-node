@@ -385,7 +385,7 @@ class
     runPLT ::
         (PVSupportsPLT (MPV m)) =>
         Token.TokenIndex ->
-        (forall m1. (Monad m1, PLTKernelPrivilegedUpdate m1, PLTKernelFail e m1, PLTAccount m1 ~ IndexedAccount m) => m1 a) ->
+        (forall m1. (Monad m1, PLTKernelPrivilegedUpdate m1, PLTKernelFail e m1, PLTAccount m1 ~ AccountIndex) => m1 a) ->
         m (Either e a)
 
     -- | Create a new protocol-layer token with the given 'PLTConfiguration'.

@@ -1382,6 +1382,37 @@ getTokenStateTable acc = forM (accountTokenStateTable acc) $
         TokenAccountStateTable tast <- refLoad ref
         forM tast refLoad
 
+-- | Get the balance of a protocol-level token held by an account.
+--  This is only available at account versions that support protocol-level tokens.
+getTokenBalance ::
+    (MonadBlobStore m, AVSupportsPLT av) =>
+    PersistentAccount av ->
+    TokenIndex ->
+    m TokenRawAmount
+getTokenBalance acc tokenIx = do
+    table <- refLoad (uncond (accountTokenStateTable acc))
+    case Map.lookup tokenIx (tokenAccountStateTable table) of
+        Nothing -> return 0
+        Just tokenStateRef -> do
+            tokenState <- refLoad tokenStateRef
+            return $ tasBalance tokenState
+
+-- | Look up the 'TokenStateValue' associated with a particular token and key on an account.
+--  This is only available at account versions that support protocol-level tokens.
+getTokenState ::
+    (MonadBlobStore m, AVSupportsPLT av) =>
+    PersistentAccount av ->
+    TokenIndex ->
+    TokenStateKey ->
+    m (Maybe TokenStateValue)
+getTokenState acc tokenIx key = do
+    table <- refLoad (uncond (accountTokenStateTable acc))
+    case Map.lookup tokenIx (tokenAccountStateTable table) of
+        Nothing -> return Nothing
+        Just tokenStateRef -> do
+            tokenState <- refLoad tokenStateRef
+            return $ Map.lookup key (tasModuleState tokenState)
+
 -- ** Updates
 
 -- | Apply account updates to an account. It is assumed that the address in
