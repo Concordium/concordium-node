@@ -1665,6 +1665,35 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
         -- | The index of the new token and the updated block state.
         m (TokenIndex, UpdatableBlockState m)
 
+    -- | Update the token module state.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoUpdateTokenAccountModuleState ::
+        (PVSupportsPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The account to update.
+        AccountIndex ->
+        -- | The list of updates to the module state.
+        [(TokenStateKey, GSAccount.TokenAccountStateValueDelta)] ->
+        m (UpdatableBlockState m)
+
+    -- Update the token balance. Returns 'Nothing' if the update would overflow or underflow
+    -- the token balance on the account.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoUpdateTokenAccountBalance ::
+        (PVSupportsPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The account to update.
+        AccountIndex ->
+        -- | The token balance delta.
+        GSAccount.TokenAmountDelta ->
+        m (Maybe (UpdatableBlockState m))
+
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -2029,6 +2058,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetTokenState s tokIx key = lift . bsoSetTokenState s tokIx key
     bsoSetTokenCirculatingSupply s tokIx = lift . bsoSetTokenCirculatingSupply s tokIx
     bsoCreateToken s = lift . bsoCreateToken s
+    bsoUpdateTokenAccountModuleState s tokIx accIx = lift . bsoUpdateTokenAccountModuleState s tokIx accIx
+    bsoUpdateTokenAccountBalance s tokIx accIx = lift . bsoUpdateTokenAccountBalance s tokIx accIx
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -2090,6 +2121,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetTokenState #-}
     {-# INLINE bsoSetTokenCirculatingSupply #-}
     {-# INLINE bsoCreateToken #-}
+    {-# INLINE bsoUpdateTokenAccountModuleState #-}
+    {-# INLINE bsoUpdateTokenAccountBalance #-}
     {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}

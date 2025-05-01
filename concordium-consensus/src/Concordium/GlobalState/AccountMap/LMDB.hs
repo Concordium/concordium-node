@@ -44,6 +44,7 @@ import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State.Strict
 import Control.Monad.Trans.Except
+import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Writer.Strict
 import qualified Data.ByteString as BS
 import Data.Data (Typeable)
@@ -124,6 +125,7 @@ instance (Monad (t m), MonadTrans t, MonadAccountMapStore m) => MonadAccountMapS
 
 deriving via (MGSTrans (StateT s) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (StateT s m)
 deriving via (MGSTrans (ExceptT e) m) instance (MonadAccountMapStore m) => MonadAccountMapStore (ExceptT e m)
+deriving via (MGSTrans MaybeT m) instance (MonadAccountMapStore m) => MonadAccountMapStore (MaybeT m)
 deriving via (MGSTrans (WriterT w) m) instance (Monoid w, MonadAccountMapStore m) => MonadAccountMapStore (WriterT w m)
 deriving via (MGSTrans PutT m) instance (MonadAccountMapStore m) => MonadAccountMapStore (PutT m)
 
