@@ -119,7 +119,6 @@ import qualified Control.Monad.Catch as MonadCatch
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
-import Control.Monad.Trans.Identity
 import Control.Monad.Trans.Maybe
 import qualified Control.Monad.Writer.Strict as MTL
 import Data.Bool.Singletons
@@ -4408,28 +4407,27 @@ doUpdateTokenAccountModuleState ::
     AccountIndex ->
     [(PLT.TokenStateKey, TokenAccountStateValueDelta)] ->
     m (PersistentBlockState pv)
-doUpdateTokenAccountModuleState pbs tokIx accIx delta = runIdentityT $ do
-    bsp <- lift $ loadPBS pbs
+doUpdateTokenAccountModuleState pbs tokIx accIx delta = do
+    bsp <- loadPBS pbs
     newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
-    lift $ storePBS pbs bsp{bspAccounts = newAccounts}
+    storePBS pbs bsp{bspAccounts = newAccounts}
   where
     upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
         CTrue ref -> do
             ref' <- updateTokenAccountStateTable ref tokIx updateModuleState
             pure (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue ref'})
 
-    updateModuleState :: TokenAccountState -> IdentityT m TokenAccountState
+    updateModuleState :: TokenAccountState -> m TokenAccountState
     updateModuleState modState = do
-        newModState <-
-            foldl'
-                ( \mbM (k, d) -> do
-                    m <- mbM
-                    case d of
-                        TASVDelete -> return $ Map.delete k m
-                        TASVUpdate v -> return $ Map.insert k v m
-                )
-                (return $ tasModuleState modState)
-                delta
+        let newModState =
+                foldl'
+                    ( \m (k, d) ->
+                        case d of
+                            TASVDelete -> Map.delete k m
+                            TASVUpdate v -> Map.insert k v m
+                    )
+                    (tasModuleState modState)
+                    delta
         return $
             modState
                 { tasModuleState = newModState

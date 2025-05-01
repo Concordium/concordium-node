@@ -13,7 +13,6 @@ module Concordium.Scheduler.EnvironmentImplementation where
 import Control.Monad
 import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Cont
-import Control.Monad.Trans.Maybe
 import Control.Monad.Trans.Reader (ReaderT (..))
 import Data.Either
 import Data.HashMap.Strict as Map
@@ -539,28 +538,29 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
     transfer (accIxFrom, _accFrom) (accIxTo, _accTo) amount _mbMemo = do
         -- TODO: the memo should be emitted in an event
         tokenIx <- ask
-        bs <- use ssBlockState
-        mbBs'' <- runMaybeT $ do
-            bs' <-
-                MaybeT $
-                    lift $
-                        BS.bsoUpdateTokenAccountBalance
-                            bs
-                            tokenIx
-                            accIxFrom
-                            (TokenAmountDelta (negate $ fromIntegral amount))
-            MaybeT $
-                lift $
-                    BS.bsoUpdateTokenAccountBalance
-                        bs'
-                        tokenIx
-                        accIxTo
-                        (TokenAmountDelta (fromIntegral (theTokenRawAmount amount)))
-
-        case mbBs'' of
+        bs0 <- use ssBlockState
+        mbs2 <- lift $ do
+            mbs1 <-
+                BS.bsoUpdateTokenAccountBalance bs0 tokenIx accIxFrom $
+                    negativeTokenAmountDelta amount
+            case mbs1 of
+                Nothing -> return Nothing -- Sender has insufficient funds.
+                Just bs1 -> do
+                    mbs2 <-
+                        BS.bsoUpdateTokenAccountBalance bs1 tokenIx accIxTo $
+                            toTokenAmountDelta amount
+                    return $ case mbs2 of
+                        Nothing ->
+                            -- This case cannot occur if the total supply is accurately
+                            -- recorded, since it would imply that the total supply
+                            -- exceeds the maximum representable amount.
+                            error "Token kernel: transfer would overflow receiver balance"
+                        Just bs2 ->
+                            Just bs2
+        case mbs2 of
             Nothing -> return False
-            Just bs'' -> do
-                ssBlockState .= bs''
+            Just bs2 -> do
+                ssBlockState .= bs2
                 return True
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
@@ -581,26 +581,31 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                             ( TokenAmountDelta (fromIntegral (theTokenRawAmount amount))
                             )
                 case mbNewBs of
-                    Nothing -> return False
+                    Nothing ->
+                        -- This case cannot occur if the total supply is accurately
+                        -- recorded, since it would imply that the total supply
+                        -- exceeds the maximum representable amount.
+                        error "Token kernel: mint would overflow receiver balance"
                     Just newBs -> do
                         ssBlockState .= newBs
                         return True
     burn (accIx, _acc) amount = do
         tokenIx <- ask
-        bs <- use ssBlockState
-        currentSupply <- lift $ BS.getTokenCirculatingSupply bs tokenIx
-        if currentSupply < amount
-            then return False
-            else do
-                bs' <- lift $ BS.bsoSetTokenCirculatingSupply bs tokenIx (currentSupply - amount)
-                mbNewBs <-
-                    lift $
-                        BS.bsoUpdateTokenAccountBalance bs' tokenIx accIx (TokenAmountDelta (negate $ fromIntegral (theTokenRawAmount amount)))
-                case mbNewBs of
-                    Nothing -> return False
-                    Just newBs -> do
-                        ssBlockState .= newBs
-                        return True
+        bs0 <- use ssBlockState
+        mbs1 <- lift $ BS.bsoUpdateTokenAccountBalance bs0 tokenIx accIx (negativeTokenAmountDelta amount)
+        case mbs1 of
+            Nothing -> return False
+            Just bs1 -> do
+                bs2 <- lift $ do
+                    currentSupply <- BS.getTokenCirculatingSupply bs1 tokenIx
+                    when (currentSupply < amount) $
+                        -- This case cannot occur if the total supply is accurately
+                        -- recorded, since it would imply that the initial balance
+                        -- on the target account exceeded to the total supply.
+                        error "Token kernel: burn would underflow total supply"
+                    BS.bsoSetTokenCirculatingSupply bs1 tokenIx (currentSupply - amount)
+                ssBlockState .= bs2
+                return True
 
 instance (Monad m) => (PLTKernelFail fail (KernelT fail ret m)) where
     -- To abort, we simply drop the continuation and return the error.

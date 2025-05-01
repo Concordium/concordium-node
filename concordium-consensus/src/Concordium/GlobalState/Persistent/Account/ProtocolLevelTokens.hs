@@ -98,7 +98,17 @@ data TokenAccountStateDelta = TokenAccountStateDelta
     }
     deriving (Eq, Show)
 
+-- | A change in a 'TokenRawAmount'.
 newtype TokenAmountDelta = TokenAmountDelta {tokenAmountDelta :: Integer} deriving (Eq, Show)
+
+-- | Convert a 'TokenRawAmount' to a positive 'TokenAmountDelta' corresponding to that amount.
+toTokenAmountDelta :: TokenRawAmount -> TokenAmountDelta
+toTokenAmountDelta = TokenAmountDelta . fromIntegral
+
+-- | Convert a 'TokenRawAmount' to a positive 'TokenAmountDelta' corresponding to the deduction
+--  of the given amount.
+negativeTokenAmountDelta :: TokenRawAmount -> TokenAmountDelta
+negativeTokenAmountDelta = TokenAmountDelta . negate . fromIntegral
 
 -- | The possible update actions of a token module state.
 data TokenAccountStateValueDelta
