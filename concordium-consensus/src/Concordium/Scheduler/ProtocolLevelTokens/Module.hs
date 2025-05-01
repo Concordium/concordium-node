@@ -5,7 +5,6 @@ module Concordium.Scheduler.ProtocolLevelTokens.Module where
 
 import Control.Monad
 import qualified Data.ByteString.Builder as BS.Builder
-import Data.Maybe
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
