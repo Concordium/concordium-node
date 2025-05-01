@@ -349,14 +349,6 @@ accountCooldowns (PAV3 acc) = V1.getCooldowns acc
 accountCooldowns (PAV4 acc) = V1.getCooldowns acc
 accountCooldowns (PAV5 acc) = V1.getCooldowns acc
 
--- | Get the state of protocol level tokens owned by an account. This is only available at account
--- versions that support protocol level tokens.
-accountTokens ::
-    (MonadBlobStore m, AVSupportsPLT av) =>
-    PersistentAccount av ->
-    m (Map.Map BlockState.TokenIndex BlockState.TokenAccountState)
-accountTokens (PAV5 acc) = uncond <$> V1.getTokenStateTable acc
-
 -- | Determine if an account has a pre-pre-cooldown.
 accountHasPrePreCooldown ::
     (MonadBlobStore m, AVSupportsFlexibleCooldown av) =>
@@ -374,6 +366,35 @@ accountHash (PAV2 acc) = getHashM acc
 accountHash (PAV3 acc) = getHashM acc
 accountHash (PAV4 acc) = getHashM acc
 accountHash (PAV5 acc) = getHashM acc
+
+-- ** Protocol-level token queries
+
+-- | Get the state of protocol level tokens owned by an account. This is only available at account
+-- versions that support protocol level tokens.
+accountTokens ::
+    (MonadBlobStore m, AVSupportsPLT av) =>
+    PersistentAccount av ->
+    m (Map.Map BlockState.TokenIndex BlockState.TokenAccountState)
+accountTokens (PAV5 acc) = uncond <$> V1.getTokenStateTable acc
+
+-- | Get the balance of a protocol-level token held by an account.
+--  This is only available at account versions that support protocol-level tokens.
+accountTokenBalance ::
+    (MonadBlobStore m, AVSupportsPLT av) =>
+    PersistentAccount av ->
+    BlockState.TokenIndex ->
+    m BlockState.TokenRawAmount
+accountTokenBalance (PAV5 acc) = V1.getTokenBalance acc
+
+-- | Look up the 'TokenStateValue' associated with a particular token and key on an account.
+--  This is only available at account versions that support protocol-level tokens.
+accountTokenState ::
+    (MonadBlobStore m, AVSupportsPLT av) =>
+    PersistentAccount av ->
+    BlockState.TokenIndex ->
+    BlockState.TokenStateKey ->
+    m (Maybe BlockState.TokenStateValue)
+accountTokenState (PAV5 acc) = V1.getTokenState acc
 
 -- ** 'PersistentBakerInfoRef' queries
 

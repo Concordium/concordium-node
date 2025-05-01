@@ -272,6 +272,23 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- support protocol level tokens.
     getAccountTokens :: (PVSupportsPLT (MPV m)) => Account m -> m (Map.Map TokenIndex GSAccount.TokenAccountState)
 
+    -- | Get the balance of a protocol-level token held by an account.
+    -- This is only available at protocol versions that support protocol-level tokens.
+    getAccountTokenBalance ::
+        (PVSupportsPLT (MPV m)) =>
+        Account m ->
+        TokenIndex ->
+        m TokenRawAmount
+
+    -- | Look up the 'TokenStateValue' associated with a particular token and key on an account.
+    -- This is only available at protocol versions that support protocol-level tokens.
+    getAccountTokenState ::
+        (PVSupportsPLT (MPV m)) =>
+        Account m ->
+        TokenIndex ->
+        TokenStateKey ->
+        m (Maybe TokenStateValue)
+
 -- * Active, current and next bakers/delegators
 
 --
@@ -1945,6 +1962,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountHash = lift . getAccountHash
     getAccountCooldowns = lift . getAccountCooldowns
     getAccountTokens = lift . getAccountTokens
+    getAccountTokenBalance acct tokenIx = lift $ getAccountTokenBalance acct tokenIx
+    getAccountTokenState acct tokenIx key = lift $ getAccountTokenState acct tokenIx key
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1961,6 +1980,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE getAccountHash #-}
     {-# INLINE getAccountCooldowns #-}
     {-# INLINE getAccountTokens #-}
+    {-# INLINE getAccountTokenBalance #-}
+    {-# INLINE getAccountTokenState #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState

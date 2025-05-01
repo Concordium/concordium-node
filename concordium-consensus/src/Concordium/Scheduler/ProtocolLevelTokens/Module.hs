@@ -5,7 +5,6 @@ module Concordium.Scheduler.ProtocolLevelTokens.Module where
 
 import Control.Monad
 import qualified Data.ByteString.Builder as BS.Builder
-import Data.Maybe
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
@@ -159,7 +158,7 @@ executeTokenHolderTransaction sender tokenParam = do
                         Just recipientAccount -> do
                             success <- transfer sender recipientAccount pthoAmount pthoMemo
                             unless success $ do
-                                availableBalance <- fromMaybe 0 <$> getAccountBalance sender
+                                availableBalance <- getAccountBalance sender
                                 failTH
                                     TokenBalanceInsufficient
                                         { thfOperationIndex = opIndex,
