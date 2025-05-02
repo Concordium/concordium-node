@@ -526,8 +526,8 @@ extern "C" {
     /// * `block_id` - Location with the block identifier. Length must match the
     ///   corresponding type of block identifier.
     /// * `token_id` - Pointer to the token identifier.
-    /// * `token_id_len` - Length of the token identifier.
-    ///   the corresponding type of block identifier.
+    /// * `token_id_len` - Length of the token identifier. the corresponding
+    ///   type of block identifier.
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
     /// * `copier` - Callback for writting the output.
@@ -541,7 +541,6 @@ extern "C" {
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
-
 
     /// Get next account sequence number.
     ///
@@ -2344,11 +2343,12 @@ impl ConsensusContainer {
         let (block_id_type, block_hash) = bhi.to_ptr();
         let token_id_len = token_id.symbol.as_bytes().len();
         if token_id_len > 255 {
-            return Err(tonic::Status::invalid_argument("TokenId: symbol length must be at most 255 bytes"))
+            return Err(tonic::Status::invalid_argument(
+                "TokenId: symbol length must be at most 255 bytes",
+            ));
         }
         let token_id_len = token_id_len as u8;
         let token_id_ptr = token_id.symbol.as_ptr();
-        //let (token_id, token_id_len) = token_id.symbol.
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];
@@ -2368,7 +2368,6 @@ impl ConsensusContainer {
         response.ensure_ok("account or block")?;
         Ok((out_hash, out_data))
     }
-
 
     /// Get the best guess as to what the next account sequence number should
     /// be. If all account transactions are finalized, then this information
