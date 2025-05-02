@@ -131,6 +131,32 @@ getAccountInfoV2 cptr blockType blockHashPtr accIdType accIdBytesPtr outHash out
     res <- runMVR (Q.getAccountInfo bhi ai) mvr
     returnMaybeMessageWithBlock (copier outVec) outHash res
 
+getTokenInfoV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Token ID.
+    Ptr Word8 ->
+    -- | Token ID length.
+    Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- | Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getTokenInfoV2 cptr blockType blockHashPtr tokenIdPtr tokenIdLen outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    decodeTokenId tokenIdPtr tokenIdLen >>= \case
+        Left _ -> return $ queryResultCode QRInvalidArgument
+        Right tokenId -> do
+            res <- runMVR (Q.getTokenInfo bhi tokenId) mvr
+            returnMaybeMessageWithBlock (copier outVec) outHash res
+
 -- | Optionally copy a block hash (32 bytes) to a pointer.
 -- Used to provide back the block hash used in a given query, via the FFI.
 copyHashTo :: Ptr Word8 -> Q.BHIQueryResponse a -> IO ()
@@ -1242,6 +1268,24 @@ foreign export ccall
         Ptr Word8 ->
         Ptr ReceiverVec ->
         FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
+        IO Int64
+
+foreign export ccall
+    getTokenInfoV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Token ID.
+        Ptr Word8 ->
+        -- | Token ID length.
+        Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        Ptr ReceiverVec ->
+        -- | Callback to output data.
+        FunPtr CopyToVecCallback ->
         IO Int64
 
 foreign export ccall
