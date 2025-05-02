@@ -526,8 +526,7 @@ extern "C" {
     /// * `block_id` - Location with the block identifier. Length must match the
     ///   corresponding type of block identifier.
     /// * `token_id` - Pointer to the token identifier.
-    /// * `token_id_len` - Length of the token identifier. the corresponding
-    ///   type of block identifier.
+    /// * `token_id_len` - Length of the token identifier.
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `out` - Location to write the output of the query.
     /// * `copier` - Callback for writting the output.
