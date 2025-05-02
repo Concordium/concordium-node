@@ -188,6 +188,15 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_token_info")
+                .route_name("GetTokenInfo")
+                .input_type("crate::grpc2::types::TokenInfoRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_account_list")
                 .route_name("GetAccountList")
                 .input_type("crate::grpc2::types::BlockHashInput")
