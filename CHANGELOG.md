@@ -2,7 +2,16 @@
 
 ## Unreleased changes
 
-- Add `GetTokenList` query for getting a list of all protocol level tokens.
+## 9.0.0 (DevNet)
+
+- Preliminary support for protocol-level tokens (as part of protocol version 9), including:
+  - Support for `CreatePLT` chain update for creating a new protocol-level token.
+  - Support for transferring protocol-level tokens between accounts with the `TokenHolder`
+    transaction type.
+  - API support:
+    - Add `GetTokenList` query for getting a list of all protocol-level tokens.
+    - Add `GetTokenInfo` query for getting details about a specific protocol-level token.
+    - `GetAccountInfo` query displays balances of protocol-level tokens held by an account.
 
 ## 8.1.0
 
