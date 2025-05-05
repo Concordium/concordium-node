@@ -375,7 +375,11 @@ accountTokens ::
     (MonadBlobStore m, AVSupportsPLT av) =>
     PersistentAccount av ->
     m (Map.Map BlockState.TokenIndex BlockState.TokenAccountState)
-accountTokens (PAV5 acc) = uncond <$> V1.getTokenStateTable acc
+accountTokens (PAV5 acc) = do
+    tast <- V1.getTokenStateTable acc
+    case uncond tast of
+        Null -> return Map.empty
+        Some tst -> return tst
 
 -- | Get the balance of a protocol-level token held by an account.
 --  This is only available at account versions that support protocol-level tokens.
