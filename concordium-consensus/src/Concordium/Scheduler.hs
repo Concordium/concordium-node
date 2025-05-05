@@ -385,6 +385,9 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                         TokenHolder{..} ->
                             onlyWithPLT $
                                 handleTokenHolder (mkWTC TTTokenHolder) thTokenSymbol thOperations
+                        TokenGovernance{..} ->
+                            onlyWithPLT $
+                                handleTokenGovernance (mkWTC TTTokenGovernance) tgTokenSymbol tgOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -2718,6 +2721,66 @@ handleTokenHolder depositContext tokenId tokenOperations =
     invokeTokenHolderOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
             runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction (fst sender) parameter
+        -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
+        return ((\() -> []) <$> result)
+
+-- | Handler for a token governance transaction.
+handleTokenGovernance ::
+    forall m.
+    ( PVSupportsPLT (MPV m),
+      SchedulerMonad m
+    ) =>
+    WithDepositContext m ->
+    -- | Token symbol identifying the token to receive the operations.
+    TokenId ->
+    -- | Operations for the token.
+    TokenParameter ->
+    m (Maybe TransactionSummary)
+handleTokenGovernance depositContext tokenId tokenOperations =
+    withDeposit depositContext computeTransaction commitTransaction
+  where
+    senderAccount = depositContext ^. wtcSenderAccount
+    -- Execute the transaction in a modified environment
+    computeTransaction = do
+        -- Charge the base cost for this transaction type
+        tickEnergy Cost.tokenGovernanceBaseCost
+        -- Fetch the token from state
+        tokenIndex <-
+            lift (getTokenIndex tokenId) >>= \case
+                Just tokenIndex -> return tokenIndex
+                Nothing -> rejectTransaction $ NonExistentTokenId tokenId
+        -- Ensure the sender is authorized, i.e. is the governance account for this token.
+        configuration <- lift $ getTokenConfiguration tokenIndex
+        let governanceAccountIndex = Token._pltGovernanceAccountIndex configuration
+        when (governanceAccountIndex /= fst senderAccount) $ rejectTransaction $ UnauthorizedTokenGovernance tokenId
+        -- Find the reference for the token module.
+        let moduleRef = Token._pltModule configuration
+        -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
+        -- Invoke the token module with operations.
+        lift $ invokeTokenGovernanceOperations moduleRef tokenIndex senderAccount tokenOperations
+    -- Process the successful transaction computation.
+    commitTransaction computeState computeResult = do
+        (usedEnergy, energyCost) <-
+            computeExecutionCharge
+                (depositContext ^. wtcEnergyAmount)
+                (computeState ^. energyLeft)
+        chargeExecutionCost senderAccount energyCost
+        let result = case computeResult of
+                Left encodedRejectReason ->
+                    TxReject . TokenGovernanceTransactionFailed $
+                        makeTokenModuleRejectReason tokenId encodedRejectReason
+                Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
+        return (result, energyCost, usedEnergy)
+    -- Call the module of the token with the operations and return the events emitted from the token module.
+    invokeTokenGovernanceOperations ::
+        TokenModuleRef ->
+        Token.TokenIndex ->
+        IndexedAccount m ->
+        TokenParameter ->
+        m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
+    invokeTokenGovernanceOperations _ tokenIndex sender parameter = do
+        result <- withBlockStateRollback $ do
+            runPLT tokenIndex $ TokenModule.executeTokenGovernanceTransaction (fst sender) parameter
         -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
         return ((\() -> []) <$> result)
 
