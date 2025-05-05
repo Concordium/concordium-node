@@ -95,6 +95,7 @@ import qualified Concordium.Crypto.Ed25519Signature as Ed25519
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.TransactionVerification as TVer
+import qualified Concordium.Types.ProtocolLevelTokens.CBOR as PLTTypes
 
 import Lens.Micro.Platform
 
@@ -2671,6 +2672,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
 
 -- | Handler for a token holder transaction.
 handleTokenHolder ::
+    forall m.
     ( PVSupportsPLT (MPV m),
       SchedulerMonad m
     ) =>
@@ -2698,22 +2700,33 @@ handleTokenHolder depositContext tokenId tokenOperations =
         let moduleRef = Token._pltModule configuration
         -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
         -- Invoke the token module with operations.
-        events <- invokeTokenHolderOperations moduleRef tokenIndex senderAccount tokenOperations
-        -- Map the produced events adding the token ID.
-        let tokenModuleEvents = uncurry (TokenEvent tokenId) <$> events
-        return tokenModuleEvents
+        lift $ invokeTokenHolderOperations moduleRef tokenIndex senderAccount tokenOperations
     -- Process the successful transaction computation.
     commitTransaction computeState computeResult = do
         (usedEnergy, energyCost) <- computeExecutionCharge (depositContext ^. wtcEnergyAmount) (computeState ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
-        let events = TokenModuleEvent <$> computeResult
-        return (TxSuccess events, energyCost, usedEnergy)
+        let result = case computeResult of
+                Left encodedRejectReason ->
+                    TxReject . TokenHolderTransactionFailed $
+                        makeTokenModuleRejectReason tokenId encodedRejectReason
+                Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
+        return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
-    invokeTokenHolderOperations :: TokenModuleRef -> Token.TokenIndex -> IndexedAccount m -> TokenParameter -> m [(TokenEventType, TokenEventDetails)]
-    invokeTokenHolderOperations = error "Not implement yet. This should be implemented as part of https://linear.app/concordium/issue/NOD-677"
+    invokeTokenHolderOperations ::
+        TokenModuleRef ->
+        Token.TokenIndex ->
+        IndexedAccount m ->
+        TokenParameter ->
+        m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
+    invokeTokenHolderOperations _ tokenIndex sender parameter = do
+        result <- withBlockStateRollback $ do
+            runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction (fst sender) parameter
+        -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
+        return ((\() -> []) <$> result)
 
 -- | Handler for a token governance transaction.
 handleTokenGovernance ::
+    forall m.
     ( PVSupportsPLT (MPV m),
       SchedulerMonad m
     ) =>
@@ -2737,17 +2750,14 @@ handleTokenGovernance depositContext tokenId tokenOperations =
                 Just tokenIndex -> return tokenIndex
                 Nothing -> rejectTransaction $ NonExistentTokenId tokenId
         -- Ensure the sender is authorized, i.e. is the governance account for this token.
-        governanceAccountIndex <- lift $ getTokenGovernanceAccount tokenIndex
-        when (governanceAccountIndex /= fst senderAccount) $ rejectTransaction $ UnauthorizedTokenGovernance tokenId
-        -- Fetch the token configuration to find the reference for the token module.
         configuration <- lift $ getTokenConfiguration tokenIndex
+        let governanceAccountIndex = Token._pltGovernanceAccountIndex configuration
+        when (governanceAccountIndex /= fst senderAccount) $ rejectTransaction $ UnauthorizedTokenGovernance tokenId
+        -- Find the reference for the token module.
         let moduleRef = Token._pltModule configuration
         -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
         -- Invoke the token module with operations.
-        events <- invokeTokenGovernanceOperations moduleRef tokenIndex senderAccount tokenOperations
-        -- Map the produced events adding the token ID.
-        let tokenModuleEvents = uncurry (TokenEvent tokenId) <$> events
-        return tokenModuleEvents
+        lift $ invokeTokenGovernanceOperations moduleRef tokenIndex senderAccount tokenOperations
     -- Process the successful transaction computation.
     commitTransaction computeState computeResult = do
         (usedEnergy, energyCost) <-
@@ -2755,11 +2765,24 @@ handleTokenGovernance depositContext tokenId tokenOperations =
                 (depositContext ^. wtcEnergyAmount)
                 (computeState ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
-        let events = TokenModuleEvent <$> computeResult
-        return (TxSuccess events, energyCost, usedEnergy)
+        let result = case computeResult of
+                Left encodedRejectReason ->
+                    TxReject . TokenGovernanceTransactionFailed $
+                        makeTokenModuleRejectReason tokenId encodedRejectReason
+                Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
+        return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
-    invokeTokenGovernanceOperations :: TokenModuleRef -> Token.TokenIndex -> IndexedAccount m -> TokenParameter -> m [(TokenEventType, TokenEventDetails)]
-    invokeTokenGovernanceOperations = error "Not implement yet. This should be implemented as part of https://linear.app/concordium/issue/COR-687"
+    invokeTokenGovernanceOperations ::
+        TokenModuleRef ->
+        Token.TokenIndex ->
+        IndexedAccount m ->
+        TokenParameter ->
+        m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
+    invokeTokenGovernanceOperations _ tokenIndex sender parameter = do
+        result <- withBlockStateRollback $ do
+            runPLT tokenIndex $ TokenModule.executeTokenGovernanceTransaction (fst sender) parameter
+        -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
+        return ((\() -> []) <$> result)
 
 -- * Chain updates
 

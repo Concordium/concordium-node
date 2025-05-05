@@ -272,6 +272,23 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
     -- support protocol level tokens.
     getAccountTokens :: (PVSupportsPLT (MPV m)) => Account m -> m (Map.Map TokenIndex GSAccount.TokenAccountState)
 
+    -- | Get the balance of a protocol-level token held by an account.
+    -- This is only available at protocol versions that support protocol-level tokens.
+    getAccountTokenBalance ::
+        (PVSupportsPLT (MPV m)) =>
+        Account m ->
+        TokenIndex ->
+        m TokenRawAmount
+
+    -- | Look up the 'TokenStateValue' associated with a particular token and key on an account.
+    -- This is only available at protocol versions that support protocol-level tokens.
+    getAccountTokenState ::
+        (PVSupportsPLT (MPV m)) =>
+        Account m ->
+        TokenIndex ->
+        TokenStateKey ->
+        m (Maybe TokenStateValue)
+
 -- * Active, current and next bakers/delegators
 
 --
@@ -1665,6 +1682,35 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
         -- | The index of the new token and the updated block state.
         m (TokenIndex, UpdatableBlockState m)
 
+    -- | Update the token module state.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoUpdateTokenAccountModuleState ::
+        (PVSupportsPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The account to update.
+        AccountIndex ->
+        -- | The list of updates to the module state.
+        [(TokenStateKey, GSAccount.TokenAccountStateValueDelta)] ->
+        m (UpdatableBlockState m)
+
+    -- Update the token balance. Returns 'Nothing' if the update would overflow or underflow
+    -- the token balance on the account.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoUpdateTokenAccountBalance ::
+        (PVSupportsPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The account to update.
+        AccountIndex ->
+        -- | The token balance delta.
+        GSAccount.TokenAmountDelta ->
+        m (Maybe (UpdatableBlockState m))
+
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -1916,6 +1962,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountHash = lift . getAccountHash
     getAccountCooldowns = lift . getAccountCooldowns
     getAccountTokens = lift . getAccountTokens
+    getAccountTokenBalance acct tokenIx = lift $ getAccountTokenBalance acct tokenIx
+    getAccountTokenState acct tokenIx key = lift $ getAccountTokenState acct tokenIx key
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1932,6 +1980,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE getAccountHash #-}
     {-# INLINE getAccountCooldowns #-}
     {-# INLINE getAccountTokens #-}
+    {-# INLINE getAccountTokenBalance #-}
+    {-# INLINE getAccountTokenState #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState
@@ -2029,6 +2079,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetTokenState s tokIx key = lift . bsoSetTokenState s tokIx key
     bsoSetTokenCirculatingSupply s tokIx = lift . bsoSetTokenCirculatingSupply s tokIx
     bsoCreateToken s = lift . bsoCreateToken s
+    bsoUpdateTokenAccountModuleState s tokIx accIx = lift . bsoUpdateTokenAccountModuleState s tokIx accIx
+    bsoUpdateTokenAccountBalance s tokIx accIx = lift . bsoUpdateTokenAccountBalance s tokIx accIx
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -2090,6 +2142,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetTokenState #-}
     {-# INLINE bsoSetTokenCirculatingSupply #-}
     {-# INLINE bsoCreateToken #-}
+    {-# INLINE bsoUpdateTokenAccountModuleState #-}
+    {-# INLINE bsoUpdateTokenAccountBalance #-}
     {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}

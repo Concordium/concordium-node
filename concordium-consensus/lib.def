@@ -23,6 +23,7 @@ EXPORTS
  stopImportingBlocks
 
  getAccountInfoV2
+ getTokenInfoV2
  getAccountListV2
  getTokenListV2
  getModuleListV2

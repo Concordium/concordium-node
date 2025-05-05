@@ -15,7 +15,7 @@ class PLTKernelQuery m where
     type PLTAccount m
     getTokenState :: TokenStateKey -> m (Maybe TokenStateValue)
     getAccount :: AccountAddress -> m (Maybe (PLTAccount m))
-    getAccountBalance :: PLTAccount m -> m (Maybe TokenRawAmount)
+    getAccountBalance :: PLTAccount m -> m TokenRawAmount
     getAccountState :: PLTAccount m -> TokenStateKey -> m (Maybe TokenStateValue)
     getAccountCanonicalAddress :: PLTAccount m -> m AccountAddress
     getGovernanceAccount :: m (PLTAccount m)
@@ -54,4 +54,4 @@ class (PLTKernelUpdate m) => PLTKernelPrivilegedUpdate m where
 
 class PLTKernelFail e m where
     -- | Abort the current operation by raising an error.
-    pltError :: e -> m ()
+    pltError :: e -> m a

@@ -56,6 +56,14 @@ instance (MonadBlobStore m) => BlobStorable m TokenAccountStateTable where
 emptyTokenAccountStateTable :: TokenAccountStateTable
 emptyTokenAccountStateTable = TokenAccountStateTable{tokenAccountStateTable = Map.empty}
 
+-- | The empty token account state.
+emptyTokenAccountState :: TokenAccountState
+emptyTokenAccountState =
+    TokenAccountState
+        { tasBalance = TokenRawAmount 0,
+          tasModuleState = Map.empty
+        }
+
 -- | Token state at the account level
 data TokenAccountState = TokenAccountState
     { -- | The available balance for the account.
@@ -80,3 +88,32 @@ instance HashableTo Hash.Hash TokenAccountState where
 instance (Monad m) => MHashableTo m Hash.Hash TokenAccountState
 
 instance (MonadBlobStore m) => BlobStorable m TokenAccountState
+
+-- | An update to the token account state.
+data TokenAccountStateDelta = TokenAccountStateDelta
+    { -- | A change to the token balance.
+      tasBalanceDelta :: !(Maybe TokenAmountDelta),
+      -- | A change to the token module state.
+      tasModuleStateDelta :: ![(TokenStateKey, TokenAccountStateValueDelta)]
+    }
+    deriving (Eq, Show)
+
+-- | A change in a 'TokenRawAmount'.
+newtype TokenAmountDelta = TokenAmountDelta {tokenAmountDelta :: Integer} deriving (Eq, Show)
+
+-- | Convert a 'TokenRawAmount' to a positive 'TokenAmountDelta' corresponding to that amount.
+toTokenAmountDelta :: TokenRawAmount -> TokenAmountDelta
+toTokenAmountDelta = TokenAmountDelta . fromIntegral
+
+-- | Convert a 'TokenRawAmount' to a positive 'TokenAmountDelta' corresponding to the deduction
+--  of the given amount.
+negativeTokenAmountDelta :: TokenRawAmount -> TokenAmountDelta
+negativeTokenAmountDelta = TokenAmountDelta . negate . fromIntegral
+
+-- | The possible update actions of a token module state.
+data TokenAccountStateValueDelta
+    = -- | Delete the state.
+      TASVDelete
+    | -- | Update the state to a new value or create it if it doesn't already exist.
+      TASVUpdate TokenStateValue
+    deriving (Eq, Show)
