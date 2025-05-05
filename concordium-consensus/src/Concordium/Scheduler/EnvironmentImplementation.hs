@@ -461,9 +461,6 @@ instance
         ssBlockState .= s'
         return tokenIx
 
-    {-# INLINE getTokenGovernanceAccount #-}
-    getTokenGovernanceAccount _tokenIndex = error "Not implemented yet"
-
 -- | Execute the computation using the provided context and scheduler state.
 -- The return value is the value produced by the computation and the updated state of the scheduler.
 runSchedulerT ::

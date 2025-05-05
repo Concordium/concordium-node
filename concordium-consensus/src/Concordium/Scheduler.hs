@@ -387,7 +387,7 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                                 handleTokenHolder (mkWTC TTTokenHolder) thTokenSymbol thOperations
                         TokenGovernance{..} ->
                             onlyWithPLT $
-                                handleTokenGovernance (mkWTC TTTokenHolder) tgTokenSymbol tgOperations
+                                handleTokenGovernance (mkWTC TTTokenGovernance) tgTokenSymbol tgOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
