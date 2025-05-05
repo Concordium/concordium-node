@@ -2,6 +2,19 @@
 
 ## Unreleased changes
 
+## 9.0.0 (DevNet)
+
+- Preliminary support for protocol-level tokens (as part of protocol version 9), including:
+  - Support for `CreatePLT` chain update for creating a new protocol-level token.
+  - Support for transferring protocol-level tokens between accounts with the `TokenHolder`
+    transaction type.
+  - API support:
+    - Add `GetTokenList` query for getting a list of all protocol-level tokens.
+    - Add `GetTokenInfo` query for getting details about a specific protocol-level token.
+    - `GetAccountInfo` query displays balances of protocol-level tokens held by an account.
+
+## 8.1.0
+
 - Replace `BufferedRef` with `HashedBufferedRef` in `PoolRewards`
   `bakerPoolRewardDetails::LFMBTree` field to cache computed hashes.
 - Improvements to the loading of modules. This particularly improves the performance of
@@ -9,7 +22,12 @@
 - Use a persistent LMDB-backed store to track the finalized module map.
 - Fix a bug that affects setting up the account map correctly for non-finalized certified blocks
   that contain account creations (#1329).
-- Add `GetTokenList` query for getting a list of all protocol level tokens.
+- Fix a bug that can occasionally result in a crash if `GetBlockInfo` is invoked during a protocol
+  update ([#1352](https://github.com/Concordium/concordium-node/issues/1352)). The fix delays
+  executing the on-block and on-finalization handlers until after the state update has been
+  committed. This also should also result in better consistency in the gRPC API (i.e. if a client
+  is notified that a block has arrived, `GetBlockInfo` should not result in `NOT_FOUND` for thatb
+  block).
 
 ## 8.0.3
 
