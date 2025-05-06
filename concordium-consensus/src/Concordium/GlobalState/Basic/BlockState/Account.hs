@@ -273,7 +273,7 @@ newAccountMultiCredential cryptoParams threshold _accountAddress cs =
           _accountTokenStateTable =
             conditionally
                 (sSupportsPLT (accountVersion @av))
-                (makeHashed $ InMemoryTokenStateTable Map.empty)
+                (makeHashed (InMemoryTokenStateTable{inMemoryTokenStateTable = Map.empty}))
         }
 
 -- | Create an empty account with the given public key, address and credential.

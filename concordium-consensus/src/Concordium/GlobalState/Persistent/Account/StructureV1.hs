@@ -3,7 +3,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -1069,7 +1068,7 @@ instance (Monad m) => MHashableTo m (AccountHash 'AccountV4) (PersistentAccount 
 instance (MonadBlobStore m) => MHashableTo m (AccountHash 'AccountV5) (PersistentAccount 'AccountV5) where
     getHashM PersistentAccount{..} = do
         h <- case uncond accountTokenStateTable of
-            Null -> return $ TokenStateTableHash $ getHash $ runPutLazy $ put "Nothing"
+            Null -> return $ TokenStateTableHash emptyTokenAccountStateTableHash
             Some ref -> getHashM ref
         return $
             makeAccountHash $
@@ -1375,14 +1374,17 @@ getCooldowns =
         EmptyCooldownQueue -> return Nothing
         CooldownQueue ref -> Just <$> refLoad ref
 
--- | Load the token state table (if present) of the given account in memory.
+-- | Load the token state table of the given account in memory. If the token
+--  state table is not present, the empty map is returned.
 getTokenStateTable ::
     (MonadBlobStore m) =>
     PersistentAccount av ->
-    m (Conditionally (SupportsPLT av) (Nullable (Map.Map TokenIndex TokenAccountState)))
-getTokenStateTable acc = forM (accountTokenStateTable acc) $ \mbRef -> do
-    mbTast <- forM mbRef refLoad
-    forM mbTast $ \(TokenAccountStateTable tast) -> traverse refLoad tast
+    m (Conditionally (SupportsPLT av) (Map.Map TokenIndex TokenAccountState))
+getTokenStateTable acc = forM (accountTokenStateTable acc) $ \case
+    Null -> return Map.empty
+    Some ref -> do
+        TokenAccountStateTable tast <- refLoad ref
+        forM tast refLoad
 
 -- | Get the balance of a protocol-level token held by an account.
 --  This is only available at account versions that support protocol-level tokens.
@@ -1979,11 +1981,14 @@ makePersistentAccount Transient.Account{..} = do
                         paedStake
                         paedStakeCooldown
     accountTokenStateTable <- forM _accountTokenStateTable $ \inMemoryTast -> do
-        tast <-
-            traverse makeHashedBufferedRef $
-                Transient.inMemoryTokenStateTable $
-                    _unhashed inMemoryTast
-        fmap Some $ makeHashedBufferedRef $ TokenAccountStateTable tast
+        if null (Transient.inMemoryTokenStateTable $ _unhashed inMemoryTast)
+            then return Null
+            else do
+                tast <-
+                    traverse makeHashedBufferedRef $
+                        Transient.inMemoryTokenStateTable $
+                            _unhashed inMemoryTast
+                Some <$> makeHashedBufferedRef TokenAccountStateTable{tokenAccountStateTable = tast}
     return $!
         PersistentAccount
             { accountNonce = _accountNonce,
@@ -2583,10 +2588,7 @@ toTransientAccount acc = do
     condTast <- getTokenStateTable acc
     let _accountTokenStateTable =
             fmap
-                ( makeHashed . \case
-                    Some tast -> Transient.InMemoryTokenStateTable tast
-                    Null -> Transient.InMemoryTokenStateTable Map.empty
-                )
+                (makeHashed . Transient.InMemoryTokenStateTable)
                 condTast
     return $
         Transient.Account
