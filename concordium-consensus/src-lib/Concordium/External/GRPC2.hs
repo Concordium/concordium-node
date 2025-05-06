@@ -16,6 +16,7 @@ import Control.Concurrent
 import qualified Data.ByteString.Unsafe as BS
 import qualified Data.FixedByteString as FBS
 import Data.Foldable (toList)
+import Data.Functor
 import Data.Int
 import qualified Data.ProtoLens as Proto
 import qualified Data.ProtoLens.Combinators as Proto
@@ -41,6 +42,7 @@ import Concordium.Crypto.SHA256 (Hash (Hash))
 import Concordium.External.Helpers
 import Concordium.GlobalState.Parameters (CryptographicParameters)
 import Concordium.ID.Parameters (withGlobalContext)
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError (..))
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Wasm as Wasm
 
@@ -155,7 +157,17 @@ getTokenInfoV2 cptr blockType blockHashPtr tokenIdPtr tokenIdLen outHash outVec 
         Left _ -> return $ queryResultCode QRInvalidArgument
         Right tokenId -> do
             res <- runMVR (Q.getTokenInfo bhi tokenId) mvr
-            returnMaybeMessageWithBlock (copier outVec) outHash res
+            case res of
+                Q.BQRBlock _ (Left QTIEUnknownToken) -> do
+                    copyHashTo outHash res
+                    return $ queryResultCode QRNotFound
+                Q.BQRBlock _ (Left e) -> do
+                    mvLog mvr Logger.External Logger.LLError $ "Internal error processing GetTokenInfo: " ++ show e
+                    return $ queryResultCode QRInternalError
+                Q.BQRBlock _ (Right r) ->
+                    returnMessageWithBlock (copier outVec) outHash (res $> r)
+                Q.BQRNoBlock ->
+                    return $ queryResultCode QRNotFound
 
 -- | Optionally copy a block hash (32 bytes) to a pointer.
 -- Used to provide back the block hash used in a given query, via the FFI.
