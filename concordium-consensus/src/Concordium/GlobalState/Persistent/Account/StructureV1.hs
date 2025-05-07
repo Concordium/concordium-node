@@ -1023,7 +1023,7 @@ data PersistentAccount av = PersistentAccount
       --  INVARIANT: This is 0 if the account is not a baker or delegator.
       accountStakedAmount :: !Amount,
       -- | The state table of the protocol level tokens of the account in ascending order of the TokenIndex.
-      accountTokenStateTable :: !(Conditionally (SupportsPLT av) (Nullable (HashedBufferedRef' TokenStateTableHash TokenAccountStateTable))),
+      accountTokenStateTable :: !(Conditionally (SupportsPLT av) (Nullable (EagerlyHashedBufferedRef' TokenStateTableHash TokenAccountStateTable))),
       -- | The enduring account data.
       accountEnduringData :: !(EagerBufferedRef (PersistentAccountEnduringData av))
     }
@@ -1988,7 +1988,7 @@ makePersistentAccount Transient.Account{..} = do
                     traverse makeHashedBufferedRef $
                         Transient.inMemoryTokenStateTable $
                             _unhashed inMemoryTast
-                Some <$> makeHashedBufferedRef TokenAccountStateTable{tokenAccountStateTable = tast}
+                Some <$> refMake TokenAccountStateTable{tokenAccountStateTable = tast}
     return $!
         PersistentAccount
             { accountNonce = _accountNonce,
