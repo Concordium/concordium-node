@@ -207,7 +207,7 @@ accountHashInputsV5 Account{..} =
           ahi3AccountBalance = _accountAmount,
           ahi3StakedBalance = stakedBalance,
           ahi3MerkleHash = getHash merkleInputs,
-          ahi3TokenStateTableHash = getHash $ uncond $ _accountTokenStateTable
+          ahi3TokenStateTableHash = getHash $ uncond _accountTokenStateTable
         }
   where
     stakedBalance = case _accountStaking of

@@ -125,7 +125,10 @@ testAccount persisting stake =
           _accountReleaseSchedule = Transient.emptyAccountReleaseSchedule,
           _accountStaking = stake,
           _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av),
-          _accountTokenStateTable = conditionally (sSupportsPLT (accountVersion @av)) dummyTokenAccountStateTable
+          _accountTokenStateTable =
+            conditionally
+                (sSupportsPLT (accountVersion @av))
+                dummyTokenAccountStateTable
         }
 
 -- | Initial stake for a test account, set to 500 million CCD plus @2^accountIndex@ uCCD.

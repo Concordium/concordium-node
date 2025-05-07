@@ -32,6 +32,7 @@ import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Genesis.Data
+import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.ID.Types hiding (values)
 import Concordium.Logger
 import Concordium.Types
@@ -55,7 +56,6 @@ import Concordium.GlobalState.Persistent.Account.EncryptedAmount
 import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
 import qualified Concordium.GlobalState.Persistent.Account.StructureV0 as V0
-import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.AccountReleaseSchedule as ARSV0
 import Concordium.GlobalState.Persistent.BlockState.AccountReleaseScheduleV1
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
@@ -1023,7 +1023,7 @@ data PersistentAccount av = PersistentAccount
       --  INVARIANT: This is 0 if the account is not a baker or delegator.
       accountStakedAmount :: !Amount,
       -- | The state table of the protocol level tokens of the account in ascending order of the TokenIndex.
-      accountTokenStateTable :: !(Conditionally (SupportsPLT av) (HashedBufferedRef' TokenStateTableHash TokenAccountStateTable)),
+      accountTokenStateTable :: !(Conditionally (SupportsPLT av) (Nullable (HashedBufferedRef' TokenStateTableHash TokenAccountStateTable))),
       -- | The enduring account data.
       accountEnduringData :: !(EagerBufferedRef (PersistentAccountEnduringData av))
     }
@@ -1067,7 +1067,9 @@ instance (Monad m) => MHashableTo m (AccountHash 'AccountV3) (PersistentAccount 
 instance (Monad m) => MHashableTo m (AccountHash 'AccountV4) (PersistentAccount 'AccountV4)
 instance (MonadBlobStore m) => MHashableTo m (AccountHash 'AccountV5) (PersistentAccount 'AccountV5) where
     getHashM PersistentAccount{..} = do
-        h <- getHashM $ uncond accountTokenStateTable
+        h <- case uncond accountTokenStateTable of
+            Null -> return $ TokenStateTableHash emptyTokenAccountStateTableHash
+            Some ref -> getHashM ref
         return $
             makeAccountHash $
                 AHIV5 $
@@ -1372,13 +1374,15 @@ getCooldowns =
         EmptyCooldownQueue -> return Nothing
         CooldownQueue ref -> Just <$> refLoad ref
 
--- | Load the token state table of the given account in memory.
+-- | Load the token state table of the given account in memory. If the token
+--  state table is not present, the empty map is returned.
 getTokenStateTable ::
     (MonadBlobStore m) =>
     PersistentAccount av ->
     m (Conditionally (SupportsPLT av) (Map.Map TokenIndex TokenAccountState))
-getTokenStateTable acc = forM (accountTokenStateTable acc) $
-    \ref -> do
+getTokenStateTable acc = forM (accountTokenStateTable acc) $ \case
+    Null -> return Map.empty
+    Some ref -> do
         TokenAccountStateTable tast <- refLoad ref
         forM tast refLoad
 
@@ -1390,12 +1394,15 @@ getTokenBalance ::
     TokenIndex ->
     m TokenRawAmount
 getTokenBalance acc tokenIx = do
-    table <- refLoad (uncond (accountTokenStateTable acc))
-    case Map.lookup tokenIx (tokenAccountStateTable table) of
-        Nothing -> return 0
-        Just tokenStateRef -> do
-            tokenState <- refLoad tokenStateRef
-            return $ tasBalance tokenState
+    case uncond (accountTokenStateTable acc) of
+        Null -> return 0
+        Some ref -> do
+            table <- refLoad ref
+            case Map.lookup tokenIx (tokenAccountStateTable table) of
+                Nothing -> return 0
+                Just tokenStateRef -> do
+                    tokenState <- refLoad tokenStateRef
+                    return $ tasBalance tokenState
 
 -- | Look up the 'TokenStateValue' associated with a particular token and key on an account.
 --  This is only available at account versions that support protocol-level tokens.
@@ -1406,12 +1413,15 @@ getTokenState ::
     TokenStateKey ->
     m (Maybe TokenStateValue)
 getTokenState acc tokenIx key = do
-    table <- refLoad (uncond (accountTokenStateTable acc))
-    case Map.lookup tokenIx (tokenAccountStateTable table) of
-        Nothing -> return Nothing
-        Just tokenStateRef -> do
-            tokenState <- refLoad tokenStateRef
-            return $ Map.lookup key (tasModuleState tokenState)
+    case uncond (accountTokenStateTable acc) of
+        Null -> return Nothing
+        Some ref -> do
+            table <- refLoad ref
+            case Map.lookup tokenIx (tokenAccountStateTable table) of
+                Nothing -> return Nothing
+                Just tokenStateRef -> do
+                    tokenState <- refLoad tokenStateRef
+                    return $ Map.lookup key (tasModuleState tokenState)
 
 -- ** Updates
 
@@ -1971,11 +1981,14 @@ makePersistentAccount Transient.Account{..} = do
                         paedStake
                         paedStakeCooldown
     accountTokenStateTable <- forM _accountTokenStateTable $ \inMemoryTast -> do
-        tast <-
-            traverse makeHashedBufferedRef $
-                Transient.inMemoryTokenStateTable $
-                    _unhashed inMemoryTast
-        makeHashedBufferedRef $ TokenAccountStateTable{tokenAccountStateTable = tast}
+        if null (Transient.inMemoryTokenStateTable $ _unhashed inMemoryTast)
+            then return Null
+            else do
+                tast <-
+                    traverse makeHashedBufferedRef $
+                        Transient.inMemoryTokenStateTable $
+                            _unhashed inMemoryTast
+                Some <$> makeHashedBufferedRef TokenAccountStateTable{tokenAccountStateTable = tast}
     return $!
         PersistentAccount
             { accountNonce = _accountNonce,
@@ -2035,9 +2048,7 @@ newAccount cryptoParams _accountAddress credential = do
                         Null
                         PersistentAccountStakeEnduringNone
                         emptyCooldownQueue
-    accountTokenStateTable <-
-        conditionallyA (sSupportsPLT (accountVersion @av)) $
-            makeHashedBufferedRef emptyTokenAccountStateTable
+    let accountTokenStateTable = conditionally (sSupportsPLT (accountVersion @av)) Null
     return $!
         PersistentAccount
             { accountNonce = minNonce,
@@ -2117,9 +2128,7 @@ makeFromGenesisAccount spv cryptoParams chainParameters GenesisAccount{..} = do
                         Null
                         stakeEnduring
                         emptyCooldownQueue
-    accountTokenStateTable <-
-        conditionallyA (sSupportsPLT (accountVersion @av)) $
-            makeHashedBufferedRef emptyTokenAccountStateTable
+    let accountTokenStateTable = conditionally (sSupportsPLT (accountVersion @av)) Null
     return $!
         PersistentAccount
             { accountNonce = minNonce,
@@ -2421,13 +2430,12 @@ migrateV4ToV5 ::
     t m (PersistentAccount 'AccountV5)
 migrateV4ToV5 acc = do
     accountEnduringData <- migrateEagerBufferedRef migrateEnduringDataV4toV5 (accountEnduringData acc)
-    tastRef <- makeHashedBufferedRef emptyTokenAccountStateTable
     return $!
         PersistentAccount
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
               accountStakedAmount = accountStakedAmount acc,
-              accountTokenStateTable = CTrue tastRef,
+              accountTokenStateTable = CTrue Null,
               ..
             }
 
@@ -2577,8 +2585,11 @@ toTransientAccount acc = do
     _accountReleaseSchedule <- getReleaseSchedule acc
     _accountStaking <- getStake acc
     _accountStakeCooldown <- toTransientCooldownQueue <$> getStakeCooldown acc
-    att <- getTokenStateTable acc
-    let _accountTokenStateTable = makeHashed . Transient.InMemoryTokenStateTable <$> att
+    condTast <- getTokenStateTable acc
+    let _accountTokenStateTable =
+            fmap
+                (makeHashed . Transient.InMemoryTokenStateTable)
+                condTast
     return $
         Transient.Account
             { _accountNonce = accountNonce acc,

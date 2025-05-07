@@ -4413,9 +4413,14 @@ doUpdateTokenAccountModuleState pbs tokIx accIx delta = do
     storePBS pbs bsp{bspAccounts = newAccounts}
   where
     upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
-        CTrue ref -> do
+        CTrue (Some ref) -> doUpdate ref
+        CTrue Null -> do
+            ref <- makeHashedBufferedRef emptyTokenAccountStateTable
+            doUpdate ref
+      where
+        doUpdate ref = do
             ref' <- updateTokenAccountStateTable ref tokIx updateModuleState
-            pure (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue ref'})
+            pure (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue $ Some ref'})
 
     updateModuleState :: TokenAccountState -> m TokenAccountState
     updateModuleState modState = do
@@ -4448,9 +4453,15 @@ doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT
     storePBS pbs bsp{bspAccounts = newAccounts}
   where
     upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
-        CTrue ref -> do
+        CTrue (Some ref) -> doUpdate ref
+        CTrue Null -> do
+            ref <- makeHashedBufferedRef emptyTokenAccountStateTable
+            doUpdate ref
+      where
+        doUpdate ref = do
             ref' <- updateTokenAccountStateTable ref tokIx updateBalance
-            return (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue ref'})
+            return (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue $ Some ref'})
+
     updateBalance :: TokenAccountState -> MaybeT m TokenAccountState
     updateBalance tas
         | newBalanceInteger > fromIntegral (maxBound :: Word64) = hoistMaybe Nothing
