@@ -161,8 +161,9 @@ getTokenInfoV2 cptr blockType blockHashPtr tokenIdPtr tokenIdLen outHash outVec 
                 Q.BQRBlock _ (Left QTIEUnknownToken) -> do
                     copyHashTo outHash res
                     return $ queryResultCode QRNotFound
-                Q.BQRBlock _ (Left e) -> do
-                    mvLog mvr Logger.External Logger.LLError $ "Internal error processing GetTokenInfo: " ++ show e
+                Q.BQRBlock _ (Left e@QTIEInternal) -> do
+                    mvLog mvr Logger.External Logger.LLError $
+                        "Internal error processing GetTokenInfo: " ++ show e
                     return $ queryResultCode QRInternalError
                 Q.BQRBlock _ (Right r) ->
                     returnMessageWithBlock (copier outVec) outHash (res $> r)
