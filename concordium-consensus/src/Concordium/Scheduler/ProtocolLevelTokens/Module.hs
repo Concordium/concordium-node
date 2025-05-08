@@ -175,6 +175,22 @@ executeTokenHolderTransaction sender tokenParam = do
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
     failTH = pltError . encodeTokenHolderFailure
 
+-- | Execute a token-holder transaction. The process is as follows:
+--
+--   - Decode the transaction CBOR parameter.
+--   - Check that amounts are within the representable range.
+--   - For each transfer operation:
+--
+--       - Check that the recipient is valid.
+--       - Transfer the amount from the sender to the recipient, if the sender's balance is
+--         sufficient.
+executeTokenGovernanceTransaction ::
+    -- (PLTKernelUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    PLTAccount m ->
+    TokenParameter ->
+    m ()
+executeTokenGovernanceTransaction _sender _tokenParam = error "Not implement yet. This should be implemented as part of https://linear.app/concordium/issue/COR-687"
+
 -- | An error that may be when querying the token state.
 newtype QueryTokenError
     = -- | A state invariant was violated.
