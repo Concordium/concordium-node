@@ -4,7 +4,10 @@
 module Concordium.Scheduler.ProtocolLevelTokens.Module where
 
 import Control.Monad
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BS.Builder
+import qualified Data.Map.Strict as Map
+import Data.Maybe
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
@@ -187,3 +190,30 @@ executeTokenGovernanceTransaction ::
     TokenParameter ->
     m ()
 executeTokenGovernanceTransaction _sender _tokenParam = error "Not implement yet. This should be implemented as part of https://linear.app/concordium/issue/COR-687"
+
+-- | An error that may be when querying the token state.
+newtype QueryTokenError
+    = -- | A state invariant was violated.
+      QTEInvariantViolation String
+    deriving (Eq)
+
+instance Show QueryTokenError where
+    show (QTEInvariantViolation reason) = "Token state invariant violation: " ++ reason
+
+-- | Get the CBOR-encoded representation of the token module state.
+queryTokenModuleState :: (PLTKernelQuery m, PLTKernelFail QueryTokenError m, Monad m) => m BS.ByteString
+queryTokenModuleState = do
+    tmsName <-
+        getTokenState "name" >>= \case
+            Nothing -> pltError $ QTEInvariantViolation "Missing 'name'"
+            Just name -> return $ Text.decodeUtf8Lenient name
+    tmsMetadata <-
+        getTokenState "metadata" >>= \case
+            Nothing -> pltError $ QTEInvariantViolation "Missing 'metadata'"
+            Just metadata -> return $ Text.decodeUtf8Lenient metadata
+    tmsAllowList <- Just . isJust <$> getTokenState "allowList"
+    tmsDenyList <- Just . isJust <$> getTokenState "denyList"
+    tmsMintable <- Just . isJust <$> getTokenState "mintable"
+    tmsBurnable <- Just . isJust <$> getTokenState "burnable"
+    let tmsAdditional = Map.empty
+    return $ tokenModuleStateToBytes TokenModuleState{..}

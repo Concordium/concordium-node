@@ -91,7 +91,7 @@ import qualified Concordium.KonsensusV1.Types as SkovV1
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
-import Concordium.Scheduler.ProtocolLevelTokens.Module (toTokenAmount)
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError, queryTokenInfo)
 import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
@@ -1192,36 +1192,8 @@ getModuleList :: BlockHashInput -> MVR finconf (BHIQueryResponse [ModuleRef])
 getModuleList = liftSkovQueryStateBHI BS.getModuleList
 
 -- | Get the details of a token in the block state.
-getTokenInfo :: BlockHashInput -> TokenId -> MVR finconf (BHIQueryResponse (Maybe Tokens.TokenInfo))
-getTokenInfo blockHashInput tokenId = liftSkovQueryStateBHI doGetTokenInfo blockHashInput
-  where
-    doGetTokenInfo ::
-        forall m. (BS.BlockStateQuery m, MonadProtocolVersion m) => BlockState m -> m (Maybe Tokens.TokenInfo)
-    doGetTokenInfo bs = case sSupportsPLT (accountVersion @(AccountVersionFor (MPV m))) of
-        SFalse -> return Nothing
-        STrue -> do
-            mTokenIx <- BS.getTokenIndex bs tokenId
-            forM mTokenIx $ \tokenIx -> do
-                BlockState.PLTConfiguration{..} <- BS.getTokenConfiguration bs tokenIx
-                mGovAcct <- BS.getAccountByIndex bs _pltGovernanceAccountIndex
-                let govAccount = case mGovAcct of
-                        Nothing -> error "getTokenInfo: Token has an invalid governance account"
-                        Just (_, govAcct) -> govAcct
-                govAddr <- BS.getAccountCanonicalAddress govAccount
-                totalSupply <- BS.getTokenCirculatingSupply bs tokenIx
-                let ts =
-                        Tokens.TokenState
-                            { tsTokenModuleRef = _pltModule,
-                              tsIssuer = govAddr,
-                              tsDecimals = _pltDecimals,
-                              tsTotalSupply = toTokenAmount _pltDecimals totalSupply,
-                              tsModuleState = "\xA0"
-                            }
-                return $
-                    Tokens.TokenInfo
-                        { tiTokenId = tokenId,
-                          tiTokenState = ts
-                        }
+getTokenInfo :: BlockHashInput -> TokenId -> MVR finconf (BHIQueryResponse (Either QueryTokenInfoError Tokens.TokenInfo))
+getTokenInfo blockHashInput tokenId = liftSkovQueryStateBHI (queryTokenInfo tokenId) blockHashInput
 
 -- | Get the details of an account in the block state.
 --  The account can be given via an address, an account index or a credential registration id.

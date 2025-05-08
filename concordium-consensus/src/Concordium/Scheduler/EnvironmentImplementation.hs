@@ -507,9 +507,13 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
             BS.bsoGetAccountByIndex bs acctIndex >>= \case
                 Nothing -> error "getAccountBalance: Account does not exist"
                 Just acct -> BS.getAccountTokenBalance acct tokenIx
-    getAccountState _acct _key = do
-        -- TODO: implement
-        return Nothing
+    getAccountState acctIndex key = do
+        tokenIx <- ask
+        bs <- use ssBlockState
+        lift $
+            BS.bsoGetAccountByIndex bs acctIndex >>= \case
+                Nothing -> error "getAccountState: Account does not exist"
+                Just acct -> BS.getAccountTokenState acct tokenIx key
     getAccountCanonicalAddress acctIndex = do
         bs <- use ssBlockState
         lift $

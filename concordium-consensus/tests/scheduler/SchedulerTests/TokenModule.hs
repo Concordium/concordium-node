@@ -17,6 +17,7 @@
 --  be a return value or aborting the execution).
 module SchedulerTests.TokenModule where
 
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
 import Data.Typeable
 import Data.Word
@@ -30,8 +31,10 @@ import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module (
     InitializeTokenError (..),
+    QueryTokenError (..),
     executeTokenHolderTransaction,
     initializeToken,
+    queryTokenModuleState,
  )
 import Concordium.Types.ProtocolLevelTokens.CBOR
 import Concordium.Types.Tokens
@@ -562,8 +565,56 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     mkTransferOp ttAmount ttRecipient ttMemo = TokenHolderTransfer TokenTransferBody{..}
     encodeTransaction = TokenParameter . SBS.toShort . tokenHolderTransactionToBytes
 
+testQueryTokenModuleState :: Spec
+testQueryTokenModuleState = describe "queryTokenModuleState" $ do
+    it "Example 1" $ do
+        let trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
+            trace =
+                (PLTQ (GetTokenState "name") :-> Just "My protocol-level token")
+                    :>>: (PLTQ (GetTokenState "metadata") :-> Just "some URL")
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
+                    :>>: (PLTQ (GetTokenState "burnable") :-> Nothing)
+                    :>>: Done
+                        ( tokenModuleStateToBytes
+                            TokenModuleState
+                                { tmsName = "My protocol-level token",
+                                  tmsMetadata = "some URL",
+                                  tmsAllowList = Just True,
+                                  tmsDenyList = Just False,
+                                  tmsMintable = Just True,
+                                  tmsBurnable = Just False,
+                                  tmsAdditional = mempty
+                                }
+                        )
+        assertTrace queryTokenModuleState trace
+    it "Example 2" $ do
+        let trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
+            trace =
+                (PLTQ (GetTokenState "name") :-> Just "Another PLT")
+                    :>>: (PLTQ (GetTokenState "metadata") :-> Just "https://token.metadata")
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
+                    :>>: (PLTQ (GetTokenState "mintable") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "burnable") :-> Nothing)
+                    :>>: Done
+                        ( tokenModuleStateToBytes
+                            TokenModuleState
+                                { tmsName = "Another PLT",
+                                  tmsMetadata = "https://token.metadata",
+                                  tmsAllowList = Just False,
+                                  tmsDenyList = Just True,
+                                  tmsMintable = Just False,
+                                  tmsBurnable = Just False,
+                                  tmsAdditional = mempty
+                                }
+                        )
+        assertTrace queryTokenModuleState trace
+
 -- | Tests for the Token Module implementation.
 tests :: Spec
 tests = parallel $ describe "TokenModule" $ do
     testInitializeToken
     testExecuteTokenHolderTransaction
+    testQueryTokenModuleState
