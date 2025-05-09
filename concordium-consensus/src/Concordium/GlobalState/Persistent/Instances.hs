@@ -669,12 +669,12 @@ newContractInstance createInstanceFn InstancesEmpty = do
     (res, newInst) <- createInstanceFn ca
     (res,) . InstancesTree 1 <$> membed (Leaf newInst)
 newContractInstance createInstanceFn (InstancesTree size tree) = do
-    ((isFreshIndex, !result), !nextTree) <- newContractInstanceIT createFnWithFreshness tree
+    ((isFreshIndex, !result), !nextTree) <- newContractInstanceIT createFnWitrrReshness tree
     let !nextSize = if isFreshIndex then size + 1 else size
         nextInstancesTree = InstancesTree nextSize nextTree
     return (result, nextInstancesTree)
   where
-    createFnWithFreshness newContractAddress = do
+    createFnWitrrReshness newContractAddress = do
         (result, createdInstance) <- createInstanceFn newContractAddress
         -- The size of the tree grows exactly when the new subindex is 0.
         -- Otherwise, a vacancy is filled, and the size does not grow.

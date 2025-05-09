@@ -399,7 +399,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     it "invalid transaction" $ do
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
-                abortPLTError . encodeTokenHolderFailure $
+                abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
         assertTrace
             (executeTokenHolderTransaction 0 (TokenParameter mempty))
@@ -439,7 +439,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     [mkTransferOp amtMax receiver2 (Just (UntaggedMemo badMemo))]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
-                abortPLTError . encodeTokenHolderFailure $
+                abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 277 \"Size of the memo (257 bytes) exceeds maximum allowed size (256 bytes).\"")
         assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
     -- In this test, although the amount deserializes successfully, it is too large because of
@@ -451,7 +451,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 2)
-                    :>>: ( abortPLTError . encodeTokenHolderFailure $
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
                             DeserializationFailure (Just "Token amount outside representable range: Token amount exceeds maximum representable amount")
                          )
         assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
@@ -482,11 +482,11 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> False)
                     :>>: (PLTQ (GetAccountBalance 0) :-> 0)
-                    :>>: ( abortPLTError . encodeTokenHolderFailure $
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
                             TokenBalanceInsufficient
-                                { thfOperationIndex = 0,
-                                  thfAvailableBalance = TokenAmount 0 6,
-                                  thfRequiredBalance = amt10'000
+                                { trrOperationIndex = 0,
+                                  trrAvailableBalance = TokenAmount 0 6,
+                                  trrRequiredBalance = amt10'000
                                 }
                          )
         assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
@@ -504,11 +504,11 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 16)
                     :>>: (PLTU (Transfer 0 16 50_000_000 (Just simpleMemo)) :-> False)
                     :>>: (PLTQ (GetAccountBalance 0) :-> 5_000_000)
-                    :>>: ( abortPLTError . encodeTokenHolderFailure $
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
                             TokenBalanceInsufficient
-                                { thfOperationIndex = 1,
-                                  thfAvailableBalance = TokenAmount 5_000_000 6,
-                                  thfRequiredBalance = amt50
+                                { trrOperationIndex = 1,
+                                  trrAvailableBalance = TokenAmount 5_000_000 6,
+                                  trrRequiredBalance = amt50
                                 }
                          )
         assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
@@ -524,10 +524,10 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Nothing)
-                    :>>: ( abortPLTError . encodeTokenHolderFailure $
-                            RecipientNotFound
-                                { thfOperationIndex = 1,
-                                  thfRecipient = receiver2
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            AddressNotFound
+                                { trrOperationIndex = 1,
+                                  trrAddress = receiver2
                                 }
                          )
         assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
@@ -536,7 +536,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                 TokenHolderTransaction . Seq.fromList $
                     [ mkTransferOp
                         amt10'000
-                        (ReceiverAccount (dummyAccountAddress i) Nothing)
+                        (HolderAccount (dummyAccountAddress i) Nothing)
                         Nothing
                       | i <- [1 .. 5000]
                     ]
@@ -550,8 +550,8 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                         :>>: traceLoop (n + 1)
         assertTrace (executeTokenHolderTransaction 123_456 (encodeTransaction transaction)) trace
   where
-    receiver1 = ReceiverAccount (dummyAccountAddress 1) Nothing
-    receiver2 = ReceiverAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
+    receiver1 = HolderAccount (dummyAccountAddress 1) Nothing
+    receiver2 = HolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
     amt10'000 = TokenAmount 10_000 3
     amtMax = TokenAmount maxBound 0
     amt50 = TokenAmount 50 0
