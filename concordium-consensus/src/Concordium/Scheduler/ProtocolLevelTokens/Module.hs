@@ -162,7 +162,8 @@ executeTokenHolderTransaction sender tokenParam = do
                             failTH
                                 OperationNotPermitted
                                     { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted = Just (accountTokenHolder address),
+                                      trrAddressNotPermitted =
+                                        Just (accountTokenHolder senderAddress),
                                       trrReason = Just "sender not in allow list"
                                     }
                         recipientAllowed <- isJust <$> getAccountState recipientAccount "allowList"
@@ -183,7 +184,8 @@ executeTokenHolderTransaction sender tokenParam = do
                             failTH
                                 OperationNotPermitted
                                     { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted = Just (accountTokenHolder address),
+                                      trrAddressNotPermitted =
+                                        Just (accountTokenHolder senderAddress),
                                       trrReason = Just "sender in deny list"
                                     }
                         recipientDenied <- isJust <$> getAccountState recipientAccount "denyList"

@@ -30,6 +30,7 @@ import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module (
     InitializeTokenError (..),
+    executeTokenGovernanceTransaction,
     executeTokenHolderTransaction,
     initializeToken,
  )
@@ -419,6 +420,8 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
@@ -430,6 +433,8 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace =
                 (PLTQ GetDecimals :-> 0)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 maxBound (Just longMemo)) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
@@ -465,8 +470,12 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 121)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 121 50_000_000 (Just simpleMemo)) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
@@ -480,6 +489,8 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> False)
                     :>>: (PLTQ (GetAccountBalance 0) :-> 0)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -500,8 +511,12 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 16)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 16 50_000_000 (Just simpleMemo)) :-> False)
                     :>>: (PLTQ (GetAccountBalance 0) :-> 5_000_000)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -522,6 +537,8 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -530,6 +547,133 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                                   trrAddress = receiver2
                                 }
                          )
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "allow list: allowed" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 0 "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 4 "allowList") :-> Just "")
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
+                    :>>: Done ()
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "allow list: sender not allowed" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 0 "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetAccountCanonicalAddress 0) :-> dummyAccountAddress 0)
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted =
+                                    Just (accountTokenHolder (dummyAccountAddress 0)),
+                                  trrReason = Just "sender not in allow list"
+                                }
+                         )
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "allow list: recipient not allowed" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 9)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 23 "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 9 "allowList") :-> Nothing)
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Just receiver1,
+                                  trrReason = Just "recipient not in allow list"
+                                }
+                         )
+        assertTrace (executeTokenHolderTransaction 23 (encodeTransaction transaction)) trace
+    it "deny list: allowed" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 0 "denyList") :-> Nothing)
+                    :>>: (PLTQ (GetAccountState 4 "denyList") :-> Nothing)
+                    :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
+                    :>>: Done ()
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "deny list: sender denied" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 0 "denyList") :-> Just "")
+                    :>>: (PLTQ (GetAccountCanonicalAddress 0) :-> dummyAccountAddress 0)
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted =
+                                    Just (accountTokenHolder (dummyAccountAddress 0)),
+                                  trrReason = Just "sender in deny list"
+                                }
+                         )
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "deny list: recipient denied" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 0 "denyList") :-> Nothing)
+                    :>>: (PLTQ (GetAccountState 4 "denyList") :-> Just "")
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Just receiver1,
+                                  trrReason = Just "recipient in deny list"
+                                }
+                         )
+        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+    it "allow & deny list: allowed" $ do
+        let transaction =
+                TokenHolderTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                    :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 0 "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 4 "allowList") :-> Just "")
+                    :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
+                    :>>: (PLTQ (GetAccountState 0 "denyList") :-> Nothing)
+                    :>>: (PLTQ (GetAccountState 4 "denyList") :-> Nothing)
+                    :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
+                    :>>: Done ()
         assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
     it "5000 transfers" $ do
         let transaction =
@@ -546,6 +690,8 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                 | n > 5000 = Done ()
                 | otherwise =
                     (PLTQ (GetAccount (dummyAccountAddress (fromIntegral n))) :-> Just n)
+                        :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
+                        :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                         :>>: (PLTU (Transfer 123_456 n 10_000 Nothing) :-> True)
                         :>>: traceLoop (n + 1)
         assertTrace (executeTokenHolderTransaction 123_456 (encodeTransaction transaction)) trace
@@ -562,8 +708,29 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     mkTransferOp ttAmount ttRecipient ttMemo = TokenHolderTransfer TokenTransferBody{..}
     encodeTransaction = TokenParameter . SBS.toShort . tokenHolderTransactionToBytes
 
+testExecuteTokenGovernanceTransaction :: Spec
+testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransaction" $ do
+    it "invalid transaction" $ do
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                abortPLTError . encodeTokenRejectReason $
+                    DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
+        assertTrace
+            (executeTokenGovernanceTransaction 0 (TokenParameter mempty))
+            trace
+    it "empty operations" $ do
+        let transaction = TokenGovernanceTransaction Seq.empty
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 2)
+                    :>>: Done ()
+        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+  where
+    encodeTransaction = TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
+
 -- | Tests for the Token Module implementation.
 tests :: Spec
 tests = parallel $ describe "TokenModule" $ do
     testInitializeToken
     testExecuteTokenHolderTransaction
+    testExecuteTokenGovernanceTransaction
