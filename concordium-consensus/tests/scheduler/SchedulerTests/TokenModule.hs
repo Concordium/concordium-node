@@ -17,17 +17,24 @@
 --  be a return value or aborting the execution).
 module SchedulerTests.TokenModule where
 
+import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
+import qualified Data.Sequence as Seq
+import Data.String
+import qualified Data.Text as Text
 import Data.Typeable
 import Data.Word
+import System.Random
 import Test.HUnit
 import Test.Hspec
 
+import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Types
+import Concordium.Types.ProtocolLevelTokens.CBOR
+import Concordium.Types.Tokens
 
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
-import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module (
     InitializeTokenError (..),
@@ -37,10 +44,6 @@ import Concordium.Scheduler.ProtocolLevelTokens.Module (
     initializeToken,
     queryTokenModuleState,
  )
-import Concordium.Types.ProtocolLevelTokens.CBOR
-import Concordium.Types.Tokens
-import qualified Data.Sequence as Seq
-import System.Random
 
 -- | A value of type @PLTKernelQueryCall acct ret@ represents an invocation of an operation
 --  in a 'PLTKernelQuery' monad where @PLTAccount m ~ acct@. The parameter @ret@ is the type
@@ -728,8 +731,191 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                 (PLTQ GetDecimals :-> 2)
                     :>>: Done ()
         assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+    it "mint: OK" $ do
+        let transaction =
+                TokenGovernanceTransaction . Seq.fromList $
+                    [TokenMint (TokenAmount 10_000 3)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
+                    :>>: (PLTPU (Mint 0 10_000_000) :-> True)
+                    :>>: Done ()
+        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+    it "mint: not mintable" $ do
+        let transaction =
+                TokenGovernanceTransaction . Seq.fromList $
+                    [TokenMint (TokenAmount 10_000 3)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "mintable") :-> Nothing)
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "mint",
+                                  trrReason = Just "feature not enabled"
+                                }
+                         )
+        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+    it "mint: overflow" $ do
+        let transaction =
+                TokenGovernanceTransaction . Seq.fromList $
+                    [TokenMint (TokenAmount 10_000 3)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
+                    :>>: (PLTPU (Mint 0 10_000_000) :-> False)
+                    :>>: (PLTQ GetCirculatingSupply :-> (maxBound - 1_000_000))
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            MintWouldOverflow
+                                { trrOperationIndex = 0,
+                                  trrRequestedAmount = TokenAmount 10_000 3,
+                                  trrCurrentSupply = TokenAmount (maxBound - 1_000_000) 6,
+                                  trrMaxRepresentableAmount = TokenAmount maxBound 6
+                                }
+                         )
+        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+    it "burn: OK" $ do
+        let transaction =
+                TokenGovernanceTransaction . Seq.fromList $
+                    [TokenBurn (TokenAmount 10_000 3)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
+                    :>>: (PLTPU (Burn 0 10_000_000) :-> True)
+                    :>>: Done ()
+        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+    it "burn: not burnable" $ do
+        let transaction =
+                TokenGovernanceTransaction . Seq.fromList $
+                    [TokenBurn (TokenAmount 10_000 3)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "burnable") :-> Nothing)
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            UnsupportedOperation
+                                { trrOperationIndex = 0,
+                                  trrOperationType = "burn",
+                                  trrReason = Just "feature not enabled"
+                                }
+                         )
+        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+    it "burn: balance insufficient" $ do
+        let transaction =
+                TokenGovernanceTransaction . Seq.fromList $
+                    [TokenBurn (TokenAmount 10_000 3)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
+                    :>>: (PLTPU (Burn 0 10_000_000) :-> False)
+                    :>>: (PLTQ (GetAccountBalance 0) :-> 100)
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            TokenBalanceInsufficient
+                                { trrOperationIndex = 0,
+                                  trrAvailableBalance = TokenAmount 100 6,
+                                  trrRequiredBalance = TokenAmount 10_000 3
+                                }
+                         )
+        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+    it "mint & burn: OK" $ do
+        let transaction =
+                TokenGovernanceTransaction . Seq.fromList $
+                    [ TokenMint (TokenAmount 10_000 3),
+                      TokenBurn (TokenAmount 5_000 3)
+                    ]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
+                    :>>: (PLTPU (Mint 0 10_000_000) :-> True)
+                    :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
+                    :>>: (PLTPU (Burn 0 5_000_000) :-> True)
+                    :>>: Done ()
+        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+    testLists
   where
     encodeTransaction = TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
+
+data AddRemove = Add | Remove
+data AllowDeny = Allow | Deny
+
+type ListTestConf = (AddRemove, AllowDeny)
+
+testLists :: Spec
+testLists = do
+    forM_ [(Add, Allow), (Add, Deny), (Remove, Allow), (Remove, Deny)] $ \listConf -> do
+        describe (Text.unpack (ltcOperation listConf)) $ do
+            it "OK" $ do
+                let transaction =
+                        TokenGovernanceTransaction . Seq.fromList $
+                            [ltcMakeOperation listConf receiver1]
+                    trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+                    trace =
+                        (PLTQ GetDecimals :-> 6)
+                            :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
+                            :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                            :>>: (PLTU (SetAccountState 4 (ltcFeature listConf) (ltcNewValue listConf)) :-> ())
+                            :>>: Done ()
+                assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+            it "feature not enabled" $ do
+                let transaction =
+                        TokenGovernanceTransaction . Seq.fromList $
+                            [ltcMakeOperation listConf receiver1]
+                    trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+                    trace =
+                        (PLTQ GetDecimals :-> 6)
+                            :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Nothing)
+                            :>>: ( abortPLTError . encodeTokenRejectReason $
+                                    UnsupportedOperation
+                                        { trrOperationIndex = 0,
+                                          trrOperationType = ltcOperation listConf,
+                                          trrReason = Just "feature not enabled"
+                                        }
+                                 )
+                assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+            it "account not found" $ do
+                let transaction =
+                        TokenGovernanceTransaction . Seq.fromList $
+                            [ltcMakeOperation listConf receiver2]
+                    trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+                    trace =
+                        (PLTQ GetDecimals :-> 6)
+                            :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
+                            :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Nothing)
+                            :>>: ( abortPLTError . encodeTokenRejectReason $
+                                    AddressNotFound
+                                        { trrOperationIndex = 0,
+                                          trrAddress = receiver2
+                                        }
+                                 )
+                assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+  where
+    encodeTransaction = TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
+    receiver1 = HolderAccount (dummyAccountAddress 1) Nothing
+    receiver2 = HolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
+    ltcList :: (IsString s) => ListTestConf -> s
+    ltcList (_, Allow) = "allow"
+    ltcList (_, Deny) = "deny"
+    ltcAction :: (IsString s) => ListTestConf -> s
+    ltcAction (Add, _) = "add"
+    ltcAction (Remove, _) = "remove"
+    ltcFeature :: ListTestConf -> SBS.ShortByteString
+    ltcFeature c = ltcList c <> "List"
+    ltcOperation :: ListTestConf -> Text.Text
+    ltcOperation c = ltcAction c <> "-" <> ltcList c <> "-list"
+    ltcMakeOperation :: ListTestConf -> TokenHolder -> TokenGovernanceOperation
+    ltcMakeOperation (Add, Allow) = TokenAddAllowList
+    ltcMakeOperation (Remove, Allow) = TokenRemoveAllowList
+    ltcMakeOperation (Add, Deny) = TokenAddDenyList
+    ltcMakeOperation (Remove, Deny) = TokenRemoveDenyList
+    ltcNewValue :: ListTestConf -> Maybe BS.ByteString
+    ltcNewValue (Add, _) = Just ""
+    ltcNewValue (Remove, _) = Nothing
 
 testQueryTokenModuleState :: Spec
 testQueryTokenModuleState = describe "queryTokenModuleState" $ do
@@ -780,7 +966,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
 
 -- | Tests for the Token Module implementation.
 tests :: Spec
-tests = parallel $ describe "TokenModule" $ do
+tests = focus $ parallel $ describe "TokenModule" $ do
     testInitializeToken
     testExecuteTokenHolderTransaction
     testExecuteTokenGovernanceTransaction
