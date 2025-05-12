@@ -4415,7 +4415,7 @@ doUpdateTokenAccountModuleState pbs tokIx accIx delta = do
     upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
         CTrue (Some ref) -> doUpdate ref
         CTrue Null -> do
-            ref <- makeHashedBufferedRef emptyTokenAccountStateTable
+            ref <- refMake emptyTokenAccountStateTable
             doUpdate ref
       where
         doUpdate ref = do
@@ -4455,7 +4455,7 @@ doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT
     upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
         CTrue (Some ref) -> doUpdate ref
         CTrue Null -> do
-            ref <- makeHashedBufferedRef emptyTokenAccountStateTable
+            ref <- refMake emptyTokenAccountStateTable
             doUpdate ref
       where
         doUpdate ref = do
