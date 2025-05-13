@@ -387,8 +387,16 @@ queryTokenModuleState = do
     let tmsAdditional = Map.empty
     return $ tokenModuleStateToBytes TokenModuleState{..}
 
-queryAccountListStatus :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Bool, Bool)
+queryAccountListStatus :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe Bool, Maybe Bool)
 queryAccountListStatus account = do
-    isAllowed <- isJust <$> getAccountState account "allowList"
-    isDenied <- isJust <$> getAccountState account "denyList"
+    allowListEnabled <- isJust <$> getTokenState "allowList"
+    isAllowed <-
+        if allowListEnabled
+            then Just . isJust <$> getAccountState account "allowList"
+            else return Nothing
+    denyListEnabled <- isJust <$> getTokenState "denyList"
+    isDenied <-
+        if denyListEnabled
+            then Just . isJust <$> getAccountState account "denyList"
+            else return Nothing
     return (isAllowed, isDenied)
