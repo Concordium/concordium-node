@@ -19,43 +19,53 @@
 
 export build_version=$(./binaries/concordium-node --version | cut -d ' ' -f 2)
 
-if [[ -z "$build_env_name"  || -z "$build_env_name_lower" || -z "$build_catchup_url"
-        || -z "$build_version" || -z "$build_genesis_hash" || -z "$build_collector_backend_url"
-        || -z "$build_grpc2_listen_port" || -z "$build_listen_port" || -z "$build_bootstrap" ]];
+if [[ -z "$build_env_matrix" ]];
 then
-    echo 'All of $build_env_name $build_env_name_lower $build_catchup_url $build_version $build_genesis_hash $build_collector_backend_url $build_grpc2_listen_port $build_listen_port $build_bootstrap must be set.'
+    echo '$build_env_matrix must be set.'
     exit 1
 fi
 
-# The package name will be concordium-$build_env_name-node and the systemd
-# services within are analogously named. To achieve this we rename the template
-# files accordingly, and then subsitute the
-for file in debian/*
-do
-    # insert environment name in template files with concordium-node in their name.
-    out_file="${file/concordium-node/concordium-${build_env_name_lower}-node}"
-    echo "$out_file"
-    # Some files do not get renamed. To avoid problems with envsubst below which
-    # overwrites the file we make a temporary copy for input.
-    mv "$file" "$file.tmp"
-    envsubst '$build_env_name
-              $build_env_name_lower
-              $build_catchup_url
-              $build_version
-              $build_genesis_hash
-              $build_collector_backend_url
-              $build_grpc2_listen_port
-              $build_listen_port
-              $build_bootstrap' < "$file.tmp" > "$out_file"
-    rm "$file.tmp"
+# Process each key-value pair of the build_env_matrix
+echo "$build_env_matrix" | jq -r 'to_entries[] | "\(.key)=\(.value)"' | while IFS="=" read -r network variables; do
+    $build_env_name = $(echo "$variables" | jq -r  '.build_env_name')
+    $build_env_name_lower = $(echo "$variables" | jq -r  '.build_env_name_lower')
+    $build_catchup_url = $(echo "$variables" | jq -r  '.build_catchup_url')
+    $build_version = $(echo "$variables" | jq -r  '.build_version')
+    $build_genesis_hash = $(echo "$variables" | jq -r  '.build_genesis_hash')
+    $build_genesis_collector_backend_url = $(echo "$variables" | jq -r  '.build_genesis_collector_backend_url')
+    $build_genesis_grpc2_listen_port = $(echo "$variables" | jq -r  '.build_genesis_grpc2_listen_port')
+    $build_genesis_listen_port = $(echo "$variables" | jq -r  '.build_genesis_listen_port')
+    $build_bootstrap = $(echo "$variables" | jq -r  '.build_bootstrap')
+    # The package name will be concordium-$build_env_name-node and the systemd
+    # services within are analogously named. To achieve this we rename the template
+    # files accordingly, and then subsitute the
+    for file in debian/*
+    do
+        # insert environment name in template files with concordium-node in their name.
+        out_file="${file/concordium-node/concordium-$(network)-node}"
+        echo "$out_file"
+        # Some files do not get renamed. To avoid problems with envsubst below which
+        # overwrites the file we make a temporary copy for input.
+        cp "$file" "$file.tmp"
+        envsubst '$build_env_name
+                  $build_env_name_lower
+                  $build_catchup_url
+                  $build_version
+                  $build_genesis_hash
+                  $build_collector_backend_url
+                  $build_grpc2_listen_port
+                  $build_listen_port
+                  $build_bootstrap' < "$file.tmp" > "$out_file"
+        rm "$file.tmp"
+    done
 done
 
 # The install file should be executable since it renames the executables via dh-exec.
-chmod +x debian/concordium-$build_env_name_lower-node.install
+chmod +x debian/concordium-node.install
 # Build the package.
 dpkg-buildpackage -us -uc --build=binary
 
 # And copy all of the resulting artifacts (three files, the .deb package being
 # the main one, the other two being metadata) to ../out
 mkdir ../out
-mv ../concordium-$build_env_name_lower-node* ../out/
+mv ../concordium-node* ../out/

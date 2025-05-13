@@ -362,67 +362,65 @@ jobs:
           name: ${{ github.job }}
           path: ${{ env.ARTIFACT_NAME }}
 
-  generate-node-matrix:
-    runs-on: ubuntu-latest
-    needs: [validate-preconditions]
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
+  # generate-node-matrix:
+  #   runs-on: ubuntu-latest
+  #   needs: [validate-preconditions]
+  #   outputs:
+  #     matrix: ${{ steps.set-matrix.outputs.matrix }}
+  #   steps:
 
-      - name: Initialize Matrix with alpha environments
-        run: |
-          MATRIX_JSON=$(echo '[
-            {
-              "env": "stagenet",
-              "tld": "com",
-              "genesis_path": "stagenet/2024-09-12/genesis_data",
-              "grpc_port": 20500,
-              "listen_port": 9500
-            },
-            {
-              "env": "flynet",
-              "tld": "com",
-              "genesis_path": "flynet/2023-02-01/genesis_data",
-              "grpc_port": 20002,
-              "listen_port": 8890
-            }
-          ]' | jq -c)
-          echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
+  #     - name: Initialize Matrix with alpha environments
+  #       run: |
+  #         MATRIX_JSON=$(echo '[
+  #           {
+  #             "env": "stagenet",
+  #             "tld": "com",
+  #             "genesis_path": "stagenet/2024-09-12/genesis_data",
+  #             "grpc_port": 20500,
+  #             "listen_port": 9500
+  #           },
+  #           {
+  #             "env": "flynet",
+  #             "tld": "com",
+  #             "genesis_path": "flynet/2023-02-01/genesis_data",
+  #             "grpc_port": 20002,
+  #             "listen_port": 8890
+  #           }
+  #         ]' | jq -c)
+  #         echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
 
-      - name: Release candidate environments
-        if: needs.validate-preconditions.outputs.release_type == 'rc'
-        run: |
-          MATRIX_JSON=$(echo "$MATRIX_JSON" | jq -c '. + [
-            {
-              "env": "testnet",
-              "tld": "com",
-              "genesis_path": "testnet/2022-06-13/genesis_data",
-              "grpc_port": 20001,
-              "listen_port": 8889
-            },
-            {
-              "env": "mainnet",
-              "tld": "software",
-              "genesis_path": "mainnet/2021-06-09",
-              "grpc_port": 20000,
-              "listen_port": 8888
-            }
-          ]')
-          echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
+  #     - name: Release candidate environments
+  #       if: needs.validate-preconditions.outputs.release_type == 'rc'
+  #       run: |
+  #         MATRIX_JSON=$(echo "$MATRIX_JSON" | jq -c '. + [
+  #           {
+  #             "env": "testnet",
+  #             "tld": "com",
+  #             "genesis_path": "testnet/2022-06-13/genesis_data",
+  #             "grpc_port": 20001,
+  #             "listen_port": 8889
+  #           },
+  #           {
+  #             "env": "mainnet",
+  #             "tld": "software",
+  #             "genesis_path": "mainnet/2021-06-09",
+  #             "grpc_port": 20000,
+  #             "listen_port": 8888
+  #           }
+  #         ]')
+  #         echo "MATRIX_JSON=${MATRIX_JSON}" >> $GITHUB_ENV
 
-      - name: Output Matrix JSON
-        id: set-matrix
-        run: echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+  #     - name: Output Matrix JSON
+  #       id: set-matrix
+  #       run: echo "matrix=$MATRIX_JSON" >> $GITHUB_OUTPUT
+
 
   node-linux:
      runs-on: ubuntu-latest
      if: contains(fromJSON('["rc", "alpha", "node-linux"]'), needs.validate-preconditions.outputs.release_type)
-     needs: [ build-static-binaries, validate-preconditions, generate-node-matrix ]
+     needs: [ build-static-binaries, validate-preconditions ]
      env:
        DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
-     strategy:
-       matrix:
-         node: ${{ fromJSON(needs.generate-node-matrix.outputs.matrix) }}
      steps:
        - name: Download artifact
          uses: actions/download-artifact@v4
@@ -432,7 +430,7 @@ jobs:
 
        - name: Extrapolate artifact name
          run: |
-           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["node-${{ matrix.node.env }}-linux"].name')
+           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["node-linux"].name')
            echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
 
        - name: Load image
@@ -454,20 +452,49 @@ jobs:
            ref: 'main'
 
        - name: Define domain
-         run: echo "DOMAIN=${{ matrix.node.env }}.concordium.${{ matrix.node.tld }}" >> $GITHUB_ENV
+         run: echo "DOMAIN=mainnet.concordium.software" >> $GITHUB_ENV
 
        - name: Define project name
-         run: echo "PROJECT_NAME=node-${{ matrix.node.env }}-linux" >> $GITHUB_ENV
+         run: echo "PROJECT_NAME=node-linux" >> $GITHUB_ENV
 
        - name: Copy Genesis Data
          run: |
            mkdir -p ${{ env.DATA_DIR }}
-           cp genesis/${{ matrix.node.genesis_path }}/genesis.dat ${{ env.DATA_DIR }}/${{ matrix.node.env }}-genesis.dat
+           cp genesis/mainnet/2021-06-09/genesis.dat ${{ env.DATA_DIR }}/mainnet-genesis.dat
+           cp genesis/testnet/2022-06-13/genesis_data/genesis.dat ${{ env.DATA_DIR }}/testnet-genesis.dat
+           cp genesis/flynet/2023-02-01/genesis_data/genesis.dat ${{ env.DATA_DIR }}/flynet-genesis.dat
+           cp genesis/stagenet/2024-09-12/genesis_data/genesis.dat ${{ env.DATA_DIR }}/stagenet-genesis.dat
 
-       - name: Set environment variables
+       - name: Define build environments
          run: |
-           echo "BUILD_ENV_NAME=$(echo "${{ matrix.node.env }}" | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')" >> $GITHUB_ENV
-           echo "BUILD_GENESIS_HASH=$(cat genesis/${{ matrix.node.genesis_path }}/genesis_hash | tr -cd "[:alnum:]")" >> $GITHUB_ENV
+            build_env = '{}'
+            echo "$${{ needs.generate-node-matrix.outputs.matrix }}" | jq -c '.[]' | while read -r node; do
+                env=$(echo "$node" | jq -r '.env')
+                tld=$(echo "$node" | jq -r '.tld')
+                genesis_path=$(echo "$node" | jq -r '.genesis_path')
+                grpc_port=$(echo "$node" | jq -r '.grpc_port')
+                listen_port=$(echo "$node" | jq -r '.listen_port')
+                DOMAIN="$(env).concordium.$(tld)"
+                PROJECT_NAME="node-$(env)-linux"
+                BUILD_ENV_NAME=$(echo $env | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')    
+                BUILD_GENESIS_HASH=$(cat genesis/$(genesis_path)/genesis_hash | tr -cd "[:alnum:]")
+
+                mkdir -p ${{ env.DATA_DIR }}
+                cp genesis/$(genesis_path)/genesis.dat ${{ env.DATA_DIR }}/$(env)-genesis.dat
+
+                build_env = echo "$build_env" | jq '. + {"$(env)": {
+                    build_env_name_lower=$(env)
+                    build_catchup_url=https://$(DOMAIN)/blocks.idx
+                    build_genesis_hash=$(BUILD_GENESIS_HASH)
+                    build_collector_backend_url=https://dashboard.$(DOMAIN)/nodes/post
+                    build_grpc2_listen_port=$(grpc_port)
+                    build_listen_port=$(listen_port)
+                    build_bootstrap=bootstrap.$(DOMAIN):8888
+                  }
+                }'
+            done
+           
+            echo BUILD_ENV_MATRIX=$(build_env) >> $GITHUB_ENV
 
        - name: Build Docker Image
          uses: docker/build-push-action@v6
@@ -481,25 +508,109 @@ jobs:
              ubuntu_version=${{ env.UBUNTU_VERSION }}
              version=${{ needs.validate-preconditions.outputs.version }}
              static_binaries_image_tag=${{ github.run_id }}
-             build_env_name=${{ env.BUILD_ENV_NAME }}
-             build_env_name_lower=${{ matrix.node.env }}
-             build_catchup_url=https://${{ env.DOMAIN }}/blocks.idx
-             build_genesis_hash=${{ env.BUILD_GENESIS_HASH }}
-             build_collector_backend_url=https://dashboard.${{ env.DOMAIN }}/nodes/post
-             build_grpc2_listen_port=${{ matrix.node.grpc_port }}
-             build_listen_port=${{ matrix.node.listen_port }}
-             build_bootstrap=bootstrap.${{ env.DOMAIN }}:8888
+             build_env_matrix=${{ env.BUILD_ENV_MATRIX }}
 
        - name: Run Docker and Extract Artifacts
          run: |
            id=$(docker create ${{ matrix.node.env }}-deb)
-           docker cp $id:/out/concordium-${{ matrix.node.env }}-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb ${{ env.ARTIFACT_NAME }}
+           docker cp $id:/out/concordium-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb ${{ env.ARTIFACT_NAME }}
 
        - name: Upload artifact
          uses: actions/upload-artifact@v4
          with:
            name: node-${{ matrix.node.env }}-linux
            path: ${{ env.ARTIFACT_NAME }}
+  # node-linux:
+  #    runs-on: ubuntu-latest
+  #    if: contains(fromJSON('["rc", "alpha", "node-linux"]'), needs.validate-preconditions.outputs.release_type)
+  #    needs: [ build-static-binaries, validate-preconditions, generate-node-matrix ]
+  #    env:
+  #      DATA_DIR: './scripts/distribution/ubuntu-packages/template/data'
+  #    steps:
+  #      - name: Download artifact
+  #        uses: actions/download-artifact@v4
+  #        with:
+  #          name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
+  #          path: /tmp
+
+  #      - name: Extrapolate artifact name
+  #        run: |
+  #          ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["node-linux"].name')
+  #          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+
+  #      - name: Load image
+  #        run: |
+  #          docker load --input /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+  #          rm /tmp/${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}.tar
+
+  #      - name: Checkout Repository
+  #        uses: actions/checkout@v4
+  #        with:
+  #          submodules: recursive
+
+  #      - name: Checkout Genesis Repository
+  #        uses: actions/checkout@v4
+  #        with:
+  #          repository: 'Concordium/concordium-infra-genesis-data'
+  #          path: 'genesis'
+  #          ssh-key: ${{ secrets.GENESIS_DATA_KEY }}
+  #          ref: 'main'
+
+  #      - name: Define build environments
+  #        run: |
+  #           build_env = '{}'
+  #           echo "$${{ needs.generate-node-matrix.outputs.matrix }}" | jq -c '.[]' | while read -r node; do
+  #               env=$(echo "$node" | jq -r '.env')
+  #               tld=$(echo "$node" | jq -r '.tld')
+  #               genesis_path=$(echo "$node" | jq -r '.genesis_path')
+  #               grpc_port=$(echo "$node" | jq -r '.grpc_port')
+  #               listen_port=$(echo "$node" | jq -r '.listen_port')
+  #               DOMAIN="$(env).concordium.$(tld)"
+  #               PROJECT_NAME="node-$(env)-linux"
+  #               BUILD_ENV_NAME=$(echo $env | awk '{ $1=toupper(substr($1,1,1)) substr($1,2); print }')    
+  #               BUILD_GENESIS_HASH=$(cat genesis/$(genesis_path)/genesis_hash | tr -cd "[:alnum:]")
+
+  #               mkdir -p ${{ env.DATA_DIR }}
+  #               cp genesis/$(genesis_path)/genesis.dat ${{ env.DATA_DIR }}/$(env)-genesis.dat
+
+  #               build_env = echo "$build_env" | jq '. + {"$(env)": {
+  #                   build_env_name_lower=$(env)
+  #                   build_catchup_url=https://$(DOMAIN)/blocks.idx
+  #                   build_genesis_hash=$(BUILD_GENESIS_HASH)
+  #                   build_collector_backend_url=https://dashboard.$(DOMAIN)/nodes/post
+  #                   build_grpc2_listen_port=$(grpc_port)
+  #                   build_listen_port=$(listen_port)
+  #                   build_bootstrap=bootstrap.$(DOMAIN):8888
+  #                 }
+  #               }'
+  #           done
+           
+  #           echo BUILD_ENV_MATRIX=$(build_env) >> $GITHUB_ENV
+
+  #      - name: Build Docker Image
+  #        uses: docker/build-push-action@v6
+  #        with:
+  #          context: ./scripts/distribution/ubuntu-packages/
+  #          push: false
+  #          file: ./scripts/distribution/ubuntu-packages/deb.Dockerfile
+  #          tags: node-deb
+  #          no-cache: true
+  #          build-args:
+  #            ubuntu_version=${{ env.UBUNTU_VERSION }}
+  #            version=${{ needs.validate-preconditions.outputs.version }}
+  #            static_binaries_image_tag=${{ github.run_id }}
+  #            build_env_matrix=${{ env.BUILD_ENV_MATRIX }}
+
+  #      - name: Run Docker and Extract Artifacts
+  #        run: |
+  #          id=$(docker create all-networks-deb)
+  #          docker cp $id:/out/concordium-node_${{ needs.validate-preconditions.outputs.base_version }}_amd64.deb ${{ env.ARTIFACT_NAME }}
+
+  #      - name: Upload artifact
+  #        uses: actions/upload-artifact@v4
+  #        with:
+  #          name: node-linux
+  #          path: ${{ env.ARTIFACT_NAME }}
 
   generate-release-matrixes:
     runs-on: ubuntu-latest

@@ -1,10 +1,10 @@
 [Unit]
-Description=Concordium ${build_env_name} Node
+Description=Concordium Node
 After=syslog.target network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/concordium-${build_env_name_lower}-node-${build_version} --config-dir ${STATE_DIRECTORY}/config --data-dir ${STATE_DIRECTORY}/data
+ExecStart=/usr/bin/concordium-node-${build_version} --config-dir ${STATE_DIRECTORY}/config --data-dir ${STATE_DIRECTORY}/data
 Restart=always
 RestartSec=20
 

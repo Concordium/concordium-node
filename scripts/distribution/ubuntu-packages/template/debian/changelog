@@ -1,4 +1,4 @@
-concordium-${build_env_name_lower}-node ($build_version) unstable; urgency=medium
+concordium-node ($build_version) unstable; urgency=medium
 
    * See changelog https://github.com/Concordium/concordium-node/blob/main/CHANGELOG.md for upstream changes.
  
