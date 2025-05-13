@@ -23,19 +23,12 @@ fi
 docker build\
        --build-arg ubuntu_version=$UBUNTU_VERSION\
        --build-arg static_binaries_image_tag=$STATIC_BINARIES_IMAGE_TAG\
-       --build-arg build_env_name=Mainnet\
-       --build-arg build_env_name_lower=mainnet\
-       --build-arg build_catchup_url=https://catchup.mainnet.concordium.software/blocks.idx\
-       --build-arg build_genesis_hash=9dd9ca4d19e9393877d2c44b70f89acbfc0883c2243e5eeaecc0d1cd0503f478\
-       --build-arg build_collector_backend_url=https://dashboard.mainnet.concordium.software/nodes/post\
-       --build-arg build_grpc2_listen_port=20000\
-       --build-arg build_listen_port=8888\
-       --build-arg build_bootstrap=bootstrap.mainnet.concordium.software:8888\
-       -f deb.Dockerfile -t mainnet-deb . --no-cache
+       --build-arg build_env_matrix= '[{"build_env_name"="Mainnet", "build_catchup_url"="https://catchup.mainnet.concordium.software/blocks.idx", "build_genesis_hash"="9dd9ca4d19e9393877d2c44b70f89acbfc0883c2243e5eeaecc0d1cd0503f478", "build_collector_backend_url"="https://dashboard.mainnet.concordium.software/nodes/post", "build_grpc2_listen_port"="20000", "build_listen_port"="8888", "build_bootstrap"="bootstrap.mainnet.concordium.software:8888"},{"build_env_name"="Testnet", "build_catchup_url"="https://catchup.testnet.concordium.software/blocks.idx", "build_genesis_hash"="4221332d34e1694168c2a0c0b3fd0f273809612cb13d000d5c2e00e85f50f796", "build_collector_backend_url"="https://dashboard.testnet.concordium.software/nodes/post", "build_grpc2_listen_port"="20001", "build_listen_port"="8889", "build_bootstrap"="bootstrap.testnet.concordium.software:8888"}]'\
+       -f deb.Dockerfile -t deb . --no-cache
 
 # Copy out the build artifacts. We create a temporary container and use docker
 # cp. This makes the output artifacts have correct file permissions (they are
 # owned by the user who ran the script).
-id=$(docker create mainnet-deb)
-docker cp $id:/out mainnet-build
+id=$(docker create deb)
+docker cp $id:/out build
 docker rm $id

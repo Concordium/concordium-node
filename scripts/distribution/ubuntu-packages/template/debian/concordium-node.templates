@@ -1,3 +1,14 @@
-Template: concordium-${build_env_name_lower}-node-collector/node-name
+Template: concordium-node/service_type
+Type: select
+Choices: testnet, stagenet, mainnet, flynet
+Default: mainnet
+Description: Service configuration:
+ Choose the service configuration that fits your needs:
+  * testnet: The Concordium testnet. Used for testing of experimental node builds.
+  * stagenet: The Concordium stagenet. Used for testing of alpha node builds.
+  * mainnet: The main Concordium network.
+  * flynet: ???
+
+Template: concordium-node-collector/node-name
 Type: string
 Description: Name of the node to appear on the network dashboard. Must not be empty.

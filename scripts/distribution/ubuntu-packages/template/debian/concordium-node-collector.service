@@ -1,5 +1,5 @@
 [Unit]
-Description=Concordium ${build_env_name} Node Collector
+Description=Concordium Node Collector
 After=syslog.target network.target concordium-node.service
 # The node should be started before this service.
 # Requires will automatically start the node service if this
@@ -7,11 +7,11 @@ After=syslog.target network.target concordium-node.service
 # will be stopped as well.
 # The 'After' clause above means that the node service will be up
 # before this one is started.
-Requires=concordium-${build_env_name_lower}-node.service
+Requires=concordium-node.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/concordium-${build_env_name_lower}-node-collector-${build_version}
+ExecStart=/usr/bin/concordium-node-collector-${build_version}
 Restart=always
 RestartSec=20
 

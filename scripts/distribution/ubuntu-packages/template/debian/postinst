@@ -2,11 +2,11 @@
 set -e
 . /usr/share/debconf/confmodule
 set -u
-db_get concordium-${build_env_name_lower}-node-collector/node-name
+db_get concordium-node-collector/node-name
 NODE_NAME="$RET"
 
 # The systemd dropin file with user configuration.
-DROP_IN="/etc/systemd/system/concordium-${build_env_name_lower}-node-collector.service.d/override.conf"
+DROP_IN="/etc/systemd/system/concordium-node-collector.service.d/override.conf"
 
 # Only update the node name if the override configuration does not already exist.
 # This is not perfect, since we don't know whether the override contains

@@ -1,4 +1,4 @@
 #! /usr/bin/dh-exec
-binaries/concordium-node => /usr/bin/concordium-${build_env_name_lower}-node-${build_version}
-binaries/concordium-node-collector => /usr/bin/concordium-${build_env_name_lower}-node-collector-${build_version}
+binaries/concordium-node => /usr/bin/concordium-node-${build_version}
+binaries/concordium-node-collector => /usr/bin/concordium-node-collector-${build_version}
 data/${build_env_name_lower}-genesis.dat => /var/lib/concordium-${build_genesis_hash}/data/genesis.dat

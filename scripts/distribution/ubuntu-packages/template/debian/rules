@@ -1,4 +1,12 @@
 #!/usr/bin/make -f
+#
+NETWORK ?= "mainnet"
+
+# Check for debconf-set value during build
+ifneq ("$(wildcard debian/service-config)","")
+    include debian/service-config
+endif
+
 %:
 	dh $@
 
@@ -8,8 +16,23 @@
 # To not enable the service on boot add `--no-enable` to `th_installsystemd`.
 # To not start the service automatically upon install add `--no-start`.
 override_dh_installsystemd:
-		dh_installsystemd --name=concordium-${build_env_name_lower}-node
-		dh_installsystemd --name=concordium-${build_env_name_lower}-node-collector
+		# Verify that the service file exists
+		@if [ ! -f debian/concordium-$(NETWORK)-node.service ]; then \
+			echo "Error: Service file for '$(NETWORK)' not found!"; \
+			exit 1; \
+		fi
+		# Install the service file with the appropriate name
+		cp debian/concordium-$(NETWORK)-node.service debian/concordium-node.service
+		cp debian/concordium-$(NETWORK)-node.dirs debian/concordium-node.dirs
+		cp debian/concordium-$(NETWORK)-node.config debian/concordium-node.config
+		dh_installsystemd --name=concordium-node
+
+		# Verify that the service file exists
+		@if [ ! -f debian/concordium-$(NETWORK)-node-collector.service ]; then \
+			echo "Error: Service file for '$(NETWORK)' not found!"; \
+			exit 1; \
+		fi
+		dh_installsystemd --name=concordium-node-collector
 
 override_dh_dwz:
 		# do nothing since we already stripped the binary
@@ -18,3 +41,5 @@ override_dh_dwz:
 override_dh_clean:
 #		rm -rf binaries
 		dh_clean
+		rm -f debian/concordium-node.service
+		rm -f debian/concordium-node-collector.service

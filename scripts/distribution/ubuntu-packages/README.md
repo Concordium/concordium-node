@@ -96,18 +96,16 @@ The general strategy for building the package is as follows.
 
 # Mainnet and testnet builds
 
-Since mainnet and testnet builds are common the repository includes two scripts
-that will build packages for those two environments with minimal input. These
-scripts are [./build-mainnet-deb.sh](./build-mainnet-deb.sh) and
-[./build-testnet-deb.sh](./build-testnet-deb.sh). They should be run from the
-directory they are in as follows.
+The repository includes a script [./build-deb.sh](./build-deb.sh) that will
+build a package with configurations for those two environments with minimal
+input. The script should be run from the containing directory as follows.
 
 ```console
-UBUNTU_VERSION=24.04 ./build-testnet-deb.sh
+UBUNTU_VERSION=24.04 ./build-deb.sh
 ```
 
 The script uses docker to build the binaries and the debian package. The output
-of the script will be in the directory `testnet-build` (or `mainnet-build`).
+of the script will be in the directory `build`.
 
 # Installing the package
 
