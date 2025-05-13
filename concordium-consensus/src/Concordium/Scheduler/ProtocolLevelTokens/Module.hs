@@ -386,3 +386,9 @@ queryTokenModuleState = do
     tmsBurnable <- Just . isJust <$> getTokenState "burnable"
     let tmsAdditional = Map.empty
     return $ tokenModuleStateToBytes TokenModuleState{..}
+
+queryAccountListStatus :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Bool, Bool)
+queryAccountListStatus account = do
+    isAllowed <- isJust <$> getAccountState account "allowList"
+    isDenied <- isJust <$> getAccountState account "denyList"
+    return (isAllowed, isDenied)

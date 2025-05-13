@@ -73,10 +73,8 @@ import qualified Concordium.GlobalState.BlockState as BS
 import Concordium.GlobalState.CapitalDistribution (DelegatorCapital (..))
 import Concordium.GlobalState.CooldownQueue
 import Concordium.GlobalState.Finalization
-import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as BlockState
 import Concordium.GlobalState.Persistent.BlockPointer
 import Concordium.GlobalState.Persistent.BlockState
-import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as BlockState
 import Concordium.GlobalState.Statistics
 import qualified Concordium.GlobalState.TransactionTable as TT
 import qualified Concordium.GlobalState.TreeState as TS
@@ -91,7 +89,7 @@ import qualified Concordium.KonsensusV1.Types as SkovV1
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
-import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError, queryTokenInfo)
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError, queryAccountTokens, queryTokenInfo)
 import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
@@ -1275,7 +1273,7 @@ getAccountInfoHelper getASI getCooldowns acct bs = do
         AccAddress addr -> BS.getAccount bs addr
         AccIndex idx -> BS.getAccountByIndex bs idx
         CredRegID crid -> BS.getAccountByCredId bs crid
-    forM macc $ \(aiAccountIndex, acc) -> do
+    forM macc $ \iacc@(aiAccountIndex, acc) -> do
         aiAccountNonce <- BS.getAccountNonce acc
         aiAccountAmount <- BS.getAccountAmount acc
         aiAccountReleaseSchedule <- BS.getAccountReleaseSummary acc
@@ -1288,26 +1286,7 @@ getAccountInfoHelper getASI getCooldowns acct bs = do
         aiAccountCooldowns <- getCooldowns acc
         aiAccountAvailableAmount <- BS.getAccountAvailableAmount acc
         aiAccountTokens <- case sSupportsPLT (sAccountVersionFor (protocolVersion @(MPV m))) of
-            STrue -> do
-                tokenStatesMap <- BS.getAccountTokens acc
-                forM (Map.toList tokenStatesMap) $ \(tokenIndex, tokenState) -> do
-                    pltConfiguration <- BS.getTokenConfiguration bs tokenIndex
-                    let accountBalance =
-                            Tokens.TokenAmount
-                                { digits = fromIntegral $ BlockState.tasBalance tokenState,
-                                  nrDecimals = fromIntegral $ BlockState._pltDecimals pltConfiguration
-                                }
-                    return
-                        Tokens.Token
-                            { tokenId = BlockState._pltTokenId pltConfiguration,
-                              tokenAccountState =
-                                Tokens.TokenAccountState
-                                    { balance = accountBalance,
-                                      -- TODO Support allow/deny list state in account info query (Issue https://linear.app/concordium/issue/COR-1349)
-                                      memberAllowList = False,
-                                      memberDenyList = False
-                                    }
-                            }
+            STrue -> queryAccountTokens iacc bs
             SFalse -> return []
         return AccountInfo{..}
 

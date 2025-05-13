@@ -1,17 +1,23 @@
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module Concordium.Scheduler.ProtocolLevelTokens.Queries where
 
+import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Reader
 import Data.Bool.Singletons
+import Data.Functor
+import qualified Data.Map.Strict as Map
+import Data.Void
 
 import Concordium.Types
 import Concordium.Types.Queries.Tokens
 
 import qualified Concordium.GlobalState.BlockState as BS
+import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens (TokenAccountState (tasBalance))
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..), TokenIndex)
 import Concordium.GlobalState.Types
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
@@ -126,3 +132,30 @@ queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFo
                                       tsModuleState = tms
                                     }
                         return $ Right TokenInfo{tiTokenId = tokenId, tiTokenState = ts}
+
+queryAccountTokens :: forall m. (PVSupportsPLT (MPV m), BS.BlockStateQuery m) => IndexedAccount m -> BlockState m -> m [Token]
+queryAccountTokens acc bs = do
+    tokenStatesMap <- BS.getAccountTokens (snd acc)
+    forM (Map.toList tokenStatesMap) $ \(tokenIndex, tokenState) -> do
+        pltConfiguration <- BS.getTokenConfiguration @_ @m bs tokenIndex
+        let accountBalance =
+                TokenAmount
+                    { digits = fromIntegral $ tasBalance tokenState,
+                      nrDecimals = fromIntegral $ _pltDecimals pltConfiguration
+                    }
+        let ctx = QueryContext{qcTokenIndex = tokenIndex, qcBlockState = bs}
+        (isAllow, isDeny) <-
+            runQueryT @_ @Void (queryAccountListStatus acc) ctx <&> \case
+                Right (isAllow, isDeny) -> (isAllow, isDeny)
+                Left v -> case v of {}
+        return
+            Token
+                { tokenId = _pltTokenId pltConfiguration,
+                  tokenAccountState =
+                    TokenAccountState
+                        { balance = accountBalance,
+                          -- TODO Support allow/deny list state in account info query (Issue https://linear.app/concordium/issue/COR-1349)
+                          memberAllowList = isAllow,
+                          memberDenyList = isDeny
+                        }
+                }
