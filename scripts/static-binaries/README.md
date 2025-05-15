@@ -10,7 +10,7 @@ specific package manager for installing dependencies (and possibly renaming depe
 ## [build-static-binaries.sh](./build-static-binaries.sh)
     This is the main script that should be used. **It is intended to be run from
     the root of the repository.** The script supports the following environment variables
-    - `UBUNTU_VERSION`, numeric tag, 20.04, 18.04
+    - `UBUNTU_VERSION`, numeric tag, 24.04, 18.04
     - `STATIC_LIBRARIES_IMAGE_TAG`, tag of the docker image used to build static
       libraries. `latest` should work, but otherwise see which tags are
       available on dockerhub.
