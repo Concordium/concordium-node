@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Docker base images upgraded from Ubuntu 20.04 to 24.04
+
 ## 8.1.0
 
 - Replace `BufferedRef` with `HashedBufferedRef` in `PoolRewards`
