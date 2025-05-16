@@ -16,6 +16,7 @@ import qualified Concordium.Crypto.Proofs as Proofs
 import Concordium.Crypto.SignatureScheme (KeyPair)
 import qualified Concordium.Crypto.SignatureScheme as Sig
 import qualified Concordium.Crypto.VRF as VRF
+import qualified Concordium.Types.Updates as Updates
 
 import Concordium.ID.Types
 import qualified Concordium.Scheduler.Types as Types
@@ -39,6 +40,16 @@ signTxSingle :: KeyPair -> TransactionHeader -> EncodedPayload -> Types.AccountT
 signTxSingle key TransactionHeader{..} encPayload = Types.signTransactionSingle key header encPayload
   where
     header = Types.TransactionHeader{thPayloadSize = Types.payloadSize encPayload, ..}
+
+signChainTx :: ChainTransaction -> Types.UpdateInstruction
+signChainTx
+    ChainTransaction
+        { ctSeqNumber = ruiSeqNumber,
+          ctEffectiveTime = ruiEffectiveTime,
+          ctTimeout = ruiTimeout,
+          ctPayload = ruiPayload,
+          ..
+        } = Updates.makeUpdateInstruction Updates.RawUpdateInstruction{..} $ Map.fromList ctKeys
 
 transactionHelper :: (MonadFail m, MonadIO m) => TransactionJSON -> m Types.AccountTransaction
 transactionHelper t =
@@ -124,13 +135,18 @@ transactionHelper t =
             return $ signTx keys meta (Types.encodePayload Types.ConfigureBaker{..})
         (TJSON meta ConfigureDelegation{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.ConfigureDelegation{..})
+        (TJSON meta TokenHolder{..} keys) ->
+            return $ signTx keys meta (Types.encodePayload Types.TokenHolder{..})
 
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON] -> m [Types.AccountTransaction]
 processTransactions = mapM transactionHelper
 
--- | For testing purposes: process transactions without grouping them by accounts
---  (i.e. creating one "group" per transaction).
---  Arrival time of transactions is taken to be 0.
+processAnyTransactions :: (MonadFail m, MonadIO m) => [AnyTransaction] -> m [Types.BareBlockItem]
+processAnyTransactions = mapM anyTxHelper
+
+-- | This is a special case of `processAnyUngroupedTransactions` below that
+-- only support account transactions. Kept for compatibility with existing tests that only use
+-- account transactions.
 processUngroupedTransactions ::
     (MonadFail m, MonadIO m) =>
     [TransactionJSON] ->
@@ -139,6 +155,22 @@ processUngroupedTransactions inpt = do
     txs <- processTransactions inpt
     -- We just attach a `Nothing` to the transaction such that it will be verified by the scheduler.
     return (map (\x -> Types.TGAccountTransactions [(Types.fromAccountTransaction 0 x, Nothing)]) txs)
+
+-- | For testing purposes: process transactions without grouping them by accounts
+--  (i.e. creating one "group" per transaction).
+--  Arrival time of transactions is taken to be 0.
+processAnyUngroupedTransactions ::
+    (MonadFail m, MonadIO m) =>
+    [AnyTransaction] ->
+    m Types.GroupedTransactions
+processAnyUngroupedTransactions inpt = do
+    txs <- processAnyTransactions inpt
+    -- We just attach a `Nothing` to the transaction such that it will be verified by the scheduler.
+    return (map txMap txs)
+  where
+    txMap (Types.NormalTransaction x) = Types.TGAccountTransactions [(Types.fromAccountTransaction 0 x, Nothing)]
+    txMap (Types.CredentialDeployment x) = Types.TGCredentialDeployment (Types.addMetadata Types.CredentialDeployment 0 x, Nothing)
+    txMap (Types.ChainUpdate x) = Types.TGUpdateInstructions [(Types.addMetadata Types.ChainUpdate 0 x, Nothing)]
 
 -- | For testing purposes: process transactions in the groups in which they came
 --  The arrival time of all transactions is taken to be 0.
@@ -262,6 +294,13 @@ data PayloadJSON
           -- | The target of the delegation.
           cdDelegationTarget :: !(Maybe Types.DelegationTarget)
         }
+    | -- \| An update for a protocol level token.
+      TokenHolder
+        { -- | Identifier of the token type to which the transaction refers.
+          thTokenSymbol :: !Types.TokenId,
+          -- | The CBOR-encoded operations to perform.
+          thOperations :: !Types.TokenParameter
+        }
     deriving (Show, Generic)
 
 data TransactionHeader = TransactionHeader
@@ -282,3 +321,19 @@ data TransactionJSON = TJSON
       keys :: [(CredentialIndex, [(KeyIndex, KeyPair)])]
     }
     deriving (Show, Generic)
+
+data ChainTransaction = ChainTransaction
+    { ctSeqNumber :: Updates.UpdateSequenceNumber,
+      ctEffectiveTime :: Types.TransactionTime,
+      ctTimeout :: Types.TransactionTime,
+      ctPayload :: Updates.UpdatePayload,
+      ctKeys :: [(Updates.UpdateKeyIndex, KeyPair)]
+    }
+    deriving (Show, Generic)
+
+data AnyTransaction = AccountTx TransactionJSON | ChainTx ChainTransaction
+    deriving (Show, Generic)
+
+anyTxHelper :: (MonadFail m, MonadIO m) => AnyTransaction -> m Types.BareBlockItem
+anyTxHelper (ChainTx tx) = return $ Types.ChainUpdate $ signChainTx tx
+anyTxHelper (AccountTx tx) = Types.NormalTransaction <$> transactionHelper tx
