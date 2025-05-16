@@ -542,8 +542,14 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
         bs <- use ssBlockState
         newBS <- lift $ BS.bsoSetTokenState bs tokenIx key mValue
         ssBlockState .= newBS
-    setAccountState _ _ _ = do
-        -- TODO: implement
+    setAccountState account key mValue = do
+        let updates = case mValue of
+                Nothing -> [(key, TASVDelete)]
+                Just value -> [(key, TASVUpdate value)]
+        tokenIx <- ask
+        bs <- use ssBlockState
+        newBS <- lift $ BS.bsoUpdateTokenAccountModuleState bs tokenIx account updates
+        ssBlockState .= newBS
         return ()
     transfer accIxFrom accIxTo amount _mbMemo = do
         -- TODO: the memo should be emitted in an event

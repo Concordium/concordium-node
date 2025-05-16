@@ -19,6 +19,17 @@ import Concordium.Types.Tokens
 
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 
+-- | The context for a token-holder or token-governance transaction.
+data TransactionContext' account = TransactionContext
+    { -- | The sender account.
+      tcSender :: !account,
+      -- | The sender account address. This is the account alias that is used by the transaction
+      --  itself.
+      tcSenderAddress :: !AccountAddress
+    }
+
+type TransactionContext m = TransactionContext' (PLTAccount m)
+
 -- | Represents the reasons why 'initializeToken' can fail.
 data InitializeTokenError
     = ITEDeserializationFailure !String
@@ -103,7 +114,7 @@ data PreprocessedTokenHolderOperation = PTHOTransfer
     { -- | The raw amount to transfer.
       pthoAmount :: !TokenRawAmount,
       -- | The recipient account address.
-      pthoRecipient :: !AccountAddress,
+      pthoRecipient :: !TokenHolder,
       -- | The (optional) memo.
       pthoMemo :: !(Maybe Memo),
       -- | The original, unprocessed, 'TokenTransferBody'.
@@ -122,11 +133,11 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
     preproc (TokenHolderTransfer ttb@(TokenTransferBody{..})) =
         case toTokenRawAmount decimals ttAmount of
             Left err ->
-                pltError . encodeTokenHolderFailure . DeserializationFailure . Just . Text.pack $
+                pltError . encodeTokenRejectReason . DeserializationFailure . Just . Text.pack $
                     "Token amount outside representable range: " ++ err
             Right pthoAmount -> return PTHOTransfer{..}
               where
-                pthoRecipient = receiverAccountAddress ttRecipient
+                pthoRecipient = ttRecipient
                 pthoMemo = untaggedMemo <$> ttMemo
                 pthoUnprocessed = ttb
 
@@ -141,55 +152,220 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
 --         sufficient.
 executeTokenHolderTransaction ::
     (PLTKernelUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
-    PLTAccount m ->
+    TransactionContext m ->
     TokenParameter ->
     m ()
-executeTokenHolderTransaction sender tokenParam = do
+executeTokenHolderTransaction TransactionContext{..} tokenParam = do
     case tokenHolderTransactionFromBytes tokenParamLBS of
         Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
         Right parsedTransaction -> do
             decimals <- getDecimals
             operations <- preprocessTokenHolderTransaction decimals parsedTransaction
             let handleOperation !opIndex PTHOTransfer{..} = do
-                    getAccount pthoRecipient >>= \case
-                        Nothing ->
+                    recipientAccount <- requireAccount opIndex pthoRecipient
+                    -- If the allow list is enabled, check that the sender and recipient are
+                    -- both on the allow list.
+                    enforceAllowList <- isJust <$> getTokenState "allowList"
+                    when enforceAllowList $ do
+                        senderAllowed <- isJust <$> getAccountState tcSender "allowList"
+                        unless senderAllowed $ do
                             failTH
-                                RecipientNotFound
-                                    { thfOperationIndex = opIndex,
-                                      thfRecipient = ttRecipient pthoUnprocessed
+                                OperationNotPermitted
+                                    { trrOperationIndex = opIndex,
+                                      trrAddressNotPermitted =
+                                        Just (accountTokenHolder tcSenderAddress),
+                                      trrReason = Just "sender not in allow list"
                                     }
-                        Just recipientAccount -> do
-                            success <- transfer sender recipientAccount pthoAmount pthoMemo
-                            unless success $ do
-                                availableBalance <- getAccountBalance sender
-                                failTH
-                                    TokenBalanceInsufficient
-                                        { thfOperationIndex = opIndex,
-                                          thfAvailableBalance = toTokenAmount decimals availableBalance,
-                                          thfRequiredBalance = ttAmount pthoUnprocessed
-                                        }
-                            return (opIndex + 1)
+                        recipientAllowed <- isJust <$> getAccountState recipientAccount "allowList"
+                        unless recipientAllowed $ do
+                            failTH
+                                OperationNotPermitted
+                                    { trrOperationIndex = opIndex,
+                                      trrAddressNotPermitted = Just pthoRecipient,
+                                      trrReason = Just "recipient not in allow list"
+                                    }
+                    enforceDenyList <- isJust <$> getTokenState "denyList"
+                    -- If the deny list is enabled, check that neither the sender nor the
+                    -- recipient are on the deny list.
+                    when enforceDenyList $ do
+                        senderDenied <- isJust <$> getAccountState tcSender "denyList"
+                        when senderDenied $ do
+                            failTH
+                                OperationNotPermitted
+                                    { trrOperationIndex = opIndex,
+                                      trrAddressNotPermitted =
+                                        Just (accountTokenHolder tcSenderAddress),
+                                      trrReason = Just "sender in deny list"
+                                    }
+                        recipientDenied <- isJust <$> getAccountState recipientAccount "denyList"
+                        when recipientDenied $ do
+                            failTH
+                                OperationNotPermitted
+                                    { trrOperationIndex = opIndex,
+                                      trrAddressNotPermitted = Just pthoRecipient,
+                                      trrReason = Just "recipient in deny list"
+                                    }
+                    success <- transfer tcSender recipientAccount pthoAmount pthoMemo
+                    unless success $ do
+                        availableBalance <- getAccountBalance tcSender
+                        failTH
+                            TokenBalanceInsufficient
+                                { trrOperationIndex = opIndex,
+                                  trrAvailableBalance = toTokenAmount decimals availableBalance,
+                                  trrRequiredBalance = ttAmount pthoUnprocessed
+                                }
+                    return (opIndex + 1)
             foldM_ handleOperation 0 operations
   where
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
-    failTH = pltError . encodeTokenHolderFailure
+    failTH = pltError . encodeTokenRejectReason
 
--- | Execute a token-holder transaction. The process is as follows:
+-- | A pre-processed token-governance operation. This has all amounts converted to
+--  'TokenRawAmount's and unwraps the metadata associated with target accounts.
+data PreprocessedTokenGovernanceOperation
+    = PTGOTokenMint
+        {ptgoAmount :: !TokenRawAmount, ptgoUnprocessedAmount :: !TokenAmount}
+    | PTGOTokenBurn
+        {ptgoAmount :: !TokenRawAmount, ptgoUnprocessedAmount :: !TokenAmount}
+    | PTGOTokenAddAllowList
+        {ptgoTarget :: !TokenHolder}
+    | PTGOTokenRemoveAllowList
+        {ptgoTarget :: !TokenHolder}
+    | PTGOTokenAddDenyList
+        {ptgoTarget :: !TokenHolder}
+    | PTGOTokenRemoveDenyList
+        {ptgoTarget :: !TokenHolder}
+    deriving (Eq, Show)
+
+preprocessTokenGovernanceTransaction ::
+    (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    Word8 ->
+    TokenGovernanceTransaction ->
+    m (Seq.Seq PreprocessedTokenGovernanceOperation)
+preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOperations
+  where
+    preproc (TokenMint amount) =
+        case toTokenRawAmount decimals amount of
+            Left err ->
+                pltError . encodeTokenRejectReason . DeserializationFailure . Just . Text.pack $
+                    "Token mint amount outside representable range: " ++ err
+            Right ptgoAmount -> return PTGOTokenMint{..}
+      where
+        ptgoUnprocessedAmount = amount
+    preproc (TokenBurn amount) =
+        case toTokenRawAmount decimals amount of
+            Left err ->
+                pltError . encodeTokenRejectReason . DeserializationFailure . Just . Text.pack $
+                    "Token burn amount outside representable range: " ++ err
+            Right ptgoAmount -> return PTGOTokenBurn{..}
+      where
+        ptgoUnprocessedAmount = amount
+    preproc (TokenAddAllowList receiver) =
+        return PTGOTokenAddAllowList{ptgoTarget = receiver}
+    preproc (TokenRemoveAllowList receiver) =
+        return PTGOTokenRemoveAllowList{ptgoTarget = receiver}
+    preproc (TokenAddDenyList receiver) =
+        return PTGOTokenAddDenyList{ptgoTarget = receiver}
+    preproc (TokenRemoveDenyList receiver) =
+        return PTGOTokenRemoveDenyList{ptgoTarget = receiver}
+
+-- | Execute a token-governance transaction. The process is as follows:
 --
 --   - Decode the transaction CBOR parameter.
 --   - Check that amounts are within the representable range.
---   - For each transfer operation:
---
---       - Check that the recipient is valid.
---       - Transfer the amount from the sender to the recipient, if the sender's balance is
---         sufficient.
 executeTokenGovernanceTransaction ::
-    -- (PLTKernelUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
-    PLTAccount m ->
+    (PLTKernelPrivilegedUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    TransactionContext m ->
     TokenParameter ->
     m ()
-executeTokenGovernanceTransaction _sender _tokenParam = error "Not implement yet. This should be implemented as part of https://linear.app/concordium/issue/COR-687"
+executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
+    case tokenGovernanceTransactionFromBytes tokenParamLBS of
+        Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
+        Right parsedTransaction -> do
+            decimals <- getDecimals
+            operations <- preprocessTokenGovernanceTransaction decimals parsedTransaction
+            let handleOperation !opIndex op = do
+                    case op of
+                        PTGOTokenMint{..} -> do
+                            requireFeature opIndex "mint" "mintable"
+                            mintOK <- mint tcSender ptgoAmount
+                            unless mintOK $ do
+                                availableSupply <- getCirculatingSupply
+                                failTH
+                                    MintWouldOverflow
+                                        { trrOperationIndex = opIndex,
+                                          trrRequestedAmount = ptgoUnprocessedAmount,
+                                          trrCurrentSupply = toTokenAmount decimals availableSupply,
+                                          trrMaxRepresentableAmount =
+                                            toTokenAmount decimals (maxBound :: TokenRawAmount)
+                                        }
+                        PTGOTokenBurn{..} -> do
+                            requireFeature opIndex "burn" "burnable"
+                            burnOK <- burn tcSender ptgoAmount
+                            unless burnOK $ do
+                                availableBalance <- getAccountBalance tcSender
+                                failTH
+                                    TokenBalanceInsufficient
+                                        { trrOperationIndex = opIndex,
+                                          trrAvailableBalance = toTokenAmount decimals availableBalance,
+                                          trrRequiredBalance = ptgoUnprocessedAmount
+                                        }
+                        PTGOTokenAddAllowList{..} -> do
+                            requireFeature opIndex "add-allow-list" "allowList"
+                            account <- requireAccount opIndex ptgoTarget
+                            setAccountState account "allowList" (Just "")
+                        PTGOTokenRemoveAllowList{..} -> do
+                            requireFeature opIndex "remove-allow-list" "allowList"
+                            account <- requireAccount opIndex ptgoTarget
+                            setAccountState account "allowList" Nothing
+                        PTGOTokenAddDenyList{..} -> do
+                            requireFeature opIndex "add-deny-list" "denyList"
+                            account <- requireAccount opIndex ptgoTarget
+                            setAccountState account "denyList" (Just "")
+                        PTGOTokenRemoveDenyList{..} -> do
+                            requireFeature opIndex "remove-deny-list" "denyList"
+                            account <- requireAccount opIndex ptgoTarget
+                            setAccountState account "denyList" Nothing
+                    return (opIndex + 1)
+            foldM_ handleOperation 0 operations
+  where
+    tokenParamLBS =
+        BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
+    failTH = pltError . encodeTokenRejectReason
+
+-- | Check that a particular feature is enabled for the token, and otherwise fail with
+--  'UnsupportedOperation'.
+requireFeature ::
+    (PLTKernelFail EncodedTokenRejectReason m, PLTKernelQuery m, Monad m) =>
+    -- | The operation index.
+    Word64 ->
+    -- | The operation name.
+    Text.Text ->
+    -- | The feature to check.
+    TokenStateKey ->
+    m ()
+requireFeature trrOperationIndex trrOperationType feature = do
+    featureState <- getTokenState feature
+    when (isNothing featureState) $
+        pltError . encodeTokenRejectReason $
+            UnsupportedOperation{trrReason = Just "feature not enabled", ..}
+
+-- | Check that an account is valid and return the corresponding 'PLTAccount'.
+--  This will fail with 'AddressNotFound' if the account is not valid.
+requireAccount ::
+    (PLTKernelFail EncodedTokenRejectReason m, PLTKernelQuery m, Monad m) =>
+    -- | The operation index.
+    Word64 ->
+    -- | The account to check.
+    TokenHolder ->
+    m (PLTAccount m)
+requireAccount trrOperationIndex holder@HolderAccount{..} = do
+    getAccount holderAccountAddress >>= \case
+        Nothing ->
+            pltError . encodeTokenRejectReason $
+                AddressNotFound{trrAddress = holder, ..}
+        Just acc -> return acc
 
 -- | An error that may be when querying the token state.
 newtype QueryTokenError
@@ -217,3 +393,17 @@ queryTokenModuleState = do
     tmsBurnable <- Just . isJust <$> getTokenState "burnable"
     let tmsAdditional = Map.empty
     return $ tokenModuleStateToBytes TokenModuleState{..}
+
+queryAccountListStatus :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe Bool, Maybe Bool)
+queryAccountListStatus account = do
+    allowListEnabled <- isJust <$> getTokenState "allowList"
+    isAllowed <-
+        if allowListEnabled
+            then Just . isJust <$> getAccountState account "allowList"
+            else return Nothing
+    denyListEnabled <- isJust <$> getTokenState "denyList"
+    isDenied <-
+        if denyListEnabled
+            then Just . isJust <$> getAccountState account "denyList"
+            else return Nothing
+    return (isAllowed, isDenied)

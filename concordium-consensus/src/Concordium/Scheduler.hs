@@ -2720,7 +2720,12 @@ handleTokenHolder depositContext tokenId tokenOperations =
         m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
     invokeTokenHolderOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
-            runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction (fst sender) parameter
+            let tc =
+                    TokenModule.TransactionContext
+                        { tcSender = fst sender,
+                          tcSenderAddress = depositContext ^. wtcSenderAddress
+                        }
+            runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction tc parameter
         -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
         return ((\() -> []) <$> result)
 
@@ -2780,7 +2785,12 @@ handleTokenGovernance depositContext tokenId tokenOperations =
         m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
     invokeTokenGovernanceOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
-            runPLT tokenIndex $ TokenModule.executeTokenGovernanceTransaction (fst sender) parameter
+            let tc =
+                    TokenModule.TransactionContext
+                        { tcSender = fst sender,
+                          tcSenderAddress = depositContext ^. wtcSenderAddress
+                        }
+            runPLT tokenIndex $ TokenModule.executeTokenGovernanceTransaction tc parameter
         -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
         return ((\() -> []) <$> result)
 

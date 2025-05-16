@@ -2,6 +2,8 @@
 
 module Concordium.Scheduler.ProtocolLevelTokens.Kernel (
     TokenRawAmount (..),
+    TokenStateKey,
+    TokenStateValue,
     module Concordium.Scheduler.ProtocolLevelTokens.Kernel,
 ) where
 
