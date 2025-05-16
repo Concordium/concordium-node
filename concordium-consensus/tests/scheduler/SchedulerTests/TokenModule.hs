@@ -39,6 +39,7 @@ import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module (
     InitializeTokenError (..),
     QueryTokenError (..),
+    TransactionContext' (..),
     executeTokenGovernanceTransaction,
     executeTokenHolderTransaction,
     initializeToken,
@@ -409,7 +410,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
         assertTrace
-            (executeTokenHolderTransaction 0 (TokenParameter mempty))
+            (executeTokenHolderTransaction (sender 0) (TokenParameter mempty))
             trace
     it "empty operations" $ do
         let transaction = TokenHolderTransaction Seq.empty
@@ -417,7 +418,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace =
                 (PLTQ GetDecimals :-> 2)
                     :>>: Done ()
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "transfer OK" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -430,7 +431,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "transfer OK: long memo, max amount" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -443,7 +444,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 maxBound (Just longMemo)) :-> True)
                     :>>: Done ()
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "invalid memo" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -452,7 +453,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace =
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 277 \"Size of the memo (257 bytes) exceeds maximum allowed size (256 bytes).\"")
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     -- In this test, although the amount deserializes successfully, it is too large because of
     -- the number of decimals in the token representation.
     it "amount too large" $ do
@@ -465,7 +466,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             DeserializationFailure (Just "Token amount outside representable range: Token amount exceeds maximum representable amount")
                          )
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -484,7 +485,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 121 50_000_000 (Just simpleMemo)) :-> True)
                     :>>: Done ()
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers - first fails (insufficient funds)" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -506,7 +507,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                                   trrRequiredBalance = amt10'000
                                 }
                          )
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers - second fails (insufficient funds)" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -532,7 +533,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                                   trrRequiredBalance = amt50
                                 }
                          )
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers - second fails (invalid recipient)" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -553,7 +554,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                                   trrAddress = receiver2
                                 }
                          )
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "allow list: allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -568,7 +569,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "allow list: sender not allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -579,7 +580,6 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
                     :>>: (PLTQ (GetAccountState 0 "allowList") :-> Nothing)
-                    :>>: (PLTQ (GetAccountCanonicalAddress 0) :-> dummyAccountAddress 0)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
@@ -588,7 +588,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                                   trrReason = Just "sender not in allow list"
                                 }
                          )
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "allow list: recipient not allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -607,7 +607,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                                   trrReason = Just "recipient not in allow list"
                                 }
                          )
-        assertTrace (executeTokenHolderTransaction 23 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 23) (encodeTransaction transaction)) trace
     it "deny list: allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -622,7 +622,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccountState 4 "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "deny list: sender denied" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -634,7 +634,6 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
                     :>>: (PLTQ (GetAccountState 0 "denyList") :-> Just "")
-                    :>>: (PLTQ (GetAccountCanonicalAddress 0) :-> dummyAccountAddress 0)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
@@ -643,7 +642,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                                   trrReason = Just "sender in deny list"
                                 }
                          )
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "deny list: recipient denied" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -663,7 +662,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                                   trrReason = Just "recipient in deny list"
                                 }
                          )
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "allow & deny list: allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -680,7 +679,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccountState 4 "denyList") :-> Nothing)
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
-        assertTrace (executeTokenHolderTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "5000 transfers" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
@@ -700,7 +699,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                         :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                         :>>: (PLTU (Transfer 123_456 n 10_000 Nothing) :-> True)
                         :>>: traceLoop (n + 1)
-        assertTrace (executeTokenHolderTransaction 123_456 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenHolderTransaction (sender 123_456) (encodeTransaction transaction)) trace
   where
     receiver1 = HolderAccount (dummyAccountAddress 1) Nothing
     receiver2 = HolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
@@ -713,6 +712,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     badMemo = Memo $ SBS.replicate (maxMemoSize + 1) 60
     mkTransferOp ttAmount ttRecipient ttMemo = TokenHolderTransfer TokenTransferBody{..}
     encodeTransaction = TokenParameter . SBS.toShort . tokenHolderTransactionToBytes
+    sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
 testExecuteTokenGovernanceTransaction :: Spec
 testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransaction" $ do
@@ -722,7 +722,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
         assertTrace
-            (executeTokenGovernanceTransaction 0 (TokenParameter mempty))
+            (executeTokenGovernanceTransaction (sender 0) (TokenParameter mempty))
             trace
     it "empty operations" $ do
         let transaction = TokenGovernanceTransaction Seq.empty
@@ -730,7 +730,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
             trace =
                 (PLTQ GetDecimals :-> 2)
                     :>>: Done ()
-        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint: OK" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
@@ -741,7 +741,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
                     :>>: (PLTPU (Mint 0 10_000_000) :-> True)
                     :>>: Done ()
-        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint: not mintable" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
@@ -757,7 +757,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                                   trrReason = Just "feature not enabled"
                                 }
                          )
-        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint: overflow" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
@@ -776,7 +776,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                                   trrMaxRepresentableAmount = TokenAmount maxBound 6
                                 }
                          )
-        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
     it "burn: OK" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
@@ -787,7 +787,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
                     :>>: (PLTPU (Burn 0 10_000_000) :-> True)
                     :>>: Done ()
-        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
     it "burn: not burnable" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
@@ -803,7 +803,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                                   trrReason = Just "feature not enabled"
                                 }
                          )
-        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
     it "burn: balance insufficient" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
@@ -821,7 +821,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                                   trrRequiredBalance = TokenAmount 10_000 3
                                 }
                          )
-        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint & burn: OK" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
@@ -836,10 +836,11 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
                     :>>: (PLTPU (Burn 0 5_000_000) :-> True)
                     :>>: Done ()
-        assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+        assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
     testLists
   where
     encodeTransaction = TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
+    sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
 data AddRemove = Add | Remove
 data AllowDeny = Allow | Deny
@@ -861,7 +862,7 @@ testLists = do
                             :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                             :>>: (PLTU (SetAccountState 4 (ltcFeature listConf) (ltcNewValue listConf)) :-> ())
                             :>>: Done ()
-                assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+                assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
             it "feature not enabled" $ do
                 let transaction =
                         TokenGovernanceTransaction . Seq.fromList $
@@ -877,7 +878,7 @@ testLists = do
                                           trrReason = Just "feature not enabled"
                                         }
                                  )
-                assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+                assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
             it "account not found" $ do
                 let transaction =
                         TokenGovernanceTransaction . Seq.fromList $
@@ -893,7 +894,7 @@ testLists = do
                                           trrAddress = receiver2
                                         }
                                  )
-                assertTrace (executeTokenGovernanceTransaction 0 (encodeTransaction transaction)) trace
+                assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
   where
     encodeTransaction = TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
     receiver1 = HolderAccount (dummyAccountAddress 1) Nothing
@@ -916,6 +917,7 @@ testLists = do
     ltcNewValue :: ListTestConf -> Maybe BS.ByteString
     ltcNewValue (Add, _) = Just ""
     ltcNewValue (Remove, _) = Nothing
+    sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
 testQueryTokenModuleState :: Spec
 testQueryTokenModuleState = describe "queryTokenModuleState" $ do
@@ -966,7 +968,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
 
 -- | Tests for the Token Module implementation.
 tests :: Spec
-tests = focus $ parallel $ describe "TokenModule" $ do
+tests = parallel $ describe "TokenModule" $ do
     testInitializeToken
     testExecuteTokenHolderTransaction
     testExecuteTokenGovernanceTransaction

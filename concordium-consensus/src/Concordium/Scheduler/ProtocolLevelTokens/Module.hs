@@ -19,6 +19,17 @@ import Concordium.Types.Tokens
 
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 
+-- | The context for a token-holder or token-governance transaction.
+data TransactionContext' account = TransactionContext
+    { -- | The sender account.
+      tcSender :: !account,
+      -- | The sender account address. This is the account alias that is used by the transaction
+      --  itself.
+      tcSenderAddress :: !AccountAddress
+    }
+
+type TransactionContext m = TransactionContext' (PLTAccount m)
+
 -- | Represents the reasons why 'initializeToken' can fail.
 data InitializeTokenError
     = ITEDeserializationFailure !String
@@ -141,10 +152,10 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
 --         sufficient.
 executeTokenHolderTransaction ::
     (PLTKernelUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
-    PLTAccount m ->
+    TransactionContext m ->
     TokenParameter ->
     m ()
-executeTokenHolderTransaction sender tokenParam = do
+executeTokenHolderTransaction TransactionContext{..} tokenParam = do
     case tokenHolderTransactionFromBytes tokenParamLBS of
         Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
         Right parsedTransaction -> do
@@ -156,16 +167,13 @@ executeTokenHolderTransaction sender tokenParam = do
                     -- both on the allow list.
                     enforceAllowList <- isJust <$> getTokenState "allowList"
                     when enforceAllowList $ do
-                        senderAllowed <- isJust <$> getAccountState sender "allowList"
+                        senderAllowed <- isJust <$> getAccountState tcSender "allowList"
                         unless senderAllowed $ do
-                            -- FIXME: Maybe we should have the address passed in, so we report
-                            -- it consistently.
-                            senderAddress <- getAccountCanonicalAddress sender
                             failTH
                                 OperationNotPermitted
                                     { trrOperationIndex = opIndex,
                                       trrAddressNotPermitted =
-                                        Just (accountTokenHolder senderAddress),
+                                        Just (accountTokenHolder tcSenderAddress),
                                       trrReason = Just "sender not in allow list"
                                     }
                         recipientAllowed <- isJust <$> getAccountState recipientAccount "allowList"
@@ -180,14 +188,13 @@ executeTokenHolderTransaction sender tokenParam = do
                     -- If the deny list is enabled, check that neither the sender nor the
                     -- recipient are on the deny list.
                     when enforceDenyList $ do
-                        senderDenied <- isJust <$> getAccountState sender "denyList"
+                        senderDenied <- isJust <$> getAccountState tcSender "denyList"
                         when senderDenied $ do
-                            senderAddress <- getAccountCanonicalAddress sender
                             failTH
                                 OperationNotPermitted
                                     { trrOperationIndex = opIndex,
                                       trrAddressNotPermitted =
-                                        Just (accountTokenHolder senderAddress),
+                                        Just (accountTokenHolder tcSenderAddress),
                                       trrReason = Just "sender in deny list"
                                     }
                         recipientDenied <- isJust <$> getAccountState recipientAccount "denyList"
@@ -198,9 +205,9 @@ executeTokenHolderTransaction sender tokenParam = do
                                       trrAddressNotPermitted = Just pthoRecipient,
                                       trrReason = Just "recipient in deny list"
                                     }
-                    success <- transfer sender recipientAccount pthoAmount pthoMemo
+                    success <- transfer tcSender recipientAccount pthoAmount pthoMemo
                     unless success $ do
-                        availableBalance <- getAccountBalance sender
+                        availableBalance <- getAccountBalance tcSender
                         failTH
                             TokenBalanceInsufficient
                                 { trrOperationIndex = opIndex,
@@ -269,10 +276,10 @@ preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOp
 --   - Check that amounts are within the representable range.
 executeTokenGovernanceTransaction ::
     (PLTKernelPrivilegedUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
-    PLTAccount m ->
+    TransactionContext m ->
     TokenParameter ->
     m ()
-executeTokenGovernanceTransaction sender tokenParam = do
+executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
     case tokenGovernanceTransactionFromBytes tokenParamLBS of
         Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
         Right parsedTransaction -> do
@@ -282,7 +289,7 @@ executeTokenGovernanceTransaction sender tokenParam = do
                     case op of
                         PTGOTokenMint{..} -> do
                             requireFeature opIndex "mint" "mintable"
-                            mintOK <- mint sender ptgoAmount
+                            mintOK <- mint tcSender ptgoAmount
                             unless mintOK $ do
                                 availableSupply <- getCirculatingSupply
                                 failTH
@@ -295,9 +302,9 @@ executeTokenGovernanceTransaction sender tokenParam = do
                                         }
                         PTGOTokenBurn{..} -> do
                             requireFeature opIndex "burn" "burnable"
-                            burnOK <- burn sender ptgoAmount
+                            burnOK <- burn tcSender ptgoAmount
                             unless burnOK $ do
-                                availableBalance <- getAccountBalance sender
+                                availableBalance <- getAccountBalance tcSender
                                 failTH
                                     TokenBalanceInsufficient
                                         { trrOperationIndex = opIndex,
@@ -339,8 +346,8 @@ requireFeature ::
     TokenStateKey ->
     m ()
 requireFeature trrOperationIndex trrOperationType feature = do
-    allowList <- getTokenState feature
-    when (isNothing allowList) $
+    featureState <- getTokenState feature
+    when (isNothing featureState) $
         pltError . encodeTokenRejectReason $
             UnsupportedOperation{trrReason = Just "feature not enabled", ..}
 
