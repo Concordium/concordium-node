@@ -3,6 +3,7 @@
 ## Unreleased changes
 
 - Docker base images upgraded from Ubuntu 20.04 to 24.04
+- Node Docker image is now signed with Sigstore Cosign
 
 ## 8.1.0
 
