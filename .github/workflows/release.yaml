@@ -503,7 +503,7 @@ jobs:
 
   generate-release-matrixes:
     runs-on: ubuntu-latest
-    needs: [ node-linux, node-macos, node-windows, p2p-bootstrapper, database-exporter, validate-preconditions ]
+    needs: [ node-linux, node-macos, node-windows, p2p-bootstrapper, database-exporter, validate-preconditions, docker-build ]
     outputs:
       s3_names: ${{ steps.s3-matrix.outputs.intersection }}
       docker_names: ${{ steps.docker-matrix.outputs.intersection }}
@@ -663,6 +663,20 @@ jobs:
             exit 1
           fi
           docker push ${{ env.TAG }}
+        
+      - name: Digest docker image
+        run: |
+          echo "IMAGE_HASH=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.TAG }})" >> $GITHUB_ENV
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.8.2
+        with:
+          cosign-release: 'v2.5.0'
+
+      - name: Sign image
+        run: |
+          echo ${{ env.IMAGE_HASH }}
+          cosign sign --yes ${{ env.IMAGE_HASH }}
 
   notify-immutable-infrastructure:
     runs-on: ubuntu-latest
