@@ -109,10 +109,9 @@ testTokenHolder _ pvString =
                                   ctEffectiveTime = 0,
                                   ctTimeout = DummyData.dummyMaxTransactionExpiryTime,
                                   ctPayload = plt,
-                                  ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)] -- dummyKP)]
+                                  ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)]
                                 },
                       ataaAssertion = \result _ -> do
-                        -- error $ show (dummyKP, DummyData.dummyAuthorizationKeyPair)
                         return $ Helpers.assertSuccessWithEvents [gtuEvent] result
                     },
                   Helpers.AnyTransactionAndAssertion
