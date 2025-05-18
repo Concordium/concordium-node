@@ -9,41 +9,26 @@
 -- | Test of token holder transactions
 module SchedulerTests.TokenHolderTransactions (tests) where
 
-import Lens.Micro.Platform
-
-import qualified Concordium.Cost as Cost
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types as ID
-import Concordium.Types.Accounts
-import Concordium.Types.Conditionally
 import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
 
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.GlobalState.BakerInfo
-import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
-import qualified Concordium.GlobalState.BlockState as BS
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
-import qualified Concordium.Scheduler as Sch
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Types.DummyData as DummyData
 
-import Concordium.GlobalState.CooldownQueue
-import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
-import Concordium.Types.Option
 
-import Control.Monad
 import Data.Bool.Singletons
 import qualified Data.ByteString.Short as BSS
-import Data.Maybe
 import Data.String
 import qualified SchedulerTests.Helpers as Helpers
-import Test.HUnit
 import Test.Hspec
 
 dummyKP :: SigScheme.KeyPair
