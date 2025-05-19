@@ -8,7 +8,7 @@
   - Support for token governance transactions (mint, burn, modify allow/deny lists).
   - Enforcement of allow and deny lists in transfer operations.
   - `GetTokenInfo` returns state from token module.
-  - `GetAccountInfo` reports state of allo/deny lists.
+  - `GetAccountInfo` reports state of allow/deny lists.
   - Changes to the caching and storage of account-level token state.
 
 
