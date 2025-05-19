@@ -2,6 +2,16 @@
 
 ## Unreleased changes
 
+## 9.0.1 (DevNet)
+
+- Protocol-level tokens:
+  - Support for token governance transactions (mint, burn, modify allow/deny lists).
+  - Enforcement of allow and deny lists in transfer operations.
+  - `GetTokenInfo` returns state from token module.
+  - `GetAccountInfo` reports state of allo/deny lists.
+  - Changes to the caching and storage of account-level token state.
+
+
 ## 9.0.0 (DevNet)
 
 - Preliminary support for protocol-level tokens (as part of protocol version 9), including:
