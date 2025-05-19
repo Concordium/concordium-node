@@ -319,11 +319,11 @@ data TransactionAndAssertion pv = TransactionAndAssertion
       taaAssertion :: TransactionAssertion pv
     }
 
-data AnyTransactionAndAssertion pv = AnyTransactionAndAssertion
+data BlockItemAndAssertion pv = BlockItemAndAssertion
     { -- | A transaction to run in the scheduler.
-      ataaTransaction :: SchedTest.BlockItemDescription,
+      biaaTransaction :: SchedTest.BlockItemDescription,
       -- | Assertions to make about the outcome from the scheduler and the resulting block state.
-      ataaAssertion :: TransactionAssertion pv
+      biaaAssertion :: TransactionAssertion pv
     }
 
 -- | This is a special case of `runSchedulerTestAssertIntermediateStatesAnyTransaction` below that
@@ -337,10 +337,10 @@ runSchedulerTestAssertIntermediateStates ::
     [TransactionAndAssertion pv] ->
     Assertion
 runSchedulerTestAssertIntermediateStates config constructState transactionsAndAssertions =
-    runSchedulerTestAssertIntermediateStatesAnyTransaction config constructState $ toAny <$> transactionsAndAssertions
+    runSchedulerTestAssertIntermediateStatesBlockItem config constructState $ toAny <$> transactionsAndAssertions
   where
-    toAny :: TransactionAndAssertion pv -> AnyTransactionAndAssertion pv
-    toAny (TransactionAndAssertion tx a) = AnyTransactionAndAssertion (SchedTest.AccountTx tx) a
+    toAny :: TransactionAndAssertion pv -> BlockItemAndAssertion pv
+    toAny (TransactionAndAssertion tx a) = BlockItemAndAssertion (SchedTest.AccountTx tx) a
 
 -- | Run the scheduler on transactions in a test environment. Each transaction in the list of
 --  transactions is paired with the assertions to run on the scheduler result and the resulting block
@@ -348,14 +348,14 @@ runSchedulerTestAssertIntermediateStates config constructState transactionsAndAs
 --
 --  This will also run invariant assertions on each intermediate block state, see
 --  @assertBlockStateInvariantsH@ for more details.
-runSchedulerTestAssertIntermediateStatesAnyTransaction ::
+runSchedulerTestAssertIntermediateStatesBlockItem ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    [AnyTransactionAndAssertion pv] ->
+    [BlockItemAndAssertion pv] ->
     Assertion
-runSchedulerTestAssertIntermediateStatesAnyTransaction config constructState transactionsAndAssertions =
+runSchedulerTestAssertIntermediateStatesBlockItem config constructState transactionsAndAssertions =
     join $ runTestBlockState blockStateComputation
   where
     blockStateComputation :: PersistentBSM pv Assertion
@@ -366,14 +366,14 @@ runSchedulerTestAssertIntermediateStatesAnyTransaction config constructState tra
 
     transactionRunner ::
         (Assertion, BS.HashedPersistentBlockState pv, Types.Amount) ->
-        AnyTransactionAndAssertion pv ->
+        BlockItemAndAssertion pv ->
         PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv, Types.Amount)
     transactionRunner (assertedSoFar, currentState, costsSoFar) step = do
-        transactions <- liftIO $ SchedTest.processAnyUngroupedTransactions [ataaTransaction step]
+        transactions <- liftIO $ SchedTest.processAnyUngroupedTransactions [biaaTransaction step]
         (result, updatedState) <- runScheduler config currentState transactions
         let nextCostsSoFar = costsSoFar + srExecutionCosts result
         doStateAssertions <- assertBlockStateInvariantsH updatedState nextCostsSoFar
-        doAssertTransaction <- ataaAssertion step result updatedState
+        doAssertTransaction <- biaaAssertion step result updatedState
         let nextAssertedSoFar = do
                 assertedSoFar
                 doAssertTransaction

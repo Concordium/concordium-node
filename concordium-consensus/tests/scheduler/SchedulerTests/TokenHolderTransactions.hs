@@ -69,10 +69,10 @@ testTokenHolder ::
     Spec
 testTokenHolder _ pvString =
     specify (pvString ++ ": Token holder operations") $ do
-        let transactionsAndAssertions :: [Helpers.AnyTransactionAndAssertion pv]
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
-                [ Helpers.AnyTransactionAndAssertion
-                    { ataaTransaction =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
                         Runner.AccountTx $
                             Runner.TJSON
                                 { payload =
@@ -83,11 +83,11 @@ testTokenHolder _ pvString =
                                   metadata = makeDummyHeader dummyAddress 1 1_000,
                                   keys = [(0, [(0, dummyKP)])]
                                 },
-                      ataaAssertion = \result _ -> do
+                      biaaAssertion = \result _ -> do
                         return $ Helpers.assertRejectWithReason (NonExistentTokenId gtu) result
                     },
-                  Helpers.AnyTransactionAndAssertion
-                    { ataaTransaction =
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
                         Runner.ChainUpdateTx $
                             Runner.ChainUpdateTransaction
                                 { ctSeqNumber = 1,
@@ -96,11 +96,11 @@ testTokenHolder _ pvString =
                                   ctPayload = plt,
                                   ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)]
                                 },
-                      ataaAssertion = \result _ -> do
+                      biaaAssertion = \result _ -> do
                         return $ Helpers.assertSuccessWithEvents [gtuEvent] result
                     },
-                  Helpers.AnyTransactionAndAssertion
-                    { ataaTransaction =
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
                         Runner.AccountTx $
                             Runner.TJSON
                                 { payload =
@@ -111,7 +111,7 @@ testTokenHolder _ pvString =
                                   metadata = makeDummyHeader dummyAddress 2 1_000,
                                   keys = [(0, [(0, dummyKP)])]
                                 },
-                      ataaAssertion = \result _ -> do
+                      biaaAssertion = \result _ -> do
                         return $
                             Helpers.assertRejectWithReason
                                 ( TokenHolderTransactionFailed
@@ -120,7 +120,7 @@ testTokenHolder _ pvString =
                                 result
                     }
                 ]
-        Helpers.runSchedulerTestAssertIntermediateStatesAnyTransaction
+        Helpers.runSchedulerTestAssertIntermediateStatesBlockItem
             @pv
             Helpers.defaultTestConfig
             initialBlockState
