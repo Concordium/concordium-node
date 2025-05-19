@@ -88,8 +88,8 @@ testTokenHolder _ pvString =
                     },
                   Helpers.AnyTransactionAndAssertion
                     { ataaTransaction =
-                        Runner.ChainTx $
-                            Runner.ChainTransaction
+                        Runner.ChainUpdateTx $
+                            Runner.ChainUpdateTransaction
                                 { ctSeqNumber = 1,
                                   ctEffectiveTime = 0,
                                   ctTimeout = DummyData.dummyMaxTransactionExpiryTime,

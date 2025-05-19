@@ -41,9 +41,9 @@ signTxSingle key TransactionHeader{..} encPayload = Types.signTransactionSingle 
   where
     header = Types.TransactionHeader{thPayloadSize = Types.payloadSize encPayload, ..}
 
-signChainTx :: ChainTransaction -> Types.UpdateInstruction
+signChainTx :: ChainUpdateTransaction -> Types.UpdateInstruction
 signChainTx
-    ChainTransaction
+    ChainUpdateTransaction
         { ctSeqNumber = ruiSeqNumber,
           ctEffectiveTime = ruiEffectiveTime,
           ctTimeout = ruiTimeout,
@@ -141,7 +141,7 @@ transactionHelper t =
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON] -> m [Types.AccountTransaction]
 processTransactions = mapM transactionHelper
 
-processAnyTransactions :: (MonadFail m, MonadIO m) => [AnyTransaction] -> m [Types.BareBlockItem]
+processAnyTransactions :: (MonadFail m, MonadIO m) => [BlockItemDescription] -> m [Types.BareBlockItem]
 processAnyTransactions = mapM anyTxHelper
 
 -- | This is a special case of `processAnyUngroupedTransactions` below that
@@ -161,7 +161,7 @@ processUngroupedTransactions inpt = do
 --  Arrival time of transactions is taken to be 0.
 processAnyUngroupedTransactions ::
     (MonadFail m, MonadIO m) =>
-    [AnyTransaction] ->
+    [BlockItemDescription] ->
     m Types.GroupedTransactions
 processAnyUngroupedTransactions inpt = do
     txs <- processAnyTransactions inpt
@@ -322,7 +322,7 @@ data TransactionJSON = TJSON
     }
     deriving (Show, Generic)
 
-data ChainTransaction = ChainTransaction
+data ChainUpdateTransaction = ChainUpdateTransaction
     { ctSeqNumber :: Updates.UpdateSequenceNumber,
       ctEffectiveTime :: Types.TransactionTime,
       ctTimeout :: Types.TransactionTime,
@@ -331,9 +331,9 @@ data ChainTransaction = ChainTransaction
     }
     deriving (Show, Generic)
 
-data AnyTransaction = AccountTx TransactionJSON | ChainTx ChainTransaction
+data BlockItemDescription = AccountTx TransactionJSON | ChainUpdateTx ChainUpdateTransaction
     deriving (Show, Generic)
 
-anyTxHelper :: (MonadFail m, MonadIO m) => AnyTransaction -> m Types.BareBlockItem
-anyTxHelper (ChainTx tx) = return $ Types.ChainUpdate $ signChainTx tx
+anyTxHelper :: (MonadFail m, MonadIO m) => BlockItemDescription -> m Types.BareBlockItem
+anyTxHelper (ChainUpdateTx tx) = return $ Types.ChainUpdate $ signChainTx tx
 anyTxHelper (AccountTx tx) = Types.NormalTransaction <$> transactionHelper tx

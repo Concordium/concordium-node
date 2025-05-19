@@ -321,7 +321,7 @@ data TransactionAndAssertion pv = TransactionAndAssertion
 
 data AnyTransactionAndAssertion pv = AnyTransactionAndAssertion
     { -- | A transaction to run in the scheduler.
-      ataaTransaction :: SchedTest.AnyTransaction,
+      ataaTransaction :: SchedTest.BlockItemDescription,
       -- | Assertions to make about the outcome from the scheduler and the resulting block state.
       ataaAssertion :: TransactionAssertion pv
     }
