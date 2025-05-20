@@ -54,6 +54,13 @@ class (PLTKernelUpdate m) => PLTKernelPrivilegedUpdate m where
     --  Burning can fail if the amount in the account is less than the specified amount to burn.
     burn :: PLTAccount m -> TokenRawAmount -> m Bool
 
+class PLTKernelChargeEnergy m where
+    -- | Reduce the available energy for the PLT module transaction execution.
+    --  If the available energy is smaller than the given amount, the containing
+    --  transaction will abort and the effects of the transaction will be rolled
+    --  back.
+    pltTickEnergy :: Energy -> m ()
+
 class PLTKernelFail e m where
     -- | Abort the current operation by raising an error.
     pltError :: e -> m a

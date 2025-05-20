@@ -46,7 +46,7 @@ import Control.Exception (assert)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Token
 import qualified Concordium.ID.Types as ID
-import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTAccount, PLTKernelFail, PLTKernelPrivilegedUpdate)
+import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTAccount, PLTKernelChargeEnergy, PLTKernelFail, PLTKernelPrivilegedUpdate)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
@@ -93,6 +93,17 @@ data RemoveExistingStake
     | -- | The account has no existing stake.
       NoExistingStake
     deriving (Eq, Show)
+
+data PLTExecutionState m = PLTExecutionState
+    { _plteBlockState :: UpdatableBlockState m,
+      _plteEnergyLeft :: Energy
+    }
+
+makeLenses ''PLTExecutionState
+
+data PLTExecutionError fail
+    = PLTEOutOfEnergy
+    | PLTEFail fail
 
 -- | Information needed to execute transactions in the form that is easy to use.
 class
@@ -385,8 +396,17 @@ class
     runPLT ::
         (PVSupportsPLT (MPV m)) =>
         Token.TokenIndex ->
-        (forall m1. (Monad m1, PLTKernelPrivilegedUpdate m1, PLTKernelFail e m1, PLTAccount m1 ~ AccountIndex) => m1 a) ->
-        m (Either e a)
+        Energy ->
+        ( forall m1.
+          ( Monad m1,
+            PLTKernelPrivilegedUpdate m1,
+            PLTKernelFail e m1,
+            PLTKernelChargeEnergy m1,
+            PLTAccount m1 ~ AccountIndex
+          ) =>
+          m1 a
+        ) ->
+        m (Either (PLTExecutionError e) a)
 
     -- | Create a new protocol-layer token with the given 'PLTConfiguration'.
     --

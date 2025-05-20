@@ -2706,7 +2706,10 @@ handleTokenHolder depositContext tokenId tokenOperations =
         (usedEnergy, energyCost) <- computeExecutionCharge (depositContext ^. wtcEnergyAmount) (computeState ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         let result = case computeResult of
-                Left encodedRejectReason ->
+                Left PLTEOutOfEnergy ->
+                    TxReject . TokenHolderTransactionFailed $
+                        makeTokenModuleRejectReason tokenId (error "todo: encode PLTEOutOfEnergy")
+                Left (PLTEFail encodedRejectReason) ->
                     TxReject . TokenHolderTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
                 Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
@@ -2717,7 +2720,7 @@ handleTokenHolder depositContext tokenId tokenOperations =
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
+        m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [(TokenEventType, TokenEventDetails)])
     invokeTokenHolderOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
             let tc =
@@ -2725,8 +2728,10 @@ handleTokenHolder depositContext tokenId tokenOperations =
                         { tcSender = fst sender,
                           tcSenderAddress = depositContext ^. wtcSenderAddress
                         }
-            runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction tc parameter
+            energy <- getRemainingEnergy
+            runPLT tokenIndex energy $ TokenModule.executeTokenHolderTransaction tc parameter
         -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
+
         return ((\() -> []) <$> result)
 
 -- | Handler for a token governance transaction.
@@ -2771,7 +2776,10 @@ handleTokenGovernance depositContext tokenId tokenOperations =
                 (computeState ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         let result = case computeResult of
-                Left encodedRejectReason ->
+                Left PLTEOutOfEnergy ->
+                    TxReject . TokenGovernanceTransactionFailed $
+                        makeTokenModuleRejectReason tokenId (error "todo: encode PLTEOutOfEnergy")
+                Left (PLTEFail encodedRejectReason) ->
                     TxReject . TokenGovernanceTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
                 Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
@@ -2782,7 +2790,7 @@ handleTokenGovernance depositContext tokenId tokenOperations =
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
+        m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [(TokenEventType, TokenEventDetails)])
     invokeTokenGovernanceOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
             let tc =
@@ -2790,7 +2798,8 @@ handleTokenGovernance depositContext tokenId tokenOperations =
                         { tcSender = fst sender,
                           tcSenderAddress = depositContext ^. wtcSenderAddress
                         }
-            runPLT tokenIndex $ TokenModule.executeTokenGovernanceTransaction tc parameter
+            energy <- getRemainingEnergy
+            runPLT tokenIndex energy $ TokenModule.executeTokenGovernanceTransaction tc parameter
         -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
         return ((\() -> []) <$> result)
 
@@ -2965,9 +2974,11 @@ handleCreatePLT updateHeader payload = runExceptT $ do
                       _pltGovernanceAccountIndex = governanceAccountIndex
                     }
         tokenIx <- createToken config
-        runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
+        energy <- getRemainingEnergy
+        runPLT tokenIx energy $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
     case createResult of
-        Left (e :: TokenModule.InitializeTokenError) -> throwError $ TokenInitializeFailure (show e)
+        Left PLTEOutOfEnergy -> throwError TokenModuleOutOfEnergy
+        Left (PLTEFail (e :: TokenModule.InitializeTokenError)) -> throwError $ TokenInitializeFailure (show e)
         Right () -> do
             lift incrementPLTUpdateSequenceNumber
             -- FIXME: Dummy event. https://linear.app/concordium/issue/COR-705/event-logging

@@ -19,6 +19,10 @@ import Concordium.Types.Tokens
 
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 
+-- | The energy cost for the execution of a token transfer.
+tokenTransferEnergy :: Energy
+tokenTransferEnergy = 100
+
 -- | The context for a token-holder or token-governance transaction.
 data TransactionContext' account = TransactionContext
     { -- | The sender account.
@@ -151,7 +155,7 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
 --       - Transfer the amount from the sender to the recipient, if the sender's balance is
 --         sufficient.
 executeTokenHolderTransaction ::
-    (PLTKernelUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    (PLTKernelUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     TransactionContext m ->
     TokenParameter ->
     m ()
@@ -214,6 +218,7 @@ executeTokenHolderTransaction TransactionContext{..} tokenParam = do
                                   trrAvailableBalance = toTokenAmount decimals availableBalance,
                                   trrRequiredBalance = ttAmount pthoUnprocessed
                                 }
+                    pltTickEnergy tokenTransferEnergy
                     return (opIndex + 1)
             foldM_ handleOperation 0 operations
   where

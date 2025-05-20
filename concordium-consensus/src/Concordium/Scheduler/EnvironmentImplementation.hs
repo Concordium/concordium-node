@@ -14,6 +14,7 @@ import Control.Monad
 import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Reader (ReaderT (..))
+import Control.Monad.Trans.State (StateT (..))
 import Data.Either
 import Data.HashMap.Strict as Map
 import qualified Data.Kind as DK
@@ -452,8 +453,19 @@ instance
             ssBlockState .= s2
         return res
 
-    runPLT tokenIx op = do
-        runKernelT op tokenIx
+    runPLT tokenIx energy op = do
+        s <- use ssBlockState
+        (res, s') <-
+            lift $
+                runKernelT
+                    op
+                    tokenIx
+                    PLTExecutionState
+                        { _plteBlockState = s,
+                          _plteEnergyLeft = energy
+                        }
+        ssBlockState .= _plteBlockState s'
+        return res
 
     createToken pltConfig = do
         s <- use ssBlockState
@@ -473,17 +485,17 @@ runSchedulerT computation contextState initialState = do
     (value, resultingState, ()) <- runRWST (_runSchedulerT computation) contextState initialState
     return (value, resultingState)
 
-newtype KernelT fail ret m a = KernelT {runKernelT' :: ReaderT TokenIndex (ContT (Either fail ret) (SchedulerT m)) a}
+newtype KernelT fail ret m a = KernelT {runKernelT' :: ReaderT TokenIndex (ContT (Either (PLTExecutionError fail) ret) (StateT (PLTExecutionState m) m)) a}
     deriving
         ( Functor,
           Applicative,
           Monad,
-          MonadState (SchedulerState m),
+          MonadState (PLTExecutionState m),
           MonadReader TokenIndex
         )
 
-runKernelT :: (Monad m) => KernelT fail a m a -> TokenIndex -> SchedulerT m (Either fail a)
-runKernelT a tokenIx = runContT (runReaderT (runKernelT' a) tokenIx) (return . Right)
+runKernelT :: (Monad m) => KernelT fail a m a -> TokenIndex -> PLTExecutionState m -> m (Either (PLTExecutionError fail) a, PLTExecutionState m)
+runKernelT a tokenIx = runStateT (runContT (runReaderT (runKernelT' a) tokenIx) (return . Right))
 
 instance MonadTrans (KernelT fail ret) where
     lift = KernelT . lift . lift . lift
@@ -495,66 +507,66 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
     type PLTAccount (KernelT fail ret m) = AccountIndex
     getTokenState key = do
         tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         lift $ BS.getTokenState bs tokenIx key
     getAccount addr = do
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         lift $ fmap fst <$> BS.bsoGetAccount bs addr
     getAccountBalance acctIndex = do
         tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         lift $
             BS.bsoGetAccountByIndex bs acctIndex >>= \case
                 Nothing -> error "getAccountBalance: Account does not exist"
                 Just acct -> BS.getAccountTokenBalance acct tokenIx
     getAccountState acctIndex key = do
         tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         lift $
             BS.bsoGetAccountByIndex bs acctIndex >>= \case
                 Nothing -> error "getAccountState: Account does not exist"
                 Just acct -> BS.getAccountTokenState acct tokenIx key
     getAccountCanonicalAddress acctIndex = do
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         lift $
             BS.bsoGetAccountByIndex bs acctIndex >>= \case
                 Nothing -> error "getAccountCanonicalAddress: Account does not exist"
                 Just acct -> BS.getAccountCanonicalAddress acct
     getGovernanceAccount = do
         tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         lift $ do
             config <- BS.getTokenConfiguration bs tokenIx
             let govIndex = _pltGovernanceAccountIndex config
             return govIndex
     getCirculatingSupply = do
         tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         lift $ BS.getTokenCirculatingSupply bs tokenIx
     getDecimals = do
         tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         lift $ _pltDecimals <$> BS.getTokenConfiguration bs tokenIx
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (KernelT fail ret m) where
     setTokenState key mValue = do
         tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         newBS <- lift $ BS.bsoSetTokenState bs tokenIx key mValue
-        ssBlockState .= newBS
+        plteBlockState .= newBS
     setAccountState account key mValue = do
         let updates = case mValue of
                 Nothing -> [(key, TASVDelete)]
                 Just value -> [(key, TASVUpdate value)]
         tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         newBS <- lift $ BS.bsoUpdateTokenAccountModuleState bs tokenIx account updates
-        ssBlockState .= newBS
+        plteBlockState .= newBS
         return ()
     transfer accIxFrom accIxTo amount _mbMemo = do
         -- TODO: the memo should be emitted in an event
         tokenIx <- ask
-        bs0 <- use ssBlockState
+        bs0 <- use plteBlockState
         mbs2 <- lift $ do
             mbs1 <-
                 BS.bsoUpdateTokenAccountBalance bs0 tokenIx accIxFrom $
@@ -576,13 +588,13 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
         case mbs2 of
             Nothing -> return False
             Just bs2 -> do
-                ssBlockState .= bs2
+                plteBlockState .= bs2
                 return True
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
     mint accIx amount = do
         tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
         currentSupply <- lift $ BS.getTokenCirculatingSupply bs tokenIx
         if maxBound - amount < currentSupply
             then return False -- Minting would overflow the circulating supply.
@@ -603,11 +615,11 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                         -- exceeds the maximum representable amount.
                         error "Token kernel: mint would overflow receiver balance"
                     Just newBs -> do
-                        ssBlockState .= newBs
+                        plteBlockState .= newBs
                         return True
     burn accIx amount = do
         tokenIx <- ask
-        bs0 <- use ssBlockState
+        bs0 <- use plteBlockState
         mbs1 <- lift $ BS.bsoUpdateTokenAccountBalance bs0 tokenIx accIx (negativeTokenAmountDelta amount)
         case mbs1 of
             Nothing -> return False
@@ -620,9 +632,20 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                         -- on the target account exceeded to the total supply.
                         error "Token kernel: burn would underflow total supply"
                     BS.bsoSetTokenCirculatingSupply bs1 tokenIx (currentSupply - amount)
-                ssBlockState .= bs2
+                plteBlockState .= bs2
                 return True
+
+instance
+    ( BS.BlockStateOperations m,
+      PVSupportsPLT (MPV m)
+    ) =>
+    PLTKernelChargeEnergy (KernelT fail ret m)
+    where
+    pltTickEnergy nrg = do
+        nrgLeft <- use plteEnergyLeft
+        unless (nrgLeft >= nrg) $ KernelT $ ReaderT $ \_ -> ContT $ \_ -> return (Left PLTEOutOfEnergy)
+        plteEnergyLeft -= nrg
 
 instance (Monad m) => (PLTKernelFail fail (KernelT fail ret m)) where
     -- To abort, we simply drop the continuation and return the error.
-    pltError err = KernelT $ ReaderT $ \_ -> ContT $ \_ -> return (Left err)
+    pltError err = KernelT $ ReaderT $ \_ -> ContT $ \_ -> return (Left $ PLTEFail err)
