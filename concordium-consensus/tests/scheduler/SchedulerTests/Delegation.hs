@@ -765,67 +765,71 @@ testReduceStakeWhileInCooldown ::
     Spec
 testReduceStakeWhileInCooldown spv pvString =
     specify (pvString ++ ": Reduce stake while in cooldown.") $ do
-        let transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
-                [ Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        Runner.TJSON
-                            { payload =
-                                Runner.ConfigureDelegation
-                                    { cdCapital = Just 999,
-                                      cdRestakeEarnings = Nothing,
-                                      cdDelegationTarget = Nothing
-                                    },
-                              metadata = makeDummyHeader delegator3Address 1 1_000,
-                              keys = [(0, [(0, delegator3KP)])]
-                            },
-                      taaAssertion = \result _ -> do
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.ConfigureDelegation
+                                        { cdCapital = Just 999,
+                                          cdRestakeEarnings = Nothing,
+                                          cdDelegationTarget = Nothing
+                                        },
+                                  metadata = makeDummyHeader delegator3Address 1 1_000,
+                                  keys = [(0, [(0, delegator3KP)])]
+                                },
+                      biaaAssertion = \result _ -> do
                         return $ do
                             Helpers.assertSuccessWithEvents
                                 [DelegationStakeDecreased 3 delegator3Address 999]
                                 result
                     },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        Runner.TJSON
-                            { payload =
-                                Runner.ConfigureDelegation
-                                    { cdCapital = Just 995,
-                                      cdRestakeEarnings = Nothing,
-                                      cdDelegationTarget = Nothing
-                                    },
-                              metadata = makeDummyHeader delegator3Address 2 1_000,
-                              keys = [(0, [(0, delegator3KP)])]
-                            },
-                      taaAssertion = assertPrePreCooldown 5 (DelegationStakeDecreased 3 delegator3Address 995)
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.ConfigureDelegation
+                                        { cdCapital = Just 995,
+                                          cdRestakeEarnings = Nothing,
+                                          cdDelegationTarget = Nothing
+                                        },
+                                  metadata = makeDummyHeader delegator3Address 2 1_000,
+                                  keys = [(0, [(0, delegator3KP)])]
+                                },
+                      biaaAssertion = assertPrePreCooldown 5 (DelegationStakeDecreased 3 delegator3Address 995)
                     },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        Runner.TJSON
-                            { payload =
-                                Runner.ConfigureDelegation
-                                    { cdCapital = Just 998,
-                                      cdRestakeEarnings = Nothing,
-                                      cdDelegationTarget = Nothing
-                                    },
-                              metadata = makeDummyHeader delegator3Address 3 1_000,
-                              keys = [(0, [(0, delegator3KP)])]
-                            },
-                      taaAssertion = assertPrePreCooldown 2 (DelegationStakeIncreased 3 delegator3Address 998)
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.ConfigureDelegation
+                                        { cdCapital = Just 998,
+                                          cdRestakeEarnings = Nothing,
+                                          cdDelegationTarget = Nothing
+                                        },
+                                  metadata = makeDummyHeader delegator3Address 3 1_000,
+                                  keys = [(0, [(0, delegator3KP)])]
+                                },
+                      biaaAssertion = assertPrePreCooldown 2 (DelegationStakeIncreased 3 delegator3Address 998)
                     },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        Runner.TJSON
-                            { payload =
-                                Runner.ConfigureDelegation
-                                    { cdCapital = Just 1000,
-                                      cdRestakeEarnings = Nothing,
-                                      cdDelegationTarget = Nothing
-                                    },
-                              metadata = makeDummyHeader delegator3Address 4 1_000,
-                              keys = [(0, [(0, delegator3KP)])]
-                            },
-                      taaAssertion = assertNoCooldown (DelegationStakeIncreased 3 delegator3Address 1000)
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.ConfigureDelegation
+                                        { cdCapital = Just 1000,
+                                          cdRestakeEarnings = Nothing,
+                                          cdDelegationTarget = Nothing
+                                        },
+                                  metadata = makeDummyHeader delegator3Address 4 1_000,
+                                  keys = [(0, [(0, delegator3KP)])]
+                                },
+                      biaaAssertion = assertNoCooldown (DelegationStakeIncreased 3 delegator3Address 1000)
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates

@@ -58,28 +58,30 @@ testCase spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule wasmModVersion transferSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule wasmModVersion transferSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 transferSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 wasmModVersion transferSourceFile "init_transfer" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 wasmModVersion transferSourceFile "init_transfer" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result state -> do
                 doStateAssertion <- transferSpec state
                 return $ do
                     Helpers.assertSuccess result
@@ -92,37 +94,40 @@ testCase spv pvString =
                         result
                     doStateAssertion
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 123 (Types.ContractAddress 0 0) "transfer.forward" (BSS.toShort (encode accountAddress0)),
-                      metadata = makeDummyHeader accountAddress0 3 700_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 123 (Types.ContractAddress 0 0) "transfer.forward" (BSS.toShort (encode accountAddress0)),
+                          metadata = makeDummyHeader accountAddress0 3 700_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result state -> do
                 doStateAssertion <- transferSpec state
                 return $ do
                     Helpers.assertSuccess result
                     doStateAssertion
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 1_000 (Types.ContractAddress 0 0) "transfer.deposit" "",
-                      metadata = makeDummyHeader accountAddress0 4 700_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 1_000 (Types.ContractAddress 0 0) "transfer.deposit" "",
+                          metadata = makeDummyHeader accountAddress0 4 700_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ -> do
                 return $ Helpers.assertSuccess result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "transfer.send" sendParameter,
-                      metadata = makeDummyHeader accountAddress0 5 700_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 0 (Types.ContractAddress 0 0) "transfer.send" sendParameter,
+                          metadata = makeDummyHeader accountAddress0 5 700_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result state -> do
                 doStateAssertion <- sendSpec state
                 return $ do
                     Helpers.assertSuccessWithEvents

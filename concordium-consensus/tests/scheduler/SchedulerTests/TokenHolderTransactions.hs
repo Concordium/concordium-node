@@ -120,7 +120,7 @@ testTokenHolder _ pvString =
                                 result
                     }
                 ]
-        Helpers.runSchedulerTestAssertIntermediateStatesBlockItem
+        Helpers.runSchedulerTestAssertIntermediateStates
             @pv
             Helpers.defaultTestConfig
             initialBlockState

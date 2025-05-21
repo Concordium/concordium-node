@@ -312,13 +312,6 @@ type TransactionAssertion pv =
     PersistentBSM pv Assertion
 
 -- | A test transaction paired with assertions to run on the scheduler result and block state.
-data TransactionAndAssertion pv = TransactionAndAssertion
-    { -- | A transaction to run in the scheduler.
-      taaTransaction :: SchedTest.TransactionJSON,
-      -- | Assertions to make about the outcome from the scheduler and the resulting block state.
-      taaAssertion :: TransactionAssertion pv
-    }
-
 data BlockItemAndAssertion pv = BlockItemAndAssertion
     { -- | A transaction to run in the scheduler.
       biaaTransaction :: SchedTest.BlockItemDescription,
@@ -326,36 +319,20 @@ data BlockItemAndAssertion pv = BlockItemAndAssertion
       biaaAssertion :: TransactionAssertion pv
     }
 
--- | This is a special case of `runSchedulerTestAssertIntermediateStatesAnyTransaction` below that
--- only support account transactions. Kept for compatibility with existing tests that only use
--- account transactions.
-runSchedulerTestAssertIntermediateStates ::
-    forall pv.
-    (Types.IsProtocolVersion pv) =>
-    TestConfig ->
-    PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    [TransactionAndAssertion pv] ->
-    Assertion
-runSchedulerTestAssertIntermediateStates config constructState transactionsAndAssertions =
-    runSchedulerTestAssertIntermediateStatesBlockItem config constructState $ toAny <$> transactionsAndAssertions
-  where
-    toAny :: TransactionAndAssertion pv -> BlockItemAndAssertion pv
-    toAny (TransactionAndAssertion tx a) = BlockItemAndAssertion (SchedTest.AccountTx tx) a
-
 -- | Run the scheduler on transactions in a test environment. Each transaction in the list of
 --  transactions is paired with the assertions to run on the scheduler result and the resulting block
 --  state right after executing each transaction in the intermediate block state.
 --
 --  This will also run invariant assertions on each intermediate block state, see
 --  @assertBlockStateInvariantsH@ for more details.
-runSchedulerTestAssertIntermediateStatesBlockItem ::
+runSchedulerTestAssertIntermediateStates ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
     [BlockItemAndAssertion pv] ->
     Assertion
-runSchedulerTestAssertIntermediateStatesBlockItem config constructState transactionsAndAssertions =
+runSchedulerTestAssertIntermediateStates config constructState transactionsAndAssertions =
     join $ runTestBlockState blockStateComputation
   where
     blockStateComputation :: PersistentBSM pv Assertion
