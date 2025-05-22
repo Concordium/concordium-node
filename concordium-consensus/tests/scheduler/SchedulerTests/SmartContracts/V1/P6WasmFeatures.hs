@@ -71,7 +71,7 @@ testCase ::
     -- | Path to the module to attempt to deploy.
     FilePath ->
     Spec
-testCase spv taaAssertion pvString sourceFile =
+testCase spv biaaAssertion pvString sourceFile =
     -- we only check V1 contracts, which do not exist before P4.
     when (Types.demoteProtocolVersion spv >= Types.P4) $
         specify (pvString ++ ": Wasm features") $
@@ -81,15 +81,16 @@ testCase spv taaAssertion pvString sourceFile =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule wasmModVersion1 sourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule wasmModVersion1 sourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
               ..
             }
         ]

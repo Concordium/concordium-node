@@ -161,7 +161,7 @@ testCase0 _ pvString = specify
             initialBlockState
             transactionsAndAssertions
   where
-    makeTransactions :: IO [Helpers.TransactionAndAssertion pv]
+    makeTransactions :: IO [Helpers.BlockItemAndAssertion pv]
     makeTransactions = do
         -- Transaction 1. Pub to sec (1000)
         let encryptedAmount1000 :: EncryptedAmount
@@ -334,14 +334,15 @@ testCase0 _ pvString = specify
             incomingAmounts8account0 = Seq.empty
 
         return
-            [ Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToEncrypted 1_000,
-                          metadata = makeDummyHeader accountAddress0 1 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+            [ Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToEncrypted 1_000,
+                              metadata = makeDummyHeader accountAddress0 1 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -360,17 +361,18 @@ testCase0 _ pvString = specify
                             result
                         doEncryptedBalanceAssertions
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransfer
-                                accountAddress1
-                                encryptedTransferData1,
-                          metadata = makeDummyHeader accountAddress0 2 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransfer
+                                    accountAddress1
+                                    encryptedTransferData1,
+                              metadata = makeDummyHeader accountAddress0 2 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -407,17 +409,18 @@ testCase0 _ pvString = specify
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransfer
-                                accountAddress1
-                                encryptedTransferData2,
-                          metadata = makeDummyHeader accountAddress0 3 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransfer
+                                    accountAddress1
+                                    encryptedTransferData2,
+                              metadata = makeDummyHeader accountAddress0 3 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -455,17 +458,18 @@ testCase0 _ pvString = specify
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransfer
-                                accountAddress1
-                                encryptedTransferData3,
-                          metadata = makeDummyHeader accountAddress0 4 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransfer
+                                    accountAddress1
+                                    encryptedTransferData3,
+                              metadata = makeDummyHeader accountAddress0 4 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -503,14 +507,15 @@ testCase0 _ pvString = specify
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.EncryptedAmountTransfer accountAddress0 encryptedTransferData4,
-                          metadata = makeDummyHeader accountAddress1 1 100_000,
-                          keys = [(0, [(0, keyPair1)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.EncryptedAmountTransfer accountAddress0 encryptedTransferData4,
+                              metadata = makeDummyHeader accountAddress1 1 100_000,
+                              keys = [(0, [(0, keyPair1)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -549,17 +554,18 @@ testCase0 _ pvString = specify
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransfer
-                                accountAddress0
-                                encryptedTransferData5,
-                          metadata = makeDummyHeader accountAddress1 2 100_000,
-                          keys = [(0, [(0, keyPair1)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransfer
+                                    accountAddress0
+                                    encryptedTransferData5,
+                              metadata = makeDummyHeader accountAddress1 2 100_000,
+                              keys = [(0, [(0, keyPair1)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -598,14 +604,15 @@ testCase0 _ pvString = specify
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToPublic secToPubTransferData1,
-                          metadata = makeDummyHeader accountAddress0 5 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToPublic secToPubTransferData1,
+                              metadata = makeDummyHeader accountAddress0 5 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -635,14 +642,15 @@ testCase0 _ pvString = specify
                             result
                         doEncryptedBalanceAssertion
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToPublic secToPubTransferData2,
-                          metadata = makeDummyHeader accountAddress0 6 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToPublic secToPubTransferData2,
+                              metadata = makeDummyHeader accountAddress0 6 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -670,14 +678,15 @@ testCase0 _ pvString = specify
                             result
                         doEncryptedBalanceAssertion
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToPublic secToPubTransferData3,
-                          metadata = makeDummyHeader accountAddress0 7 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToPublic secToPubTransferData3,
+                              metadata = makeDummyHeader accountAddress0 7 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -727,7 +736,7 @@ testCase1 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    makeTransactions :: IO [Helpers.TransactionAndAssertion pv]
+    makeTransactions :: IO [Helpers.BlockItemAndAssertion pv]
     makeTransactions = do
         -- Transaction 1. Pub to sec (1000)
         let encryptedAmount1000 :: EncryptedAmount
@@ -748,14 +757,15 @@ testCase1 spv pvString =
         let memo = Types.Memo $ BSS.pack [0, 1, 2, 3]
 
         return
-            [ Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToEncrypted 1_000,
-                          metadata = makeDummyHeader accountAddress0 1 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+            [ Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToEncrypted 1_000,
+                              metadata = makeDummyHeader accountAddress0 1 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -774,18 +784,19 @@ testCase1 spv pvString =
                             result
                         doEncryptedBalanceAssertions
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransferWithMemo
-                                accountAddress1
-                                memo
-                                encryptedTransferData1,
-                          metadata = makeDummyHeader accountAddress0 2 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransferWithMemo
+                                    accountAddress1
+                                    memo
+                                    encryptedTransferData1,
+                              metadata = makeDummyHeader accountAddress0 2 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -995,14 +1006,15 @@ testCase2 spv pvString =
         let memo = Types.Memo $ BSS.pack [0, 1, 2, 3]
 
         return
-            [ Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToEncrypted 1_000,
-                          metadata = makeDummyHeader accountAddress0 1 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+            [ Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToEncrypted 1_000,
+                              metadata = makeDummyHeader accountAddress0 1 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1021,18 +1033,19 @@ testCase2 spv pvString =
                             result
                         doEncryptedBalanceAssertions
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransferWithMemo
-                                accountAddress1
-                                memo
-                                encryptedTransferData1,
-                          metadata = makeDummyHeader accountAddress0 2 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransferWithMemo
+                                    accountAddress1
+                                    memo
+                                    encryptedTransferData1,
+                              metadata = makeDummyHeader accountAddress0 2 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1070,18 +1083,19 @@ testCase2 spv pvString =
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransferWithMemo
-                                accountAddress1
-                                memo
-                                encryptedTransferData2,
-                          metadata = makeDummyHeader accountAddress0 3 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransferWithMemo
+                                    accountAddress1
+                                    memo
+                                    encryptedTransferData2,
+                              metadata = makeDummyHeader accountAddress0 3 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1121,18 +1135,19 @@ testCase2 spv pvString =
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransferWithMemo
-                                accountAddress1
-                                memo
-                                encryptedTransferData3,
-                          metadata = makeDummyHeader accountAddress0 4 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransferWithMemo
+                                    accountAddress1
+                                    memo
+                                    encryptedTransferData3,
+                              metadata = makeDummyHeader accountAddress0 4 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1171,18 +1186,19 @@ testCase2 spv pvString =
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransferWithMemo
-                                accountAddress0
-                                memo
-                                encryptedTransferData4,
-                          metadata = makeDummyHeader accountAddress1 1 100_000,
-                          keys = [(0, [(0, keyPair1)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransferWithMemo
+                                    accountAddress0
+                                    memo
+                                    encryptedTransferData4,
+                              metadata = makeDummyHeader accountAddress1 1 100_000,
+                              keys = [(0, [(0, keyPair1)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1222,18 +1238,19 @@ testCase2 spv pvString =
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload =
-                            Runner.EncryptedAmountTransferWithMemo
-                                accountAddress0
-                                memo
-                                encryptedTransferData5,
-                          metadata = makeDummyHeader accountAddress1 2 100_000,
-                          keys = [(0, [(0, keyPair1)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload =
+                                Runner.EncryptedAmountTransferWithMemo
+                                    accountAddress0
+                                    memo
+                                    encryptedTransferData5,
+                              metadata = makeDummyHeader accountAddress1 2 100_000,
+                              keys = [(0, [(0, keyPair1)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertionSender <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1273,14 +1290,15 @@ testCase2 spv pvString =
                         doEncryptedBalanceAssertionSender
                         doEncryptedBalanceAssertionReceiver
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToPublic secToPubTransferData1,
-                          metadata = makeDummyHeader accountAddress0 5 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToPublic secToPubTransferData1,
+                              metadata = makeDummyHeader accountAddress0 5 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1311,14 +1329,15 @@ testCase2 spv pvString =
 
                         doEncryptedBalanceAssertion
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToPublic secToPubTransferData2,
-                          metadata = makeDummyHeader accountAddress0 6 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToPublic secToPubTransferData2,
+                              metadata = makeDummyHeader accountAddress0 6 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -1347,14 +1366,15 @@ testCase2 spv pvString =
 
                         doEncryptedBalanceAssertion
                 },
-              Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToPublic secToPubTransferData3,
-                          metadata = makeDummyHeader accountAddress0 7 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+              Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToPublic secToPubTransferData3,
+                              metadata = makeDummyHeader accountAddress0 7 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertion <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount

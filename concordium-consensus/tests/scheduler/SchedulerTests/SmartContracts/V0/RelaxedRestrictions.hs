@@ -69,41 +69,44 @@ oldParameterLimitTest spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
         deployAndInitTransactions
             ++ [
                  -- Check that the max size parameter is allowed.
-                 Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_024 1_024),
-                              metadata = makeDummyHeader accountAddress0 3 700_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                 Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_024 1_024),
+                                  metadata = makeDummyHeader accountAddress0 3 700_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ Helpers.assertSuccess result
                     },
                  -- Check that if the top-level parameter is too big, we get a serialization failure.
-                 Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_024 1_025),
-                              metadata = makeDummyHeader accountAddress0 4 700_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                 Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_024 1_025),
+                                  metadata = makeDummyHeader accountAddress0 4 700_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ Helpers.assertRejectWithReason Types.SerializationFailure result
                     },
                  -- Check that if the inter-contract parameter is too big, we get a runtime failure.
-                 Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_025 1_024),
-                              metadata = makeDummyHeader accountAddress0 5 700_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                 Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 1_025 1_024),
+                                  metadata = makeDummyHeader accountAddress0 5 700_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ Helpers.assertRejectWithReason Types.RuntimeFailure result
                     }
                ]
@@ -125,30 +128,32 @@ oldLogLimitTest spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
         deployAndInitTransactions
             ++ [
                  -- Check that the max number of logs is allowed.
-                 Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 64),
-                              metadata = makeDummyHeader accountAddress0 3 700_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                 Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 64),
+                                  metadata = makeDummyHeader accountAddress0 3 700_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ Helpers.assertSuccess result
                     },
                  -- Check that one above the max number of logs is _not_ allowed.
-                 Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 65),
-                              metadata = makeDummyHeader accountAddress0 4 700_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                 Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 65),
+                                  metadata = makeDummyHeader accountAddress0 4 700_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ Helpers.assertRejectWithReason Types.RuntimeFailure result
                     }
                ]
@@ -169,20 +174,21 @@ newParameterLimitTest spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
         deployAndInitTransactions
             ++ [
                  -- Check that the max size parameter is allowed. We cannot check above it easily,
                  -- because it is Word16::MAX.
-                 Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 65_535 65_535),
-                              metadata = makeDummyHeader accountAddress0 3 700_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                 Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = Update 0 (Types.ContractAddress 0 0) "relax.param" (callArgsParam 65_535 65_535),
+                                  metadata = makeDummyHeader accountAddress0 3 700_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ Helpers.assertSuccess result
                     }
                ]
@@ -203,46 +209,49 @@ newLogLimitTest spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
         deployAndInitTransactions
             ++ [
                  -- Check that a large number of logs is allowed (more than allowed in P4).
-                 Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 64),
-                              metadata = makeDummyHeader accountAddress0 3 700_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                 Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = Update 0 (Types.ContractAddress 0 0) "relax.logs" (callArgsWord32 64),
+                                  metadata = makeDummyHeader accountAddress0 3 700_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ Helpers.assertSuccess result
                     }
                ]
 
 -- | Transactions and assertions for deploying and initializing the "relax" contract.
-deployAndInitTransactions :: forall pv. (Types.IsProtocolVersion pv) => [Helpers.TransactionAndAssertion pv]
+deployAndInitTransactions :: forall pv. (Types.IsProtocolVersion pv) => [Helpers.BlockItemAndAssertion pv]
 deployAndInitTransactions =
-    [ Helpers.TransactionAndAssertion
-        { taaTransaction =
-            TJSON
-                { payload = DeployModule wasmModVersion sourceFile,
-                  metadata = makeDummyHeader accountAddress0 1 100_000,
-                  keys = [(0, [(0, keyPair0)])]
-                },
-          taaAssertion = \result _ ->
+    [ Helpers.BlockItemAndAssertion
+        { biaaTransaction =
+            AccountTx $
+                TJSON
+                    { payload = DeployModule wasmModVersion sourceFile,
+                      metadata = makeDummyHeader accountAddress0 1 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+          biaaAssertion = \result _ ->
             return $ do
                 Helpers.assertSuccess result
                 Helpers.assertUsedEnergyDeploymentV0 sourceFile result
         },
-      Helpers.TransactionAndAssertion
-        { taaTransaction =
-            TJSON
-                { payload = InitContract 0 wasmModVersion sourceFile "init_relax" "",
-                  metadata = makeDummyHeader accountAddress0 2 100_000,
-                  keys = [(0, [(0, keyPair0)])]
-                },
-          taaAssertion = \result _ ->
+      Helpers.BlockItemAndAssertion
+        { biaaTransaction =
+            AccountTx $
+                TJSON
+                    { payload = InitContract 0 wasmModVersion sourceFile "init_relax" "",
+                      metadata = makeDummyHeader accountAddress0 2 100_000,
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+          biaaAssertion = \result _ ->
             return $ do
                 Helpers.assertSuccess result
                 Helpers.assertUsedEnergyInitialization

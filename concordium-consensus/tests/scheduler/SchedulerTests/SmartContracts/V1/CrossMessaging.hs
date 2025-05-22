@@ -72,40 +72,43 @@ test1 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule version1 counterSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule version1 counterSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 counterSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule version0 proxySourceFile,
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule version0 proxySourceFile,
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ -> do
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 proxySourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 version1 counterSourceFile "init_counter" "",
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 version1 counterSourceFile "init_counter" "",
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result state -> do
                 doAssertState <- assertCounterState 0 state
                 return $ do
                     Helpers.assertSuccess result
@@ -118,14 +121,15 @@ test1 spv pvString =
                         result
                     doAssertState
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 version0 proxySourceFile "init_proxy" "",
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 version0 proxySourceFile "init_proxy" "",
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ -> do
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -136,14 +140,15 @@ test1 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10nocheck" callArgs,
-                      metadata = makeDummyHeader accountAddress0 5 700_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 0 (Types.ContractAddress 0 0) "counter.inc10nocheck" callArgs,
+                          metadata = makeDummyHeader accountAddress0 5 700_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result state -> do
                 doAssertState <- assertCounterState 10 state
                 return $ do
                     Helpers.assertSuccess result

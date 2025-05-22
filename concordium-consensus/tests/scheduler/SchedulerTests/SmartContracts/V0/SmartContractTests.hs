@@ -39,7 +39,7 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.ID.Types as ID
 import Concordium.Scheduler.DummyData
-import Concordium.Scheduler.Runner (PayloadJSON (..), TransactionJSON (..))
+import Concordium.Scheduler.Runner (BlockItemDescription (..), PayloadJSON (..), TransactionJSON (..))
 import Concordium.Scheduler.Types (Amount, ContractAddress (..), Event, RejectReason (..))
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.Wasm (InitName (..), Parameter (..), WasmVersion (..))
@@ -66,26 +66,28 @@ runInitTestsFromFile _ testCaseDescription testFile testCases =
                 @pv
                 Helpers.defaultTestConfig
                 initialBlockState
-                [ Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = DeployModule V0 testFile,
-                              metadata = makeDummyHeader accountAddress0 1 100_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = DeployModule V0 testFile,
+                                  metadata = makeDummyHeader accountAddress0 1 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ do
                             Helpers.assertSuccess result
                             Helpers.assertUsedEnergyDeploymentV0 testFile result
                     },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = InitContract 0 V0 testFile testName initParam,
-                              metadata = makeDummyHeader accountAddress0 2 100_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = InitContract 0 V0 testFile testName initParam,
+                                  metadata = makeDummyHeader accountAddress0 2 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ do
                             Helpers.assertUsedEnergyInitialization
                                 (Types.protocolVersion @pv)
@@ -120,26 +122,28 @@ runReceiveTestsFromFile _ testCaseDescription testFile testCases =
                 @pv
                 Helpers.defaultTestConfig
                 initialBlockState
-                [ Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = DeployModule V0 testFile,
-                              metadata = makeDummyHeader accountAddress0 1 100_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = DeployModule V0 testFile,
+                                  metadata = makeDummyHeader accountAddress0 1 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ do
                             Helpers.assertSuccess result
                             Helpers.assertUsedEnergyDeploymentV0 testFile result
                     },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = InitContract 10_000 V0 testFile "init_test" "",
-                              metadata = makeDummyHeader accountAddress0 2 100_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = InitContract 10_000 V0 testFile "init_test" "",
+                                  metadata = makeDummyHeader accountAddress0 2 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ do
                             Helpers.assertSuccess result
                             Helpers.assertUsedEnergyInitialization
@@ -150,14 +154,15 @@ runReceiveTestsFromFile _ testCaseDescription testFile testCases =
                                 Nothing
                                 result
                     },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        TJSON
-                            { payload = Update 0 (ContractAddress 0 0) ("test." <> testName) rcvParam,
-                              metadata = makeDummyHeader accountAddress0 3 100_000,
-                              keys = [(0, [(0, keyPair0)])]
-                            },
-                      taaAssertion = \result _ ->
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        AccountTx $
+                            TJSON
+                                { payload = Update 0 (ContractAddress 0 0) ("test." <> testName) rcvParam,
+                                  metadata = makeDummyHeader accountAddress0 3 100_000,
+                                  keys = [(0, [(0, keyPair0)])]
+                                },
+                      biaaAssertion = \result _ ->
                         return $ resSpec result
                     }
                 ]
