@@ -30,7 +30,7 @@ import qualified Data.Map as Map
 import Concordium.Crypto.EncryptedTransfers
 import Prelude hiding (exp, mod)
 
--- | Sign a transaction with the given list of keys.
+-- | Sign an account transaction with the given list of keys.
 signTx :: [(CredentialIndex, [(KeyIndex, KeyPair)])] -> TransactionHeader -> EncodedPayload -> Types.AccountTransaction
 signTx keys TransactionHeader{..} encPayload = Types.signTransaction keys header encPayload
   where
@@ -41,6 +41,7 @@ signTxSingle key TransactionHeader{..} encPayload = Types.signTransactionSingle 
   where
     header = Types.TransactionHeader{thPayloadSize = Types.payloadSize encPayload, ..}
 
+-- | Sign a chain update transaction.
 signChainTx :: ChainUpdateTransaction -> Types.UpdateInstruction
 signChainTx
     ChainUpdateTransaction
@@ -138,33 +139,35 @@ transactionHelper t =
         (TJSON meta TokenHolder{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.TokenHolder{..})
 
+-- | Process account transactions.
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON] -> m [Types.AccountTransaction]
 processTransactions = mapM transactionHelper
 
-processAnyTransactions :: (MonadFail m, MonadIO m) => [BlockItemDescription] -> m [Types.BareBlockItem]
-processAnyTransactions = mapM anyTxHelper
+-- | Process block items.
+processBlockItems :: (MonadFail m, MonadIO m) => [BlockItemDescription] -> m [Types.BareBlockItem]
+processBlockItems = mapM anyTxHelper
+  where
+    anyTxHelper (ChainUpdateTx tx) = return $ Types.ChainUpdate $ signChainTx tx
+    anyTxHelper (AccountTx tx) = Types.NormalTransaction <$> transactionHelper tx
 
--- | This is a special case of `processAnyUngroupedTransactions` below that
+-- | This is a special case of `processUngroupedBlockItems` below that
 -- only support account transactions. Kept for compatibility with existing tests that only use
 -- account transactions.
 processUngroupedTransactions ::
     (MonadFail m, MonadIO m) =>
     [TransactionJSON] ->
     m Types.GroupedTransactions
-processUngroupedTransactions inpt = do
-    txs <- processTransactions inpt
-    -- We just attach a `Nothing` to the transaction such that it will be verified by the scheduler.
-    return (map (\x -> Types.TGAccountTransactions [(Types.fromAccountTransaction 0 x, Nothing)]) txs)
+processUngroupedTransactions inpt = processUngroupedBlockItems $ AccountTx <$> inpt
 
 -- | For testing purposes: process transactions without grouping them by accounts
 --  (i.e. creating one "group" per transaction).
 --  Arrival time of transactions is taken to be 0.
-processAnyUngroupedTransactions ::
+processUngroupedBlockItems ::
     (MonadFail m, MonadIO m) =>
     [BlockItemDescription] ->
     m Types.GroupedTransactions
-processAnyUngroupedTransactions inpt = do
-    txs <- processAnyTransactions inpt
+processUngroupedBlockItems inpt = do
+    txs <- processBlockItems inpt
     -- We just attach a `Nothing` to the transaction such that it will be verified by the scheduler.
     return (map txMap txs)
   where
@@ -315,6 +318,7 @@ data TransactionHeader = TransactionHeader
     }
     deriving (Show)
 
+-- | An account transaction with keys.
 data TransactionJSON = TJSON
     { metadata :: TransactionHeader,
       payload :: PayloadJSON,
@@ -322,6 +326,7 @@ data TransactionJSON = TJSON
     }
     deriving (Show, Generic)
 
+-- | A chain update transaction with keys.
 data ChainUpdateTransaction = ChainUpdateTransaction
     { ctSeqNumber :: Updates.UpdateSequenceNumber,
       ctEffectiveTime :: Types.TransactionTime,
@@ -331,9 +336,6 @@ data ChainUpdateTransaction = ChainUpdateTransaction
     }
     deriving (Show, Generic)
 
+-- | A block item.
 data BlockItemDescription = AccountTx TransactionJSON | ChainUpdateTx ChainUpdateTransaction
     deriving (Show, Generic)
-
-anyTxHelper :: (MonadFail m, MonadIO m) => BlockItemDescription -> m Types.BareBlockItem
-anyTxHelper (ChainUpdateTx tx) = return $ Types.ChainUpdate $ signChainTx tx
-anyTxHelper (AccountTx tx) = Types.NormalTransaction <$> transactionHelper tx

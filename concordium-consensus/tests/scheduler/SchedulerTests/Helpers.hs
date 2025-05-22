@@ -346,7 +346,7 @@ runSchedulerTestAssertIntermediateStates config constructState transactionsAndAs
         BlockItemAndAssertion pv ->
         PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv, Types.Amount)
     transactionRunner (assertedSoFar, currentState, costsSoFar) step = do
-        transactions <- liftIO $ SchedTest.processAnyUngroupedTransactions [biaaTransaction step]
+        transactions <- liftIO $ SchedTest.processUngroupedBlockItems [biaaTransaction step]
         (result, updatedState) <- runScheduler config currentState transactions
         let nextCostsSoFar = costsSoFar + srExecutionCosts result
         doStateAssertions <- assertBlockStateInvariantsH updatedState nextCostsSoFar
