@@ -384,10 +384,10 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
                         TokenHolder{..} ->
                             onlyWithPLT $
-                                handleTokenHolder (mkWTC TTTokenHolder) thTokenSymbol thOperations
+                                handleTokenHolder (mkWTC TTTokenHolder) thTokenId thOperations
                         TokenGovernance{..} ->
                             onlyWithPLT $
-                                handleTokenGovernance (mkWTC TTTokenGovernance) tgTokenSymbol tgOperations
+                                handleTokenGovernance (mkWTC TTTokenGovernance) tgTokenId tgOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -2953,13 +2953,13 @@ handleCreatePLT updateHeader payload = runExceptT $ do
         lift (getStateAccount governanceAccountAddress) >>= \case
             Nothing -> throwError $ UnknownAccount governanceAccountAddress
             Just govAcct -> return govAcct
-    let tokenSymbol = payload ^. cpltTokenSymbol
-    maybeExistingToken <- lift $ getTokenIndex tokenSymbol
-    when (isJust maybeExistingToken) $ throwError $ DuplicateTokenId tokenSymbol
+    let tokenId = payload ^. cpltTokenId
+    maybeExistingToken <- lift $ getTokenIndex tokenId
+    when (isJust maybeExistingToken) $ throwError $ DuplicateTokenId tokenId
     createResult <- lift . withBlockStateRollback $ do
         let config =
                 PLTConfiguration
-                    { _pltTokenId = tokenSymbol,
+                    { _pltTokenId = tokenId,
                       _pltModule = payload ^. cpltTokenModule,
                       _pltDecimals = payload ^. cpltDecimals,
                       _pltGovernanceAccountIndex = governanceAccountIndex
