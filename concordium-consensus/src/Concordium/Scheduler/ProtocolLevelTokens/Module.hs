@@ -128,7 +128,7 @@ data PreprocessedTokenHolderOperation = PTHOTransfer
 -- | Convert 'TokenAmount's to 'TokenRawAmount's, checking that they are within the representable
 --  range.
 preprocessTokenHolderTransaction ::
-    (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    (PLTKernelFail TokenRejectReason m, Monad m) =>
     Word8 ->
     TokenHolderTransaction ->
     m (Seq.Seq PreprocessedTokenHolderOperation)
@@ -137,7 +137,7 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
     preproc (TokenHolderTransfer ttb@(TokenTransferBody{..})) =
         case toTokenRawAmount decimals ttAmount of
             Left err ->
-                pltError . encodeTokenRejectReason . DeserializationFailure . Just . Text.pack $
+                pltError . DeserializationFailure . Just . Text.pack $
                     "Token amount outside representable range: " ++ err
             Right pthoAmount -> return PTHOTransfer{..}
               where
@@ -155,7 +155,7 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
 --       - Transfer the amount from the sender to the recipient, if the sender's balance is
 --         sufficient.
 executeTokenHolderTransaction ::
-    (PLTKernelUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    (PLTKernelUpdate m, PLTKernelChargeEnergy m, PLTKernelFail TokenRejectReason m, Monad m) =>
     TransactionContext m ->
     TokenParameter ->
     m ()
@@ -224,7 +224,7 @@ executeTokenHolderTransaction TransactionContext{..} tokenParam = do
   where
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
-    failTH = pltError . encodeTokenRejectReason
+    failTH = pltError
 
 -- | A pre-processed token-governance operation. This has all amounts converted to
 --  'TokenRawAmount's and unwraps the metadata associated with target accounts.
@@ -244,7 +244,7 @@ data PreprocessedTokenGovernanceOperation
     deriving (Eq, Show)
 
 preprocessTokenGovernanceTransaction ::
-    (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    (PLTKernelFail TokenRejectReason m, Monad m) =>
     Word8 ->
     TokenGovernanceTransaction ->
     m (Seq.Seq PreprocessedTokenGovernanceOperation)
@@ -253,7 +253,7 @@ preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOp
     preproc (TokenMint amount) =
         case toTokenRawAmount decimals amount of
             Left err ->
-                pltError . encodeTokenRejectReason . DeserializationFailure . Just . Text.pack $
+                pltError . DeserializationFailure . Just . Text.pack $
                     "Token mint amount outside representable range: " ++ err
             Right ptgoAmount -> return PTGOTokenMint{..}
       where
@@ -261,7 +261,7 @@ preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOp
     preproc (TokenBurn amount) =
         case toTokenRawAmount decimals amount of
             Left err ->
-                pltError . encodeTokenRejectReason . DeserializationFailure . Just . Text.pack $
+                pltError . DeserializationFailure . Just . Text.pack $
                     "Token burn amount outside representable range: " ++ err
             Right ptgoAmount -> return PTGOTokenBurn{..}
       where
@@ -280,7 +280,7 @@ preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOp
 --   - Decode the transaction CBOR parameter.
 --   - Check that amounts are within the representable range.
 executeTokenGovernanceTransaction ::
-    (PLTKernelPrivilegedUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    (PLTKernelPrivilegedUpdate m, PLTKernelFail TokenRejectReason m, Monad m) =>
     TransactionContext m ->
     TokenParameter ->
     m ()
@@ -337,12 +337,12 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
   where
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
-    failTH = pltError . encodeTokenRejectReason
+    failTH = pltError
 
 -- | Check that a particular feature is enabled for the token, and otherwise fail with
 --  'UnsupportedOperation'.
 requireFeature ::
-    (PLTKernelFail EncodedTokenRejectReason m, PLTKernelQuery m, Monad m) =>
+    (PLTKernelFail TokenRejectReason m, PLTKernelQuery m, Monad m) =>
     -- | The operation index.
     Word64 ->
     -- | The operation name.
@@ -353,13 +353,13 @@ requireFeature ::
 requireFeature trrOperationIndex trrOperationType feature = do
     featureState <- getTokenState feature
     when (isNothing featureState) $
-        pltError . encodeTokenRejectReason $
+        pltError $
             UnsupportedOperation{trrReason = Just "feature not enabled", ..}
 
 -- | Check that an account is valid and return the corresponding 'PLTAccount'.
 --  This will fail with 'AddressNotFound' if the account is not valid.
 requireAccount ::
-    (PLTKernelFail EncodedTokenRejectReason m, PLTKernelQuery m, Monad m) =>
+    (PLTKernelFail TokenRejectReason m, PLTKernelQuery m, Monad m) =>
     -- | The operation index.
     Word64 ->
     -- | The account to check.
@@ -368,7 +368,7 @@ requireAccount ::
 requireAccount trrOperationIndex holder@HolderAccount{..} = do
     getAccount holderAccountAddress >>= \case
         Nothing ->
-            pltError . encodeTokenRejectReason $
+            pltError $
                 AddressNotFound{trrAddress = holder, ..}
         Just acc -> return acc
 

@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -2707,11 +2708,15 @@ handleTokenHolder depositContext tokenId tokenOperations =
         chargeExecutionCost senderAccount energyCost
         let result = case computeResult of
                 Left PLTEOutOfEnergy ->
+                    TxReject . TokenGovernanceTransactionFailed $
+                        makeTokenModuleRejectReason tokenId $
+                            PLTTypes.encodeTokenRejectReason $
+                                PLTTypes.TokenExecutionOutOfEnergy
+                                    { trrOperationIndex = error "todo(drsk) we may want to store the operation index in PLTEOutOfEnergy and pass it here."
+                                    }
+                Left (PLTEFail rejectReason) ->
                     TxReject . TokenHolderTransactionFailed $
-                        makeTokenModuleRejectReason tokenId (error "todo: encode PLTEOutOfEnergy")
-                Left (PLTEFail encodedRejectReason) ->
-                    TxReject . TokenHolderTransactionFailed $
-                        makeTokenModuleRejectReason tokenId encodedRejectReason
+                        makeTokenModuleRejectReason tokenId (PLTTypes.encodeTokenRejectReason rejectReason)
                 Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
@@ -2720,7 +2725,7 @@ handleTokenHolder depositContext tokenId tokenOperations =
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [(TokenEventType, TokenEventDetails)])
+        m (Either (PLTExecutionError PLTTypes.TokenRejectReason) [(TokenEventType, TokenEventDetails)])
     invokeTokenHolderOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
             let tc =
@@ -2778,10 +2783,14 @@ handleTokenGovernance depositContext tokenId tokenOperations =
         let result = case computeResult of
                 Left PLTEOutOfEnergy ->
                     TxReject . TokenGovernanceTransactionFailed $
-                        makeTokenModuleRejectReason tokenId (error "todo: encode PLTEOutOfEnergy")
-                Left (PLTEFail encodedRejectReason) ->
+                        makeTokenModuleRejectReason tokenId $
+                            PLTTypes.encodeTokenRejectReason $
+                                PLTTypes.TokenExecutionOutOfEnergy
+                                    { trrOperationIndex = error "todo(drsk) we may want to store the operation index in PLTEOutOfEnergy and pass it here."
+                                    }
+                Left (PLTEFail rejectReason) ->
                     TxReject . TokenGovernanceTransactionFailed $
-                        makeTokenModuleRejectReason tokenId encodedRejectReason
+                        makeTokenModuleRejectReason tokenId (PLTTypes.encodeTokenRejectReason rejectReason)
                 Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
@@ -2790,7 +2799,7 @@ handleTokenGovernance depositContext tokenId tokenOperations =
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [(TokenEventType, TokenEventDetails)])
+        m (Either (PLTExecutionError PLTTypes.TokenRejectReason) [(TokenEventType, TokenEventDetails)])
     invokeTokenGovernanceOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
             let tc =
