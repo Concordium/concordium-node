@@ -312,11 +312,11 @@ type TransactionAssertion pv =
     PersistentBSM pv Assertion
 
 -- | A test transaction paired with assertions to run on the scheduler result and block state.
-data TransactionAndAssertion pv = TransactionAndAssertion
+data BlockItemAndAssertion pv = BlockItemAndAssertion
     { -- | A transaction to run in the scheduler.
-      taaTransaction :: SchedTest.TransactionJSON,
+      biaaTransaction :: SchedTest.BlockItemDescription,
       -- | Assertions to make about the outcome from the scheduler and the resulting block state.
-      taaAssertion :: TransactionAssertion pv
+      biaaAssertion :: TransactionAssertion pv
     }
 
 -- | Run the scheduler on transactions in a test environment. Each transaction in the list of
@@ -330,7 +330,7 @@ runSchedulerTestAssertIntermediateStates ::
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    [TransactionAndAssertion pv] ->
+    [BlockItemAndAssertion pv] ->
     Assertion
 runSchedulerTestAssertIntermediateStates config constructState transactionsAndAssertions =
     join $ runTestBlockState blockStateComputation
@@ -343,14 +343,14 @@ runSchedulerTestAssertIntermediateStates config constructState transactionsAndAs
 
     transactionRunner ::
         (Assertion, BS.HashedPersistentBlockState pv, Types.Amount) ->
-        TransactionAndAssertion pv ->
+        BlockItemAndAssertion pv ->
         PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv, Types.Amount)
     transactionRunner (assertedSoFar, currentState, costsSoFar) step = do
-        transactions <- liftIO $ SchedTest.processUngroupedTransactions [taaTransaction step]
+        transactions <- liftIO $ SchedTest.processUngroupedBlockItems [biaaTransaction step]
         (result, updatedState) <- runScheduler config currentState transactions
         let nextCostsSoFar = costsSoFar + srExecutionCosts result
         doStateAssertions <- assertBlockStateInvariantsH updatedState nextCostsSoFar
-        doAssertTransaction <- taaAssertion step result updatedState
+        doAssertTransaction <- biaaAssertion step result updatedState
         let nextAssertedSoFar = do
                 assertedSoFar
                 doAssertTransaction

@@ -61,28 +61,30 @@ testCase spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule wasmModVersion recorderSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule wasmModVersion recorderSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 recorderSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 wasmModVersion recorderSourceFile "init_recorder" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 wasmModVersion recorderSourceFile "init_recorder" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result state -> do
                 doStateAssertion <- recorderSpec 0 state
                 return $ do
                     Helpers.assertSuccess result
@@ -95,37 +97,39 @@ testCase spv pvString =
                         result
                     doStateAssertion
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload =
-                        Update
-                            0
-                            (Types.ContractAddress 0 0)
-                            "recorder.record_u64"
-                            (BSS.toShort (runPut (putWord64le 20))),
-                      metadata = makeDummyHeader accountAddress0 3 700_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload =
+                            Update
+                                0
+                                (Types.ContractAddress 0 0)
+                                "recorder.record_u64"
+                                (BSS.toShort (runPut (putWord64le 20))),
+                          metadata = makeDummyHeader accountAddress0 3 700_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result state -> do
                 doStateAssertion <- recorderSpec 20 state
                 return $ do
                     Helpers.assertSuccess result
                     doStateAssertion
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload =
-                        Update
-                            0
-                            (Types.ContractAddress 0 0)
-                            "recorder.record_u64"
-                            (BSS.toShort (runPut (putWord64le 40))),
-                      metadata = makeDummyHeader accountAddress0 4 700_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload =
+                            Update
+                                0
+                                (Types.ContractAddress 0 0)
+                                "recorder.record_u64"
+                                (BSS.toShort (runPut (putWord64le 40))),
+                          metadata = makeDummyHeader accountAddress0 4 700_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result state -> do
                 doStateAssertion <- recorderSpec 60 state
                 return $ do
                     Helpers.assertSuccess result

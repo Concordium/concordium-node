@@ -75,22 +75,23 @@ credentialKeyUpdateTest _ pvString =
             initialBlockState
             transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
         [ -- correctly update a keypair
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.UpdateCredentialKeys
-                            credentialRegistrationId0
-                            $ makeCredentialPublicKeys
-                                [verifyKey keyPair2, verifyKey keyPair1]
-                                2,
-                      metadata = makeDummyHeader accountAddress0 1 10_000,
-                      keys = [(0, [(0, keyPair0), (1, keyPair1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.UpdateCredentialKeys
+                                credentialRegistrationId0
+                                $ makeCredentialPublicKeys
+                                    [verifyKey keyPair2, verifyKey keyPair1]
+                                    2,
+                          metadata = makeDummyHeader accountAddress0 1 10_000,
+                          keys = [(0, [(0, keyPair0), (1, keyPair1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys state [(0, verifyKey keyPair2), (1, verifyKey keyPair1)] 2
                 return $ do
                     Helpers.assertSuccessWithEvents [CredentialKeysUpdated credentialRegistrationId0] result
