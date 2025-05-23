@@ -2340,14 +2340,14 @@ impl ConsensusContainer {
         use crate::grpc2::Require;
         let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
         let (block_id_type, block_hash) = bhi.to_ptr();
-        let token_id_len = token_id.symbol.as_bytes().len();
+        let token_id_len = token_id.value.as_bytes().len();
         if token_id_len > 255 {
             return Err(tonic::Status::invalid_argument(
                 "TokenId: symbol length must be at most 255 bytes",
             ));
         }
         let token_id_len = token_id_len as u8;
-        let token_id_ptr = token_id.symbol.as_ptr();
+        let token_id_ptr = token_id.value.as_ptr();
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let mut out_hash = [0u8; 32];

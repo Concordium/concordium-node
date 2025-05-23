@@ -300,7 +300,7 @@ data PayloadJSON
     | -- \| An update for a protocol level token.
       TokenHolder
         { -- | Identifier of the token type to which the transaction refers.
-          thTokenSymbol :: !Types.TokenId,
+          thTokenId :: !Types.TokenId,
           -- | The CBOR-encoded operations to perform.
           thOperations :: !Types.TokenParameter
         }

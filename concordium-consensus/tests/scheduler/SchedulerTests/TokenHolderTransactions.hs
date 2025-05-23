@@ -77,7 +77,7 @@ testTokenHolder _ pvString =
                             Runner.TJSON
                                 { payload =
                                     Runner.TokenHolder
-                                        { thTokenSymbol = gtu,
+                                        { thTokenId = gtu,
                                           thOperations = Types.TokenParameter BSS.empty
                                         },
                                   metadata = makeDummyHeader dummyAddress 1 1_000,
@@ -105,7 +105,7 @@ testTokenHolder _ pvString =
                             Runner.TJSON
                                 { payload =
                                     Runner.TokenHolder
-                                        { thTokenSymbol = gtu,
+                                        { thTokenId = gtu,
                                           thOperations = Types.TokenParameter BSS.empty
                                         },
                                   metadata = makeDummyHeader dummyAddress 2 1_000,
@@ -115,7 +115,7 @@ testTokenHolder _ pvString =
                         return $
                             Helpers.assertRejectWithReason
                                 ( TokenHolderTransactionFailed
-                                    (TokenModuleRejectReason{tmrrTokenSymbol = gtu, tmrrType = errType, tmrrDetails = Just cborFail})
+                                    (TokenModuleRejectReason{tmrrTokenId = gtu, tmrrType = errType, tmrrDetails = Just cborFail})
                                 )
                                 result
                     }
