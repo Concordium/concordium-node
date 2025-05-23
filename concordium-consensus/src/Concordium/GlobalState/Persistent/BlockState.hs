@@ -104,6 +104,7 @@ import Concordium.Types.Queries (
     makePoolPendingChange,
  )
 import Concordium.Types.SeedState
+import qualified Concordium.Types.Tokens as PLT
 import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.UpdateQueues as UQ

@@ -10,6 +10,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.Kernel (
 import Data.Word
 
 import Concordium.Types
+import Concordium.Types.Tokens
 
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 

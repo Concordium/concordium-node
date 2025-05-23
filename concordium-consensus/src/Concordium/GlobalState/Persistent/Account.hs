@@ -23,6 +23,7 @@ import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
+import Concordium.Types.Tokens (TokenRawAmount)
 
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.Genesis.Data
@@ -383,7 +384,7 @@ accountTokenBalance ::
     (MonadBlobStore m, AVSupportsPLT av) =>
     PersistentAccount av ->
     BlockState.TokenIndex ->
-    m BlockState.TokenRawAmount
+    m TokenRawAmount
 accountTokenBalance (PAV5 acc) = V1.getTokenBalance acc
 
 -- | Look up the 'TokenStateValue' associated with a particular token and key on an account.

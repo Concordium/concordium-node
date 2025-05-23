@@ -83,6 +83,7 @@ import Concordium.Types.AnonymityRevokers
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Queries (BakerPoolStatus, PassiveDelegationStatus, RewardStatus')
 import Concordium.Types.SeedState (SeedState, SeedStateVersion (..), SeedStateVersionFor)
+import Concordium.Types.Tokens (TokenRawAmount)
 import Concordium.Types.Transactions hiding (BareBlockItem (..))
 import qualified Concordium.Types.UpdateQueues as UQ
 
@@ -96,7 +97,6 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
     PLTConfiguration,
     ProtocolLevelTokensHash (..),
     TokenIndex,
-    TokenRawAmount,
     TokenStateKey,
     TokenStateValue,
  )

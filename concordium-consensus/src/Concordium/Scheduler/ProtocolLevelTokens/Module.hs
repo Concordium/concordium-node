@@ -53,17 +53,9 @@ toTokenRawAmount ::
     Word8 ->
     TokenAmount ->
     Either String TokenRawAmount
-toTokenRawAmount actualDecimals TokenAmount{..} =
-    case compare nrDecimals (fromIntegral actualDecimals) of
-        EQ -> Right (TokenRawAmount digits)
-        GT -> Left "Token amount precision exceeds representable precision"
-        LT
-            | rawAmountInteger > fromIntegral (maxBound :: TokenRawAmount) ->
-                Left "Token amount exceeds maximum representable amount"
-            | otherwise -> Right (fromIntegral rawAmountInteger)
-          where
-            factor = 10 ^ (fromIntegral actualDecimals - nrDecimals)
-            rawAmountInteger = factor * toInteger digits
+toTokenRawAmount actualDecimals TokenAmount{..}
+    | actualDecimals == decimals = Right value
+    | otherwise = Left "Token amount precision mismatch"
 
 -- | Convert a 'TokenRawAmount' to a 'TokenAmount' given the number of decimals in the
 --  representation.
@@ -74,10 +66,10 @@ toTokenAmount ::
     TokenRawAmount ->
     -- | Converted amount
     TokenAmount
-toTokenAmount decimals (TokenRawAmount rawAmount) =
+toTokenAmount decimals rawAmount =
     TokenAmount
-        { digits = rawAmount,
-          nrDecimals = fromIntegral decimals
+        { value = rawAmount,
+          decimals = decimals
         }
 
 -- | Initialize a PLT by recording the relevant configuration parameters in the state and

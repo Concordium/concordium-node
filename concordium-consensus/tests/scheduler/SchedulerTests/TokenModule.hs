@@ -319,7 +319,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = True,
-                      tipInitialSupply = Just TokenAmount{digits = 500000, nrDecimals = 2},
+                      tipInitialSupply = Just TokenAmount{value = 500000, decimals = 2},
                       tipMintable = False,
                       tipBurnable = False
                     }
@@ -343,7 +343,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{digits = 500000, nrDecimals = 2},
+                      tipInitialSupply = Just TokenAmount{value = 500000, decimals = 2},
                       tipMintable = False,
                       tipBurnable = False
                     }
@@ -363,7 +363,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{digits = 500000, nrDecimals = 2},
+                      tipInitialSupply = Just TokenAmount{value = 500000, decimals = 2},
                       tipMintable = False,
                       tipBurnable = False
                     }
@@ -378,7 +378,7 @@ testInitializeToken = describe "initializeToken" $ do
                     :>>: abortPLTError (ITEInvalidMintAmount "Kernel failed to mint")
         assertTrace (initializeToken tokenParam) trace
     -- In this example, the parameters specify an initial supply with higher precision than the
-    -- token allows. (nrDecimals is 6, but GetDecimals returns 2.)
+    -- token allows. (decimals is 6, but GetDecimals returns 2.)
     it "too many decimals specified" $ do
         let params =
                 TokenInitializationParameters
@@ -386,7 +386,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{digits = 500000, nrDecimals = 6},
+                      tipInitialSupply = Just TokenAmount{value = 500000, decimals = 6},
                       tipMintable = False,
                       tipBurnable = False
                     }

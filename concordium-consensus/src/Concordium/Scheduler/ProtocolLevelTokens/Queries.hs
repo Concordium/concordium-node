@@ -140,8 +140,8 @@ queryAccountTokens acc bs = do
         pltConfiguration <- BS.getTokenConfiguration @_ @m bs tokenIndex
         let accountBalance =
                 TokenAmount
-                    { digits = fromIntegral $ tasBalance tokenState,
-                      nrDecimals = fromIntegral $ _pltDecimals pltConfiguration
+                    { value = tasBalance tokenState,
+                      decimals = _pltDecimals pltConfiguration
                     }
         let ctx = QueryContext{qcTokenIndex = tokenIndex, qcBlockState = bs}
         (isAllow, isDeny) <-

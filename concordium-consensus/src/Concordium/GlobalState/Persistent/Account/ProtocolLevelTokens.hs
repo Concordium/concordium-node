@@ -7,16 +7,19 @@
 
 module Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens where
 
+import Control.Monad
+import qualified Data.Map.Strict as Map
+import Data.Serialize
+
 import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.Types.HashableTo
+import Concordium.Types.Tokens
+import Concordium.Utils.Serialization
+
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBTV1)
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
-import Concordium.Types.HashableTo
-import Concordium.Utils.Serialization
-import Control.Monad
-import qualified Data.Map.Strict as Map
-import Data.Serialize
 
 -- | The table of PLT account states. The table is indexed by the token index
 --  into the global token table.

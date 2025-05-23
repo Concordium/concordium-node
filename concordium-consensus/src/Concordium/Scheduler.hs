@@ -2709,7 +2709,7 @@ handleTokenHolder depositContext tokenId tokenOperations =
                 Left encodedRejectReason ->
                     TxReject . TokenHolderTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
-                Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
+                Right events -> TxSuccess events
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
     invokeTokenHolderOperations ::
@@ -2717,7 +2717,7 @@ handleTokenHolder depositContext tokenId tokenOperations =
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
+        m (Either PLTTypes.EncodedTokenRejectReason [Event])
     invokeTokenHolderOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
             let tc =
@@ -2774,7 +2774,7 @@ handleTokenGovernance depositContext tokenId tokenOperations =
                 Left encodedRejectReason ->
                     TxReject . TokenGovernanceTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
-                Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
+                Right events -> TxSuccess (events)
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
     invokeTokenGovernanceOperations ::
@@ -2782,7 +2782,7 @@ handleTokenGovernance depositContext tokenId tokenOperations =
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
+        m (Either PLTTypes.EncodedTokenRejectReason [Event])
     invokeTokenGovernanceOperations _ tokenIndex sender parameter = do
         result <- withBlockStateRollback $ do
             let tc =
