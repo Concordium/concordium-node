@@ -130,7 +130,7 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
             Right pthoAmount -> return PTHOTransfer{..}
               where
                 pthoRecipient = ttRecipient
-                pthoMemo = untaggedMemo <$> ttMemo
+                pthoMemo = taggableMemoInner <$> ttMemo
                 pthoUnprocessed = ttb
 
 -- | Execute a token-holder transaction. The process is as follows:

@@ -63,26 +63,28 @@ errorHandlingTest _ pvString =
     -- NOTE: Could also check resulting balances on each affected account or contract, but
     -- the block state invariant at least tests that the total amount is preserved.
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V0 contractSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V0 contractSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV0 contractSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V0 contractSourceFile "init_try" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V0 contractSourceFile "init_try" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -94,14 +96,15 @@ errorHandlingTest _ pvString =
                         result
             },
           -- valid account, should succeed in transferring
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" toAddr,
-                      metadata = makeDummyHeader accountAddress0 3 70_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" toAddr,
+                          metadata = makeDummyHeader accountAddress0 3 70_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $
                     Helpers.assertSuccessWithEvents
                         [ Types.Updated
@@ -122,14 +125,15 @@ errorHandlingTest _ pvString =
                         result
             },
           -- transfer did not happen
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" (BSS.pack (replicate 32 0)),
-                      metadata = makeDummyHeader accountAddress0 4 70_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 11 (Types.ContractAddress 0 0) "try.receive" (BSS.pack (replicate 32 0)),
+                          metadata = makeDummyHeader accountAddress0 4 70_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $
                     Helpers.assertSuccessWithEvents
                         [ Types.Updated

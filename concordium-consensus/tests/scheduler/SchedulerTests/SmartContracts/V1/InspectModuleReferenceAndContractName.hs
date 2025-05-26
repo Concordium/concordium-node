@@ -96,7 +96,7 @@ testModuleRefAndName spv pvString
                 transactionsAndAssertions
     | otherwise = return ()
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
         [ deployModHelper 1 srcQueriesContractInspection,
           deployModHelper 2 srcQueriesAccountBalance,
@@ -115,27 +115,29 @@ testModuleRefAndName spv pvString
           getNameHelper 15 (Types.ContractAddress 0 1) Nothing (ifLowerModuleCost spv 741 732)
         ]
     deployModHelper nce src =
-        Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 src,
-                      metadata = makeDummyHeader accountAddress0 nce 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 src,
+                          metadata = makeDummyHeader accountAddress0 nce 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 src result
             }
     initContractHelper nce src constructor =
-        Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 src constructor "",
-                      metadata = makeDummyHeader accountAddress0 nce 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 src constructor "",
+                          metadata = makeDummyHeader accountAddress0 nce 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -150,16 +152,17 @@ testModuleRefAndName spv pvString
         Types.Nonce ->
         Types.ContractAddress ->
         Maybe Types.ModuleRef ->
-        Helpers.TransactionAndAssertion pv
+        Helpers.BlockItemAndAssertion pv
     getModRefHelper nce scAddr mExpectModRef =
-        Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "contract.get_module_reference" params,
-                      metadata = makeDummyHeader accountAddress0 nce 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 0 (Types.ContractAddress 0 0) "contract.get_module_reference" params,
+                          metadata = makeDummyHeader accountAddress0 nce 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $
                     if Types.supportsContractInspectionQueries spv
                         then case mExpectModRef of
@@ -200,16 +203,17 @@ testModuleRefAndName spv pvString
         Types.ContractAddress ->
         Maybe BSS.ShortByteString ->
         Types.Energy ->
-        Helpers.TransactionAndAssertion pv
+        Helpers.BlockItemAndAssertion pv
     getNameHelper nce scAddr mExpectName expectEnergy =
-        Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 0 (Types.ContractAddress 2 0) "contract2.get_contract_name" params,
-                      metadata = makeDummyHeader accountAddress0 nce 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 0 (Types.ContractAddress 2 0) "contract2.get_contract_name" params,
+                          metadata = makeDummyHeader accountAddress0 nce 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     if Types.supportsContractInspectionQueries spv
                         then do
@@ -267,7 +271,7 @@ testUpgradeModuleRef spv pvString
     | otherwise = return ()
   where
     addr0 = Types.ContractAddress 0 0
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
         [ deployModHelper 1 srcUpgrade0,
           deployModHelper 2 srcUpgrade1,
@@ -279,27 +283,29 @@ testUpgradeModuleRef spv pvString
           checkModRefHelper 8 addr0 modUpgrade1 Nothing
         ]
     deployModHelper nce src =
-        Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 src,
-                      metadata = makeDummyHeader accountAddress0 nce 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 src,
+                          metadata = makeDummyHeader accountAddress0 nce 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 src result
             }
     initContractHelper nce src constructor =
-        Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 src constructor "",
-                      metadata = makeDummyHeader accountAddress0 nce 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 src constructor "",
+                          metadata = makeDummyHeader accountAddress0 nce 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -311,19 +317,20 @@ testUpgradeModuleRef spv pvString
                         result
             }
     checkModRefHelper nce scAddr expectModRef mreject =
-        Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload =
-                        Update
-                            0
-                            (Types.ContractAddress 0 0)
-                            "contract.check_module_reference"
-                            (params scAddr expectModRef),
-                      metadata = makeDummyHeader accountAddress0 nce 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload =
+                            Update
+                                0
+                                (Types.ContractAddress 0 0)
+                                "contract.check_module_reference"
+                                (params scAddr expectModRef),
+                          metadata = makeDummyHeader accountAddress0 nce 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $
                     if Types.supportsContractInspectionQueries spv
                         then case mreject of
@@ -344,14 +351,15 @@ testUpgradeModuleRef spv pvString
             putWord64le $ fromIntegral si
             put modRef
     upgradeHelper nce scAddr toModRef mreject =
-        Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 0 scAddr "contract.upgrade" (BSS.toShort $ encode toModRef),
-                      metadata = makeDummyHeader accountAddress0 nce 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 0 scAddr "contract.upgrade" (BSS.toShort $ encode toModRef),
+                          metadata = makeDummyHeader accountAddress0 nce 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $
                     if Types.supportsContractInspectionQueries spv
                         then case mreject of
