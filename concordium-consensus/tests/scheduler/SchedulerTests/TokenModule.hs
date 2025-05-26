@@ -319,7 +319,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = True,
-                      tipInitialSupply = Just TokenAmount{value = 500000, decimals = 2},
+                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 2},
                       tipMintable = False,
                       tipBurnable = False
                     }
@@ -343,7 +343,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{value = 500000, decimals = 2},
+                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 2},
                       tipMintable = False,
                       tipBurnable = False
                     }
@@ -363,7 +363,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{value = 500000, decimals = 2},
+                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 2},
                       tipMintable = False,
                       tipBurnable = False
                     }
@@ -386,7 +386,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{value = 500000, decimals = 6},
+                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 6},
                       tipMintable = False,
                       tipBurnable = False
                     }

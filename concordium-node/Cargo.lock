@@ -694,7 +694,7 @@ dependencies = [
  "rust_decimal",
  "serde 1.0.214",
  "serde_json 1.0.132",
- "thiserror",
+ "thiserror 1.0.68",
 ]
 
 [[package]]
@@ -724,7 +724,7 @@ dependencies = [
  "sha2",
  "sha3",
  "slab",
- "thiserror",
+ "thiserror 1.0.68",
  "tinyvec",
 ]
 
@@ -750,7 +750,7 @@ dependencies = [
  "ark-ff",
  "ark-serialize",
  "ark-std",
- "base64 0.21.7",
+ "base64 0.22.1",
  "bs58",
  "byteorder",
  "cbc",
@@ -764,7 +764,7 @@ dependencies = [
  "ff",
  "hex",
  "hmac",
- "itertools 0.10.5",
+ "itertools 0.14.0",
  "leb128",
  "libc",
  "nom",
@@ -781,7 +781,7 @@ dependencies = [
  "sha2",
  "sha3",
  "subtle",
- "thiserror",
+ "thiserror 2.0.12",
  "zeroize",
 ]
 
@@ -849,7 +849,7 @@ dependencies = [
  "sha2",
  "structopt",
  "tempfile",
- "thiserror",
+ "thiserror 1.0.68",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -1567,7 +1567,7 @@ dependencies = [
  "rand_chacha 0.3.1",
  "regex",
  "serde 1.0.214",
- "thiserror",
+ "thiserror 1.0.68",
  "time 0.3.36",
  "tokio",
  "uuid 1.11.0",
@@ -2187,6 +2187,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2209,7 +2218,7 @@ dependencies = [
  "combine",
  "jni-sys",
  "log",
- "thiserror",
+ "thiserror 1.0.68",
  "walkdir",
  "windows-sys 0.45.0",
 ]
@@ -2345,7 +2354,7 @@ dependencies = [
  "serde-value",
  "serde_json 1.0.132",
  "serde_yaml",
- "thiserror",
+ "thiserror 1.0.68",
  "thread-id",
  "toml 0.8.19",
  "typemap-ors",
@@ -2964,7 +2973,7 @@ dependencies = [
  "parking_lot",
  "protobuf",
  "reqwest 0.12.9",
- "thiserror",
+ "thiserror 1.0.68",
 ]
 
 [[package]]
@@ -3403,7 +3412,7 @@ dependencies = [
  "paste",
  "serde 1.0.214",
  "serde_derive",
- "thiserror",
+ "thiserror 1.0.68",
  "url",
  "uuid 0.8.2",
 ]
@@ -4206,7 +4215,16 @@ version = "1.0.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02dd99dc800bbb97186339685293e1cc5d9df1f8fae2d0aecd9ff1c77efea892"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.68",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "567b8a2dae586314f7be2a752ec7474332959c6460e02bde30d702a66d488708"
+dependencies = [
+ "thiserror-impl 2.0.12",
 ]
 
 [[package]]
@@ -4214,6 +4232,17 @@ name = "thiserror-impl"
 version = "1.0.68"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7c61ec9a6f64d2793d8a45faba21efbe3ced62a886d44c36a009b2b519b4c7e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.87",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f7cf42b4507d8ea322120659672cf1b9dbb93f8f2d4ecfd6e51350ff5b17a1d"
 dependencies = [
  "proc-macro2",
  "quote",

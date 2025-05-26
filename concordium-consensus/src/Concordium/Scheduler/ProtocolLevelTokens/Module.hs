@@ -54,7 +54,7 @@ toTokenRawAmount ::
     TokenAmount ->
     Either String TokenRawAmount
 toTokenRawAmount actualDecimals TokenAmount{..}
-    | actualDecimals == decimals = Right value
+    | actualDecimals == taDecimals = Right taValue
     | otherwise = Left "Token amount precision mismatch"
 
 -- | Convert a 'TokenRawAmount' to a 'TokenAmount' given the number of decimals in the
@@ -68,8 +68,8 @@ toTokenAmount ::
     TokenAmount
 toTokenAmount decimals rawAmount =
     TokenAmount
-        { value = rawAmount,
-          decimals = decimals
+        { taValue = rawAmount,
+          taDecimals = decimals
         }
 
 -- | Initialize a PLT by recording the relevant configuration parameters in the state and
