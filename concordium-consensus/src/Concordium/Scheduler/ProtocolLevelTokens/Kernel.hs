@@ -44,6 +44,9 @@ class (PLTKernelQuery m) => PLTKernelUpdate m where
         -- | Returns 'True' if successful, 'False' if the sender had insufficient balance.
         m Bool
 
+    -- | Log a token module event with the specified type and details.
+    logTokenEvent :: TokenEventType -> TokenEventDetails -> m ()
+
 class (PLTKernelUpdate m) => PLTKernelPrivilegedUpdate m where
     -- | Mint a specified amount and deposit it in the specified account.
     --  The return value indicates if this was successful.

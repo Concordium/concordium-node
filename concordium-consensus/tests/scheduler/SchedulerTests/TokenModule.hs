@@ -69,6 +69,7 @@ data PLTKernelUpdateCall acct ret where
     SetTokenState :: TokenStateKey -> Maybe TokenStateValue -> PLTKernelUpdateCall acct ()
     SetAccountState :: acct -> TokenStateKey -> Maybe TokenStateValue -> PLTKernelUpdateCall acct ()
     Transfer :: acct -> acct -> TokenRawAmount -> Maybe Memo -> PLTKernelUpdateCall acct Bool
+    LogTokenEvent :: TokenEventType -> TokenEventDetails -> PLTKernelUpdateCall acct ()
 
 deriving instance (Show acct) => Show (PLTKernelUpdateCall acct ret)
 deriving instance (Eq acct) => Eq (PLTKernelUpdateCall acct ret)
@@ -243,6 +244,7 @@ instance
     setTokenState key mValue = handleEvent $ PLTU $ SetTokenState key mValue
     setAccountState acct key mValue = handleEvent $ PLTU $ SetAccountState acct key mValue
     transfer sender receiver amount mMemo = handleEvent $ PLTU $ Transfer sender receiver amount mMemo
+    logTokenEvent eventType details = handleEvent $ PLTU $ LogTokenEvent eventType details
 
 instance
     (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
