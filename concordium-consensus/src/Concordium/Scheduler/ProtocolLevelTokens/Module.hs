@@ -40,7 +40,7 @@ instance Show InitializeTokenError where
     show (ITEDeserializationFailure reason) =
         "Token initialization parameters could not be deserialized: " ++ reason
     show (ITEInvalidMintAmount reason) =
-        "The initial mint amount was outside of the representable range: " ++ reason
+        "The initial mint amount was not valid: " ++ reason
 
 -- | Try to convert a 'TokenAmount' to a 'TokenRawAmount'. The latter is represented in the
 --  smallest subdivision allowed for the current token.
