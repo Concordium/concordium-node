@@ -2789,7 +2789,7 @@ handleTokenGovernance depositContext tokenId tokenOperations =
                         { tcSender = (fst sender, depositContext ^. wtcSenderAddress),
                           tcSenderAddress = depositContext ^. wtcSenderAddress
                         }
-            (res, events) <- runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction tc parameter
+            (res, events) <- runPLT tokenIndex $ TokenModule.executeTokenGovernanceTransaction tc parameter
             return (events <$ res)
 
 -- * Chain updates
