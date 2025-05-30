@@ -262,6 +262,12 @@ preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOp
     preproc (TokenRemoveDenyList receiver) =
         return PTGOTokenRemoveDenyList{ptgoTarget = receiver}
 
+-- | Encode and log a 'TokenEvent'.
+logEncodeTokenEvent :: (PLTKernelUpdate m) => TokenEvent -> m ()
+logEncodeTokenEvent te = logTokenEvent eventType details
+  where
+    EncodedTokenEvent{eteType = eventType, eteDetails = details} = encodeTokenEvent te
+
 -- | Execute a token-governance transaction. The process is as follows:
 --
 --   - Decode the transaction CBOR parameter.
@@ -307,18 +313,22 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                             requireFeature opIndex "add-allow-list" "allowList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "allowList" (Just "")
+                            logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
                         PTGOTokenRemoveAllowList{..} -> do
                             requireFeature opIndex "remove-allow-list" "allowList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "allowList" Nothing
+                            logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
                         PTGOTokenAddDenyList{..} -> do
                             requireFeature opIndex "add-deny-list" "denyList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "denyList" (Just "")
+                            logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
                         PTGOTokenRemoveDenyList{..} -> do
                             requireFeature opIndex "remove-deny-list" "denyList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "denyList" Nothing
+                            logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
                     return (opIndex + 1)
             foldM_ handleOperation 0 operations
   where
