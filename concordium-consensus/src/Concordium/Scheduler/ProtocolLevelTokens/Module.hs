@@ -310,22 +310,22 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                                           trrRequiredBalance = ptgoUnprocessedAmount
                                         }
                         PTGOTokenAddAllowList{..} -> do
-                            requireFeature opIndex "add-allow-list" "allowList"
+                            requireFeature opIndex "addAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "allowList" (Just "")
                             logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
                         PTGOTokenRemoveAllowList{..} -> do
-                            requireFeature opIndex "remove-allow-list" "allowList"
+                            requireFeature opIndex "removeAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "allowList" Nothing
                             logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
                         PTGOTokenAddDenyList{..} -> do
-                            requireFeature opIndex "add-deny-list" "denyList"
+                            requireFeature opIndex "addDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "denyList" (Just "")
                             logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
                         PTGOTokenRemoveDenyList{..} -> do
-                            requireFeature opIndex "remove-deny-list" "denyList"
+                            requireFeature opIndex "removeDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "denyList" Nothing
                             logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)

@@ -885,6 +885,13 @@ testLists = do
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
                             :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                             :>>: (PLTU (SetAccountState 4 (ltcFeature listConf) (ltcNewValue listConf)) :-> ())
+                            :>>: ( PLTU
+                                    ( LogTokenEvent
+                                        (TokenEventType $ ltcOperation listConf)
+                                        (encodeTargetDetails receiver1)
+                                    )
+                                    :-> ()
+                                 )
                             :>>: Done ()
                 assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
             it "feature not enabled" $ do
@@ -923,16 +930,16 @@ testLists = do
     encodeTransaction = TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
     receiver1 = HolderAccount (dummyAccountAddress 1) Nothing
     receiver2 = HolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
-    ltcList :: (IsString s) => ListTestConf -> s
-    ltcList (_, Allow) = "allow"
-    ltcList (_, Deny) = "deny"
-    ltcAction :: (IsString s) => ListTestConf -> s
-    ltcAction (Add, _) = "add"
-    ltcAction (Remove, _) = "remove"
     ltcFeature :: ListTestConf -> SBS.ShortByteString
-    ltcFeature c = ltcList c <> "List"
-    ltcOperation :: ListTestConf -> Text.Text
-    ltcOperation c = ltcAction c <> "-" <> ltcList c <> "-list"
+    ltcFeature (_, Allow) = "allowList"
+    ltcFeature (_, Deny) = "denyList"
+    ltcOperation :: (IsString s, Semigroup s) => ListTestConf -> s
+    ltcOperation c = ltcAction c <> ltcList c <> "List"
+      where
+        ltcAction (Add, _) = "add"
+        ltcAction (Remove, _) = "remove"
+        ltcList (_, Allow) = "Allow"
+        ltcList (_, Deny) = "Deny"
     ltcMakeOperation :: ListTestConf -> TokenHolder -> TokenGovernanceOperation
     ltcMakeOperation (Add, Allow) = TokenAddAllowList
     ltcMakeOperation (Remove, Allow) = TokenRemoveAllowList
