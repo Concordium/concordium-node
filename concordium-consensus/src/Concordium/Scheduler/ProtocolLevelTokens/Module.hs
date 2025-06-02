@@ -387,13 +387,16 @@ queryTokenModuleState = do
     tmsMetadata <-
         getTokenState "metadata" >>= \case
             Nothing -> pltError $ QTEInvariantViolation "Missing 'metadata'"
-            Just metadata -> either (\e -> pltError $ QTEInvariantViolation $ "Corrupt token metadata: " ++ e) return $ tokenMetadataUrlFromBytes $ LBS.fromStrict metadata
+            Just metadata -> either corruptMetadataError return $ tokenMetadataUrlFromBytes $ LBS.fromStrict metadata
     tmsAllowList <- Just . isJust <$> getTokenState "allowList"
     tmsDenyList <- Just . isJust <$> getTokenState "denyList"
     tmsMintable <- Just . isJust <$> getTokenState "mintable"
     tmsBurnable <- Just . isJust <$> getTokenState "burnable"
     let tmsAdditional = Map.empty
     return $ tokenModuleStateToBytes TokenModuleState{..}
+  where
+    corruptMetadataError reason =
+        pltError $ QTEInvariantViolation $ "Corrupt token metadata" ++ reason
 
 queryAccountListStatus :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe Bool, Maybe Bool)
 queryAccountListStatus account = do
