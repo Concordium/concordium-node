@@ -111,10 +111,24 @@ Environment variables only apply to the default build. This links with shared Ha
   [concordium-consensus](../concordium-consensus/) dependency is the same regardless of how the
   node itself is built, the `--release` only applies to the optimization of the rust node components.
   
-Documentation about what <CONCORDIUM_NODE_CONFIG_DIR> and <CONCORDIUM_NODE_DATA_DIR> is seen at https://github.com/Concordium/concordium-node/blob/main/VARIABLES.md#common
+Documentation about what `<CONCORDIUM_NODE_CONFIG_DIR>` and `<CONCORDIUM_NODE_DATA_DIR>` is seen at https://github.com/Concordium/concordium-node/blob/main/VARIABLES.md#common
 
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
+
+### Genesis Files
+Running the node on a local machine would requires the *genesis files* to be set up in the `<CONCORDIUM_NODE_DATA_DIR>`.
+You will need to install the [genesis-creator](https://github.com/Concordium/concordium-misc-tools/tree/main/genesis-creator):
+```
+cargo install --git https://github.com/Concordium/concordium-misc-tools.git genesis-creator --locked
+```
+
+You will also need to have a genesis-config TOML file. You can use the following as [file](https://raw.githubusercontent.com/Concordium/concordium-misc-tools/main/genesis-creator/examples/single-baker-example-p6.toml) as an example.
+
+To generate the genesis file run:
+```
+~/.cargo/bin/genesis-creator your-genesis-config.toml
+```
 
 ### MacOS Specific
 
