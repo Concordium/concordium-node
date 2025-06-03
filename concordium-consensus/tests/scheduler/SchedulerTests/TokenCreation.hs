@@ -156,7 +156,7 @@ testCreatePLT _ pvString = describe pvString $ do
 
 tests :: Spec
 tests =
-    parallel . describe "Token creation" . sequence_ $
+    describe "Token creation" . sequence_ $
         Helpers.forEveryProtocolVersion testCases
   where
     testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
