@@ -69,6 +69,7 @@ data PLTKernelUpdateCall acct ret where
     SetTokenState :: TokenStateKey -> Maybe TokenStateValue -> PLTKernelUpdateCall acct ()
     SetAccountState :: acct -> TokenStateKey -> Maybe TokenStateValue -> PLTKernelUpdateCall acct ()
     Transfer :: acct -> acct -> TokenRawAmount -> Maybe Memo -> PLTKernelUpdateCall acct Bool
+    LogTokenEvent :: TokenEventType -> TokenEventDetails -> PLTKernelUpdateCall acct ()
 
 deriving instance (Show acct) => Show (PLTKernelUpdateCall acct ret)
 deriving instance (Eq acct) => Eq (PLTKernelUpdateCall acct ret)
@@ -243,6 +244,7 @@ instance
     setTokenState key mValue = handleEvent $ PLTU $ SetTokenState key mValue
     setAccountState acct key mValue = handleEvent $ PLTU $ SetAccountState acct key mValue
     transfer sender receiver amount mMemo = handleEvent $ PLTU $ Transfer sender receiver amount mMemo
+    logTokenEvent eventType details = handleEvent $ PLTU $ LogTokenEvent eventType details
 
 instance
     (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
@@ -319,7 +321,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = True,
-                      tipInitialSupply = Just TokenAmount{digits = 500000, nrDecimals = 2},
+                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 2},
                       tipMintable = False,
                       tipBurnable = False
                     }
@@ -329,31 +331,10 @@ testInitializeToken = describe "initializeToken" $ do
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
                     :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
                     :>>: (PLTU (SetTokenState "denyList" $ Just "") :-> ())
-                    :>>: (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ GetDecimals :-> 2)
                     :>>: (PLTQ GetGovernanceAccount :-> AccountIndex 50)
-                    :>>: (PLTPU (Mint (AccountIndex 50) (TokenRawAmount 5000000000)) :-> True)
+                    :>>: (PLTPU (Mint (AccountIndex 50) (TokenRawAmount 500000)) :-> True)
                     :>>: Done ()
-        assertTrace (initializeToken tokenParam) trace
-    -- In this test, the amount to mint exceeds what is representable in the 'TokenRawAmount',
-    -- so it should fail.
-    it "mint too large" $ do
-        let params =
-                TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = "https://plt2.token",
-                      tipAllowList = False,
-                      tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{digits = 500000, nrDecimals = 2},
-                      tipMintable = False,
-                      tipBurnable = False
-                    }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
-            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
-            trace =
-                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
-                    :>>: (PLTQ GetDecimals :-> 50)
-                    :>>: abortPLTError (ITEInvalidMintAmount "Token amount exceeds maximum representable amount")
         assertTrace (initializeToken tokenParam) trace
     -- In this test, the Kernel responds to the minting request indicating that it failed.
     it "mint fails" $ do
@@ -363,7 +344,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{digits = 500000, nrDecimals = 2},
+                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 2},
                       tipMintable = False,
                       tipBurnable = False
                     }
@@ -378,7 +359,7 @@ testInitializeToken = describe "initializeToken" $ do
                     :>>: abortPLTError (ITEInvalidMintAmount "Kernel failed to mint")
         assertTrace (initializeToken tokenParam) trace
     -- In this example, the parameters specify an initial supply with higher precision than the
-    -- token allows. (nrDecimals is 6, but GetDecimals returns 2.)
+    -- token allows. (decimals is 6, but GetDecimals returns 2.)
     it "too many decimals specified" $ do
         let params =
                 TokenInitializationParameters
@@ -386,7 +367,7 @@ testInitializeToken = describe "initializeToken" $ do
                       tipMetadata = "https://plt2.token",
                       tipAllowList = False,
                       tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{digits = 500000, nrDecimals = 6},
+                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 6},
                       tipMintable = False,
                       tipBurnable = False
                     }
@@ -396,7 +377,49 @@ testInitializeToken = describe "initializeToken" $ do
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
                     :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
                     :>>: (PLTQ GetDecimals :-> 2)
-                    :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision exceeds representable precision")
+                    :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
+        assertTrace (initializeToken tokenParam) trace
+    -- In this example, the parameters specify an initial supply with higher precision than the
+    -- token allows. (decimals is 6, but GetDecimals returns 2.)
+    it "too many decimals specified" $ do
+        let params =
+                TokenInitializationParameters
+                    { tipName = "Protocol-level token2",
+                      tipMetadata = "https://plt2.token",
+                      tipAllowList = False,
+                      tipDenyList = False,
+                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 6},
+                      tipMintable = False,
+                      tipBurnable = False
+                    }
+            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace =
+                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
+                    :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
+                    :>>: (PLTQ GetDecimals :-> 2)
+                    :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
+        assertTrace (initializeToken tokenParam) trace
+    -- In this example, the parameters specify an initial supply with lower precision than the
+    -- token requires. (decimals is 2, but GetDecimals returns 6.)
+    it "too many decimals specified" $ do
+        let params =
+                TokenInitializationParameters
+                    { tipName = "Protocol-level token2",
+                      tipMetadata = "https://plt2.token",
+                      tipAllowList = False,
+                      tipDenyList = False,
+                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 2},
+                      tipMintable = False,
+                      tipBurnable = False
+                    }
+            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace =
+                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
+                    :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
+                    :>>: (PLTQ GetDecimals :-> 6)
+                    :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
         assertTrace (initializeToken tokenParam) trace
 
 dummyAccountAddress :: Int -> AccountAddress
@@ -425,11 +448,11 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     [mkTransferOp amt10'000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
-                (PLTQ GetDecimals :-> 6)
+                (PLTQ GetDecimals :-> 3)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
-                    :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
+                    :>>: (PLTU (Transfer 0 4 10_000 Nothing) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "transfer OK: long memo, max amount" $ do
@@ -464,14 +487,14 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace =
                 (PLTQ GetDecimals :-> 2)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
-                            DeserializationFailure (Just "Token amount outside representable range: Token amount exceeds maximum representable amount")
+                            DeserializationFailure (Just "Token amount outside representable range: Token amount precision mismatch")
                          )
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [ mkTransferOp amt10'000 receiver1 (Just (CBORMemo cborMemo)),
-                      mkTransferOp amt50 receiver2 (Just (UntaggedMemo simpleMemo))
+                    [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
+                      mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -489,8 +512,8 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     it "two transfers - first fails (insufficient funds)" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [ mkTransferOp amt10'000 receiver1 (Just (CBORMemo cborMemo)),
-                      mkTransferOp amt50 receiver2 (Just (UntaggedMemo simpleMemo))
+                    [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
+                      mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -504,15 +527,15 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                             TokenBalanceInsufficient
                                 { trrOperationIndex = 0,
                                   trrAvailableBalance = TokenAmount 0 6,
-                                  trrRequiredBalance = amt10'000
+                                  trrRequiredBalance = amt10'000000
                                 }
                          )
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers - second fails (insufficient funds)" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [ mkTransferOp amt10'000 receiver1 (Just (CBORMemo cborMemo)),
-                      mkTransferOp amt50 receiver2 (Just (UntaggedMemo simpleMemo))
+                    [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
+                      mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -530,15 +553,15 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                             TokenBalanceInsufficient
                                 { trrOperationIndex = 1,
                                   trrAvailableBalance = TokenAmount 5_000_000 6,
-                                  trrRequiredBalance = amt50
+                                  trrRequiredBalance = amt50'000000
                                 }
                          )
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
     it "two transfers - second fails (invalid recipient)" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [ mkTransferOp amt10'000 receiver1 (Just (CBORMemo cborMemo)),
-                      mkTransferOp amt50 receiver2 (Just (UntaggedMemo simpleMemo))
+                    [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
+                      mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -558,7 +581,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     it "allow list: allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [mkTransferOp amt10'000 receiver1 Nothing]
+                    [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -573,7 +596,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     it "allow list: sender not allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [mkTransferOp amt10'000 receiver1 Nothing]
+                    [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -592,7 +615,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     it "allow list: recipient not allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [mkTransferOp amt10'000 receiver1 Nothing]
+                    [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -611,7 +634,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     it "deny list: allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [mkTransferOp amt10'000 receiver1 Nothing]
+                    [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -626,7 +649,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     it "deny list: sender denied" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [mkTransferOp amt10'000 receiver1 Nothing]
+                    [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -646,7 +669,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     it "deny list: recipient denied" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [mkTransferOp amt10'000 receiver1 Nothing]
+                    [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -666,7 +689,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     it "allow & deny list: allowed" $ do
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
-                    [mkTransferOp amt10'000 receiver1 Nothing]
+                    [mkTransferOp amt10'000000 receiver1 Nothing]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -705,7 +728,8 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
     receiver2 = HolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
     amt10'000 = TokenAmount 10_000 3
     amtMax = TokenAmount maxBound 0
-    amt50 = TokenAmount 50 0
+    amt10'000000 = TokenAmount 10_000_000 6
+    amt50'000000 = TokenAmount 50_000_000 6
     simpleMemo = Memo "Test"
     cborMemo = Memo "dTest"
     longMemo = Memo $ SBS.replicate maxMemoSize 60
@@ -734,7 +758,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
     it "mint: OK" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
-                    [TokenMint (TokenAmount 10_000 3)]
+                    [TokenMint (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -745,7 +769,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
     it "mint: not mintable" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
-                    [TokenMint (TokenAmount 10_000 3)]
+                    [TokenMint (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -761,7 +785,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
     it "mint: overflow" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
-                    [TokenMint (TokenAmount 10_000 3)]
+                    [TokenMint (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -771,7 +795,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             MintWouldOverflow
                                 { trrOperationIndex = 0,
-                                  trrRequestedAmount = TokenAmount 10_000 3,
+                                  trrRequestedAmount = TokenAmount 10_000_000 6,
                                   trrCurrentSupply = TokenAmount (maxBound - 1_000_000) 6,
                                   trrMaxRepresentableAmount = TokenAmount maxBound 6
                                 }
@@ -780,7 +804,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
     it "burn: OK" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
-                    [TokenBurn (TokenAmount 10_000 3)]
+                    [TokenBurn (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -791,7 +815,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
     it "burn: not burnable" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
-                    [TokenBurn (TokenAmount 10_000 3)]
+                    [TokenBurn (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -807,7 +831,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
     it "burn: balance insufficient" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
-                    [TokenBurn (TokenAmount 10_000 3)]
+                    [TokenBurn (TokenAmount 10_000_000 6)]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
@@ -818,15 +842,15 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                             TokenBalanceInsufficient
                                 { trrOperationIndex = 0,
                                   trrAvailableBalance = TokenAmount 100 6,
-                                  trrRequiredBalance = TokenAmount 10_000 3
+                                  trrRequiredBalance = TokenAmount 10_000_000 6
                                 }
                          )
         assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint & burn: OK" $ do
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
-                    [ TokenMint (TokenAmount 10_000 3),
-                      TokenBurn (TokenAmount 5_000 3)
+                    [ TokenMint (TokenAmount 10_000_000 6),
+                      TokenBurn (TokenAmount 5_000_000 6)
                     ]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -861,6 +885,13 @@ testLists = do
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
                             :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                             :>>: (PLTU (SetAccountState 4 (ltcFeature listConf) (ltcNewValue listConf)) :-> ())
+                            :>>: ( PLTU
+                                    ( LogTokenEvent
+                                        (TokenEventType $ ltcOperation listConf)
+                                        (encodeTargetDetails receiver1)
+                                    )
+                                    :-> ()
+                                 )
                             :>>: Done ()
                 assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
             it "feature not enabled" $ do
@@ -899,16 +930,16 @@ testLists = do
     encodeTransaction = TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
     receiver1 = HolderAccount (dummyAccountAddress 1) Nothing
     receiver2 = HolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
-    ltcList :: (IsString s) => ListTestConf -> s
-    ltcList (_, Allow) = "allow"
-    ltcList (_, Deny) = "deny"
-    ltcAction :: (IsString s) => ListTestConf -> s
-    ltcAction (Add, _) = "add"
-    ltcAction (Remove, _) = "remove"
     ltcFeature :: ListTestConf -> SBS.ShortByteString
-    ltcFeature c = ltcList c <> "List"
-    ltcOperation :: ListTestConf -> Text.Text
-    ltcOperation c = ltcAction c <> "-" <> ltcList c <> "-list"
+    ltcFeature (_, Allow) = "allowList"
+    ltcFeature (_, Deny) = "denyList"
+    ltcOperation :: (IsString s, Semigroup s) => ListTestConf -> s
+    ltcOperation c = ltcAction c <> ltcList c <> "List"
+      where
+        ltcAction (Add, _) = "add"
+        ltcAction (Remove, _) = "remove"
+        ltcList (_, Allow) = "Allow"
+        ltcList (_, Deny) = "Deny"
     ltcMakeOperation :: ListTestConf -> TokenHolder -> TokenGovernanceOperation
     ltcMakeOperation (Add, Allow) = TokenAddAllowList
     ltcMakeOperation (Remove, Allow) = TokenRemoveAllowList

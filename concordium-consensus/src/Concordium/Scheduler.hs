@@ -2709,7 +2709,7 @@ handleTokenHolder depositContext tokenId tokenOperations =
                 Left encodedRejectReason ->
                     TxReject . TokenHolderTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
-                Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
+                Right events -> TxSuccess events
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
     invokeTokenHolderOperations ::
@@ -2717,17 +2717,16 @@ handleTokenHolder depositContext tokenId tokenOperations =
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
+        m (Either PLTTypes.EncodedTokenRejectReason [Event])
     invokeTokenHolderOperations _ tokenIndex sender parameter = do
-        result <- withBlockStateRollback $ do
+        withBlockStateRollback $ do
             let tc =
                     TokenModule.TransactionContext
-                        { tcSender = fst sender,
+                        { tcSender = (fst sender, depositContext ^. wtcSenderAddress),
                           tcSenderAddress = depositContext ^. wtcSenderAddress
                         }
-            runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction tc parameter
-        -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
-        return ((\() -> []) <$> result)
+            (res, events) <- runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction tc parameter
+            return (events <$ res)
 
 -- | Handler for a token governance transaction.
 handleTokenGovernance ::
@@ -2774,7 +2773,7 @@ handleTokenGovernance depositContext tokenId tokenOperations =
                 Left encodedRejectReason ->
                     TxReject . TokenGovernanceTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
-                Right events -> TxSuccess (TokenModuleEvent . uncurry (TokenEvent tokenId) <$> events)
+                Right events -> TxSuccess events
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
     invokeTokenGovernanceOperations ::
@@ -2782,17 +2781,16 @@ handleTokenGovernance depositContext tokenId tokenOperations =
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either PLTTypes.EncodedTokenRejectReason [(TokenEventType, TokenEventDetails)])
+        m (Either PLTTypes.EncodedTokenRejectReason [Event])
     invokeTokenGovernanceOperations _ tokenIndex sender parameter = do
-        result <- withBlockStateRollback $ do
+        withBlockStateRollback $ do
             let tc =
                     TokenModule.TransactionContext
-                        { tcSender = fst sender,
+                        { tcSender = (fst sender, depositContext ^. wtcSenderAddress),
                           tcSenderAddress = depositContext ^. wtcSenderAddress
                         }
-            runPLT tokenIndex $ TokenModule.executeTokenGovernanceTransaction tc parameter
-        -- TODO: Generate and handle events: https://linear.app/concordium/issue/COR-705/event-logging
-        return ((\() -> []) <$> result)
+            (res, events) <- runPLT tokenIndex $ TokenModule.executeTokenGovernanceTransaction tc parameter
+            return (events <$ res)
 
 -- * Chain updates
 
@@ -2965,13 +2963,13 @@ handleCreatePLT updateHeader payload = runExceptT $ do
                       _pltGovernanceAccountIndex = governanceAccountIndex
                     }
         tokenIx <- createToken config
-        runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
+        (res, events) <- runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
+        return ((TokenCreated payload : events) <$ res)
     case createResult of
         Left (e :: TokenModule.InitializeTokenError) -> throwError $ TokenInitializeFailure (show e)
-        Right () -> do
+        Right events -> do
             lift incrementPLTUpdateSequenceNumber
-            -- FIXME: Dummy event. https://linear.app/concordium/issue/COR-705/event-logging
-            return $ TxSuccess [UpdateEnqueued (updateEffectiveTime updateHeader) (CreatePLTUpdatePayload payload)]
+            return $ TxSuccess events
 
 handleUpdateCredentials ::
     (SchedulerMonad m) =>

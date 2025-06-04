@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Protocol-level tokens:
+  - Token operations emit events. This includes `CreatePLT`.
+
 ## 9.0.1 (DevNet)
 
 - Protocol-level tokens:

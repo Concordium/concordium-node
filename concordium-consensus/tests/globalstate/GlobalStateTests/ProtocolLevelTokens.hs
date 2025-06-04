@@ -4,10 +4,7 @@
 
 module GlobalStateTests.ProtocolLevelTokens where
 
-import Control.Monad
 import Control.Monad.Trans.Class
-import qualified Data.ByteString as BS
-import Data.Serialize
 import Test.HUnit
 import Test.Hspec
 import Test.QuickCheck as QuickCheck
@@ -15,6 +12,7 @@ import Test.QuickCheck as QuickCheck
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.Types
 import Concordium.Types.HashableTo
+import Concordium.Types.Tokens
 
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
@@ -22,43 +20,6 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 -- | Generate a 'TokenRawAmount' value.
 genTokenRawAmount :: Gen TokenRawAmount
 genTokenRawAmount = TokenRawAmount <$> arbitrary
-
--- | Deserialize a value, ensuring that the input is fully consumed.
-decodeFull :: (Serialize a) => BS.ByteString -> Either String a
-decodeFull =
-    runGet
-        ( do
-            g <- get
-            done <- isEmpty
-            unless done $ fail "Input was not fully consumed"
-            return g
-        )
-
--- | Test that encoding and decoding a 'TokenRawAmount' value works as expected.
-testEncodeDecode :: Property
-testEncodeDecode = forAll genTokenRawAmount $ \a ->
-    let encoded = encode a
-    in  QuickCheck.label ("encoded length " ++ show (BS.length encoded)) $
-            decodeFull encoded === Right a
-
--- | Test cases where decoding a 'TokenRawAmount' fails.
-testDecodeFailures :: Spec
-testDecodeFailures =
-    describe "Failing TokenRawAmount deserialization cases" $ mapM_ testFail examples
-  where
-    testFail (bytes, expct) =
-        it ("Decoding " ++ show bytes) $ decodeFull @TokenRawAmount (BS.pack bytes) `shouldBe` Left expct
-    examples =
-        [ ([0x80], noPadding),
-          ([0x80, 0x00], noPadding),
-          ([0x81], unexpectedEnd),
-          ([0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00], outOfRange),
-          ([0x82, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80], outOfRange),
-          ([0x81, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00], outOfRange)
-        ]
-    noPadding = "Failed reading: Padding bytes are not allowed\nEmpty call stack\n"
-    unexpectedEnd = "too few bytes\nFrom:\tdemandInput\n\n"
-    outOfRange = "Failed reading: Value out of range\nEmpty call stack\n"
 
 -- | Run an action in the 'MemBlobStoreT' monad transformer from an empty store.
 runBlobStore :: MemBlobStoreT IO a -> IO a
@@ -203,8 +164,6 @@ testSetTokenState = runBlobStore $ do
 
 tests :: Spec
 tests = describe "GlobalStateTests.ProtocolLevelTokens" $ do
-    it "Encode and decode TokenRawAmount" $ withMaxSuccess 10000 testEncodeDecode
-    testDecodeFailures
     it "createToken" testCreateToken
     it "setTokenCirculatingSupply" testSetTokenCirculatingSupply
     it "setTokenState" testSetTokenState

@@ -40,7 +40,7 @@ instance Show InitializeTokenError where
     show (ITEDeserializationFailure reason) =
         "Token initialization parameters could not be deserialized: " ++ reason
     show (ITEInvalidMintAmount reason) =
-        "The initial mint amount was outside of the representable range: " ++ reason
+        "The initial mint amount was not valid: " ++ reason
 
 -- | Try to convert a 'TokenAmount' to a 'TokenRawAmount'. The latter is represented in the
 --  smallest subdivision allowed for the current token.
@@ -53,17 +53,9 @@ toTokenRawAmount ::
     Word8 ->
     TokenAmount ->
     Either String TokenRawAmount
-toTokenRawAmount actualDecimals TokenAmount{..} =
-    case compare nrDecimals (fromIntegral actualDecimals) of
-        EQ -> Right (TokenRawAmount digits)
-        GT -> Left "Token amount precision exceeds representable precision"
-        LT
-            | rawAmountInteger > fromIntegral (maxBound :: TokenRawAmount) ->
-                Left "Token amount exceeds maximum representable amount"
-            | otherwise -> Right (fromIntegral rawAmountInteger)
-          where
-            factor = 10 ^ (fromIntegral actualDecimals - nrDecimals)
-            rawAmountInteger = factor * toInteger digits
+toTokenRawAmount actualDecimals TokenAmount{..}
+    | actualDecimals == taDecimals = Right taValue
+    | otherwise = Left "Token amount precision mismatch"
 
 -- | Convert a 'TokenRawAmount' to a 'TokenAmount' given the number of decimals in the
 --  representation.
@@ -74,10 +66,10 @@ toTokenAmount ::
     TokenRawAmount ->
     -- | Converted amount
     TokenAmount
-toTokenAmount decimals (TokenRawAmount rawAmount) =
+toTokenAmount decimals rawAmount =
     TokenAmount
-        { digits = rawAmount,
-          nrDecimals = fromIntegral decimals
+        { taValue = rawAmount,
+          taDecimals = decimals
         }
 
 -- | Initialize a PLT by recording the relevant configuration parameters in the state and
@@ -270,6 +262,12 @@ preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOp
     preproc (TokenRemoveDenyList receiver) =
         return PTGOTokenRemoveDenyList{ptgoTarget = receiver}
 
+-- | Encode and log a 'TokenEvent'.
+logEncodeTokenEvent :: (PLTKernelUpdate m) => TokenEvent -> m ()
+logEncodeTokenEvent te = logTokenEvent eventType details
+  where
+    EncodedTokenEvent{eteType = eventType, eteDetails = details} = encodeTokenEvent te
+
 -- | Execute a token-governance transaction. The process is as follows:
 --
 --   - Decode the transaction CBOR parameter.
@@ -312,21 +310,25 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                                           trrRequiredBalance = ptgoUnprocessedAmount
                                         }
                         PTGOTokenAddAllowList{..} -> do
-                            requireFeature opIndex "add-allow-list" "allowList"
+                            requireFeature opIndex "addAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "allowList" (Just "")
+                            logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
                         PTGOTokenRemoveAllowList{..} -> do
-                            requireFeature opIndex "remove-allow-list" "allowList"
+                            requireFeature opIndex "removeAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "allowList" Nothing
+                            logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
                         PTGOTokenAddDenyList{..} -> do
-                            requireFeature opIndex "add-deny-list" "denyList"
+                            requireFeature opIndex "addDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "denyList" (Just "")
+                            logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
                         PTGOTokenRemoveDenyList{..} -> do
-                            requireFeature opIndex "remove-deny-list" "denyList"
+                            requireFeature opIndex "removeDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
                             setAccountState account "denyList" Nothing
+                            logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
                     return (opIndex + 1)
             foldM_ handleOperation 0 operations
   where

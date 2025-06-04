@@ -10,6 +10,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.Kernel (
 import Data.Word
 
 import Concordium.Types
+import Concordium.Types.Tokens
 
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
 
@@ -42,6 +43,9 @@ class (PLTKernelQuery m) => PLTKernelUpdate m where
         Maybe Memo ->
         -- | Returns 'True' if successful, 'False' if the sender had insufficient balance.
         m Bool
+
+    -- | Log a token module event with the specified type and details.
+    logTokenEvent :: TokenEventType -> TokenEventDetails -> m ()
 
 class (PLTKernelUpdate m) => PLTKernelPrivilegedUpdate m where
     -- | Mint a specified amount and deposit it in the specified account.

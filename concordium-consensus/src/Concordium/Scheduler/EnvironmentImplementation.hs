@@ -14,10 +14,13 @@ import Control.Monad
 import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Reader (ReaderT (..))
+import Control.Monad.Trans.State.Strict (StateT (..))
 import Data.Either
 import Data.HashMap.Strict as Map
 import qualified Data.Kind as DK
 import Lens.Micro.Platform
+
+import Concordium.Types.Tokens
 
 import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BakerInfo as BI
@@ -67,6 +70,22 @@ makeInitialSchedulerState _ssBlockState =
           _ssNextIndex = 0,
           ..
         }
+
+data PLTExecutionState m = PLTExecutionState
+    { -- | The current block state.
+      _plteBlockState :: !(UpdatableBlockState m),
+      -- | The events that have been emitted during the execution in reverse order.
+      _plteEvents :: ![Event]
+    }
+makeLenses ''PLTExecutionState
+
+-- | Execution context for PLT computations.
+data PLTExecutionContext = PLTExecutionContext
+    { -- | The token index.
+      _pltecTokenIndex :: !TokenIndex,
+      -- | The PLT configuration.
+      _pltecConfiguration :: !PLTConfiguration
+    }
 
 -- | Alias for the internal type used in @SchedulerT@.
 type InternalSchedulerT m = RWST ContextState () (SchedulerState m)
@@ -453,7 +472,22 @@ instance
         return res
 
     runPLT tokenIx op = do
-        runKernelT op tokenIx
+        s <- use ssBlockState
+        let initialExecutionState =
+                PLTExecutionState
+                    { _plteBlockState = s,
+                      _plteEvents = []
+                    }
+
+        (res, finalExecutionState) <- lift $ do
+            config <- BS.getTokenConfiguration s tokenIx
+            let context =
+                    PLTExecutionContext
+                        { _pltecTokenIndex = tokenIx,
+                          _pltecConfiguration = config
+                        }
+            runKernelT op context initialExecutionState
+        return (res, reverse $ finalExecutionState ^. plteEvents)
 
     createToken pltConfig = do
         s <- use ssBlockState
@@ -473,17 +507,17 @@ runSchedulerT computation contextState initialState = do
     (value, resultingState, ()) <- runRWST (_runSchedulerT computation) contextState initialState
     return (value, resultingState)
 
-newtype KernelT fail ret m a = KernelT {runKernelT' :: ReaderT TokenIndex (ContT (Either fail ret) (SchedulerT m)) a}
+newtype KernelT fail ret m a = KernelT {runKernelT' :: ReaderT PLTExecutionContext (ContT (Either fail ret) (StateT (PLTExecutionState m) m)) a}
     deriving
         ( Functor,
           Applicative,
           Monad,
-          MonadState (SchedulerState m),
-          MonadReader TokenIndex
+          MonadState (PLTExecutionState m),
+          MonadReader PLTExecutionContext
         )
 
-runKernelT :: (Monad m) => KernelT fail a m a -> TokenIndex -> SchedulerT m (Either fail a)
-runKernelT a tokenIx = runContT (runReaderT (runKernelT' a) tokenIx) (return . Right)
+runKernelT :: (Monad m) => KernelT fail a m a -> PLTExecutionContext -> PLTExecutionState m -> m (Either fail a, PLTExecutionState m)
+runKernelT a tokenIx = runStateT (runContT (runReaderT (runKernelT' a) tokenIx) (return . Right))
 
 instance MonadTrans (KernelT fail ret) where
     lift = KernelT . lift . lift . lift
@@ -492,69 +526,69 @@ instance MonadTrans (KernelT fail ret) where
 deriving via (MGSTrans (KernelT fail ret) m) instance BlockStateTypes (KernelT fail ret m)
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (KernelT fail ret m) where
-    type PLTAccount (KernelT fail ret m) = AccountIndex
+    type PLTAccount (KernelT fail ret m) = (AccountIndex, AccountAddress)
     getTokenState key = do
-        tokenIx <- ask
-        bs <- use ssBlockState
+        tokenIx <- asks _pltecTokenIndex
+        bs <- use plteBlockState
         lift $ BS.getTokenState bs tokenIx key
     getAccount addr = do
-        bs <- use ssBlockState
-        lift $ fmap fst <$> BS.bsoGetAccount bs addr
-    getAccountBalance acctIndex = do
-        tokenIx <- ask
-        bs <- use ssBlockState
+        bs <- use plteBlockState
+        lift $ fmap ((,addr) . fst) <$> BS.bsoGetAccount bs addr
+    getAccountBalance (acctIndex, _) = do
+        tokenIx <- asks _pltecTokenIndex
+        bs <- use plteBlockState
         lift $
             BS.bsoGetAccountByIndex bs acctIndex >>= \case
                 Nothing -> error "getAccountBalance: Account does not exist"
                 Just acct -> BS.getAccountTokenBalance acct tokenIx
-    getAccountState acctIndex key = do
-        tokenIx <- ask
-        bs <- use ssBlockState
+    getAccountState (acctIndex, _) key = do
+        tokenIx <- asks _pltecTokenIndex
+        bs <- use plteBlockState
         lift $
             BS.bsoGetAccountByIndex bs acctIndex >>= \case
                 Nothing -> error "getAccountState: Account does not exist"
                 Just acct -> BS.getAccountTokenState acct tokenIx key
-    getAccountCanonicalAddress acctIndex = do
-        bs <- use ssBlockState
+    getAccountCanonicalAddress (acctIndex, _) = do
+        bs <- use plteBlockState
         lift $
             BS.bsoGetAccountByIndex bs acctIndex >>= \case
                 Nothing -> error "getAccountCanonicalAddress: Account does not exist"
                 Just acct -> BS.getAccountCanonicalAddress acct
     getGovernanceAccount = do
-        tokenIx <- ask
-        bs <- use ssBlockState
+        PLTExecutionContext{..} <- ask
+        let govIndex = _pltGovernanceAccountIndex _pltecConfiguration
+        bs <- use plteBlockState
         lift $ do
-            config <- BS.getTokenConfiguration bs tokenIx
-            let govIndex = _pltGovernanceAccountIndex config
-            return govIndex
+            canonicalAddress <-
+                BS.bsoGetAccountByIndex bs govIndex >>= \case
+                    Nothing -> error "getGovernanceAccount: Governance account does not exist"
+                    Just acc -> BS.getAccountCanonicalAddress acc
+            return (govIndex, canonicalAddress)
     getCirculatingSupply = do
-        tokenIx <- ask
-        bs <- use ssBlockState
+        tokenIx <- asks _pltecTokenIndex
+        bs <- use plteBlockState
         lift $ BS.getTokenCirculatingSupply bs tokenIx
-    getDecimals = do
-        tokenIx <- ask
-        bs <- use ssBlockState
-        lift $ _pltDecimals <$> BS.getTokenConfiguration bs tokenIx
+    getDecimals = asks (_pltDecimals . _pltecConfiguration)
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (KernelT fail ret m) where
     setTokenState key mValue = do
-        tokenIx <- ask
-        bs <- use ssBlockState
+        tokenIx <- asks _pltecTokenIndex
+        bs <- use plteBlockState
         newBS <- lift $ BS.bsoSetTokenState bs tokenIx key mValue
-        ssBlockState .= newBS
-    setAccountState account key mValue = do
+        plteBlockState .= newBS
+    setAccountState (account, _) key mValue = do
         let updates = case mValue of
                 Nothing -> [(key, TASVDelete)]
                 Just value -> [(key, TASVUpdate value)]
-        tokenIx <- ask
-        bs <- use ssBlockState
+        tokenIx <- asks _pltecTokenIndex
+        bs <- use plteBlockState
         newBS <- lift $ BS.bsoUpdateTokenAccountModuleState bs tokenIx account updates
-        ssBlockState .= newBS
+        plteBlockState .= newBS
         return ()
-    transfer accIxFrom accIxTo amount _mbMemo = do
-        -- TODO: the memo should be emitted in an event
-        tokenIx <- ask
-        bs0 <- use ssBlockState
+    transfer (accIxFrom, accAddrFrom) (accIxTo, accAddrTo) amount mbMemo = do
+        context <- ask
+        let tokenIx = _pltecTokenIndex context
+        bs0 <- use plteBlockState
         mbs2 <- lift $ do
             mbs1 <-
                 BS.bsoUpdateTokenAccountBalance bs0 tokenIx accIxFrom $
@@ -576,13 +610,29 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
         case mbs2 of
             Nothing -> return False
             Just bs2 -> do
-                ssBlockState .= bs2
+                -- Log the transfer event.
+                plteEvents
+                    %= ( TokenTransfer
+                            { ettTokenId = _pltTokenId (_pltecConfiguration context),
+                              ettFrom = accAddrFrom,
+                              ettTo = accAddrTo,
+                              ettAmount = TokenAmount amount (_pltDecimals (_pltecConfiguration context)),
+                              ettMemo = mbMemo
+                            }
+                            :
+                       )
+                plteBlockState .= bs2
                 return True
 
+    logTokenEvent eventType eventDetails = do
+        tokenId <- asks (_pltTokenId . _pltecConfiguration)
+        plteEvents %= (TokenModuleEvent tokenId eventType eventDetails :)
+
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
-    mint accIx amount = do
-        tokenIx <- ask
-        bs <- use ssBlockState
+    mint (accIx, accAddr) amount = do
+        context <- ask
+        let tokenIx = _pltecTokenIndex context
+        bs <- use plteBlockState
         currentSupply <- lift $ BS.getTokenCirculatingSupply bs tokenIx
         if maxBound - amount < currentSupply
             then return False -- Minting would overflow the circulating supply.
@@ -603,11 +653,21 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                         -- exceeds the maximum representable amount.
                         error "Token kernel: mint would overflow receiver balance"
                     Just newBs -> do
-                        ssBlockState .= newBs
+                        -- Log the mint event.
+                        plteEvents
+                            %= ( TokenMint
+                                    { etmTokenId = _pltTokenId (_pltecConfiguration context),
+                                      etmTarget = accAddr,
+                                      etmAmount = TokenAmount amount (_pltDecimals (_pltecConfiguration context))
+                                    }
+                                    :
+                               )
+                        plteBlockState .= newBs
                         return True
-    burn accIx amount = do
-        tokenIx <- ask
-        bs0 <- use ssBlockState
+    burn (accIx, accAddr) amount = do
+        context <- ask
+        let tokenIx = _pltecTokenIndex context
+        bs0 <- use plteBlockState
         mbs1 <- lift $ BS.bsoUpdateTokenAccountBalance bs0 tokenIx accIx (negativeTokenAmountDelta amount)
         case mbs1 of
             Nothing -> return False
@@ -620,7 +680,16 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                         -- on the target account exceeded to the total supply.
                         error "Token kernel: burn would underflow total supply"
                     BS.bsoSetTokenCirculatingSupply bs1 tokenIx (currentSupply - amount)
-                ssBlockState .= bs2
+                -- Log the burn event.
+                plteEvents
+                    %= ( TokenBurn
+                            { etbTokenId = _pltTokenId (_pltecConfiguration context),
+                              etbTarget = accAddr,
+                              etbAmount = TokenAmount amount (_pltDecimals (_pltecConfiguration context))
+                            }
+                            :
+                       )
+                plteBlockState .= bs2
                 return True
 
 instance (Monad m) => (PLTKernelFail fail (KernelT fail ret m)) where
