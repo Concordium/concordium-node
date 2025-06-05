@@ -1523,7 +1523,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     bsoProcessUpdateQueues ::
         UpdatableBlockState m ->
         Timestamp ->
-        m ([(TransactionTime, UpdateValue (ChainParametersVersionFor (MPV m)))], UpdatableBlockState m)
+        m ([(TransactionTime, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionForPV (MPV m)))], UpdatableBlockState m)
 
     -- | Unlock the amounts up to the given timestamp
     bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
@@ -1540,7 +1540,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     bsoEnqueueUpdate ::
         UpdatableBlockState m ->
         TransactionTime ->
-        (UpdateValue (ChainParametersVersionFor (MPV m))) ->
+        (UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionForPV (MPV m))) ->
         m (UpdatableBlockState m)
 
     -- | Increment the update sequence number for Protocol Level Tokens (PLT).

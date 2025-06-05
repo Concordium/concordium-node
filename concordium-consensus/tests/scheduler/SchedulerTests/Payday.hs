@@ -246,7 +246,7 @@ propMintDistributionImmediate ::
     -- | Number of "free" transactions of each type
     FreeTransactionCounts ->
     -- | Ordered chain updates since the last block
-    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))] ->
+    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionForPV (MPV m)))] ->
     m Bool
 propMintDistributionImmediate bs0 blockParent slotNumber bid newEpoch mfinInfo newSeedState transFees freeCounts updates = do
     oldChainParameters <- bsoGetChainParameters bs0

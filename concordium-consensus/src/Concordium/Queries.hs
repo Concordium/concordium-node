@@ -892,14 +892,14 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
         -- That one needs access to account lookup so it is handled by a
         -- separate helper below.
         flattenUpdateQueues ::
-            forall cpv.
-            (IsChainParametersVersion cpv) =>
-            UQ.PendingUpdates cpv ->
+            forall cpv auv.
+            (IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+            UQ.PendingUpdates cpv auv ->
             [(TransactionTime, PendingUpdateEffect)]
         flattenUpdateQueues UQ.PendingUpdates{..} =
             queueMapper PUERootKeys _pRootKeysUpdateQueue
                 `merge` queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue
-                `merge` ( case sAuthorizationsVersionFor cpv of
+                `merge` ( case authorizationsVersion @auv of
                             SAuthorizationsVersion0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
                             SAuthorizationsVersion1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
                         )

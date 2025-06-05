@@ -3632,7 +3632,7 @@ doProcessUpdateQueues ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     Timestamp ->
-    m ([(TransactionTime, UpdateValue (ChainParametersVersionFor pv))], PersistentBlockState pv)
+    m ([(TransactionTime, UpdateValue (ChainParametersVersionFor pv) (AuthorizationsVersionForPV pv))], PersistentBlockState pv)
 doProcessUpdateQueues pbs ts = do
     bsp <- loadPBS pbs
     let (u, ars, ips) = (bspUpdates bsp, bspAnonymityRevokers bsp, bspIdentityProviders bsp)
@@ -3699,7 +3699,7 @@ doEnqueueUpdate ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     TransactionTime ->
-    UpdateValue (ChainParametersVersionFor pv) ->
+    UpdateValue (ChainParametersVersionFor pv) (AuthorizationsVersionForPV pv) ->
     m (PersistentBlockState pv)
 doEnqueueUpdate pbs effectiveTime payload = do
     bsp <- loadPBS pbs

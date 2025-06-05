@@ -359,7 +359,7 @@ class
     --  The next sequence number will be correspondingly incremented,
     --  and any queued updates of the given type with a later effective
     --  time are cancelled.
-    enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) -> m ()
+    enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionForPV (MPV m)) -> m ()
 
     -- | Increment the update sequence number for Protocol Level Tokens (PLT).
     -- Unlike the other chain updates this is a separate function,
