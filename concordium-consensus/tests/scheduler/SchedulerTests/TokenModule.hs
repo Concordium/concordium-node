@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -25,6 +26,7 @@ import Data.String
 import qualified Data.Text as Text
 import Data.Typeable
 import Data.Word
+import Lens.Micro.Platform
 import System.Random
 import Test.HUnit
 import Test.Hspec
@@ -34,7 +36,14 @@ import Concordium.Types
 import Concordium.Types.ProtocolLevelTokens.CBOR
 import Concordium.Types.Tokens
 
+import Concordium.Cost
+import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.Persistent.BlockState
+import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
+import Concordium.Scheduler.DummyData
+import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.ProtocolLevelTokens.Module (
     InitializeTokenError (..),
@@ -45,6 +54,9 @@ import Concordium.Scheduler.ProtocolLevelTokens.Module (
     initializeToken,
     queryTokenModuleState,
  )
+import qualified Concordium.Scheduler.Runner as Runner
+import qualified Concordium.Scheduler.Types as Types
+import qualified SchedulerTests.Helpers as Helpers
 
 -- | A value of type @PLTKernelQueryCall acct ret@ represents an invocation of an operation
 --  in a 'PLTKernelQuery' monad where @PLTAccount m ~ acct@. The parameter @ret@ is the type
@@ -92,6 +104,14 @@ data PLTKernelFailCall e ret where
 deriving instance (Show e) => Show (PLTKernelFailCall e ret)
 deriving instance (Eq e) => Eq (PLTKernelFailCall e ret)
 
+-- | A value of type @PLTKernelChargeEnergy@ represents an invocation of an
+--  operation in a @PLTKernelChargeEnergy@ monad.
+data PLTKernelChargeEnergyCall where
+    PLTChargeEnergy :: Energy -> PLTKernelChargeEnergyCall
+
+deriving instance Show PLTKernelChargeEnergyCall
+deriving instance Eq PLTKernelChargeEnergyCall
+
 -- | A union type that combines the calls for all of the PLT-related monads.
 data PLTCall e acct ret
     = -- | A 'PLTKernelQuery' call
@@ -102,6 +122,8 @@ data PLTCall e acct ret
       PLTPU (PLTKernelPrivilegedUpdateCall acct ret)
     | -- | A 'PLTKernelFail' call.
       PLTF (PLTKernelFailCall e ret)
+    | -- | A 'PLTKernelChargeEnergy' call.
+      PLTE PLTKernelChargeEnergyCall
 
 deriving instance (Show e, Show acct) => Show (PLTCall e acct ret)
 deriving instance (Eq e, Eq acct) => Eq (PLTCall e acct ret)
@@ -268,6 +290,12 @@ instance
       where
         actualCall :: PLTCall e acct ret
         actualCall = PLTF $ PLTError e
+
+instance
+    (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
+    PLTKernelChargeEnergy (TraceM (PLTCall e acct) res ret)
+    where
+    pltTickEnergy = handleEvent . PLTE . PLTChargeEnergy
 
 -- | Assert that calling a given operation results in the given trace.
 assertTrace :: (Eq ret, Show ret) => TraceM call (Either TraceException ()) ret ret -> Trace call ret -> IO ()
@@ -452,6 +480,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000 Nothing) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
@@ -465,6 +494,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 maxBound (Just longMemo)) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
@@ -502,10 +532,12 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 121)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 121 50_000_000 (Just simpleMemo)) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
@@ -521,6 +553,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> False)
                     :>>: (PLTQ (GetAccountBalance 0) :-> 0)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -543,10 +576,12 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 16)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 16 50_000_000 (Just simpleMemo)) :-> False)
                     :>>: (PLTQ (GetAccountBalance 0) :-> 5_000_000)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -569,6 +604,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -590,6 +626,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetAccountState 0 "allowList") :-> Just "")
                     :>>: (PLTQ (GetAccountState 4 "allowList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
@@ -643,6 +680,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
                     :>>: (PLTQ (GetAccountState 0 "denyList") :-> Nothing)
                     :>>: (PLTQ (GetAccountState 4 "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
@@ -700,6 +738,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
                     :>>: (PLTQ (GetAccountState 0 "denyList") :-> Nothing)
                     :>>: (PLTQ (GetAccountState 4 "denyList") :-> Nothing)
+                    :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenHolderTransaction (sender 0) (encodeTransaction transaction)) trace
@@ -720,6 +759,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     (PLTQ (GetAccount (dummyAccountAddress (fromIntegral n))) :-> Just n)
                         :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                         :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
+                        :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                         :>>: (PLTU (Transfer 123_456 n 10_000 Nothing) :-> True)
                         :>>: traceLoop (n + 1)
         assertTrace (executeTokenHolderTransaction (sender 123_456) (encodeTransaction transaction)) trace
@@ -763,6 +803,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
+                    :>>: (PLTE (PLTChargeEnergy tokenMintCost) :-> ())
                     :>>: (PLTPU (Mint 0 10_000_000) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
@@ -790,6 +831,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
+                    :>>: (PLTE (PLTChargeEnergy tokenMintCost) :-> ())
                     :>>: (PLTPU (Mint 0 10_000_000) :-> False)
                     :>>: (PLTQ GetCirculatingSupply :-> (maxBound - 1_000_000))
                     :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -809,6 +851,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
+                    :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 10_000_000) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
@@ -836,6 +879,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
+                    :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 10_000_000) :-> False)
                     :>>: (PLTQ (GetAccountBalance 0) :-> 100)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -856,8 +900,10 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
+                    :>>: (PLTE (PLTChargeEnergy tokenMintCost) :-> ())
                     :>>: (PLTPU (Mint 0 10_000_000) :-> True)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
+                    :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 5_000_000) :-> True)
                     :>>: Done ()
         assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
@@ -884,6 +930,7 @@ testLists = do
                         (PLTQ GetDecimals :-> 6)
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
                             :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                            :>>: (PLTE (PLTChargeEnergy tokenListOperationCost) :-> ())
                             :>>: (PLTU (SetAccountState 4 (ltcFeature listConf) (ltcNewValue listConf)) :-> ())
                             :>>: ( PLTU
                                     ( LogTokenEvent
@@ -997,10 +1044,326 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                         )
         assertTrace queryTokenModuleState trace
 
--- | Tests for the Token Module implementation.
+testTokenOutOfEnergy :: Spec
+testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
+    it "multiple transactions are charged correctly" $ do
+        let maxBlockEnergy = 10_000
+        ts <-
+            Runner.processUngroupedTransactions
+                ( txs1 totMintCost totTransferCost totBurnCost
+                )
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTest
+                (testConfig maxBlockEnergy)
+                (initialBlockState @'P9)
+                checkState
+                ts
+        let Types.FilteredTransactions{..} = srTransactions
+        let rejects = [res | (_, summary) <- ftAdded, res@(Types.TxReject _) <- [summary ^. Types.summaryResult]]
+
+        -- error $ show ftAdded ++ show ftFailed
+        assertEqual "should be 3 transactions" 3 (length $ Types.perAccountTransactions ts)
+        assertBool ("should not contain failed transactions: " ++ show ftFailed) (null ftFailed)
+        assertBool ("should not contain rejected transactions: " ++ show rejects) (null rejects)
+        assertEqual
+            "transactions used the expected amount of energy"
+            (totMintCost + totTransferCost + totBurnCost)
+            srUsedEnergy
+        doBlockStateAssertions
+
+    it "3 transactions, block energy suffices only for the first" $ do
+        let maxBlockEnergy = 600
+        ts <-
+            Runner.processUngroupedTransactions
+                ( txs1 totMintCost totTransferCost totBurnCost
+                )
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTest
+                (testConfig maxBlockEnergy)
+                (initialBlockState @'P9)
+                checkState
+                ts
+        let Types.FilteredTransactions{..} = srTransactions
+        let rejects = [res | (_, summary) <- ftAdded, res@(Types.TxReject _) <- [summary ^. Types.summaryResult]]
+        let outOfEnergyTx = [_tx | _tx@(_, Types.ExceedsMaxBlockEnergy) <- ftFailed]
+
+        assertEqual "should be 3 transactions" 3 (length $ Types.perAccountTransactions ts)
+        assertEqual ("should contain 1 out-of-energy failed transaction" ++ ": " ++ show outOfEnergyTx) 1 (length outOfEnergyTx)
+        assertBool ("should not contain rejected transactions: " ++ show rejects) (null rejects)
+        assertEqual
+            "transactions used the expected amount of energy"
+            totMintCost
+            srUsedEnergy
+        doBlockStateAssertions
+
+    it "1 transaction containing 2 operations, block energy suffices only for the first" $ do
+        let maxBlockEnergy = totMintCost + totTransferCost
+        ts <-
+            Runner.processUngroupedTransactions
+                ( txs2
+                    -- enough energy for both transfer operations
+                    (2 * (constA + constB * 150 + tokenHolderBaseCost + tokenTransferCost))
+                )
+
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTest
+                (testConfig maxBlockEnergy)
+                (initialBlockState @'P9)
+                checkState
+                ts
+        let Types.FilteredTransactions{..} = srTransactions
+        let outOfEnergyTx = [_tx | _tx@(_, Types.ExceedsMaxBlockEnergy) <- ftFailed]
+
+        assertEqual "should be 2 transactions" 2 (length $ Types.perAccountTransactions ts)
+        assertEqual ("should contain 1 out-of-energy failed transaction" ++ ": " ++ show outOfEnergyTx) 1 (length outOfEnergyTx)
+        assertEqual
+            "transaction used the expected amount of energy"
+            totMintCost
+            srUsedEnergy
+        doBlockStateAssertions
+
+    it "3 transactions, energy suffices only for the first" $ do
+        let maxBlockEnergy = 10_000
+        ts <-
+            Runner.processUngroupedTransactions
+                ( txs1
+                    totMintCost
+                    -- energy to low
+                    (totTransferCost - 1)
+                    (totBurnCost - 1)
+                )
+
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTest
+                (testConfig maxBlockEnergy)
+                (initialBlockState @'P9)
+                checkState
+                ts
+        let Types.FilteredTransactions{..} = srTransactions
+        let rejects = [res | (_, summary) <- ftAdded, res@(Types.TxReject Types.OutOfEnergy) <- [summary ^. Types.summaryResult]]
+        let outOfEnergyTx = [_tx | _tx@(_, Types.ExceedsMaxBlockEnergy) <- ftFailed]
+
+        assertEqual "should be 1 transaction" 3 (length $ Types.perAccountTransactions ts)
+        assertBool ("should contain no out-of-energy failed transaction" ++ ": " ++ show outOfEnergyTx) (null outOfEnergyTx)
+        assertEqual ("should contain 2 out-of-energy rejected transaction: " ++ show rejects) 2 (length rejects)
+        assertEqual
+            "transactions used the expected amount of energy"
+            (totMintCost + totTransferCost - 1 + totBurnCost - 1)
+            srUsedEnergy
+        doBlockStateAssertions
+
+    it "1 transaction containing 2 operations, energy suffices only for the first" $ do
+        let maxBlockEnergy = 10_000
+        -- only enough energy for one transfer
+        ts <- Runner.processUngroupedTransactions (txs2 totTransferCost)
+
+        (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
+            Helpers.runSchedulerTest
+                (testConfig maxBlockEnergy)
+                (initialBlockState @'P9)
+                checkState
+                ts
+        let Types.FilteredTransactions{..} = srTransactions
+        let rejects = [res | (_, summary) <- ftAdded, res@(Types.TxReject Types.OutOfEnergy) <- [summary ^. Types.summaryResult]]
+
+        assertEqual "should be 2 transaction" 2 (length $ Types.perAccountTransactions ts)
+        assertEqual ("should contain 1 out-of-energy rejected transaction: " ++ show rejects) (length rejects) 1
+        assertEqual
+            "transaction used the expected amount of energy"
+            (totMintCost + totTransferCost)
+            srUsedEnergy
+        doBlockStateAssertions
+  where
+    txs1 e1 e2 e3 =
+        [ Runner.TJSON
+            { payload =
+                Runner.TokenGovernance
+                    { tgTokenId = tokenId,
+                      tgOperations = encodeTxGV mintTx
+                    },
+              metadata =
+                makeDummyHeader
+                    (accountAddressFromSeed 0)
+                    1
+                    e1,
+              keys = [(0, [(0, keyPairFromSeed 0)])]
+            },
+          Runner.TJSON
+            { payload =
+                Runner.TokenHolder
+                    { thTokenId = tokenId,
+                      thOperations = encodeTxTH transferTx
+                    },
+              metadata =
+                makeDummyHeader
+                    (accountAddressFromSeed 0)
+                    2
+                    e2,
+              keys = [(0, [(0, keyPairFromSeed 0)])]
+            },
+          Runner.TJSON
+            { payload =
+                Runner.TokenGovernance
+                    { tgTokenId = tokenId,
+                      tgOperations = encodeTxGV burnTx
+                    },
+              metadata =
+                makeDummyHeader
+                    (accountAddressFromSeed 0)
+                    3
+                    e3,
+              keys = [(0, [(0, keyPairFromSeed 0)])]
+            }
+        ]
+    txs2 e2 =
+        [ Runner.TJSON
+            { payload =
+                Runner.TokenGovernance
+                    { tgTokenId = tokenId,
+                      tgOperations = encodeTxGV mintTx
+                    },
+              metadata =
+                makeDummyHeader
+                    (accountAddressFromSeed 0)
+                    1
+                    (constA + constB * 97 + tokenGovernanceBaseCost + tokenMintCost),
+              keys = [(0, [(0, keyPairFromSeed 0)])]
+            },
+          Runner.TJSON
+            { payload =
+                Runner.TokenHolder
+                    { thTokenId = tokenId,
+                      thOperations = encodeTxTH transferTx2
+                    },
+              metadata =
+                makeDummyHeader
+                    (accountAddressFromSeed 0)
+                    2
+                    e2,
+              keys = [(0, [(0, keyPairFromSeed 0)])]
+            }
+        ]
+    checkState ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState 'P9 ->
+        Helpers.PersistentBSM 'P9 Assertion
+    checkState result state = do
+        doAssertState <- blockStateAssertions result state
+        reloadedState <- Helpers.reloadBlockState state
+        doAssertReloadedState <- blockStateAssertions result reloadedState
+        return $ do
+            doAssertState
+            doAssertReloadedState
+
+    blockStateAssertions ::
+        Helpers.SchedulerResult ->
+        BS.PersistentBlockState 'P9 ->
+        Helpers.PersistentBSM 'P9 Assertion
+    blockStateAssertions result state = do
+        hashedState <- BS.hashBlockState state
+        Helpers.assertBlockStateInvariants hashedState (Helpers.srExecutionCosts result)
+
+    tokenId = TokenId "dummyToken"
+    mintTx = TokenGovernanceTransaction . Seq.fromList $ [mkMintOp amt10'000]
+    burnTx = TokenGovernanceTransaction . Seq.fromList $ [mkBurnOp amt10'000]
+    transferTx =
+        TokenHolderTransaction . Seq.fromList $
+            [mkTransferOp amt10'000 receiver1 Nothing]
+    transferTx2 =
+        TokenHolderTransaction . Seq.fromList $
+            [mkTransferOp amt10'000 receiver1 Nothing, mkTransferOp amt10'000 receiver1 Nothing]
+    encodeTxTH =
+        TokenParameter . SBS.toShort . tokenHolderTransactionToBytes
+    encodeTxGV =
+        TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
+    receiver1 = HolderAccount (dummyAccountAddress 0) Nothing
+    amt10'000 = TokenAmount 10_000 3
+    mkMintOp tgoMintAmount = TokenMint{..}
+    mkBurnOp tgoBurnAmount = TokenBurn{..}
+    mkTransferOp ttAmount ttRecipient ttMemo = TokenHolderTransfer TokenTransferBody{..}
+
+    mintPayload =
+        Types.TokenGovernance
+            { tgTokenId = tokenId,
+              tgOperations = encodeTxGV mintTx
+            }
+    burnPayload =
+        Types.TokenGovernance
+            { tgTokenId = tokenId,
+              tgOperations = encodeTxGV burnTx
+            }
+    transferPayload =
+        Types.TokenGovernance
+            { tgTokenId = tokenId,
+              tgOperations = encodeTxTH transferTx
+            }
+    headerSize = fromIntegral Types.transactionHeaderSize
+    mintSize =
+        Energy $
+            fromIntegral $
+                headerSize
+                    + thePayloadSize
+                        ( payloadSize $
+                            Types.encodePayload mintPayload
+                        )
+    burnSize =
+        Energy $
+            fromIntegral $
+                headerSize
+                    + thePayloadSize
+                        ( payloadSize $
+                            Types.encodePayload burnPayload
+                        )
+
+    transferSize =
+        Energy $
+            fromIntegral $
+                headerSize
+                    + thePayloadSize
+                        ( payloadSize $
+                            Types.encodePayload transferPayload
+                        )
+
+    totMintCost = constA + constB * mintSize + tokenGovernanceBaseCost + tokenMintCost
+    totTransferCost = constA + constB * transferSize + tokenHolderBaseCost + tokenTransferCost
+    totBurnCost = constA + constB * burnSize + tokenGovernanceBaseCost + tokenBurnCost
+
+    testConfig :: Types.Energy -> Helpers.TestConfig
+    testConfig maxBlockEnergy =
+        Helpers.defaultTestConfig
+            { Helpers.tcContextState = contextState
+            }
+      where
+        contextState =
+            Helpers.defaultContextState
+                { -- Set the max energy block energy to enough for 2 successful transfers.
+                  EI._maxBlockEnergy = maxBlockEnergy
+                }
+
+    initialBlockState ::
+        (Types.IsProtocolVersion pv, PVSupportsPLT pv) =>
+        Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+    initialBlockState = do
+        bs0 <-
+            Helpers.createTestBlockStateWithAccountsM
+                [Helpers.makeTestAccountFromSeed 2_000_000 0]
+        (_tIx, bs1) <-
+            bsoCreateToken
+                (hpbsPointers bs0)
+                PLTConfiguration
+                    { _pltTokenId = tokenId,
+                      _pltModule = TokenModuleRef $ Hash.hash "dummyModule",
+                      _pltDecimals = 3,
+                      _pltGovernanceAccountIndex = AccountIndex 0
+                    }
+        bs2 <- bsoSetTokenState bs1 0 "mintable" (Just "")
+        bs3 <- bsoSetTokenState bs2 0 "burnable" (Just "")
+        hashBlockState bs3
+
 tests :: Spec
-tests = parallel $ describe "TokenModule" $ do
+tests = describe "TokenModule" $ do
     testInitializeToken
     testExecuteTokenHolderTransaction
     testExecuteTokenGovernanceTransaction
     testQueryTokenModuleState
+    testTokenOutOfEnergy

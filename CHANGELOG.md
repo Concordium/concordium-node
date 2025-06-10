@@ -4,6 +4,7 @@
 
 - Protocol-level tokens:
   - Token operations emit events. This includes `CreatePLT`.
+  - Support for energy charging for token module execution.
 
 ## 9.0.1 (DevNet)
 

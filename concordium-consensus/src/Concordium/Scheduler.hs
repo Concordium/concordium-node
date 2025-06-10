@@ -106,6 +106,7 @@ import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData (rrdCurrentSta
 import Concordium.Types.Accounts
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
+import Data.Either (isLeft)
 import Data.Proxy
 import Prelude hiding (exp, mod)
 
@@ -2700,33 +2701,38 @@ handleTokenHolder depositContext tokenId tokenOperations =
         let moduleRef = Token._pltModule configuration
         -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
         -- Invoke the token module with operations.
-        lift $ invokeTokenHolderOperations moduleRef tokenIndex senderAccount tokenOperations
+        (energy, _energyLimitReason) <- getEnergy
+        (res, energyUsed) <- lift $ invokeTokenHolderOperations energy moduleRef tokenIndex senderAccount tokenOperations
+        tickEnergy energyUsed
+        return res
     -- Process the successful transaction computation.
     commitTransaction computeState computeResult = do
         (usedEnergy, energyCost) <- computeExecutionCharge (depositContext ^. wtcEnergyAmount) (computeState ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         let result = case computeResult of
-                Left encodedRejectReason ->
+                Left PLTEOutOfEnergy -> TxReject OutOfEnergy
+                Left (PLTEFail encodedRejectReason) ->
                     TxReject . TokenHolderTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
                 Right events -> TxSuccess events
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
     invokeTokenHolderOperations ::
+        Energy ->
         TokenModuleRef ->
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either PLTTypes.EncodedTokenRejectReason [Event])
-    invokeTokenHolderOperations _ tokenIndex sender parameter = do
+        m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [Event], Energy)
+    invokeTokenHolderOperations energy _ tokenIndex sender parameter = do
         withBlockStateRollback $ do
             let tc =
                     TokenModule.TransactionContext
                         { tcSender = (fst sender, depositContext ^. wtcSenderAddress),
                           tcSenderAddress = depositContext ^. wtcSenderAddress
                         }
-            (res, events) <- runPLT tokenIndex $ TokenModule.executeTokenHolderTransaction tc parameter
-            return (events <$ res)
+            (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenHolderTransaction tc parameter
+            return ((events <$ res, energyUsed), isLeft res)
 
 -- | Handler for a token governance transaction.
 handleTokenGovernance ::
@@ -2761,7 +2767,10 @@ handleTokenGovernance depositContext tokenId tokenOperations =
         let moduleRef = Token._pltModule configuration
         -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
         -- Invoke the token module with operations.
-        lift $ invokeTokenGovernanceOperations moduleRef tokenIndex senderAccount tokenOperations
+        (energy, _energyLimitReason) <- getEnergy
+        (res, energyUsed) <- lift $ invokeTokenGovernanceOperations energy moduleRef tokenIndex senderAccount tokenOperations
+        tickEnergy energyUsed
+        return res
     -- Process the successful transaction computation.
     commitTransaction computeState computeResult = do
         (usedEnergy, energyCost) <-
@@ -2770,27 +2779,29 @@ handleTokenGovernance depositContext tokenId tokenOperations =
                 (computeState ^. energyLeft)
         chargeExecutionCost senderAccount energyCost
         let result = case computeResult of
-                Left encodedRejectReason ->
+                Left PLTEOutOfEnergy -> TxReject OutOfEnergy
+                Left (PLTEFail encodedRejectReason) ->
                     TxReject . TokenGovernanceTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
                 Right events -> TxSuccess events
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
     invokeTokenGovernanceOperations ::
+        Energy ->
         TokenModuleRef ->
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
-        m (Either PLTTypes.EncodedTokenRejectReason [Event])
-    invokeTokenGovernanceOperations _ tokenIndex sender parameter = do
+        m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [Event], Energy)
+    invokeTokenGovernanceOperations energy _ tokenIndex sender parameter = do
         withBlockStateRollback $ do
             let tc =
                     TokenModule.TransactionContext
                         { tcSender = (fst sender, depositContext ^. wtcSenderAddress),
                           tcSenderAddress = depositContext ^. wtcSenderAddress
                         }
-            (res, events) <- runPLT tokenIndex $ TokenModule.executeTokenGovernanceTransaction tc parameter
-            return (events <$ res)
+            (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenGovernanceTransaction tc parameter
+            return ((events <$ res, energyUsed), isLeft res)
 
 -- * Chain updates
 
@@ -2964,7 +2975,7 @@ handleCreatePLT updateHeader payload = runExceptT $ do
                     }
         tokenIx <- createToken config
         (res, events) <- runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
-        return ((TokenCreated payload : events) <$ res)
+        return ((TokenCreated payload : events) <$ res, isLeft res)
     case createResult of
         Left (e :: TokenModule.InitializeTokenError) -> throwError $ TokenInitializeFailure (show e)
         Right events -> do

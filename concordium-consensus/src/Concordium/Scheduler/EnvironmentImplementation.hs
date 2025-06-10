@@ -15,7 +15,6 @@ import Control.Monad.RWS.Strict
 import Control.Monad.Trans.Cont
 import Control.Monad.Trans.Reader (ReaderT (..))
 import Control.Monad.Trans.State.Strict (StateT (..))
-import Data.Either
 import Data.HashMap.Strict as Map
 import qualified Data.Kind as DK
 import Lens.Micro.Platform
@@ -75,7 +74,9 @@ data PLTExecutionState m = PLTExecutionState
     { -- | The current block state.
       _plteBlockState :: !(UpdatableBlockState m),
       -- | The events that have been emitted during the execution in reverse order.
-      _plteEvents :: ![Event]
+      _plteEvents :: ![Event],
+      -- | The energy used for the execution of the PLT module.
+      _plteEnergyUsed :: !Energy
     }
 makeLenses ''PLTExecutionState
 
@@ -84,7 +85,9 @@ data PLTExecutionContext = PLTExecutionContext
     { -- | The token index.
       _pltecTokenIndex :: !TokenIndex,
       -- | The PLT configuration.
-      _pltecConfiguration :: !PLTConfiguration
+      _pltecConfiguration :: !PLTConfiguration,
+      -- | The available energy
+      _pltecEnergy :: !(Maybe Energy)
     }
 
 -- | Alias for the internal type used in @SchedulerT@.
@@ -464,8 +467,8 @@ instance
     withBlockStateRollback op = do
         s0 <- use ssBlockState
         snapshot <- lift $ BS.bsoSnapshotState s0
-        res <- op
-        when (isLeft res) $ do
+        (res, doRollback) <- op
+        when doRollback $ do
             s1 <- use ssBlockState
             s2 <- lift $ BS.bsoRollback s1 snapshot
             ssBlockState .= s2
@@ -476,7 +479,8 @@ instance
         let initialExecutionState =
                 PLTExecutionState
                     { _plteBlockState = s,
-                      _plteEvents = []
+                      _plteEvents = [],
+                      _plteEnergyUsed = 0
                     }
 
         (res, finalExecutionState) <- lift $ do
@@ -484,10 +488,31 @@ instance
             let context =
                     PLTExecutionContext
                         { _pltecTokenIndex = tokenIx,
-                          _pltecConfiguration = config
+                          _pltecConfiguration = config,
+                          _pltecEnergy = Nothing
                         }
             runKernelT op context initialExecutionState
         return (res, reverse $ finalExecutionState ^. plteEvents)
+
+    runPLTWithEnergy tokenIx energy op = do
+        s <- use ssBlockState
+        let initialExecutionState =
+                PLTExecutionState
+                    { _plteBlockState = s,
+                      _plteEvents = [],
+                      _plteEnergyUsed = 0
+                    }
+
+        (res, finalExecutionState) <- lift $ do
+            config <- BS.getTokenConfiguration s tokenIx
+            let context =
+                    PLTExecutionContext
+                        { _pltecTokenIndex = tokenIx,
+                          _pltecConfiguration = config,
+                          _pltecEnergy = Just energy
+                        }
+            runKernelT op context initialExecutionState
+        return (res, reverse $ finalExecutionState ^. plteEvents, finalExecutionState ^. plteEnergyUsed)
 
     createToken pltConfig = do
         s <- use ssBlockState
@@ -692,6 +717,25 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                 plteBlockState .= bs2
                 return True
 
-instance (Monad m) => (PLTKernelFail fail (KernelT fail ret m)) where
+instance
+    ( BS.BlockStateOperations m,
+      PVSupportsPLT (MPV m)
+    ) =>
+    PLTKernelChargeEnergy (KernelT (PLTExecutionError fail) ret m)
+    where
+    pltTickEnergy nrg = do
+        plteEnergyUsed += nrg
+        mbAvailableEnergy <- asks _pltecEnergy
+        case mbAvailableEnergy of
+            Nothing -> return ()
+            Just availableEnergy -> do
+                energyUsed <- use plteEnergyUsed
+                unless (availableEnergy >= energyUsed) $ KernelT $ ReaderT $ \_ -> ContT $ \_ -> return (Left PLTEOutOfEnergy)
+
+instance {-# OVERLAPPABLE #-} (Monad m, fail ~ fail') => (PLTKernelFail fail (KernelT fail' ret m)) where
     -- To abort, we simply drop the continuation and return the error.
     pltError err = KernelT $ ReaderT $ \_ -> ContT $ \_ -> return (Left err)
+
+instance (Monad m) => (PLTKernelFail fail (KernelT (PLTExecutionError fail) ret m)) where
+    -- To abort, we simply drop the continuation and return the error.
+    pltError err = KernelT $ ReaderT $ \_ -> ContT $ \_ -> return (Left $ PLTEFail err)

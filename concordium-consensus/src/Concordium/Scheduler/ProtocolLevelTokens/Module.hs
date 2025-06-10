@@ -13,6 +13,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Word
 
+import Concordium.Cost
 import Concordium.Types
 import Concordium.Types.ProtocolLevelTokens.CBOR
 import Concordium.Types.Tokens
@@ -143,7 +144,7 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
 --       - Transfer the amount from the sender to the recipient, if the sender's balance is
 --         sufficient.
 executeTokenHolderTransaction ::
-    (PLTKernelUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    (PLTKernelUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     TransactionContext m ->
     TokenParameter ->
     m ()
@@ -197,6 +198,7 @@ executeTokenHolderTransaction TransactionContext{..} tokenParam = do
                                       trrAddressNotPermitted = Just pthoRecipient,
                                       trrReason = Just "recipient in deny list"
                                     }
+                    pltTickEnergy tokenTransferCost
                     success <- transfer tcSender recipientAccount pthoAmount pthoMemo
                     unless success $ do
                         availableBalance <- getAccountBalance tcSender
@@ -273,7 +275,7 @@ logEncodeTokenEvent te = logTokenEvent eventType details
 --   - Decode the transaction CBOR parameter.
 --   - Check that amounts are within the representable range.
 executeTokenGovernanceTransaction ::
-    (PLTKernelPrivilegedUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    (PLTKernelPrivilegedUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     TransactionContext m ->
     TokenParameter ->
     m ()
@@ -287,6 +289,7 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                     case op of
                         PTGOTokenMint{..} -> do
                             requireFeature opIndex "mint" "mintable"
+                            pltTickEnergy tokenMintCost
                             mintOK <- mint tcSender ptgoAmount
                             unless mintOK $ do
                                 availableSupply <- getCirculatingSupply
@@ -300,6 +303,7 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                                         }
                         PTGOTokenBurn{..} -> do
                             requireFeature opIndex "burn" "burnable"
+                            pltTickEnergy tokenBurnCost
                             burnOK <- burn tcSender ptgoAmount
                             unless burnOK $ do
                                 availableBalance <- getAccountBalance tcSender
@@ -312,21 +316,25 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                         PTGOTokenAddAllowList{..} -> do
                             requireFeature opIndex "addAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
+                            pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" (Just "")
                             logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
                         PTGOTokenRemoveAllowList{..} -> do
                             requireFeature opIndex "removeAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
+                            pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" Nothing
                             logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
                         PTGOTokenAddDenyList{..} -> do
                             requireFeature opIndex "addDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
+                            pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" (Just "")
                             logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
                         PTGOTokenRemoveDenyList{..} -> do
                             requireFeature opIndex "removeDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
+                            pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" Nothing
                             logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
                     return (opIndex + 1)
