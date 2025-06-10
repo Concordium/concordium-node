@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 9.0.2 (DevNet)
+
 - Protocol-level tokens:
   - Token operations emit events. This includes `CreatePLT`.
   - Support for energy charging for token module execution.
