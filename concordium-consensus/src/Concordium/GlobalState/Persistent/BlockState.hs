@@ -3712,7 +3712,7 @@ doIncrementPLTUpdateSequenceNumber ::
     PersistentBlockState pv ->
     m (PersistentBlockState pv)
 doIncrementPLTUpdateSequenceNumber pbs =
-    case sIsSupported SPTProtocolLevelTokensParameters (sChainParametersVersionFor (protocolVersion @pv)) of
+    case sSupportsCreatePLT (sAuthorizationsVersionFor (protocolVersion @pv)) of
         SFalse -> case protocolVersion @pv of {}
         STrue -> do
             bsp <- loadPBS pbs

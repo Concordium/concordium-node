@@ -18,10 +18,12 @@ import qualified Data.List as List
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 import Data.Serialize
+import Data.Singletons
 import Lens.Micro.Platform
 
 import qualified Concordium.Crypto.SHA256 as H
 import Concordium.Types
+import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
 import Concordium.Types.Parameters
 import Concordium.Types.Updates
@@ -772,7 +774,7 @@ data Updates' (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersion) = U
       -- | Pending updates.
       pendingUpdates :: !(PendingUpdates cpv auv),
       -- | Sequence number for updates to the protocol level tokens (PLT).
-      pltUpdateSequenceNumber :: !(OParam 'PTProtocolLevelTokensParameters cpv UpdateSequenceNumber)
+      pltUpdateSequenceNumber :: !(Conditionally (SupportsCreatePLT auv) UpdateSequenceNumber)
     }
 
 -- | See documentation of @migratePersistentBlockState@.
@@ -802,14 +804,14 @@ migrateUpdates migration Updates{..} = do
 
     let newPltUpdateSequenceNumber = case migration of
             StateMigrationParametersTrivial -> pltUpdateSequenceNumber
-            StateMigrationParametersP1P2 -> NoParam
-            StateMigrationParametersP2P3 -> NoParam
-            StateMigrationParametersP3ToP4 _ -> NoParam
-            StateMigrationParametersP4ToP5 -> NoParam
-            StateMigrationParametersP5ToP6 _ -> NoParam
-            StateMigrationParametersP6ToP7 -> NoParam
-            StateMigrationParametersP7ToP8 _ -> NoParam
-            StateMigrationParametersP8ToP9 -> SomeParam minUpdateSequenceNumber
+            StateMigrationParametersP1P2 -> CFalse
+            StateMigrationParametersP2P3 -> CFalse
+            StateMigrationParametersP3ToP4 _ -> CFalse
+            StateMigrationParametersP4ToP5 -> CFalse
+            StateMigrationParametersP5ToP6 _ -> CFalse
+            StateMigrationParametersP6ToP7 -> CFalse
+            StateMigrationParametersP7ToP8 _ -> CFalse
+            StateMigrationParametersP8ToP9 -> CTrue minUpdateSequenceNumber
     return
         Updates
             { currentKeyCollection = newKeyCollection,
@@ -856,13 +858,14 @@ instance
                       pendingUpdates = pU,
                       pltUpdateSequenceNumber = pltUpdateSequenceNumber
                     }
-        return (pKC >> pCPU >> pCP >> pPU >> put pltUpdateSequenceNumber, newUpdates)
+            putPLT = mapM_ put pltUpdateSequenceNumber
+        return (pKC >> pCPU >> pCP >> pPU >> putPLT, newUpdates)
     load = do
         mKC <- label "Current key collection" load
         mCPU <- label "Current protocol update" load
         mCP <- label "Current parameters" load
         mPU <- label "Pending updates" load
-        pltUpdateSequenceNumber <- label "PLT sequence number" get
+        pltUpdateSequenceNumber <- conditionallyA (sSupportsCreatePLT (sing @auv)) $ label "PLT sequence number" get
         return $! do
             currentKeyCollection <- mKC
             currentProtocolUpdate <- mCPU
@@ -882,6 +885,7 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersio
 -- | An initial 'Updates' with the given initial 'Authorizations'
 --  and 'ChainParameters'.
 initialUpdates ::
+    forall m cpv auv.
     (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
     UpdateKeysCollection auv ->
     ChainParameters' cpv ->
@@ -891,7 +895,7 @@ initialUpdates initialKeyCollection chainParams = do
     let currentProtocolUpdate = Null
     currentParameters <- makeHashedBufferedRef (StoreSerialized chainParams)
     pendingUpdates <- emptyPendingUpdates
-    let pltUpdateSequenceNumber = whenSupported minUpdateSequenceNumber
+    let pltUpdateSequenceNumber = conditionally (sSupportsCreatePLT (authorizationsVersion @auv)) minUpdateSequenceNumber
     return Updates{..}
 
 -- | Make a persistent 'Updates' from an in-memory one.
@@ -1693,7 +1697,7 @@ lookupNextUpdateSequenceNumber uref uty = withCPVConstraints (chainParametersVer
                 (pValidatorScoreParametersQueue pendingUpdates)
         UpdateCreatePLT ->
             return $
-                maybeWhenSupported
+                maybeConditionally
                     minUpdateSequenceNumber
                     id
                     pltUpdateSequenceNumber
@@ -1757,16 +1761,16 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- | Increment the update sequence number for Protocol Level Tokens (PLT).
--- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
+-- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs. -- Conditionally (SupportsCreatePLT auv)
 incrementPLTUpdateSequenceNumber ::
     forall m cpv auv.
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv, IsSupported 'PTProtocolLevelTokensParameters cpv ~ 'True) =>
+    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv, SupportsCreatePLT auv ~ 'True) =>
     BufferedRef (Updates' cpv auv) ->
     m (BufferedRef (Updates' cpv auv))
 incrementPLTUpdateSequenceNumber updatesRef = do
     currentUpdates <- refLoad updatesRef
-    let currentSequenceNumber = unOParam $ pltUpdateSequenceNumber currentUpdates
-    refMake currentUpdates{pltUpdateSequenceNumber = SomeParam $ currentSequenceNumber + 1}
+    let currentSequenceNumber = uncond $ pltUpdateSequenceNumber currentUpdates
+    refMake currentUpdates{pltUpdateSequenceNumber = CTrue $ currentSequenceNumber + 1}
 
 -- | Overwrite the election difficulty with the specified value and remove
 --  any pending updates to the election difficulty from the queue.
