@@ -2860,16 +2860,28 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                 RootUpdatePayload (Level2KeysRootUpdate u) -> case sauv of
                                     SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
                                     SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion2 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 RootUpdatePayload (Level2KeysRootUpdateV1 u) -> case sauv of
                                     SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                     SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    SAuthorizationsVersion2 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                RootUpdatePayload (Level2KeysRootUpdateV2 u) -> case sauv of
+                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion2 -> checkSigAndEnqueue $ UVLevel2Keys u
                                 Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
                                 Level1UpdatePayload (Level2KeysLevel1Update u) -> case sauv of
                                     SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
                                     SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion2 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> case sauv of
                                     SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                     SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    SAuthorizationsVersion2 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV2 u) -> case sauv of
+                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    SAuthorizationsVersion2 -> checkSigAndEnqueue $ UVLevel2Keys u
                                 TimeoutParametersUpdatePayload u -> case sIsSupported SPTTimeoutParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVTimeoutParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion

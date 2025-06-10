@@ -903,6 +903,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
                 `merge` ( case authorizationsVersion @auv of
                             SAuthorizationsVersion0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
                             SAuthorizationsVersion1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
+                            SAuthorizationsVersion2 -> queueMapper PUELevel2KeysV2 _pLevel2KeysUpdateQueue
                         )
                 `merge` queueMapper PUEProtocol _pProtocolQueue
                 `merge` queueMapperOptional PUEElectionDifficulty _pElectionDifficultyQueue
