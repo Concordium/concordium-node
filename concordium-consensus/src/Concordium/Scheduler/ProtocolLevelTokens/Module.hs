@@ -13,6 +13,7 @@ import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Word
 
+import Concordium.Cost
 import Concordium.Types
 import Concordium.Types.ProtocolLevelTokens.CBOR
 import Concordium.Types.Tokens
@@ -40,7 +41,7 @@ instance Show InitializeTokenError where
     show (ITEDeserializationFailure reason) =
         "Token initialization parameters could not be deserialized: " ++ reason
     show (ITEInvalidMintAmount reason) =
-        "The initial mint amount was outside of the representable range: " ++ reason
+        "The initial mint amount was not valid: " ++ reason
 
 -- | Try to convert a 'TokenAmount' to a 'TokenRawAmount'. The latter is represented in the
 --  smallest subdivision allowed for the current token.
@@ -53,17 +54,9 @@ toTokenRawAmount ::
     Word8 ->
     TokenAmount ->
     Either String TokenRawAmount
-toTokenRawAmount actualDecimals TokenAmount{..} =
-    case compare nrDecimals (fromIntegral actualDecimals) of
-        EQ -> Right (TokenRawAmount digits)
-        GT -> Left "Token amount precision exceeds representable precision"
-        LT
-            | rawAmountInteger > fromIntegral (maxBound :: TokenRawAmount) ->
-                Left "Token amount exceeds maximum representable amount"
-            | otherwise -> Right (fromIntegral rawAmountInteger)
-          where
-            factor = 10 ^ (fromIntegral actualDecimals - nrDecimals)
-            rawAmountInteger = factor * toInteger digits
+toTokenRawAmount actualDecimals TokenAmount{..}
+    | actualDecimals == taDecimals = Right taValue
+    | otherwise = Left "Token amount precision mismatch"
 
 -- | Convert a 'TokenRawAmount' to a 'TokenAmount' given the number of decimals in the
 --  representation.
@@ -74,10 +67,10 @@ toTokenAmount ::
     TokenRawAmount ->
     -- | Converted amount
     TokenAmount
-toTokenAmount decimals (TokenRawAmount rawAmount) =
+toTokenAmount decimals rawAmount =
     TokenAmount
-        { digits = rawAmount,
-          nrDecimals = fromIntegral decimals
+        { taValue = rawAmount,
+          taDecimals = decimals
         }
 
 -- | Initialize a PLT by recording the relevant configuration parameters in the state and
@@ -138,7 +131,7 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
             Right pthoAmount -> return PTHOTransfer{..}
               where
                 pthoRecipient = ttRecipient
-                pthoMemo = untaggedMemo <$> ttMemo
+                pthoMemo = taggableMemoInner <$> ttMemo
                 pthoUnprocessed = ttb
 
 -- | Execute a token-holder transaction. The process is as follows:
@@ -151,7 +144,7 @@ preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactio
 --       - Transfer the amount from the sender to the recipient, if the sender's balance is
 --         sufficient.
 executeTokenHolderTransaction ::
-    (PLTKernelUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    (PLTKernelUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     TransactionContext m ->
     TokenParameter ->
     m ()
@@ -205,6 +198,7 @@ executeTokenHolderTransaction TransactionContext{..} tokenParam = do
                                       trrAddressNotPermitted = Just pthoRecipient,
                                       trrReason = Just "recipient in deny list"
                                     }
+                    pltTickEnergy tokenTransferCost
                     success <- transfer tcSender recipientAccount pthoAmount pthoMemo
                     unless success $ do
                         availableBalance <- getAccountBalance tcSender
@@ -270,12 +264,18 @@ preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOp
     preproc (TokenRemoveDenyList receiver) =
         return PTGOTokenRemoveDenyList{ptgoTarget = receiver}
 
+-- | Encode and log a 'TokenEvent'.
+logEncodeTokenEvent :: (PLTKernelUpdate m) => TokenEvent -> m ()
+logEncodeTokenEvent te = logTokenEvent eventType details
+  where
+    EncodedTokenEvent{eteType = eventType, eteDetails = details} = encodeTokenEvent te
+
 -- | Execute a token-governance transaction. The process is as follows:
 --
 --   - Decode the transaction CBOR parameter.
 --   - Check that amounts are within the representable range.
 executeTokenGovernanceTransaction ::
-    (PLTKernelPrivilegedUpdate m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
+    (PLTKernelPrivilegedUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     TransactionContext m ->
     TokenParameter ->
     m ()
@@ -289,6 +289,7 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                     case op of
                         PTGOTokenMint{..} -> do
                             requireFeature opIndex "mint" "mintable"
+                            pltTickEnergy tokenMintCost
                             mintOK <- mint tcSender ptgoAmount
                             unless mintOK $ do
                                 availableSupply <- getCirculatingSupply
@@ -302,6 +303,7 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                                         }
                         PTGOTokenBurn{..} -> do
                             requireFeature opIndex "burn" "burnable"
+                            pltTickEnergy tokenBurnCost
                             burnOK <- burn tcSender ptgoAmount
                             unless burnOK $ do
                                 availableBalance <- getAccountBalance tcSender
@@ -312,21 +314,29 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                                           trrRequiredBalance = ptgoUnprocessedAmount
                                         }
                         PTGOTokenAddAllowList{..} -> do
-                            requireFeature opIndex "add-allow-list" "allowList"
+                            requireFeature opIndex "addAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
+                            pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" (Just "")
+                            logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
                         PTGOTokenRemoveAllowList{..} -> do
-                            requireFeature opIndex "remove-allow-list" "allowList"
+                            requireFeature opIndex "removeAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
+                            pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" Nothing
+                            logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
                         PTGOTokenAddDenyList{..} -> do
-                            requireFeature opIndex "add-deny-list" "denyList"
+                            requireFeature opIndex "addDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
+                            pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" (Just "")
+                            logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
                         PTGOTokenRemoveDenyList{..} -> do
-                            requireFeature opIndex "remove-deny-list" "denyList"
+                            requireFeature opIndex "removeDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
+                            pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" Nothing
+                            logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
                     return (opIndex + 1)
             foldM_ handleOperation 0 operations
   where

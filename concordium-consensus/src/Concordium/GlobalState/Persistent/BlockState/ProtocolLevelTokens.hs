@@ -8,7 +8,6 @@
 
 module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens where
 
-import Control.Monad
 import Control.Monad.Trans.Class
 import Data.Bits
 import Data.Bool.Singletons
@@ -23,49 +22,13 @@ import Concordium.Genesis.Data
 import Concordium.Types
 import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
+import Concordium.Types.Tokens
 import Concordium.Utils
 import Concordium.Utils.Serialization
 
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (LFMBTreeHash' (..))
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBTree
-
--- | Represents the raw amount of a token. This is the amount of the token in its smallest unit.
-newtype TokenRawAmount = TokenRawAmount {theTokenRawAmount :: Word64}
-    deriving newtype (Eq, Ord, Show, Num, Real, Bounded, Enum, Integral)
-
--- | Serialization of 'TokenRawAmount' is as a variable length quantity (VLQ). We disallow
---  0-padding to enforce canonical serialization.
---
---  The VLQ encoding represents a value in big-endian base 128. Each byte of the encoding uses
---  the high-order bit to indicate if further bytes follow (when set). The remaining bits represent
---  the positional value in base 128.  See https://en.wikipedia.org/wiki/Variable-length_quantity
-instance Serialize TokenRawAmount where
-    put (TokenRawAmount amt) = do
-        mapM_ putWord8 (chunk amt [])
-      where
-        chunk num []
-            | num == 0 = [0]
-            | otherwise = chunk (num `shiftR` 7) [fromIntegral $ num .&. 0x7f]
-        chunk num l
-            | num == 0 = l
-            | otherwise = chunk (num `shiftR` 7) (fromIntegral (0x80 .|. (num .&. 0x7f)) : l)
-    get = TokenRawAmount <$> loop 0
-      where
-        loop accum = do
-            b <- getWord8
-            when (b == 0x80 && accum == 0) $
-                fail "Padding bytes are not allowed"
-            -- The following test ensures that @accum * 128 <= maxBound@, i.e. the shift in
-            -- computing @accum'@ will not overflow.
-            when (accum > maxBound `shiftR` 7) $
-                fail "Value out of range"
-            let accum' = accum `shiftL` 7 .|. fromIntegral (b .&. 0x7f)
-            if testBit b 7
-                then loop accum'
-                else return accum'
-
-instance (MonadBlobStore m) => BlobStorable m TokenRawAmount
 
 -- | A token index is the index of a token in the 'ProtocolLevelTokens' table.
 newtype TokenIndex = TokenIndex {theTokenIndex :: Word64}

@@ -1,5 +1,4 @@
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -60,7 +59,10 @@ initialBlockState =
           dummyAccount2
         ]
 
--- | Test removing a delegator even if the stake is over the threshold.
+-- | Test the following sequence of operations:
+--   - Attempt a token holder transaction for a non-existent token (TokenId: GTU). (Fails: non-existent token)
+--   - Create a token with the TokenId GTU. (Succeeds)
+--   - Attempt a token holder transaction for GTU. (Fails: CBOR deserialization)
 testTokenHolder ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsPLT pv) =>
@@ -77,7 +79,7 @@ testTokenHolder _ pvString =
                             Runner.TJSON
                                 { payload =
                                     Runner.TokenHolder
-                                        { thTokenSymbol = gtu,
+                                        { thTokenId = gtu,
                                           thOperations = Types.TokenParameter BSS.empty
                                         },
                                   metadata = makeDummyHeader dummyAddress 1 1_000,
@@ -105,7 +107,7 @@ testTokenHolder _ pvString =
                             Runner.TJSON
                                 { payload =
                                     Runner.TokenHolder
-                                        { thTokenSymbol = gtu,
+                                        { thTokenId = gtu,
                                           thOperations = Types.TokenParameter BSS.empty
                                         },
                                   metadata = makeDummyHeader dummyAddress 2 1_000,
@@ -115,7 +117,7 @@ testTokenHolder _ pvString =
                         return $
                             Helpers.assertRejectWithReason
                                 ( TokenHolderTransactionFailed
-                                    (TokenModuleRejectReason{tmrrTokenSymbol = gtu, tmrrType = errType, tmrrDetails = Just cborFail})
+                                    (TokenModuleRejectReason{tmrrTokenId = gtu, tmrrType = errType, tmrrDetails = Just cborFail})
                                 )
                                 result
                     }
@@ -139,8 +141,9 @@ testTokenHolder _ pvString =
               tipBurnable = True
             }
     tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
-    plt = Types.CreatePLTUpdatePayload $ Types.CreatePLT gtu (TokenModuleRef dummyHash) dummyAddress2 0 tp
-    gtuEvent = UpdateEnqueued{ueEffectiveTime = 0, uePayload = plt}
+    createPLT = Types.CreatePLT gtu (TokenModuleRef dummyHash) dummyAddress2 0 tp
+    plt = Types.CreatePLTUpdatePayload createPLT
+    gtuEvent = TokenCreated{etcPayload = createPLT}
     -- This is CBOR-encoding of {"cause": "DeserialiseFailure 0 \"end of input\""}
     cborFail = Types.TokenEventDetails $ BSS.pack [161, 101, 99, 97, 117, 115, 101, 120, 35, 68, 101, 115, 101, 114, 105, 97, 108, 105, 115, 101, 70, 97, 105, 108, 117, 114, 101, 32, 48, 32, 34, 101, 110, 100, 32, 111, 102, 32, 105, 110, 112, 117, 116, 34]
     errType = Types.TokenEventType $ fromString "deserializationFailure"
