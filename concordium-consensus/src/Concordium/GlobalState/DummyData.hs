@@ -336,9 +336,6 @@ dummyRewardParametersV2 = dummyRewardParametersVX CFalse CFalse
 dummyRewardParametersV3 :: RewardParameters 'ChainParametersV3
 dummyRewardParametersV3 = dummyRewardParametersVX CFalse CFalse
 
-dummyRewardParametersV4 :: RewardParameters 'ChainParametersV4
-dummyRewardParametersV4 = dummyRewardParametersVX CFalse CFalse
-
 -- | Consensus parameters for the second consensus protocol.
 dummyConsensusParametersV1 :: ConsensusParameters' 'ConsensusParametersVersion1
 dummyConsensusParametersV1 =
@@ -492,45 +489,6 @@ dummyChainParameters = case chainParametersVersion @cpv of
                         },
               _cpAccountCreationLimit = 10,
               _cpRewardParameters = dummyRewardParametersV3,
-              _cpFoundationAccount = 0,
-              _cpPoolParameters =
-                PoolParametersV1
-                    { _ppMinimumEquityCapital = 300000000000,
-                      _ppCapitalBound = CapitalBound (makeAmountFraction 100000),
-                      _ppLeverageBound = 5,
-                      _ppPassiveCommissions =
-                        CommissionRates
-                            { _finalizationCommission = makeAmountFraction 100000,
-                              _bakingCommission = makeAmountFraction 5000,
-                              _transactionCommission = makeAmountFraction 5000
-                            },
-                      _ppCommissionBounds =
-                        CommissionRanges
-                            { _finalizationCommissionRange = fullRange,
-                              _bakingCommissionRange = fullRange,
-                              _transactionCommissionRange = fullRange
-                            }
-                    },
-              _cpFinalizationCommitteeParameters = SomeParam dummyFinalizationCommitteeParameters,
-              _cpValidatorScoreParameters = SomeParam dummyValidatorScoreParameters
-            }
-    SChainParametersV4 ->
-        ChainParameters
-            { _cpConsensusParameters = dummyConsensusParametersV1,
-              _cpExchangeRates = makeExchangeRates 0.0001 1000000,
-              _cpCooldownParameters =
-                CooldownParametersV1
-                    { _cpPoolOwnerCooldown = cooldown,
-                      _cpDelegatorCooldown = cooldown
-                    },
-              _cpTimeParameters =
-                SomeParam
-                    TimeParametersV1
-                        { _tpRewardPeriodLength = 2,
-                          _tpMintPerPayday = MintRate 1 8
-                        },
-              _cpAccountCreationLimit = 10,
-              _cpRewardParameters = dummyRewardParametersV4,
               _cpFoundationAccount = 0,
               _cpPoolParameters =
                 PoolParametersV1
