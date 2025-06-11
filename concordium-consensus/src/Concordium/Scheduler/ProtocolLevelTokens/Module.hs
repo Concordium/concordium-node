@@ -404,16 +404,18 @@ queryTokenModuleState = do
     let tmsAdditional = Map.empty
     return $ tokenModuleStateToBytes TokenModuleState{..}
 
-queryAccountListStatus :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe Bool, Maybe Bool)
-queryAccountListStatus account = do
+-- | Get the CBOR-encoded representation of the token module account state.
+queryAccountState :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe BS.ByteString)
+queryAccountState account = do
     allowListEnabled <- isJust <$> getTokenState "allowList"
-    isAllowed <-
+    tmasAllowList <-
         if allowListEnabled
             then Just . isJust <$> getAccountState account "allowList"
             else return Nothing
     denyListEnabled <- isJust <$> getTokenState "denyList"
-    isDenied <-
+    tmasDenyList <-
         if denyListEnabled
             then Just . isJust <$> getAccountState account "denyList"
             else return Nothing
-    return (isAllowed, isDenied)
+    let tmasAdditional = Map.empty
+    return $ Just $ tokenModuleAccountStateToBytes TokenModuleAccountState{..}

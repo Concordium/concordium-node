@@ -9,7 +9,6 @@ import Control.Monad
 import Control.Monad.Cont
 import Control.Monad.Reader
 import Data.Bool.Singletons
-import Data.Functor
 import qualified Data.Map.Strict as Map
 import Data.Void
 
@@ -48,6 +47,15 @@ newtype QueryT fail ret m a = QueryT
 --  'QueryContext', and returning either the failure reason or the result.
 runQueryT :: (Monad m) => QueryT fail a m a -> QueryContext m -> m (Either fail a)
 runQueryT a ctx = runContT (runReaderT (runQueryT' a) ctx) (return . Right)
+
+-- | Run a @QueryT Void ret m a@ monadic action in the underlying monad @m@, given the
+--  'QueryContext', and returning the result. This is a variant of 'runQueryT' that does not
+--  allow for failure, and thus the failure case is impossible.
+runQueryTNoFail :: (Monad m) => QueryT Void a m a -> QueryContext m -> m a
+runQueryTNoFail a ctx =
+    runQueryT a ctx >>= \case
+        Right r -> return r
+        Left v -> case v of {}
 
 instance MonadTrans (QueryT fail ret) where
     lift = QueryT . lift . lift
@@ -133,6 +141,7 @@ queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFo
                                     }
                         return $ Right TokenInfo{tiTokenId = tokenId, tiTokenState = ts}
 
+-- | Get the list of 'Token's on an account.
 queryAccountTokens :: forall m. (PVSupportsPLT (MPV m), BS.BlockStateQuery m) => IndexedAccount m -> BlockState m -> m [Token]
 queryAccountTokens acc bs = do
     tokenStatesMap <- BS.getAccountTokens (snd acc)
@@ -144,18 +153,13 @@ queryAccountTokens acc bs = do
                       taDecimals = _pltDecimals pltConfiguration
                     }
         let ctx = QueryContext{qcTokenIndex = tokenIndex, qcBlockState = bs}
-        (isAllow, isDeny) <-
-            runQueryT @_ @Void (queryAccountListStatus acc) ctx <&> \case
-                Right (isAllow, isDeny) -> (isAllow, isDeny)
-                Left v -> case v of {}
+        accountState <- runQueryTNoFail (queryAccountState acc) ctx
         return
             Token
                 { tokenId = _pltTokenId pltConfiguration,
                   tokenAccountState =
                     TokenAccountState
                         { balance = accountBalance,
-                          -- TODO Support allow/deny list state in account info query (Issue https://linear.app/concordium/issue/COR-1349)
-                          memberAllowList = isAllow,
-                          memberDenyList = isDeny
+                          moduleAccountState = accountState
                         }
                 }
