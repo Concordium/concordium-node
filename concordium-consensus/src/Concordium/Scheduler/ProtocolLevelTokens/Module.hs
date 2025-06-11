@@ -101,150 +101,60 @@ initializeToken tokenParam = do
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
 
--- | A pre-processed token-holder operation. This has the transfer amount converted to a
---  'TokenRawAmount' and unwraps the metadata associated with the recipient and memo.
-data PreprocessedTokenHolderOperation = PTHOTransfer
-    { -- | The raw amount to transfer.
-      pthoAmount :: !TokenRawAmount,
-      -- | The recipient account address.
-      pthoRecipient :: !TokenHolder,
-      -- | The (optional) memo.
-      pthoMemo :: !(Maybe Memo),
-      -- | The original, unprocessed, 'TokenTransferBody'.
-      pthoUnprocessed :: !TokenTransferBody
-    }
+-- | A pre-processed token operation. This has all amounts converted to
+--  'TokenRawAmount's and unwraps the metadata associated with target accounts.
+data PreprocessedTokenOperation
+    = PTOTransfer
+        { -- | The raw amount to transfer.
+          pthoAmount :: !TokenRawAmount,
+          -- | The recipient account address.
+          pthoRecipient :: !TokenHolder,
+          -- | The (optional) memo.
+          pthoMemo :: !(Maybe Memo),
+          -- | The original, unprocessed, 'TokenTransferBody'.
+          pthoUnprocessed :: !TokenTransferBody
+        }
+    | PTOTokenMint
+        { ptgoAmount :: !TokenRawAmount,
+          ptgoUnprocessedAmount :: !TokenAmount
+        }
+    | PTOTokenBurn
+        { ptgoAmount :: !TokenRawAmount,
+          ptgoUnprocessedAmount :: !TokenAmount
+        }
+    | PTOTokenAddAllowList
+        {ptgoTarget :: !TokenHolder}
+    | PTOTokenRemoveAllowList
+        {ptgoTarget :: !TokenHolder}
+    | PTOTokenAddDenyList
+        {ptgoTarget :: !TokenHolder}
+    | PTOTokenRemoveDenyList
+        {ptgoTarget :: !TokenHolder}
+    deriving (Eq, Show)
 
--- | Convert 'TokenAmount's to 'TokenRawAmount's, checking that they are within the representable
---  range.
-preprocessTokenHolderTransaction ::
+preprocessTokenTransaction ::
     (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     Word8 ->
-    TokenHolderTransaction ->
-    m (Seq.Seq PreprocessedTokenHolderOperation)
-preprocessTokenHolderTransaction decimals = mapM preproc . tokenHolderTransactions
+    TokenTransaction ->
+    m (Seq.Seq PreprocessedTokenOperation)
+preprocessTokenTransaction decimals = mapM preproc . tokenOperations
   where
-    preproc (TokenHolderTransfer ttb@(TokenTransferBody{..})) =
+    preproc (TokenTransfer ttb@(TokenTransferBody{..})) =
         case toTokenRawAmount decimals ttAmount of
             Left err ->
                 pltError . encodeTokenRejectReason . DeserializationFailure . Just . Text.pack $
                     "Token amount outside representable range: " ++ err
-            Right pthoAmount -> return PTHOTransfer{..}
+            Right pthoAmount -> return PTOTransfer{..}
               where
                 pthoRecipient = ttRecipient
                 pthoMemo = taggableMemoInner <$> ttMemo
                 pthoUnprocessed = ttb
-
--- | Execute a token-holder transaction. The process is as follows:
---
---   - Decode the transaction CBOR parameter.
---   - Check that amounts are within the representable range.
---   - For each transfer operation:
---
---       - Check that the recipient is valid.
---       - Transfer the amount from the sender to the recipient, if the sender's balance is
---         sufficient.
-executeTokenHolderTransaction ::
-    (PLTKernelUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
-    TransactionContext m ->
-    TokenParameter ->
-    m ()
-executeTokenHolderTransaction TransactionContext{..} tokenParam = do
-    case tokenHolderTransactionFromBytes tokenParamLBS of
-        Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
-        Right parsedTransaction -> do
-            decimals <- getDecimals
-            operations <- preprocessTokenHolderTransaction decimals parsedTransaction
-            let handleOperation !opIndex PTHOTransfer{..} = do
-                    recipientAccount <- requireAccount opIndex pthoRecipient
-                    -- If the allow list is enabled, check that the sender and recipient are
-                    -- both on the allow list.
-                    enforceAllowList <- isJust <$> getTokenState "allowList"
-                    when enforceAllowList $ do
-                        senderAllowed <- isJust <$> getAccountState tcSender "allowList"
-                        unless senderAllowed $ do
-                            failTH
-                                OperationNotPermitted
-                                    { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted =
-                                        Just (accountTokenHolder tcSenderAddress),
-                                      trrReason = Just "sender not in allow list"
-                                    }
-                        recipientAllowed <- isJust <$> getAccountState recipientAccount "allowList"
-                        unless recipientAllowed $ do
-                            failTH
-                                OperationNotPermitted
-                                    { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted = Just pthoRecipient,
-                                      trrReason = Just "recipient not in allow list"
-                                    }
-                    enforceDenyList <- isJust <$> getTokenState "denyList"
-                    -- If the deny list is enabled, check that neither the sender nor the
-                    -- recipient are on the deny list.
-                    when enforceDenyList $ do
-                        senderDenied <- isJust <$> getAccountState tcSender "denyList"
-                        when senderDenied $ do
-                            failTH
-                                OperationNotPermitted
-                                    { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted =
-                                        Just (accountTokenHolder tcSenderAddress),
-                                      trrReason = Just "sender in deny list"
-                                    }
-                        recipientDenied <- isJust <$> getAccountState recipientAccount "denyList"
-                        when recipientDenied $ do
-                            failTH
-                                OperationNotPermitted
-                                    { trrOperationIndex = opIndex,
-                                      trrAddressNotPermitted = Just pthoRecipient,
-                                      trrReason = Just "recipient in deny list"
-                                    }
-                    pltTickEnergy tokenTransferCost
-                    success <- transfer tcSender recipientAccount pthoAmount pthoMemo
-                    unless success $ do
-                        availableBalance <- getAccountBalance tcSender
-                        failTH
-                            TokenBalanceInsufficient
-                                { trrOperationIndex = opIndex,
-                                  trrAvailableBalance = toTokenAmount decimals availableBalance,
-                                  trrRequiredBalance = ttAmount pthoUnprocessed
-                                }
-                    return (opIndex + 1)
-            foldM_ handleOperation 0 operations
-  where
-    tokenParamLBS =
-        BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
-    failTH = pltError . encodeTokenRejectReason
-
--- | A pre-processed token-governance operation. This has all amounts converted to
---  'TokenRawAmount's and unwraps the metadata associated with target accounts.
-data PreprocessedTokenGovernanceOperation
-    = PTGOTokenMint
-        {ptgoAmount :: !TokenRawAmount, ptgoUnprocessedAmount :: !TokenAmount}
-    | PTGOTokenBurn
-        {ptgoAmount :: !TokenRawAmount, ptgoUnprocessedAmount :: !TokenAmount}
-    | PTGOTokenAddAllowList
-        {ptgoTarget :: !TokenHolder}
-    | PTGOTokenRemoveAllowList
-        {ptgoTarget :: !TokenHolder}
-    | PTGOTokenAddDenyList
-        {ptgoTarget :: !TokenHolder}
-    | PTGOTokenRemoveDenyList
-        {ptgoTarget :: !TokenHolder}
-    deriving (Eq, Show)
-
-preprocessTokenGovernanceTransaction ::
-    (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
-    Word8 ->
-    TokenGovernanceTransaction ->
-    m (Seq.Seq PreprocessedTokenGovernanceOperation)
-preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOperations
-  where
     preproc (TokenMint amount) =
         case toTokenRawAmount decimals amount of
             Left err ->
                 pltError . encodeTokenRejectReason . DeserializationFailure . Just . Text.pack $
                     "Token mint amount outside representable range: " ++ err
-            Right ptgoAmount -> return PTGOTokenMint{..}
+            Right ptgoAmount -> return PTOTokenMint{..}
       where
         ptgoUnprocessedAmount = amount
     preproc (TokenBurn amount) =
@@ -252,17 +162,17 @@ preprocessTokenGovernanceTransaction decimals = mapM preproc . tokenGovernanceOp
             Left err ->
                 pltError . encodeTokenRejectReason . DeserializationFailure . Just . Text.pack $
                     "Token burn amount outside representable range: " ++ err
-            Right ptgoAmount -> return PTGOTokenBurn{..}
+            Right ptgoAmount -> return PTOTokenBurn{..}
       where
         ptgoUnprocessedAmount = amount
     preproc (TokenAddAllowList receiver) =
-        return PTGOTokenAddAllowList{ptgoTarget = receiver}
+        return PTOTokenAddAllowList{ptgoTarget = receiver}
     preproc (TokenRemoveAllowList receiver) =
-        return PTGOTokenRemoveAllowList{ptgoTarget = receiver}
+        return PTOTokenRemoveAllowList{ptgoTarget = receiver}
     preproc (TokenAddDenyList receiver) =
-        return PTGOTokenAddDenyList{ptgoTarget = receiver}
+        return PTOTokenAddDenyList{ptgoTarget = receiver}
     preproc (TokenRemoveDenyList receiver) =
-        return PTGOTokenRemoveDenyList{ptgoTarget = receiver}
+        return PTOTokenRemoveDenyList{ptgoTarget = receiver}
 
 -- | Encode and log a 'TokenEvent'.
 logEncodeTokenEvent :: (PLTKernelUpdate m) => TokenEvent -> m ()
@@ -274,20 +184,79 @@ logEncodeTokenEvent te = logTokenEvent eventType details
 --
 --   - Decode the transaction CBOR parameter.
 --   - Check that amounts are within the representable range.
-executeTokenGovernanceTransaction ::
+--   - For each transfer operation:
+--
+--       - Check that the recipient is valid.
+--       - Transfer the amount from the sender to the recipient, if the sender's balance is
+--         sufficient.
+executeTokenTransaction ::
     (PLTKernelPrivilegedUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     TransactionContext m ->
     TokenParameter ->
     m ()
-executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
-    case tokenGovernanceTransactionFromBytes tokenParamLBS of
+executeTokenTransaction TransactionContext{..} tokenParam = do
+    case tokenTransactionFromBytes tokenParamLBS of
         Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
         Right parsedTransaction -> do
             decimals <- getDecimals
-            operations <- preprocessTokenGovernanceTransaction decimals parsedTransaction
+            operations <- preprocessTokenTransaction decimals parsedTransaction
             let handleOperation !opIndex op = do
                     case op of
-                        PTGOTokenMint{..} -> do
+                        PTOTransfer{..} -> do
+                            recipientAccount <- requireAccount opIndex pthoRecipient
+                            -- If the allow list is enabled, check that the sender and recipient are
+                            -- both on the allow list.
+                            enforceAllowList <- isJust <$> getTokenState "allowList"
+                            when enforceAllowList $ do
+                                senderAllowed <- isJust <$> getAccountState tcSender "allowList"
+                                unless senderAllowed $ do
+                                    failTH
+                                        OperationNotPermitted
+                                            { trrOperationIndex = opIndex,
+                                              trrAddressNotPermitted =
+                                                Just (accountTokenHolder tcSenderAddress),
+                                              trrReason = Just "sender not in allow list"
+                                            }
+                                recipientAllowed <- isJust <$> getAccountState recipientAccount "allowList"
+                                unless recipientAllowed $ do
+                                    failTH
+                                        OperationNotPermitted
+                                            { trrOperationIndex = opIndex,
+                                              trrAddressNotPermitted = Just pthoRecipient,
+                                              trrReason = Just "recipient not in allow list"
+                                            }
+                            enforceDenyList <- isJust <$> getTokenState "denyList"
+                            -- If the deny list is enabled, check that neither the sender nor the
+                            -- recipient are on the deny list.
+                            when enforceDenyList $ do
+                                senderDenied <- isJust <$> getAccountState tcSender "denyList"
+                                when senderDenied $ do
+                                    failTH
+                                        OperationNotPermitted
+                                            { trrOperationIndex = opIndex,
+                                              trrAddressNotPermitted =
+                                                Just (accountTokenHolder tcSenderAddress),
+                                              trrReason = Just "sender in deny list"
+                                            }
+                                recipientDenied <- isJust <$> getAccountState recipientAccount "denyList"
+                                when recipientDenied $ do
+                                    failTH
+                                        OperationNotPermitted
+                                            { trrOperationIndex = opIndex,
+                                              trrAddressNotPermitted = Just pthoRecipient,
+                                              trrReason = Just "recipient in deny list"
+                                            }
+                            pltTickEnergy tokenTransferCost
+                            success <- transfer tcSender recipientAccount pthoAmount pthoMemo
+                            unless success $ do
+                                availableBalance <- getAccountBalance tcSender
+                                failTH
+                                    TokenBalanceInsufficient
+                                        { trrOperationIndex = opIndex,
+                                          trrAvailableBalance = toTokenAmount decimals availableBalance,
+                                          trrRequiredBalance = ttAmount pthoUnprocessed
+                                        }
+                        PTOTokenMint{..} -> do
                             requireFeature opIndex "mint" "mintable"
                             pltTickEnergy tokenMintCost
                             mintOK <- mint tcSender ptgoAmount
@@ -301,7 +270,7 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                                           trrMaxRepresentableAmount =
                                             toTokenAmount decimals (maxBound :: TokenRawAmount)
                                         }
-                        PTGOTokenBurn{..} -> do
+                        PTOTokenBurn{..} -> do
                             requireFeature opIndex "burn" "burnable"
                             pltTickEnergy tokenBurnCost
                             burnOK <- burn tcSender ptgoAmount
@@ -313,25 +282,25 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
                                           trrAvailableBalance = toTokenAmount decimals availableBalance,
                                           trrRequiredBalance = ptgoUnprocessedAmount
                                         }
-                        PTGOTokenAddAllowList{..} -> do
+                        PTOTokenAddAllowList{..} -> do
                             requireFeature opIndex "addAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
                             pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" (Just "")
                             logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
-                        PTGOTokenRemoveAllowList{..} -> do
+                        PTOTokenRemoveAllowList{..} -> do
                             requireFeature opIndex "removeAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
                             pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" Nothing
                             logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
-                        PTGOTokenAddDenyList{..} -> do
+                        PTOTokenAddDenyList{..} -> do
                             requireFeature opIndex "addDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
                             pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" (Just "")
                             logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
-                        PTGOTokenRemoveDenyList{..} -> do
+                        PTOTokenRemoveDenyList{..} -> do
                             requireFeature opIndex "removeDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
                             pltTickEnergy tokenListOperationCost
