@@ -396,7 +396,7 @@ queryTokenModuleState = do
     return $ tokenModuleStateToBytes TokenModuleState{..}
   where
     corruptMetadataError reason =
-        pltError $ QTEInvariantViolation $ "Corrupt token metadata" ++ reason
+        pltError $ QTEInvariantViolation $ "Corrupt token metadata: " ++ reason
 
 queryAccountListStatus :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe Bool, Maybe Bool)
 queryAccountListStatus account = do
