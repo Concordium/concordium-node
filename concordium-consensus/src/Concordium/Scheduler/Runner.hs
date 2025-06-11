@@ -136,10 +136,8 @@ transactionHelper t =
             return $ signTx keys meta (Types.encodePayload Types.ConfigureBaker{..})
         (TJSON meta ConfigureDelegation{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.ConfigureDelegation{..})
-        (TJSON meta TokenHolder{..} keys) ->
+        (TJSON meta TokenUpdate{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.TokenHolder{..})
-        (TJSON meta TokenGovernance{..} keys) ->
-            return $ signTx keys meta (Types.encodePayload Types.TokenGovernance{..})
 
 -- | Process account transactions.
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON] -> m [Types.AccountTransaction]
