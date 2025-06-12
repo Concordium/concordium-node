@@ -168,6 +168,7 @@ import Concordium.Types.Accounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.Types.IdentityProviders as IPS
 import Concordium.Types.Parameters
+import Concordium.Types.Tokens (TokenRawAmount (..))
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Wasm
@@ -1576,6 +1577,7 @@ instance (MonadBlobStore m) => BlobStorable m ()
 instance (MonadBlobStore m) => BlobStorable m Word8
 instance (MonadBlobStore m) => BlobStorable m Word32
 instance (MonadBlobStore m) => BlobStorable m Word64
+instance (MonadBlobStore m) => BlobStorable m TokenRawAmount
 
 instance (MonadBlobStore m) => BlobStorable m AccountEncryptedAmount
 instance (MonadBlobStore m) => BlobStorable m PersistingAccountData

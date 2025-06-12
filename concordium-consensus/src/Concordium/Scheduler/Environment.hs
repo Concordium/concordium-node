@@ -46,7 +46,7 @@ import Control.Exception (assert)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Token
 import qualified Concordium.ID.Types as ID
-import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTAccount, PLTKernelFail, PLTKernelPrivilegedUpdate)
+import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTAccount, PLTKernelChargeEnergy, PLTKernelFail, PLTKernelPrivilegedUpdate)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
@@ -93,6 +93,13 @@ data RemoveExistingStake
     | -- | The account has no existing stake.
       NoExistingStake
     deriving (Eq, Show)
+
+-- | PLT module execution error.
+data PLTExecutionError fail
+    = -- | The PLT module run out of energy during execution.
+      PLTEOutOfEnergy
+    | -- | The PLT module encountered a runtime error during execution.
+      PLTEFail fail
 
 -- | Information needed to execute transactions in the form that is easy to use.
 class
@@ -374,19 +381,47 @@ class
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     getTokenConfiguration :: (PVSupportsPLT (MPV m)) => Token.TokenIndex -> m Token.PLTConfiguration
 
-    -- | Take a snapshot of the current block state, and run the given computation. If the result
-    --  is @Left e@, then the block state is reverted to the snapshot. Otherwise, any changes to
-    --  the block state are retained. The return value is the result of the computation.
-    withBlockStateRollback :: m (Either e a) -> m (Either e a)
+    -- | Take a snapshot of the current block state, and run the given
+    --  computation. If the result is @(_, True)@, then the block state is
+    --  reverted to the snapshot. Otherwise, any changes to the block state are
+    --  retained. The return value is the result of the computation.
+    withBlockStateRollback :: m (a, Bool) -> m a
 
     -- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel.
-    --
+    --  This call does not charge energy.
     --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
     runPLT ::
         (PVSupportsPLT (MPV m)) =>
         Token.TokenIndex ->
-        (forall m1. (Monad m1, PLTKernelPrivilegedUpdate m1, PLTKernelFail e m1, PLTAccount m1 ~ AccountIndex) => m1 a) ->
-        m (Either e a)
+        ( forall m1.
+          ( Monad m1,
+            PLTKernelPrivilegedUpdate m1,
+            PLTKernelFail e m1,
+            PLTAccount m1 ~ (AccountIndex, AccountAddress)
+          ) =>
+          m1 a
+        ) ->
+        m (Either e a, [Event])
+
+    -- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel
+    --  and uses at the maximum the specified amount of energy. Returns the result of
+    --  the computation together with the used energy.
+    --
+    --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
+    runPLTWithEnergy ::
+        (PVSupportsPLT (MPV m)) =>
+        Token.TokenIndex ->
+        Energy ->
+        ( forall m1.
+          ( Monad m1,
+            PLTKernelPrivilegedUpdate m1,
+            PLTKernelFail e m1,
+            PLTKernelChargeEnergy m1,
+            PLTAccount m1 ~ (AccountIndex, AccountAddress)
+          ) =>
+          m1 a
+        ) ->
+        m (Either (PLTExecutionError e) a, [Event], Energy)
 
     -- | Create a new protocol-layer token with the given 'PLTConfiguration'.
     --

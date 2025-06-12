@@ -2343,7 +2343,7 @@ impl ConsensusContainer {
         let token_id_len = token_id.value.as_bytes().len();
         if token_id_len > 255 {
             return Err(tonic::Status::invalid_argument(
-                "TokenId: symbol length must be at most 255 bytes",
+                "TokenId: length must be at most 255 bytes",
             ));
         }
         let token_id_len = token_id_len as u8;
