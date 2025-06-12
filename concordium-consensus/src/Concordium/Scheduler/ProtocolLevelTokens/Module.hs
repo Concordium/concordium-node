@@ -36,6 +36,7 @@ type TransactionContext m = TransactionContext' (PLTAccount m)
 data InitializeTokenError
     = ITEDeserializationFailure !String
     | ITEInvalidMintAmount !String
+    | ITEGovernanceAccountDoesNotExist !AccountAddress
     deriving (Eq)
 
 instance Show InitializeTokenError where
@@ -43,6 +44,8 @@ instance Show InitializeTokenError where
         "Token initialization parameters could not be deserialized: " ++ reason
     show (ITEInvalidMintAmount reason) =
         "The initial mint amount was not valid: " ++ reason
+    show (ITEGovernanceAccountDoesNotExist account) =
+        "The given governance account does not exist: " ++ show account
 
 -- | Try to convert a 'TokenAmount' to a 'TokenRawAmount'. The latter is represented in the
 --  smallest subdivision allowed for the current token.
@@ -86,21 +89,22 @@ initializeToken tokenParam = do
         Right TokenInitializationParameters{..} -> do
             setTokenState "name" (Just $ Text.encodeUtf8 tipName)
             setTokenState "metadata" (Just $ Text.encodeUtf8 tipMetadata)
-            setTokenState "governanceAccount" (Just $ encode tipGovernanceAccount)
             when tipAllowList $ setTokenState "allowList" (Just "")
             when tipDenyList $ setTokenState "denyList" (Just "")
             when tipMintable $ setTokenState "mintable" (Just "")
             when tipBurnable $ setTokenState "burnable" (Just "")
-            forM_ tipInitialSupply $ \initSupply -> do
-                decimals <- getDecimals
-                case toTokenRawAmount decimals initSupply of
-                    Left reason -> pltError (ITEInvalidMintAmount reason)
-                    Right amt -> do
-                        govAccount <- getAccount tipGovernanceAccount
-                        case govAccount of
-                            Nothing -> error "TODO(drsk) deal with bad governance account in initialization"
-                            Just acc -> do
-                                mintOK <- mint acc amt
+            mbGovAccount <- getAccount tipGovernanceAccount
+            case mbGovAccount of
+                Nothing ->
+                    pltError (ITEGovernanceAccountDoesNotExist tipGovernanceAccount)
+                Just govAccount -> do
+                    setTokenState "governanceAccount" (Just $ encode tipGovernanceAccount)
+                    forM_ tipInitialSupply $ \initSupply -> do
+                        decimals <- getDecimals
+                        case toTokenRawAmount decimals initSupply of
+                            Left reason -> pltError (ITEInvalidMintAmount reason)
+                            Right amt -> do
+                                mintOK <- mint govAccount amt
                                 unless mintOK $ pltError (ITEInvalidMintAmount "Kernel failed to mint")
   where
     tokenParamLBS =
