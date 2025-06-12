@@ -2694,10 +2694,6 @@ handleToken depositContext tokenId tokenOperations =
                 Just tokenIndex -> return tokenIndex
                 Nothing -> rejectTransaction $ NonExistentTokenId tokenId
         configuration <- lift $ getTokenConfiguration tokenIndex
-        -- TODO(drsk) authorization moves to token module
-        -- let governanceAccountIndex = Token._pltGovernanceAccountIndex configuration
-        -- when (governanceAccountIndex /= fst senderAccount) $ rejectTransaction $ UnauthorizedTokenGovernance tokenId
-        -- Find the reference for the token module.
         let moduleRef = Token._pltModule configuration
         -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
         -- Invoke the token module with operations.
