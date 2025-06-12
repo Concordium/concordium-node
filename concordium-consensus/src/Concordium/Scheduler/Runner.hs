@@ -137,7 +137,7 @@ transactionHelper t =
         (TJSON meta ConfigureDelegation{..} keys) ->
             return $ signTx keys meta (Types.encodePayload Types.ConfigureDelegation{..})
         (TJSON meta TokenUpdate{..} keys) ->
-            return $ signTx keys meta (Types.encodePayload Types.TokenHolder{..})
+            return $ signTx keys meta (Types.encodePayload Types.TokenUpdate{..})
 
 -- | Process account transactions.
 processTransactions :: (MonadFail m, MonadIO m) => [TransactionJSON] -> m [Types.AccountTransaction]
@@ -297,17 +297,11 @@ data PayloadJSON
           -- | The target of the delegation.
           cdDelegationTarget :: !(Maybe Types.DelegationTarget)
         }
-    | TokenHolder
+    | TokenUpdate
         { -- | Identifier of the token type to which the transaction refers.
           thTokenId :: !Types.TokenId,
           -- | The CBOR-encoded operations to perform.
           thOperations :: !Types.TokenParameter
-        }
-    | TokenGovernance
-        { -- | Identifier of the token type to which the transaction refers.
-          tgTokenId :: !Types.TokenId,
-          -- | The CBOR-encoded operations to perform.
-          tgOperations :: !Types.TokenParameter
         }
     deriving (Show, Generic)
 
