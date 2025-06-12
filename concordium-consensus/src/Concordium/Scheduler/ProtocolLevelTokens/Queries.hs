@@ -68,14 +68,6 @@ instance (BS.BlockStateQuery m, PVSupportsPLT (MPV m)) => PLTKernelQuery (QueryT
         lift $ BS.getAccountTokenState (snd acct) qcTokenIndex key
     getAccountCanonicalAddress acct = do
         lift $ BS.getAccountCanonicalAddress (snd acct)
-    getGovernanceAccount = do
-        QueryContext{..} <- ask
-        lift $ do
-            config <- BS.getTokenConfiguration qcBlockState qcTokenIndex
-            let govIndex = _pltGovernanceAccountIndex config
-            BS.getAccountByIndex qcBlockState govIndex >>= \case
-                Nothing -> error "getGovernanceAccount: Token governance account does not exist"
-                Just acct -> return acct
     getCirculatingSupply = do
         QueryContext{..} <- ask
         lift $ BS.getTokenCirculatingSupply qcBlockState qcTokenIndex
@@ -113,11 +105,6 @@ queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFo
             Nothing -> return (Left QTIEUnknownToken)
             Just tokenIx -> do
                 PLTConfiguration{..} <- BS.getTokenConfiguration bs tokenIx
-                mGovAcct <- BS.getAccountByIndex bs _pltGovernanceAccountIndex
-                let govAccount = case mGovAcct of
-                        Nothing -> error "queryTokenInfo: Token has an invalid governance account"
-                        Just (_, govAcct) -> govAcct
-                govAddr <- BS.getAccountCanonicalAddress govAccount
                 totalSupply <- BS.getTokenCirculatingSupply bs tokenIx
                 let ctx = QueryContext{qcTokenIndex = tokenIx, qcBlockState = bs}
                 runQueryT queryTokenModuleState ctx >>= \case
@@ -126,7 +113,6 @@ queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFo
                         let ts =
                                 TokenState
                                     { tsTokenModuleRef = _pltModule,
-                                      tsIssuer = govAddr,
                                       tsDecimals = _pltDecimals,
                                       tsTotalSupply = toTokenAmount _pltDecimals totalSupply,
                                       tsModuleState = tms

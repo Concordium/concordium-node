@@ -2891,11 +2891,6 @@ handleCreatePLT :: (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> 
 handleCreatePLT updateHeader payload = runExceptT $ do
     unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
     -- TODO: Check signature when relevant update keys are introduced (Issue https://linear.app/concordium/issue/NOD-701).
-    let governanceAccountAddress = payload ^. cpltGovernanceAccount
-    (governanceAccountIndex, _governanceAccount) <-
-        lift (getStateAccount governanceAccountAddress) >>= \case
-            Nothing -> throwError $ UnknownAccount governanceAccountAddress
-            Just govAcct -> return govAcct
     let tokenId = payload ^. cpltTokenId
     maybeExistingToken <- lift $ getTokenIndex tokenId
     when (isJust maybeExistingToken) $ throwError $ DuplicateTokenId tokenId
@@ -2904,8 +2899,7 @@ handleCreatePLT updateHeader payload = runExceptT $ do
                 PLTConfiguration
                     { _pltTokenId = tokenId,
                       _pltModule = payload ^. cpltTokenModule,
-                      _pltDecimals = payload ^. cpltDecimals,
-                      _pltGovernanceAccountIndex = governanceAccountIndex
+                      _pltDecimals = payload ^. cpltDecimals
                     }
         tokenIx <- createToken config
         (res, events) <- runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)

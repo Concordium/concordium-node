@@ -579,16 +579,6 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
             BS.bsoGetAccountByIndex bs acctIndex >>= \case
                 Nothing -> error "getAccountCanonicalAddress: Account does not exist"
                 Just acct -> BS.getAccountCanonicalAddress acct
-    getGovernanceAccount = do
-        PLTExecutionContext{..} <- ask
-        let govIndex = _pltGovernanceAccountIndex _pltecConfiguration
-        bs <- use plteBlockState
-        lift $ do
-            canonicalAddress <-
-                BS.bsoGetAccountByIndex bs govIndex >>= \case
-                    Nothing -> error "getGovernanceAccount: Governance account does not exist"
-                    Just acc -> BS.getAccountCanonicalAddress acc
-            return (govIndex, canonicalAddress)
     getCirculatingSupply = do
         tokenIx <- asks _pltecTokenIndex
         bs <- use plteBlockState

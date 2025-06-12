@@ -21,7 +21,6 @@ class PLTKernelQuery m where
     getAccountBalance :: PLTAccount m -> m TokenRawAmount
     getAccountState :: PLTAccount m -> TokenStateKey -> m (Maybe TokenStateValue)
     getAccountCanonicalAddress :: PLTAccount m -> m AccountAddress
-    getGovernanceAccount :: m (PLTAccount m)
     getCirculatingSupply :: m TokenRawAmount
     getDecimals :: m Word8
 
