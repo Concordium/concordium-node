@@ -1763,7 +1763,7 @@ enqueueUpdate effectiveTime payload uref = withCPVConstraints (chainParametersVe
     refMake u{pendingUpdates = newPendingUpdates}
 
 -- | Increment the update sequence number for Protocol Level Tokens (PLT).
--- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs. -- Conditionally (SupportsCreatePLT auv)
+-- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
 incrementPLTUpdateSequenceNumber ::
     forall m cpv auv.
     (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv, SupportsCreatePLT auv ~ 'True) =>
