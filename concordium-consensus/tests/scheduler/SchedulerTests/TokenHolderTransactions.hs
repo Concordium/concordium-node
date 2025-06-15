@@ -133,7 +133,7 @@ testTokenHolder _ pvString =
     params =
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
-              tipMetadata = "https://plt.token",
+              tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
               tipAllowList = True,
               tipDenyList = False,
               tipInitialSupply = Nothing,

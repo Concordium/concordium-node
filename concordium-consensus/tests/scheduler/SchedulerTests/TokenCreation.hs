@@ -119,7 +119,7 @@ testCreatePLT _ pvString = describe pvString $ do
     params1 =
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
-              tipMetadata = "https://plt.token",
+              tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
               tipAllowList = False,
               tipDenyList = False,
               tipInitialSupply = Nothing,
@@ -138,7 +138,7 @@ testCreatePLT _ pvString = describe pvString $ do
     params2 =
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
-              tipMetadata = "https://plt.token",
+              tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
               tipAllowList = False,
               tipDenyList = False,
               tipInitialSupply = Just (TokenAmount 10 0),
