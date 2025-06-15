@@ -334,7 +334,7 @@ makeInitialState ::
     -- | Length of the reward period.
     RewardPeriodLength ->
     m (PersistentBlockState pv)
-makeInitialState accs seedState rpLen = withIsAuthorizationsVersionForPV (protocolVersion @pv) $ do
+makeInitialState accs seedState rpLen = withIsAuthorizationsVersionFor (protocolVersion @pv) $ do
     initialAccounts <- mapM makeDummyAccount accs
     let chainParams :: ChainParameters pv
         chainParams = DummyData.dummyChainParameters & cpTimeParameters . tpRewardPeriodLength .~ rpLen

@@ -171,7 +171,7 @@ class (Monad m, Types.MonadProtocolVersion m) => TransactionVerifier m where
     getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
 
     -- | Get the UpdateKeysCollection
-    getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Types.AuthorizationsVersionForPV (Types.MPV m)))
+    getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Types.AuthorizationsVersionFor (Types.MPV m)))
 
     -- | Get the current available amount for the specified account.
     getAccountAvailableAmount :: GSTypes.Account m -> m Types.Amount

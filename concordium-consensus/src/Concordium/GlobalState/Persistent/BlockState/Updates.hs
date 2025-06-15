@@ -258,14 +258,14 @@ migratePendingUpdates ::
       SupportMigration m t
     ) =>
     StateMigrationParameters oldpv pv ->
-    PendingUpdates (ChainParametersVersionFor oldpv) (AuthorizationsVersionForPV oldpv) ->
-    t m (PendingUpdates (ChainParametersVersionFor pv) (AuthorizationsVersionForPV pv))
+    PendingUpdates (ChainParametersVersionFor oldpv) (AuthorizationsVersionFor oldpv) ->
+    t m (PendingUpdates (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv))
 migratePendingUpdates migration PendingUpdates{..} = withCPVConstraints (chainParametersVersion @(ChainParametersVersionFor oldpv)) $ withCPVConstraints (chainParametersVersion @(ChainParametersVersionFor pv)) $ do
     newRootKeys <- migrateHashedBufferedRef (migrateUpdateQueue id) pRootKeysUpdateQueue
     newLevel1Keys <- migrateHashedBufferedRef (migrateUpdateQueue id) pLevel1KeysUpdateQueue
     newLevel2Keys <-
-        withIsAuthorizationsVersionForPV (protocolVersion @oldpv) $
-            withIsAuthorizationsVersionForPV (protocolVersion @pv) $
+        withIsAuthorizationsVersionFor (protocolVersion @oldpv) $
+            withIsAuthorizationsVersionFor (protocolVersion @pv) $
                 migrateHashedBufferedRef (migrateUpdateQueue (migrateAuthorizations migration)) pLevel2KeysUpdateQueue
     -- We clear the protocol update queue (preserving the next sequence number).
     -- This was already done before migration prior to P5->P6.
@@ -795,8 +795,8 @@ migrateUpdates migration Updates{..} = do
                   ..
                 }
     newKeyCollection <-
-        withIsAuthorizationsVersionForPV (protocolVersion @oldpv) $
-            withIsAuthorizationsVersionForPV (protocolVersion @pv) $
+        withIsAuthorizationsVersionFor (protocolVersion @oldpv) $
+            withIsAuthorizationsVersionFor (protocolVersion @pv) $
                 migrateHashedBufferedRef
                     (return . StoreSerialized . migrateKeysCollection . unStoreSerialized)
                     currentKeyCollection
@@ -811,7 +811,7 @@ migrateUpdates migration Updates{..} = do
             StateMigrationParametersP5ToP6 _ -> CFalse
             StateMigrationParametersP6ToP7 -> CFalse
             StateMigrationParametersP7ToP8 _ -> CFalse
-            StateMigrationParametersP8ToP9 -> CTrue minUpdateSequenceNumber
+            StateMigrationParametersP8ToP9 _ -> CTrue minUpdateSequenceNumber
     return
         Updates
             { currentKeyCollection = newKeyCollection,
@@ -824,7 +824,7 @@ migrateUpdates migration Updates{..} = do
               pltUpdateSequenceNumber = newPltUpdateSequenceNumber
             }
 
-type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv) (AuthorizationsVersionForPV pv)
+type Updates (pv :: ProtocolVersion) = Updates' (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv)
 
 instance (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) => MHashableTo m H.Hash (Updates' cpv auv) where
     getHashM Updates{..} = do
@@ -840,6 +840,12 @@ instance (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersio
                         Some hcpu -> "\x01" <> H.hashToByteString hcpu
                     <> H.hashToByteString hCP
                     <> H.hashToByteString hPU
+                    <> hshPLT
+      where
+        hshPLT = case pltUpdateSequenceNumber of
+            CFalse -> mempty
+            CTrue usn -> H.hashToByteString $ H.hash $ runPut $ do
+                put usn
 
 instance
     (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
@@ -905,7 +911,6 @@ makePersistentUpdates ::
     UQ.Updates' cpv auv ->
     m (Updates' cpv auv)
 makePersistentUpdates UQ.Updates{..} = do
-    -- withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     currentKeyCollection <- refMake (StoreSerialized (_unhashed _currentKeyCollection))
     currentProtocolUpdate <- case _currentProtocolUpdate of
         Nothing -> return Null
@@ -922,7 +927,6 @@ makeBasicUpdates ::
     (Updates' cpv auv) ->
     m (UQ.Updates' cpv auv)
 makeBasicUpdates Updates{..} = do
-    -- withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     hKC <- getHashM currentKeyCollection
     kc <- unStoreSerialized <$> refLoad currentKeyCollection
     let _currentKeyCollection = Hashed kc hKC
@@ -988,7 +992,6 @@ processLevel1KeysUpdates ::
     BufferedRef (Updates' cpv auv) ->
     m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
 processLevel1KeysUpdates t bu = do
-    -- withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     level1KeysQueue <- refLoad (pLevel1KeysUpdateQueue pendingUpdates)
     previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection
@@ -1011,7 +1014,6 @@ processLevel2KeysUpdates ::
     BufferedRef (Updates' cpv auv) ->
     m (Map.Map TransactionTime (UpdateValue cpv auv), BufferedRef (Updates' cpv auv))
 processLevel2KeysUpdates t bu = do
-    -- withIsAuthorizationsVersionFor (chainParametersVersion @cpv) $ do
     u@Updates{..} <- refLoad bu
     level2KeysQueue <- refLoad (pLevel2KeysUpdateQueue pendingUpdates)
     previousKeyCollection <- unStoreSerialized <$> refLoad currentKeyCollection

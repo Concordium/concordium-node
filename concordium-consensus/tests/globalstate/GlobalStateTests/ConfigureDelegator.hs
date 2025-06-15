@@ -253,7 +253,7 @@ runAddDelegatorTest spv dtc@DelegatorTestConfig{..} da@DelegatorAdd{..} = runTes
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
 
 -- | Test 'bsoAddDelegator' with a random configurations.
@@ -457,7 +457,7 @@ runUpdateDelegatorTest spv dtc@DelegatorTestConfig{..} du@DelegatorUpdate{..} = 
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
 
 -- | Test 'bsoUpdateDelegator' with a random configurations.

@@ -958,7 +958,7 @@ mintAndReward ::
     -- | Number of "free" transactions of each type
     FreeTransactionCounts ->
     -- | Ordered chain updates since the last block
-    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionForPV (MPV m)))] ->
+    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))] ->
     m (UpdatableBlockState m)
 mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo transFees freeCounts updates =
     case protocolVersion @(MPV m) of
@@ -1059,7 +1059,7 @@ updateBirkParameters ::
     -- | Chain parameters at the previous block
     ChainParameters (MPV m) ->
     -- | Chain updates since the previous block
-    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionForPV (MPV m)))] ->
+    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))] ->
     m (MintRewardParams (ChainParametersVersionFor (MPV m)) (AccountVersionFor (MPV m)), UpdatableBlockState m)
 updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocolVersion @(MPV m) of
     SP1 -> updateCPV0AccountV0
@@ -1188,7 +1188,7 @@ putBakerCommissionsInRange ranges bs (BakerId ai) = case protocolVersion @(MPV m
 -- | The result of executing the block prologue.
 data PrologueResult m = PrologueResult
     { -- | Ordered list of chain parameter updates that have occurred since the previous block.
-      prologueUpdates :: [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionForPV (MPV m)))],
+      prologueUpdates :: [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))],
       -- | The parameters required for mint and rewarding in the block epilogue.
       prologueMintRewardParams :: MintRewardParams (ChainParametersVersionFor (MPV m)) (AccountVersionFor (MPV m)),
       -- | The updated block state after executing the prologue.

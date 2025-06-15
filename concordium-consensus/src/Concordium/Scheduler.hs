@@ -2918,9 +2918,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
-    sauv :: SAuthorizationsVersion (AuthorizationsVersionForPV (MPV m))
-    sauv = sAuthorizationsVersionForPV $ protocolVersion @(MPV m)
-    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionForPV (MPV m)) -> m TxResult
+    sauv :: SAuthorizationsVersion (AuthorizationsVersionFor (MPV m))
+    sauv = sAuthorizationsVersionFor $ protocolVersion @(MPV m)
+    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
         case maybeVerificationResult of
             Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do

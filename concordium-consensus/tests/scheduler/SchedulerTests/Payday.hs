@@ -246,7 +246,7 @@ propMintDistributionImmediate ::
     -- | Number of "free" transactions of each type
     FreeTransactionCounts ->
     -- | Ordered chain updates since the last block
-    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionForPV (MPV m)))] ->
+    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))] ->
     m Bool
 propMintDistributionImmediate bs0 blockParent slotNumber bid newEpoch mfinInfo newSeedState transFees freeCounts updates = do
     oldChainParameters <- bsoGetChainParameters bs0
@@ -304,7 +304,7 @@ genesis nBakers =
         dummyArs
         []
         1_234
-        (withIsAuthorizationsVersionForPV (protocolVersion @pv) dummyKeyCollection)
+        (withIsAuthorizationsVersionFor (protocolVersion @pv) dummyKeyCollection)
         dummyChainParameters
 
 type MyPersistentTreeState pv = SkovPersistentData pv
