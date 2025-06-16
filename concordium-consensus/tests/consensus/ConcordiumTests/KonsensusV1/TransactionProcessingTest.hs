@@ -245,9 +245,9 @@ makeTestingGenesisData idps =
         genesisIdentityProviders = idps
         genesisAnonymityRevokers = myAnonymityRevokers
         genesisUpdateKeys =
-            withIsAuthorizationsVersionForPV
+            withIsAuthorizationsVersionFor
                 (protocolVersion @pv)
-                (dummyKeyCollection @(AuthorizationsVersionForPV pv))
+                (dummyKeyCollection @(AuthorizationsVersionFor pv))
         genesisChainParameters = dummyChainParameters @(ChainParametersVersionFor pv)
         genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
         genesisAccounts = Vec.fromList $ makeFakeBakers 1
