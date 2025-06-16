@@ -714,7 +714,7 @@ class
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
 
     -- | Get the block's UpdateKeysCollection
-    getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
+    getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (AuthorizationsVersionFor (MPV m)))
 
     -- | Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
     getExchangeRates :: BlockState m -> m ExchangeRates
@@ -1523,7 +1523,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     bsoProcessUpdateQueues ::
         UpdatableBlockState m ->
         Timestamp ->
-        m ([(TransactionTime, UpdateValue (ChainParametersVersionFor (MPV m)))], UpdatableBlockState m)
+        m ([(TransactionTime, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))], UpdatableBlockState m)
 
     -- | Unlock the amounts up to the given timestamp
     bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
@@ -1531,7 +1531,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     -- | Get the current 'Authorizations' for validating updates.
     bsoGetUpdateKeyCollection ::
         UpdatableBlockState m ->
-        m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
+        m (UpdateKeysCollection (AuthorizationsVersionFor (MPV m)))
 
     -- | Get the next 'UpdateSequenceNumber' for a given update type.
     bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
@@ -1540,7 +1540,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     bsoEnqueueUpdate ::
         UpdatableBlockState m ->
         TransactionTime ->
-        (UpdateValue (ChainParametersVersionFor (MPV m))) ->
+        (UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m))) ->
         m (UpdatableBlockState m)
 
     -- | Increment the update sequence number for Protocol Level Tokens (PLT).

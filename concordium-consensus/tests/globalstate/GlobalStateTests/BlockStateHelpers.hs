@@ -297,7 +297,7 @@ checkActiveBakers bs = do
             accounts
             DummyData.dummyIdentityProviders
             DummyData.dummyArs
-            (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+            (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
             DummyData.dummyChainParameters
 
 dumpState :: (SupportsPersistentState pv m) => HashedPersistentBlockState pv -> m ()
