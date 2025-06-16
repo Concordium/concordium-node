@@ -299,9 +299,9 @@ data PayloadJSON
         }
     | TokenUpdate
         { -- | Identifier of the token type to which the transaction refers.
-          thTokenId :: !Types.TokenId,
+          tuTokenId :: !Types.TokenId,
           -- | The CBOR-encoded operations to perform.
-          thOperations :: !Types.TokenParameter
+          tuOperations :: !Types.TokenParameter
         }
     deriving (Show, Generic)
 
