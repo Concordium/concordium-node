@@ -2,9 +2,14 @@
 
 ## Unreleased changes
 
+## 9.0.3 (DevNet)
+
 - Protocol-level tokens:
   - `GetAccountInfo` reports the token module-defined state as CBOR-encoded, rather than directly
     exposing the allow/deny list membership at the GRPC level.
+  - `metadata` in token module state (reported in `GetTokenInfo`) can now include the metadata
+    hash as well as the URL.
+  - A new set of authorized level-2 keys for the `CreatePLT` chain update.
 
 ## 9.0.2 (DevNet)
 
