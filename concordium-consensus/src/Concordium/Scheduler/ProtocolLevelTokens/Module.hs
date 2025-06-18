@@ -6,6 +6,7 @@ module Concordium.Scheduler.ProtocolLevelTokens.Module where
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Builder as BS.Builder
+import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
@@ -88,7 +89,7 @@ initializeToken tokenParam = do
         Left failureReason -> pltError $ ITEDeserializationFailure failureReason
         Right TokenInitializationParameters{..} -> do
             setTokenState "name" (Just $ Text.encodeUtf8 tipName)
-            setTokenState "metadata" (Just $ Text.encodeUtf8 tipMetadata)
+            setTokenState "metadata" (Just $ tokenMetadataUrlToBytes tipMetadata)
             when tipAllowList $ setTokenState "allowList" (Just "")
             when tipDenyList $ setTokenState "denyList" (Just "")
             when tipMintable $ setTokenState "mintable" (Just "")
@@ -388,24 +389,29 @@ queryTokenModuleState = do
     tmsMetadata <-
         getTokenState "metadata" >>= \case
             Nothing -> pltError $ QTEInvariantViolation "Missing 'metadata'"
-            Just metadata -> return $ Text.decodeUtf8Lenient metadata
+            Just metadata -> either corruptMetadataError return $ tokenMetadataUrlFromBytes $ LBS.fromStrict metadata
     tmsAllowList <- Just . isJust <$> getTokenState "allowList"
     tmsDenyList <- Just . isJust <$> getTokenState "denyList"
     tmsMintable <- Just . isJust <$> getTokenState "mintable"
     tmsBurnable <- Just . isJust <$> getTokenState "burnable"
     let tmsAdditional = Map.empty
     return $ tokenModuleStateToBytes TokenModuleState{..}
+  where
+    corruptMetadataError reason =
+        pltError $ QTEInvariantViolation $ "Corrupt token metadata: " ++ reason
 
-queryAccountListStatus :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe Bool, Maybe Bool)
-queryAccountListStatus account = do
+-- | Get the CBOR-encoded representation of the token module account state.
+queryAccountState :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe BS.ByteString)
+queryAccountState account = do
     allowListEnabled <- isJust <$> getTokenState "allowList"
-    isAllowed <-
+    tmasAllowList <-
         if allowListEnabled
             then Just . isJust <$> getAccountState account "allowList"
             else return Nothing
     denyListEnabled <- isJust <$> getTokenState "denyList"
-    isDenied <-
+    tmasDenyList <-
         if denyListEnabled
             then Just . isJust <$> getAccountState account "denyList"
             else return Nothing
-    return (isAllowed, isDenied)
+    let tmasAdditional = Map.empty
+    return $ Just $ tokenModuleAccountStateToBytes TokenModuleAccountState{..}

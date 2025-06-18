@@ -169,7 +169,7 @@ createTestBlockStateWithAccounts accounts = do
     void $ BS.saveGlobalMaps bs
     return bs
   where
-    keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
+    keys = Types.withIsAuthorizationsVersionFor (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
     seedState = case Types.consensusVersionFor (Types.protocolVersion @pv) of
         Types.ConsensusV0 -> initialSeedStateV0 (Hash.hash "") 1_000
         Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "") 3_600_000

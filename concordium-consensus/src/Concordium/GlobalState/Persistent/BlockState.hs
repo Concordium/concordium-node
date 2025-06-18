@@ -964,7 +964,7 @@ initialPersistentState ::
     [PersistentAccount (AccountVersionFor pv)] ->
     IPS.IdentityProviders ->
     ARS.AnonymityRevokers ->
-    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
+    UpdateKeysCollection (AuthorizationsVersionFor pv) ->
     ChainParameters pv ->
     m (HashedPersistentBlockState pv)
 initialPersistentState seedState cryptoParams accounts ips ars keysCollection chainParams = do
@@ -1008,7 +1008,7 @@ emptyBlockState ::
     (SupportsPersistentState pv m) =>
     PersistentBirkParameters pv ->
     CryptographicParameters ->
-    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
+    UpdateKeysCollection (AuthorizationsVersionFor pv) ->
     ChainParameters pv ->
     m (PersistentBlockState pv)
 {-# WARNING emptyBlockState "should only be used for testing" #-}
@@ -3633,7 +3633,7 @@ doProcessUpdateQueues ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     Timestamp ->
-    m ([(TransactionTime, UpdateValue (ChainParametersVersionFor pv))], PersistentBlockState pv)
+    m ([(TransactionTime, UpdateValue (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv))], PersistentBlockState pv)
 doProcessUpdateQueues pbs ts = do
     bsp <- loadPBS pbs
     let (u, ars, ips) = (bspUpdates bsp, bspAnonymityRevokers bsp, bspIdentityProviders bsp)
@@ -3689,18 +3689,18 @@ doGetUpdateKeyCollection ::
     forall pv m.
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
-    m (UpdateKeysCollection (AuthorizationsVersionForPV pv))
+    m (UpdateKeysCollection (AuthorizationsVersionFor pv))
 doGetUpdateKeyCollection pbs = do
     bsp <- loadPBS pbs
     u <- refLoad (bspUpdates bsp)
-    withIsAuthorizationsVersionForPV (protocolVersion @pv) $
+    withIsAuthorizationsVersionFor (protocolVersion @pv) $
         unStoreSerialized <$> refLoad (currentKeyCollection u)
 
 doEnqueueUpdate ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     TransactionTime ->
-    UpdateValue (ChainParametersVersionFor pv) ->
+    UpdateValue (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ->
     m (PersistentBlockState pv)
 doEnqueueUpdate pbs effectiveTime payload = do
     bsp <- loadPBS pbs
@@ -3713,7 +3713,7 @@ doIncrementPLTUpdateSequenceNumber ::
     PersistentBlockState pv ->
     m (PersistentBlockState pv)
 doIncrementPLTUpdateSequenceNumber pbs =
-    case sIsSupported SPTProtocolLevelTokensParameters (sChainParametersVersionFor (protocolVersion @pv)) of
+    case sSupportsCreatePLT (sAuthorizationsVersionFor (protocolVersion @pv)) of
         SFalse -> case protocolVersion @pv of {}
         STrue -> do
             bsp <- loadPBS pbs

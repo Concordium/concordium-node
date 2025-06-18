@@ -20,8 +20,8 @@ import Concordium.Types
 
 -- This tests that chain parameter updates that are scheduled at the same time are not lost
 -- when calling 'PU.processUpdateQueues'.
-testCase :: forall cpv. (IsChainParametersVersion cpv) => SChainParametersVersion cpv -> String -> IO ()
-testCase scpv pvString = do
+testCase :: forall cpv auv. (IsChainParametersVersion cpv, IsAuthorizationsVersion auv) => SChainParametersVersion cpv -> SAuthorizationsVersion auv -> String -> IO ()
+testCase _ _ pvString = do
     -- Schedule three updates
     let rootKeyUpdate = UVRootKeys dummyHigherLevelKeys
     let poolParameterUpdate = UVPoolParameters (dummyChainParameters @cpv ^. cpPoolParameters)
@@ -30,9 +30,9 @@ testCase scpv pvString = do
     -- The last one is schedule for a millisecond earlier.
     let effectiveTime = 123 :: TransactionTime
     effects <- liftIO . runBlobStoreTemp "." $ do
-        (u1 :: BufferedRef (PU.Updates' cpv)) <-
+        (u1 :: BufferedRef (PU.Updates' cpv auv)) <-
             refMake
-                =<< PU.initialUpdates (withIsAuthorizationsVersionFor scpv dummyKeyCollection) dummyChainParameters
+                =<< PU.initialUpdates dummyKeyCollection dummyChainParameters
         enqueuedState <-
             PU.enqueueUpdate effectiveTime poolParameterUpdate
                 =<< PU.enqueueUpdate (effectiveTime - 1) euroEnergyExchange
@@ -52,6 +52,6 @@ tests :: Spec
 tests = do
     describe "Scheduler.UpdateQueues" $ do
         specify "Correct effects are returned" $ do
-            testCase SChainParametersV0 "CPV0"
-            testCase SChainParametersV1 "CPV1"
-            testCase SChainParametersV2 "CPV2"
+            testCase SChainParametersV0 SAuthorizationsVersion0 "CPV0"
+            testCase SChainParametersV1 SAuthorizationsVersion1 "CPV1"
+            testCase SChainParametersV2 SAuthorizationsVersion1 "CPV2"

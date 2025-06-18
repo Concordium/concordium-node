@@ -2796,19 +2796,25 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                     SMintDistributionVersion1 -> checkSigAndEnqueue $ UVMintDistribution u
                                 RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndEnqueue $ UVRootKeys u
                                 RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                RootUpdatePayload (Level2KeysRootUpdate u) -> case sAuthorizationsVersionFor scpv of
+                                RootUpdatePayload (Level2KeysRootUpdate u) -> case sauv of
                                     SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
-                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> case sAuthorizationsVersionFor scpv of
-                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> case sauv of
                                     SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                RootUpdatePayload (Level2KeysRootUpdateV2 u) -> case sauv of
+                                    SAuthorizationsVersion2 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                Level1UpdatePayload (Level2KeysLevel1Update u) -> case sAuthorizationsVersionFor scpv of
+                                Level1UpdatePayload (Level2KeysLevel1Update u) -> case sauv of
                                     SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
-                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> case sAuthorizationsVersionFor scpv of
-                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> case sauv of
                                     SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV2 u) -> case sauv of
+                                    SAuthorizationsVersion2 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 TimeoutParametersUpdatePayload u -> case sIsSupported SPTTimeoutParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVTimeoutParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
@@ -2836,7 +2842,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
-    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
+    sauv :: SAuthorizationsVersion (AuthorizationsVersionFor (MPV m))
+    sauv = sAuthorizationsVersionFor $ protocolVersion @(MPV m)
+    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> m TxResult
     checkSigAndEnqueue change = do
         case maybeVerificationResult of
             Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do

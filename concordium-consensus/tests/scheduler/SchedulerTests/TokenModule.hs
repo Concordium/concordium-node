@@ -31,6 +31,7 @@ import System.Random
 import Test.HUnit
 import Test.Hspec
 
+import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.ID.Types (randomAccountAddress)
 import Concordium.Types
 import Concordium.Types.ProtocolLevelTokens.CBOR
@@ -321,10 +322,11 @@ testInitializeToken = describe "initializeToken" $ do
             trace
     -- An example with valid parameters (no minting).
     it "valid1" $ do
-        let params =
+        let metadata = createTokenMetadataUrl "https://plt.token"
+            params =
                 TokenInitializationParameters
                     { tipName = "Protocol-level token",
-                      tipMetadata = "https://plt.token",
+                      tipMetadata = metadata,
                       tipAllowList = True,
                       tipDenyList = False,
                       tipInitialSupply = Nothing,
@@ -335,7 +337,7 @@ testInitializeToken = describe "initializeToken" $ do
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt.token") :-> ())
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes metadata) :-> ())
                     :>>: (PLTU (SetTokenState "allowList" $ Just "") :-> ())
                     :>>: (PLTU (SetTokenState "mintable" $ Just "") :-> ())
                     :>>: (PLTU (SetTokenState "burnable" $ Just "") :-> ())
@@ -343,10 +345,11 @@ testInitializeToken = describe "initializeToken" $ do
         assertTrace (initializeToken tokenParam) trace
     -- An example with valid parameters and minting.
     it "valid2" $ do
-        let params =
+        let metadata = createTokenMetadataUrlWithSha256 "https://plt2.token" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
+            params =
                 TokenInitializationParameters
                     { tipName = "Protocol-level token2",
-                      tipMetadata = "https://plt2.token",
+                      tipMetadata = metadata,
                       tipAllowList = False,
                       tipDenyList = True,
                       tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 2},
@@ -357,7 +360,7 @@ testInitializeToken = describe "initializeToken" $ do
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
                     :>>: (PLTU (SetTokenState "denyList" $ Just "") :-> ())
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: (PLTQ GetGovernanceAccount :-> AccountIndex 50)
@@ -366,10 +369,11 @@ testInitializeToken = describe "initializeToken" $ do
         assertTrace (initializeToken tokenParam) trace
     -- In this test, the Kernel responds to the minting request indicating that it failed.
     it "mint fails" $ do
-        let params =
+        let metadata = createTokenMetadataUrl "https://plt2.token"
+            params =
                 TokenInitializationParameters
                     { tipName = "Protocol-level token2",
-                      tipMetadata = "https://plt2.token",
+                      tipMetadata = metadata,
                       tipAllowList = False,
                       tipDenyList = False,
                       tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 2},
@@ -380,7 +384,7 @@ testInitializeToken = describe "initializeToken" $ do
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: (PLTQ GetGovernanceAccount :-> AccountIndex 2)
                     :>>: (PLTPU (Mint (AccountIndex 2) (TokenRawAmount 500000)) :-> False)
@@ -389,10 +393,11 @@ testInitializeToken = describe "initializeToken" $ do
     -- In this example, the parameters specify an initial supply with higher precision than the
     -- token allows. (decimals is 6, but GetDecimals returns 2.)
     it "too many decimals specified" $ do
-        let params =
+        let metadata = createTokenMetadataUrl "https://plt2.token"
+            params =
                 TokenInitializationParameters
                     { tipName = "Protocol-level token2",
-                      tipMetadata = "https://plt2.token",
+                      tipMetadata = metadata,
                       tipAllowList = False,
                       tipDenyList = False,
                       tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 6},
@@ -403,38 +408,18 @@ testInitializeToken = describe "initializeToken" $ do
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
-                    :>>: (PLTQ GetDecimals :-> 2)
-                    :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
-        assertTrace (initializeToken tokenParam) trace
-    -- In this example, the parameters specify an initial supply with higher precision than the
-    -- token allows. (decimals is 6, but GetDecimals returns 2.)
-    it "too many decimals specified" $ do
-        let params =
-                TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = "https://plt2.token",
-                      tipAllowList = False,
-                      tipDenyList = False,
-                      tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 6},
-                      tipMintable = False,
-                      tipBurnable = False
-                    }
-            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
-            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
-            trace =
-                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
         assertTrace (initializeToken tokenParam) trace
     -- In this example, the parameters specify an initial supply with lower precision than the
     -- token requires. (decimals is 2, but GetDecimals returns 6.)
-    it "too many decimals specified" $ do
+    it "not enough decimals specified" $ do
+        let metadata = createTokenMetadataUrl "https://plt2.token"
         let params =
                 TokenInitializationParameters
                     { tipName = "Protocol-level token2",
-                      tipMetadata = "https://plt2.token",
+                      tipMetadata = metadata,
                       tipAllowList = False,
                       tipDenyList = False,
                       tipInitialSupply = Just TokenAmount{taValue = 500000, taDecimals = 2},
@@ -445,7 +430,7 @@ testInitializeToken = describe "initializeToken" $ do
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just "https://plt2.token") :-> ())
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
                     :>>: (PLTQ GetDecimals :-> 6)
                     :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
         assertTrace (initializeToken tokenParam) trace
@@ -1000,10 +985,11 @@ testLists = do
 testQueryTokenModuleState :: Spec
 testQueryTokenModuleState = describe "queryTokenModuleState" $ do
     it "Example 1" $ do
-        let trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
+        let metadata = createTokenMetadataUrl "some URL"
+            trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (GetTokenState "name") :-> Just "My protocol-level token")
-                    :>>: (PLTQ (GetTokenState "metadata") :-> Just "some URL")
+                    :>>: (PLTQ (GetTokenState "metadata") :-> Just (tokenMetadataUrlToBytes metadata))
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
@@ -1012,7 +998,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                         ( tokenModuleStateToBytes
                             TokenModuleState
                                 { tmsName = "My protocol-level token",
-                                  tmsMetadata = "some URL",
+                                  tmsMetadata = metadata,
                                   tmsAllowList = Just True,
                                   tmsDenyList = Just False,
                                   tmsMintable = Just True,
@@ -1022,10 +1008,11 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                         )
         assertTrace queryTokenModuleState trace
     it "Example 2" $ do
-        let trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
+        let metadata = createTokenMetadataUrlWithSha256 "https://token.metadata" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
+            trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (GetTokenState "name") :-> Just "Another PLT")
-                    :>>: (PLTQ (GetTokenState "metadata") :-> Just "https://token.metadata")
+                    :>>: (PLTQ (GetTokenState "metadata") :-> Just (tokenMetadataUrlToBytes metadata))
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "mintable") :-> Nothing)
@@ -1034,7 +1021,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                         ( tokenModuleStateToBytes
                             TokenModuleState
                                 { tmsName = "Another PLT",
-                                  tmsMetadata = "https://token.metadata",
+                                  tmsMetadata = metadata,
                                   tmsAllowList = Just False,
                                   tmsDenyList = Just True,
                                   tmsMintable = Just False,

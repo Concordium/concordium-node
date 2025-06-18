@@ -129,7 +129,7 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
     runTest withCooldown suspended ValidatorConditions{..} = runTestBlockState @pv $ do
         let va =
@@ -577,7 +577,7 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
 
 tests :: Word -> Spec

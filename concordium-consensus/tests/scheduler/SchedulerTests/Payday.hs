@@ -113,7 +113,7 @@ testDoMintingP4 = do
     -- a list of expected special transaction outcomes to have been produced, the expected balance
     -- on the foundation account and the expected bank status.
     runTest ::
-        [(Slot, UpdateValue 'ChainParametersV1)] ->
+        [(Slot, UpdateValue 'ChainParametersV1 auv)] ->
         [SpecialTransactionOutcome] ->
         Amount ->
         BankStatus ->
@@ -200,11 +200,11 @@ testDoMintingP4 = do
 propMintAmountsEqNewMint :: MintDistribution 'MintDistributionVersion1 -> MintRate -> Amount -> Bool
 propMintAmountsEqNewMint md mr amt = mintTotal (doCalculatePaydayMintAmounts md mr amt) == mintAmount mr amt
 
-instance Arbitrary (UpdateValue 'ChainParametersV1) where
+instance Arbitrary (UpdateValue 'ChainParametersV1 auv) where
     arbitrary = UVMintDistribution <$> arbitrary
 
 -- the most recent update of mint distribution parameters is used to determine mint distribution
-propMintDistributionMostRecent :: MintDistribution 'MintDistributionVersion1 -> MintRate -> Slot -> [(Slot, UpdateValue 'ChainParametersV1)] -> Amount -> Bool
+propMintDistributionMostRecent :: MintDistribution 'MintDistributionVersion1 -> MintRate -> Slot -> [(Slot, UpdateValue 'ChainParametersV1 auv)] -> Amount -> Bool
 propMintDistributionMostRecent md mr ps updates amt =
     let updatesSorted = sortBy (\(a, _) (b, _) -> compare a b) $ map (& (_1 +~ 1)) updates
         chainParams =
@@ -246,7 +246,7 @@ propMintDistributionImmediate ::
     -- | Number of "free" transactions of each type
     FreeTransactionCounts ->
     -- | Ordered chain updates since the last block
-    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))] ->
+    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))] ->
     m Bool
 propMintDistributionImmediate bs0 blockParent slotNumber bid newEpoch mfinInfo newSeedState transFees freeCounts updates = do
     oldChainParameters <- bsoGetChainParameters bs0
@@ -304,7 +304,7 @@ genesis nBakers =
         dummyArs
         []
         1_234
-        (withIsAuthorizationsVersionForPV (protocolVersion @pv) dummyKeyCollection)
+        (withIsAuthorizationsVersionFor (protocolVersion @pv) dummyKeyCollection)
         dummyChainParameters
 
 type MyPersistentTreeState pv = SkovPersistentData pv

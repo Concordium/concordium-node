@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+- Protocol-level tokens:
+  - `GetAccountInfo` reports the token module-defined state as CBOR-encoded, rather than directly
+    exposing the allow/deny list membership at the GRPC level.
+
 ## 9.0.2 (DevNet)
 
 - Protocol-level tokens:
