@@ -389,7 +389,15 @@ queryTokenModuleState = do
     tmsMetadata <-
         getTokenState "metadata" >>= \case
             Nothing -> pltError $ QTEInvariantViolation "Missing 'metadata'"
-            Just metadata -> either corruptMetadataError return $ tokenMetadataUrlFromBytes $ LBS.fromStrict metadata
+            Just metadata ->
+                either (corruptDataError "metadata url") return $ tokenMetadataUrlFromBytes $ LBS.fromStrict metadata
+    tmsGovernanceAccount <-
+        getTokenState "governanceAccount" >>= \case
+            Nothing -> pltError $ QTEInvariantViolation "Missing governance account"
+            Just govAccount -> do
+                either (corruptDataError "governance account address") return $
+                    deserializeFromBytes decodeAccountAddress $
+                        LBS.fromStrict govAccount
     tmsAllowList <- Just . isJust <$> getTokenState "allowList"
     tmsDenyList <- Just . isJust <$> getTokenState "denyList"
     tmsMintable <- Just . isJust <$> getTokenState "mintable"
@@ -397,8 +405,8 @@ queryTokenModuleState = do
     let tmsAdditional = Map.empty
     return $ tokenModuleStateToBytes TokenModuleState{..}
   where
-    corruptMetadataError reason =
-        pltError $ QTEInvariantViolation $ "Corrupt token metadata: " ++ reason
+    corruptDataError name reason =
+        pltError $ QTEInvariantViolation $ "Corrupt " ++ name ++ ": " ++ reason
 
 -- | Get the CBOR-encoded representation of the token module account state.
 queryAccountState :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe BS.ByteString)
