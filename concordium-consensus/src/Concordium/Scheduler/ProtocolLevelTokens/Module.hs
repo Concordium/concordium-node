@@ -108,7 +108,7 @@ data PreprocessedTokenHolderOperation = PTHOTransfer
     { -- | The raw amount to transfer.
       pthoAmount :: !TokenRawAmount,
       -- | The recipient account address.
-      pthoRecipient :: !TokenHolder,
+      pthoRecipient :: !CborTokenHolder,
       -- | The (optional) memo.
       pthoMemo :: !(Maybe Memo),
       -- | The original, unprocessed, 'TokenTransferBody'.
@@ -224,13 +224,13 @@ data PreprocessedTokenGovernanceOperation
     | PTGOTokenBurn
         {ptgoAmount :: !TokenRawAmount, ptgoUnprocessedAmount :: !TokenAmount}
     | PTGOTokenAddAllowList
-        {ptgoTarget :: !TokenHolder}
+        {ptgoTarget :: !CborTokenHolder}
     | PTGOTokenRemoveAllowList
-        {ptgoTarget :: !TokenHolder}
+        {ptgoTarget :: !CborTokenHolder}
     | PTGOTokenAddDenyList
-        {ptgoTarget :: !TokenHolder}
+        {ptgoTarget :: !CborTokenHolder}
     | PTGOTokenRemoveDenyList
-        {ptgoTarget :: !TokenHolder}
+        {ptgoTarget :: !CborTokenHolder}
     deriving (Eq, Show)
 
 preprocessTokenGovernanceTransaction ::
@@ -369,9 +369,9 @@ requireAccount ::
     -- | The operation index.
     Word64 ->
     -- | The account to check.
-    TokenHolder ->
+    CborTokenHolder ->
     m (PLTAccount m)
-requireAccount trrOperationIndex holder@HolderAccount{..} = do
+requireAccount trrOperationIndex holder@Concordium.Types.ProtocolLevelTokens.CBOR.HolderAccount{..} = do
     getAccount holderAccountAddress >>= \case
         Nothing ->
             pltError . encodeTokenRejectReason $
