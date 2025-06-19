@@ -198,7 +198,7 @@ logEncodeTokenEvent te = logTokenEvent eventType details
 --       - Check that the recipient is valid.
 --       - Transfer the amount from the sender to the recipient, if the sender's balance is
 --         sufficient.
--- 
+--
 -- INVARIANTS:
 --   - Token module state contains a correctly encoded governance account address.
 executeTokenTransaction ::
@@ -273,68 +273,65 @@ executeTokenTransaction TransactionContext{..} tokenParam = do
                             case mbGovAccount of
                                 Nothing -> error "Invariant violation: Token state is missing the governance account address."
                                 Just govAccount -> do
-                                    case tokenAccountAddressFromBytes (LBS.fromStrict govAccount) of
-                                        Left reason -> error $ "Invariant violation: Token governance account address is corrupted: " ++ reason
-                                        Right acc -> do
-                                            unless (acc == tcSenderAddress) $
+                                    unless (govAccount == tokenAccountAddressToBytes tcSenderAddress) $
+                                        failTH
+                                            OperationNotPermitted
+                                                { trrOperationIndex = opIndex,
+                                                  trrAddressNotPermitted =
+                                                    Just (accountTokenHolder tcSenderAddress),
+                                                  trrReason = Just "sender is not token issuer"
+                                                }
+                                    case tokenGovernanceOp of
+                                        PTOTokenMint{..} -> do
+                                            requireFeature opIndex "mint" "mintable"
+                                            pltTickEnergy tokenMintCost
+                                            mintOK <- mint tcSender ptgoAmount
+                                            unless mintOK $ do
+                                                availableSupply <- getCirculatingSupply
                                                 failTH
-                                                    OperationNotPermitted
+                                                    MintWouldOverflow
                                                         { trrOperationIndex = opIndex,
-                                                          trrAddressNotPermitted =
-                                                            Just (accountTokenHolder tcSenderAddress),
-                                                          trrReason = Just "sender is not token issuer"
+                                                          trrRequestedAmount = ptgoUnprocessedAmount,
+                                                          trrCurrentSupply = toTokenAmount decimals availableSupply,
+                                                          trrMaxRepresentableAmount =
+                                                            toTokenAmount decimals (maxBound :: TokenRawAmount)
                                                         }
-                                            case tokenGovernanceOp of
-                                                PTOTokenMint{..} -> do
-                                                    requireFeature opIndex "mint" "mintable"
-                                                    pltTickEnergy tokenMintCost
-                                                    mintOK <- mint tcSender ptgoAmount
-                                                    unless mintOK $ do
-                                                        availableSupply <- getCirculatingSupply
-                                                        failTH
-                                                            MintWouldOverflow
-                                                                { trrOperationIndex = opIndex,
-                                                                  trrRequestedAmount = ptgoUnprocessedAmount,
-                                                                  trrCurrentSupply = toTokenAmount decimals availableSupply,
-                                                                  trrMaxRepresentableAmount =
-                                                                    toTokenAmount decimals (maxBound :: TokenRawAmount)
-                                                                }
-                                                PTOTokenBurn{..} -> do
-                                                    requireFeature opIndex "burn" "burnable"
-                                                    pltTickEnergy tokenBurnCost
-                                                    burnOK <- burn tcSender ptgoAmount
-                                                    unless burnOK $ do
-                                                        availableBalance <- getAccountBalance tcSender
-                                                        failTH
-                                                            TokenBalanceInsufficient
-                                                                { trrOperationIndex = opIndex,
-                                                                  trrAvailableBalance = toTokenAmount decimals availableBalance,
-                                                                  trrRequiredBalance = ptgoUnprocessedAmount
-                                                                }
-                                                PTOTokenAddAllowList{..} -> do
-                                                    requireFeature opIndex "addAllowList" "allowList"
-                                                    account <- requireAccount opIndex ptgoTarget
-                                                    pltTickEnergy tokenListOperationCost
-                                                    setAccountState account "allowList" (Just "")
-                                                    logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
-                                                PTOTokenRemoveAllowList{..} -> do
-                                                    requireFeature opIndex "removeAllowList" "allowList"
-                                                    account <- requireAccount opIndex ptgoTarget
-                                                    pltTickEnergy tokenListOperationCost
-                                                    setAccountState account "allowList" Nothing
-                                                    logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
-                                                PTOTokenAddDenyList{..} -> do
-                                                    requireFeature opIndex "addDenyList" "denyList"
-                                                    account <- requireAccount opIndex ptgoTarget
-                                                    pltTickEnergy tokenListOperationCost
-                                                    setAccountState account "denyList" (Just "")
-                                                    logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
-                                                PTOTokenRemoveDenyList{..} -> do
-                                                    requireFeature opIndex "removeDenyList" "denyList"
-                                                    account <- requireAccount opIndex ptgoTarget
-                                                    pltTickEnergy tokenListOperationCost
-                                                    setAccountState account "denyList" Nothing
-                                                    logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
+                                        PTOTokenBurn{..} -> do
+                                            requireFeature opIndex "burn" "burnable"
+                                            pltTickEnergy tokenBurnCost
+                                            burnOK <- burn tcSender ptgoAmount
+                                            unless burnOK $ do
+                                                availableBalance <- getAccountBalance tcSender
+                                                failTH
+                                                    TokenBalanceInsufficient
+                                                        { trrOperationIndex = opIndex,
+                                                          trrAvailableBalance = toTokenAmount decimals availableBalance,
+                                                          trrRequiredBalance = ptgoUnprocessedAmount
+                                                        }
+                                        PTOTokenAddAllowList{..} -> do
+                                            requireFeature opIndex "addAllowList" "allowList"
+                                            account <- requireAccount opIndex ptgoTarget
+                                            pltTickEnergy tokenListOperationCost
+                                            setAccountState account "allowList" (Just "")
+                                            logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
+                                        PTOTokenRemoveAllowList{..} -> do
+                                            requireFeature opIndex "removeAllowList" "allowList"
+                                            account <- requireAccount opIndex ptgoTarget
+                                            pltTickEnergy tokenListOperationCost
+                                            setAccountState account "allowList" Nothing
+                                            logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
+                                        PTOTokenAddDenyList{..} -> do
+                                            requireFeature opIndex "addDenyList" "denyList"
+                                            account <- requireAccount opIndex ptgoTarget
+                                            pltTickEnergy tokenListOperationCost
+                                            setAccountState account "denyList" (Just "")
+                                            logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
+                                        PTOTokenRemoveDenyList{..} -> do
+                                            requireFeature opIndex "removeDenyList" "denyList"
+                                            account <- requireAccount opIndex ptgoTarget
+                                            pltTickEnergy tokenListOperationCost
+                                            setAccountState account "denyList" Nothing
+                                            logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
                     return (opIndex + 1)
             foldM_ handleOperation 0 operations
   where
