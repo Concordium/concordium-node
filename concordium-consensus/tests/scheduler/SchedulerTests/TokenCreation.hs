@@ -132,13 +132,13 @@ testCreatePLT _ pvString = describe pvString $ do
             { _cpltTokenModule = TokenModuleRef dummyHash,
               _cpltTokenId = plt1,
               _cpltInitializationParameters = toTokenParam params1,
-              _cpltGovernanceAccount = dummyAddress2,
               _cpltDecimals = 0
             }
     params2 =
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
               tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
+              tipGovernanceAccount = dummyAddress2,
               tipAllowList = False,
               tipDenyList = False,
               tipInitialSupply = Just (TokenAmount 10 0),
