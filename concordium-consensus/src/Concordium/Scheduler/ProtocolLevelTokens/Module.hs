@@ -371,8 +371,8 @@ requireAccount ::
     -- | The account to check.
     CborTokenHolder ->
     m (PLTAccount m)
-requireAccount trrOperationIndex holder@Concordium.Types.ProtocolLevelTokens.CBOR.HolderAccount{..} = do
-    getAccount holderAccountAddress >>= \case
+requireAccount trrOperationIndex holder@CborHolderAccount{..} = do
+    getAccount chaAccount >>= \case
         Nothing ->
             pltError . encodeTokenRejectReason $
                 AddressNotFound{trrAddress = holder, ..}

@@ -732,7 +732,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                 TokenHolderTransaction . Seq.fromList $
                     [ mkTransferOp
                         amt10'000
-                        (HolderAccount (dummyAccountAddress i) Nothing)
+                        (CborHolderAccount (dummyAccountAddress i) Nothing)
                         Nothing
                       | i <- [1 .. 5000]
                     ]
@@ -749,8 +749,8 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                         :>>: traceLoop (n + 1)
         assertTrace (executeTokenHolderTransaction (sender 123_456) (encodeTransaction transaction)) trace
   where
-    receiver1 = HolderAccount (dummyAccountAddress 1) Nothing
-    receiver2 = HolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
+    receiver1 = CborHolderAccount (dummyAccountAddress 1) Nothing
+    receiver2 = CborHolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
     amt10'000 = TokenAmount 10_000 3
     amtMax = TokenAmount maxBound 0
     amt10'000000 = TokenAmount 10_000_000 6
@@ -960,8 +960,8 @@ testLists = do
                 assertTrace (executeTokenGovernanceTransaction (sender 0) (encodeTransaction transaction)) trace
   where
     encodeTransaction = TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
-    receiver1 = HolderAccount (dummyAccountAddress 1) Nothing
-    receiver2 = HolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
+    receiver1 = CborHolderAccount (dummyAccountAddress 1) Nothing
+    receiver2 = CborHolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
     ltcFeature :: ListTestConf -> SBS.ShortByteString
     ltcFeature (_, Allow) = "allowList"
     ltcFeature (_, Deny) = "denyList"
@@ -972,7 +972,7 @@ testLists = do
         ltcAction (Remove, _) = "remove"
         ltcList (_, Allow) = "Allow"
         ltcList (_, Deny) = "Deny"
-    ltcMakeOperation :: ListTestConf -> TokenHolder -> TokenGovernanceOperation
+    ltcMakeOperation :: ListTestConf -> CborTokenHolder -> TokenGovernanceOperation
     ltcMakeOperation (Add, Allow) = TokenAddAllowList
     ltcMakeOperation (Remove, Allow) = TokenRemoveAllowList
     ltcMakeOperation (Add, Deny) = TokenAddDenyList
@@ -1263,7 +1263,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
         TokenParameter . SBS.toShort . tokenHolderTransactionToBytes
     encodeTxGV =
         TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
-    receiver1 = HolderAccount (dummyAccountAddress 0) Nothing
+    receiver1 = CborHolderAccount (dummyAccountAddress 0) Nothing
     amt10'000 = TokenAmount 10_000 3
     mkMintOp tgoMintAmount = TokenMint{..}
     mkBurnOp tgoBurnAmount = TokenBurn{..}
