@@ -93,12 +93,12 @@ initializeToken tokenParam = do
             when tipDenyList $ setTokenState "denyList" (Just "")
             when tipMintable $ setTokenState "mintable" (Just "")
             when tipBurnable $ setTokenState "burnable" (Just "")
-            mbGovAccount <- getAccount tipGovernanceAccount
+            mbGovAccount <- getAccount $ holderAccountAddress tipGovernanceAccount
             case mbGovAccount of
                 Nothing ->
-                    pltError (ITEGovernanceAccountDoesNotExist tipGovernanceAccount)
+                    pltError (ITEGovernanceAccountDoesNotExist $ holderAccountAddress tipGovernanceAccount)
                 Just govAccount -> do
-                    setTokenState "governanceAccount" (Just $ tokenAccountAddressToBytes tipGovernanceAccount)
+                    setTokenState "governanceAccount" (Just $ tokenAccountAddressToBytes $ holderAccountAddress tipGovernanceAccount)
                     forM_ tipInitialSupply $ \initSupply -> do
                         decimals <- getDecimals
                         case toTokenRawAmount decimals initSupply of
@@ -144,7 +144,7 @@ data PreprocessedTokenOperation
 preprocessTokenTransaction ::
     (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     Word8 ->
-    TokenTransaction ->
+    TokenUpdateTransaction ->
     m (Seq.Seq PreprocessedTokenOperation)
 preprocessTokenTransaction decimals = mapM preproc . tokenOperations
   where

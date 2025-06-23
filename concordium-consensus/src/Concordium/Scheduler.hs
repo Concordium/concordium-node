@@ -2711,7 +2711,7 @@ handleToken depositContext tokenId tokenOperations =
         let result = case computeResult of
                 Left PLTEOutOfEnergy -> TxReject OutOfEnergy
                 Left (PLTEFail encodedRejectReason) ->
-                    TxReject . TokenTransactionFailed $
+                    TxReject . TokenUpdateTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
                 Right events -> TxSuccess events
         return (result, energyCost, usedEnergy)
