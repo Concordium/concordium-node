@@ -77,12 +77,9 @@ jobs:
       run: |
         stack --stack-yaml concordium-consensus/stack.yaml setup
 
-    # docs: https://github.com/haskell-actions/run-fourmolu
     - uses: haskell-actions/run-fourmolu@v9
       with:
         version: "0.13.1.0"
-        pattern: |
-          **/*.hs
 
   # rustfmt:
   #   runs-on: ubuntu-latest
@@ -221,10 +218,10 @@ jobs:
       run: |
         stack build --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS" --only-dependencies --stack-yaml concordium-consensus/stack.yaml 
 
-  #   # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
-  #   - name: Build consensus
-  #     run: |
-  #       stack build --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS" --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
+    # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
+    - name: Build consensus
+      run: |
+        stack build --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS" --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
 
   #   # Test Haskell sources. Could be run in parallel with the steps below.
   #   - name: Test consensus
