@@ -117,7 +117,7 @@ data PreprocessedTokenOperation
         { -- | The raw amount to transfer.
           pthoAmount :: !TokenRawAmount,
           -- | The recipient account address.
-          pthoRecipient :: !TokenHolder,
+          pthoRecipient :: !CborTokenHolder,
           -- | The (optional) memo.
           pthoMemo :: !(Maybe Memo),
           -- | The original, unprocessed, 'TokenTransferBody'.
@@ -132,13 +132,13 @@ data PreprocessedTokenOperation
           ptgoUnprocessedAmount :: !TokenAmount
         }
     | PTOTokenAddAllowList
-        {ptgoTarget :: !TokenHolder}
+        {ptgoTarget :: !CborTokenHolder}
     | PTOTokenRemoveAllowList
-        {ptgoTarget :: !TokenHolder}
+        {ptgoTarget :: !CborTokenHolder}
     | PTOTokenAddDenyList
-        {ptgoTarget :: !TokenHolder}
+        {ptgoTarget :: !CborTokenHolder}
     | PTOTokenRemoveDenyList
-        {ptgoTarget :: !TokenHolder}
+        {ptgoTarget :: !CborTokenHolder}
     deriving (Eq, Show)
 
 preprocessTokenTransaction ::
@@ -363,10 +363,10 @@ requireAccount ::
     -- | The operation index.
     Word64 ->
     -- | The account to check.
-    TokenHolder ->
+    CborTokenHolder ->
     m (PLTAccount m)
-requireAccount trrOperationIndex holder@HolderAccount{..} = do
-    getAccount holderAccountAddress >>= \case
+requireAccount trrOperationIndex holder@CborHolderAccount{..} = do
+    getAccount chaAccount >>= \case
         Nothing ->
             pltError . encodeTokenRejectReason $
                 AddressNotFound{trrAddress = holder, ..}

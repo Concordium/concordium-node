@@ -29,6 +29,9 @@ import qualified Concordium.Scheduler.Types as Types
 dummyAddress2 :: AccountAddress
 dummyAddress2 = Helpers.accountAddressFromSeed 2
 
+dummyTokenHolder :: TokenHolder
+dummyTokenHolder = HolderAccount dummyAddress2
+
 dummyAccount ::
     (IsAccountVersion av, Blob.MonadBlobStore m) =>
     m (BS.PersistentAccount av)
@@ -74,7 +77,7 @@ testCreatePLT _ pvString = describe pvString $ do
                         return $
                             Helpers.assertSuccessWithEvents
                                 [ TokenCreated{etcPayload = createPLT2},
-                                  TokenMint{etmTokenId = plt2, etmAmount = TokenAmount 10 0, etmTarget = dummyAddress2}
+                                  TokenMint{etmTokenId = plt2, etmAmount = TokenAmount 10 0, etmTarget = dummyTokenHolder}
                                 ]
                                 result
                     }

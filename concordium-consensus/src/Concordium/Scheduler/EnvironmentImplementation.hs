@@ -629,8 +629,8 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
                 plteEvents
                     %= ( TokenTransfer
                             { ettTokenId = _pltTokenId (_pltecConfiguration context),
-                              ettFrom = accAddrFrom,
-                              ettTo = accAddrTo,
+                              ettFrom = HolderAccount accAddrFrom,
+                              ettTo = HolderAccount accAddrTo,
                               ettAmount = TokenAmount amount (_pltDecimals (_pltecConfiguration context)),
                               ettMemo = mbMemo
                             }
@@ -672,7 +672,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                         plteEvents
                             %= ( TokenMint
                                     { etmTokenId = _pltTokenId (_pltecConfiguration context),
-                                      etmTarget = accAddr,
+                                      etmTarget = HolderAccount accAddr,
                                       etmAmount = TokenAmount amount (_pltDecimals (_pltecConfiguration context))
                                     }
                                     :
@@ -699,7 +699,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                 plteEvents
                     %= ( TokenBurn
                             { etbTokenId = _pltTokenId (_pltecConfiguration context),
-                              etbTarget = accAddr,
+                              etbTarget = HolderAccount accAddr,
                               etbAmount = TokenAmount amount (_pltDecimals (_pltecConfiguration context))
                             }
                             :
