@@ -72,6 +72,13 @@ jobs:
       run: |
         stack --stack-yaml concordium-consensus/stack.yaml setup
 
+    - name: Download fourmolu
+      uses: supplypike/setup-bin@v1
+      with:
+        uri: 'https://github.com/fourmolu/fourmolu/releases/download/v0.13.1.0/fourmolu-0.13.1.0-linux-x86_64'
+        name: 'fourmolu'
+        version: '0.13.1.0'
+
     # Is it OK to only run this on files changed in this pull request, or do we need to run it on all files in the repo?
     - name: Run fourmolu
       run: |
