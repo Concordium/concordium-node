@@ -93,12 +93,12 @@ initializeToken tokenParam = do
             when tipDenyList $ setTokenState "denyList" (Just "")
             when tipMintable $ setTokenState "mintable" (Just "")
             when tipBurnable $ setTokenState "burnable" (Just "")
-            mbGovAccount <- getAccount $ holderAccountAddress tipGovernanceAccount
+            mbGovAccount <- getAccount $ chaAccount tipGovernanceAccount
             case mbGovAccount of
                 Nothing ->
-                    pltError (ITEGovernanceAccountDoesNotExist $ holderAccountAddress tipGovernanceAccount)
+                    pltError (ITEGovernanceAccountDoesNotExist $ chaAccount tipGovernanceAccount)
                 Just govAccount -> do
-                    setTokenState "governanceAccount" (Just $ tokenAccountAddressToBytes $ holderAccountAddress tipGovernanceAccount)
+                    setTokenState "governanceAccount" (Just $ encodeToBytes $ encodeCborTokenHolder tipGovernanceAccount)
                     forM_ tipInitialSupply $ \initSupply -> do
                         decimals <- getDecimals
                         case toTokenRawAmount decimals initSupply of
@@ -273,7 +273,7 @@ executeTokenTransaction TransactionContext{..} tokenParam = do
                             case mbGovAccount of
                                 Nothing -> error "Invariant violation: Token state is missing the governance account address."
                                 Just govAccount -> do
-                                    unless (govAccount == tokenAccountAddressToBytes tcSenderAddress) $
+                                    unless (govAccount == encodeToBytes (encodeAccountAddress tcSenderAddress)) $
                                         failTH
                                             OperationNotPermitted
                                                 { trrOperationIndex = opIndex,
@@ -398,8 +398,7 @@ queryTokenModuleState = do
             Nothing -> pltError $ QTEInvariantViolation "Missing governance account"
             Just govAccount -> do
                 either (corruptDataError "governance account address") return $
-                    tokenAccountAddressFromBytes $
-                        LBS.fromStrict govAccount
+                    decodeFromBytes decodeCborTokenHolder "cbor token holder" (LBS.fromStrict govAccount)
     tmsAllowList <- Just . isJust <$> getTokenState "allowList"
     tmsDenyList <- Just . isJust <$> getTokenState "denyList"
     tmsMintable <- Just . isJust <$> getTokenState "mintable"
