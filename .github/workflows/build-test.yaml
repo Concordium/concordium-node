@@ -65,11 +65,6 @@ jobs:
       uses: actions/checkout@v2
       with:
         submodules: recursive
-
-    - name: Setup Haskell
-      uses: haskell-actions/setup@v2.8.0
-      with:
-        ghc-version: 9.6.6
   
     # Since fourmolu uses the project cabal file to find default language extensions, this step is
     # needed to generate a cabal file from the package.yaml.
@@ -77,10 +72,11 @@ jobs:
       run: |
         stack --stack-yaml concordium-consensus/stack.yaml setup
 
-    - uses: haskell-actions/run-fourmolu@v9
-      with:
-        version: "0.13.1.0"
-
+    # Is it OK to only run this on files changed in this pull request, or do we need to run it on all files in the repo?
+    - name: Run fourmolu
+      run: |
+        fourmolu --color always --mode check $(git diff --name-only main '*.hs')
+ 
   # rustfmt:
   #   runs-on: ubuntu-latest
   #   # if: ${{ !github.event.pull_request.draft }} # temporarily commenting this out as part of investigation
@@ -223,16 +219,16 @@ jobs:
       run: |
         stack build --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS" --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
 
-  #   # Test Haskell sources. Could be run in parallel with the steps below.
-  #   - name: Test consensus
-  #     run: |
-  #       stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --fast --ta --level=${TEST_LEVEL} --ghc-options "-j4 +RTS -A128m -n2m -RTS" 
-  #   - name: Test globalstate
-  #     run: |
-  #       stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --fast --ta --level=${TEST_LEVEL} --ghc-options "-j4 +RTS -A128m -n2m -RTS" 
-  #   - name: Test scheduler
-  #     run: |
-  #       stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS" 
+    # Test Haskell sources. Could be run in parallel with the steps below.
+    - name: Test consensus
+      run: |
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --fast --ta --level=${TEST_LEVEL} --ghc-options "-j4 +RTS -A128m -n2m -RTS" 
+    - name: Test globalstate
+      run: |
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --fast --ta --level=${TEST_LEVEL} --ghc-options "-j4 +RTS -A128m -n2m -RTS" 
+    - name: Test scheduler
+      run: |
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS" 
 
   #   # RUST #
 
