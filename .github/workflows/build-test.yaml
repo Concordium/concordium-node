@@ -81,9 +81,9 @@ jobs:
     - uses: haskell-actions/run-fourmolu@v9
       with:
         version: "0.13.1.0"
-      pattern: |
-        **/*.hs
-      extra-args: "--color always --mode check"
+        pattern: |
+          **/*.hs
+        extra-args: "--color always --mode check"
 
   # rustfmt:
   #   runs-on: ubuntu-latest
