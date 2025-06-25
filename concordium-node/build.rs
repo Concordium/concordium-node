@@ -839,7 +839,7 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
     let ghc_lib_dir = env::var("HASKELL_GHC_LIBDIR").unwrap_or_else(|_| {
         command_output(Command::new("stack").args([
             "--stack-yaml",
-            "../concordium-consensus/stack.yaml",
+            "../stack.yaml",
             "ghc",
             "--",
             "--print-libdir",
