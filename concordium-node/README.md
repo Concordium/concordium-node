@@ -26,22 +26,22 @@
 
 ## Building the node
 
-First build Haskell code (concordium-base and concordium-consensus) with
+First build Haskell code (concordium-base and concordium-consensus) using
 
 ```console
-stack --stack-yaml ../concordium-consensus/stack.yaml build
+stack build
 ```
 
-from the repository base folder. Then from the concordium-node subfolder, build the Rust code with (here in release mode
+from the repository base folder. Then from the concordium-node subfolder, build the Rust code using (here in release mode
 
 ```console
 cargo build --release
 ```
 
 The [build.rs](./build.rs) script links with the Haskell libraries but will not build them,
-hence the Haskell build must be manually done first. 
+hence the Haskell build must be done manually first. 
 
-To run the node with
+To build and run the node, use
 
 ```console
 cargo run --release -- --config-dir <CONCORDIUM_NODE_CONFIG_DIR> --data-dir <CONCORDIUM_NODE_DATA_DIR>
