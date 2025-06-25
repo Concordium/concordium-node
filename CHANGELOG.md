@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+## 9.0.4 (DevNet)
+
+- Protocol-level tokens:
+  - Changes to event representation and serialization.
+
 ## 9.0.3 (DevNet)
 
 - Protocol-level tokens:
