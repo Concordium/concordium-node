@@ -838,7 +838,7 @@ fn link_static_libs() -> std::io::Result<()> {
 
     ["concordium", "dependencies", "ghc"].iter().for_each(|subdir| {
         println!("cargo:rustc-link-search=native={}/{}", path, subdir);
-        let walker = walkdir::WalkDir::new(Path::new(&format!("{}/{}",  path, subdir)))
+        let walker = walkdir::WalkDir::new(Path::new(&format!("{}/{}", path, subdir)))
             .into_iter()
             .filter_map(Result::ok);
         for item in walker {
