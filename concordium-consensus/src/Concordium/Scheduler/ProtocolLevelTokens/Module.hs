@@ -141,12 +141,14 @@ data PreprocessedTokenOperation
         {ptgoTarget :: !CborTokenHolder}
     deriving (Eq, Show)
 
-preprocessTokenTransaction ::
+-- | Convert 'TokenAmount's to 'TokenRawAmount's, checking that they are within
+--  the representable range.
+preprocessTokenUpdateTransaction ::
     (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     Word8 ->
     TokenUpdateTransaction ->
     m (Seq.Seq PreprocessedTokenOperation)
-preprocessTokenTransaction decimals = mapM preproc . tokenOperations
+preprocessTokenUpdateTransaction decimals = mapM preproc . tokenOperations
   where
     preproc (TokenTransfer ttb@(TokenTransferBody{..})) =
         case toTokenRawAmount decimals ttAmount of
@@ -189,7 +191,7 @@ logEncodeTokenEvent te = logTokenEvent eventType details
   where
     EncodedTokenEvent{eteType = eventType, eteDetails = details} = encodeTokenEvent te
 
--- | Execute a token-governance transaction. The process is as follows:
+-- | Execute a token update transaction. The process is as follows:
 --
 --   - Decode the transaction CBOR parameter.
 --   - Check that amounts are within the representable range.
@@ -201,17 +203,17 @@ logEncodeTokenEvent te = logTokenEvent eventType details
 --
 -- INVARIANTS:
 --   - Token module state contains a correctly encoded governance account address.
-executeTokenTransaction ::
+executeTokenUpdateTransaction ::
     (PLTKernelPrivilegedUpdate m, PLTKernelChargeEnergy m, PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     TransactionContext m ->
     TokenParameter ->
     m ()
-executeTokenTransaction TransactionContext{..} tokenParam = do
+executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
     case tokenTransactionFromBytes tokenParamLBS of
         Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
         Right parsedTransaction -> do
             decimals <- getDecimals
-            operations <- preprocessTokenTransaction decimals parsedTransaction
+            operations <- preprocessTokenUpdateTransaction decimals parsedTransaction
             let handleOperation !opIndex op = do
                     case op of
                         PTOTransfer{..} -> do

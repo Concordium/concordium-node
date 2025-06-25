@@ -385,7 +385,7 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
                         TokenUpdate{..} ->
                             onlyWithPLT $
-                                handleToken (mkWTC TTTokenUpdate) tuTokenId tuOperations
+                                handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -2669,7 +2669,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
         return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
 
 -- | Handler for a token transaction.
-handleToken ::
+handleTokenUpdate ::
     forall m.
     ( PVSupportsPLT (MPV m),
       SchedulerMonad m
@@ -2680,7 +2680,7 @@ handleToken ::
     -- | Operations for the token.
     TokenParameter ->
     m (Maybe TransactionSummary)
-handleToken depositContext tokenId tokenOperations =
+handleTokenUpdate depositContext tokenId tokenOperations =
     withDeposit depositContext computeTransaction commitTransaction
   where
     senderAccount = depositContext ^. wtcSenderAccount
@@ -2730,7 +2730,7 @@ handleToken depositContext tokenId tokenOperations =
                         { tcSender = (fst sender, depositContext ^. wtcSenderAddress),
                           tcSenderAddress = depositContext ^. wtcSenderAddress
                         }
-            (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenTransaction tc parameter
+            (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenUpdateTransaction tc parameter
             return ((events <$ res, energyUsed), isLeft res)
 
 -- * Chain updates
