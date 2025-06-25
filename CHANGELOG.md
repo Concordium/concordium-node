@@ -8,6 +8,11 @@
   - Moved authorization from the scheduler to the token module and moved the
     token governance account from `PLTConfiguration` to the token module state.
 
+## 9.0.4 (DevNet)
+
+- Protocol-level tokens:
+  - Changes to event representation and serialization.
+
 ## 9.0.3 (DevNet)
 
 - Protocol-level tokens:
