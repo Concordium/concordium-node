@@ -110,11 +110,11 @@ fn main() -> std::io::Result<()> {
                 };
 
                 println!(
-                    "cargo:rustc-env={}={}:{}:{}",
+                    "cargo:rustc-env={}={}:{}", // :{}
                     lib_path,
                     ghc_lib_dir.as_path().to_string_lossy(),
                     stack_install_lib.as_path().to_string_lossy(),
-                    local_package.as_path().to_string_lossy()
+                    // local_package.as_path().to_string_lossy()
                 );
             }
         }
