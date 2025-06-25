@@ -39,6 +39,13 @@ dummyAddress = Helpers.accountAddressFromSeed 1
 dummyAddress2 :: AccountAddress
 dummyAddress2 = Helpers.accountAddressFromSeed 2
 
+dummyCborTokenHolder :: CBOR.CborTokenHolder
+dummyCborTokenHolder =
+    CBOR.CborHolderAccount
+        { chaAccount = dummyAddress2,
+          chaCoinInfo = Nothing
+        }
+
 dummyAccount ::
     (IsAccountVersion av, Blob.MonadBlobStore m) =>
     m (BS.PersistentAccount av)
@@ -78,9 +85,9 @@ testTokenHolder _ pvString =
                         Runner.AccountTx $
                             Runner.TJSON
                                 { payload =
-                                    Runner.TokenHolder
-                                        { thTokenId = gtu,
-                                          thOperations = Types.TokenParameter BSS.empty
+                                    Runner.TokenUpdate
+                                        { tuTokenId = gtu,
+                                          tuOperations = Types.TokenParameter BSS.empty
                                         },
                                   metadata = makeDummyHeader dummyAddress 1 1_000,
                                   keys = [(0, [(0, dummyKP)])]
@@ -106,9 +113,9 @@ testTokenHolder _ pvString =
                         Runner.AccountTx $
                             Runner.TJSON
                                 { payload =
-                                    Runner.TokenHolder
-                                        { thTokenId = gtu,
-                                          thOperations = Types.TokenParameter BSS.empty
+                                    Runner.TokenUpdate
+                                        { tuTokenId = gtu,
+                                          tuOperations = Types.TokenParameter BSS.empty
                                         },
                                   metadata = makeDummyHeader dummyAddress 2 1_000,
                                   keys = [(0, [(0, dummyKP)])]
@@ -116,7 +123,7 @@ testTokenHolder _ pvString =
                       biaaAssertion = \result _ -> do
                         return $
                             Helpers.assertRejectWithReason
-                                ( TokenHolderTransactionFailed
+                                ( TokenUpdateTransactionFailed
                                     (TokenModuleRejectReason{tmrrTokenId = gtu, tmrrType = errType, tmrrDetails = Just cborFail})
                                 )
                                 result
@@ -134,6 +141,7 @@ testTokenHolder _ pvString =
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
               tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
+              tipGovernanceAccount = dummyCborTokenHolder,
               tipAllowList = True,
               tipDenyList = False,
               tipInitialSupply = Nothing,
@@ -141,7 +149,7 @@ testTokenHolder _ pvString =
               tipBurnable = True
             }
     tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
-    createPLT = Types.CreatePLT gtu (TokenModuleRef dummyHash) dummyAddress2 0 tp
+    createPLT = Types.CreatePLT gtu (TokenModuleRef dummyHash) 0 tp
     plt = Types.CreatePLTUpdatePayload createPLT
     gtuEvent = TokenCreated{etcPayload = createPLT}
     -- This is CBOR-encoding of {"cause": "DeserialiseFailure 0 \"end of input\""}

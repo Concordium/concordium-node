@@ -32,6 +32,13 @@ dummyAddress2 = Helpers.accountAddressFromSeed 2
 dummyTokenHolder :: TokenHolder
 dummyTokenHolder = HolderAccount dummyAddress2
 
+dummyCborTokenHolder :: CBOR.CborTokenHolder
+dummyCborTokenHolder =
+    CBOR.CborHolderAccount
+        { chaAccount = dummyAddress2,
+          chaCoinInfo = Nothing
+        }
+
 dummyAccount ::
     (IsAccountVersion av, Blob.MonadBlobStore m) =>
     m (BS.PersistentAccount av)
@@ -123,6 +130,7 @@ testCreatePLT _ pvString = describe pvString $ do
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
               tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
+              tipGovernanceAccount = dummyCborTokenHolder,
               tipAllowList = False,
               tipDenyList = False,
               tipInitialSupply = Nothing,
@@ -141,7 +149,7 @@ testCreatePLT _ pvString = describe pvString $ do
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
               tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
-              tipGovernanceAccount = dummyAddress2,
+              tipGovernanceAccount = dummyCborTokenHolder,
               tipAllowList = False,
               tipDenyList = False,
               tipInitialSupply = Just (TokenAmount 10 0),
@@ -153,7 +161,6 @@ testCreatePLT _ pvString = describe pvString $ do
             { _cpltTokenModule = TokenModuleRef dummyHash,
               _cpltTokenId = plt2,
               _cpltInitializationParameters = toTokenParam params2,
-              _cpltGovernanceAccount = dummyAddress2,
               _cpltDecimals = 0
             }
 
