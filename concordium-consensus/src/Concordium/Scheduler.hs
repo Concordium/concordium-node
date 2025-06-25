@@ -2687,7 +2687,7 @@ handleTokenUpdate depositContext tokenId tokenOperations =
     -- Execute the transaction in a modified environment
     computeTransaction = do
         -- Charge the base cost for this transaction type
-        tickEnergy Cost.tokenBaseCost
+        tickEnergy Cost.tokenUpdateBaseCost
         -- Fetch the token from state
         tokenIndex <-
             lift (getTokenIndex tokenId) >>= \case

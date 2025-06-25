@@ -209,7 +209,7 @@ executeTokenUpdateTransaction ::
     TokenParameter ->
     m ()
 executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
-    case tokenTransactionFromBytes tokenParamLBS of
+    case tokenUpdateTransactionFromBytes tokenParamLBS of
         Left failureReason -> failTH $ DeserializationFailure $ Just $ Text.pack failureReason
         Right parsedTransaction -> do
             decimals <- getDecimals
