@@ -67,7 +67,7 @@ fn main() -> std::io::Result<()> {
                 // otherwise auto-discover the directories via stack
                 let stack_install_root_command = command_output(Command::new("stack").args([
                     "--stack-yaml",
-                    "../concordium-consensus/stack.yaml",
+                    "../stack.yaml",
                     "path",
                     "--local-install-root",
                 ]));
@@ -110,10 +110,11 @@ fn main() -> std::io::Result<()> {
                 };
 
                 println!(
-                    "cargo:rustc-env={}={}:{}",
+                    "cargo:rustc-env={}={}:{}:{}",
                     lib_path,
                     ghc_lib_dir.as_path().to_string_lossy(),
-                    stack_install_lib.as_path().to_string_lossy()
+                    stack_install_lib.as_path().to_string_lossy(),
+                    local_package.as_path().to_string_lossy()
                 );
             }
         }
@@ -837,7 +838,7 @@ fn link_static_libs() -> std::io::Result<()> {
 
     ["concordium", "dependencies", "ghc"].iter().for_each(|subdir| {
         println!("cargo:rustc-link-search=native={}/{}", path, subdir);
-        let walker = walkdir::WalkDir::new(Path::new(&format!("{}/{}", path, subdir)))
+        let walker = walkdir::WalkDir::new(Path::new(&format!("{}/{}",  path, subdir)))
             .into_iter()
             .filter_map(Result::ok);
         for item in walker {
