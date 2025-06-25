@@ -24,6 +24,7 @@ import Concordium.Types.Tokens
 import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..), TokenIndex)
 import Concordium.GlobalState.TreeState
@@ -33,6 +34,7 @@ import Concordium.Scheduler.ProtocolLevelTokens.Kernel
 import Concordium.Scheduler.Types
 import Concordium.TimeMonad
 import qualified Concordium.TransactionVerification as TVer
+import Data.Either (isRight)
 
 -- | Context for executing a scheduler computation.
 data ContextState = ContextState
@@ -86,8 +88,10 @@ data PLTExecutionContext = PLTExecutionContext
       _pltecTokenIndex :: !TokenIndex,
       -- | The PLT configuration.
       _pltecConfiguration :: !PLTConfiguration,
-      -- | The available energy
-      _pltecEnergy :: !(Maybe Energy)
+      -- | The available energy.
+      _pltecEnergy :: !(Maybe Energy),
+      -- | The mutable token state.
+      _pltecMutableState :: !StateV1.MutableState
     }
 
 -- | Alias for the internal type used in @SchedulerT@.
@@ -475,43 +479,53 @@ instance
         return res
 
     runPLT tokenIx op = do
-        s <- use ssBlockState
+        s :: UpdatableBlockState m <- use ssBlockState
         let initialExecutionState =
                 PLTExecutionState
                     { _plteBlockState = s,
                       _plteEvents = [],
                       _plteEnergyUsed = 0
                     }
-
+        mutState <- lift $ BS.thawTokenState s tokenIx
         (res, finalExecutionState) <- lift $ do
             config <- BS.getTokenConfiguration s tokenIx
             let context =
                     PLTExecutionContext
                         { _pltecTokenIndex = tokenIx,
                           _pltecConfiguration = config,
-                          _pltecEnergy = Nothing
+                          _pltecEnergy = Nothing,
+                          _pltecMutableState = mutState
                         }
             runKernelT op context initialExecutionState
+        when (isRight res) $ do
+            let outBlockState = finalExecutionState ^. plteBlockState
+            newBlockState <- lift $ BS.bsoFreezeTokenState outBlockState tokenIx mutState
+            ssBlockState .= newBlockState
         return (res, reverse $ finalExecutionState ^. plteEvents)
 
     runPLTWithEnergy tokenIx energy op = do
-        s <- use ssBlockState
+        s :: UpdatableBlockState m <- use ssBlockState
         let initialExecutionState =
                 PLTExecutionState
                     { _plteBlockState = s,
                       _plteEvents = [],
                       _plteEnergyUsed = 0
                     }
-
+        mutState <- lift $ BS.thawTokenState s tokenIx
         (res, finalExecutionState) <- lift $ do
             config <- BS.getTokenConfiguration s tokenIx
             let context =
                     PLTExecutionContext
                         { _pltecTokenIndex = tokenIx,
                           _pltecConfiguration = config,
-                          _pltecEnergy = Just energy
+                          _pltecEnergy = Just energy,
+                          _pltecMutableState = mutState
                         }
             runKernelT op context initialExecutionState
+        when (isRight res) $ do
+            let outBlockState = finalExecutionState ^. plteBlockState
+            newBlockState <- lift $ BS.bsoFreezeTokenState outBlockState tokenIx mutState
+            ssBlockState .= newBlockState
         return (res, reverse $ finalExecutionState ^. plteEvents, finalExecutionState ^. plteEnergyUsed)
 
     createToken pltConfig = do
@@ -553,12 +567,13 @@ deriving via (MGSTrans (KernelT fail ret) m) instance BlockStateTypes (KernelT f
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (KernelT fail ret m) where
     type PLTAccount (KernelT fail ret m) = (AccountIndex, AccountAddress)
     getTokenState key = do
-        tokenIx <- asks _pltecTokenIndex
         bs <- use plteBlockState
-        lift $ BS.getTokenState bs tokenIx key
+        mutableState <- asks _pltecMutableState
+        lift $ BS.getTokenState bs key mutableState
     getAccount addr = do
         bs <- use plteBlockState
         lift $ fmap ((,addr) . fst) <$> BS.bsoGetAccount bs addr
+    getAccountIndex (acctIndex, _) = return acctIndex
     getAccountBalance (acctIndex, _) = do
         tokenIx <- asks _pltecTokenIndex
         bs <- use plteBlockState
@@ -566,13 +581,6 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
             BS.bsoGetAccountByIndex bs acctIndex >>= \case
                 Nothing -> error "getAccountBalance: Account does not exist"
                 Just acct -> BS.getAccountTokenBalance acct tokenIx
-    getAccountState (acctIndex, _) key = do
-        tokenIx <- asks _pltecTokenIndex
-        bs <- use plteBlockState
-        lift $
-            BS.bsoGetAccountByIndex bs acctIndex >>= \case
-                Nothing -> error "getAccountState: Account does not exist"
-                Just acct -> BS.getAccountTokenState acct tokenIx key
     getAccountCanonicalAddress (acctIndex, _) = do
         bs <- use plteBlockState
         lift $
@@ -597,19 +605,9 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (KernelT fail ret m) where
     setTokenState key mValue = do
-        tokenIx <- asks _pltecTokenIndex
-        bs <- use plteBlockState
-        newBS <- lift $ BS.bsoSetTokenState bs tokenIx key mValue
-        plteBlockState .= newBS
-    setAccountState (account, _) key mValue = do
-        let updates = case mValue of
-                Nothing -> [(key, TASVDelete)]
-                Just value -> [(key, TASVUpdate value)]
-        tokenIx <- asks _pltecTokenIndex
-        bs <- use plteBlockState
-        newBS <- lift $ BS.bsoUpdateTokenAccountModuleState bs tokenIx account updates
-        plteBlockState .= newBS
-        return ()
+        mutableState <- asks _pltecMutableState
+        lift $ BS.bsoSetTokenState key mValue mutableState
+
     transfer (accIxFrom, accAddrFrom) (accIxTo, accAddrTo) amount mbMemo = do
         context <- ask
         let tokenIx = _pltecTokenIndex context

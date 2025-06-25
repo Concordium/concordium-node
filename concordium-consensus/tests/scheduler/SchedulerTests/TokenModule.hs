@@ -39,7 +39,7 @@ import Concordium.Types.Tokens
 
 import Concordium.Cost
 import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.BlockState as BlockState
 import Concordium.GlobalState.Persistent.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens
@@ -50,6 +50,7 @@ import Concordium.Scheduler.ProtocolLevelTokens.Module (
     InitializeTokenError (..),
     QueryTokenError (..),
     TransactionContext' (..),
+    accountStateKey,
     executeTokenGovernanceTransaction,
     executeTokenHolderTransaction,
     initializeToken,
@@ -62,40 +63,45 @@ import qualified SchedulerTests.Helpers as Helpers
 -- | A value of type @PLTKernelQueryCall acct ret@ represents an invocation of an operation
 --  in a 'PLTKernelQuery' monad where @PLTAccount m ~ acct@. The parameter @ret@ is the type
 --  of the return value expected.
-data PLTKernelQueryCall acct ret where
-    GetTokenState :: TokenStateKey -> PLTKernelQueryCall acct (Maybe TokenStateValue)
-    GetAccount :: AccountAddress -> PLTKernelQueryCall acct (Maybe acct)
-    GetAccountBalance :: acct -> PLTKernelQueryCall acct TokenRawAmount
-    GetAccountState :: acct -> TokenStateKey -> PLTKernelQueryCall acct (Maybe TokenStateValue)
-    GetAccountCanonicalAddress :: acct -> PLTKernelQueryCall acct AccountAddress
-    GetGovernanceAccount :: PLTKernelQueryCall acct acct
-    GetCirculatingSupply :: PLTKernelQueryCall acct TokenRawAmount
-    GetDecimals :: PLTKernelQueryCall acct Word8
+data PLTKernelQueryCall ret where
+    GetTokenState :: TokenStateKey -> PLTKernelQueryCall (Maybe TokenStateValue)
+    GetAccount :: AccountAddress -> PLTKernelQueryCall (Maybe AccountIndex)
+    GetAccountBalance :: AccountIndex -> PLTKernelQueryCall TokenRawAmount
+    GetAccountIndex :: AccountIndex -> PLTKernelQueryCall AccountIndex
+    GetAccountCanonicalAddress :: AccountIndex -> PLTKernelQueryCall AccountAddress
+    GetGovernanceAccount :: PLTKernelQueryCall AccountIndex
+    GetCirculatingSupply :: PLTKernelQueryCall TokenRawAmount
+    GetDecimals :: PLTKernelQueryCall Word8
 
-deriving instance (Show acct) => Show (PLTKernelQueryCall acct ret)
-deriving instance (Eq acct) => Eq (PLTKernelQueryCall acct ret)
+deriving instance Show (PLTKernelQueryCall ret)
+deriving instance Eq (PLTKernelQueryCall ret)
+
+getAcccountStateCall :: AccountIndex -> TokenStateKey -> PLTKernelQueryCall (Maybe TokenStateValue)
+getAcccountStateCall accountIndex subKey = GetTokenState (accountStateKey accountIndex subKey)
 
 -- | A value of type @PLTKernelUpdateCall acct ret@ represents an invocation of an operation
 --  in a 'PLTKernelUpdate' monad, where @PLTAccount m ~ acct@. The parameter @ret@ is the type
 --  of the return value expected.
-data PLTKernelUpdateCall acct ret where
-    SetTokenState :: TokenStateKey -> Maybe TokenStateValue -> PLTKernelUpdateCall acct ()
-    SetAccountState :: acct -> TokenStateKey -> Maybe TokenStateValue -> PLTKernelUpdateCall acct ()
-    Transfer :: acct -> acct -> TokenRawAmount -> Maybe Memo -> PLTKernelUpdateCall acct Bool
-    LogTokenEvent :: TokenEventType -> TokenEventDetails -> PLTKernelUpdateCall acct ()
+data PLTKernelUpdateCall ret where
+    SetTokenState :: TokenStateKey -> Maybe TokenStateValue -> PLTKernelUpdateCall (Maybe Bool)
+    Transfer :: AccountIndex -> AccountIndex -> TokenRawAmount -> Maybe Memo -> PLTKernelUpdateCall Bool
+    LogTokenEvent :: TokenEventType -> TokenEventDetails -> PLTKernelUpdateCall ()
 
-deriving instance (Show acct) => Show (PLTKernelUpdateCall acct ret)
-deriving instance (Eq acct) => Eq (PLTKernelUpdateCall acct ret)
+deriving instance Show (PLTKernelUpdateCall ret)
+deriving instance Eq (PLTKernelUpdateCall ret)
+
+setAccountStateCall :: AccountIndex -> TokenStateKey -> Maybe TokenStateValue -> PLTKernelUpdateCall (Maybe Bool)
+setAccountStateCall accountIndex subKey maybeValue = SetTokenState (accountStateKey accountIndex subKey) maybeValue
 
 -- | A value of type @PLTKernelPrivilegedUpdateCall acct ret@ represents an invocation of an
 --  operation in a 'PLTKernelPrivilegedUpdate' monad, where @PLTAccount m ~ acct@. The parameter
 --  @ret@ is the type of the return value expected.
-data PLTKernelPrivilegedUpdateCall acct ret where
-    Mint :: acct -> TokenRawAmount -> PLTKernelPrivilegedUpdateCall acct Bool
-    Burn :: acct -> TokenRawAmount -> PLTKernelPrivilegedUpdateCall acct Bool
+data PLTKernelPrivilegedUpdateCall ret where
+    Mint :: AccountIndex -> TokenRawAmount -> PLTKernelPrivilegedUpdateCall Bool
+    Burn :: AccountIndex -> TokenRawAmount -> PLTKernelPrivilegedUpdateCall Bool
 
-deriving instance (Show acct) => Show (PLTKernelPrivilegedUpdateCall acct ret)
-deriving instance (Eq acct) => Eq (PLTKernelPrivilegedUpdateCall acct ret)
+deriving instance Show (PLTKernelPrivilegedUpdateCall ret)
+deriving instance Eq (PLTKernelPrivilegedUpdateCall ret)
 
 -- | A value of type @PLTKernelFailCall e ret@ represents an invocation of an operation in a
 --  @PLTKernelFail e@ monad. The parameter @ret@ is the type of the return value expected.
@@ -114,20 +120,20 @@ deriving instance Show PLTKernelChargeEnergyCall
 deriving instance Eq PLTKernelChargeEnergyCall
 
 -- | A union type that combines the calls for all of the PLT-related monads.
-data PLTCall e acct ret
+data PLTCall e ret
     = -- | A 'PLTKernelQuery' call
-      PLTQ (PLTKernelQueryCall acct ret)
+      PLTQ (PLTKernelQueryCall ret)
     | -- | A 'PLTKernelUpdate' call
-      PLTU (PLTKernelUpdateCall acct ret)
+      PLTU (PLTKernelUpdateCall ret)
     | -- | A 'PLTKernelPrivilegedUpdate' call
-      PLTPU (PLTKernelPrivilegedUpdateCall acct ret)
+      PLTPU (PLTKernelPrivilegedUpdateCall ret)
     | -- | A 'PLTKernelFail' call.
       PLTF (PLTKernelFailCall e ret)
     | -- | A 'PLTKernelChargeEnergy' call.
       PLTE PLTKernelChargeEnergyCall
 
-deriving instance (Show e, Show acct) => Show (PLTCall e acct ret)
-deriving instance (Eq e, Eq acct) => Eq (PLTCall e acct ret)
+deriving instance (Show e) => Show (PLTCall e ret)
+deriving instance (Eq e) => Eq (PLTCall e ret)
 
 -- | A @TraceEvent call@ is a pair of a call of type @call ret@ and a return value of type @ret@.
 --  This models a call of a (monadic) operation that returns a specific value.
@@ -247,38 +253,37 @@ handleEvent actualCall = TraceM $ \except abort cont -> \case
     (Done r) -> except $ "Trace should end (with result" ++ show r ++ "). But saw event: " ++ show actualCall
 
 instance
-    (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
-    PLTKernelQuery (TraceM (PLTCall e acct) res ret)
+    (Eq e, Show e, Show ret, Typeable e, Typeable ret) =>
+    PLTKernelQuery (TraceM (PLTCall e) res ret)
     where
-    type PLTAccount (TraceM (PLTCall e acct) res ret) = acct
+    type PLTAccount (TraceM (PLTCall e) res ret) = AccountIndex
     getTokenState key = handleEvent $ PLTQ $ GetTokenState key
     getAccount addr = handleEvent $ PLTQ $ GetAccount addr
     getAccountBalance acct = handleEvent $ PLTQ $ GetAccountBalance acct
-    getAccountState acct key = handleEvent $ PLTQ $ GetAccountState acct key
+    getAccountIndex accountIndex = return accountIndex
     getAccountCanonicalAddress acct = handleEvent $ PLTQ $ GetAccountCanonicalAddress acct
     getGovernanceAccount = handleEvent $ PLTQ GetGovernanceAccount
     getCirculatingSupply = handleEvent $ PLTQ GetCirculatingSupply
     getDecimals = handleEvent $ PLTQ GetDecimals
 
 instance
-    (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
-    PLTKernelUpdate (TraceM (PLTCall e acct) res ret)
+    (Eq e, Show e, Show ret, Typeable e, Typeable ret) =>
+    PLTKernelUpdate (TraceM (PLTCall e) res ret)
     where
     setTokenState key mValue = handleEvent $ PLTU $ SetTokenState key mValue
-    setAccountState acct key mValue = handleEvent $ PLTU $ SetAccountState acct key mValue
     transfer sender receiver amount mMemo = handleEvent $ PLTU $ Transfer sender receiver amount mMemo
     logTokenEvent eventType details = handleEvent $ PLTU $ LogTokenEvent eventType details
 
 instance
-    (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
-    PLTKernelPrivilegedUpdate (TraceM (PLTCall e acct) res ret)
+    (Eq e, Show e, Show ret, Typeable e, Typeable ret) =>
+    PLTKernelPrivilegedUpdate (TraceM (PLTCall e) res ret)
     where
     mint acct amount = handleEvent $ PLTPU $ Mint acct amount
     burn acct amount = handleEvent $ PLTPU $ Burn acct amount
 
 instance
-    (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
-    PLTKernelFail e (TraceM (PLTCall e acct) res ret)
+    (Eq e, Show e, Show ret, Typeable e, Typeable ret) =>
+    PLTKernelFail e (TraceM (PLTCall e) res ret)
     where
     pltError e = TraceM $ \except abort _ -> \case
         (expectedCall :-> _ :>>: _) ->
@@ -289,12 +294,12 @@ instance
         (Done r) ->
             except $ "Trace should end (with result" ++ show r ++ "). But saw event: " ++ show actualCall
       where
-        actualCall :: PLTCall e acct ret
+        actualCall :: PLTCall e ret
         actualCall = PLTF $ PLTError e
 
 instance
-    (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
-    PLTKernelChargeEnergy (TraceM (PLTCall e acct) res ret)
+    (Eq e, Show e, Show ret, Typeable e, Typeable ret) =>
+    PLTKernelChargeEnergy (TraceM (PLTCall e) res ret)
     where
     pltTickEnergy = handleEvent . PLTE . PLTChargeEnergy
 
@@ -305,7 +310,7 @@ assertTrace op trace = case checkTrace trace op of
     Right () -> return ()
 
 -- | Helper to generate a trace that aborts as a result of a 'PLTError' call.
-abortPLTError :: forall e acct ret. (Show e, Show acct, Typeable e, Typeable acct, Typeable ret) => e -> Trace (PLTCall e acct) ret
+abortPLTError :: forall e ret. (Show e, Typeable e, Typeable ret) => e -> Trace (PLTCall e) ret
 abortPLTError = Abort . AbortCall @_ @ret . PLTF . PLTError
 
 -- | Tests for 'initializeToken'.
@@ -313,7 +318,7 @@ testInitializeToken :: Spec
 testInitializeToken = describe "initializeToken" $ do
     -- In this example, the parameters are not a valid encoding.
     it "invalid parameters" $ do
-        let trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+        let trace :: Trace (PLTCall InitializeTokenError) ()
             trace =
                 abortPLTError $
                     ITEDeserializationFailure "DeserialiseFailure 0 \"end of input\""
@@ -334,13 +339,13 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = True
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
-            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace :: Trace (PLTCall InitializeTokenError) ()
             trace =
-                (PLTU (SetTokenState "name" $ Just "Protocol-level token") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes metadata) :-> ())
-                    :>>: (PLTU (SetTokenState "allowList" $ Just "") :-> ())
-                    :>>: (PLTU (SetTokenState "mintable" $ Just "") :-> ())
-                    :>>: (PLTU (SetTokenState "burnable" $ Just "") :-> ())
+                (PLTU (SetTokenState "name" $ Just "Protocol-level token") :-> (Just False))
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes metadata) :-> (Just False))
+                    :>>: (PLTU (SetTokenState "allowList" $ Just "") :-> (Just False))
+                    :>>: (PLTU (SetTokenState "mintable" $ Just "") :-> (Just False))
+                    :>>: (PLTU (SetTokenState "burnable" $ Just "") :-> (Just False))
                     :>>: Done ()
         assertTrace (initializeToken tokenParam) trace
     -- An example with valid parameters and minting.
@@ -357,11 +362,11 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = False
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
-            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace :: Trace (PLTCall InitializeTokenError) ()
             trace =
-                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
-                    :>>: (PLTU (SetTokenState "denyList" $ Just "") :-> ())
+                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> (Just False))
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> (Just False))
+                    :>>: (PLTU (SetTokenState "denyList" $ Just "") :-> (Just False))
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: (PLTQ GetGovernanceAccount :-> AccountIndex 50)
                     :>>: (PLTPU (Mint (AccountIndex 50) (TokenRawAmount 500000)) :-> True)
@@ -381,10 +386,10 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = False
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
-            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace :: Trace (PLTCall InitializeTokenError) ()
             trace =
-                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
+                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> (Just False))
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> (Just False))
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: (PLTQ GetGovernanceAccount :-> AccountIndex 2)
                     :>>: (PLTPU (Mint (AccountIndex 2) (TokenRawAmount 500000)) :-> False)
@@ -405,10 +410,10 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = False
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
-            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace :: Trace (PLTCall InitializeTokenError) ()
             trace =
-                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
+                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> (Just False))
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> (Just False))
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
         assertTrace (initializeToken tokenParam) trace
@@ -427,10 +432,10 @@ testInitializeToken = describe "initializeToken" $ do
                       tipBurnable = False
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
-            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace :: Trace (PLTCall InitializeTokenError) ()
             trace =
-                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
-                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
+                (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> (Just False))
+                    :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> (Just False))
                     :>>: (PLTQ GetDecimals :-> 6)
                     :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
         assertTrace (initializeToken tokenParam) trace
@@ -441,7 +446,7 @@ dummyAccountAddress seed = fst $ randomAccountAddress (mkStdGen seed)
 testExecuteTokenHolderTransaction :: Spec
 testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ do
     it "invalid transaction" $ do
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
@@ -450,7 +455,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
             trace
     it "empty operations" $ do
         let transaction = TokenHolderTransaction Seq.empty
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 2)
                     :>>: Done ()
@@ -459,7 +464,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amt10'000 receiver1 Nothing]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 3)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
@@ -473,7 +478,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amtMax receiver2 (Just (UntaggedMemo longMemo))]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 0)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 4)
@@ -487,7 +492,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amtMax receiver2 (Just (UntaggedMemo badMemo))]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 277 \"Size of the memo (257 bytes) exceeds maximum allowed size (256 bytes).\"")
@@ -498,7 +503,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amtMax receiver2 (Just (UntaggedMemo longMemo))]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 2)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -511,7 +516,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
                       mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
@@ -532,7 +537,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
                       mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
@@ -555,7 +560,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
                       mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
@@ -583,7 +588,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                     [ mkTransferOp amt10'000000 receiver1 (Just (CBORMemo cborMemo)),
                       mkTransferOp amt50'000000 receiver2 (Just (UntaggedMemo simpleMemo))
                     ]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
@@ -603,13 +608,13 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 0 "allowList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 4 "allowList") :-> Just "")
+                    :>>: (PLTQ (getAcccountStateCall 0 "allowList") :-> Just "")
+                    :>>: (PLTQ (getAcccountStateCall 4 "allowList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
@@ -619,12 +624,12 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 0 "allowList") :-> Nothing)
+                    :>>: (PLTQ (getAcccountStateCall 0 "allowList") :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
@@ -638,13 +643,13 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 9)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 23 "allowList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 9 "allowList") :-> Nothing)
+                    :>>: (PLTQ (getAcccountStateCall 23 "allowList") :-> Just "")
+                    :>>: (PLTQ (getAcccountStateCall 9 "allowList") :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
@@ -657,14 +662,14 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 0 "denyList") :-> Nothing)
-                    :>>: (PLTQ (GetAccountState 4 "denyList") :-> Nothing)
+                    :>>: (PLTQ (getAcccountStateCall 0 "denyList") :-> Nothing)
+                    :>>: (PLTQ (getAcccountStateCall 4 "denyList") :-> Nothing)
                     :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
@@ -673,13 +678,13 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 0 "denyList") :-> Just "")
+                    :>>: (PLTQ (getAcccountStateCall 0 "denyList") :-> Just "")
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
@@ -693,14 +698,14 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 0 "denyList") :-> Nothing)
-                    :>>: (PLTQ (GetAccountState 4 "denyList") :-> Just "")
+                    :>>: (PLTQ (getAcccountStateCall 0 "denyList") :-> Nothing)
+                    :>>: (PLTQ (getAcccountStateCall 4 "denyList") :-> Just "")
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
@@ -713,16 +718,16 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
         let transaction =
                 TokenHolderTransaction . Seq.fromList $
                     [mkTransferOp amt10'000000 receiver1 Nothing]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 0 "allowList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 4 "allowList") :-> Just "")
+                    :>>: (PLTQ (getAcccountStateCall 0 "allowList") :-> Just "")
+                    :>>: (PLTQ (getAcccountStateCall 4 "allowList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
-                    :>>: (PLTQ (GetAccountState 0 "denyList") :-> Nothing)
-                    :>>: (PLTQ (GetAccountState 4 "denyList") :-> Nothing)
+                    :>>: (PLTQ (getAcccountStateCall 0 "denyList") :-> Nothing)
+                    :>>: (PLTQ (getAcccountStateCall 4 "denyList") :-> Nothing)
                     :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
                     :>>: Done ()
@@ -736,7 +741,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
                         Nothing
                       | i <- [1 .. 5000]
                     ]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace = (PLTQ GetDecimals :-> 3) :>>: traceLoop 1
             traceLoop n
                 | n > 5000 = Done ()
@@ -766,7 +771,7 @@ testExecuteTokenHolderTransaction = describe "executeTokenHolderTransaction" $ d
 testExecuteTokenGovernanceTransaction :: Spec
 testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransaction" $ do
     it "invalid transaction" $ do
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 abortPLTError . encodeTokenRejectReason $
                     DeserializationFailure (Just "DeserialiseFailure 0 \"end of input\"")
@@ -775,7 +780,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
             trace
     it "empty operations" $ do
         let transaction = TokenGovernanceTransaction Seq.empty
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 2)
                     :>>: Done ()
@@ -784,7 +789,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
                     [TokenMint (TokenAmount 10_000_000 6)]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
@@ -796,7 +801,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
                     [TokenMint (TokenAmount 10_000_000 6)]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Nothing)
@@ -812,7 +817,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
                     [TokenMint (TokenAmount 10_000_000 6)]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
@@ -832,7 +837,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
                     [TokenBurn (TokenAmount 10_000_000 6)]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
@@ -844,7 +849,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
                     [TokenBurn (TokenAmount 10_000_000 6)]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Nothing)
@@ -860,7 +865,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
         let transaction =
                 TokenGovernanceTransaction . Seq.fromList $
                     [TokenBurn (TokenAmount 10_000_000 6)]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
@@ -881,7 +886,7 @@ testExecuteTokenGovernanceTransaction = describe "executeTokenGovernanceTransact
                     [ TokenMint (TokenAmount 10_000_000 6),
                       TokenBurn (TokenAmount 5_000_000 6)
                     ]
-        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+        let trace :: Trace (PLTCall EncodedTokenRejectReason) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
@@ -910,13 +915,13 @@ testLists = do
                 let transaction =
                         TokenGovernanceTransaction . Seq.fromList $
                             [ltcMakeOperation listConf receiver1]
-                    trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+                    trace :: Trace (PLTCall EncodedTokenRejectReason) ()
                     trace =
                         (PLTQ GetDecimals :-> 6)
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
                             :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                             :>>: (PLTE (PLTChargeEnergy tokenListOperationCost) :-> ())
-                            :>>: (PLTU (SetAccountState 4 (ltcFeature listConf) (ltcNewValue listConf)) :-> ())
+                            :>>: (PLTU (setAccountStateCall 4 (ltcFeature listConf) (ltcNewValue listConf)) :-> (Just False))
                             :>>: ( PLTU
                                     ( LogTokenEvent
                                         (TokenEventType $ ltcOperation listConf)
@@ -930,7 +935,7 @@ testLists = do
                 let transaction =
                         TokenGovernanceTransaction . Seq.fromList $
                             [ltcMakeOperation listConf receiver1]
-                    trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+                    trace :: Trace (PLTCall EncodedTokenRejectReason) ()
                     trace =
                         (PLTQ GetDecimals :-> 6)
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Nothing)
@@ -946,7 +951,7 @@ testLists = do
                 let transaction =
                         TokenGovernanceTransaction . Seq.fromList $
                             [ltcMakeOperation listConf receiver2]
-                    trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+                    trace :: Trace (PLTCall EncodedTokenRejectReason) ()
                     trace =
                         (PLTQ GetDecimals :-> 6)
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
@@ -962,7 +967,7 @@ testLists = do
     encodeTransaction = TokenParameter . SBS.toShort . tokenGovernanceTransactionToBytes
     receiver1 = CborHolderAccount (dummyAccountAddress 1) Nothing
     receiver2 = CborHolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
-    ltcFeature :: ListTestConf -> SBS.ShortByteString
+    ltcFeature :: ListTestConf -> TokenStateKey
     ltcFeature (_, Allow) = "allowList"
     ltcFeature (_, Deny) = "denyList"
     ltcOperation :: (IsString s, Semigroup s) => ListTestConf -> s
@@ -986,7 +991,7 @@ testQueryTokenModuleState :: Spec
 testQueryTokenModuleState = describe "queryTokenModuleState" $ do
     it "Example 1" $ do
         let metadata = createTokenMetadataUrl "some URL"
-            trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
+            trace :: Trace (PLTCall QueryTokenError) BS.ByteString
             trace =
                 (PLTQ (GetTokenState "name") :-> Just "My protocol-level token")
                     :>>: (PLTQ (GetTokenState "metadata") :-> Just (tokenMetadataUrlToBytes metadata))
@@ -1009,7 +1014,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
         assertTrace queryTokenModuleState trace
     it "Example 2" $ do
         let metadata = createTokenMetadataUrlWithSha256 "https://token.metadata" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
-            trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
+            trace :: Trace (PLTCall QueryTokenError) BS.ByteString
             trace =
                 (PLTQ (GetTokenState "name") :-> Just "Another PLT")
                     :>>: (PLTQ (GetTokenState "metadata") :-> Just (tokenMetadataUrlToBytes metadata))
@@ -1343,9 +1348,11 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
                       _pltDecimals = 3,
                       _pltGovernanceAccountIndex = AccountIndex 0
                     }
-        bs2 <- bsoSetTokenState bs1 0 "mintable" (Just "")
-        bs3 <- bsoSetTokenState bs2 0 "burnable" (Just "")
-        hashBlockState bs3
+        mutTokenState <- BlockState.thawTokenState bs1 0
+        _ <- bsoSetTokenState "mintable" (Just "") mutTokenState
+        _ <- bsoSetTokenState "burnable" (Just "") mutTokenState
+        bs2 <- bsoFreezeTokenState bs1 0 mutTokenState
+        hashBlockState bs2
 
 tests :: Spec
 tests = describe "TokenModule" $ do

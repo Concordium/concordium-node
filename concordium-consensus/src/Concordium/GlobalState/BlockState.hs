@@ -280,15 +280,6 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
         TokenIndex ->
         m TokenRawAmount
 
-    -- | Look up the 'TokenStateValue' associated with a particular token and key on an account.
-    -- This is only available at protocol versions that support protocol-level tokens.
-    getAccountTokenState ::
-        (PVSupportsPLT (MPV m)) =>
-        Account m ->
-        TokenIndex ->
-        TokenStateKey ->
-        m (Maybe TokenStateValue)
-
 -- * Active, current and next bakers/delegators
 
 --
@@ -516,16 +507,13 @@ class (MonadProtocolVersion m, Monad m) => PLTQuery bs m where
     -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
     getTokenIndex :: (PVSupportsPLT (MPV m)) => bs -> TokenId -> m (Maybe TokenIndex)
 
-    -- | Get the state of a token for a given 'TokenStateKey'. Returns @Nothing@ if the token
-    --  does not have a state for the given key.
+    -- | Convert a persistent state to a mutable one that can be updated by the scheduler.
     --
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    getTokenState ::
-        (PVSupportsPLT (MPV m)) =>
-        bs ->
-        TokenIndex ->
-        TokenStateKey ->
-        m (Maybe TokenStateValue)
+    thawTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m StateV1.MutableState
+
+    -- | Read key from the mutable token state.
+    getTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenStateKey -> StateV1.MutableState -> m (Maybe TokenStateValue)
 
     -- | Get the configuration of a protocol-level token.
     --
@@ -1547,6 +1535,14 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     -- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
     bsoIncrementPLTUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
+    -- | Convert a mutable state to a persistent one that can be stored in the block state.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoFreezeTokenState :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> TokenIndex -> StateV1.MutableState -> m (UpdatableBlockState m)
+
+    -- | Write value to key in the mutable token state.
+    bsoSetTokenState :: (PVSupportsPLT (MPV m)) => TokenStateKey -> Maybe TokenStateValue -> StateV1.MutableState -> m (Maybe Bool)
+
     -- | Overwrite the election difficulty, removing any queued election difficulty updates.
     --  This is intended to be used for protocol updates that affect the election difficulty in
     --  tandem with the slot duration.
@@ -1632,24 +1628,6 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     --  addresses.
     bsoSuspendValidators :: (PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [AccountIndex] -> m ([(AccountIndex, AccountAddress)], UpdatableBlockState m)
 
-    -- | Set the token-level state of a token for a given 'TokenStateKey'. If the value is
-    --  @Nothing@, the key is removed from the token state. Otherwise the key is mapped to the
-    --  specified value.
-    --
-    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    bsoSetTokenState ::
-        (PVSupportsPLT (MPV m)) =>
-        -- | The current block state.
-        UpdatableBlockState m ->
-        -- | The token index to update.
-        TokenIndex ->
-        -- | The key to set or remove.
-        TokenStateKey ->
-        -- | The value to set.
-        Maybe TokenStateValue ->
-        -- | The updated block state.
-        m (UpdatableBlockState m)
-
     -- | Set the recorded total circulating supply for a protocol-level token.
     --  This should always be kept up-to-date with the total balance held in accounts
     --  (and smart contracts).
@@ -1681,20 +1659,6 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
         PLTConfiguration ->
         -- | The index of the new token and the updated block state.
         m (TokenIndex, UpdatableBlockState m)
-
-    -- | Update the token module state.
-    --
-    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    bsoUpdateTokenAccountModuleState ::
-        (PVSupportsPLT (MPV m)) =>
-        UpdatableBlockState m ->
-        -- | The token index to update.
-        TokenIndex ->
-        -- | The account to update.
-        AccountIndex ->
-        -- | The list of updates to the module state.
-        [(TokenStateKey, GSAccount.TokenAccountStateValueDelta)] ->
-        m (UpdatableBlockState m)
 
     -- Update the token balance. Returns 'Nothing' if the update would overflow or underflow
     -- the token balance on the account.
@@ -1846,7 +1810,8 @@ instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m
 instance (Monad (t m), MonadTrans t, PLTQuery bs m) => PLTQuery bs (MGSTrans t m) where
     getPLTList = lift . getPLTList
     getTokenIndex bs = lift . getTokenIndex bs
-    getTokenState bs ti = lift . getTokenState bs ti
+    thawTokenState blockState = lift . thawTokenState blockState
+    getTokenState bs key = lift . getTokenState bs key
     getTokenConfiguration bs = lift . getTokenConfiguration bs
     getTokenCirculatingSupply bs = lift . getTokenCirculatingSupply bs
 
@@ -1963,7 +1928,6 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     getAccountCooldowns = lift . getAccountCooldowns
     getAccountTokens = lift . getAccountTokens
     getAccountTokenBalance acct tokenIx = lift $ getAccountTokenBalance acct tokenIx
-    getAccountTokenState acct tokenIx key = lift $ getAccountTokenState acct tokenIx key
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1981,7 +1945,6 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE getAccountCooldowns #-}
     {-# INLINE getAccountTokens #-}
     {-# INLINE getAccountTokenBalance #-}
-    {-# INLINE getAccountTokenState #-}
 
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
     thawContractState = lift . thawContractState
@@ -2076,10 +2039,10 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
     bsoPrimeForSuspension s = lift . bsoPrimeForSuspension s
     bsoSuspendValidators s = lift . bsoSuspendValidators s
-    bsoSetTokenState s tokIx key = lift . bsoSetTokenState s tokIx key
+    bsoFreezeTokenState blockState tokenIndex mutableState = lift $ bsoFreezeTokenState blockState tokenIndex mutableState
+    bsoSetTokenState key maybeValue mutableState = lift $ bsoSetTokenState key maybeValue mutableState
     bsoSetTokenCirculatingSupply s tokIx = lift . bsoSetTokenCirculatingSupply s tokIx
     bsoCreateToken s = lift . bsoCreateToken s
-    bsoUpdateTokenAccountModuleState s tokIx accIx = lift . bsoUpdateTokenAccountModuleState s tokIx accIx
     bsoUpdateTokenAccountBalance s tokIx accIx = lift . bsoUpdateTokenAccountBalance s tokIx accIx
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
@@ -2139,11 +2102,11 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoIsProtocolUpdateEffective #-}
     {-# INLINE bsoUpdateMissedRounds #-}
     {-# INLINE bsoPrimeForSuspension #-}
-    {-# INLINE bsoSetTokenState #-}
     {-# INLINE bsoSetTokenCirculatingSupply #-}
     {-# INLINE bsoCreateToken #-}
-    {-# INLINE bsoUpdateTokenAccountModuleState #-}
     {-# INLINE bsoUpdateTokenAccountBalance #-}
+    {-# INLINE bsoFreezeTokenState #-}
+    {-# INLINE bsoSetTokenState #-}
     {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}

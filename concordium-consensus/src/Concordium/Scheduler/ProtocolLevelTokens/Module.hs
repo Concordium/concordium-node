@@ -10,6 +10,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
+import Data.Serialize (Serialize (put), putWord16le, runPut)
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Word
@@ -84,12 +85,12 @@ initializeToken tokenParam = do
     case tokenInitializationParametersFromBytes tokenParamLBS of
         Left failureReason -> pltError $ ITEDeserializationFailure failureReason
         Right TokenInitializationParameters{..} -> do
-            setTokenState "name" (Just $ Text.encodeUtf8 tipName)
-            setTokenState "metadata" (Just $ tokenMetadataUrlToBytes tipMetadata)
-            when tipAllowList $ setTokenState "allowList" (Just "")
-            when tipDenyList $ setTokenState "denyList" (Just "")
-            when tipMintable $ setTokenState "mintable" (Just "")
-            when tipBurnable $ setTokenState "burnable" (Just "")
+            void $ setTokenState "name" (Just $ Text.encodeUtf8 tipName)
+            void $ setTokenState "metadata" (Just $ tokenMetadataUrlToBytes tipMetadata)
+            when tipAllowList $ void $ setTokenState "allowList" (Just "")
+            when tipDenyList $ void $ setTokenState "denyList" (Just "")
+            when tipMintable $ void $ setTokenState "mintable" (Just "")
+            when tipBurnable $ void $ setTokenState "burnable" (Just "")
             forM_ tipInitialSupply $ \initSupply -> do
                 decimals <- getDecimals
                 case toTokenRawAmount decimals initSupply of
@@ -344,6 +345,33 @@ executeTokenGovernanceTransaction TransactionContext{..} tokenParam = do
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
     failTH = pltError . encodeTokenRejectReason
+
+-- | Token state key prefix for account state, should be followed by the account index.
+accountStatePrefix :: Word16
+accountStatePrefix = 40307
+
+-- | Build the token state key for an account state.
+-- This groups the account related state with the same prefix in the token state, making it easier
+-- to iterate in the future.
+accountStateKey :: AccountIndex -> TokenStateKey -> TokenStateKey
+accountStateKey accountIndex subkey = runPut $ do
+    putWord16le accountStatePrefix
+    put accountIndex
+    put subkey
+
+-- | Set the value in the account state.
+setAccountState :: (Monad m, PLTKernelUpdate m) => PLTAccount m -> TokenStateKey -> Maybe TokenStateValue -> m ()
+setAccountState account key maybeValue = do
+    accountIndex <- getAccountIndex account
+    let accountKey = accountStateKey accountIndex key
+    void $ setTokenState accountKey maybeValue
+
+-- | Get the value from the account state.
+getAccountState :: (Monad m, PLTKernelQuery m) => PLTAccount m -> TokenStateKey -> m (Maybe TokenStateValue)
+getAccountState account key = do
+    accountIndex <- getAccountIndex account
+    let accountKey = accountStateKey accountIndex key
+    getTokenState accountKey
 
 -- | Check that a particular feature is enabled for the token, and otherwise fail with
 --  'UnsupportedOperation'.

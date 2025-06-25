@@ -16,6 +16,7 @@ import Concordium.Types
 import Concordium.Types.Queries.Tokens
 
 import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens (TokenAccountState (tasBalance))
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..), TokenIndex)
 import Concordium.GlobalState.Types
@@ -28,7 +29,9 @@ data QueryContext m = QueryContext
     { -- | Index of the token. This must be valid in the context of the block state.
       qcTokenIndex :: !TokenIndex,
       -- | The block state.
-      qcBlockState :: !(BlockState m)
+      qcBlockState :: !(BlockState m),
+      -- | Reference to the token state.
+      qcTokenState :: !StateV1.MutableState
     }
 
 -- | @QueryT fail ret@ is a monad transformer that supports 'PLTKernelQuery' and 'PLTKernelFail'
@@ -64,16 +67,14 @@ instance (BS.BlockStateQuery m, PVSupportsPLT (MPV m)) => PLTKernelQuery (QueryT
     type PLTAccount (QueryT fail ret m) = IndexedAccount m
     getTokenState key = do
         QueryContext{..} <- ask
-        lift $ BS.getTokenState qcBlockState qcTokenIndex key
+        lift $ BS.getTokenState qcBlockState key qcTokenState
     getAccount addr = do
         QueryContext{..} <- ask
         lift $ BS.getAccount qcBlockState addr
     getAccountBalance acct = do
         QueryContext{..} <- ask
         lift $ BS.getAccountTokenBalance (snd acct) qcTokenIndex
-    getAccountState acct key = do
-        QueryContext{..} <- ask
-        lift $ BS.getAccountTokenState (snd acct) qcTokenIndex key
+    getAccountIndex (accountIndex, _) = return accountIndex
     getAccountCanonicalAddress acct = do
         lift $ BS.getAccountCanonicalAddress (snd acct)
     getGovernanceAccount = do
@@ -127,7 +128,8 @@ queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFo
                         Just (_, govAcct) -> govAcct
                 govAddr <- BS.getAccountCanonicalAddress govAccount
                 totalSupply <- BS.getTokenCirculatingSupply bs tokenIx
-                let ctx = QueryContext{qcTokenIndex = tokenIx, qcBlockState = bs}
+                tokenState <- BS.thawTokenState bs tokenIx
+                let ctx = QueryContext{qcTokenIndex = tokenIx, qcBlockState = bs, qcTokenState = tokenState}
                 runQueryT queryTokenModuleState ctx >>= \case
                     Left e -> return (Left (QTIEInternal e))
                     Right tms -> do
@@ -145,14 +147,15 @@ queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFo
 queryAccountTokens :: forall m. (PVSupportsPLT (MPV m), BS.BlockStateQuery m) => IndexedAccount m -> BlockState m -> m [Token]
 queryAccountTokens acc bs = do
     tokenStatesMap <- BS.getAccountTokens (snd acc)
-    forM (Map.toList tokenStatesMap) $ \(tokenIndex, tokenState) -> do
+    forM (Map.toList tokenStatesMap) $ \(tokenIndex, tokenAccountState) -> do
         pltConfiguration <- BS.getTokenConfiguration @_ @m bs tokenIndex
         let accountBalance =
                 TokenAmount
-                    { taValue = tasBalance tokenState,
+                    { taValue = tasBalance tokenAccountState,
                       taDecimals = _pltDecimals pltConfiguration
                     }
-        let ctx = QueryContext{qcTokenIndex = tokenIndex, qcBlockState = bs}
+        tokenState <- BS.thawTokenState bs tokenIndex
+        let ctx = QueryContext{qcTokenIndex = tokenIndex, qcBlockState = bs, qcTokenState = tokenState}
         accountState <- runQueryTNoFail (queryAccountState acc) ctx
         return
             Token

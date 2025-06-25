@@ -18,16 +18,15 @@ class PLTKernelQuery m where
     type PLTAccount m
     getTokenState :: TokenStateKey -> m (Maybe TokenStateValue)
     getAccount :: AccountAddress -> m (Maybe (PLTAccount m))
+    getAccountIndex :: PLTAccount m -> m AccountIndex
     getAccountBalance :: PLTAccount m -> m TokenRawAmount
-    getAccountState :: PLTAccount m -> TokenStateKey -> m (Maybe TokenStateValue)
     getAccountCanonicalAddress :: PLTAccount m -> m AccountAddress
     getGovernanceAccount :: m (PLTAccount m)
     getCirculatingSupply :: m TokenRawAmount
     getDecimals :: m Word8
 
 class (PLTKernelQuery m) => PLTKernelUpdate m where
-    setTokenState :: TokenStateKey -> Maybe TokenStateValue -> m ()
-    setAccountState :: PLTAccount m -> TokenStateKey -> Maybe TokenStateValue -> m ()
+    setTokenState :: TokenStateKey -> Maybe TokenStateValue -> m (Maybe Bool)
 
     -- | Transfer a token amount from one account to another, with an optional memo.
     --  The return value indicates if the transfer was successful.
