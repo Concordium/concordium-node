@@ -10,6 +10,8 @@ _rust_rocksdb*
 tags
 path
 .vscode
+.idea/
+concordium-node/.idea/
 .so
 .stack-work
 dist
@@ -48,7 +50,6 @@ genesis_data
 /concordium-consensus/HSdll.dll.a
 concordium-node/deps/static-libs
 .dir-locals.el
-hie.yaml
 **/**/TAGS
 .DS_Store
 /concordium-node/*.log
