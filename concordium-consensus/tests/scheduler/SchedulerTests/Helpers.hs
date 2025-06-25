@@ -148,13 +148,14 @@ forEveryProtocolVersion check =
 energyToAmount :: Types.Energy -> Types.Amount
 energyToAmount = Types.computeCost (Types.makeExchangeRates 0.000_1 1_000_000 ^. Types.energyRate)
 
--- | Construct a test block state containing the provided accounts.
-createTestBlockStateWithAccounts ::
+-- | Construct a test block state containing the provided accounts and chain-update keys.
+createTestBlockStateWithAccountsAndKeys ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
     [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
+    Types.UpdateKeysCollection (Types.AuthorizationsVersionFor pv) ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
-createTestBlockStateWithAccounts accounts = do
+createTestBlockStateWithAccountsAndKeys accounts keys = do
     bs <-
         BS.initialPersistentState
             seedState
@@ -169,10 +170,20 @@ createTestBlockStateWithAccounts accounts = do
     void $ BS.saveGlobalMaps bs
     return bs
   where
-    keys = Types.withIsAuthorizationsVersionFor (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
     seedState = case Types.consensusVersionFor (Types.protocolVersion @pv) of
         Types.ConsensusV0 -> initialSeedStateV0 (Hash.hash "") 1_000
         Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "") 3_600_000
+
+-- | Construct a test block state containing the provided accounts.
+createTestBlockStateWithAccounts ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
+    PersistentBSM pv (BS.HashedPersistentBlockState pv)
+createTestBlockStateWithAccounts accounts =
+    createTestBlockStateWithAccountsAndKeys accounts keys
+  where
+    keys = Types.withIsAuthorizationsVersionFor (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
 
 -- | Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccountsM ::
