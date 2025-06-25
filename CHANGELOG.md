@@ -2,6 +2,12 @@
 
 ## Unreleased changes
 
+- Protocol-level tokens:
+  - Simplified token transaction handling: Consolidated all token holder and
+    governance operations for a single `TokenUpdateTransaction` type.
+  - Moved authorization from the scheduler to the token module and moved the
+    token governance account from `PLTConfiguration` to the token module state.
+
 ## 9.0.3 (DevNet)
 
 - Protocol-level tokens:
