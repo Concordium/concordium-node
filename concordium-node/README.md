@@ -32,7 +32,7 @@ First build Haskell code (concordium-base and concordium-consensus) using
 stack build
 ```
 
-from the repository base folder. Then from the concordium-node subfolder, build the Rust code using (here in release mode
+from the repository base folder. Then from the concordium-node subfolder, build the Rust code (here in release mode) using 
 
 ```console
 cargo build --release
