@@ -26,6 +26,7 @@ import Data.String
 import qualified Data.Text as Text
 import Data.Typeable
 import Data.Word
+import Data.Serialize (encode)
 import Lens.Micro.Platform
 import System.Random
 import Test.HUnit
@@ -64,6 +65,7 @@ import qualified SchedulerTests.Helpers as Helpers
 data PLTKernelQueryCall acct ret where
     GetTokenState :: TokenStateKey -> PLTKernelQueryCall acct (Maybe TokenStateValue)
     GetAccount :: AccountAddress -> PLTKernelQueryCall acct (Maybe acct)
+    GetAccountIndex :: acct -> PLTKernelQueryCall acct AccountIndex
     GetAccountBalance :: acct -> PLTKernelQueryCall acct TokenRawAmount
     GetAccountState :: acct -> TokenStateKey -> PLTKernelQueryCall acct (Maybe TokenStateValue)
     GetAccountCanonicalAddress :: acct -> PLTKernelQueryCall acct AccountAddress
@@ -251,6 +253,7 @@ instance
     type PLTAccount (TraceM (PLTCall e acct) res ret) = acct
     getTokenState key = handleEvent $ PLTQ $ GetTokenState key
     getAccount addr = handleEvent $ PLTQ $ GetAccount addr
+    getAccountIndex acct = handleEvent $ PLTQ $ GetAccountIndex acct
     getAccountBalance acct = handleEvent $ PLTQ $ GetAccountBalance acct
     getAccountState acct key = handleEvent $ PLTQ $ GetAccountState acct key
     getAccountCanonicalAddress acct = handleEvent $ PLTQ $ GetAccountCanonicalAddress acct
@@ -344,6 +347,9 @@ testInitializeToken = describe "initializeToken" $ do
                     :>>: (PLTU (SetTokenState "allowList" $ Just "") :-> ())
                     :>>: (PLTU (SetTokenState "mintable" $ Just "") :-> ())
                     :>>: (PLTU (SetTokenState "burnable" $ Just "") :-> ())
+                    :>>: (PLTQ (GetAccount $ dummyAccountAddress 1) :-> (Just 1))
+                    :>>: (PLTQ (GetAccountIndex 1) :-> 1)
+                    :>>: (PLTU (SetTokenState "governanceAccount" $ Just $ encode (1::Word64)) :-> ())
                     :>>: Done ()
         assertTrace (initializeToken tokenParam) trace
     -- An example with valid parameters and minting.

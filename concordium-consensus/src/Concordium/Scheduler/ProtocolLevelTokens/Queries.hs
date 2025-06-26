@@ -68,6 +68,7 @@ instance (BS.BlockStateQuery m, PVSupportsPLT (MPV m)) => PLTKernelQuery (QueryT
     getAccount addr = do
         QueryContext{..} <- ask
         lift $ BS.getAccount qcBlockState addr
+    getAccountIndex (ix, _acct) = return ix
     getAccountBalance acct = do
         QueryContext{..} <- ask
         lift $ BS.getAccountTokenBalance (snd acct) qcTokenIndex

@@ -559,6 +559,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
     getAccount addr = do
         bs <- use plteBlockState
         lift $ fmap ((,addr) . fst) <$> BS.bsoGetAccount bs addr
+    getAccountIndex (acctIndex, _acct) = return acctIndex
     getAccountBalance (acctIndex, _) = do
         tokenIx <- asks _pltecTokenIndex
         bs <- use plteBlockState

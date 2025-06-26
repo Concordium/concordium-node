@@ -10,6 +10,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq
+import Data.Serialize
 import qualified Data.Text as Text
 import qualified Data.Text.Encoding as Text
 import Data.Word
@@ -98,7 +99,8 @@ initializeToken tokenParam = do
                 Nothing ->
                     pltError (ITEGovernanceAccountDoesNotExist $ chaAccount tipGovernanceAccount)
                 Just govAccount -> do
-                    setTokenState "governanceAccount" (Just $ encodeToBytes $ encodeCborTokenHolder tipGovernanceAccount)
+                    govIx <- getAccountIndex govAccount
+                    setTokenState "governanceAccount" (Just $ encode govIx)
                     forM_ tipInitialSupply $ \initSupply -> do
                         decimals <- getDecimals
                         case toTokenRawAmount decimals initSupply of
@@ -271,11 +273,12 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                           trrRequiredBalance = ttAmount pthoUnprocessed
                                         }
                         tokenGovernanceOp -> do
-                            mbGovAccount <- getTokenState "governanceAccount"
-                            case mbGovAccount of
+                            mbGovAccountIx <- getTokenState "governanceAccount"
+                            case mbGovAccountIx of
                                 Nothing -> error "Invariant violation: Token state is missing the governance account address."
-                                Just govAccount -> do
-                                    unless (govAccount == encodeToBytes (encodeAccountAddress tcSenderAddress)) $
+                                Just govAccountIx -> do
+                                    senderIx <- getAccountIndex tcSender
+                                    unless (govAccountIx == encode senderIx) $
                                         failTH
                                             OperationNotPermitted
                                                 { trrOperationIndex = opIndex,
