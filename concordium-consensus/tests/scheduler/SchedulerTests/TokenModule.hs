@@ -347,7 +347,7 @@ testInitializeToken = describe "initializeToken" $ do
                     :>>: (PLTU (SetTokenState "allowList" $ Just "") :-> ())
                     :>>: (PLTU (SetTokenState "mintable" $ Just "") :-> ())
                     :>>: (PLTU (SetTokenState "burnable" $ Just "") :-> ())
-                    :>>: (PLTQ (GetAccount $ dummyAccountAddress 1) :-> (Just 1))
+                    :>>: (PLTQ (GetAccount $ chaAccount $ governanceAccount) :-> (Just 1))
                     :>>: (PLTQ (GetAccountIndex 1) :-> 1)
                     :>>: (PLTU (SetTokenState "governanceAccount" $ Just $ encode (1::Word64)) :-> ())
                     :>>: Done ()
@@ -377,6 +377,9 @@ testInitializeToken = describe "initializeToken" $ do
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
                     :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
                     :>>: (PLTU (SetTokenState "denyList" $ Just "") :-> ())
+                    :>>: (PLTQ (GetAccount $ chaAccount governanceAccount) :-> (Just 1))
+                    :>>: (PLTQ (GetAccountIndex 1) :-> 1)
+                    :>>: (PLTU (SetTokenState "governanceAccount" $ Just $ encode (1::Word64)) :-> ())
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: (PLTPU (Mint (AccountIndex 50) (TokenRawAmount 500000)) :-> True)
                     :>>: Done ()
@@ -405,6 +408,9 @@ testInitializeToken = describe "initializeToken" $ do
             trace =
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
                     :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
+                    :>>: (PLTQ (GetAccount $ chaAccount governanceAccount) :-> (Just 1))
+                    :>>: (PLTQ (GetAccountIndex 1) :-> 1)
+                    :>>: (PLTU (SetTokenState "governanceAccount" $ Just $ encode (1::Word64)) :-> ())
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: (PLTPU (Mint (AccountIndex 2) (TokenRawAmount 500000)) :-> False)
                     :>>: abortPLTError (ITEInvalidMintAmount "Kernel failed to mint")
@@ -434,6 +440,9 @@ testInitializeToken = describe "initializeToken" $ do
             trace =
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
                     :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
+                    :>>: (PLTQ (GetAccount $ chaAccount governanceAccount) :-> (Just 1))
+                    :>>: (PLTQ (GetAccountIndex 1) :-> 1)
+                    :>>: (PLTU (SetTokenState "governanceAccount" $ Just $ encode (1::Word64)) :-> ())
                     :>>: (PLTQ GetDecimals :-> 2)
                     :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
         assertTrace (initializeToken tokenParam) trace
@@ -462,6 +471,9 @@ testInitializeToken = describe "initializeToken" $ do
             trace =
                 (PLTU (SetTokenState "name" $ Just "Protocol-level token2") :-> ())
                     :>>: (PLTU (SetTokenState "metadata" $ Just $ tokenMetadataUrlToBytes $ metadata) :-> ())
+                    :>>: (PLTQ (GetAccount $ chaAccount governanceAccount) :-> (Just 1))
+                    :>>: (PLTQ (GetAccountIndex 1) :-> 1)
+                    :>>: (PLTU (SetTokenState "governanceAccount" $ Just $ encode (1::Word64)) :-> ())
                     :>>: (PLTQ GetDecimals :-> 6)
                     :>>: abortPLTError (ITEInvalidMintAmount "Token amount precision mismatch")
         assertTrace (initializeToken tokenParam) trace
@@ -470,7 +482,7 @@ dummyAccountAddress :: Int -> AccountAddress
 dummyAccountAddress seed = fst $ randomAccountAddress (mkStdGen seed)
 
 testExecuteTokenUpdateTransaction2 :: Spec
-testExecuteTokenUpdateTransaction2 = describe "executeTokenUpdateTransaction" $ do
+testExecuteTokenUpdateTransaction2 = describe "executeTokenUpdateTransaction2" $ do
     it "invalid transaction" $ do
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -795,7 +807,7 @@ testExecuteTokenUpdateTransaction2 = describe "executeTokenUpdateTransaction" $ 
     sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
 testExecuteTokenUpdateTransaction1 :: Spec
-testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ do
+testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction1" $ do
     it "invalid transaction" $ do
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -818,6 +830,8 @@ testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ 
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenMintCost) :-> ())
                     :>>: (PLTPU (Mint 0 10_000_000) :-> True)
@@ -830,6 +844,8 @@ testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ 
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             UnsupportedOperation
@@ -846,6 +862,8 @@ testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ 
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenMintCost) :-> ())
                     :>>: (PLTPU (Mint 0 10_000_000) :-> False)
@@ -866,6 +884,8 @@ testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ 
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 10_000_000) :-> True)
@@ -878,6 +898,8 @@ testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ 
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             UnsupportedOperation
@@ -894,6 +916,8 @@ testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ 
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 10_000_000) :-> False)
@@ -915,9 +939,13 @@ testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ 
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenMintCost) :-> ())
                     :>>: (PLTPU (Mint 0 10_000_000) :-> True)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 5_000_000) :-> True)
@@ -944,6 +972,8 @@ testLists = do
                     trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
                     trace =
                         (PLTQ GetDecimals :-> 6)
+                            :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                            :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
                             :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                             :>>: (PLTE (PLTChargeEnergy tokenListOperationCost) :-> ())
@@ -964,6 +994,8 @@ testLists = do
                     trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
                     trace =
                         (PLTQ GetDecimals :-> 6)
+                            :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                            :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Nothing)
                             :>>: ( abortPLTError . encodeTokenRejectReason $
                                     UnsupportedOperation
@@ -980,6 +1012,8 @@ testLists = do
                     trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
                     trace =
                         (PLTQ GetDecimals :-> 6)
+                            :>>: (PLTQ (GetTokenState "governanceAccount") :-> (Just $ encode (0::Word64)))
+                            :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
                             :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Nothing)
                             :>>: ( abortPLTError . encodeTokenRejectReason $
@@ -1017,15 +1051,11 @@ testQueryTokenModuleState :: Spec
 testQueryTokenModuleState = describe "queryTokenModuleState" $ do
     it "Example 1" $ do
         let metadata = createTokenMetadataUrl "some URL"
-            governanceAccount =
-                CborHolderAccount
-                    { chaAccount = dummyAccountAddress 1,
-                      chaCoinInfo = Nothing
-                    }
             trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (GetTokenState "name") :-> Just "My protocol-level token")
                     :>>: (PLTQ (GetTokenState "metadata") :-> Just (tokenMetadataUrlToBytes metadata))
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (1::Word64)))
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
@@ -1035,7 +1065,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                             TokenModuleState
                                 { tmsName = "My protocol-level token",
                                   tmsMetadata = metadata,
-                                  tmsGovernanceAccount = governanceAccount,
+                                  tmsGovernanceAccount = 1,
                                   tmsAllowList = Just True,
                                   tmsDenyList = Just False,
                                   tmsMintable = Just True,
@@ -1046,15 +1076,11 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
         assertTrace queryTokenModuleState trace
     it "Example 2" $ do
         let metadata = createTokenMetadataUrlWithSha256 "https://token.metadata" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
-            governanceAccount =
-                CborHolderAccount
-                    { chaAccount = dummyAccountAddress 1,
-                      chaCoinInfo = Nothing
-                    }
             trace :: Trace (PLTCall QueryTokenError AccountIndex) BS.ByteString
             trace =
                 (PLTQ (GetTokenState "name") :-> Just "Another PLT")
                     :>>: (PLTQ (GetTokenState "metadata") :-> Just (tokenMetadataUrlToBytes metadata))
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (1::Word64)))
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "mintable") :-> Nothing)
@@ -1064,7 +1090,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                             TokenModuleState
                                 { tmsName = "Another PLT",
                                   tmsMetadata = metadata,
-                                  tmsGovernanceAccount = governanceAccount,
+                                  tmsGovernanceAccount = 1,
                                   tmsAllowList = Just False,
                                   tmsDenyList = Just True,
                                   tmsMintable = Just False,
@@ -1387,7 +1413,8 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
                     }
         bs2 <- bsoSetTokenState bs1 0 "mintable" (Just "")
         bs3 <- bsoSetTokenState bs2 0 "burnable" (Just "")
-        hashBlockState bs3
+        bs4 <- bsoSetTokenState bs3 0 "governanceAccount" (Just $ encode (0::Word64))
+        hashBlockState bs4
 
 tests :: Spec
 tests = describe "TokenModule" $ do

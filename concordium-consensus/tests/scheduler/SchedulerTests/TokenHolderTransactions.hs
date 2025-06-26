@@ -158,7 +158,7 @@ testTokenHolder _ pvString =
 
 tests :: Spec
 tests =
-    describe "Token holder transactions" $
+    describe "Token update transactions" $
         sequence_ $
             Helpers.forEveryProtocolVersion testCases
   where

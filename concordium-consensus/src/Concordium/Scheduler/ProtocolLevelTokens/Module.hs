@@ -402,8 +402,7 @@ queryTokenModuleState = do
         getTokenState "governanceAccount" >>= \case
             Nothing -> pltError $ QTEInvariantViolation "Missing governance account"
             Just govAccount -> do
-                either (corruptDataError "governance account address") return $
-                    decodeFromBytes decodeCborTokenHolder "cbor token holder" (LBS.fromStrict govAccount)
+                either (corruptDataError "governance account index") return $ decode govAccount
     tmsAllowList <- Just . isJust <$> getTokenState "allowList"
     tmsDenyList <- Just . isJust <$> getTokenState "denyList"
     tmsMintable <- Just . isJust <$> getTokenState "mintable"
