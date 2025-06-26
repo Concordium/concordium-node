@@ -37,9 +37,6 @@ on:
     - 'concordium-node/rustfmt.toml'
 
   pull_request:
-    branches:
-        - main
-        - plt
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
     - '.github/workflows/build-test.yaml'
