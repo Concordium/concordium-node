@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Update GHC version to 9.6.7 (LTS-22.44).
+
 ## 9.0.4 (DevNet)
 
 - Protocol-level tokens:
