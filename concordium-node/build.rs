@@ -64,6 +64,16 @@ fn main() -> std::io::Result<()> {
                 println!("cargo:rustc-link-lib=dylib=HSconcordium-base-0.1.0.0");
                 println!("cargo:rustc-link-lib=dylib=HSlmdb-0.2.5");
             } else {
+                let stack_install_root_command = command_output(Command::new("stack").args([
+                    "--stack-yaml",
+                    "../concordium-consensus/stack.yaml",
+                    "path",
+                    "--local-install-root",
+                ]));
+                let stack_install_root = Path::new(&stack_install_root_command);
+                println!("{}", stack_install_root.display());
+                print_dir(stack_install_root, "".to_string());
+
                 // otherwise auto-discover the directories via stack
                 let stack_install_root_command = command_output(Command::new("stack").args([
                     "--stack-yaml",
@@ -72,6 +82,8 @@ fn main() -> std::io::Result<()> {
                     "--local-install-root",
                 ]));
                 let stack_install_root = Path::new(&stack_install_root_command);
+                println!("{}", stack_install_root.display());
+                print_dir(stack_install_root, "".to_string());
                 let stack_install_lib = stack_install_root.join("lib");
 
                 println!("cargo:rustc-link-search={}", stack_install_lib.to_string_lossy());
@@ -125,6 +137,38 @@ fn main() -> std::io::Result<()> {
 
     build_grpc2(&proto_root_input)?;
     Ok(())
+}
+
+fn print_dir(path: &Path, prefix: String) {
+    if let Ok(entries) = std::fs::read_dir(path) {
+        let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+        entries.sort_by_key(|e| e.path());
+
+        for (i, entry) in entries.iter().enumerate() {
+            let path = entry.path();
+            let is_last = i == entries.len() - 1;
+
+            let symbol = if is_last {
+                "└── "
+            } else {
+                "├── "
+            };
+            println!("{}{}{}", prefix, symbol, path.file_name().unwrap().to_string_lossy());
+
+            if path.is_dir() {
+                let new_prefix = format!(
+                    "{}{}",
+                    prefix,
+                    if is_last {
+                        "    "
+                    } else {
+                        "│   "
+                    }
+                );
+                print_dir(&path, new_prefix);
+            }
+        }
+    }
 }
 
 // Compile the types for GRPC2 API and generate a service description for the
