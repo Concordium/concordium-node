@@ -119,7 +119,7 @@ deriving instance
     MonadCache (BS.AccountCache av) (PersistentBSM pv)
 
 instance MonadLogger (PersistentBSM pv) where
-    logEvent _ _ _ = return ()
+    logEvent src lvl msg = PersistentBSM (logEvent src lvl msg)
 
 instance TimeMonad (PersistentBSM pv) where
     currentTime = return $ read "1970-01-01 13:27:13.257285424 UTC"
@@ -357,6 +357,7 @@ runSchedulerTestAssertIntermediateStates config constructState transactionsAndAs
         BlockItemAndAssertion pv ->
         PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv, Types.Amount)
     transactionRunner (assertedSoFar, currentState, costsSoFar) step = do
+        logEvent Scheduler LLError "Transaction runner"
         transactions <- liftIO $ SchedTest.processUngroupedBlockItems [biaaTransaction step]
         (result, updatedState) <- runScheduler config currentState transactions
         let nextCostsSoFar = costsSoFar + srExecutionCosts result

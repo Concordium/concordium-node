@@ -77,7 +77,7 @@ initialBlockStateWithCustomKeys numKeys authorizedKeys threshold = do
                   level1Keys = DummyData.dummyHigherLevelKeys,
                   level2Keys =
                     auths0
-                        { asKeys = Vec.fromList (DummyData.deterministicVK <$> [1 .. numKeys]),
+                        { asKeys = Vec.fromList (DummyData.deterministicVK <$> [0 .. numKeys - 1]),
                           asCreatePLT = createPLT <$ asCreatePLT auths0
                         }
                 }
@@ -137,7 +137,7 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             initialBlockState
             transactionsAndAssertions
-    it "CreatePLT - multiple keys" $ do
+    it "Create PLT - multiple keys" $ do
         let numKeys = 3
             authorizedKeys = [1, 2]
             threshold = 2
@@ -158,7 +158,7 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
             transactionsAndAssertions
-    it "CreatePLT - multiple keys - additional authorized" $ do
+    it "Create PLT - multiple keys - additional authorized" $ do
         let numKeys = 3
             authorizedKeys = [1, 2]
             threshold = 1
@@ -179,7 +179,7 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
             transactionsAndAssertions
-    it "CreatePLT - multiple keys - incorrect signature" $ do
+    it "Create PLT - multiple keys - incorrect signature" $ do
         let numKeys = 3
             authorizedKeys = [1, 2]
             threshold = 2
@@ -200,7 +200,7 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
             transactionsAndAssertions
-    it "CreatePLT - multiple keys - incorrect key" $ do
+    it "Create PLT - multiple keys - incorrect key" $ do
         let numKeys = 3
             authorizedKeys = [1, 2]
             threshold = 1
@@ -221,7 +221,7 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
             transactionsAndAssertions
-    it "CreatePLT - multiple keys - additional unauthorized" $ do
+    it "Create PLT - multiple keys - additional unauthorized" $ do
         let numKeys = 3
             authorizedKeys = [0, 1]
             threshold = 1
@@ -233,6 +233,48 @@ testCreatePLT _ pvString = describe pvString $ do
                             1
                             createPLT1
                             [(1, DummyData.deterministicKP 1), (2, DummyData.deterministicKP 2)],
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
+            transactionsAndAssertions
+    it "Create PLT - multiple keys - first unauthorized" $ do
+        let numKeys = 3
+            authorizedKeys = [1, 2]
+            threshold = 1
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        txCreatePLTWithKeys
+                            1
+                            createPLT1
+                            [(0, DummyData.deterministicKP 0)],
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
+            transactionsAndAssertions
+    it "Create PLT - multiple keys - first incorrect key" $ do
+        let numKeys = 3
+            authorizedKeys = [0, 1, 2]
+            threshold = 1
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        txCreatePLTWithKeys
+                            1
+                            createPLT1
+                            [(0, DummyData.deterministicKP 1)],
                       biaaAssertion = \result _ -> do
                         return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
                     }
