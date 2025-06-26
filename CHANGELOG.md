@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug in checking authorization for CreatePLT update.
+
 ## 9.0.4 (DevNet)
 
 - Protocol-level tokens:
