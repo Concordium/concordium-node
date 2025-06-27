@@ -22,11 +22,11 @@ import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
 import qualified Data.Sequence as Seq
+import Data.Serialize (encode)
 import Data.String
 import qualified Data.Text as Text
 import Data.Typeable
 import Data.Word
-import Data.Serialize (encode)
 import Lens.Micro.Platform
 import System.Random
 import Test.HUnit
@@ -349,7 +349,7 @@ testInitializeToken = describe "initializeToken" $ do
                     :>>: (PLTU (SetTokenState "burnable" $ Just "") :-> ())
                     :>>: (PLTQ (GetAccount $ dummyAccountAddress 1) :-> (Just 1))
                     :>>: (PLTQ (GetAccountIndex 1) :-> 1)
-                    :>>: (PLTU (SetTokenState "governanceAccount" $ Just $ encode (1::Word64)) :-> ())
+                    :>>: (PLTU (SetTokenState "governanceAccount" $ Just $ encode (1 :: Word64)) :-> ())
                     :>>: Done ()
         assertTrace (initializeToken tokenParam) trace
     -- An example with valid parameters and minting.
