@@ -64,7 +64,7 @@ fn main() -> std::io::Result<()> {
                 println!("cargo:rustc-link-lib=dylib=HSconcordium-base-0.1.0.0");
                 println!("cargo:rustc-link-lib=dylib=HSlmdb-0.2.5");
             } else {
-                // Otherwise auto-discover the directories via stack. concordium-consensus 
+                // Otherwise auto-discover the directories via stack. concordium-consensus
                 // is located in <local-install-root>/lib and HSconcordium-consensus,
                 // HSconcordium-base and HSlmdb in <local-install-root>/lib/<GHC_VARIANT>
                 let stack_install_root_command = command_output(Command::new("stack").args([
@@ -82,7 +82,10 @@ fn main() -> std::io::Result<()> {
                 let stack_install_lib_ghc_varaint = stack_install_lib.join(GHC_VARIANT);
                 let dir = std::fs::read_dir(&stack_install_lib_ghc_varaint)?;
 
-                println!("cargo:rustc-link-search={}", stack_install_lib_ghc_varaint.to_string_lossy());
+                println!(
+                    "cargo:rustc-link-search={}",
+                    stack_install_lib_ghc_varaint.to_string_lossy()
+                );
                 // Traverse all the files in the lib directory, and add all that end with
                 // `.DYLIB_EXTENSION` to the linked libraries list.
                 for dir_entry in dir {
