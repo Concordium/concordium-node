@@ -560,6 +560,14 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
         bs <- use plteBlockState
         lift $ fmap ((,addr) . fst) <$> BS.bsoGetAccount bs addr
     getAccountIndex (acctIndex, _acct) = return acctIndex
+    getAccountByIndex accountIndex = do
+        bs <- use plteBlockState
+        lift $
+            BS.bsoGetAccountByIndex bs accountIndex >>= \case
+                Nothing -> return Nothing
+                Just account -> do
+                    address <- BS.getAccountCanonicalAddress account
+                    return $ Just (accountIndex, address)
     getAccountBalance (acctIndex, _) = do
         tokenIx <- asks _pltecTokenIndex
         bs <- use plteBlockState

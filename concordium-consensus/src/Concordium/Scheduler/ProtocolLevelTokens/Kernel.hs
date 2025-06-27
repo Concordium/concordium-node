@@ -19,6 +19,7 @@ class PLTKernelQuery m where
     getTokenState :: TokenStateKey -> m (Maybe TokenStateValue)
     getAccount :: AccountAddress -> m (Maybe (PLTAccount m))
     getAccountIndex :: PLTAccount m -> m AccountIndex
+    getAccountByIndex :: AccountIndex -> m (Maybe (PLTAccount m))
     getAccountBalance :: PLTAccount m -> m TokenRawAmount
     getAccountState :: PLTAccount m -> TokenStateKey -> m (Maybe TokenStateValue)
     getAccountCanonicalAddress :: PLTAccount m -> m AccountAddress
