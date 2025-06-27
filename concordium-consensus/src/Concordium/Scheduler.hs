@@ -2906,28 +2906,28 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                 CreatePLTUpdatePayload payload -> case sSupportsPLT (sAccountVersionFor (protocolVersion @(MPV m))) of
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                     STrue ->
-                                        handleCreatePLT uiHeader payload >>= \case
-                                            Left invalidReason -> return $ TxInvalid invalidReason
-                                            Right valid -> buildValidTxSummary' valid
+                                        checkSigThen $
+                                            handleCreatePLT uiHeader payload >>= \case
+                                                Left invalidReason -> return $ TxInvalid invalidReason
+                                                Right valid -> buildValidTxSummary' valid
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
     sauv :: SAuthorizationsVersion (AuthorizationsVersionFor (MPV m))
     sauv = sAuthorizationsVersionFor $ protocolVersion @(MPV m)
-    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> m TxResult
-    checkSigAndEnqueue change = do
+    checkSigThen :: m TxResult -> m TxResult
+    checkSigThen cont = do
         case maybeVerificationResult of
             Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do
                 currentKeys <- getUpdateKeyCollection
                 -- If the keys have not changed then the signature remains valid.
                 if matchesUpdateKeysCollection currentKeys keysHash
-                    then do
-                        enqueue change
+                    then cont
                     else do
                         -- keys might have changed and as such we try to verify the signature again.
                         if not (checkAuthorizedUpdate currentKeys ui)
                             then return $ TxInvalid IncorrectSignature
-                            else enqueue change
+                            else cont
             -- An invalid verification result or `Nothing` was supplied to this function.
             -- In either case we verify the transaction now.
             -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
@@ -2936,7 +2936,9 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                 newVerRes <- TVer.verifyChainUpdate ui
                 case checkTransactionVerificationResult newVerRes of
                     Left failure -> return $ TxInvalid failure
-                    Right _ -> enqueue change
+                    Right _ -> cont
+    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> m TxResult
+    checkSigAndEnqueue = checkSigThen . enqueue
     enqueue change = do
         enqueueUpdate (updateEffectiveTime uiHeader) change
         buildValidTxSummary
@@ -2958,13 +2960,13 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                     }
 
 -- | Handler for processing chain update creating a new protocol level token.
+-- It is assumed that the signatures have already been checked.
 --
 -- Unlike the other chain updates there is no support for queuing the update and the effective time
 -- is required to be zero.
 handleCreatePLT :: (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
 handleCreatePLT updateHeader payload = runExceptT $ do
     unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
-    -- TODO: Check signature when relevant update keys are introduced (Issue https://linear.app/concordium/issue/NOD-701).
     let governanceAccountAddress = payload ^. cpltGovernanceAccount
     (governanceAccountIndex, _governanceAccount) <-
         lift (getStateAccount governanceAccountAddress) >>= \case
