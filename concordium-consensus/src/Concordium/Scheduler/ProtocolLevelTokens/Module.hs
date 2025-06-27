@@ -113,7 +113,7 @@ initializeToken tokenParam = do
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
 
 -- | A pre-processed token operation. This has all amounts converted to
---  'TokenRawAmount's and unwraps the metadata associated with target accounts.
+--  'TokenRawAmount's and removes tags from memos.
 data PreprocessedTokenOperation
     = PTOTransfer
         { -- | The raw amount to transfer.
@@ -278,13 +278,13 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                 Nothing -> error "Invariant violation: Token state is missing the governance account address."
                                 Just govAccountIx -> do
                                     senderIx <- getAccountIndex tcSender
-                                    unless (govAccountIx == encode senderIx) $
+                                    unless (decode govAccountIx == Right senderIx) $
                                         failTH
                                             OperationNotPermitted
                                                 { trrOperationIndex = opIndex,
                                                   trrAddressNotPermitted =
                                                     Just (accountTokenHolder tcSenderAddress),
-                                                  trrReason = Just "sender is not token issuer"
+                                                  trrReason = Just "sender is not the token governance account"
                                                 }
                                     case tokenGovernanceOp of
                                         PTOTokenMint{..} -> do

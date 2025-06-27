@@ -2668,7 +2668,7 @@ handleUpdateCredentialKeys wtc cid keys sigs =
         updateCredentialKeys (fst senderAccount) index keys
         return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
 
--- | Handler for a token transaction.
+-- | Handler for a token update transaction.
 handleTokenUpdate ::
     forall m.
     ( PVSupportsPLT (MPV m),
