@@ -59,7 +59,7 @@ jobs:
 
   fourmolu:
     runs-on: ubuntu-latest-8core
-    if: ${{ !github.event.pull_request.draft }}
+    # if: ${{ !github.event.pull_request.draft }} # temporarily commenting this out as part of investigation
     steps:
 
     - name: Download fourmolu
@@ -86,7 +86,7 @@ jobs:
 
   rustfmt:
     runs-on: ubuntu-latest-8core
-    if: ${{ !github.event.pull_request.draft }}
+    # if: ${{ !github.event.pull_request.draft }} # temporarily commenting this out as part of investigation
 
     strategy:
       matrix:
@@ -118,9 +118,10 @@ jobs:
 
   build:
     needs: [fourmolu, rustfmt]
-    # Use fixed OS version because we install packages on the system.
-    runs-on: ubuntu-24.04
-    if: ${{ !github.event.pull_request.draft }}
+    # This was pinned to a fixed OS version because we install packages on the system
+    # but we probably don't have a fixed-OS larger runner set up so let's see if it works without to test
+    runs-on: ubuntu-latest-8core
+    # if: ${{ !github.event.pull_request.draft }} # temporarily commenting this out as part of investigation
 
     strategy:
       matrix:
