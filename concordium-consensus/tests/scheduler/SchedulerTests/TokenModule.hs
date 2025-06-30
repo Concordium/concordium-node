@@ -483,8 +483,8 @@ testInitializeToken = describe "initializeToken" $ do
 dummyAccountAddress :: Int -> AccountAddress
 dummyAccountAddress seed = fst $ randomAccountAddress (mkStdGen seed)
 
-testExecuteTokenUpdateTransaction2 :: Spec
-testExecuteTokenUpdateTransaction2 = describe "executeTokenUpdateTransaction" $ do
+testExecuteTokenUpdateTransactionTransfer :: Spec
+testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransaction transfer" $ do
     it "invalid transaction" $ do
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -808,8 +808,8 @@ testExecuteTokenUpdateTransaction2 = describe "executeTokenUpdateTransaction" $ 
     encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
     sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
-testExecuteTokenUpdateTransaction1 :: Spec
-testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ do
+testExecuteTokenUpdateTransactionMintBurn :: Spec
+testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransaction mint & burn" $ do
     it "invalid transaction" $ do
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -825,6 +825,28 @@ testExecuteTokenUpdateTransaction1 = describe "executeTokenUpdateTransaction" $ 
                 (PLTQ GetDecimals :-> 2)
                     :>>: Done ()
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
+    it "unauthorized operation" $ do
+        let transaction =
+                TokenUpdateTransaction . Seq.fromList $
+                    [TokenMint (TokenAmount 10_000_000 6)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
+                    :>>: (PLTQ (GetAccountIndex 1) :-> AccountIndex 1)
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted =
+                                    Just $
+                                        CborHolderAccount
+                                            { chaAccount = dummyAccountAddress 1,
+                                              chaCoinInfo = Just CoinInfoConcordium
+                                            },
+                                  trrReason = Just "sender is not the token governance account"
+                                }
+                         )
+        assertTrace (executeTokenUpdateTransaction (sender 1) (encodeTransaction transaction)) trace
     it "mint: OK" $ do
         let transaction =
                 TokenUpdateTransaction . Seq.fromList $
@@ -1435,7 +1457,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
 tests :: Spec
 tests = describe "TokenModule" $ do
     testInitializeToken
-    testExecuteTokenUpdateTransaction1
-    testExecuteTokenUpdateTransaction2
+    testExecuteTokenUpdateTransactionMintBurn
+    testExecuteTokenUpdateTransactionTransfer
     testQueryTokenModuleState
     testTokenOutOfEnergy
