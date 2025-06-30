@@ -383,12 +383,9 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                         ConfigureDelegation{..} ->
                             onlyWithDelegation $
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
-                        TokenHolder{..} ->
+                        TokenUpdate{..} ->
                             onlyWithPLT $
-                                handleTokenHolder (mkWTC TTTokenHolder) thTokenId thOperations
-                        TokenGovernance{..} ->
-                            onlyWithPLT $
-                                handleTokenGovernance (mkWTC TTTokenGovernance) tgTokenId tgOperations
+                                handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -2671,8 +2668,8 @@ handleUpdateCredentialKeys wtc cid keys sigs =
         updateCredentialKeys (fst senderAccount) index keys
         return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
 
--- | Handler for a token holder transaction.
-handleTokenHolder ::
+-- | Handler for a token update transaction.
+handleTokenUpdate ::
     forall m.
     ( PVSupportsPLT (MPV m),
       SchedulerMonad m
@@ -2683,92 +2680,25 @@ handleTokenHolder ::
     -- | Operations for the token.
     TokenParameter ->
     m (Maybe TransactionSummary)
-handleTokenHolder depositContext tokenId tokenOperations =
+handleTokenUpdate depositContext tokenId tokenOperations =
     withDeposit depositContext computeTransaction commitTransaction
   where
     senderAccount = depositContext ^. wtcSenderAccount
     -- Execute the transaction in a modified environment
     computeTransaction = do
         -- Charge the base cost for this transaction type
-        tickEnergy Cost.tokenHolderBaseCost
+        tickEnergy Cost.tokenUpdateBaseCost
         -- Fetch the token from state
         tokenIndex <-
             lift (getTokenIndex tokenId) >>= \case
                 Just tokenIndex -> return tokenIndex
                 Nothing -> rejectTransaction $ NonExistentTokenId tokenId
-        -- Fetch the token configuration to find the reference for the token module.
         configuration <- lift $ getTokenConfiguration tokenIndex
         let moduleRef = Token._pltModule configuration
         -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
         -- Invoke the token module with operations.
         (energy, _energyLimitReason) <- getEnergy
-        (res, energyUsed) <- lift $ invokeTokenHolderOperations energy moduleRef tokenIndex senderAccount tokenOperations
-        tickEnergy energyUsed
-        return res
-    -- Process the successful transaction computation.
-    commitTransaction computeState computeResult = do
-        (usedEnergy, energyCost) <- computeExecutionCharge (depositContext ^. wtcEnergyAmount) (computeState ^. energyLeft)
-        chargeExecutionCost senderAccount energyCost
-        let result = case computeResult of
-                Left PLTEOutOfEnergy -> TxReject OutOfEnergy
-                Left (PLTEFail encodedRejectReason) ->
-                    TxReject . TokenHolderTransactionFailed $
-                        makeTokenModuleRejectReason tokenId encodedRejectReason
-                Right events -> TxSuccess events
-        return (result, energyCost, usedEnergy)
-    -- Call the module of the token with the operations and return the events emitted from the token module.
-    invokeTokenHolderOperations ::
-        Energy ->
-        TokenModuleRef ->
-        Token.TokenIndex ->
-        IndexedAccount m ->
-        TokenParameter ->
-        m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [Event], Energy)
-    invokeTokenHolderOperations energy _ tokenIndex sender parameter = do
-        withBlockStateRollback $ do
-            let tc =
-                    TokenModule.TransactionContext
-                        { tcSender = (fst sender, depositContext ^. wtcSenderAddress),
-                          tcSenderAddress = depositContext ^. wtcSenderAddress
-                        }
-            (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenHolderTransaction tc parameter
-            return ((events <$ res, energyUsed), isLeft res)
-
--- | Handler for a token governance transaction.
-handleTokenGovernance ::
-    forall m.
-    ( PVSupportsPLT (MPV m),
-      SchedulerMonad m
-    ) =>
-    WithDepositContext m ->
-    -- | Token symbol identifying the token to receive the operations.
-    TokenId ->
-    -- | Operations for the token.
-    TokenParameter ->
-    m (Maybe TransactionSummary)
-handleTokenGovernance depositContext tokenId tokenOperations =
-    withDeposit depositContext computeTransaction commitTransaction
-  where
-    senderAccount = depositContext ^. wtcSenderAccount
-    -- Execute the transaction in a modified environment
-    computeTransaction = do
-        -- Charge the base cost for this transaction type
-        tickEnergy Cost.tokenGovernanceBaseCost
-        -- Fetch the token from state
-        tokenIndex <-
-            lift (getTokenIndex tokenId) >>= \case
-                Just tokenIndex -> return tokenIndex
-                Nothing -> rejectTransaction $ NonExistentTokenId tokenId
-        -- Ensure the sender is authorized, i.e. is the governance account for this token.
-        configuration <- lift $ getTokenConfiguration tokenIndex
-        let governanceAccountIndex = Token._pltGovernanceAccountIndex configuration
-        when (governanceAccountIndex /= fst senderAccount) $ rejectTransaction $ UnauthorizedTokenGovernance tokenId
-        -- Find the reference for the token module.
-        let moduleRef = Token._pltModule configuration
-        -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
-        -- Invoke the token module with operations.
-        (energy, _energyLimitReason) <- getEnergy
-        (res, energyUsed) <- lift $ invokeTokenGovernanceOperations energy moduleRef tokenIndex senderAccount tokenOperations
+        (res, energyUsed) <- lift $ invokeTokenOperations energy moduleRef tokenIndex senderAccount tokenOperations
         tickEnergy energyUsed
         return res
     -- Process the successful transaction computation.
@@ -2781,26 +2711,26 @@ handleTokenGovernance depositContext tokenId tokenOperations =
         let result = case computeResult of
                 Left PLTEOutOfEnergy -> TxReject OutOfEnergy
                 Left (PLTEFail encodedRejectReason) ->
-                    TxReject . TokenGovernanceTransactionFailed $
+                    TxReject . TokenUpdateTransactionFailed $
                         makeTokenModuleRejectReason tokenId encodedRejectReason
                 Right events -> TxSuccess events
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
-    invokeTokenGovernanceOperations ::
+    invokeTokenOperations ::
         Energy ->
         TokenModuleRef ->
         Token.TokenIndex ->
         IndexedAccount m ->
         TokenParameter ->
         m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [Event], Energy)
-    invokeTokenGovernanceOperations energy _ tokenIndex sender parameter = do
+    invokeTokenOperations energy _ tokenIndex sender parameter = do
         withBlockStateRollback $ do
             let tc =
                     TokenModule.TransactionContext
                         { tcSender = (fst sender, depositContext ^. wtcSenderAddress),
                           tcSenderAddress = depositContext ^. wtcSenderAddress
                         }
-            (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenGovernanceTransaction tc parameter
+            (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenUpdateTransaction tc parameter
             return ((events <$ res, energyUsed), isLeft res)
 
 -- * Chain updates
@@ -2967,11 +2897,6 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
 handleCreatePLT :: (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
 handleCreatePLT updateHeader payload = runExceptT $ do
     unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
-    let governanceAccountAddress = payload ^. cpltGovernanceAccount
-    (governanceAccountIndex, _governanceAccount) <-
-        lift (getStateAccount governanceAccountAddress) >>= \case
-            Nothing -> throwError $ UnknownAccount governanceAccountAddress
-            Just govAcct -> return govAcct
     let tokenId = payload ^. cpltTokenId
     maybeExistingToken <- lift $ getTokenIndex tokenId
     when (isJust maybeExistingToken) $ throwError $ DuplicateTokenId tokenId
@@ -2980,8 +2905,7 @@ handleCreatePLT updateHeader payload = runExceptT $ do
                 PLTConfiguration
                     { _pltTokenId = tokenId,
                       _pltModule = payload ^. cpltTokenModule,
-                      _pltDecimals = payload ^. cpltDecimals,
-                      _pltGovernanceAccountIndex = governanceAccountIndex
+                      _pltDecimals = payload ^. cpltDecimals
                     }
         tokenIx <- createToken config
         (res, events) <- runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)

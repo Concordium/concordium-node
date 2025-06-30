@@ -46,9 +46,7 @@ data PLTConfiguration = PLTConfiguration
       -- | The token module reference.
       _pltModule :: !TokenModuleRef,
       -- | The number of decimal places used in the representation of the token.
-      _pltDecimals :: !Word8,
-      -- | The index of the account authorized to perform token governance operations.
-      _pltGovernanceAccountIndex :: !AccountIndex
+      _pltDecimals :: !Word8
     }
     deriving (Eq, Ord, Show)
 
@@ -57,12 +55,10 @@ instance Serialize PLTConfiguration where
         put _pltTokenId
         put _pltModule
         put _pltDecimals
-        put _pltGovernanceAccountIndex
     get = do
         _pltTokenId <- get
         _pltModule <- get
         _pltDecimals <- get
-        _pltGovernanceAccountIndex <- get
         return PLTConfiguration{..}
 
 instance (MonadBlobStore m) => BlobStorable m PLTConfiguration
