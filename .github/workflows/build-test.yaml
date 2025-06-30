@@ -234,13 +234,13 @@ jobs:
     # Test Haskell sources. Could be run in parallel with the steps below.
     - name: Test consensus
       run: |
-        stack --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS"  --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --bench --no-run-benchmarks  --ghc-options "-j4 +RTS -A128m -n2m -RTS"   --ta --level=${TEST_LEVEL}
     - name: Test globalstate
       run: |
-        stack --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS" --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ghc-options "-j4 +RTS -A128m -n2m -RTS" --ta --level=${TEST_LEVEL} 
     - name: Test scheduler
       run: |
-        stack --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS" --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks  --ghc-options "-j4 +RTS -A128m -n2m -RTS"
 
     # RUST #
 
