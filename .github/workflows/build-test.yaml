@@ -59,7 +59,7 @@ jobs:
 
   fourmolu:
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}
+    # if: ${{ !github.event.pull_request.draft }} # temporarily commenting this out as part of investigation
     steps:
 
     - name: Download fourmolu
@@ -86,7 +86,7 @@ jobs:
 
   rustfmt:
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}
+    # if: ${{ !github.event.pull_request.draft }} # temporarily commenting this out as part of investigation
 
     strategy:
       matrix:
@@ -118,9 +118,10 @@ jobs:
 
   build:
     needs: [fourmolu, rustfmt]
-    # Use fixed OS version because we install packages on the system.
-    runs-on: ubuntu-24.04
-    if: ${{ !github.event.pull_request.draft }}
+    # This was pinned to a fixed OS version because we install packages on the system
+    # but we probably don't have a fixed-OS larger runner set up so let's see if it works without to test
+    runs-on: ubuntu-latest
+    # if: ${{ !github.event.pull_request.draft }} # temporarily commenting this out as part of investigation
 
     strategy:
       matrix:
@@ -188,7 +189,7 @@ jobs:
     # The cache entry keys depend on the GHC version and contents of 'package.yaml' and 'stack.yaml'
     # but will fall back to cache entries from different versions if no match is found.
 
-    - name: Cache stack global package DB
+    - name: Restore  stack global package DB from cache if available. 
       id: stack-global
       uses: actions/cache@v4
       with:
@@ -196,7 +197,7 @@ jobs:
         key: ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
         restore-keys: |
           ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}
-    - name: Cache stack-installed programs in '~/.local/bin'
+    - name: Restore stack-installed programs in '~/.local/bin' from cache if available. 
       id: stack-programs
       uses: actions/cache@v4
       with:
@@ -204,7 +205,7 @@ jobs:
         key: ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
         restore-keys: |
           ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}
-    - name: Cache '.stack-work'
+    - name: Restore '.stack-work' from cache if available. 
       uses: actions/cache@v4
       with:
         path: |
@@ -212,7 +213,6 @@ jobs:
           concordium-base/.stack-work
           concordium-consensus/.stack-work
           concordium-consensus/haskell-lmdb/.stack-work
-
         key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
         restore-keys: |
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}
@@ -224,23 +224,23 @@ jobs:
     - name: Build haskell dependencies (unless they were cached)
       if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
       run: |
-        stack build --test --bench --only-dependencies --stack-yaml concordium-consensus/stack.yaml
+        stack build --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS" --test --bench --only-dependencies --stack-yaml concordium-consensus/stack.yaml
 
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
     - name: Build consensus
       run: |
-        stack build --test --bench --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
+        stack build --fast --ghc-options "-j4 +RTS -A128m -n2m -RTS"  --test --bench --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
 
     # Test Haskell sources. Could be run in parallel with the steps below.
     - name: Test consensus
       run: |
-        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --bench --no-run-benchmarks  --ghc-options "-j4 +RTS -A128m -n2m -RTS"   --ta --level=${TEST_LEVEL}
     - name: Test globalstate
       run: |
-        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ghc-options "-j4 +RTS -A128m -n2m -RTS" --ta --level=${TEST_LEVEL} 
     - name: Test scheduler
       run: |
-        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks
+        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks  --ghc-options "-j4 +RTS -A128m -n2m -RTS"
 
     # RUST #
 
