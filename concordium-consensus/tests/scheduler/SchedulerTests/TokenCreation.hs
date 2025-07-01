@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -9,14 +10,18 @@ module SchedulerTests.TokenCreation (tests) where
 
 import Data.Bool.Singletons
 import qualified Data.ByteString.Short as BSS
+import qualified Data.Set as Set
+import qualified Data.Vector as Vec
 import qualified SchedulerTests.Helpers as Helpers
 import Test.Hspec
 
+import qualified Concordium.Crypto.DummyData as DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import Concordium.ID.Types as ID
 import qualified Concordium.Types.DummyData as DummyData
 import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
 import Concordium.Types.Tokens
+import Concordium.Types.Updates
 
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
@@ -31,6 +36,13 @@ dummyAddress2 = Helpers.accountAddressFromSeed 2
 
 dummyTokenHolder :: TokenHolder
 dummyTokenHolder = HolderAccount dummyAddress2
+
+dummyCborTokenHolder :: CBOR.CborTokenHolder
+dummyCborTokenHolder =
+    CBOR.CborHolderAccount
+        { chaAccount = dummyAddress2,
+          chaCoinInfo = Nothing
+        }
 
 dummyAccount ::
     (IsAccountVersion av, Blob.MonadBlobStore m) =>
@@ -51,6 +63,32 @@ initialBlockState =
         [ dummyAccount,
           dummyAccount2
         ]
+
+initialBlockStateWithCustomKeys ::
+    forall pv.
+    (IsProtocolVersion pv, PVSupportsPLT pv) =>
+    -- | Number of keys
+    Int ->
+    -- | Which key indices are authorized for CreatePLT
+    [UpdateKeyIndex] ->
+    -- | Threshold for CreatePLT
+    UpdateKeysThreshold ->
+    Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)
+initialBlockStateWithCustomKeys numKeys authorizedKeys threshold = do
+    accounts <- sequence [dummyAccount, dummyAccount2]
+    let auths0 = DummyData.dummyAuthorizations @(AuthorizationsVersionFor pv)
+    let createPLT = AccessStructure (Set.fromList authorizedKeys) threshold
+    let keys =
+            UpdateKeysCollection
+                { rootKeys = DummyData.dummyHigherLevelKeys,
+                  level1Keys = DummyData.dummyHigherLevelKeys,
+                  level2Keys =
+                    auths0
+                        { asKeys = Vec.fromList (DummyData.deterministicVK <$> [0 .. numKeys - 1]),
+                          asCreatePLT = createPLT <$ asCreatePLT auths0
+                        }
+                }
+    Helpers.createTestBlockStateWithAccountsAndKeys accounts keys
 
 testCreatePLT :: forall pv. (IsProtocolVersion pv, PVSupportsPLT pv) => SProtocolVersion pv -> String -> Spec
 testCreatePLT _ pvString = describe pvString $ do
@@ -106,16 +144,167 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             initialBlockState
             transactionsAndAssertions
+    it "Create PLT - multiple keys" $ do
+        let numKeys = 3
+            authorizedKeys = [1, 2]
+            threshold = 2
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        txCreatePLTWithKeys
+                            1
+                            createPLT1
+                            [(1, DummyData.deterministicKP 1), (2, DummyData.deterministicKP 2)],
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
+            transactionsAndAssertions
+    it "Create PLT - multiple keys - additional authorized" $ do
+        let numKeys = 3
+            authorizedKeys = [1, 2]
+            threshold = 1
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        txCreatePLTWithKeys
+                            1
+                            createPLT1
+                            [(1, DummyData.deterministicKP 1), (2, DummyData.deterministicKP 2)],
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1}] result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
+            transactionsAndAssertions
+    it "Create PLT - multiple keys - incorrect signature" $ do
+        let numKeys = 3
+            authorizedKeys = [1, 2]
+            threshold = 2
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        txCreatePLTWithKeys
+                            1
+                            createPLT1
+                            [(1, DummyData.deterministicKP 1), (2, DummyData.deterministicKP 23)],
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
+            transactionsAndAssertions
+    it "Create PLT - multiple keys - incorrect key" $ do
+        let numKeys = 3
+            authorizedKeys = [1, 2]
+            threshold = 1
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        txCreatePLTWithKeys
+                            1
+                            createPLT1
+                            [(0, DummyData.deterministicKP 0)],
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
+            transactionsAndAssertions
+    it "Create PLT - multiple keys - additional unauthorized" $ do
+        let numKeys = 3
+            authorizedKeys = [0, 1]
+            threshold = 1
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        txCreatePLTWithKeys
+                            1
+                            createPLT1
+                            [(1, DummyData.deterministicKP 1), (2, DummyData.deterministicKP 2)],
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
+            transactionsAndAssertions
+    it "Create PLT - multiple keys - first unauthorized" $ do
+        let numKeys = 3
+            authorizedKeys = [1, 2]
+            threshold = 1
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        txCreatePLTWithKeys
+                            1
+                            createPLT1
+                            [(0, DummyData.deterministicKP 0)],
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
+            transactionsAndAssertions
+    it "Create PLT - multiple keys - first incorrect key" $ do
+        let numKeys = 3
+            authorizedKeys = [0, 1, 2]
+            threshold = 1
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        txCreatePLTWithKeys
+                            1
+                            createPLT1
+                            [(0, DummyData.deterministicKP 1)],
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertUpdateFailureWithReason IncorrectSignature result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
+            transactionsAndAssertions
   where
-    txCreatePLT ctSeqNumber createPLT =
+    txCreatePLTWithKeys ctSeqNumber createPLT ctKeys =
         Runner.ChainUpdateTx
             Runner.ChainUpdateTransaction
                 { ctEffectiveTime = 0,
                   ctTimeout = DummyData.dummyMaxTransactionExpiryTime,
-                  ctKeys = [(0, DummyData.dummyAuthorizationKeyPair)],
                   ctPayload = Types.CreatePLTUpdatePayload createPLT,
                   ..
                 }
+    txCreatePLT ctSeqNumber createPLT =
+        txCreatePLTWithKeys
+            ctSeqNumber
+            createPLT
+            [(0, DummyData.dummyAuthorizationKeyPair)]
     dummyHash = Hash.hashShort BSS.empty
     plt1 = Types.TokenId "PLT1"
     plt2 = Types.TokenId "PLT2"
@@ -123,6 +312,7 @@ testCreatePLT _ pvString = describe pvString $ do
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
               tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
+              tipGovernanceAccount = dummyCborTokenHolder,
               tipAllowList = False,
               tipDenyList = False,
               tipInitialSupply = Nothing,
@@ -135,13 +325,13 @@ testCreatePLT _ pvString = describe pvString $ do
             { _cpltTokenModule = TokenModuleRef dummyHash,
               _cpltTokenId = plt1,
               _cpltInitializationParameters = toTokenParam params1,
-              _cpltGovernanceAccount = dummyAddress2,
               _cpltDecimals = 0
             }
     params2 =
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
               tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
+              tipGovernanceAccount = dummyCborTokenHolder,
               tipAllowList = False,
               tipDenyList = False,
               tipInitialSupply = Just (TokenAmount 10 0),
@@ -153,7 +343,6 @@ testCreatePLT _ pvString = describe pvString $ do
             { _cpltTokenModule = TokenModuleRef dummyHash,
               _cpltTokenId = plt2,
               _cpltInitializationParameters = toTokenParam params2,
-              _cpltGovernanceAccount = dummyAddress2,
               _cpltDecimals = 0
             }
 

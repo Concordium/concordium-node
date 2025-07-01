@@ -2,6 +2,14 @@
 
 ## Unreleased changes
 
+## 9.0.5 (DevNet)
+
+- Protocol-level tokens:
+  - Simplified token transaction handling: Consolidated all token holder and
+    governance operations for a single `TokenUpdateTransaction` type.
+  - Moved authorization from the scheduler to the token module.
+  - Fix a bug in checking authorization for CreatePLT update.
+
 ## 9.0.4 (DevNet)
 
 - Protocol-level tokens:
