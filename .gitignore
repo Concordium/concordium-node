@@ -10,6 +10,8 @@ _rust_rocksdb*
 tags
 path
 .vscode
+.idea/
+concordium-node/.idea/
 .so
 .stack-work
 dist

@@ -82,7 +82,7 @@ jobs:
     # needed to generate a cabal file from the package.yaml.
     - name: Setup the project
       run: |
-        stack --stack-yaml concordium-consensus/stack.yaml setup
+        stack setup
 
     - name: Run fourmolu
       run: |
@@ -224,23 +224,23 @@ jobs:
     - name: Build haskell dependencies (unless they were cached)
       if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
       run: |
-        stack build --test --bench --only-dependencies --stack-yaml concordium-consensus/stack.yaml
+        stack build --test --bench --only-dependencies
 
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
     - name: Build consensus
       run: |
-        stack build --test --bench --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
+        stack build --test --bench --force-dirty --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
 
     # Test Haskell sources. Could be run in parallel with the steps below.
     - name: Test consensus
       run: |
-        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+        stack test concordium-consensus:consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
     - name: Test globalstate
       run: |
-        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+        stack test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
     - name: Test scheduler
       run: |
-        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks
+        stack test concordium-consensus:scheduler --bench --no-run-benchmarks
 
     # RUST #
 
