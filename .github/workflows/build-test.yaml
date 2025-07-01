@@ -38,7 +38,7 @@ on:
     branches: main
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-    - '.github/workflows/build-test.yaml'
+    # - '.github/workflows/build-test.yaml'  # temporarily cancel this, we don't want to run the full test build.
     - '**/Cargo.toml'
     - '**/Cargo.lock'
     - '**.rs'
