@@ -9,7 +9,6 @@ on:
         options:
           - node-macos
 
-on:
   push:
     branches: SRE-1220/macos-signing
   workflow_dispatch: # allow manual trigger
