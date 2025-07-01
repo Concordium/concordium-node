@@ -416,6 +416,7 @@ queryTokenModuleState = do
                 Nothing -> pltError $ QTEInvariantViolation "Governance account does not exist"
                 Just account -> return account
         accountTokenHolderShort <$> getAccountCanonicalAddress account
+    tmsPaused <- isJust <$> getTokenState "paused" 
     tmsAllowList <- Just . isJust <$> getTokenState "allowList"
     tmsDenyList <- Just . isJust <$> getTokenState "denyList"
     tmsMintable <- Just . isJust <$> getTokenState "mintable"
