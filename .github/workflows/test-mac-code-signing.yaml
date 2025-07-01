@@ -1,0 +1,176 @@
+name: Test Mac build 
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        type: choice
+        description: Choose which workflow should be ran
+        options:
+          - node-macos
+
+on:
+  push:
+    branches: SRE-1220/macos-signing
+  workflow_dispatch: # allow manual trigger
+
+env:
+  UBUNTU_VERSION: '24.04'
+  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.82_ghc-9.6.6-0'
+  RUST_VERSION: '1.82'
+  STACK_VERSION: '3.1.1'
+  FLATBUFFERS_VERSION: '23.5.26'
+  GHC_VERSION: '9.6.6'
+  PROTOC_VERSION: '28.3'
+  STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
+  DOCKER_ARTIFACT_NAME: 'image'
+  AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
+  S3_ARN_TEMPLATES: '{
+      \"database-exporter\": {\"bucket\": \"distribution.concordium.software\", \"dir\": \"tools/linux\", \"name\": \"database-exporter_${VERSION}.deb\"},
+      \"p2p-bootstrapper\": {\"bucket\": \"distribution.concordium.software\", \"dir\": \"tools/linux\", \"name\": \"p2p-bootstrapper_${VERSION}.deb\"},
+      \"node-stagenet-linux\": {\"bucket\": \"distribution.stagenet.concordium.com\", \"dir\": \"deb\", \"name\": \"concordium-stagenet-node_${VERSION}_amd64.deb\"},
+      \"node-flynet-linux\": {\"bucket\": \"distribution.flynet.concordium.com\", \"dir\": \"deb\", \"name\": \"concordium-flynet-node_${VERSION}_amd64.deb\"},
+      \"node-testnet-linux\": {\"bucket\": \"distribution.testnet.concordium.com\", \"dir\": \"deb\", \"name\": \"concordium-testnet-node_${VERSION}_amd64.deb\"},
+      \"node-mainnet-linux\": {\"bucket\": \"distribution.mainnet.concordium.software\", \"dir\": \"deb\", \"name\": \"concordium-mainnet-node_${VERSION}_amd64.deb\"},
+      \"node-macos\": {\"bucket\": \"distribution.concordium.software\", \"dir\": \"macos\", \"name\": \"concordium-node-${VERSION}.pkg\"},
+      \"node-windows\": {\"bucket\": \"distribution.concordium.software\", \"dir\": \"windows\", \"name\": \"Node-${VERSION}.msi\"}
+    }'
+  DOCKER_TAGS_TEMPLATES: '{
+      \"docker-stagenet\": \"concordium/stagenet-node:${VERSION}\",
+      \"docker-testnet\": \"concordium/testnet-node:${VERSION}\",
+      \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}\",
+      \"docker-bootstrapper\": \"concordium/bootstrapper:${VERSION}\"
+    }'
+  REGISTRY: docker.io
+  SERVICE: "${{ inputs.service }}"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+
+  validate-preconditions:
+    runs-on: ubuntu-latest
+    outputs:
+      s3_arns: ${{ steps.render.outputs.s3_arns }}
+      docker_tags: ${{ steps.render.outputs.docker_tags }}
+      release_type: ${{ steps.versions_derivation.outputs.release_type }}
+      base_version: ${{ steps.versions_derivation.outputs.base_version }}
+      version: ${{ steps.versions_derivation.outputs.version }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate version
+        id: versions_derivation
+        run: |
+          CARGO_VERSION=$(yq .package.version concordium-node/Cargo.toml)
+          if [ -z "${{ env.SERVICE }}" ]; then
+            IFS='-' read -r VERSION BUILD RELEASE_TYPE <<< "${{ github.ref_name }}"
+            if [ ! "$VERSION" = "$CARGO_VERSION" ]; then
+              echo "::error::${CARGO_VERSION} does not match ${VERSION}."
+              exit 1
+            fi
+          else
+            RELEASE_TYPE="${{ env.SERVICE }}"
+            BUILD=$(git rev-parse --short HEAD)
+          fi
+          echo "::notice::RELEASE_TYPE=${RELEASE_TYPE}"
+          echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
+          echo "version=${CARGO_VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
+          echo "base_version=${CARGO_VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Templates rendering
+        id: render
+        run: |
+          export VERSION="${{ steps.versions_derivation.outputs.version }}"
+          echo "s3_arns=${{ env.S3_ARN_TEMPLATES }}" >> $GITHUB_OUTPUT
+          echo "docker_tags=${{ env.DOCKER_TAGS_TEMPLATES }}" >> $GITHUB_OUTPUT
+
+  node-macos:
+    runs-on: macos-latest-large
+    environment: release
+    needs: [validate-preconditions]
+    if: contains(fromJSON('["rc", "alpha", "node-macos"]'), needs.validate-preconditions.outputs.release_type)
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Extrapolate artifact name
+        run: |
+          ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].name')
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+
+      - name: Import Apple signing certificates into a keychain)
+        env:
+          # Base64 encoding of the p12 certificate for Apple code signing.
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.APPLE_BUILD_CERTIFICATE_BASE64 }}
+          BUILD_INSTALLER_CERTIFICATE_BASE64: ${{ secrets.APPLE_BUILD_INSTALLER_CERTIFICATE_BASE64 }}
+          # Password for the p12 certificate for Apple code signing.
+          BUILD_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_BUILD_CERTIFICATE_PASSWORD }}
+          BUILD_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_BUILD_INSTALLER_CERTIFICATE_PASSWORD }}
+          # Random string to use as the keychain password.
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          # create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/apple_build_certificate.p12
+          INSTALLER_CERTIFICATE_PATH=$RUNNER_TEMP/apple_build_installer_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # import certificate and provisioning profile from secrets
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          echo -n "$BUILD_INSTALLER_CERTIFICATE_BASE64" | base64 --decode -o $INSTALLER_CERTIFICATE_PATH
+
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$BUILD_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $INSTALLER_CERTIFICATE_PATH -P "$BUILD_INSTALLER_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+          echo $?
+
+      # OTHER STUFF COMMENTED OUT TO TEST THIS.
+
+      # - uses: actions-rust-lang/setup-rust-toolchain@v1
+      #   with:
+      #     toolchain: ${{ env.RUST_VERSION }}
+
+      # - uses: haskell-actions/setup@v2
+      #   with:
+      #     ghc-version: ${{ env.GHC_VERSION }}
+      #     enable-stack: true
+      #     stack-version: ${{ env.STACK_VERSION }}
+
+      # - name: Install flatbuffers
+      #   run: |
+      #     wget https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/MacIntel.flatc.binary.zip -O MacIntel.flatc.binary.zip
+      #     unzip MacIntel.flatc.binary.zip -d flatbuffers
+      #     sudo mv flatbuffers/flatc /usr/local/bin/
+
+      # - name: Install protobuf
+      #   run: |
+      #     curl -L -o protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v${{ env.PROTOC_VERSION }}/protoc-${{ env.PROTOC_VERSION }}-osx-x86_64.zip
+      #     unzip protoc.zip
+      #     sudo mv bin/protoc /usr/local/bin/
+      #     sudo mv include/* /usr/local/include/
+
+      # - name: Install Homebrew Packages
+      #   run: |
+      #     brew install lmdb llvm
+
+      # - name: Build macOS Package
+      #   run: |
+      #     printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
+      #     cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}-unsigned.pkg ./${{ env.ARTIFACT_NAME }}
+
+      # - name: Upload artifact
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ github.job }}
+      #     path: ${{ env.ARTIFACT_NAME }}
