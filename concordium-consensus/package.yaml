@@ -502,4 +502,3 @@ benchmarks:
     - criterion
     - deepseq
     - HUnit >= 1.6    
-    - pretty-show >= 1.10
