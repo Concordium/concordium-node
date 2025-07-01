@@ -76,7 +76,7 @@ withMutableState MutableState{msInner = MutableStateInner fp} = withForeignPtr f
 
 -- | Look up entry using key and read the value in a mutable state.
 foreign import ccall "lookup_entry_value_mutable_state"
-    lookup_entry_value_mutable_state ::
+    lookupEntryValueMutableStateFFI ::
         -- | Callback for loading persistent nodes into memory.
         LoadCallback ->
         -- | Location of the key.
@@ -95,7 +95,7 @@ lookupMutableState :: BS.ByteString -> MutableState -> IO (Maybe BS.ByteString)
 lookupMutableState key state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
     alloca $ \outPtr -> do
         response <- withMutableState state $ \inner ->
-            lookup_entry_value_mutable_state
+            lookupEntryValueMutableStateFFI
                 (msContext state)
                 (castPtr keyPtr)
                 (fromIntegral keyLen)
@@ -111,17 +111,14 @@ lookupMutableState key state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen)
                         (fromIntegral len)
                         (rs_free_array_len response (fromIntegral len))
 
--- | Insert value into entry of the provided key.
---
--- The entry will be inserted into the tree if not already present.
--- If a value is already present, this will be overwritten.
+-- | Insert entry into the mutable state, overwriting the value if already present.
 --
 -- Returns:
 -- * 0 success and no entry was already present.
 -- * 1 success and entry got overwritten.
 -- * 2 failed due to the entry being locked.
 foreign import ccall "insert_entry_value_mutable_state"
-    insert_entry_value_mutable_state ::
+    insertEntryValueMutableStateFFI ::
         -- | Callback for loading persistent nodes into memory.
         LoadCallback ->
         -- | Location of the key.
@@ -136,18 +133,25 @@ foreign import ccall "insert_entry_value_mutable_state"
         Ptr MutableStateInner ->
         IO Word8
 
--- | Insert value into entry at key.
+-- | Insert a value into the mutable state at a specified key.
 --
 -- Returns
 -- * @Just True@ if an entry had a value which got replaced.
 -- * @Just False@ if no entry was overwritten.
 -- * @Nothing@ signals error due to the entry being locked.
-insertMutableState :: BS.ByteString -> BS.ByteString -> MutableState -> IO (Maybe Bool)
+insertMutableState ::
+    -- | Key in the mutable state to insert to.
+    BS.ByteString ->
+    -- | Value to insert into the mutable state.
+    BS.ByteString ->
+    -- | The mutable state to modify.
+    MutableState ->
+    IO (Maybe Bool)
 insertMutableState key value state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
     BSU.unsafeUseAsCStringLen value $ \(valuePtr, valueLen) ->
         withMutableState state $ \inner -> do
             out <-
-                insert_entry_value_mutable_state
+                insertEntryValueMutableStateFFI
                     (msContext state)
                     (castPtr keyPtr)
                     (fromIntegral keyLen)
@@ -158,7 +162,7 @@ insertMutableState key value state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, k
                 0 -> Just False
                 1 -> Just True
                 2 -> Nothing
-                _ -> error "Unexpected FFI status code"
+                _ -> error "insertMutableState: Unexpected FFI status code"
 
 -- | Delete entry at key.
 --
@@ -167,7 +171,7 @@ insertMutableState key value state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, k
 -- * 1 if an entry got deleted.
 -- * 2 if it failed due to the entry being locked.
 foreign import ccall "delete_entry_mutable_state"
-    delete_entry_mutable_state ::
+    deleteEntryMutableStateFFI ::
         -- | Callback for loading persistent nodes into memory.
         LoadCallback ->
         -- | Location of the key.
@@ -180,14 +184,21 @@ foreign import ccall "delete_entry_mutable_state"
 
 -- | Delete entry at key.
 --
--- Returns @Just True@ if an entry was deleted, @Just False@ if no entry found to be deleted.
--- @Nothing@ signals error due to the entry being locked.
-deleteEntryMutableState :: BS.ByteString -> MutableState -> IO (Maybe Bool)
+-- Returns
+-- * @Just True@ if an entry was deleted.
+-- * @Just False@ if no entry found to be deleted.
+-- * @Nothing@ signals error due to the entry being locked.
+deleteEntryMutableState ::
+    -- | Key of the entry in the mutable state to delete.
+    BS.ByteString ->
+    -- | The mutable state to delete from.
+    MutableState ->
+    IO (Maybe Bool)
 deleteEntryMutableState key mutableState =
     BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
         withMutableState mutableState $ \inner -> do
             out <-
-                delete_entry_mutable_state
+                deleteEntryMutableStateFFI
                     (msContext mutableState)
                     (castPtr keyPtr)
                     (fromIntegral keyLen)
@@ -196,7 +207,7 @@ deleteEntryMutableState key mutableState =
                 0 -> Just False
                 1 -> Just True
                 2 -> Nothing
-                _ -> error "Unexpected FFI status code"
+                _ -> error "deleteEntryMutableState: Unexpected FFI status code"
 
 -- | An opaque pointer to a contract instance's state. "Persistent" here is in
 --  the sense of "persistent data structures", meaning that the state is not

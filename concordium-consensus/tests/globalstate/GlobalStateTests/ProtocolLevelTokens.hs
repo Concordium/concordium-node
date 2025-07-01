@@ -121,68 +121,68 @@ testSetTokenCirculatingSupply = runBlobStore $ do
     hash6 <- getHashM tokens6
     lift $ assertEqual "Hash of tokens3 and tokens6 should be the same" hash3 hash6
 
-testSetTokenState :: Assertion
-testSetTokenState = runBlobStore $ do
+testUpdateTokenState :: Assertion
+testUpdateTokenState = runBlobStore $ do
     (idxABC, tokens0) <- createToken configABC =<< emptyPLTPV
     (idxDEF, tokens1) <- createToken configDEF tokens0
-    mutableStateABC <- thawTokenState idxABC tokens1
-    mutableStateDEF <- thawTokenState idxDEF tokens1
+    mutableStateABC <- getMutableTokenState idxABC tokens1
+    mutableStateDEF <- getMutableTokenState idxDEF tokens1
     hash1 <- getHashM @_ @ProtocolLevelTokensHash tokens1
 
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" Nothing
-        =<< getTokenState "TestKey1" mutableStateABC
-    lift . assertEqual "setTokenState for ABC \"TestKey1\"" (Just False)
-        =<< setTokenState "TestKey1" (Just "0") mutableStateABC
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "0")
-        =<< getTokenState "TestKey1" mutableStateABC
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" Nothing
-        =<< getTokenState "TestKey1" mutableStateDEF
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" Nothing
+        =<< lookupTokenState "TestKey1" mutableStateABC
+    lift . assertEqual "updateTokenState for ABC \"TestKey1\"" (Just False)
+        =<< updateTokenState "TestKey1" (Just "0") mutableStateABC
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "0")
+        =<< lookupTokenState "TestKey1" mutableStateABC
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" Nothing
+        =<< lookupTokenState "TestKey1" mutableStateDEF
 
-    lift . assertEqual "setTokenState for DEF \"TestKey1\"" (Just False)
-        =<< setTokenState "TestKey1" (Just "1") mutableStateDEF
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "0")
-        =<< getTokenState "TestKey1" mutableStateABC
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" (Just "1")
-        =<< getTokenState "TestKey1" mutableStateDEF
+    lift . assertEqual "updateTokenState for DEF \"TestKey1\"" (Just False)
+        =<< updateTokenState "TestKey1" (Just "1") mutableStateDEF
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "0")
+        =<< lookupTokenState "TestKey1" mutableStateABC
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" (Just "1")
+        =<< lookupTokenState "TestKey1" mutableStateDEF
 
-    lift . assertEqual "setTokenState for ABC \"TestKey1\"" (Just True)
-        =<< setTokenState "TestKey1" (Just "2") mutableStateABC
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "2")
-        =<< getTokenState "TestKey1" mutableStateABC
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" (Just "1")
-        =<< getTokenState "TestKey1" mutableStateDEF
+    lift . assertEqual "updateTokenState for ABC \"TestKey1\"" (Just True)
+        =<< updateTokenState "TestKey1" (Just "2") mutableStateABC
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "2")
+        =<< lookupTokenState "TestKey1" mutableStateABC
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" (Just "1")
+        =<< lookupTokenState "TestKey1" mutableStateDEF
 
     tokens2 <-
-        freezeTokenState idxABC mutableStateABC tokens1
-            >>= freezeTokenState idxDEF mutableStateDEF
+        setTokenState idxABC mutableStateABC tokens1
+            >>= setTokenState idxDEF mutableStateDEF
     hash2 <- getHashM @_ @ProtocolLevelTokensHash tokens2
     lift $ assertBool "Hash of tokens1 and tokens2 should not be the same" (hash1 /= hash2)
     hash1' <- getHashM @_ @ProtocolLevelTokensHash tokens1
     lift $ assertEqual "Hash of tokens1 should stay the same" hash1 hash1'
 
-    mutableStateABC2 <- thawTokenState idxABC tokens2
-    mutableStateDEF2 <- thawTokenState idxDEF tokens2
-    lift . assertEqual "setTokenState for DEF \"TestKey2\"" (Just False)
-        =<< setTokenState "TestKey2" (Just "3") mutableStateDEF2
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "2")
-        =<< getTokenState "TestKey1" mutableStateABC2
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" (Just "1")
-        =<< getTokenState "TestKey1" mutableStateDEF2
-    lift . assertEqual "getTokenState for DEF \"TestKey2\"" (Just "3")
-        =<< getTokenState "TestKey2" mutableStateDEF2
+    mutableStateABC2 <- getMutableTokenState idxABC tokens2
+    mutableStateDEF2 <- getMutableTokenState idxDEF tokens2
+    lift . assertEqual "updateTokenState for DEF \"TestKey2\"" (Just False)
+        =<< updateTokenState "TestKey2" (Just "3") mutableStateDEF2
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "2")
+        =<< lookupTokenState "TestKey1" mutableStateABC2
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" (Just "1")
+        =<< lookupTokenState "TestKey1" mutableStateDEF2
+    lift . assertEqual "lookupTokenState for DEF \"TestKey2\"" (Just "3")
+        =<< lookupTokenState "TestKey2" mutableStateDEF2
 
-    lift . assertEqual "setTokenState for DEF \"TestKey2\"" (Just True)
-        =<< setTokenState "TestKey2" Nothing mutableStateDEF2
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "2")
-        =<< getTokenState "TestKey1" mutableStateABC2
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" (Just "1")
-        =<< getTokenState "TestKey1" mutableStateDEF2
-    lift . assertEqual "getTokenState for DEF \"TestKey2\"" Nothing
-        =<< getTokenState "TestKey2" mutableStateDEF2
+    lift . assertEqual "updateTokenState for DEF \"TestKey2\"" (Just True)
+        =<< updateTokenState "TestKey2" Nothing mutableStateDEF2
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "2")
+        =<< lookupTokenState "TestKey1" mutableStateABC2
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" (Just "1")
+        =<< lookupTokenState "TestKey1" mutableStateDEF2
+    lift . assertEqual "lookupTokenState for DEF \"TestKey2\"" Nothing
+        =<< lookupTokenState "TestKey2" mutableStateDEF2
 
     tokens3 <-
-        freezeTokenState idxABC mutableStateABC2 tokens2
-            >>= freezeTokenState idxDEF mutableStateDEF2
+        setTokenState idxABC mutableStateABC2 tokens2
+            >>= setTokenState idxDEF mutableStateDEF2
     hash3 <- getHashM @_ @ProtocolLevelTokensHash tokens3
     lift $ assertEqual "Hash of tokens2 and tokens3 should be the same" hash2 hash3
 
@@ -190,4 +190,4 @@ tests :: Spec
 tests = describe "GlobalStateTests.ProtocolLevelTokens" $ do
     it "createToken" testCreateToken
     it "setTokenCirculatingSupply" testSetTokenCirculatingSupply
-    it "setTokenState" testSetTokenState
+    it "updateTokenState" testUpdateTokenState

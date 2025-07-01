@@ -67,9 +67,9 @@ emptyTokenAccountState =
         }
 
 -- | Token state at the account level
-data TokenAccountState = TokenAccountState
+newtype TokenAccountState = TokenAccountState
     { -- | The available balance for the account.
-      tasBalance :: !TokenRawAmount
+      tasBalance :: TokenRawAmount
     }
     deriving (Eq, Show, Ord)
 
@@ -86,13 +86,6 @@ instance HashableTo Hash.Hash TokenAccountState where
 instance (Monad m) => MHashableTo m Hash.Hash TokenAccountState
 
 instance (MonadBlobStore m) => BlobStorable m TokenAccountState
-
--- | An update to the token account state.
-data TokenAccountStateDelta = TokenAccountStateDelta
-    { -- | A change to the token balance.
-      tasBalanceDelta :: !(Maybe TokenAmountDelta)
-    }
-    deriving (Eq, Show)
 
 -- | A change in a 'TokenRawAmount'.
 newtype TokenAmountDelta = TokenAmountDelta {tokenAmountDelta :: Integer} deriving (Eq, Show)

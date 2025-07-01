@@ -4356,16 +4356,16 @@ doCreateToken pbs tokenConfig = do
     (tokIx, newPLTs) <- PLT.createToken tokenConfig (bspProtocolLevelTokens bsp)
     (tokIx,) <$> storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
 
-doFreezeTokenState ::
+doSetTokenState ::
     forall pv m.
     (SupportsPersistentState pv m, PVSupportsPLT pv) =>
     PersistentBlockState pv ->
     PLT.TokenIndex ->
     StateV1.MutableState ->
     m (PersistentBlockState pv)
-doFreezeTokenState pbs tokenIndex mutableState = do
+doSetTokenState pbs tokenIndex mutableState = do
     bsp <- loadPBS pbs
-    newPLTs <- PLT.freezeTokenState tokenIndex mutableState (bspProtocolLevelTokens bsp)
+    newPLTs <- PLT.setTokenState tokenIndex mutableState (bspProtocolLevelTokens bsp)
     storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
 
 -- | Helper function to update a reference to a token account state table.
@@ -4520,10 +4520,9 @@ instance
         PLT.getPLTList . bspProtocolLevelTokens <=< loadPBS
     getTokenIndex bs tokIx =
         PLT.getTokenIndex tokIx . bspProtocolLevelTokens =<< loadPBS bs
-    thawTokenState bs tokenIndex =
-        PLT.thawTokenState tokenIndex . bspProtocolLevelTokens =<< loadPBS bs
-    getTokenState _bs key tokenState =
-        PLT.getTokenState key tokenState
+    getMutableTokenState bs tokenIndex =
+        PLT.getMutableTokenState tokenIndex . bspProtocolLevelTokens =<< loadPBS bs
+    lookupTokenState _bs = PLT.lookupTokenState
     getTokenConfiguration bs tokIx =
         PLT.getTokenConfiguration tokIx . bspProtocolLevelTokens =<< loadPBS bs
     getTokenCirculatingSupply bs tokIx =
@@ -4535,8 +4534,8 @@ instance
     where
     getPLTList = getPLTList . hpbsPointers
     getTokenIndex = getTokenIndex . hpbsPointers
-    thawTokenState = thawTokenState . hpbsPointers
-    getTokenState = getTokenState . hpbsPointers
+    getMutableTokenState = getMutableTokenState . hpbsPointers
+    lookupTokenState = lookupTokenState . hpbsPointers
     getTokenConfiguration = getTokenConfiguration . hpbsPointers
     getTokenCirculatingSupply = getTokenCirculatingSupply . hpbsPointers
 
@@ -4735,8 +4734,8 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoSuspendValidators = doSuspendValidators
     bsoSetTokenCirculatingSupply = doSetTokenCirculatingSupply
     bsoCreateToken = doCreateToken
-    bsoFreezeTokenState = doFreezeTokenState
-    bsoSetTokenState = PLT.setTokenState
+    bsoSetTokenState = doSetTokenState
+    bsoUpdateTokenState = PLT.updateTokenState
     bsoUpdateTokenAccountBalance = doUpdateTokenAccountBalance
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS

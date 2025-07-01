@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
@@ -276,26 +275,27 @@ lookupPLT index pvPLTs = do
 -- mutable states in different calls.
 --
 --  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
-thawTokenState ::
+getMutableTokenState ::
     (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->
     ProtocolLevelTokensForPV pv ->
     m StateV1.MutableState
-thawTokenState index pvPLTs = do
+getMutableTokenState index pvPLTs = do
     plt <- lookupPLT index pvPLTs
     loadCallback <- fst <$> getCallbacks
     liftIO $ StateV1.thaw loadCallback (_pltState plt)
 
--- | Convert the mutable state to a persistent one.
+-- | Convert the mutable state to a persistent one, setting it as the state of the provided token
+-- index.
 --
 --  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
-freezeTokenState ::
+setTokenState ::
     (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->
     StateV1.MutableState ->
     ProtocolLevelTokensForPV pv ->
     m (ProtocolLevelTokensForPV pv)
-freezeTokenState index mutableState pvPLTs = do
+setTokenState index mutableState pvPLTs = do
     plts <- loadPLTs pvPLTs
     LFMBTree.update upd index (_pltTable plts) >>= \case
         Nothing ->
@@ -310,12 +310,12 @@ freezeTokenState index mutableState pvPLTs = do
 
 -- | Get the state of a token for a given 'TokenStateKey'. Returns @Nothing@ if the token does not
 --  have a state for the given key.
-getTokenState ::
+lookupTokenState ::
     (MonadBlobStore m) =>
     TokenStateKey ->
     StateV1.MutableState ->
     m (Maybe TokenStateValue)
-getTokenState key mutableState = liftIO $ StateV1.lookupMutableState key mutableState
+lookupTokenState key mutableState = liftIO $ StateV1.lookupMutableState key mutableState
 
 -- | Insert entry into the mutable state, overwriting the value if already present.
 -- If the provided value is @Nothing@ the entry gets deleted.
@@ -324,13 +324,13 @@ getTokenState key mutableState = liftIO $ StateV1.lookupMutableState key mutable
 -- * @Just True@ signals an entry was present in the state.
 -- * @Just False@ if no entry was present.
 -- * @Nothing@ signals error due to the entry being locked.
-setTokenState ::
+updateTokenState ::
     (MonadBlobStore m) =>
     TokenStateKey ->
     Maybe TokenStateValue ->
     StateV1.MutableState ->
     m (Maybe Bool)
-setTokenState key maybeValue mutableState =
+updateTokenState key maybeValue mutableState =
     liftIO $ case maybeValue of
         Just value -> StateV1.insertMutableState key value mutableState
         Nothing -> StateV1.deleteEntryMutableState key mutableState

@@ -486,7 +486,7 @@ instance
                       _plteEvents = [],
                       _plteEnergyUsed = 0
                     }
-        mutState <- lift $ BS.thawTokenState s tokenIx
+        mutState <- lift $ BS.getMutableTokenState s tokenIx
         (res, finalExecutionState) <- lift $ do
             config <- BS.getTokenConfiguration s tokenIx
             let context =
@@ -499,7 +499,7 @@ instance
             runKernelT op context initialExecutionState
         when (isRight res) $ do
             let outBlockState = finalExecutionState ^. plteBlockState
-            newBlockState <- lift $ BS.bsoFreezeTokenState outBlockState tokenIx mutState
+            newBlockState <- lift $ BS.bsoSetTokenState outBlockState tokenIx mutState
             ssBlockState .= newBlockState
         return (res, reverse $ finalExecutionState ^. plteEvents)
 
@@ -511,7 +511,7 @@ instance
                       _plteEvents = [],
                       _plteEnergyUsed = 0
                     }
-        mutState <- lift $ BS.thawTokenState s tokenIx
+        mutState <- lift $ BS.getMutableTokenState s tokenIx
         (res, finalExecutionState) <- lift $ do
             config <- BS.getTokenConfiguration s tokenIx
             let context =
@@ -524,7 +524,7 @@ instance
             runKernelT op context initialExecutionState
         when (isRight res) $ do
             let outBlockState = finalExecutionState ^. plteBlockState
-            newBlockState <- lift $ BS.bsoFreezeTokenState outBlockState tokenIx mutState
+            newBlockState <- lift $ BS.bsoSetTokenState outBlockState tokenIx mutState
             ssBlockState .= newBlockState
         return (res, reverse $ finalExecutionState ^. plteEvents, finalExecutionState ^. plteEnergyUsed)
 
@@ -569,7 +569,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
     getTokenState key = do
         bs <- use plteBlockState
         mutableState <- asks _pltecMutableState
-        lift $ BS.getTokenState bs key mutableState
+        lift $ BS.lookupTokenState bs key mutableState
     getAccount addr = do
         bs <- use plteBlockState
         lift $ fmap ((,addr) . fst) <$> BS.bsoGetAccount bs addr
@@ -604,7 +604,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (KernelT fail ret m) where
     setTokenState key mValue = do
         mutableState <- asks _pltecMutableState
-        lift $ BS.bsoSetTokenState key mValue mutableState
+        lift $ BS.bsoUpdateTokenState key mValue mutableState
 
     transfer (accIxFrom, accAddrFrom) (accIxTo, accAddrTo) amount mbMemo = do
         context <- ask

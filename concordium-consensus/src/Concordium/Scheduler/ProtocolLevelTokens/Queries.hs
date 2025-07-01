@@ -67,7 +67,7 @@ instance (BS.BlockStateQuery m, PVSupportsPLT (MPV m)) => PLTKernelQuery (QueryT
     type PLTAccount (QueryT fail ret m) = IndexedAccount m
     getTokenState key = do
         QueryContext{..} <- ask
-        lift $ BS.getTokenState qcBlockState key qcTokenState
+        lift $ BS.lookupTokenState qcBlockState key qcTokenState
     getAccount addr = do
         QueryContext{..} <- ask
         lift $ BS.getAccount qcBlockState addr
@@ -118,7 +118,7 @@ queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFo
             Just tokenIx -> do
                 PLTConfiguration{..} <- BS.getTokenConfiguration bs tokenIx
                 totalSupply <- BS.getTokenCirculatingSupply bs tokenIx
-                tokenState <- BS.thawTokenState bs tokenIx
+                tokenState <- BS.getMutableTokenState bs tokenIx
                 let ctx = QueryContext{qcTokenIndex = tokenIx, qcBlockState = bs, qcTokenState = tokenState}
                 runQueryT queryTokenModuleState ctx >>= \case
                     Left e -> return (Left (QTIEInternal e))
@@ -143,7 +143,7 @@ queryAccountTokens acc bs = do
                     { taValue = tasBalance tokenAccountState,
                       taDecimals = _pltDecimals pltConfiguration
                     }
-        tokenState <- BS.thawTokenState bs tokenIndex
+        tokenState <- BS.getMutableTokenState bs tokenIndex
         let ctx = QueryContext{qcTokenIndex = tokenIndex, qcBlockState = bs, qcTokenState = tokenState}
         accountState <- runQueryTNoFail (queryAccountState acc) ctx
         return

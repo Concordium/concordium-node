@@ -509,20 +509,22 @@ class (MonadProtocolVersion m, Monad m) => PLTQuery bs m where
 
     -- | Convert a persistent state to a mutable one that can be updated by the scheduler.
     --
-    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    thawTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m StateV1.MutableState
+    -- Updates to this state will only persist in the block state using `bsoFreezeTokenState`.
+    --
+    -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getMutableTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m StateV1.MutableState
 
     -- | Read key from the mutable token state.
-    getTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenStateKey -> StateV1.MutableState -> m (Maybe TokenStateValue)
+    lookupTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenStateKey -> StateV1.MutableState -> m (Maybe TokenStateValue)
 
     -- | Get the configuration of a protocol-level token.
     --
-    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     getTokenConfiguration :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m PLTConfiguration
 
     -- | Get the circulating supply of a protocol-level token.
     --
-    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     getTokenCirculatingSupply :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m TokenRawAmount
 
 -- | The block query methods can query block state. They are needed by
@@ -1535,13 +1537,19 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
     -- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
     bsoIncrementPLTUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> m (UpdatableBlockState m)
 
-    -- | Convert a mutable state to a persistent one that can be stored in the block state.
+    -- | Convert a mutable state to a persistent one and store it in the block state.
     --
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    bsoFreezeTokenState :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> TokenIndex -> StateV1.MutableState -> m (UpdatableBlockState m)
+    bsoSetTokenState :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> TokenIndex -> StateV1.MutableState -> m (UpdatableBlockState m)
 
-    -- | Write value to key in the mutable token state.
-    bsoSetTokenState :: (PVSupportsPLT (MPV m)) => TokenStateKey -> Maybe TokenStateValue -> StateV1.MutableState -> m (Maybe Bool)
+    -- | Insert entry into the mutable state, overwriting the value if already present.
+    -- If the provided value is @Nothing@ the entry gets deleted.
+    --
+    -- Returns
+    -- * @Just True@ signals an entry was present in the state.
+    -- * @Just False@ if no entry was present.
+    -- * @Nothing@ signals error due to the entry being locked.
+    bsoUpdateTokenState :: (PVSupportsPLT (MPV m)) => TokenStateKey -> Maybe TokenStateValue -> StateV1.MutableState -> m (Maybe Bool)
 
     -- | Overwrite the election difficulty, removing any queued election difficulty updates.
     --  This is intended to be used for protocol updates that affect the election difficulty in
@@ -1810,8 +1818,8 @@ instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m
 instance (Monad (t m), MonadTrans t, PLTQuery bs m) => PLTQuery bs (MGSTrans t m) where
     getPLTList = lift . getPLTList
     getTokenIndex bs = lift . getTokenIndex bs
-    thawTokenState blockState = lift . thawTokenState blockState
-    getTokenState bs key = lift . getTokenState bs key
+    getMutableTokenState blockState = lift . getMutableTokenState blockState
+    lookupTokenState bs key = lift . lookupTokenState bs key
     getTokenConfiguration bs = lift . getTokenConfiguration bs
     getTokenCirculatingSupply bs = lift . getTokenCirculatingSupply bs
 
@@ -2039,8 +2047,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
     bsoPrimeForSuspension s = lift . bsoPrimeForSuspension s
     bsoSuspendValidators s = lift . bsoSuspendValidators s
-    bsoFreezeTokenState blockState tokenIndex mutableState = lift $ bsoFreezeTokenState blockState tokenIndex mutableState
-    bsoSetTokenState key maybeValue mutableState = lift $ bsoSetTokenState key maybeValue mutableState
+    bsoSetTokenState blockState tokenIndex mutableState = lift $ bsoSetTokenState blockState tokenIndex mutableState
+    bsoUpdateTokenState key maybeValue mutableState = lift $ bsoUpdateTokenState key maybeValue mutableState
     bsoSetTokenCirculatingSupply s tokIx = lift . bsoSetTokenCirculatingSupply s tokIx
     bsoCreateToken s = lift . bsoCreateToken s
     bsoUpdateTokenAccountBalance s tokIx accIx = lift . bsoUpdateTokenAccountBalance s tokIx accIx
@@ -2105,8 +2113,8 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetTokenCirculatingSupply #-}
     {-# INLINE bsoCreateToken #-}
     {-# INLINE bsoUpdateTokenAccountBalance #-}
-    {-# INLINE bsoFreezeTokenState #-}
     {-# INLINE bsoSetTokenState #-}
+    {-# INLINE bsoUpdateTokenState #-}
     {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
