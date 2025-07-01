@@ -1,17 +1,8 @@
 name: Test Mac build 
 
 on:
-  workflow_dispatch:
-    inputs:
-      service:
-        type: choice
-        description: Choose which workflow should be ran
-        options:
-          - node-macos
-
   push:
     branches: SRE-1220/macos-signing
-  workflow_dispatch: # allow manual trigger
 
 env:
   UBUNTU_VERSION: '24.04'
@@ -41,7 +32,7 @@ env:
       \"docker-bootstrapper\": \"concordium/bootstrapper:${VERSION}\"
     }'
   REGISTRY: docker.io
-  SERVICE: "${{ inputs.service }}"
+  SERVICE: "node-macos"
 
 permissions:
   id-token: write
