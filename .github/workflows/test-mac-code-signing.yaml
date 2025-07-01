@@ -125,42 +125,46 @@ jobs:
           security list-keychain -d user -s $KEYCHAIN_PATH
           echo $?
 
-      # OTHER STUFF COMMENTED OUT TO TEST THIS.
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
 
-      # - uses: actions-rust-lang/setup-rust-toolchain@v1
-      #   with:
-      #     toolchain: ${{ env.RUST_VERSION }}
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: ${{ env.GHC_VERSION }}
+          enable-stack: true
+          stack-version: ${{ env.STACK_VERSION }}
 
-      # - uses: haskell-actions/setup@v2
-      #   with:
-      #     ghc-version: ${{ env.GHC_VERSION }}
-      #     enable-stack: true
-      #     stack-version: ${{ env.STACK_VERSION }}
+      - name: Install flatbuffers
+        run: |
+          wget https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/MacIntel.flatc.binary.zip -O MacIntel.flatc.binary.zip
+          unzip MacIntel.flatc.binary.zip -d flatbuffers
+          sudo mv flatbuffers/flatc /usr/local/bin/
 
-      # - name: Install flatbuffers
-      #   run: |
-      #     wget https://github.com/google/flatbuffers/releases/download/v${{ env.FLATBUFFERS_VERSION }}/MacIntel.flatc.binary.zip -O MacIntel.flatc.binary.zip
-      #     unzip MacIntel.flatc.binary.zip -d flatbuffers
-      #     sudo mv flatbuffers/flatc /usr/local/bin/
+      - name: Install protobuf
+        run: |
+          curl -L -o protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v${{ env.PROTOC_VERSION }}/protoc-${{ env.PROTOC_VERSION }}-osx-x86_64.zip
+          unzip protoc.zip
+          sudo mv bin/protoc /usr/local/bin/
+          sudo mv include/* /usr/local/include/
 
-      # - name: Install protobuf
-      #   run: |
-      #     curl -L -o protoc.zip https://github.com/protocolbuffers/protobuf/releases/download/v${{ env.PROTOC_VERSION }}/protoc-${{ env.PROTOC_VERSION }}-osx-x86_64.zip
-      #     unzip protoc.zip
-      #     sudo mv bin/protoc /usr/local/bin/
-      #     sudo mv include/* /usr/local/include/
+      - name: Install Homebrew Packages
+        run: |
+          brew install lmdb llvm
 
-      # - name: Install Homebrew Packages
-      #   run: |
-      #     brew install lmdb llvm
+      - name: Build macOS Package
+        env:
+          # Apple code signing variables:
+          APPLEIDPASS: ${{ secrets.APPLEIDPASS }}
+          APPLEID: ${{ secrets.APPLEID }}        
+        run: |
+          printf "Y\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
+          cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}.pkg ./${{ env.ARTIFACT_NAME }}
+          ls -alh ./${{ env.ARTIFACT_NAME }}
+          echo $?
 
-      # - name: Build macOS Package
-      #   run: |
-      #     printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
-      #     cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}-unsigned.pkg ./${{ env.ARTIFACT_NAME }}
-
-      # - name: Upload artifact
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: ${{ github.job }}
-      #     path: ${{ env.ARTIFACT_NAME }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}
+          path: ${{ env.ARTIFACT_NAME }}
