@@ -42,7 +42,7 @@ on:
     - '**/Cargo.toml'
     - '**/Cargo.lock'
     - '**.rs'
-    - '**.yaml'
+    # - '**.yaml' # temporarily cancel this, we don't want to run the full test build.
     - '**.hs'
     - 'concordium-base'
     - 'concordium-consensus/smart-contracts'
