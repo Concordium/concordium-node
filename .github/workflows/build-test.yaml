@@ -38,11 +38,11 @@ on:
     branches: main
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-    # - '.github/workflows/build-test.yaml'  # temporarily cancel this, we don't want to run the full test build.
+    - '.github/workflows/build-test.yaml'
     - '**/Cargo.toml'
     - '**/Cargo.lock'
     - '**.rs'
-    # - '**.yaml' # temporarily cancel this, we don't want to run the full test build.
+    - '**.yaml'
     - '**.hs'
     - 'concordium-base'
     - 'concordium-consensus/smart-contracts'
