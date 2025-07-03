@@ -500,6 +500,27 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 2)
                     :>>: Done ()
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
+    it "transfer: paused operation" $ do
+        let transaction =
+                TokenUpdateTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 3)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Just "")
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted =
+                                    Just $
+                                        CborHolderAccount
+                                            { chaAccount = dummyAccountAddress 0,
+                                              chaCoinInfo = Just CoinInfoConcordium
+                                            },
+                                  trrReason = Just "token operation transfer is paused"
+                                }
+                         )
+        assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "transfer OK" $ do
         let transaction =
                 TokenUpdateTransaction . Seq.fromList $
@@ -802,7 +823,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
             traceLoop n
                 | n > 5000 = Done ()
                 | otherwise =
-                        (PLTQ (GetTokenState "paused") :-> Nothing)
+                    (PLTQ (GetTokenState "paused") :-> Nothing)
                         :>>: (PLTQ (GetAccount (dummyAccountAddress (fromIntegral n))) :-> Just n)
                         :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                         :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
@@ -864,7 +885,7 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                                 }
                          )
         assertTrace (executeTokenUpdateTransaction (sender 1) (encodeTransaction transaction)) trace
-    it "paused operation" $ do
+    it "mint: paused operation" $ do
         let transaction =
                 TokenUpdateTransaction . Seq.fromList $
                     [TokenMint (TokenAmount 10_000_000 6)]
@@ -958,6 +979,29 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                     :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 10_000_000) :-> True)
                     :>>: Done ()
+        assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
+    it "burn: paused operation" $ do
+        let transaction =
+                TokenUpdateTransaction . Seq.fromList $
+                    [TokenBurn (TokenAmount 10_000_000 6)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Just "")
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted =
+                                    Just $
+                                        CborHolderAccount
+                                            { chaAccount = dummyAccountAddress 0,
+                                              chaCoinInfo = Just CoinInfoConcordium
+                                            },
+                                  trrReason = Just "token operation burn is paused"
+                                }
+                         )
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "burn: not burnable" $ do
         let transaction =
