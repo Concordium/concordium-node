@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Protocol-level tokens:
+  - Adjusted energy cost of mint/burn from 100 to 50
+
 ## 9.0.5 (DevNet)
 
 - Protocol-level tokens:
