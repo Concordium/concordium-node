@@ -4,7 +4,7 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Timing of various types of transaction
--- The purpose of the benchmark is primarilty to determine the relative energy costs
+-- The purpose of the benchmark is primarily to determine the relative energy costs
 -- of the transactions
 module Main where
 
@@ -26,10 +26,11 @@ import Concordium.Types.Tokens
 import Control.DeepSeq
 import Criterion
 import Criterion.Main
+import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
 import Data.Foldable
 import qualified Data.Sequence as Seq
-import qualified SchedulerTests.Helpers as Helpers
+import qualified SchedulerBench.Helpers as Helpers
 
 initialBlockState ::
     Helpers.PersistentBSM 'Types.P9 (BS.HashedPersistentBlockState 'Types.P9)
@@ -39,8 +40,8 @@ initialBlockState =
           Helpers.makeTestAccountFromSeed 1_000_000 1
         ]
 
-assertSuccessResult :: Int -> Helpers.SchedulerResult -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv ()
-assertSuccessResult txnCount result _state = do
+assertApplied :: Bool -> Int -> Helpers.SchedulerResult -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv ()
+assertApplied assertSuccess txnCount result _state = do
     let results = Helpers.getResults $ ftAdded (Helpers.srTransactions result)
     if length results /= txnCount
         then error ("expected " ++ show txnCount ++ " results, was " ++ show (length results))
@@ -48,8 +49,8 @@ assertSuccessResult txnCount result _state = do
             seq
                 ( foldl'
                     ( \_ item -> case snd item of
-                        Exec.TxSuccess _ -> ()
-                        Exec.TxReject _ -> error ("failed transaction " ++ show item)
+                        Exec.TxReject _ | assertSuccess -> error ("failed transaction " ++ show item)
+                        _ -> ()
                     )
                     ()
                     results
@@ -83,6 +84,7 @@ tokenInitializationParameters accountAddress =
           tipBurnable = True
         }
 
+-- | Block item that create a PLT token
 createPltBlockItem :: TokenId -> CBOR.TokenInitializationParameters -> Runner.BlockItemDescription
 createPltBlockItem tokenId initializationParameters =
     Runner.ChainUpdateTx
@@ -104,6 +106,7 @@ createPltBlockItem tokenId initializationParameters =
             }
     dummyHash = Hash.hashShort BSS.empty
 
+-- | CCD transfer transaction
 transferTxn :: SigScheme.KeyPair -> Nonce -> AccountAddress -> AccountAddress -> Amount -> Runner.TransactionJSON
 transferTxn keyPair nonce from to amount =
     Runner.TJSON
@@ -112,10 +115,28 @@ transferTxn keyPair nonce from to amount =
           keys = [(0, [(0, keyPair)])]
         }
 
+-- | PLT transaction consisting of given operations
 pltTxn :: SigScheme.KeyPair -> Nonce -> TokenId -> AccountAddress -> [CBOR.TokenOperation] -> Runner.TransactionJSON
 pltTxn keyPair nonce tokenId from operations =
+    pltTxnFromParam
+        keyPair
+        nonce
+        (Helpers.simpleTransferCost * 5 * fromIntegral (1 + length operations))
+        tokenId
+        from
+        ( toTokenParam
+            TokenUpdateTransaction
+                { tokenOperations =
+                    Seq.fromList operations
+                }
+        )
+  where
+    toTokenParam = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
+
+pltTxnFromParam :: SigScheme.KeyPair -> Nonce -> Energy -> TokenId -> AccountAddress -> Types.TokenParameter -> Runner.TransactionJSON
+pltTxnFromParam keyPair nonce cost tokenId from param =
     Runner.TJSON
-        { metadata = makeDummyHeader from nonce (Helpers.simpleTransferCost * 5 * fromIntegral (1 + length operations)),
+        { metadata = makeDummyHeader from nonce cost,
           keys = [(0, [(0, keyPair)])],
           ..
         }
@@ -123,15 +144,10 @@ pltTxn keyPair nonce tokenId from operations =
     payload =
         Runner.TokenUpdate
             { tuTokenId = tokenId,
-              tuOperations =
-                toTokenParam
-                    TokenUpdateTransaction
-                        { tokenOperations =
-                            Seq.fromList operations
-                        }
+              tuOperations = param
             }
-    toTokenParam = Types.TokenParameter . BSS.toShort . CBOR.tokenUpdateTransactionToBytes
 
+-- | PLT transfer operation
 transferPltOp :: AccountAddress -> TokenRawAmount -> CBOR.TokenOperation
 transferPltOp to value =
     CBOR.TokenTransfer
@@ -141,36 +157,42 @@ transferPltOp to value =
               ttMemo = Nothing
             }
 
+-- | PLT mint operation
 mintPltOp :: TokenRawAmount -> CBOR.TokenOperation
 mintPltOp value =
     CBOR.TokenMint
         { tgoMintAmount = TokenAmount{taValue = value, taDecimals = 6}
         }
 
+-- | PLT burn operation
 burnPltOp :: TokenRawAmount -> CBOR.TokenOperation
 burnPltOp value =
     CBOR.TokenBurn
         { tgoBurnAmount = TokenAmount{taValue = value, taDecimals = 6}
         }
 
+-- | PLT add allow list operation
 addAllowListPltOp :: AccountAddress -> CBOR.TokenOperation
 addAllowListPltOp target =
     CBOR.TokenAddAllowList
         { tgoTarget = CBOR.accountTokenHolder target
         }
 
+-- | PLT remove allow list operation
 removeAllowListPltOp :: AccountAddress -> CBOR.TokenOperation
 removeAllowListPltOp target =
     CBOR.TokenRemoveAllowList
         { tgoTarget = CBOR.accountTokenHolder target
         }
 
+-- | PLT add deny list operation
 addDenyListPltOp :: AccountAddress -> CBOR.TokenOperation
 addDenyListPltOp target =
     CBOR.TokenAddDenyList
         { tgoTarget = CBOR.accountTokenHolder target
         }
 
+-- | PLT remove deny list operation
 removeDenyListPltOp :: AccountAddress -> CBOR.TokenOperation
 removeDenyListPltOp target =
     CBOR.TokenRemoveDenyList
@@ -188,14 +210,20 @@ instance NFData (Helpers.PersistentBSM pv (BS.HashedPersistentBlockState pv)) wh
 
 -- | Number of transactions or operations in each run. Is used to reduce size of the overhead (setup scheduler etc.) of running the
 -- operations or transactions compared to actually running them
-transactionCount :: Int
-transactionCount = 1000
+operationScaleFactor :: Int
+operationScaleFactor = 1000
 
-benchTransactions :: String -> [Runner.TransactionJSON] -> Benchmark
-benchTransactions label transactions = benchBlockItems label (Runner.AccountTx <$> transactions)
+-- | Run benchmark on given transactions
+benchTransactionsAssertSuccess :: String -> [Runner.TransactionJSON] -> Benchmark
+benchTransactionsAssertSuccess label transactions = benchBlockItemsAssertSuccess label (Runner.AccountTx <$> transactions)
 
-benchBlockItems :: String -> [Runner.BlockItemDescription] -> Benchmark
-benchBlockItems label blockItems =
+-- | Run benchmark on given block items
+benchBlockItemsAssertSuccess :: String -> [Runner.BlockItemDescription] -> Benchmark
+benchBlockItemsAssertSuccess label = benchBlockItems label True
+
+-- | Run benchmark on given block items
+benchBlockItems :: String -> Bool -> [Runner.BlockItemDescription] -> Benchmark
+benchBlockItems label assertSuccess blockItems =
     env (pure initialBlockState) $ \ibs ->
         bench label $
             whnfAppIO
@@ -204,13 +232,14 @@ benchBlockItems label blockItems =
                     Helpers.runSchedulerTest
                         Helpers.defaultTestConfig
                         ibs
-                        (assertSuccessResult $ length blockItems)
+                        (assertApplied assertSuccess $ length blockItems)
                         groupedTxns
                 )
                 blockItems
 
+-- | Benchmark `operationScaleFactor` number of CCD transfer transactions
 benchTransfer :: Benchmark
-benchTransfer = benchTransactions "transfer (CCD)" $ transactions transactionCount
+benchTransfer = benchTransactionsAssertSuccess "transfer (CCD)" $ transactions operationScaleFactor
   where
     transactions :: Int -> [Runner.TransactionJSON]
     transactions txnCount =
@@ -220,72 +249,78 @@ benchTransfer = benchTransactions "transfer (CCD)" $ transactions transactionCou
             )
             [1 .. txnCount]
 
+-- | Benchmark `operationScaleFactor` number of PLT transfer operations in a single transaction
 benchPltTransfer :: Benchmark
 benchPltTransfer =
-    benchBlockItems
+    benchBlockItemsAssertSuccess
         "PLT transfer"
         [ createPltBlockItem plt1 $ tokenInitializationParameters accountAddress0,
           Runner.AccountTx transaction
         ]
   where
-    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations transactionCount)
+    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations operationScaleFactor)
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = replicate txnCount $ transferPltOp accountAddress1 1_000
 
+-- | Benchmark `operationScaleFactor` number of PLT mint operations in a single transaction
 benchPltMint :: Benchmark
 benchPltMint =
-    benchBlockItems
+    benchBlockItemsAssertSuccess
         "PLT mint"
         [ createPltBlockItem plt1 $ tokenInitializationParameters accountAddress0,
           Runner.AccountTx transaction
         ]
   where
-    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations transactionCount)
+    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations operationScaleFactor)
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = replicate txnCount $ mintPltOp 1_000
 
+-- | Benchmark `operationScaleFactor` number of PLT burn operations in a single transaction
 benchPltBurn :: Benchmark
 benchPltBurn =
-    benchBlockItems
+    benchBlockItemsAssertSuccess
         "PLT burn"
         [ createPltBlockItem plt1 $ tokenInitializationParameters accountAddress0,
           Runner.AccountTx transaction
         ]
   where
-    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations transactionCount)
+    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations operationScaleFactor)
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = replicate txnCount $ burnPltOp 1_000
 
+-- | Benchmark `operationScaleFactor` total number of PLT add and remove from allow list operations in a single transaction
 benchPltAddRemoveAllowList :: Benchmark
 benchPltAddRemoveAllowList =
-    benchBlockItems
+    benchBlockItemsAssertSuccess
         "PLT add/remove allow list"
         [ createPltBlockItem plt1 (tokenInitializationParameters accountAddress0){CBOR.tipAllowList = True},
           Runner.AccountTx transaction
         ]
   where
-    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations transactionCount)
+    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations operationScaleFactor)
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = take txnCount $ cycle [addAllowListPltOp accountAddress1, removeAllowListPltOp accountAddress1]
 
+-- | Benchmark `operationScaleFactor` total number of PLT add and remove from deny list operations in a single transaction
 benchPltAddRemoveDenyList :: Benchmark
 benchPltAddRemoveDenyList =
-    benchBlockItems
+    benchBlockItemsAssertSuccess
         "PLT add/remove deny list"
         [ createPltBlockItem plt1 $ (tokenInitializationParameters accountAddress0){CBOR.tipDenyList = True},
           Runner.AccountTx transaction
         ]
   where
-    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations transactionCount)
+    transaction = pltTxn keyPair0 1 plt1 accountAddress0 (operations operationScaleFactor)
     operations :: Int -> [CBOR.TokenOperation]
     operations txnCount = take txnCount $ cycle [addDenyListPltOp accountAddress1, removeDenyListPltOp accountAddress1]
 
+-- | Benchmark `operationScaleFactor` number of PLT transactions with no operations
 benchPltNoOperations :: Benchmark
 benchPltNoOperations =
-    benchBlockItems
+    benchBlockItemsAssertSuccess
         "PLT no operations"
         ( createPltBlockItem plt1 (tokenInitializationParameters accountAddress0)
-            : (Runner.AccountTx <$> transactions transactionCount)
+            : (Runner.AccountTx <$> transactions operationScaleFactor)
         )
   where
     transactions :: Int -> [Runner.TransactionJSON]
@@ -296,8 +331,56 @@ benchPltNoOperations =
             )
             [1 .. txnCount]
 
+-- | Benchmark `operationScaleFactor` number of PLT transaction each with a single PLT transfer operation. Benchmark should be equal
+-- to sum of PLT transaction with no operations plus PLT transfer operation
+benchPltTxnAndTransfer :: Benchmark
+benchPltTxnAndTransfer =
+    benchBlockItemsAssertSuccess
+        "PLT txn + PLT transfer"
+        ( createPltBlockItem plt1 (tokenInitializationParameters accountAddress0)
+            : (Runner.AccountTx <$> transactions operationScaleFactor)
+        )
+  where
+    transactions :: Int -> [Runner.TransactionJSON]
+    transactions txnCount =
+        map
+            ( \nonce ->
+                pltTxn keyPair0 (fromIntegral nonce) plt1 accountAddress0 [operation]
+            )
+            [1 .. txnCount]
+    operation :: CBOR.TokenOperation
+    operation = transferPltOp accountAddress1 1_000
+
+-- | Benchmark `operationScaleFactor` number of PLT transactions with invalid CBOR
+benchPltTxnCborDecodeError :: Benchmark
+benchPltTxnCborDecodeError =
+    benchBlockItems
+        "PLT cbor decode error"
+        False
+        ( createPltBlockItem plt1 (tokenInitializationParameters accountAddress0)
+            : (Runner.AccountTx <$> transactions operationScaleFactor)
+        )
+  where
+    transactions :: Int -> [Runner.TransactionJSON]
+    transactions txnCount =
+        map
+            ( \nonce ->
+                pltTxnFromParam keyPair0 (fromIntegral nonce) (Helpers.simpleTransferCost * 5) plt1 accountAddress0 invalidParam
+            )
+            [1 .. txnCount]
+    invalidParam = Types.TokenParameter $ BSS.toShort $ BS.snoc param 0
+    param =
+        CBOR.tokenUpdateTransactionToBytes $
+            TokenUpdateTransaction
+                { tokenOperations =
+                    Seq.fromList [operation]
+                }
+    operation :: CBOR.TokenOperation
+    operation = transferPltOp accountAddress1 1_000
+
+-- | Benchmark running no transactions (test framework overhead)
 benchNoTxns :: Benchmark
-benchNoTxns = benchBlockItems "no txns (overhead)" []
+benchNoTxns = benchBlockItemsAssertSuccess "no txns (overhead)" []
 
 main :: IO ()
 main =
@@ -309,5 +392,7 @@ main =
           benchPltBurn,
           benchPltNoOperations,
           benchPltAddRemoveAllowList,
-          benchPltAddRemoveDenyList
+          benchPltAddRemoveDenyList,
+          benchPltTxnAndTransfer,
+          benchPltTxnCborDecodeError
         ]
