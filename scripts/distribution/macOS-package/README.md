@@ -158,16 +158,16 @@ The build script goes through the following major steps:
      - Optionally signing the code inside it first.
   6. Optionally notarizing the installer.
 
-## How to become a baker
+## How to become a validator
 
-1. Add a path to the baker credentials in the appropriate service file (mainnet
+1. Add a path to the validator credentials in the appropriate service file (mainnet
    or testnet)
    - For example in
      `/Library/Concordium
      Node/LaunchDaemons/software.concordium.mainnet.node.plist` in the
      EnviromentVariables section:
      ```
-     <!-- Path to the baker credentials file. -->
+     <!-- Path to the validator credentials file. -->
      <key>CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE</key>
      <string>/Library/Application Support/Concordium Node/Mainnet/Config/validator-credentials.json</string>
      ```
