@@ -26,9 +26,28 @@
 
 ## Building the node
 
-The [build.rs](./build.rs) script links with a number of Haskell libraries and
-supports a number of configuration options that can be configured in two
-different ways, either via environment variables or Cargo features.
+First build Haskell code (concordium-base and concordium-consensus) using
+
+```console
+stack build
+```
+
+from the repository base folder. Then from the concordium-node subfolder, build the Rust code (here in release mode) using 
+
+```console
+cargo build --release
+```
+
+The [build.rs](./build.rs) script links with the Haskell libraries but will not build them,
+hence the Haskell build must be done manually first. 
+
+To build and run the node, use
+
+```console
+cargo run --release -- --config-dir <CONCORDIUM_NODE_CONFIG_DIR> --data-dir <CONCORDIUM_NODE_DATA_DIR>
+```
+  
+Documentation about what <CONCORDIUM_NODE_CONFIG_DIR> and <CONCORDIUM_NODE_DATA_DIR> is seen at https://github.com/Concordium/concordium-node/blob/main/VARIABLES.md#common
 
 ### Features
 
@@ -85,33 +104,6 @@ Environment variables only apply to the default build. This links with shared Ha
    If not given the script will try to discover the value by running `stack ghc -- --print-libdir`.
 
 ### CAVEATS
-
-- Note that [build.rs](./build.rs) **will not** automatically build the Haskell
-  dependencies, it will only try to discover them. Building should be done before
-  by running `stack build` inside
-  [../concordium-consensus/](../concordium-consensus/) or running
-
-  ```console
-  stack --stack-yaml ../concordium-consensus/stack.yaml build
-  ```
-
-  Once the node is built it can be run as
-
-  ```console
-  cargo run -- --config-dir <CONCORDIUM_NODE_CONFIG_DIR> --data-dir <CONCORDIUM_NODE_DATA_DIR>
-  ```
-
-  or
-
-  ```console
-  cargo run --release -- --config-dir <CONCORDIUM_NODE_CONFIG_DIR> --data-dir <CONCORDIUM_NODE_DATA_DIR>
-  ```
-
-  to be run in release mode for improved performance. Note that the
-  [concordium-consensus](../concordium-consensus/) dependency is the same regardless of how the
-  node itself is built, the `--release` only applies to the optimization of the rust node components.
-  
-Documentation about what <CONCORDIUM_NODE_CONFIG_DIR> and <CONCORDIUM_NODE_DATA_DIR> is seen at https://github.com/Concordium/concordium-node/blob/main/VARIABLES.md#common
 
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
