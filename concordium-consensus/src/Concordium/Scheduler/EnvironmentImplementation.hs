@@ -78,7 +78,9 @@ data PLTExecutionState m = PLTExecutionState
       -- | The events that have been emitted during the execution in reverse order.
       _plteEvents :: ![Event],
       -- | The energy used for the execution of the PLT module.
-      _plteEnergyUsed :: !Energy
+      _plteEnergyUsed :: !Energy,
+      -- | Tracking the token mutable state has been updated during the execution.
+      _plteStateIsDirty :: !Bool
     }
 makeLenses ''PLTExecutionState
 
@@ -484,7 +486,8 @@ instance
                 PLTExecutionState
                     { _plteBlockState = s,
                       _plteEvents = [],
-                      _plteEnergyUsed = 0
+                      _plteEnergyUsed = 0,
+                      _plteStateIsDirty = False
                     }
         mutState <- lift $ BS.getMutableTokenState s tokenIx
         (res, finalExecutionState) <- lift $ do
@@ -497,7 +500,7 @@ instance
                           _pltecMutableState = mutState
                         }
             runKernelT op context initialExecutionState
-        when (isRight res) $ do
+        when (isRight res && finalExecutionState ^. plteStateIsDirty) $ do
             let outBlockState = finalExecutionState ^. plteBlockState
             newBlockState <- lift $ BS.bsoSetTokenState outBlockState tokenIx mutState
             ssBlockState .= newBlockState
@@ -509,7 +512,8 @@ instance
                 PLTExecutionState
                     { _plteBlockState = s,
                       _plteEvents = [],
-                      _plteEnergyUsed = 0
+                      _plteEnergyUsed = 0,
+                      _plteStateIsDirty = False
                     }
         mutState <- lift $ BS.getMutableTokenState s tokenIx
         (res, finalExecutionState) <- lift $ do
@@ -522,7 +526,7 @@ instance
                           _pltecMutableState = mutState
                         }
             runKernelT op context initialExecutionState
-        when (isRight res) $ do
+        when (isRight res && finalExecutionState ^. plteStateIsDirty) $ do
             let outBlockState = finalExecutionState ^. plteBlockState
             newBlockState <- lift $ BS.bsoSetTokenState outBlockState tokenIx mutState
             ssBlockState .= newBlockState
@@ -603,6 +607,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (K
 
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (KernelT fail ret m) where
     setTokenState key mValue = do
+        plteStateIsDirty .= True
         mutableState <- asks _pltecMutableState
         lift $ BS.bsoUpdateTokenState key mValue mutableState
 

@@ -1539,11 +1539,15 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) m) => BlockStateOpera
 
     -- | Convert a mutable state to a persistent one and store it in the block state.
     --
-    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    -- To ensure this is future-proof, the mutable state should not be used after this call.
+    --
+    -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     bsoSetTokenState :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> TokenIndex -> StateV1.MutableState -> m (UpdatableBlockState m)
 
     -- | Insert entry into the mutable state, overwriting the value if already present.
     -- If the provided value is @Nothing@ the entry gets deleted.
+    --
+    -- Changes to the mutable state will only be propagated to the block state by calling @bsoSetTokenState@.
     --
     -- Returns
     -- * @Just True@ signals an entry was present in the state.
