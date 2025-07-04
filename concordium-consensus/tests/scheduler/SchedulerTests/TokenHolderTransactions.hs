@@ -12,7 +12,6 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types as ID
 import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
