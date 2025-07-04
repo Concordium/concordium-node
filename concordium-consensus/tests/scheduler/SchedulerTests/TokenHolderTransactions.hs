@@ -135,7 +135,6 @@ testTokenHolder _ pvString =
             initialBlockState
             transactionsAndAssertions
   where
-    dummyHash = Hash.hashShort BSS.empty
     gtu = Types.TokenId $ fromString "GTU"
     params =
         CBOR.TokenInitializationParameters
