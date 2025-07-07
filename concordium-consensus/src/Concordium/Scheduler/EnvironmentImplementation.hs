@@ -24,7 +24,6 @@ import Concordium.Types.Tokens
 import Concordium.GlobalState.Account
 import qualified Concordium.GlobalState.BakerInfo as BI
 import qualified Concordium.GlobalState.BlockState as BS
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..), TokenIndex)
 import Concordium.GlobalState.TreeState
@@ -85,7 +84,7 @@ data PLTExecutionState m = PLTExecutionState
 makeLenses ''PLTExecutionState
 
 -- | Execution context for PLT computations.
-data PLTExecutionContext = PLTExecutionContext
+data PLTExecutionContext m = PLTExecutionContext
     { -- | The token index.
       _pltecTokenIndex :: !TokenIndex,
       -- | The PLT configuration.
@@ -93,7 +92,7 @@ data PLTExecutionContext = PLTExecutionContext
       -- | The available energy.
       _pltecEnergy :: !(Maybe Energy),
       -- | The mutable token state.
-      _pltecMutableState :: !StateV1.MutableState
+      _pltecMutableState :: !(MutableTokenState m)
     }
 
 -- | Alias for the internal type used in @SchedulerT@.
@@ -550,16 +549,16 @@ runSchedulerT computation contextState initialState = do
     (value, resultingState, ()) <- runRWST (_runSchedulerT computation) contextState initialState
     return (value, resultingState)
 
-newtype KernelT fail ret m a = KernelT {runKernelT' :: ReaderT PLTExecutionContext (ContT (Either fail ret) (StateT (PLTExecutionState m) m)) a}
+newtype KernelT fail ret m a = KernelT {runKernelT' :: ReaderT (PLTExecutionContext m) (ContT (Either fail ret) (StateT (PLTExecutionState m) m)) a}
     deriving
         ( Functor,
           Applicative,
           Monad,
           MonadState (PLTExecutionState m),
-          MonadReader PLTExecutionContext
+          MonadReader (PLTExecutionContext m)
         )
 
-runKernelT :: (Monad m) => KernelT fail a m a -> PLTExecutionContext -> PLTExecutionState m -> m (Either fail a, PLTExecutionState m)
+runKernelT :: (Monad m) => KernelT fail a m a -> PLTExecutionContext m -> PLTExecutionState m -> m (Either fail a, PLTExecutionState m)
 runKernelT a tokenIx = runStateT (runContT (runReaderT (runKernelT' a) tokenIx) (return . Right))
 
 instance MonadTrans (KernelT fail ret) where
@@ -571,9 +570,8 @@ deriving via (MGSTrans (KernelT fail ret) m) instance BlockStateTypes (KernelT f
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelQuery (KernelT fail ret m) where
     type PLTAccount (KernelT fail ret m) = (AccountIndex, AccountAddress)
     getTokenState key = do
-        bs <- use plteBlockState
         mutableState <- asks _pltecMutableState
-        lift $ BS.lookupTokenState bs key mutableState
+        lift $ BS.lookupTokenState key mutableState
     getAccount addr = do
         bs <- use plteBlockState
         lift $ fmap ((,addr) . fst) <$> BS.bsoGetAccount bs addr
@@ -609,7 +607,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
     setTokenState key mValue = do
         plteStateIsDirty .= True
         mutableState <- asks _pltecMutableState
-        lift $ BS.bsoUpdateTokenState key mValue mutableState
+        lift $ BS.updateTokenState key mValue mutableState
 
     transfer (accIxFrom, accAddrFrom) (accIxTo, accAddrTo) amount mbMemo = do
         context <- ask

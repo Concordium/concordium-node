@@ -16,7 +16,6 @@ import Concordium.Types
 import Concordium.Types.Queries.Tokens
 
 import qualified Concordium.GlobalState.BlockState as BS
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens (TokenAccountState (tasBalance))
 import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..), TokenIndex)
 import Concordium.GlobalState.Types
@@ -31,7 +30,7 @@ data QueryContext m = QueryContext
       -- | The block state.
       qcBlockState :: !(BlockState m),
       -- | Reference to the token state.
-      qcTokenState :: !StateV1.MutableState
+      qcTokenState :: !(MutableTokenState m)
     }
 
 -- | @QueryT fail ret@ is a monad transformer that supports 'PLTKernelQuery' and 'PLTKernelFail'
@@ -67,7 +66,7 @@ instance (BS.BlockStateQuery m, PVSupportsPLT (MPV m)) => PLTKernelQuery (QueryT
     type PLTAccount (QueryT fail ret m) = IndexedAccount m
     getTokenState key = do
         QueryContext{..} <- ask
-        lift $ BS.lookupTokenState qcBlockState key qcTokenState
+        lift $ BS.lookupTokenState key qcTokenState
     getAccount addr = do
         QueryContext{..} <- ask
         lift $ BS.getAccount qcBlockState addr
@@ -137,7 +136,7 @@ queryAccountTokens :: forall m. (PVSupportsPLT (MPV m), BS.BlockStateQuery m) =>
 queryAccountTokens acc bs = do
     tokenStatesMap <- BS.getAccountTokens (snd acc)
     forM (Map.toList tokenStatesMap) $ \(tokenIndex, tokenAccountState) -> do
-        pltConfiguration <- BS.getTokenConfiguration @_ @m bs tokenIndex
+        pltConfiguration <- BS.getTokenConfiguration @_ @_ @m bs tokenIndex
         let accountBalance =
                 TokenAmount
                     { taValue = tasBalance tokenAccountState,

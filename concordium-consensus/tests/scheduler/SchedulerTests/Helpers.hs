@@ -43,6 +43,7 @@ import qualified Concordium.Cost as Cost
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import qualified Concordium.GlobalState.AccountMap.ModuleMap as ModuleMap
 import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
@@ -101,8 +102,9 @@ newtype PersistentBSM pv a = PersistentBSM
         )
 
 deriving instance (Types.IsProtocolVersion pv) => BS.AccountOperations (PersistentBSM pv)
-deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.PersistentBlockState pv) (PersistentBSM pv)
-deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.HashedPersistentBlockState pv) (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.TokenStateOperations StateV1.MutableState (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.PersistentBlockState pv) StateV1.MutableState (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.HashedPersistentBlockState pv) StateV1.MutableState (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateOperations (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateQuery (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => Types.MonadProtocolVersion (PersistentBSM pv)

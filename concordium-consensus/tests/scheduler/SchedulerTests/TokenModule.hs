@@ -1467,9 +1467,9 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
                       _pltDecimals = 3
                     }
         mutTokenState <- BlockState.getMutableTokenState bs1 0
-        _ <- bsoUpdateTokenState "mintable" (Just "") mutTokenState
-        _ <- bsoUpdateTokenState "burnable" (Just "") mutTokenState
-        _ <- bsoUpdateTokenState "governanceAccount" (Just (encode (AccountIndex 0))) mutTokenState
+        _ <- BlockState.updateTokenState "mintable" (Just "") mutTokenState
+        _ <- BlockState.updateTokenState "burnable" (Just "") mutTokenState
+        _ <- BlockState.updateTokenState "governanceAccount" (Just (encode (AccountIndex 0))) mutTokenState
         bs2 <- bsoSetTokenState bs1 0 mutTokenState
         hashBlockState bs2
 

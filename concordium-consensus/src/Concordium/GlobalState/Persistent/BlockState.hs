@@ -4508,13 +4508,18 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoRef (AccountVersionFor pv)
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
     type InstrumentedModuleRef (PersistentBlockStateMonad pv r m) = Modules.PersistentInstrumentedModuleV
+    type MutableTokenState (PersistentBlockStateMonad pv r m) = StateV1.MutableState
 
 instance (PersistentState av pv r m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
     getModuleArtifact = doGetModuleArtifact
 
+instance (PersistentState av pv r m) => TokenStateOperations StateV1.MutableState (PersistentBlockStateMonad pv r m) where
+    lookupTokenState = PLT.lookupTokenState
+    updateTokenState = PLT.updateTokenState
+
 instance
     (IsProtocolVersion pv, PersistentState av pv r m) =>
-    PLTQuery (PersistentBlockState pv) (PersistentBlockStateMonad pv r m)
+    PLTQuery (PersistentBlockState pv) StateV1.MutableState (PersistentBlockStateMonad pv r m)
     where
     getPLTList =
         PLT.getPLTList . bspProtocolLevelTokens <=< loadPBS
@@ -4522,7 +4527,6 @@ instance
         PLT.getTokenIndex tokIx . bspProtocolLevelTokens =<< loadPBS bs
     getMutableTokenState bs tokenIndex =
         PLT.getMutableTokenState tokenIndex . bspProtocolLevelTokens =<< loadPBS bs
-    lookupTokenState _bs = PLT.lookupTokenState
     getTokenConfiguration bs tokIx =
         PLT.getTokenConfiguration tokIx . bspProtocolLevelTokens =<< loadPBS bs
     getTokenCirculatingSupply bs tokIx =
@@ -4530,12 +4534,11 @@ instance
 
 instance
     (IsProtocolVersion pv, PersistentState av pv r m) =>
-    PLTQuery (HashedPersistentBlockState pv) (PersistentBlockStateMonad pv r m)
+    PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (PersistentBlockStateMonad pv r m)
     where
     getPLTList = getPLTList . hpbsPointers
     getTokenIndex = getTokenIndex . hpbsPointers
     getMutableTokenState = getMutableTokenState . hpbsPointers
-    lookupTokenState = lookupTokenState . hpbsPointers
     getTokenConfiguration = getTokenConfiguration . hpbsPointers
     getTokenCirculatingSupply = getTokenCirculatingSupply . hpbsPointers
 
@@ -4735,7 +4738,6 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoSetTokenCirculatingSupply = doSetTokenCirculatingSupply
     bsoCreateToken = doCreateToken
     bsoSetTokenState = doSetTokenState
-    bsoUpdateTokenState = PLT.updateTokenState
     bsoUpdateTokenAccountBalance = doUpdateTokenAccountBalance
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
