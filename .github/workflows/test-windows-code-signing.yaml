@@ -78,7 +78,8 @@ jobs:
           echo "docker_tags=${{ env.DOCKER_TAGS_TEMPLATES }}" >> $GITHUB_OUTPUT
 
   node-windows:
-    runs-on: windows-latest
+    runs-on: windows-latest  
+    environment: release # This step needs to use the release context to access credentials for code signing.
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
     defaults:
@@ -125,7 +126,7 @@ jobs:
           SM_CLIENT_CERT_FILE: ${{ steps.windows_certificate.outputs.CERTIFICATE_PATH }}
           SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
         run: |
-          smctl healthcheck --tools --verbose
+          smctl healthcheck --all
 #           smctl sign --verbose --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ${{ env.FILE_TO_SIGN }} --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} --verbose --exit-non-zero-on-fail --failfast
         shell: cmd
 
