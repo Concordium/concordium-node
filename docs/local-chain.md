@@ -15,22 +15,26 @@ To run a custom chain locally three things are needed
 
 ## Prerequisites:
 
-The node has two main parts. The consensus part is written in [Haskell](https://github.com/Concordium/concordium-node/tree/main/concordium-consensus) and the remaining part is written in [Rust](https://github.com/Concordium/concordium-node/tree/main/concordium-node). 
+The node has two main parts. The consensus part is written in [Haskell](https://github.com/Concordium/concordium-node/tree/main/concordium-consensus) 
+while the network and execution layer is written in [Rust](https://github.com/Concordium/concordium-node/tree/main/concordium-node). 
 
 Ensure you have all dependencies installed for these two languages:
 - [Haskell dependencies](https://github.com/Concordium/concordium-node/tree/main/concordium-consensus#build-requirements)
-- [Rust dependencies](https://github.com/Concordium/concordium-node/tree/main/concordium-node#dependencies-to-build-the-project): Install the recommended [rustup](https://www.rust-lang.org/tools/install) tool to get and manage Rust on your local machine.
+- [Rust dependencies](https://github.com/Concordium/concordium-node/tree/main/concordium-node#dependencies-to-build-the-project): 
+Install the recommended [rustup](https://www.rust-lang.org/tools/install) tool to get and manage Rust on your local machine.
 
 ## Step 1 (Genesis data):
 
 Here we describe how to get or create the genesis block (first block). This block contains the genesis data which configures the chain at start-up.
-This will include some initial baker/validator credentials to configure certain nodes as bakers (validators).
+This will include initial baker/validator credentials to configure certain nodes as bakers (validators).
 The credentials are typically called `baker-?-credentials.json` (where `?` is the
 baker/validator id).
 
 ### Option 1 (Generate the genesis data):
 
-If you generate new genesis data, you start a new blockchain network. Your node will not be able to join `devnet`, `stagenet`, `testnet` or `mainnet`.
+If you generate new genesis data, you start a new blockchain network. 
+Your node will only be able to join this newly generated blockchain network. 
+Meaning the node will not be able to join `devnet`, `stagenet`, `testnet`, or `mainnet`.
 
 We have a
 [genesis-creator](https://github.com/Concordium/concordium-misc-tools/tree/main/genesis-creator)
@@ -41,7 +45,11 @@ in a custom protocol-dependent format.
 
 Please see the README in the above repository for how to build and use the ``genesis-creator`` tool for custom set-ups.
 
-For the most basic set-up (one local node running the newest protocol version), the recommendation is to use the newest example which at the time of writing is the protocol [version 9](https://github.com/Concordium/concordium-misc-tools/blob/main/genesis-creator/examples/genesis9.toml). It is recommended to change the number of validators in the `genesis9.toml` file to 1 if you just want to start the most basic network with just one node:
+For the most basic set-up (one local node running the newest protocol version), 
+the recommendation is to use the newest example which at the time of writing is the protocol 
+[version 9](https://github.com/Concordium/concordium-misc-tools/blob/main/genesis-creator/examples/genesis9.toml). 
+If you want to start a basic network with just one node, 
+it is recommended to change the number of validators in the `genesis9.toml` file to 1.
 
 E.g. change
 ```
@@ -81,7 +89,7 @@ cargo run -- generate --config ./examples/genesis9.toml
 
 - Only for internal Concordium members/employees (private repo):
 Look up the `devnet`, `stagenet`, `testnet` or `mainnet` genesis data to start your node. 
-This will allow your node to join the respective network and you can re-use funded (or special authorized) genesis keys/accounts for testing 
+This will allow your node to join the respective network and you can re-use funded (or specially authorized) genesis keys/accounts for testing 
 [here](https://github.com/Concordium/concordium-infra-genesis-data)
 
 - For the public:
@@ -98,7 +106,9 @@ git clone --recurse-submodules git@github.com:Concordium/concordium-node.git
 
 ## Step 3 (Haskell dependencies of the node):
 
-Here we describe how to build the [consensus part](https://github.com/Concordium/concordium-node/tree/main/concordium-consensus) of the node which is written in Haskell. Everytime files in the `consensus` folder get changed, re-build the Haskell dependencies of the node before running the node.
+Here we describe how to build the [consensus part](https://github.com/Concordium/concordium-node/tree/main/concordium-consensus) 
+of the node which is written in Haskell. Everytime files in the `consensus` folder get changed, re-build the Haskell dependencies 
+of the node before running the node.
 
 ```
 cd concordium-consensus
@@ -107,7 +117,8 @@ stack build
 
 ## Step 4 (Rust dependencies of the node):
 
-Here we describe how to build and run the [node](https://github.com/Concordium/concordium-node/tree/main/concordium-node#building-the-node) and setting up a local network.
+Here we describe how to build and run the [node](https://github.com/Concordium/concordium-node/tree/main/concordium-node#building-the-node) 
+and setting up a local network.
 
 To start a node using a given genesis block file located at `/path/to/genesis.dat` do the
 following (note that the path must either be **absolute** or **relative to the
@@ -199,7 +210,8 @@ Note that the second node listens on port `8001` (resp `7001`) instead of `8000`
 
 ### Option 2 (Use shell scripts):
 
-As orchestrating several nodes will become tedious, the following shell script might be used for simplifying the setup process of a local network with multiple nodes. 
+As orchestrating several nodes will become tedious, the following shell script might be used for simplifying 
+the setup process of a local network with multiple nodes. 
 
 Running the first validator:
 ```
@@ -211,7 +223,8 @@ Running the second validator and connecting it to the network:
 ./network-setup.sh 1 --connect-to 0.0.0.0:8000
 ```
 
-where the `network-setup.sh` is the following shell script. Update the `[path-on-your-machine]` value and the envionmental variables `GENESIS_DATA_FILE_PATH` and `NODE_BAKER_PATH` respectively.
+where the `network-setup.sh` is the following shell script. Update the `[path-on-your-machine]` 
+value and the envionmental variables `GENESIS_DATA_FILE_PATH` and `NODE_VALIDATOR_PATH` respectively.
 
 ```
 #!/usr/bin/env bash
@@ -219,23 +232,23 @@ where the `network-setup.sh` is the following shell script. Update the `[path-on
 set -euo pipefail
 IFS=$'\n\t'
 
-USAGE="Usage: $0 <baker-id> [additional args]"
+USAGE="Usage: $0 <validator-id> [additional args]"
 
 if [ "$#" -lt 1 ]; then
    echo "$USAGE"
    exit 1
 fi
-BAKER_ID=$1
+VALIDATOR_ID=$1
 shift
 
-# Ports adjusted per baker ID
-NODE_PORT=$((8000 + BAKER_ID))
-GRPC_PORT=$((7000 + BAKER_ID))
+# Ports adjusted per validator ID
+NODE_PORT=$((8000 + VALIDATOR_ID))
+GRPC_PORT=$((7000 + VALIDATOR_ID))
 
-NODE_CONFIG_DIR=./config_dir/baker-$BAKER_ID
+NODE_CONFIG_DIR=./config_dir/validator-$VALIDATOR_ID
 # The genesis.dat file needs to be specified relative to the NODE_CONFIG_DIR
 GENESIS_DATA_FILE_PATH=../../../../../concordium-misc-tools/genesis-creator/genesis.dat
-NODE_BAKER_PATH=../../../concordium-misc-tools/genesis-creator/bakers/baker-$BAKER_ID-credentials.json
+NODE_VALIDATOR_PATH=../../../concordium-misc-tools/genesis-creator/bakers/baker-$VALIDATOR_ID-credentials.json
 
 mkdir -p $NODE_CONFIG_DIR
 cd ./[path-on-your-machine]/concordium-node/concordium-node
@@ -249,18 +262,19 @@ cargo run -- \
     --grpc2-listen-port $GRPC_PORT \
     --data-dir $NODE_CONFIG_DIR \
     --config-dir $NODE_CONFIG_DIR \
-    --validator-credentials-file $NODE_BAKER_PATH \
+    --validator-credentials-file $NODE_VALIDATOR_PATH \
     --debug true \
     "$@"
 ```
 
 Note:
 If your genesis data specified only one valiator, your running node should immediatly start the consensus algorithm.
-If your genesis data specified several valiators, your nodes will start the consensus algorithm once enough validators (stake) have joined the network.
+If your genesis data specified several valiators, your nodes will start the consensus algorithm 
+once enough validators (stake) have joined the network.
 
 ## Step 5:
 
-Interact with your running node via the its GRPC V2 interface.
+Interact with your running node via its GRPC V2 interface.
 
 [grpc API repo](https://github.com/Concordium/concordium-grpc-api)
 
@@ -277,7 +291,8 @@ Note: If you want to interact with a remote node that has `TLS` enabled, remove 
 
 ## Step 6 (Optional):
 
-You can also interact with your running node via the command-line-tool `concordium-client` which can be downloaded [here](https://docs.concordium.com/en/mainnet/docs/installation/downloads.html#concordium-client-client-version).
+You can also interact with your running node via the command-line-tool `concordium-client` 
+which can be downloaded [here](https://docs.concordium.com/en/mainnet/docs/installation/downloads.html#concordium-client-client-version).
 
 e.g.
 ```
@@ -307,5 +322,5 @@ take a long time to produce the first block.
   
 - There is a minimum amount of CCD that is needed to be a finalizer. In the
   example configurations we typically use 1/1000 of total CCD. Make sure that
-  when generating a sample genesis enough stake is dedicated to bakers (validators) so that
+  when generating a sample genesis enough stake is dedicated to validators so that
   there is a finalization committee.
