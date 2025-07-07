@@ -24,8 +24,8 @@ Ensure you have all dependencies installed for these two languages:
 ## Step 1 (Genesis data):
 
 Here we describe how to get or create the genesis block (first block). This block contains the genesis data which configures the chain at start-up.
-This will include some initial baker/validator credentials to make some nodes
-bakers (validators). The credentials are typically called `baker-?-credentials.json` (where `?` is the
+This will include some initial baker/validator credentials to configure certain nodes as bakers (validators).
+The credentials are typically called `baker-?-credentials.json` (where `?` is the
 baker/validator id).
 
 ### Option 1 (Generate the genesis data):
@@ -41,7 +41,7 @@ in a custom protocol-dependent format.
 
 Please see the README in the above repository for how to build and use the ``genesis-creator`` tool for custom set-ups.
 
-For the most basic set-up (one local node running the newest protocol version), the recommendation is to use the newest example which at the time of writing is the protocol version 9 [genesis9](https://github.com/Concordium/concordium-misc-tools/blob/main/genesis-creator/examples/genesis9.toml). Recommended is to change the number of validators in the `genesis9.toml` file to 1 if you just want to start the most basic network with just one node:
+For the most basic set-up (one local node running the newest protocol version), the recommendation is to use the newest example which at the time of writing is the protocol [version 9](https://github.com/Concordium/concordium-misc-tools/blob/main/genesis-creator/examples/genesis9.toml). It is recommended to change the number of validators in the `genesis9.toml` file to 1 if you just want to start the most basic network with just one node:
 
 E.g. change
 ```
@@ -159,6 +159,7 @@ If more than one validator is specified in genesis then for the chain to run
 correctly you will typically have to start multiple nodes and connect them
 together so that they can build a single chain. To start two nodes connected to
 each other run the following two commands from different terminals.
+
 ### Option 1 (Use cli commands):
 
 ```console
@@ -202,15 +203,15 @@ As orchestrating several nodes will become tedious, the following shell script m
 
 Running the first validator:
 ```
-./concordium-node-network-setup.sh 0 8000 7000 --connect-to 0.0.0.0:8001
+./network-setup.sh 0 --connect-to 0.0.0.0:8001
 ```
 
 Running the second validator and connecting it to the network:
 ```
-./concordium-node-network-setup.sh 1 8001 7001 --connect-to 0.0.0.0:8000
+./network-setup.sh 1 --connect-to 0.0.0.0:8000
 ```
 
-where the `concordium-node-network-setup.sh` is the following shell script. Update the `[path-on-your-machine]` value and the envionmental variables `GENESIS_DATA_FILE_PATH` and `NODE_BAKER_PATH` respectively.
+where the `network-setup.sh` is the following shell script. Update the `[path-on-your-machine]` value and the envionmental variables `GENESIS_DATA_FILE_PATH` and `NODE_BAKER_PATH` respectively.
 
 ```
 #!/usr/bin/env bash
@@ -218,17 +219,18 @@ where the `concordium-node-network-setup.sh` is the following shell script. Upda
 set -euo pipefail
 IFS=$'\n\t'
 
-USAGE="Usage: $0 <baker-id> <node-port> <grpc-port>"
+USAGE="Usage: $0 <baker-id> [additional args]"
 
-if [ "$#" -lt "3" ]; then
-	echo "$USAGE"
-	exit 1
+if [ "$#" -lt 1 ]; then
+   echo "$USAGE"
+   exit 1
 fi
 BAKER_ID=$1
-NODE_PORT=$2
-GRPC_PORT=$3
+shift
 
-shift 2
+# Ports adjusted per baker ID
+NODE_PORT=$((8000 + BAKER_ID))
+GRPC_PORT=$((7000 + BAKER_ID))
 
 NODE_CONFIG_DIR=./config_dir/baker-$BAKER_ID
 # The genesis.dat file needs to be specified relative to the NODE_CONFIG_DIR
@@ -238,17 +240,18 @@ NODE_BAKER_PATH=../../../concordium-misc-tools/genesis-creator/bakers/baker-$BAK
 mkdir -p $NODE_CONFIG_DIR
 cd ./[path-on-your-machine]/concordium-node/concordium-node
 cargo run -- \
-    --no-bootstrap true\
-    --config-dir $NODE_CONFIG_DIR\
-    --data-dir $NODE_CONFIG_DIR\
-    --genesis-data-file $GENESIS_DATA_FILE_PATH\
-    --listen-address "0.0.0.0"\
-    --listen-port $NODE_PORT\
-    --validator-credentials-file $NODE_BAKER_PATH\
+    --genesis-data-file $GENESIS_DATA_FILE_PATH \
+    --no-bootstrap true \
+    --listen-port $NODE_PORT \
+    --listen-address "0.0.0.0" \
     --grpc2-enable-grpc-web true \
-    --grpc2-listen-addr 0.0.0.0 \
-    --grpc2-listen-port $GRPC_PORT
-    $@
+    --grpc2-listen-addr "0.0.0.0" \
+    --grpc2-listen-port $GRPC_PORT \
+    --data-dir $NODE_CONFIG_DIR \
+    --config-dir $NODE_CONFIG_DIR \
+    --validator-credentials-file $NODE_BAKER_PATH \
+    --debug true \
+    "$@"
 ```
 
 Note:
