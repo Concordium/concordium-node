@@ -657,7 +657,9 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (getAccountStateCall 0 "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 4) :-> 4)
                     :>>: (PLTQ (getAccountStateCall 4 "allowList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
@@ -673,6 +675,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (getAccountStateCall 0 "allowList") :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
@@ -692,7 +695,9 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 9)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 23) :-> 23)
                     :>>: (PLTQ (getAccountStateCall 23 "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 9) :-> 9)
                     :>>: (PLTQ (getAccountStateCall 9 "allowList") :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
@@ -712,7 +717,9 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (getAccountStateCall 0 "denyList") :-> Nothing)
+                    :>>: (PLTQ (GetAccountIndex 4) :-> 4)
                     :>>: (PLTQ (getAccountStateCall 4 "denyList") :-> Nothing)
                     :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
@@ -728,6 +735,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (getAccountStateCall 0 "denyList") :-> Just "")
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
@@ -748,7 +756,9 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (getAccountStateCall 0 "denyList") :-> Nothing)
+                    :>>: (PLTQ (GetAccountIndex 4) :-> 4)
                     :>>: (PLTQ (getAccountStateCall 4 "denyList") :-> Just "")
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
@@ -767,10 +777,14 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (getAccountStateCall 0 "allowList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 4) :-> 4)
                     :>>: (PLTQ (getAccountStateCall 4 "allowList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
+                    :>>: (PLTQ (GetAccountIndex 0) :-> 0)
                     :>>: (PLTQ (getAccountStateCall 0 "denyList") :-> Nothing)
+                    :>>: (PLTQ (GetAccountIndex 4) :-> 4)
                     :>>: (PLTQ (getAccountStateCall 4 "denyList") :-> Nothing)
                     :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 Nothing) :-> True)
@@ -1005,6 +1019,7 @@ testLists = do
                             :>>: (PLTQ (GetTokenState (ltcFeature listConf)) :-> Just "")
                             :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                             :>>: (PLTE (PLTChargeEnergy tokenListOperationCost) :-> ())
+                            :>>: (PLTQ (GetAccountIndex 4) :-> 4)
                             :>>: (PLTU (setAccountStateCall 4 (ltcFeature listConf) (ltcNewValue listConf)) :-> Just False)
                             :>>: ( PLTU
                                     ( LogTokenEvent
