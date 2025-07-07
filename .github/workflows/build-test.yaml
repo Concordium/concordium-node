@@ -38,11 +38,11 @@ on:
     branches: main
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
-    - '.github/workflows/build-test.yaml'
+    # - '.github/workflows/build-test.yaml' # Don't trigger normal tests on this branch, it is only for code signing logic
     - '**/Cargo.toml'
     - '**/Cargo.lock'
     - '**.rs'
-    - '**.yaml'
+    # - '**.yaml' # Don't trigger normal tests on this branch, it is only for code signing logic
     - '**.hs'
     - 'concordium-base'
     - 'concordium-consensus/smart-contracts'
