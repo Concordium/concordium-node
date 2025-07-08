@@ -64,12 +64,14 @@ jobs:
             fi
           else
             RELEASE_TYPE="${{ env.SERVICE }}"
-            BUILD=$(git rev-parse --short HEAD)
+            BUILD=4 # this needs to be an integer or wix build fails.
+#            BUILD=$(git rev-parse --short HEAD)
           fi
           echo "::notice::RELEASE_TYPE=${RELEASE_TYPE}"
           echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
           echo "version=${CARGO_VERSION}-${BUILD}" >> "$GITHUB_OUTPUT"
           echo "base_version=${CARGO_VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Templates rendering
         id: render
         run: |
