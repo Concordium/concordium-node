@@ -500,6 +500,22 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 2)
                     :>>: Done ()
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
+    it "transfer: paused operation" $ do
+        let transaction =
+                TokenUpdateTransaction . Seq.fromList $
+                    [mkTransferOp amt10'000 receiver1 Nothing]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 3)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Just "")
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Nothing,
+                                  trrReason = Just "token operation transfer is paused"
+                                }
+                         )
+        assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "transfer OK" $ do
         let transaction =
                 TokenUpdateTransaction . Seq.fromList $
@@ -507,6 +523,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 3)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
@@ -521,6 +538,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
@@ -559,11 +577,13 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 121)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
@@ -580,6 +600,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
@@ -603,11 +624,13 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Just 16)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
@@ -631,11 +654,13 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
                     :>>: (PLTU (Transfer 0 4 10_000_000 (Just cborMemo)) :-> True)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 2)) :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             AddressNotFound
@@ -651,6 +676,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
                     :>>: (PLTQ (GetAccountState 0 "allowList") :-> Just "")
@@ -667,6 +693,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
                     :>>: (PLTQ (GetAccountState 0 "allowList") :-> Nothing)
@@ -686,6 +713,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 9)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
                     :>>: (PLTQ (GetAccountState 23 "allowList") :-> Just "")
@@ -705,6 +733,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
@@ -721,6 +750,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
@@ -741,6 +771,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
@@ -761,6 +792,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
                 (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
                     :>>: (PLTQ (GetAccountState 0 "allowList") :-> Just "")
@@ -786,7 +818,8 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
             traceLoop n
                 | n > 5000 = Done ()
                 | otherwise =
-                    (PLTQ (GetAccount (dummyAccountAddress (fromIntegral n))) :-> Just n)
+                    (PLTQ (GetTokenState "paused") :-> Nothing)
+                        :>>: (PLTQ (GetAccount (dummyAccountAddress (fromIntegral n))) :-> Just n)
                         :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                         :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                         :>>: (PLTE (PLTChargeEnergy tokenTransferCost) :-> ())
@@ -847,6 +880,24 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                                 }
                          )
         assertTrace (executeTokenUpdateTransaction (sender 1) (encodeTransaction transaction)) trace
+    it "mint: paused operation" $ do
+        let transaction =
+                TokenUpdateTransaction . Seq.fromList $
+                    [TokenMint (TokenAmount 10_000_000 6)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Just "")
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Nothing,
+                                  trrReason = Just "token operation mint is paused"
+                                }
+                         )
+        assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "mint: OK" $ do
         let transaction =
                 TokenUpdateTransaction . Seq.fromList $
@@ -856,6 +907,7 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenMintCost) :-> ())
                     :>>: (PLTPU (Mint 0 10_000_000) :-> True)
@@ -870,6 +922,7 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             UnsupportedOperation
@@ -888,6 +941,7 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenMintCost) :-> ())
                     :>>: (PLTPU (Mint 0 10_000_000) :-> False)
@@ -910,10 +964,29 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 10_000_000) :-> True)
                     :>>: Done ()
+        assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
+    it "burn: paused operation" $ do
+        let transaction =
+                TokenUpdateTransaction . Seq.fromList $
+                    [TokenBurn (TokenAmount 10_000_000 6)]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Just "")
+                    :>>: ( abortPLTError . encodeTokenRejectReason $
+                            OperationNotPermitted
+                                { trrOperationIndex = 0,
+                                  trrAddressNotPermitted = Nothing,
+                                  trrReason = Just "token operation burn is paused"
+                                }
+                         )
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "burn: not burnable" $ do
         let transaction =
@@ -924,6 +997,7 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Nothing)
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             UnsupportedOperation
@@ -942,6 +1016,7 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 10_000_000) :-> False)
@@ -965,11 +1040,13 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                 (PLTQ GetDecimals :-> 6)
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenMintCost) :-> ())
                     :>>: (PLTPU (Mint 0 10_000_000) :-> True)
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "burnable") :-> Just "")
                     :>>: (PLTE (PLTChargeEnergy tokenBurnCost) :-> ())
                     :>>: (PLTPU (Burn 0 5_000_000) :-> True)
@@ -1087,6 +1164,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 1)))
                     :>>: (PLTQ (GetAccountByIndex (AccountIndex 1)) :-> Just 1)
                     :>>: (PLTQ (GetAccountCanonicalAddress 1) :-> dummyAccountAddress 1)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "denyList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "mintable") :-> Just "")
@@ -1097,6 +1175,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                                 { tmsName = "My protocol-level token",
                                   tmsMetadata = metadata,
                                   tmsGovernanceAccount = governanceAccount,
+                                  tmsPaused = False,
                                   tmsAllowList = Just True,
                                   tmsDenyList = Just False,
                                   tmsMintable = Just True,
@@ -1119,6 +1198,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 1)))
                     :>>: (PLTQ (GetAccountByIndex (AccountIndex 1)) :-> Just 1)
                     :>>: (PLTQ (GetAccountCanonicalAddress 1) :-> dummyAccountAddress 1)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "mintable") :-> Nothing)
@@ -1129,6 +1209,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                                 { tmsName = "Another PLT",
                                   tmsMetadata = metadata,
                                   tmsGovernanceAccount = governanceAccount,
+                                  tmsPaused = False,
                                   tmsAllowList = Just False,
                                   tmsDenyList = Just True,
                                   tmsMintable = Just False,
@@ -1452,7 +1533,8 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
         bs2 <- bsoSetTokenState bs1 0 "mintable" (Just "")
         bs3 <- bsoSetTokenState bs2 0 "burnable" (Just "")
         bs4 <- bsoSetTokenState bs3 0 "governanceAccount" (Just (encode (AccountIndex 0)))
-        hashBlockState bs4
+        bs5 <- bsoSetTokenState bs4 0 "paused" Nothing
+        hashBlockState bs5
 
 tests :: Spec
 tests = describe "TokenModule" $ do

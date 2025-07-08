@@ -219,6 +219,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
     let handleOperation !opIndex op = do
             case op of
                 PTOTransfer{..} -> do
+                    checkPaused opIndex "transfer"
                     recipientAccount <- requireAccount opIndex pthoRecipient
                     -- If the allow list is enabled, check that the sender and recipient are
                     -- both on the allow list.
@@ -295,6 +296,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                 }
                     case tokenGovernanceOp of
                         PTOTokenMint{..} -> do
+                            checkPaused opIndex "mint"
                             requireFeature opIndex "mint" "mintable"
                             pltTickEnergy tokenMintCost
                             mintOK <- mint tcSender ptgoAmount
@@ -309,6 +311,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                             toTokenAmount decimals (maxBound :: TokenRawAmount)
                                         }
                         PTOTokenBurn{..} -> do
+                            checkPaused opIndex "burn"
                             requireFeature opIndex "burn" "burnable"
                             pltTickEnergy tokenBurnCost
                             burnOK <- burn tcSender ptgoAmount
@@ -350,6 +353,15 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
     failTH = pltError . encodeTokenRejectReason
+    checkPaused opIndex op = do
+        paused <- isJust <$> getTokenState "paused"
+        when paused $
+            failTH
+                OperationNotPermitted
+                    { trrOperationIndex = opIndex,
+                      trrAddressNotPermitted = Nothing,
+                      trrReason = Just $ Text.pack $ "token operation " ++ op ++ " is paused"
+                    }
 
 -- | Check that a particular feature is enabled for the token, and otherwise fail with
 --  'UnsupportedOperation'.
@@ -416,6 +428,7 @@ queryTokenModuleState = do
                 Nothing -> pltError $ QTEInvariantViolation "Governance account does not exist"
                 Just account -> return account
         accountTokenHolderShort <$> getAccountCanonicalAddress account
+    tmsPaused <- isJust <$> getTokenState "paused"
     tmsAllowList <- Just . isJust <$> getTokenState "allowList"
     tmsDenyList <- Just . isJust <$> getTokenState "denyList"
     tmsMintable <- Just . isJust <$> getTokenState "mintable"
