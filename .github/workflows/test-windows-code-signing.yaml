@@ -115,18 +115,18 @@ jobs:
       #     certutil -decode $CERTIFICATE_PATH_BASE64 $CERTIFICATE_PATH
       #     echo "CERTIFICATE_PATH=$CERTIFICATE_PATH" >> $env:GITHUB_OUTPUT
 
-      - name: Run smctl healthcheck to confirm if the tool is configured properly.
-        working-directory: ${{steps.build.outputs.bin_dir}}
-        env:
-          WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
-          WINDOWS_SM_KEYPAIR_ALIAS: ${{ secrets.WINDOWS_SM_KEYPAIR_ALIAS }}
-          SM_HOST: ${{ vars.WINDOWS_SM_HOST }}
-          SM_API_KEY: ${{ secrets.WINDOWS_SM_API_KEY }}
-          SM_CLIENT_CERT_FILE: ${{ steps.windows_certificate.outputs.CERTIFICATE_PATH }}
-          SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
-        run: |
-          smctl healthcheck --all
-        shell: cmd
+      # - name: Run smctl healthcheck to confirm if the tool is configured properly.
+      #   working-directory: ${{steps.build.outputs.bin_dir}}
+      #   env:
+      #     WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
+      #     WINDOWS_SM_KEYPAIR_ALIAS: ${{ secrets.WINDOWS_SM_KEYPAIR_ALIAS }}
+      #     SM_HOST: ${{ vars.WINDOWS_SM_HOST }}
+      #     SM_API_KEY: ${{ secrets.WINDOWS_SM_API_KEY }}
+      #     SM_CLIENT_CERT_FILE: ${{ steps.windows_certificate.outputs.CERTIFICATE_PATH }}
+      #     SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
+      #   run: |
+      #     smctl healthcheck --all
+      #   shell: cmd
 
       - name: Install dependencies
         run: |
