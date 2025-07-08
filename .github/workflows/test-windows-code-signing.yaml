@@ -170,14 +170,14 @@ jobs:
 
       - uses: milliewalky/setup-7-zip@v1
 
-      - name: Install GCC
-        run: |
-          curl -L -O https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-19.1.1-12.0.0-msvcrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z
-          7z x winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z -oC:/gcc
-          Add-Content -Path $env:GITHUB_PATH -Value "C:/gcc/mingw64/bin"
+      # - name: Install GCC
+      #   run: |
+      #     curl -L -O https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-19.1.1-12.0.0-msvcrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z
+      #     7z x winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z -oC:/gcc
+      #     Add-Content -Path $env:GITHUB_PATH -Value "C:/gcc/mingw64/bin"
 
-      - name: Install LMDB
-        run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
+      # - name: Install LMDB
+      #   run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
       # - name: Build Windows Node
       #   run: |
@@ -191,7 +191,7 @@ jobs:
       - name: Extract files to prepare for signing 
         run: |
           dir 
-          MsiDb.exe -d ./service/windows/installer/Node.msi -x Node.cab
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d ./service/windows/installer/Node.msi -x Node.cab
           mkdir Node
           dir
           expand -d Node.cab
@@ -250,8 +250,8 @@ jobs:
           del Node.cab
           move disk1\Node.cab .
           expand -d Node.cab
-          MsiDb.exe -d service/windows/installer/Node.msi -k Node.cab
-          MsiDb.exe -d service/windows/installer/Node.msi -a Node.cab
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service/windows/installer/Node.msi -k Node.cab
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service/windows/installer/Node.msi -a Node.cab
         shell: cmd
   
       # - name: Sign files with smctl
