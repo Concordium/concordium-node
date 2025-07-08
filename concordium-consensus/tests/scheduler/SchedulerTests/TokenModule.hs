@@ -511,12 +511,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
-                                  trrAddressNotPermitted =
-                                    Just $
-                                        CborHolderAccount
-                                            { chaAccount = dummyAccountAddress 0,
-                                              chaCoinInfo = Just CoinInfoConcordium
-                                            },
+                                  trrAddressNotPermitted = Nothing,
                                   trrReason = Just "token operation transfer is paused"
                                 }
                          )
@@ -898,12 +893,7 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
-                                  trrAddressNotPermitted =
-                                    Just $
-                                        CborHolderAccount
-                                            { chaAccount = dummyAccountAddress 0,
-                                              chaCoinInfo = Just CoinInfoConcordium
-                                            },
+                                  trrAddressNotPermitted = Nothing,
                                   trrReason = Just "token operation mint is paused"
                                 }
                          )
@@ -993,12 +983,7 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                     :>>: ( abortPLTError . encodeTokenRejectReason $
                             OperationNotPermitted
                                 { trrOperationIndex = 0,
-                                  trrAddressNotPermitted =
-                                    Just $
-                                        CborHolderAccount
-                                            { chaAccount = dummyAccountAddress 0,
-                                              chaCoinInfo = Just CoinInfoConcordium
-                                            },
+                                  trrAddressNotPermitted = Nothing,
                                   trrReason = Just "token operation burn is paused"
                                 }
                          )

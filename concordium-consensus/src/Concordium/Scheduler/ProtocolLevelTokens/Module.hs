@@ -359,7 +359,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
             failTH
                 OperationNotPermitted
                     { trrOperationIndex = opIndex,
-                      trrAddressNotPermitted = Just (accountTokenHolder tcSenderAddress),
+                      trrAddressNotPermitted = Nothing,
                       trrReason = Just $ Text.pack $ "token operation " ++ op ++ " is paused"
                     }
 
