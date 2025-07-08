@@ -189,12 +189,12 @@ jobs:
 
       - name: Extract files to prepare for signing 
         run: |
-          pwd
           dir 
           MsiDb.exe -d ./service/windows/installer/Node.msi -x Node.cab
+          mkdir Node
           dir
-          mkdir -p ./Node
           expand -F:* Node.cab ./Node
+          dir Node
         shell: cmd
       
       - name: Rename files to prepare for signing 
@@ -239,8 +239,8 @@ jobs:
 
       - name: Recreate the cabinet file. 
         run: |
-          dir Node /b /a-d > filelist.txt
-          makecab.exe /D MaxDiskSize=0 /D Cabinet=ON /D Compress=ON /D CabinetName1=Node.cab /D SourceDir=Node /f cabdirs.txt
+          dir Node /b /a-d > cabfiles.txt
+          makecab.exe /D MaxDiskSize=0 /D Cabinet=ON /D Compress=ON /D CabinetName1=Node.cab /D SourceDir=Node /f cabfiles.txt
         shell: cmd
 
 
@@ -250,9 +250,8 @@ jobs:
           mv disk1\Node.cab .
           MsiDb.exe -d ./service/windows/installer/Node.msi -k Node.cab
           MsiDb.exe -d ./service/windows/installer/Node.msi -a Node.cab
-        shell: cmd
-
-      # Sign the installer
+  
+      # Here we would sign the installer
 
       - name: Rename the package to target filename.
         run: |
