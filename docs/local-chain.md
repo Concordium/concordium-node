@@ -15,8 +15,18 @@ To run a custom chain locally three things are needed
 
 ## Prerequisites:
 
-The node has two main parts. The consensus part is written in [Haskell](https://github.com/Concordium/concordium-node/tree/main/concordium-consensus) 
-while the network and execution layer is written in [Rust](https://github.com/Concordium/concordium-node/tree/main/concordium-node). 
+The node has two main parts. 
+
+The first part is written in [Haskell](https://github.com/Concordium/concordium-node/tree/main/concordium-consensus) 
+and contains functionality related to:
+- consensus
+- block and tree storage
+- executing and filtering of blocks/transactions
+
+The second part is writte in [Rust](https://github.com/Concordium/concordium-node/tree/main/concordium-node)
+and contains functionality related to:
+- networking 
+- bootstrapping
 
 Ensure you have all dependencies installed for these two languages:
 - [Haskell dependencies](https://github.com/Concordium/concordium-node/tree/main/concordium-consensus#build-requirements)
@@ -111,7 +121,6 @@ of the node which is written in Haskell. Everytime files in the `consensus` fold
 of the node before running the node.
 
 ```
-cd concordium-consensus
 stack build
 ```
 
@@ -250,8 +259,8 @@ NODE_CONFIG_DIR=./config_dir/validator-$VALIDATOR_ID
 GENESIS_DATA_FILE_PATH=../../../../../concordium-misc-tools/genesis-creator/genesis.dat
 NODE_VALIDATOR_PATH=../../../concordium-misc-tools/genesis-creator/bakers/baker-$VALIDATOR_ID-credentials.json
 
-mkdir -p $NODE_CONFIG_DIR
 cd ./[path-on-your-machine]/concordium-node/concordium-node
+mkdir -p $NODE_CONFIG_DIR
 cargo run -- \
     --genesis-data-file $GENESIS_DATA_FILE_PATH \
     --no-bootstrap true \
