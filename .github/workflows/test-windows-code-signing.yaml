@@ -50,8 +50,7 @@ jobs:
       version: ${{ steps.versions_derivation.outputs.version }}
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@v4    
       - name: Validate version
         id: versions_derivation
         run: |
@@ -64,8 +63,8 @@ jobs:
             fi
           else
             RELEASE_TYPE="${{ env.SERVICE }}"
-            BUILD=4 # this needs to be an integer or wix build fails.
-#            BUILD=$(git rev-parse --short HEAD)
+            BUILD=4 # this needs to be an integer or wix build fails. should be $(git rev-parse --short HEAD)
+
           fi
           echo "::notice::RELEASE_TYPE=${RELEASE_TYPE}"
           echo "release_type=${RELEASE_TYPE}" >> "$GITHUB_OUTPUT"
