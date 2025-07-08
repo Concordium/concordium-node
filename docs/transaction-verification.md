@@ -1,4 +1,5 @@
 # Transaction Verification
+
 This document describes the _transaction policy_ for a Concordium Node.
 That is, how the node decides to reject or accept transactions.
  
