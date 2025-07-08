@@ -190,7 +190,7 @@ jobs:
 
       - name: Extract files to prepare for signing 
         run: |
-          dir ./service/windows/installer
+          dir service\windows\installer
           "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer/Node.msi -x Node.cab
           mkdir Node
           dir
