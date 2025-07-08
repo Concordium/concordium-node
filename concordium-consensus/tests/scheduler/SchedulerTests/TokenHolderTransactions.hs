@@ -12,17 +12,16 @@ import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types as ID
 import qualified Concordium.Types.ProtocolLevelTokens.CBOR as CBOR
 
-import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
+import Concordium.Scheduler.DummyData
+import Concordium.Scheduler.ProtocolLevelTokens.Module (tokenModuleV0Ref)
 import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 import qualified Concordium.Types.DummyData as DummyData
-
-import Concordium.Scheduler.DummyData
 
 import Data.Bool.Singletons
 import qualified Data.ByteString.Short as BSS
@@ -135,7 +134,6 @@ testTokenHolder _ pvString =
             initialBlockState
             transactionsAndAssertions
   where
-    dummyHash = Hash.hashShort BSS.empty
     gtu = Types.TokenId $ fromString "GTU"
     params =
         CBOR.TokenInitializationParameters
@@ -149,7 +147,7 @@ testTokenHolder _ pvString =
               tipBurnable = True
             }
     tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
-    createPLT = Types.CreatePLT gtu (TokenModuleRef dummyHash) 0 tp
+    createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 tp
     plt = Types.CreatePLTUpdatePayload createPLT
     gtuEvent = TokenCreated{etcPayload = createPLT}
     -- This is CBOR-encoding of {"cause": "DeserialiseFailure 0 \"end of input\""}

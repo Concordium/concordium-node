@@ -16,12 +16,20 @@ import qualified Data.Text.Encoding as Text
 import Data.Word
 
 import Concordium.Cost
+import Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Types.ProtocolLevelTokens.CBOR
 import Concordium.Types.Tokens
 
 import Concordium.Scheduler.ProtocolLevelTokens.Kernel hiding (getTokenState, setTokenState)
 import qualified Concordium.Scheduler.ProtocolLevelTokens.Kernel as Kernel
+
+-- | The token module reference for version 0 of the token module.
+--  This is the hash of "TokenModuleV0".
+--
+--  5c5c2645db84a7026d78f2501740f60a8ccb8fae5c166dc2428077fd9a699a4a
+tokenModuleV0Ref :: TokenModuleRef
+tokenModuleV0Ref = TokenModuleRef $ Hash.hash "TokenModuleV0"
 
 -- | The context for a token-holder or token-governance transaction.
 data TransactionContext' account = TransactionContext
