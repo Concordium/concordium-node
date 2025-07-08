@@ -168,16 +168,16 @@ jobs:
       #     enable-stack: true
       #     stack-version: ${{ env.STACK_VERSION }}
 
-      # - uses: milliewalky/setup-7-zip@v1
+      - uses: milliewalky/setup-7-zip@v1
 
-      # - name: Install GCC
-      #   run: |
-      #     curl -L -O https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-19.1.1-12.0.0-msvcrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z
-      #     7z x winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z -oC:/gcc
-      #     Add-Content -Path $env:GITHUB_PATH -Value "C:/gcc/mingw64/bin"
+      - name: Install GCC
+        run: |
+          curl -L -O https://github.com/brechtsanders/winlibs_mingw/releases/download/14.2.0posix-19.1.1-12.0.0-msvcrt-r2/winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z
+          7z x winlibs-x86_64-posix-seh-gcc-14.2.0-llvm-19.1.1-mingw-w64msvcrt-12.0.0-r2.7z -oC:/gcc
+          Add-Content -Path $env:GITHUB_PATH -Value "C:/gcc/mingw64/bin"
 
-      # - name: Install LMDB
-      #   run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
+      - name: Install LMDB
+        run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
       # - name: Build Windows Node
       #   run: |
@@ -187,7 +187,6 @@ jobs:
         run: |
           curl -o ./service/windows/installer/Node.msi "https://s3.eu-west-1.amazonaws.com/distribution.concordium.software/windows/Node-9.0.5-0.msi?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEIj%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCWV1LXdlc3QtMSJHMEUCIFLVMKqXHik1LLHdDuExKV84GJHJ%2BnFkVVu41nW7B02UAiEAuxIvUrWt95nkpc1QqBZ052WLVIqBEWCX%2FlH6AY1tm14qxQQIkf%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARAFGgwxOTI1NDk4NDMwMDUiDLVWMQZwOuxIWJeQECqZBMIzXXy28hjXBirUMy4m01sbE0GVshLZUV339K9iknyNicQH29wE7lAZ32fOAh53jdgSDdF4%2Fuyn6njW1md0G5fYoZjU63JGeJabFZhEadZhz6QHuJNO1fdlLLMtbvuyEiaEDReL7e65CUCRoOyhWbUQYzrCoDk4nr87DkyvkXhBiY5CQRmO1g8fA%2FXqfORh4w9%2B48G6Zyf5nTbUEZB7HD4E1EjiNF7%2FBl89iZmEZvj3REyy1%2FdGe%2FuldF9H9sJZ3dHpZjfVXwjkr6ZXpy6I9SLZnQv0zvn6s2wzzAvpVB3yJdDCErunBqWedlKVW3%2F%2B95l2TO8s%2BiWqbwUFmzKVS13ArFBOCDOsf%2BGNTlvOC6P30qd6jzLmqsi2s4K44o%2BfXPAw0FJoRKUtKe84beEnSh33CLjJgAqMAVLaBxjj0p%2FG1i3CNBeBp9vWcUPv3AtmDecfuuRZF7v0jDb0xn8gPUnJ8jEHXqUP7kpNMiwyv%2BYgZzUIC6xWqBSEr%2B9cVfdsqXCEyBjTG3PmQCqc88bwhO82GG4JMX2iDys9JchDvbSRHYotEJdaUUaKPqNvUDi5KU3L%2BAGPnJP8ZrvKOxMnaSWNcOzV1Fwq%2FiK%2Fr7N8TeXsSgv4NOmMzS8BaZoPJf%2B%2FBI%2FEp4K9%2B0bFM%2BIRxSIdgtU11V7ZvpgLcHiKIPAIBsk2JB7%2F1p0QQWwPhDqrnW0k%2FYdeJUcBkcsv7zCL%2BrTDBjrFAl25RK67HUoTYb537roZWnKMoRAUrgbsLUall0xs0usTlrOu9xNkIKroV74LZyyHFIx145IVYpq4Pzn6HGnlz2gBJrl1e%2FVRYxXw%2Fm7wgeuOdCbrAqkeQqd49tmuVuOgaefjbA3wtO%2FYYe%2BWZR0AloZR5KIuBED7XzR39qffYOx3xfp%2BZZFOPYGO9cvX5Riipc3pmz3ZneUBCkjQiICad48HHuiYnwaEa%2F3d31fhjIiq7AwJfSPigI06WjBELuJzkpsox%2B33Rzn0Ra3vKWModoehhc30gbAmwBMuSb7aijikB0g3mums2pVTKgrz7wB%2B5OL%2FwyZp3ybbND%2FXIbXHGnJUb8s1a1069d1ZU7wVoS6OIjJLkPK%2F1xkmDpwYQCPu3k3Vb1GUt26SBq%2F%2Bzldg7t6BZT8snPkvhEbikaT%2F2Zv66uJf2qI%3D&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIASZVG5OA66WXXADA7%2F20250708%2Feu-west-1%2Fs3%2Faws4_request&X-Amz-Date=20250708T154545Z&X-Amz-Expires=7200&X-Amz-SignedHeaders=host&X-Amz-Signature=717af1bdef8acbbcba7e06fc893a1428de6563bfd53ff37761541c54ebc36359"
         shell: cmd
-
 
       - name: Extract files to prepare for signing 
         run: |
