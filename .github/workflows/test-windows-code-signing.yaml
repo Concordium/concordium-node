@@ -190,8 +190,8 @@ jobs:
 
       - name: Extract files to prepare for signing 
         run: |
-          dir 
-          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d ./service/windows/installer/Node.msi -x Node.cab
+          dir ./service/windows/installer
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer/Node.msi -x Node.cab
           mkdir Node
           dir
           expand -d Node.cab
@@ -250,8 +250,8 @@ jobs:
           del Node.cab
           move disk1\Node.cab .
           expand -d Node.cab
-          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service/windows/installer/Node.msi -k Node.cab
-          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service/windows/installer/Node.msi -a Node.cab
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer\Node.msi -k Node.cab
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer\Node.msi -a Node.cab
         shell: cmd
   
       # - name: Sign files with smctl
