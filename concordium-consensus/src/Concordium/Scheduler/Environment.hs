@@ -945,6 +945,7 @@ instance BlockStateTypes (LocalT r m) where
     type ContractState (LocalT r m) = ContractState m
     type BakerInfoRef (LocalT r m) = BakerInfoRef m
     type InstrumentedModuleRef (LocalT r m) = InstrumentedModuleRef m
+    type MutableTokenState (LocalT r m) = MutableTokenState m
 
 -- | Given the deposited amount and the remaining amount of gas compute how much
 --  the sender of the transaction should be charged, as well as how much energy was used
