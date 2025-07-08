@@ -190,9 +190,12 @@ jobs:
       - name: Extract files to prepare for signing 
         run: |
           pwd
+          dir 
           MsiDb.exe -d ./service/windows/installer/Node.msi -x Node.cab
+          dir
           mkdir -p ./Node
           expand -F:* Node.cab ./Node
+        shell: cmd
       
       - name: Rename files to prepare for signing 
         run: |
