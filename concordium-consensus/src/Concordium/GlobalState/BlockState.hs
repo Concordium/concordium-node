@@ -494,6 +494,10 @@ instance (MonadBlobStore m, MonadProtocolVersion m) => BlobStorable m Transactio
 -- Generic instance based on the HashableTo instance
 instance (Monad m) => MHashableTo m H.Hash TransactionSummaryV1
 
+-- | Operations on mutable token state.
+--  Note that 'updateTokenState' can only fail if a key is locked by an iterator.
+--  If only this interface is used to manipulate the token state, it is not possible to create
+--  an iterator, and thus such failures should not be possible.
 class (Monad m) => TokenStateOperations ts m where
     -- | Lookup the token state for the given key.
     lookupTokenState :: TokenStateKey -> ts -> m (Maybe TokenStateValue)
@@ -522,7 +526,7 @@ class (MonadProtocolVersion m, Monad m, TokenStateOperations ts m) => PLTQuery b
 
     -- | Convert a persistent state to a mutable one that can be updated by the scheduler.
     --
-    -- Updates to this state will only persist in the block state using `bsoFreezeTokenState`.
+    -- Updates to this state will only persist in the block state using 'bsoSetTokenState'.
     --
     -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
     getMutableTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m ts
