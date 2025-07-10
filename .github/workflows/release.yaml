@@ -255,6 +255,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install dependencies
+        run: |
+          choco install yq jq -y
+        shell: bash
+
       - name: Extrapolate artifact name
         run: |
           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].name')
@@ -290,11 +295,6 @@ jobs:
         run: |
           smctl healthcheck --all
         shell: cmd
-
-      - name: Install dependencies
-        run: |
-          choco install yq jq -y
-        shell: bash
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
