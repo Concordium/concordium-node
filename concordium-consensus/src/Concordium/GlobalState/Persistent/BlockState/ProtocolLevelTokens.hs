@@ -50,7 +50,7 @@ data PLTConfiguration = PLTConfiguration
       -- | The number of decimal places used in the representation of the token.
       _pltDecimals :: !Word8
     }
-    deriving (Show)
+    deriving (Eq, Show)
 
 instance Serialize PLTConfiguration where
     put PLTConfiguration{..} = do
