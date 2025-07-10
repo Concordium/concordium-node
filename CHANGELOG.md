@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Protocol-level tokens:
+  - Support for token pause/unpause operations.
+
 ## 9.0.5 (DevNet)
 
 - Protocol-level tokens:
