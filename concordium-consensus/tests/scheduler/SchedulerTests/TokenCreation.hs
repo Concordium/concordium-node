@@ -31,6 +31,10 @@ import qualified Concordium.Scheduler.Runner as Runner
 import Concordium.Scheduler.Types
 import qualified Concordium.Scheduler.Types as Types
 
+-- | Token module reference used for testing. Should be the same as 'tokenModuleV0Ref'.
+testModuleRef :: TokenModuleRef
+testModuleRef = TokenModuleRef $ read "5c5c2645db84a7026d78f2501740f60a8ccb8fae5c166dc2428077fd9a699a4a"
+
 dummyAddress2 :: AccountAddress
 dummyAddress2 = Helpers.accountAddressFromSeed 2
 
@@ -291,6 +295,24 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             (initialBlockStateWithCustomKeys numKeys authorizedKeys threshold)
             transactionsAndAssertions
+    it "Create PLT - invalid module reference" $ do
+        let invalidRef = TokenModuleRef (Hash.hash "invalid")
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction = txCreatePLT 1 createPLT1{_cpltTokenModule = invalidRef},
+                      biaaAssertion = \result _ -> do
+                        return $
+                            Helpers.assertUpdateFailureWithReason
+                                (InvalidTokenModuleRef invalidRef)
+                                result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
   where
     txCreatePLTWithKeys ctSeqNumber createPLT ctKeys =
         Runner.ChainUpdateTx
@@ -305,7 +327,6 @@ testCreatePLT _ pvString = describe pvString $ do
             ctSeqNumber
             createPLT
             [(0, DummyData.dummyAuthorizationKeyPair)]
-    dummyHash = Hash.hashShort BSS.empty
     plt1 = Types.TokenId "PLT1"
     plt2 = Types.TokenId "PLT2"
     params1 =
@@ -322,7 +343,7 @@ testCreatePLT _ pvString = describe pvString $ do
     toTokenParam = Types.TokenParameter . BSS.toShort . CBOR.tokenInitializationParametersToBytes
     createPLT1 =
         Types.CreatePLT
-            { _cpltTokenModule = TokenModuleRef dummyHash,
+            { _cpltTokenModule = testModuleRef,
               _cpltTokenId = plt1,
               _cpltInitializationParameters = toTokenParam params1,
               _cpltDecimals = 0
@@ -340,7 +361,7 @@ testCreatePLT _ pvString = describe pvString $ do
             }
     createPLT2 =
         Types.CreatePLT
-            { _cpltTokenModule = TokenModuleRef dummyHash,
+            { _cpltTokenModule = testModuleRef,
               _cpltTokenId = plt2,
               _cpltInitializationParameters = toTokenParam params2,
               _cpltDecimals = 0

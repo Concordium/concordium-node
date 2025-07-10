@@ -1158,7 +1158,8 @@ newtype ActiveFinalizationM (pv :: ProtocolVersion) (r :: Type) (s :: Type) (m :
           SkovQueryMonad
         )
 
-deriving instance (PLTQuery bs m) => PLTQuery bs (ActiveFinalizationM pv r s m)
+deriving instance (TokenStateOperations ts m) => TokenStateOperations ts (ActiveFinalizationM pv r s m)
+deriving instance (PLTQuery bs ts m) => PLTQuery bs ts (ActiveFinalizationM pv r s m)
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (ActiveFinalizationM pv r s m)
 deriving instance GlobalStateTypes (ActiveFinalizationM pv r s m)
 

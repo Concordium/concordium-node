@@ -121,47 +121,73 @@ testSetTokenCirculatingSupply = runBlobStore $ do
     hash6 <- getHashM tokens6
     lift $ assertEqual "Hash of tokens3 and tokens6 should be the same" hash3 hash6
 
-testSetTokenState :: Assertion
-testSetTokenState = runBlobStore $ do
+testUpdateTokenState :: Assertion
+testUpdateTokenState = runBlobStore $ do
     (idxABC, tokens0) <- createToken configABC =<< emptyPLTPV
     (idxDEF, tokens1) <- createToken configDEF tokens0
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" Nothing
-        =<< getTokenState idxABC "TestKey1" tokens1
-    tokens2 <- setTokenState idxABC "TestKey1" (Just "0") tokens1
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "0")
-        =<< getTokenState idxABC "TestKey1" tokens2
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" Nothing
-        =<< getTokenState idxDEF "TestKey1" tokens2
-    tokens3 <- setTokenState idxDEF "TestKey1" (Just "1") tokens2
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "0")
-        =<< getTokenState idxABC "TestKey1" tokens3
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" (Just "1")
-        =<< getTokenState idxDEF "TestKey1" tokens3
-    tokens4 <- setTokenState idxABC "TestKey1" (Just "2") tokens3
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "2")
-        =<< getTokenState idxABC "TestKey1" tokens4
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" (Just "1")
-        =<< getTokenState idxDEF "TestKey1" tokens4
-    hash4 <- getHashM @_ @ProtocolLevelTokensHash tokens4
-    tokens5 <- setTokenState idxDEF "TestKey2" (Just "3") tokens4
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "2")
-        =<< getTokenState idxABC "TestKey1" tokens5
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" (Just "1")
-        =<< getTokenState idxDEF "TestKey1" tokens5
-    lift . assertEqual "getTokenState for DEF \"TestKey2\"" (Just "3")
-        =<< getTokenState idxDEF "TestKey2" tokens5
-    tokens6 <- setTokenState idxDEF "TestKey2" Nothing tokens5
-    lift . assertEqual "getTokenState for ABC \"TestKey1\"" (Just "2")
-        =<< getTokenState idxABC "TestKey1" tokens6
-    lift . assertEqual "getTokenState for DEF \"TestKey1\"" (Just "1")
-        =<< getTokenState idxDEF "TestKey1" tokens6
-    lift . assertEqual "getTokenState for DEF \"TestKey2\"" Nothing
-        =<< getTokenState idxDEF "TestKey2" tokens6
-    hash6 <- getHashM tokens6
-    lift $ assertEqual "Hash of tokens4 and tokens6 should be the same" hash4 hash6
+    mutableStateABC <- getMutableTokenState idxABC tokens1
+    mutableStateDEF <- getMutableTokenState idxDEF tokens1
+    hash1 <- getHashM @_ @ProtocolLevelTokensHash tokens1
+
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" Nothing
+        =<< lookupTokenState "TestKey1" mutableStateABC
+    lift . assertEqual "updateTokenState for ABC \"TestKey1\"" (Just False)
+        =<< updateTokenState "TestKey1" (Just "0") mutableStateABC
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "0")
+        =<< lookupTokenState "TestKey1" mutableStateABC
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" Nothing
+        =<< lookupTokenState "TestKey1" mutableStateDEF
+
+    lift . assertEqual "updateTokenState for DEF \"TestKey1\"" (Just False)
+        =<< updateTokenState "TestKey1" (Just "1") mutableStateDEF
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "0")
+        =<< lookupTokenState "TestKey1" mutableStateABC
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" (Just "1")
+        =<< lookupTokenState "TestKey1" mutableStateDEF
+
+    lift . assertEqual "updateTokenState for ABC \"TestKey1\"" (Just True)
+        =<< updateTokenState "TestKey1" (Just "2") mutableStateABC
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "2")
+        =<< lookupTokenState "TestKey1" mutableStateABC
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" (Just "1")
+        =<< lookupTokenState "TestKey1" mutableStateDEF
+
+    tokens2 <-
+        setTokenState idxABC mutableStateABC tokens1
+            >>= setTokenState idxDEF mutableStateDEF
+    hash2 <- getHashM @_ @ProtocolLevelTokensHash tokens2
+    lift $ assertBool "Hash of tokens1 and tokens2 should not be the same" (hash1 /= hash2)
+    hash1' <- getHashM @_ @ProtocolLevelTokensHash tokens1
+    lift $ assertEqual "Hash of tokens1 should stay the same" hash1 hash1'
+
+    mutableStateABC2 <- getMutableTokenState idxABC tokens2
+    mutableStateDEF2 <- getMutableTokenState idxDEF tokens2
+    lift . assertEqual "updateTokenState for DEF \"TestKey2\"" (Just False)
+        =<< updateTokenState "TestKey2" (Just "3") mutableStateDEF2
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "2")
+        =<< lookupTokenState "TestKey1" mutableStateABC2
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" (Just "1")
+        =<< lookupTokenState "TestKey1" mutableStateDEF2
+    lift . assertEqual "lookupTokenState for DEF \"TestKey2\"" (Just "3")
+        =<< lookupTokenState "TestKey2" mutableStateDEF2
+
+    lift . assertEqual "updateTokenState for DEF \"TestKey2\"" (Just True)
+        =<< updateTokenState "TestKey2" Nothing mutableStateDEF2
+    lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" (Just "2")
+        =<< lookupTokenState "TestKey1" mutableStateABC2
+    lift . assertEqual "lookupTokenState for DEF \"TestKey1\"" (Just "1")
+        =<< lookupTokenState "TestKey1" mutableStateDEF2
+    lift . assertEqual "lookupTokenState for DEF \"TestKey2\"" Nothing
+        =<< lookupTokenState "TestKey2" mutableStateDEF2
+
+    tokens3 <-
+        setTokenState idxABC mutableStateABC2 tokens2
+            >>= setTokenState idxDEF mutableStateDEF2
+    hash3 <- getHashM @_ @ProtocolLevelTokensHash tokens3
+    lift $ assertEqual "Hash of tokens2 and tokens3 should be the same" hash2 hash3
 
 tests :: Spec
 tests = describe "GlobalStateTests.ProtocolLevelTokens" $ do
     it "createToken" testCreateToken
     it "setTokenCirculatingSupply" testSetTokenCirculatingSupply
-    it "setTokenState" testSetTokenState
+    it "updateTokenState" testUpdateTokenState

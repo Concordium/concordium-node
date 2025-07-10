@@ -1405,25 +1405,6 @@ getTokenBalance acc tokenIx = do
                     tokenState <- refLoad tokenStateRef
                     return $ tasBalance tokenState
 
--- | Look up the 'TokenStateValue' associated with a particular token and key on an account.
---  This is only available at account versions that support protocol-level tokens.
-getTokenState ::
-    (MonadBlobStore m, AVSupportsPLT av) =>
-    PersistentAccount av ->
-    TokenIndex ->
-    TokenStateKey ->
-    m (Maybe TokenStateValue)
-getTokenState acc tokenIx key = do
-    case uncond (accountTokenStateTable acc) of
-        Null -> return Nothing
-        Some ref -> do
-            table <- refLoad ref
-            case Map.lookup tokenIx (tokenAccountStateTable table) of
-                Nothing -> return Nothing
-                Just tokenStateRef -> do
-                    tokenState <- refLoad tokenStateRef
-                    return $ Map.lookup key (tasModuleState tokenState)
-
 -- ** Updates
 
 -- | Apply account updates to an account. It is assumed that the address in

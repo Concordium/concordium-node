@@ -387,16 +387,6 @@ accountTokenBalance ::
     m TokenRawAmount
 accountTokenBalance (PAV5 acc) = V1.getTokenBalance acc
 
--- | Look up the 'TokenStateValue' associated with a particular token and key on an account.
---  This is only available at account versions that support protocol-level tokens.
-accountTokenState ::
-    (MonadBlobStore m, AVSupportsPLT av) =>
-    PersistentAccount av ->
-    BlockState.TokenIndex ->
-    BlockState.TokenStateKey ->
-    m (Maybe BlockState.TokenStateValue)
-accountTokenState (PAV5 acc) = V1.getTokenState acc
-
 -- ** 'PersistentBakerInfoRef' queries
 
 -- | Load 'BakerInfo' from a 'PersistentBakerInfoRef'.

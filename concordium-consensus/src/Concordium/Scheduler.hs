@@ -2900,11 +2900,13 @@ handleCreatePLT updateHeader payload = runExceptT $ do
     let tokenId = payload ^. cpltTokenId
     maybeExistingToken <- lift $ getTokenIndex tokenId
     when (isJust maybeExistingToken) $ throwError $ DuplicateTokenId tokenId
+    let tokenModuleRef = payload ^. cpltTokenModule
+    unless (tokenModuleRef == TokenModule.tokenModuleV0Ref) $ throwError $ InvalidTokenModuleRef tokenModuleRef
     createResult <- lift . withBlockStateRollback $ do
         let config =
                 PLTConfiguration
                     { _pltTokenId = tokenId,
-                      _pltModule = payload ^. cpltTokenModule,
+                      _pltModule = tokenModuleRef,
                       _pltDecimals = payload ^. cpltDecimals
                     }
         tokenIx <- createToken config
