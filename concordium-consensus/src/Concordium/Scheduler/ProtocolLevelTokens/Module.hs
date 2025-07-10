@@ -141,6 +141,8 @@ data PreprocessedTokenOperation
         {ptgoTarget :: !CborTokenHolder}
     | PTOTokenRemoveDenyList
         {ptgoTarget :: !CborTokenHolder}
+    | PTOTokenPause
+    | PTOTokenUnpause
     deriving (Eq, Show)
 
 -- | Convert 'TokenAmount's to 'TokenRawAmount's, checking that they are within
@@ -186,6 +188,8 @@ preprocessTokenUpdateTransaction decimals = mapM preproc . tokenOperations
         return PTOTokenAddDenyList{ptgoTarget = receiver}
     preproc (TokenRemoveDenyList receiver) =
         return PTOTokenRemoveDenyList{ptgoTarget = receiver}
+    preproc TokenPause = return PTOTokenPause
+    preproc TokenUnpause = return PTOTokenUnpause
 
 -- | Encode and log a 'TokenEvent'.
 logEncodeTokenEvent :: (PLTKernelUpdate m) => TokenEvent -> m ()
@@ -347,6 +351,14 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                             pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" Nothing
                             logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
+                        PTOTokenPause -> do
+                            pltTickEnergy tokenPauseUnpauseCost
+                            setTokenState "paused" (Just "")
+                            logEncodeTokenEvent Pause
+                        PTOTokenUnpause -> do
+                            pltTickEnergy tokenPauseUnpauseCost
+                            setTokenState "paused" Nothing
+                            logEncodeTokenEvent Unpause
             return (opIndex + 1)
     foldM_ handleOperation 0 operations
   where
@@ -428,7 +440,7 @@ queryTokenModuleState = do
                 Nothing -> pltError $ QTEInvariantViolation "Governance account does not exist"
                 Just account -> return account
         accountTokenHolderShort <$> getAccountCanonicalAddress account
-    tmsPaused <- isJust <$> getTokenState "paused"
+    tmsPaused <- Just . isJust <$> getTokenState "paused"
     tmsAllowList <- Just . isJust <$> getTokenState "allowList"
     tmsDenyList <- Just . isJust <$> getTokenState "denyList"
     tmsMintable <- Just . isJust <$> getTokenState "mintable"
