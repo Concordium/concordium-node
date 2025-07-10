@@ -841,8 +841,8 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
     encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
     sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
-testExecuteTokenUpdateTransactionMintBurn :: Spec
-testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransaction mint, burn & pause" $ do
+testExecuteTokenUpdateTransactionMintBurnPause :: Spec
+testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTransaction mint, burn & pause" $ do
     it "invalid transaction" $ do
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1053,6 +1053,34 @@ testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransact
                     :>>: Done ()
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     testLists
+    it "pause: OK" $ do
+        let transaction =
+                TokenUpdateTransaction . Seq.fromList $
+                    [TokenPause]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTE (PLTChargeEnergy tokenPauseUnpauseCost) :-> ())
+                    :>>: (PLTU (SetTokenState "paused" $ Just "") :-> ())
+                    :>>: (PLTU (LogTokenEvent (TokenEventType "pause") $ encodeTokenEventDetails Nothing mempty ()) :-> ())
+                    :>>: Done ()
+        assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
+    it "unpause: OK" $ do
+        let transaction =
+                TokenUpdateTransaction . Seq.fromList $
+                    [TokenUnpause]
+        let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
+            trace =
+                (PLTQ GetDecimals :-> 6)
+                    :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 0)))
+                    :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
+                    :>>: (PLTE (PLTChargeEnergy tokenPauseUnpauseCost) :-> ())
+                    :>>: (PLTU (SetTokenState "paused" Nothing) :-> ())
+                    :>>: (PLTU (LogTokenEvent (TokenEventType "unpause") $ encodeTokenEventDetails Nothing mempty ()) :-> ())
+                    :>>: Done ()
+        assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
   where
     encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
     sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
@@ -1539,7 +1567,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
 tests :: Spec
 tests = describe "TokenModule" $ do
     testInitializeToken
-    testExecuteTokenUpdateTransactionMintBurn
+    testExecuteTokenUpdateTransactionMintBurnPause
     testExecuteTokenUpdateTransactionTransfer
     testQueryTokenModuleState
     testTokenOutOfEnergy
