@@ -842,7 +842,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
     sender ai = TransactionContext (AccountIndex ai) (dummyAccountAddress $ fromIntegral ai)
 
 testExecuteTokenUpdateTransactionMintBurn :: Spec
-testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransaction mint & burn" $ do
+testExecuteTokenUpdateTransactionMintBurn = describe "executeTokenUpdateTransaction mint, burn & pause" $ do
     it "invalid transaction" $ do
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace =
@@ -1082,7 +1082,7 @@ testLists = do
                             :>>: ( PLTU
                                     ( LogTokenEvent
                                         (TokenEventType $ ltcOperation listConf)
-                                        (encodeTargetDetails receiver1)
+                                        (encodeTokenEventDetails (Just "target") encodeCborTokenHolder receiver1)
                                     )
                                     :-> ()
                                  )
@@ -1175,7 +1175,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                                 { tmsName = "My protocol-level token",
                                   tmsMetadata = metadata,
                                   tmsGovernanceAccount = governanceAccount,
-                                  tmsPaused = False,
+                                  tmsPaused = Just False,
                                   tmsAllowList = Just True,
                                   tmsDenyList = Just False,
                                   tmsMintable = Just True,
@@ -1198,7 +1198,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                     :>>: (PLTQ (GetTokenState "governanceAccount") :-> Just (encode (AccountIndex 1)))
                     :>>: (PLTQ (GetAccountByIndex (AccountIndex 1)) :-> Just 1)
                     :>>: (PLTQ (GetAccountCanonicalAddress 1) :-> dummyAccountAddress 1)
-                    :>>: (PLTQ (GetTokenState "paused") :-> Nothing)
+                    :>>: (PLTQ (GetTokenState "paused") :-> Just "")
                     :>>: (PLTQ (GetTokenState "allowList") :-> Nothing)
                     :>>: (PLTQ (GetTokenState "denyList") :-> Just "")
                     :>>: (PLTQ (GetTokenState "mintable") :-> Nothing)
@@ -1209,7 +1209,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                                 { tmsName = "Another PLT",
                                   tmsMetadata = metadata,
                                   tmsGovernanceAccount = governanceAccount,
-                                  tmsPaused = False,
+                                  tmsPaused = Just True,
                                   tmsAllowList = Just False,
                                   tmsDenyList = Just True,
                                   tmsMintable = Just False,
@@ -1453,8 +1453,8 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
         TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
     receiver1 = CborHolderAccount (dummyAccountAddress 0) Nothing
     amt10'000 = TokenAmount 10_000 3
-    mkMintOp tgoMintAmount = TokenMint{..}
-    mkBurnOp tgoBurnAmount = TokenBurn{..}
+    mkMintOp toMintAmount = TokenMint{..}
+    mkBurnOp toBurnAmount = TokenBurn{..}
     mkTransferOp ttAmount ttRecipient ttMemo = TokenTransfer TokenTransferBody{..}
 
     mintPayload =
