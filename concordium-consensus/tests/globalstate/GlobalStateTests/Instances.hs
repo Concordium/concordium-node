@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -127,7 +128,8 @@ invariantInstances (Instances.InstancesTree size bf) = do
     checkBinary (==) recSize size "==" "measured size" "recorded size"
 
 -- | A model for an individual instance.
-data ModelInstance = forall v.
+data ModelInstance
+    = forall v.
       (Wasm.IsWasmVersion v) =>
     ModelInstance
     { mInstanceParameters :: !Instances.PersistentInstanceParameters,

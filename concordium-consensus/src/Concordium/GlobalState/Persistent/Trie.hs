@@ -32,6 +32,7 @@ import qualified Data.Primitive.Array as Array
 import Data.Serialize
 import qualified Data.Vector as V
 import Data.Word
+import qualified GHC.IsList as IsList
 
 import qualified Concordium.Crypto.BlsSignature as Bls
 import qualified Concordium.Crypto.SHA256 as SHA256
@@ -120,7 +121,7 @@ branchesToList = mkl 0 . Foldable.toList . theBranches
 -- | Convert a list to 'Branches'. The list MUST have length 256 (i.e. the branching degree of
 --  the Trie).
 branchesFromList :: [Nullable r] -> Branches r
-branchesFromList = Branches . Array.fromList . mkl 0
+branchesFromList = Branches . IsList.fromList . mkl 0
   where
     mkl _ [] = []
     mkl !i (Null : r) = mkl (i + 1) r
@@ -140,14 +141,14 @@ branchAt br i =
 -- | Update the branch at a particular index.
 --  This is strict in the value.
 updateBranch :: Word8 -> Nullable r -> Branches r -> Branches r
-updateBranch i (Some v) = Branches . Array.fromList . updl . Foldable.toList . theBranches
+updateBranch i (Some v) = Branches . IsList.fromList . updl . Foldable.toList . theBranches
   where
     updl [] = [BranchEntry i v]
     updl l@(p@(BranchEntry k _) : r) = case compare i k of
         LT -> BranchEntry i v : l
         EQ -> BranchEntry i v : r
         GT -> p : updl r
-updateBranch i Null = Branches . Array.fromList . updl . Foldable.toList . theBranches
+updateBranch i Null = Branches . IsList.fromList . updl . Foldable.toList . theBranches
   where
     updl [] = []
     updl l@(p@(BranchEntry k _) : r) = case compare i k of
@@ -159,8 +160,8 @@ updateBranch i Null = Branches . Array.fromList . updl . Foldable.toList . theBr
 --  be distinct.
 pairBranch :: (Word8, r) -> (Word8, r) -> Branches r
 pairBranch (k1, v1) (k2, v2)
-    | k1 <= k2 = Branches $ Array.fromListN 2 [BranchEntry k1 v1, BranchEntry k2 v2]
-    | otherwise = Branches $ Array.fromListN 2 [BranchEntry k2 v2, BranchEntry k1 v1]
+    | k1 <= k2 = Branches $ IsList.fromListN 2 [BranchEntry k1 v1, BranchEntry k2 v2]
+    | otherwise = Branches $ IsList.fromListN 2 [BranchEntry k2 v2, BranchEntry k1 v1]
 
 -- | Trie with keys all of same fixed length treated as lists of bytes.
 --  The first parameter of 'TrieF' is the type of keys, which should

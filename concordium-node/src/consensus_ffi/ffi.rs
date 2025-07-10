@@ -2364,7 +2364,7 @@ impl ConsensusContainer {
             )
             .try_into()?
         };
-        response.ensure_ok("account or block")?;
+        response.ensure_ok("tokenId or block")?;
         Ok((out_hash, out_data))
     }
 

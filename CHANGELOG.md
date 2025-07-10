@@ -6,6 +6,7 @@
   - Adjusted energy cost of mint/burn from 100 to 50
   - PLTs can now only be created with the module reference:
     5c5c2645db84a7026d78f2501740f60a8ccb8fae5c166dc2428077fd9a699a4a
+- Update GHC version to 9.8.4 (lts-23.27).
 
 ## 9.0.5 (DevNet)
 
