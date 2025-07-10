@@ -357,7 +357,8 @@ jobs:
           dir Node
         shell: cmd
       
-      - name: Rename files to prepare for signing 
+      - name: Rename files to prepare for signing (smctl can only sign files of certain types supported by signtool)
+        # See: https://docs.digicert.com/it/digicert-keylocker/client-tools/signing-tools/files-supported-for-signing.html
         run: |
           mv ./Node/ConcordiumConsensusDLL ./Node/ConcordiumConsensusDLL.dll
           mv ./Node/ConcordiumBaseDLL ./Node/ConcordiumBaseDLL.dll
