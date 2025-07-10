@@ -123,7 +123,6 @@ import qualified Control.Monad.State.Strict as MTL
 import Control.Monad.Trans.Maybe
 import qualified Control.Monad.Writer.Strict as MTL
 import Data.Bool.Singletons
-import Data.Foldable
 import Data.IORef
 import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
@@ -4323,24 +4322,6 @@ doGetPrePreCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
   where
     sav = sAccountVersionFor (protocolVersion @pv)
 
--- | Set the token-level state of a token for a given 'TokenStateKey'. If the value is
---  @Nothing@, the key is removed from the token state. Otherwise the key is mapped to the
---  specified value.
---
---  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-doSetTokenState ::
-    forall pv m.
-    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
-    PersistentBlockState pv ->
-    PLT.TokenIndex ->
-    PLT.TokenStateKey ->
-    Maybe PLT.TokenStateValue ->
-    m (PersistentBlockState pv)
-doSetTokenState pbs tokIx key mValue = do
-    bsp <- loadPBS pbs
-    newPLTs <- PLT.setTokenState tokIx key mValue (bspProtocolLevelTokens bsp)
-    storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
-
 -- | Set the recorded total circulating supply for a protocol-level token.
 --  This should always be kept up-to-date with the total balance held in accounts
 --  (and smart contracts).
@@ -4375,6 +4356,18 @@ doCreateToken pbs tokenConfig = do
     (tokIx, newPLTs) <- PLT.createToken tokenConfig (bspProtocolLevelTokens bsp)
     (tokIx,) <$> storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
 
+doSetTokenState ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    StateV1.MutableState ->
+    m (PersistentBlockState pv)
+doSetTokenState pbs tokenIndex mutableState = do
+    bsp <- loadPBS pbs
+    newPLTs <- PLT.setTokenState tokenIndex mutableState (bspProtocolLevelTokens bsp)
+    storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
 -- | Helper function to update a reference to a token account state table.
 updateTokenAccountStateTable ::
     (Monad m, MonadBlobStore m, Reference m ref TokenAccountStateTable) =>
@@ -4398,46 +4391,6 @@ updateTokenAccountStateTable ref tokIx update = do
             tokIx
             tst
     refMake $ TokenAccountStateTable{tokenAccountStateTable = tst'}
-
--- | Update the token module state. This batch-updates multiple keys.
-doUpdateTokenAccountModuleState ::
-    forall pv m.
-    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
-    PersistentBlockState pv ->
-    PLT.TokenIndex ->
-    AccountIndex ->
-    [(PLT.TokenStateKey, TokenAccountStateValueDelta)] ->
-    m (PersistentBlockState pv)
-doUpdateTokenAccountModuleState pbs tokIx accIx delta = do
-    bsp <- loadPBS pbs
-    newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
-    storePBS pbs bsp{bspAccounts = newAccounts}
-  where
-    upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
-        CTrue (Some ref) -> doUpdate ref
-        CTrue Null -> do
-            ref <- refMake emptyTokenAccountStateTable
-            doUpdate ref
-      where
-        doUpdate ref = do
-            ref' <- updateTokenAccountStateTable ref tokIx updateModuleState
-            pure (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue $ Some ref'})
-
-    updateModuleState :: TokenAccountState -> m TokenAccountState
-    updateModuleState modState = do
-        let newModState =
-                foldl'
-                    ( \m (k, d) ->
-                        case d of
-                            TASVDelete -> Map.delete k m
-                            TASVUpdate v -> Map.insert k v m
-                    )
-                    (tasModuleState modState)
-                    delta
-        return $
-            modState
-                { tasModuleState = newModState
-                }
 
 -- | Update the token balance.
 doUpdateTokenAccountBalance ::
@@ -4555,20 +4508,25 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoRef (AccountVersionFor pv)
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
     type InstrumentedModuleRef (PersistentBlockStateMonad pv r m) = Modules.PersistentInstrumentedModuleV
+    type MutableTokenState (PersistentBlockStateMonad pv r m) = StateV1.MutableState
 
 instance (PersistentState av pv r m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
     getModuleArtifact = doGetModuleArtifact
 
+instance (PersistentState av pv r m) => TokenStateOperations StateV1.MutableState (PersistentBlockStateMonad pv r m) where
+    lookupTokenState = PLT.lookupTokenState
+    updateTokenState = PLT.updateTokenState
+
 instance
     (IsProtocolVersion pv, PersistentState av pv r m) =>
-    PLTQuery (PersistentBlockState pv) (PersistentBlockStateMonad pv r m)
+    PLTQuery (PersistentBlockState pv) StateV1.MutableState (PersistentBlockStateMonad pv r m)
     where
     getPLTList =
         PLT.getPLTList . bspProtocolLevelTokens <=< loadPBS
     getTokenIndex bs tokIx =
         PLT.getTokenIndex tokIx . bspProtocolLevelTokens =<< loadPBS bs
-    getTokenState bs tokIx key =
-        PLT.getTokenState tokIx key . bspProtocolLevelTokens =<< loadPBS bs
+    getMutableTokenState bs tokenIndex =
+        PLT.getMutableTokenState tokenIndex . bspProtocolLevelTokens =<< loadPBS bs
     getTokenConfiguration bs tokIx =
         PLT.getTokenConfiguration tokIx . bspProtocolLevelTokens =<< loadPBS bs
     getTokenCirculatingSupply bs tokIx =
@@ -4576,11 +4534,11 @@ instance
 
 instance
     (IsProtocolVersion pv, PersistentState av pv r m) =>
-    PLTQuery (HashedPersistentBlockState pv) (PersistentBlockStateMonad pv r m)
+    PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (PersistentBlockStateMonad pv r m)
     where
     getPLTList = getPLTList . hpbsPointers
     getTokenIndex = getTokenIndex . hpbsPointers
-    getTokenState = getTokenState . hpbsPointers
+    getMutableTokenState = getMutableTokenState . hpbsPointers
     getTokenConfiguration = getTokenConfiguration . hpbsPointers
     getTokenCirculatingSupply = getTokenCirculatingSupply . hpbsPointers
 
@@ -4691,7 +4649,6 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
 
     getAccountTokens = accountTokens
     getAccountTokenBalance = accountTokenBalance
-    getAccountTokenState = accountTokenState
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
@@ -4778,10 +4735,9 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoUpdateMissedRounds = doUpdateMissedRounds
     bsoPrimeForSuspension = doPrimeForSuspension
     bsoSuspendValidators = doSuspendValidators
-    bsoSetTokenState = doSetTokenState
     bsoSetTokenCirculatingSupply = doSetTokenCirculatingSupply
     bsoCreateToken = doCreateToken
-    bsoUpdateTokenAccountModuleState = doUpdateTokenAccountModuleState
+    bsoSetTokenState = doSetTokenState
     bsoUpdateTokenAccountBalance = doUpdateTokenAccountBalance
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS

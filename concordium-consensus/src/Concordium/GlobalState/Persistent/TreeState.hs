@@ -542,7 +542,9 @@ newtype PersistentTreeStateMonad state (m :: Type -> Type) (a :: Type) = Persist
           TimeMonad
         )
 
-deriving instance (PLTQuery bs m) => PLTQuery bs (PersistentTreeStateMonad state m)
+deriving instance (TokenStateOperations ts m) => TokenStateOperations ts (PersistentTreeStateMonad state m)
+
+deriving instance (PLTQuery bs ts m) => PLTQuery bs ts (PersistentTreeStateMonad state m)
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad state m)
 

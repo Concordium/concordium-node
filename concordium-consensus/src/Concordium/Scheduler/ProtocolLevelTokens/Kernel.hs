@@ -21,14 +21,17 @@ class PLTKernelQuery m where
     getAccountIndex :: PLTAccount m -> m AccountIndex
     getAccountByIndex :: AccountIndex -> m (Maybe (PLTAccount m))
     getAccountBalance :: PLTAccount m -> m TokenRawAmount
-    getAccountState :: PLTAccount m -> TokenStateKey -> m (Maybe TokenStateValue)
     getAccountCanonicalAddress :: PLTAccount m -> m AccountAddress
     getCirculatingSupply :: m TokenRawAmount
     getDecimals :: m Word8
 
 class (PLTKernelQuery m) => PLTKernelUpdate m where
-    setTokenState :: TokenStateKey -> Maybe TokenStateValue -> m ()
-    setAccountState :: PLTAccount m -> TokenStateKey -> Maybe TokenStateValue -> m ()
+    -- | Set or clear a value in the token state at the corresponding key.
+    --
+    --  Returns @Just True@ if there was an existing entry, @Just False@ if there was
+    --  no existing entry, and @Nothing@ if the update failed because the key was locked
+    --  by an iterator.
+    setTokenState :: TokenStateKey -> Maybe TokenStateValue -> m (Maybe Bool)
 
     -- | Transfer a token amount from one account to another, with an optional memo.
     --  The return value indicates if the transfer was successful.
