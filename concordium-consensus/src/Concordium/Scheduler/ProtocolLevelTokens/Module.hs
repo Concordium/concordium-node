@@ -150,6 +150,8 @@ data PreprocessedTokenOperation
         {ptgoTarget :: !CborTokenHolder}
     | PTOTokenRemoveDenyList
         {ptgoTarget :: !CborTokenHolder}
+    | PTOTokenPause
+    | PTOTokenUnpause
     deriving (Eq, Show)
 
 -- | Convert 'TokenAmount's to 'TokenRawAmount's, checking that they are within
@@ -195,6 +197,8 @@ preprocessTokenUpdateTransaction decimals = mapM preproc . tokenOperations
         return PTOTokenAddDenyList{ptgoTarget = receiver}
     preproc (TokenRemoveDenyList receiver) =
         return PTOTokenRemoveDenyList{ptgoTarget = receiver}
+    preproc TokenPause = return PTOTokenPause
+    preproc TokenUnpause = return PTOTokenUnpause
 
 -- | Encode and log a 'TokenEvent'.
 logEncodeTokenEvent :: (PLTKernelUpdate m) => TokenEvent -> m ()
@@ -228,6 +232,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
     let handleOperation !opIndex op = do
             case op of
                 PTOTransfer{..} -> do
+                    checkPaused opIndex "transfer"
                     recipientAccount <- requireAccount opIndex pthoRecipient
                     -- If the allow list is enabled, check that the sender and recipient are
                     -- both on the allow list.
@@ -304,6 +309,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                 }
                     case tokenGovernanceOp of
                         PTOTokenMint{..} -> do
+                            checkPaused opIndex "mint"
                             requireFeature opIndex "mint" "mintable"
                             pltTickEnergy tokenMintCost
                             mintOK <- mint tcSender ptgoAmount
@@ -318,6 +324,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                             toTokenAmount decimals (maxBound :: TokenRawAmount)
                                         }
                         PTOTokenBurn{..} -> do
+                            checkPaused opIndex "burn"
                             requireFeature opIndex "burn" "burnable"
                             pltTickEnergy tokenBurnCost
                             burnOK <- burn tcSender ptgoAmount
@@ -353,12 +360,29 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                             pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" Nothing
                             logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
+                        PTOTokenPause -> do
+                            pltTickEnergy tokenPauseUnpauseCost
+                            setModuleState "paused" (Just "")
+                            logEncodeTokenEvent Pause
+                        PTOTokenUnpause -> do
+                            pltTickEnergy tokenPauseUnpauseCost
+                            setModuleState "paused" Nothing
+                            logEncodeTokenEvent Unpause
             return (opIndex + 1)
     foldM_ handleOperation 0 operations
   where
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
     failTH = pltError . encodeTokenRejectReason
+    checkPaused opIndex op = do
+        paused <- isJust <$> getModuleState "paused"
+        when paused $
+            failTH
+                OperationNotPermitted
+                    { trrOperationIndex = opIndex,
+                      trrAddressNotPermitted = Nothing,
+                      trrReason = Just $ Text.pack $ "token operation " ++ op ++ " is paused"
+                    }
 
 -- | Token state key prefix for global module state.
 moduleStatePrefix :: Word16
@@ -472,6 +496,7 @@ queryTokenModuleState = do
                 Nothing -> pltError $ QTEInvariantViolation "Governance account does not exist"
                 Just account -> return account
         accountTokenHolderShort <$> getAccountCanonicalAddress account
+    tmsPaused <- Just . isJust <$> getModuleState "paused"
     tmsAllowList <- Just . isJust <$> getModuleState "allowList"
     tmsDenyList <- Just . isJust <$> getModuleState "denyList"
     tmsMintable <- Just . isJust <$> getModuleState "mintable"
