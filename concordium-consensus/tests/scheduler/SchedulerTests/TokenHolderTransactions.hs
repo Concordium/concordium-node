@@ -134,8 +134,8 @@ testTokenHolder _ pvString =
             initialBlockState
             transactionsAndAssertions
   where
-    gtu = Types.TokenId $ fromString "Gtu!"
-    gtu2 = Types.TokenId $ fromString "gtU!"
+    gtu = Types.TokenId $ fromString "Gtu"
+    gtu2 = Types.TokenId $ fromString "gtU"
     params =
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
