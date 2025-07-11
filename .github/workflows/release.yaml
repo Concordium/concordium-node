@@ -242,7 +242,8 @@ jobs:
           path: ${{ env.ARTIFACT_NAME }}
 
   node-windows:
-    runs-on: windows-latest
+    runs-on: windows-latest  
+    environment: release # This step needs to use the release context to access credentials for code signing.
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
     defaults:
@@ -264,6 +265,36 @@ jobs:
           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].name')
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
         shell: bash
+
+      - name: Install DigiCert Client tools (Windows only)
+        id: digicert_client
+        uses: digicert/ssm-code-signing@v1.0.0
+
+      - name: Import Windows certificate (Windows only)
+        id: windows_certificate
+        env:
+          # Base64 encoding of the pfx/p12 certificate for Windows code signing.
+          SM_CLIENT_CERT_FILE_B64: ${{ secrets.WINDOWS_SM_CLIENT_CERT_FILE_B64 }}
+        run: |
+          $CERTIFICATE_PATH_BASE64="$env:RUNNER_TEMP\cert-b64.txt"
+          $CERTIFICATE_PATH="$env:RUNNER_TEMP\cert.pfx"
+
+          Set-Content -Path $CERTIFICATE_PATH_BASE64 -Value $env:SM_CLIENT_CERT_FILE_B64
+          certutil -decode $CERTIFICATE_PATH_BASE64 $CERTIFICATE_PATH
+          echo "CERTIFICATE_PATH=$CERTIFICATE_PATH" >> $env:GITHUB_OUTPUT
+
+      - name: Run smctl healthcheck to confirm if the tool is configured properly.
+        working-directory: ${{steps.build.outputs.bin_dir}}
+        env:
+          WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
+          WINDOWS_SM_KEYPAIR_ALIAS: ${{ secrets.WINDOWS_SM_KEYPAIR_ALIAS }}
+          SM_HOST: ${{ vars.WINDOWS_SM_HOST }}
+          SM_API_KEY: ${{ secrets.WINDOWS_SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ steps.windows_certificate.outputs.CERTIFICATE_PATH }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
+        run: |
+          smctl healthcheck --all
+        shell: cmd
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -314,6 +345,90 @@ jobs:
       - name: Build Windows Node
         run: |
           ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ env.RUST_VERSION }}
+
+      - name: Extract files to prepare for signing 
+        run: |
+          dir service\windows\installer
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer/Node.msi -x Node.cab
+          mkdir Node
+          dir
+          expand -d Node.cab
+          expand -F:* Node.cab ./Node
+          dir Node
+        shell: cmd
+      
+      - name: Rename files to prepare for signing (smctl can only sign files of certain types supported by signtool)
+        # See: https://docs.digicert.com/it/digicert-keylocker/client-tools/signing-tools/files-supported-for-signing.html
+        run: |
+          mv ./Node/ConcordiumConsensusDLL ./Node/ConcordiumConsensusDLL.dll
+          mv ./Node/ConcordiumBaseDLL ./Node/ConcordiumBaseDLL.dll
+          mv ./Node/ConcordiumSmartContractEngineDLL ./Node/ConcordiumSmartContractEngineDLL.dll
+          mv ./Node/Sha2DLL ./Node/Sha2DLL.dll
+          mv ./Node/NodeRunnerService ./Node/NodeRunnerService.exe
+          mv ./Node/NodeCollector ./Node/NodeCollector.exe 
+          mv ./Node/ConcordiumNode ./Node/ConcordiumNode.exe
+
+      - name: Sign files with smctl
+        working-directory: ${{steps.build.outputs.bin_dir}}
+        env:
+          WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
+          WINDOWS_SM_KEYPAIR_ALIAS: ${{ secrets.WINDOWS_SM_KEYPAIR_ALIAS }}
+          SM_HOST: ${{ vars.WINDOWS_SM_HOST }}
+          SM_API_KEY: ${{ secrets.WINDOWS_SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ steps.windows_certificate.outputs.CERTIFICATE_PATH }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
+          SM_ARGS: "--verbose --exit-non-zero-on-fail --failfast"
+        run: |
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumConsensusDLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumBaseDLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumSmartContractEngineDLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/Sha2DLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }}  ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/NodeRunnerService.exe --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/NodeCollector.exe  --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumNode.exe  --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+        shell: cmd
+
+      - name: Rename files back to their original form without extension. 
+        run: |
+          mv ./Node/ConcordiumConsensusDLL.dll ./Node/ConcordiumConsensusDLL
+          mv ./Node/ConcordiumBaseDLL.dll ./Node/ConcordiumBaseDLL
+          mv ./Node/ConcordiumSmartContractEngineDLL.dll ./Node/ConcordiumSmartContractEngineDLL
+          mv ./Node/Sha2DLL.dll ./Node/Sha2DLL
+          mv ./Node/NodeRunnerService.exe ./Node/NodeRunnerService
+          mv ./Node/NodeCollector.exe ./Node/NodeCollector
+          mv ./Node/ConcordiumNode.exe ./Node/ConcordiumNode
+
+      - name: Recreate the cabinet file. 
+        run: |
+          dir Node /b /a-d > cabfiles.txt
+          makecab.exe /D MaxDiskSize=0 /D Cabinet=ON /D Compress=ON /D CabinetName1=Node.cab /D SourceDir=Node /f cabfiles.txt
+        shell: cmd
+
+      - name: Repackage the cabinet file. 
+        run: |
+          del Node.cab
+          move disk1\Node.cab .
+          expand -d Node.cab
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer\Node.msi -k Node.cab
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer\Node.msi -a Node.cab
+        shell: cmd
+  
+      - name: Sign files with smctl
+        working-directory: ${{steps.build.outputs.bin_dir}}
+        env:
+          WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
+          WINDOWS_SM_KEYPAIR_ALIAS: ${{ secrets.WINDOWS_SM_KEYPAIR_ALIAS }}
+          SM_HOST: ${{ vars.WINDOWS_SM_HOST }}
+          SM_API_KEY: ${{ secrets.WINDOWS_SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ steps.windows_certificate.outputs.CERTIFICATE_PATH }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
+          SM_ARGS: "--verbose --exit-non-zero-on-fail --failfast"
+        run: |
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./service/windows/installer/Node.msi --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+        shell: cmd
+
+      - name: Rename the package to target filename.
+        run: |
           cp ./service/windows/installer/Node.msi ./${{ env.ARTIFACT_NAME }}
 
       - name: Upload artifact
