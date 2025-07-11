@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 9.0.6 (DevNet)
+
 - Protocol-level tokens:
   - Adjusted energy cost of mint/burn from 100 to 50
   - PLTs can now only be created with the module reference:
