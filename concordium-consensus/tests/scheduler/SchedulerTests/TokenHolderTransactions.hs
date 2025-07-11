@@ -113,7 +113,7 @@ testTokenHolder _ pvString =
                             Runner.TJSON
                                 { payload =
                                     Runner.TokenUpdate
-                                        { tuTokenId = gtu,
+                                        { tuTokenId = gtu2,
                                           tuOperations = Types.TokenParameter BSS.empty
                                         },
                                   metadata = makeDummyHeader dummyAddress 2 1_000,
@@ -134,7 +134,8 @@ testTokenHolder _ pvString =
             initialBlockState
             transactionsAndAssertions
   where
-    gtu = Types.TokenId $ fromString "GTU"
+    gtu = Types.TokenId $ fromString "Gtu"
+    gtu2 = Types.TokenId $ fromString "gtU"
     params =
         CBOR.TokenInitializationParameters
             { tipName = "Protocol-level token",
