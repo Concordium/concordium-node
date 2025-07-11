@@ -126,9 +126,13 @@ instance (MonadBlobStore m) => MHashableTo m SHA256.Hash PLT where
 
 type TokenRef = HashedBufferedRef PLT
 
+-- Normalized version of 'TokenId'. Normalized here means with all letters capitalized.
+-- The 'TokenIndex' is stored under a 'NormalizedTokenId', so when looking up a token, it is first
+-- normalized, so that a token can be looked up by any capitalization.
 newtype NormalizedTokenId = NormalizedTokenId BS.ByteString
     deriving (Eq, Ord)
 
+-- Normalize a 'TokenId', making all letters upper case.
 normalizeTokenId :: TokenId -> NormalizedTokenId
 normalizeTokenId (TokenId tid) = NormalizedTokenId $ BSC.map toUpper $ SBS.fromShort tid
 
