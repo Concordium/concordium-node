@@ -11,6 +11,9 @@ import Control.Monad.Trans.Class
 import Data.Bits
 import Data.Bool.Singletons
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
+import qualified Data.ByteString.Short as SBS
+import Data.Char (toUpper)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Word
@@ -47,7 +50,7 @@ data PLTConfiguration = PLTConfiguration
       -- | The number of decimal places used in the representation of the token.
       _pltDecimals :: !Word8
     }
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Show)
 
 instance Serialize PLTConfiguration where
     put PLTConfiguration{..} = do
@@ -123,6 +126,16 @@ instance (MonadBlobStore m) => MHashableTo m SHA256.Hash PLT where
 
 type TokenRef = HashedBufferedRef PLT
 
+-- Normalized version of 'TokenId'. Normalized here means with all letters capitalized.
+-- The 'TokenIndex' is stored under a 'NormalizedTokenId', so when looking up a token, it is first
+-- normalized, so that a token can be looked up by any capitalization.
+newtype NormalizedTokenId = NormalizedTokenId BS.ByteString
+    deriving (Eq, Ord)
+
+-- Normalize a 'TokenId', making all letters upper case.
+normalizeTokenId :: TokenId -> NormalizedTokenId
+normalizeTokenId (TokenId tid) = NormalizedTokenId $ BSC.map toUpper $ SBS.fromShort tid
+
 -- | The table holding the protocol level token state.
 data ProtocolLevelTokens = ProtocolLevelTokens
     { -- | The table of PLTs.
@@ -131,7 +144,7 @@ data ProtocolLevelTokens = ProtocolLevelTokens
       -- TODO: In future it would likely make sense to handle this with a difference map and store
       -- the finalized map in the LMDB database. (As, for instance, for modules.)
       -- This is not necessary if the number of tokens remains small.
-      _pltMap :: !(Map.Map TokenId TokenIndex)
+      _pltMap :: !(Map.Map NormalizedTokenId TokenIndex)
     }
 
 instance (MonadBlobStore m) => BlobStorable m ProtocolLevelTokens where
@@ -142,7 +155,7 @@ instance (MonadBlobStore m) => BlobStorable m ProtocolLevelTokens where
             -- We construct the map by simply iterating over the LFMBTree.
             let f (nxtIndex, m) v = do
                     config <- refLoad (_pltConfiguration v)
-                    return $!! (nxtIndex + 1, Map.insert (_pltTokenId config) nxtIndex m)
+                    return $!! (nxtIndex + 1, Map.insert (normalizeTokenId (_pltTokenId config)) nxtIndex m)
             (_, _pltMap) <- LFMBTree.mfold f (0, Map.empty) _pltTable
 
             return ProtocolLevelTokens{..}
@@ -244,7 +257,13 @@ emptyProtocolLevelTokensForPV = conditionallyStorePLTs emptyProtocolLevelTokens
 --  This returns the empty list when the protocol version does not support PLTs.
 getPLTList :: (MonadBlobStore m) => ProtocolLevelTokensForPV pv -> m [TokenId]
 getPLTList (ProtocolLevelTokensForPV CFalse) = return []
-getPLTList (ProtocolLevelTokensForPV (CTrue plts)) = Map.keys . _pltMap <$> refLoad plts
+getPLTList (ProtocolLevelTokensForPV (CTrue plts)) = do
+    table <- _pltTable <$> refLoad plts
+    LFMBTree.mfold step [] table
+  where
+    step acc v = do
+        tid <- _pltTokenId <$> refLoad (_pltConfiguration v)
+        return (tid : acc)
 
 -- | Get the 'TokenIndex' for a 'TokenId'. Returns @Nothing@ if there is no token with the given
 -- 'TokenId'.
@@ -253,7 +272,9 @@ getTokenIndex ::
     TokenId ->
     ProtocolLevelTokensForPV pv ->
     m (Maybe TokenIndex)
-getTokenIndex tokId = fmap (Map.lookup tokId . _pltMap) . loadPLTs
+getTokenIndex tokId = fmap (Map.lookup ntid . _pltMap) . loadPLTs
+  where
+    ntid = normalizeTokenId tokId
 
 -- | Get the 'PLT' with the given 'TokenIndex'.
 --
@@ -402,7 +423,7 @@ createToken config pvPLTs = do
                   _pltCirculatingSupply = TokenRawAmount 0
                 }
     (tokIndex, newTable) <- LFMBTree.append plt (_pltTable plts)
-    let newMap = Map.insert (_pltTokenId config) tokIndex (_pltMap plts)
+    let newMap = Map.insert (normalizeTokenId (_pltTokenId config)) tokIndex (_pltMap plts)
     pvPLTs' <- storePLTs ProtocolLevelTokens{_pltTable = newTable, _pltMap = newMap}
     return (tokIndex, pvPLTs')
 

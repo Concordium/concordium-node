@@ -1090,7 +1090,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
                     :>>: (PLTE (PLTChargeEnergy tokenPauseUnpauseCost) :-> ())
                     :>>: (PLTU (setModuleStateCall "paused" $ Just "") :-> Just True)
-                    :>>: (PLTU (LogTokenEvent (TokenEventType "pause") $ encodeTokenEventDetails Nothing mempty ()) :-> ())
+                    :>>: (PLTU (LogTokenEvent (TokenEventType "pause") emptyEventDetails) :-> ())
                     :>>: Done ()
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
     it "unpause: OK" $ do
@@ -1104,7 +1104,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
                     :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
                     :>>: (PLTE (PLTChargeEnergy tokenPauseUnpauseCost) :-> ())
                     :>>: (PLTU (setModuleStateCall "paused" Nothing) :-> Just False)
-                    :>>: (PLTU (LogTokenEvent (TokenEventType "unpause") $ encodeTokenEventDetails Nothing mempty ()) :-> ())
+                    :>>: (PLTU (LogTokenEvent (TokenEventType "unpause") emptyEventDetails) :-> ())
                     :>>: Done ()
         assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
   where
@@ -1137,7 +1137,7 @@ testLists = do
                             :>>: ( PLTU
                                     ( LogTokenEvent
                                         (TokenEventType $ ltcOperation listConf)
-                                        (encodeTokenEventDetails (Just "target") encodeCborTokenHolder receiver1)
+                                        (encodeTargetDetails receiver1)
                                     )
                                     :-> ()
                                  )
