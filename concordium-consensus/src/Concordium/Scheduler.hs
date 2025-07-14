@@ -2693,15 +2693,16 @@ handleTokenUpdate depositContext tokenId tokenOperations =
                 Just tokenIndex -> return tokenIndex
                 Nothing -> rejectTransaction $ NonExistentTokenId tokenId
         configuration <- lift $ getTokenConfiguration tokenIndex
+        let cannonicalTokenId = _pltTokenId configuration
         let moduleRef = Token._pltModule configuration
         -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
         -- Invoke the token module with operations.
         (energy, _energyLimitReason) <- getEnergy
         (res, energyUsed) <- lift $ invokeTokenOperations energy moduleRef tokenIndex senderAccount tokenOperations
         tickEnergy energyUsed
-        return res
+        return (res, cannonicalTokenId)
     -- Process the successful transaction computation.
-    commitTransaction computeState computeResult = do
+    commitTransaction computeState (computeResult, cannonicalTokenId) = do
         (usedEnergy, energyCost) <-
             computeExecutionCharge
                 (depositContext ^. wtcEnergyAmount)
@@ -2711,7 +2712,7 @@ handleTokenUpdate depositContext tokenId tokenOperations =
                 Left PLTEOutOfEnergy -> TxReject OutOfEnergy
                 Left (PLTEFail encodedRejectReason) ->
                     TxReject . TokenUpdateTransactionFailed $
-                        makeTokenModuleRejectReason tokenId encodedRejectReason
+                        makeTokenModuleRejectReason cannonicalTokenId encodedRejectReason
                 Right events -> TxSuccess events
         return (result, energyCost, usedEnergy)
     -- Call the module of the token with the operations and return the events emitted from the token module.
