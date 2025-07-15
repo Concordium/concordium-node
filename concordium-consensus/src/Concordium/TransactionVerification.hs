@@ -130,6 +130,8 @@ data NotOkResult
       CredentialDeploymentInvalidSignatures
     | -- | The 'ChainUpdate' had an expiry set too late.
       ChainUpdateEffectiveTimeBeforeTimeout
+    | -- | The 'ChainUpdate' is creating a PLT, but its effective time is non-zero.
+      ChainUpdateEffectiveTimeNonZeroForCreatePLT
     | -- | The `UpdateSequenceNumber` of the 'ChainUpdate' was too old.
       --  Reason for 'NotOk': the UpdateSequenceNumber can never be valid in a later block if the
       --  nonce is already used.
@@ -271,23 +273,28 @@ verifyChainUpdate ui@Updates.UpdateInstruction{..} =
                 unless (Types.validatePayloadSize (Types.protocolVersion @(Types.MPV m)) (Updates.updatePayloadSize uiHeader)) $
                     throwError $
                         NotOk InvalidPayloadSize
-                -- Check that the timeout is no later than the effective time,
-                -- or the update is immediate
-                when (Updates.updateTimeout uiHeader >= Updates.updateEffectiveTime uiHeader && Updates.updateEffectiveTime uiHeader /= 0) $
-                    throwError $
-                        NotOk ChainUpdateEffectiveTimeBeforeTimeout
-                -- check that the sequence number is not too old.
-                nextSN <- lift $ getNextUpdateSequenceNumber (Updates.updateType (Updates.uiPayload ui))
-                let nonce = Updates.updateSeqNumber (Updates.uiHeader ui)
-                when (nextSN > nonce) $ throwError $ NotOk $ ChainUpdateSequenceNumberTooOld nextSN
-                -- if this transaction was received individually then we also verify that the sequence
-                -- number is the next one.
-                exactSequenceNumber <- lift checkExactNonce
-                when (exactSequenceNumber && nonce /= nextSN) $ throwError (MaybeOk $ ChainUpdateInvalidNonce nextSN)
-                -- check the signature is valid
-                keys <- lift getUpdateKeysCollection
-                unless (Updates.checkAuthorizedUpdate keys ui) $ throwError $ MaybeOk ChainUpdateInvalidSignatures
-                return $ Ok $ ChainUpdateSuccess (getHash keys) nonce
+                case uiPayload of
+                    Updates.CreatePLTUpdatePayload _
+                        | Updates.updateEffectiveTime uiHeader > 0 ->
+                            throwError $ NotOk ChainUpdateEffectiveTimeNonZeroForCreatePLT
+                    _otherwise -> do
+                        -- Check that the timeout is no later than the effective time,
+                        -- or the update is immediate
+                        when (Updates.updateTimeout uiHeader >= Updates.updateEffectiveTime uiHeader && Updates.updateEffectiveTime uiHeader /= 0) $
+                            throwError $
+                                NotOk ChainUpdateEffectiveTimeBeforeTimeout
+                        -- check that the sequence number is not too old.
+                        nextSN <- lift $ getNextUpdateSequenceNumber (Updates.updateType (Updates.uiPayload ui))
+                        let nonce = Updates.updateSeqNumber (Updates.uiHeader ui)
+                        when (nextSN > nonce) $ throwError $ NotOk $ ChainUpdateSequenceNumberTooOld nextSN
+                        -- if this transaction was received individually then we also verify that the sequence
+                        -- number is the next one.
+                        exactSequenceNumber <- lift checkExactNonce
+                        when (exactSequenceNumber && nonce /= nextSN) $ throwError (MaybeOk $ ChainUpdateInvalidNonce nextSN)
+                        -- check the signature is valid
+                        keys <- lift getUpdateKeysCollection
+                        unless (Updates.checkAuthorizedUpdate keys ui) $ throwError $ MaybeOk ChainUpdateInvalidSignatures
+                        return $ Ok $ ChainUpdateSuccess (getHash keys) nonce
             )
 
 -- | Verifies a 'NormalTransaction' transaction.
