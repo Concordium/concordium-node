@@ -787,7 +787,9 @@ testGetNextAccountNonce _ = describe "getNextAccountNonce" $ do
             liftIO $ n1 `shouldBe` (minNonce, True)
   where
     -- An account that is present in the block state.
-    accEqAddr = gaAddress $ head $ Dummy.makeFakeBakers 1
+    accEqAddr = case Dummy.makeFakeBakers 1 of
+        [] -> error "No bakers generated"
+        (bAcc : _) -> gaAddress bAcc
     bi = dummyTransactionBIFromSender accEqAddr
     -- Run the computation via the helper test monad.
     runTestWithBS = Helper.runMyTestMonad @pv Dummy.dummyIdentityProviders (timestampToUTCTime 1)

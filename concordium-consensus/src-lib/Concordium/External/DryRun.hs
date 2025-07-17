@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -238,7 +239,8 @@ runWithEBlockStateContext mvr (EBlockStateContextV1 vc1 drs) operation = do
         mvr
 
 -- | Handle that identifies a particular dry-run session.
-data DryRunHandle = forall finconf.
+data DryRunHandle
+    = forall finconf.
       DryRunHandle
     { -- | Wrap the multi-version runner from the consensus runner.
       drhMVR :: !(MultiVersionRunner finconf),
@@ -686,7 +688,9 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                                 key <- KeyIndex <$> peekByteOff sigPairs (2 * i + 1)
                                 addSigs (i + 1) $!
                                     m
-                                        & at' cred . nonEmpty . at' key
+                                        & at' cred
+                                            . nonEmpty
+                                            . at' key
                                             ?~ Sig.dummySignatureEd25519
                             | otherwise = return m
                     addSigs 0 Map.empty

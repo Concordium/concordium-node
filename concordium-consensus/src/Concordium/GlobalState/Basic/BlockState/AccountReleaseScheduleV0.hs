@@ -40,7 +40,8 @@ module Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 (
 import qualified Data.ByteString as BS
 import Data.Foldable
 import Data.Function
-import Data.List (group, groupBy, sort, sortOn)
+import Data.List (sort, sortOn)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
@@ -108,16 +109,16 @@ toAccountReleaseSummary AccountReleaseSchedule{..} = AccountReleaseSummary{..}
   where
     releaseTotal = _totalLockedUpBalance
     listOfReleasesByTimestamp = [(tm, (a, t)) | Just (r, t) <- Vector.toList _values, Release tm a <- r]
-    sortedAndGroupedByTimestamp = groupBy ((==) `on` fst) $ sortOn fst listOfReleasesByTimestamp
+    sortedAndGroupedByTimestamp = NonEmpty.groupBy ((==) `on` fst) $ sortOn fst listOfReleasesByTimestamp
     accumReleases (!accB, !accT) (_, (b, t)) = (accB + b, t : accT)
     makeScheduledRelease rels =
         let (releaseAmount, releaseTransactions) = foldl' accumReleases (0, []) rels
         in  ScheduledRelease
                 { -- @head@ is safe since group won't create empty lists
-                  releaseTimestamp = fst (head rels),
+                  releaseTimestamp = fst (NonEmpty.head rels),
                   ..
                 }
-    releaseSchedule = map makeScheduledRelease sortedAndGroupedByTimestamp
+    releaseSchedule = makeScheduledRelease <$> sortedAndGroupedByTimestamp
 
 -- λ: getHash $ addReleases ([(3,5), (4,10)], th) $ addReleases ([(1,2), (3,4)], th) emptyAccountReleaseSchedule :: Hash
 -- 5473ef105c995db8d8dfe75881d8a2018bb12eaeef32032569edfff6814f1b50
@@ -172,9 +173,8 @@ unlockAmountsUntil up ars =
     in  if Map.null toKeep
             then (ars ^. totalLockedUpBalance, Nothing, emptyAccountReleaseSchedule)
             else
-                let fullToRemove = map (\y -> (y, length y)) $ group $ sort $ concat $ maybe id (:) x $ Map.elems toRemove
-                    f _ ([], _) = error "Unreachable"
-                    f acc@(v, am) (idx : _, numOfItems) = do
+                let fullToRemove = map (\y -> (y, length y)) $ NonEmpty.group $ sort $ concat $ maybe id (:) x $ Map.elems toRemove
+                    f acc@(v, am) (idx NonEmpty.:| _, numOfItems) = do
                         case v Vector.! idx of
                             Nothing -> acc -- should not happen
                             Just (item, txh) ->

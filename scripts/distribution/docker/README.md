@@ -14,7 +14,7 @@ image_tag=4.2.1\
 environment=testnet\
 genesis_ref=master\
 genesis_path=testnet/2022-06-13/genesis_data\
-ghc_version=9.6.6\
+ghc_version=9.8.4\
 static_libraries_image_tag=latest\
 ./scripts/distribution/docker/build-distribution-image.sh
 ```

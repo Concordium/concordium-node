@@ -130,7 +130,7 @@ jobs:
       matrix:
         plan:
         - rust: 1.82
-          ghc: 9.6.6
+          ghc: 9.8.4
 
     steps:
     - name: Remove unnecessary files
