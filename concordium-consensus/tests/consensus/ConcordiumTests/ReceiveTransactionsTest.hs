@@ -95,22 +95,24 @@ test = do
                 -- Chain Updates
                 check resultingState results 7 ResultStale False
                 check resultingState results 8 ResultChainUpdateInvalidEffectiveTime False
-                check resultingState results 9 ResultChainUpdateSequenceNumberTooOld False
-                check resultingState results 10 ResultNonceTooLarge False
-                check resultingState results 11 ResultChainUpdateInvalidSignatures False
-                check resultingState results 12 ResultSuccess True
+                check resultingState results 9 ResultChainUpdateInvalidEffectiveTime False
+                check resultingState results 10 ResultChainUpdateSequenceNumberTooOld False
+                check resultingState results 11 ResultNonceTooLarge False
+                check resultingState results 12 ResultChainUpdateInvalidSignatures False
+                check resultingState results 13 ResultSuccess True
+                check resultingState results 14 ResultSuccess True
                 -- Normal Transactions
-                check resultingState results 13 ResultStale False
-                check resultingState results 14 ResultTooLowEnergy False
-                check resultingState results 15 ResultNonexistingSenderAccount False
-                check resultingState results 16 ResultNonceTooLarge False
-                check resultingState results 17 ResultVerificationFailed False
-                check resultingState results 18 ResultSuccess True
-                check resultingState results 19 ResultDuplicate True --- already present
-                check resultingState results 20 ResultSuccess True -- here to check that the TransactionVerifier uses the `correct` nonce for checking validity.
-                check resultingState results 21 ResultEnergyExceeded False
-                check resultingState results 22 ResultDuplicateNonce False
-                check resultingState results 23 ResultSuccess True -- exactly max block energy
+                check resultingState results 15 ResultStale False
+                check resultingState results 16 ResultTooLowEnergy False
+                check resultingState results 17 ResultNonexistingSenderAccount False
+                check resultingState results 18 ResultNonceTooLarge False
+                check resultingState results 19 ResultVerificationFailed False
+                check resultingState results 20 ResultSuccess True
+                check resultingState results 21 ResultDuplicate True --- already present
+                check resultingState results 22 ResultSuccess True -- here to check that the TransactionVerifier uses the `correct` nonce for checking validity.
+                check resultingState results 23 ResultEnergyExceeded False
+                check resultingState results 24 ResultDuplicateNonce False
+                check resultingState results 25 ResultSuccess True -- exactly max block energy
         specify "Credential deployments received individually" $ do
             let credentialDeploymentExpiryTime = 1596409020
                 now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
@@ -144,22 +146,24 @@ test = do
             -- Chain Updates
             check resultingState results 7 ResultStale False
             check resultingState results 8 ResultChainUpdateInvalidEffectiveTime False
-            check resultingState results 9 ResultChainUpdateSequenceNumberTooOld False
-            check resultingState results 10 ResultSuccess True -- update sequence number too large, but as the transaction is from a block so we accept it.
-            check resultingState results 11 ResultChainUpdateInvalidSignatures True
-            check resultingState results 12 ResultSuccess True
+            check resultingState results 9 ResultChainUpdateInvalidEffectiveTime False
+            check resultingState results 10 ResultChainUpdateSequenceNumberTooOld False
+            check resultingState results 11 ResultSuccess True -- update sequence number too large, but as the transaction is from a block so we accept it.
+            check resultingState results 12 ResultChainUpdateInvalidSignatures True
+            check resultingState results 13 ResultSuccess True
+            check resultingState results 14 ResultSuccess True
             -- Normal Transactions
-            check resultingState results 13 ResultStale False
-            check resultingState results 14 ResultTooLowEnergy False
-            check resultingState results 15 ResultNonexistingSenderAccount True
-            check resultingState results 16 ResultSuccess True -- nonce too large, but as the transaction is from a block so we accept it.
-            check resultingState results 17 ResultVerificationFailed True
-            check resultingState results 18 ResultSuccess True
-            check resultingState results 19 ResultDuplicate True -- already present
+            check resultingState results 15 ResultStale False
+            check resultingState results 16 ResultTooLowEnergy False
+            check resultingState results 17 ResultNonexistingSenderAccount True
+            check resultingState results 18 ResultSuccess True -- nonce too large, but as the transaction is from a block so we accept it.
+            check resultingState results 19 ResultVerificationFailed True
             check resultingState results 20 ResultSuccess True
-            check resultingState results 21 ResultEnergyExceeded True
-            check resultingState results 22 ResultDuplicateNonce False
-            check resultingState results 23 ResultSuccess True -- exactly max block energy
+            check resultingState results 21 ResultDuplicate True -- already present
+            check resultingState results 22 ResultSuccess True
+            check resultingState results 23 ResultEnergyExceeded True
+            check resultingState results 24 ResultDuplicateNonce False
+            check resultingState results 25 ResultSuccess True -- exactly max block energy
         specify "doReceiveTransactionInternal with valid credential deployment" $ do
             let credentialDeploymentExpiryTime = 1596409020
                 now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
@@ -329,18 +333,32 @@ chainUpdates :: TransactionTime -> [BlockItem]
 chainUpdates now =
     [ expiredTimeout,
       invalidEffectiveTime,
+      invalidEffectiveTimeCreatePLT,
       sequenceNumberTooOld,
       sequenceNumberTooLarge,
       invalidSignature,
-      verifiable
+      verifiable,
+      cpltVerifiable
     ]
   where
-    expiredTimeout = toBlockItem now (mkChainUpdate (now - 1) (now - 1) getValidSequenceNumber True)
-    invalidEffectiveTime = toBlockItem now (mkChainUpdate (now + 1) (now + 2) getValidSequenceNumber True)
-    sequenceNumberTooOld = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getTooOldSequenceNumber True)
-    sequenceNumberTooLarge = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getTooLargeSequenceNumber True)
-    invalidSignature = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getValidSequenceNumber False)
-    verifiable = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getValidSequenceNumber True)
+    payload = AddIdentityProviderUpdatePayload myipInfo
+    cplt =
+        CreatePLT
+            { _cpltTokenId = TokenId "dummyToken",
+              _cpltTokenModule = TokenModuleRef (SHA256.hash "dummyModuleRef"),
+              _cpltDecimals = 3,
+              _cpltInitializationParameters = TokenParameter ""
+            }
+    cpltPayload = CreatePLTUpdatePayload cplt
+
+    expiredTimeout = toBlockItem now (mkChainUpdate (now - 1) (now - 1) getValidSequenceNumber payload True)
+    invalidEffectiveTime = toBlockItem now (mkChainUpdate (now + 1) (now + 2) getValidSequenceNumber payload True)
+    invalidEffectiveTimeCreatePLT = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getValidSequenceNumber cpltPayload True)
+    sequenceNumberTooOld = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getTooOldSequenceNumber payload True)
+    sequenceNumberTooLarge = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getTooLargeSequenceNumber payload True)
+    invalidSignature = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getValidSequenceNumber payload False)
+    verifiable = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getValidSequenceNumber payload True)
+    cpltVerifiable = toBlockItem now (mkChainUpdate 0 (now + 1) getValidSequenceNumber cpltPayload True)
     getValidSequenceNumber = minUpdateSequenceNumber + 1
     getTooOldSequenceNumber = minUpdateSequenceNumber
     getTooLargeSequenceNumber = minUpdateSequenceNumber + 2
@@ -445,8 +463,8 @@ mkAccountTransaction expiry validSignature nonce validSender energyAmount =
               thExpiry = expiry
             }
 
-mkChainUpdate :: TransactionTime -> TransactionTime -> UpdateSequenceNumber -> Bool -> BareBlockItem
-mkChainUpdate effectTime timeout sequenceNumber validSignature =
+mkChainUpdate :: TransactionTime -> TransactionTime -> UpdateSequenceNumber -> UpdatePayload -> Bool -> BareBlockItem
+mkChainUpdate effectTime timeout sequenceNumber payload validSignature =
     if validSignature
         then ChainUpdate ui
         else ChainUpdate dummyUi
@@ -473,7 +491,6 @@ mkChainUpdate effectTime timeout sequenceNumber validSignature =
               updateTimeout = timeout,
               updatePayloadSize = 42
             }
-    payload = AddIdentityProviderUpdatePayload myipInfo
     mkDummySignHash = UpdateInstructionSignHashV0 dummyHash
     mkDummySignature = UpdateInstructionSignatures Map.empty
 

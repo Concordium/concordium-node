@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased changes
+- Protocol-level tokens:
+  - Additional check in transaction verification asserting that the effective
+    time equals zero of CreatePLT update transactions.
 
 ## 9.0.6 (DevNet)
 
