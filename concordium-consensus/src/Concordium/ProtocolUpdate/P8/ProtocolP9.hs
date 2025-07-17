@@ -28,7 +28,7 @@
 --  * 'genesisStateHash' is the state hash of the last finalized block of the previous chain.
 --
 --  * 'genesisMigration' is derived from the data provided to the protocol update, which is the
---     validator score parameters
+--     CreatePLT access structure
 --
 --  The block state is taken from the last finalized block of the previous chain. It is updated
 --  as part of the state migration, which makes the following changes:
