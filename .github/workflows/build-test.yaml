@@ -234,13 +234,13 @@ jobs:
     # Test Haskell sources. Could be run in parallel with the steps below.
     - name: Test consensus
       run: |
-        stack test concordium-consensus:consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+        stack test concordium-consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL} --skip globalstate --skip scheduler
     - name: Test globalstate
       run: |
-        stack test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
+        stack test concordium-consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL} --skip consensus --skip scheduler
     - name: Test scheduler
       run: |
-        stack test concordium-consensus:scheduler --bench --no-run-benchmarks
+        stack test concordium-consensus --bench --no-run-benchmarks --skip consensus --skip globalstate
 
     # RUST #
 
