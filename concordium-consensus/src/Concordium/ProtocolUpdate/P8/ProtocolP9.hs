@@ -78,7 +78,7 @@ import Concordium.Types.ProtocolVersion
 -- | The hash that identifies a update from P8 to P9 protocol.
 --  This is the hash of the published specification document.
 updateHash :: SHA256.Hash
-updateHash = read "000000000000000000000000000000000000000000000000000000000000009" -- FIXME: replace with hash of the published specification document
+updateHash = read "0000000000000000000000000000000000000000000000000000000000000009" -- FIXME: replace with hash of the published specification document
 
 -- | Construct the genesis data for a P8.ProtocolP9 update.
 --  This takes the terminal block of the old chain which is used as the basis for constructing
