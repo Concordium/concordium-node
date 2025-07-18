@@ -55,7 +55,7 @@ on:
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 16                 # change to force cache invalidation
+  dummy: 17                # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
 
 jobs:
@@ -195,6 +195,12 @@ jobs:
     # The cache entry keys depend on the GHC version and contents of 'package.yaml' and 'stack.yaml'
     # but will fall back to cache entries from different versions if no match is found.
 
+    - name: Compute cache keys
+      id: cache-keys
+      run: |
+        echo "proto_hash=${{ hashFiles('**/*.proto') }}" >> $GITHUB_ENV
+        echo "base_hash=${{ hashFiles('concordium-base/**/*.hs') }}" >> $GITHUB_ENV
+      
     - name: Cache stack global package DB
       id: stack-global
       uses: actions/cache@v4
@@ -220,8 +226,10 @@ jobs:
           concordium-consensus/.stack-work
           concordium-consensus/haskell-lmdb/.stack-work
 
-        key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
+        key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-${{ steps.cache-keys.outputs.base_hash }}
         restore-keys: |
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}
 
     - name: Install GHC (unless it was cached)
