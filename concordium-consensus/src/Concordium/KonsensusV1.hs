@@ -133,8 +133,7 @@ getTerminalBlockState =
 --  This returns the transaction table and the pending transaction table (which is with respect to
 --  the last finalized block).
 clearSkov ::
-    ( MonadState (SkovData (MPV m)) m
-    ) =>
+    (MonadState (SkovData (MPV m)) m) =>
     m (TT.TransactionTable, TT.PendingTransactionTable)
 clearSkov = do
     lfb <- use lastFinalized

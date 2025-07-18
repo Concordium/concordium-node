@@ -1597,7 +1597,11 @@ processUpdateQueues t (u0, ars, ips) = do
 -- | Determine the future election difficulty (at a given time) based
 --  on a current 'Updates'.
 futureElectionDifficulty ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv, IsSupported 'PTElectionDifficulty cpv ~ 'True, ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0) =>
+    ( MonadBlobStore m,
+      IsChainParametersVersion cpv,
+      IsAuthorizationsVersion auv,
+      ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0
+    ) =>
     BufferedRef (Updates' cpv auv) ->
     Timestamp ->
     m ElectionDifficulty
@@ -1777,7 +1781,11 @@ incrementPLTUpdateSequenceNumber updatesRef = do
 -- | Overwrite the election difficulty with the specified value and remove
 --  any pending updates to the election difficulty from the queue.
 overwriteElectionDifficulty ::
-    (MonadBlobStore m, IsChainParametersVersion cpv, IsAuthorizationsVersion auv, IsSupported 'PTElectionDifficulty cpv ~ 'True, ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0) =>
+    ( MonadBlobStore m,
+      IsChainParametersVersion cpv,
+      IsAuthorizationsVersion auv,
+      ConsensusParametersVersionFor cpv ~ 'ConsensusParametersVersion0
+    ) =>
     ElectionDifficulty ->
     BufferedRef (Updates' cpv auv) ->
     m (BufferedRef (Updates' cpv auv))

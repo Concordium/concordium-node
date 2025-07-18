@@ -15,7 +15,6 @@
 module Concordium.Scheduler.TreeStateEnvironment where
 
 import Control.Monad
-import Data.Foldable
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Ratio

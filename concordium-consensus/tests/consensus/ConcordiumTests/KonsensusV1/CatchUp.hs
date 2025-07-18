@@ -191,7 +191,7 @@ basicCatchupResponse sProtocolVersion =
             qsmR4 = QuorumSignatureMessage (TestBlocks.genesisHash sProtocolVersion) (getHash (TestBlocks.testBB3 @pv)) (Round 3) 0
             qmR4Sig = signQuorumSignatureMessage qsmR4 (bakerAggregationKey . fst $ TestBlocks.bakers sProtocolVersion !! 1)
             qmR4 = buildQuorumMessage qsmR4 qmR4Sig (FinalizerIndex 1)
-            tmR4 = head $ timeoutMessagesFor sProtocolVersion b3QC (Round 3) 0
+            tmR4 = firstTimeoutMessageFor sProtocolVersion b3QC (Round 3) 0
             finEntry = testFinalizationEntry (TestBlocks.testBB2 @pv) TestBlocks.testBB3
             request =
                 CatchUpStatus
@@ -241,7 +241,7 @@ catchupWithEpochTransitionResponse sProtocolVersion =
                         TestBlocks.bakers sProtocolVersion !! 1
                     )
             qmR4 = buildQuorumMessage qsmR4 qmR4Sig (FinalizerIndex 1)
-            tmR4 = head $ timeoutMessagesFor sProtocolVersion b3QC (Round 4) 0
+            tmR4 = firstTimeoutMessageFor sProtocolVersion b3QC (Round 4) 0
             request =
                 CatchUpStatus
                     { cusLastFinalizedBlock = getHash (TestBlocks.testBB1E @pv),
@@ -285,7 +285,7 @@ catchupWithTimeoutsResponse sProtocolVersion =
             qsmR5 = QuorumSignatureMessage (TestBlocks.genesisHash sProtocolVersion) (getHash (TestBlocks.testBB3E @pv)) (Round 5) 0
             qmR5Sig = signQuorumSignatureMessage qsmR5 (bakerAggregationKey . fst $ TestBlocks.bakers sProtocolVersion !! 1)
             qmR5 = buildQuorumMessage qsmR5 qmR5Sig (FinalizerIndex 1)
-            tmR5 = head $ timeoutMessagesFor sProtocolVersion b3QC (Round 4) 0
+            tmR5 = firstTimeoutMessageFor sProtocolVersion b3QC (Round 4) 0
             finEntry = testFinalizationEntry (TestBlocks.testBB2E @pv) TestBlocks.testBB3E
             request =
                 CatchUpStatus
@@ -651,7 +651,7 @@ testCatchup sProtocolVersion =
                         0
                 qmR4Sig = signQuorumSignatureMessage qsmR4 (bakerAggregationKey . fst $ TestBlocks.bakers sProtocolVersion !! 1)
                 qmR4 = buildQuorumMessage qsmR4 qmR4Sig (FinalizerIndex 1)
-                tmR4 = head $ timeoutMessagesFor sProtocolVersion b4QC (Round 4) 0
+                tmR4 = firstTimeoutMessageFor sProtocolVersion b4QC (Round 4) 0
                 finToQMsgMap = Map.insert 1 qmR4 Map.empty
                 finToTMMap = Map.insert (FinalizerIndex 0) tmR4 Map.empty
             -- Setting the current quorum and timeout message.

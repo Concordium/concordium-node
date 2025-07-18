@@ -587,7 +587,6 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
         if slotTime > addDuration (utcTimeToTimestamp pbReceiveTime) threshold && threshold /= maxBound
             then return (ResultEarlyBlock, Nothing)
             else -- Check if the block is already known.
-
                 getRecentBlockStatus blockHash >>= \case
                     Unknown -> do
                         lfs <- getLastFinalizedSlot

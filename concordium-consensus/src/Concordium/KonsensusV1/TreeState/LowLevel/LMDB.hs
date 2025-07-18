@@ -644,7 +644,8 @@ initialiseLowLevelDB genesisBlock roundStatus = do
         storeReplaceRecord txn (dbh ^. metadataStore) versionMetadata $ S.encode metadata
 
 -- | A result of a roll back.
-data RollbackResult = forall (pv :: ProtocolVersion).
+data RollbackResult
+    = forall (pv :: ProtocolVersion).
       RollbackResult
     { -- | Number of blocks rolled back.
       rbrCount :: !Int,

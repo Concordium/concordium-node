@@ -47,7 +47,7 @@ instance HashableTo TokenStateTableHash InMemoryTokenStateTable where
             hashAsLFMBTV1
                 emptyTokenAccountStateTableHash
                 [ Hash.hashLazy . runPutLazy $ put tokIx >> put (getHash tokState :: Hash.Hash)
-                  | (tokIx, tokState) <- Map.toAscList m
+                | (tokIx, tokState) <- Map.toAscList m
                 ]
 
 -- | Type for how a 'PersistingAccountData' value is stored as part of

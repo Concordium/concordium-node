@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -11,7 +10,6 @@ module Concordium.KonsensusV1.TreeState.LowLevel.Memory where
 
 import Control.Monad.IO.Class
 import Control.Monad.Reader.Class
-import Data.Foldable
 import Data.Functor
 import qualified Data.HashMap.Strict as HM
 import Data.IORef

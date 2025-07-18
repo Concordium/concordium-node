@@ -223,25 +223,25 @@ multiWithCorruptKeys keys active corrupt = monadicIO $ do
     let lotteryId phase = Ser.runPut $ Ser.put baid >> Ser.put phase
     let jmsgs =
             [ (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase c (makeTicketProof (lotteryId phase) (keys Vec.! src)))
-              | a <- [0 .. fromIntegral active - 1],
-                src <- [active .. active + corrupt - 1],
-                phase <- [0 .. 5],
-                c <- [False, True]
+            | a <- [0 .. fromIntegral active - 1],
+              src <- [active .. active + corrupt - 1],
+              phase <- [0 .. 5],
+              c <- [False, True]
             ]
     let corruptMsgs =
             Seq.fromList $
                 jmsgs
                     ++ [ (a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) c)
-                         | a <- [0 .. fromIntegral active - 1],
-                           src <- [active .. active + corrupt - 1],
-                           phase <- [0 .. 5],
-                           p <- [0 .. active + corrupt - 1],
-                           c <- [False, True]
+                       | a <- [0 .. fromIntegral active - 1],
+                         src <- [active .. active + corrupt - 1],
+                         phase <- [0 .. 5],
+                         p <- [0 .. active + corrupt - 1],
+                         c <- [False, True]
                        ]
                     ++ [ (a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone c)
-                         | a <- [0 .. fromIntegral active - 1],
-                           src <- [active .. active + corrupt - 1],
-                           c <- [False, True]
+                       | a <- [0 .. fromIntegral active - 1],
+                         src <- [active .. active + corrupt - 1],
+                         c <- [False, True]
                        ]
     gen <- pick $ mkStdGen <$> arbitrary
     liftIO $ runABBATestRG gen baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs)
@@ -254,41 +254,41 @@ multiWithCorruptKeysEvil keys active corrupt = monadicIO $ do
     let lotteryId phase = Ser.runPut $ Ser.put baid >> Ser.put phase
     let jmsgs =
             [ (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase (a `mod` 2 == 0) (makeTicketProof (lotteryId phase) (keys Vec.! src)))
-              | a <- [0 .. fromIntegral active - 1],
-                src <- [active .. active + corrupt - 1],
-                phase <- [0 .. 5]
+            | a <- [0 .. fromIntegral active - 1],
+              src <- [active .. active + corrupt - 1],
+              phase <- [0 .. 5]
             ]
     let corruptMsgs =
             Seq.fromList $
                 jmsgs
                     ++ [ (a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) (a `mod` 2 == 0))
-                         | a <- [0 .. fromIntegral active - 1],
-                           src <- [active .. active + corrupt - 1],
-                           phase <- [0 .. 5],
-                           p <- [0 .. active + corrupt - 1]
+                       | a <- [0 .. fromIntegral active - 1],
+                         src <- [active .. active + corrupt - 1],
+                         phase <- [0 .. 5],
+                         p <- [0 .. active + corrupt - 1]
                        ]
                     ++ [ (a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone (a `mod` 2 == 0))
-                         | a <- [0 .. fromIntegral active - 1],
-                           src <- [active .. active + corrupt - 1]
+                       | a <- [0 .. fromIntegral active - 1],
+                         src <- [active .. active + corrupt - 1]
                        ]
     let jmsgs2 =
             [ (a, ReceiveABBAMessage (fromIntegral src) $ Justified phase (a `mod` 2 /= 0) (makeTicketProof (lotteryId phase) (keys Vec.! src)))
-              | a <- [0 .. fromIntegral active - 1],
-                src <- [active .. active + corrupt - 1],
-                phase <- [0 .. 5]
+            | a <- [0 .. fromIntegral active - 1],
+              src <- [active .. active + corrupt - 1],
+              phase <- [0 .. 5]
             ]
     let corruptMsgs2 =
             Seq.fromList $
                 jmsgs2
                     ++ [ (a, ReceiveABBAMessage (fromIntegral src) $ CSSSeen phase $ singletonNominationSet (fromIntegral p) (a `mod` 2 /= 0))
-                         | a <- [0 .. fromIntegral active - 1],
-                           src <- [active .. active + corrupt - 1],
-                           phase <- [0 .. 5],
-                           p <- [0 .. active + corrupt - 1]
+                       | a <- [0 .. fromIntegral active - 1],
+                         src <- [active .. active + corrupt - 1],
+                         phase <- [0 .. 5],
+                         p <- [0 .. active + corrupt - 1]
                        ]
                     ++ [ (a, ReceiveABBAMessage (fromIntegral src) $ WeAreDone (a `mod` 2 /= 0))
-                         | a <- [0 .. fromIntegral active - 1],
-                           src <- [active .. active + corrupt - 1]
+                       | a <- [0 .. fromIntegral active - 1],
+                         src <- [active .. active + corrupt - 1]
                        ]
     gen <- pick $ mkStdGen <$> arbitrary
     liftIO $ runABBATest2 gen baid active (active + corrupt) keys (justifyAll active <> begins <> corruptMsgs) corruptMsgs2

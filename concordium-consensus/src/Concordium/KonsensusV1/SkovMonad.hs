@@ -482,8 +482,7 @@ deriving via
 deriving via
     (DiskLLDBM pv (InitMonad pv))
     instance
-        ( IsProtocolVersion pv
-        ) =>
+        (IsProtocolVersion pv) =>
         LowLevel.MonadTreeStateStore (InitMonad pv)
 
 -- | Run an 'InitMonad' in a 'LogIO' context, given the 'InitContext'.

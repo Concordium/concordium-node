@@ -320,8 +320,7 @@ instance
 
 -- | See implementation for 'CachedRef'.
 instance
-    ( Applicative m
-    ) =>
+    (Applicative m) =>
     Cacheable m (EagerlyHashedCachedRef' h c a)
     where
     cache = pure

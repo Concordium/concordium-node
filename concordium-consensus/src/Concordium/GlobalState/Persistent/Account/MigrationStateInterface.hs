@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 module Concordium.GlobalState.Persistent.Account.MigrationStateInterface where
 
 import Concordium.Types

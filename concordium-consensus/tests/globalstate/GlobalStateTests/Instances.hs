@@ -6,6 +6,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -13,7 +14,6 @@ module GlobalStateTests.Instances where
 
 import Control.Monad
 import Data.FileEmbed
-import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
@@ -127,7 +127,8 @@ invariantInstances (Instances.InstancesTree size bf) = do
     checkBinary (==) recSize size "==" "measured size" "recorded size"
 
 -- | A model for an individual instance.
-data ModelInstance = forall v.
+data ModelInstance
+    = forall v.
       (Wasm.IsWasmVersion v) =>
     ModelInstance
     { mInstanceParameters :: !Instances.PersistentInstanceParameters,

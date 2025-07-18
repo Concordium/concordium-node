@@ -806,7 +806,7 @@ updateAccount !upd !acc = do
                     Add{..} -> addIncomingEncryptedAmount newAmount
                     ReplaceUpTo{..} -> replaceUpTo aggIndex newAmount
                     AddSelf{..} -> addToSelfEncryptedAmount newAmount
-                    )
+                )
                     encAmount
             encryptedAmountRef <- refMake newEncryptedAmount
             return (accountEncryptedAmount .~ encryptedAmountRef)

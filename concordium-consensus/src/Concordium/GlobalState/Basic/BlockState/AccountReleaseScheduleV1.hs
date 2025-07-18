@@ -4,7 +4,6 @@
 module Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV1 where
 
 import Control.Monad
-import Data.Foldable
 import Data.List (sortOn)
 import Data.List.NonEmpty (NonEmpty ((:|)))
 import qualified Data.List.NonEmpty as NE
