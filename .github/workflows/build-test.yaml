@@ -224,12 +224,12 @@ jobs:
     - name: Build haskell dependencies (unless they were cached)
       if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
       run: |
-        stack build --test --bench --only-dependencies
+        stack build concordium-consensus --test --bench --only-dependencies
 
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
     - name: Build consensus
       run: |
-        stack build --test --bench --force-dirty --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
+        stack build concordium-consensus --test --bench --force-dirty --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
 
     # Test Haskell sources. Could be run in parallel with the steps below.
     - name: Test consensus
