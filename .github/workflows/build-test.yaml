@@ -57,7 +57,6 @@ on:
 env:
   dummy: 16                 # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
-  TEST_LEVEL: 1            # for stack tests
 
 jobs:
 
@@ -235,20 +234,9 @@ jobs:
         stack build concordium-consensus --test --bench --only-dependencies
 
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
-    - name: Build consensus
+    - name: Build consensus and run tests
       run: |
-        stack build concordium-consensus --test --bench --force-dirty --no-run-tests --no-run-benchmarks --ghc-options "-Werror" --ghc-options -j
-
-    # Test Haskell sources. Could be run in parallel with the steps below.
-    - name: Test consensus
-      run: |
-        stack test concordium-consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL} --skip globalstate --skip scheduler
-    - name: Test globalstate
-      run: |
-        stack test concordium-consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL} --skip consensus --skip scheduler
-    - name: Test scheduler
-      run: |
-        stack test concordium-consensus --bench --no-run-benchmarks --skip consensus --skip globalstate
+        stack build concordium-consensus --test --bench --force-dirty --no-run-benchmarks --ghc-options "-Werror" --ghc-options -j
 
     # RUST #
 
