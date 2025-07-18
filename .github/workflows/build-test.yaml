@@ -74,11 +74,11 @@ jobs:
         version: '0.13.1.0'
     
     - name: Download hpack
-      uses: supplypike/setup-bin@v1
-      with:
-        uri: 'https://github.com/sol/hpack/releases/download/0.38.1/hpack_linux.gz'
-        name: 'hpack'
-        version: '0.38.1'
+      run: |
+        curl -L https://github.com/sol/hpack/releases/download/0.38.1/hpack_linux.gz -o hpack.gz
+        gunzip hpack.gz
+        chmod +x hpack
+        mv hpack /usr/local/bin/
 
     - name: Checkout project
       uses: actions/checkout@v2
