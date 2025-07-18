@@ -72,6 +72,13 @@ jobs:
         uri: 'https://github.com/fourmolu/fourmolu/releases/download/v0.13.1.0/fourmolu-0.13.1.0-linux-x86_64'
         name: 'fourmolu'
         version: '0.13.1.0'
+    
+    - name: Download hpack
+      uses: supplypike/setup-bin@v1
+      with:
+        uri: 'https://github.com/sol/hpack/releases/download/0.38.1/hpack_linux.gz'
+        name: 'hpack'
+        version: '0.38.1'
 
     - name: Checkout project
       uses: actions/checkout@v2
@@ -82,7 +89,8 @@ jobs:
     # needed to generate a cabal file from the package.yaml.
     - name: Setup the project
       run: |
-        stack setup
+        cd concordium-consensus
+        hpack package.yaml
 
     - name: Run fourmolu
       run: |
@@ -229,7 +237,7 @@ jobs:
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
     - name: Build consensus
       run: |
-        stack build concordium-consensus --test --bench --force-dirty --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
+        stack build concordium-consensus --test --bench --force-dirty --no-run-tests --no-run-benchmarks --ghc-options "-Werror" --ghc-options -j
 
     # Test Haskell sources. Could be run in parallel with the steps below.
     - name: Test consensus
