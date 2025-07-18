@@ -668,8 +668,7 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivileg
                             bs'
                             tokenIx
                             accIx
-                            ( TokenAmountDelta (fromIntegral (theTokenRawAmount amount))
-                            )
+                            (TokenAmountDelta (fromIntegral (theTokenRawAmount amount)))
                 case mbNewBs of
                     Nothing ->
                         -- This case cannot occur if the total supply is accurately

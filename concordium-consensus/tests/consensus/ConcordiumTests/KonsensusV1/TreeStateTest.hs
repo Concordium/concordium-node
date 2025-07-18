@@ -362,8 +362,7 @@ skovDataWithTestBlocks =
                             . (at (getHash (focusB @pv)) ?~ focusB)
                        )
                  )
-                    . ( deadBlocks %~ insertDeadCache deadH
-                      )
+                    . (deadBlocks %~ insertDeadCache deadH)
                )
 
 -- | A test 'LowLevelDB' with the genesis block.

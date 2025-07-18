@@ -259,8 +259,8 @@ testTransactions spv = forAll makeTransactions (ioProperty . tt)
 
         let rejs =
                 [ (z, decodePayload spv (atrPayload z), rr)
-                  | ((WithMetadata{wmdData = NormalTransaction z}, _), TxReject rr) <-
-                        Helpers.getResults ftAdded
+                | ((WithMetadata{wmdData = NormalTransaction z}, _), TxReject rr) <-
+                    Helpers.getResults ftAdded
                 ]
         let checkRejects [] [] = return ()
             checkRejects [] _ = Left "Expected additional rejected transactions"

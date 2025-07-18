@@ -47,7 +47,8 @@ class BlockStateTypes (m :: Type -> Type) where
 --  the new instance. This is an existential type that closes over the **new**
 --  protocol version. The existing protocol version is determined from the monad
 --  @m@, which will have to be an instance of 'MonadProtocolVersion'.
-data PVInit m = forall pv.
+data PVInit m
+    = forall pv.
       (IsProtocolVersion pv) =>
     PVInit
     { -- | Genesis data for the new chain.

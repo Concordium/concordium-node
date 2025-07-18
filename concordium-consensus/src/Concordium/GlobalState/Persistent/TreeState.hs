@@ -591,7 +591,6 @@ getWeakPointer weakPtr ptrHash name = do
                 -- a parent that is also alive, which means either actually in memory `BlockAlive` or already
                 -- finalized. If we fail to dereference the weak pointer we should thus be able to directly look
                 -- up the block from the block table.
-
                     use (skovPersistentData . blockTable . liveMap . at' ptrHash)
                         >>= \case
                             Just (BlockAlive bp) -> return bp

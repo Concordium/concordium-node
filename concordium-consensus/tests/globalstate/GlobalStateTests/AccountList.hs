@@ -1,7 +1,6 @@
 module GlobalStateTests.AccountList where
 
 import Control.Monad
-import Data.Foldable
 import Test.Hspec
 import Test.QuickCheck
 

@@ -38,7 +38,6 @@ module Concordium.GlobalState.Basic.BlockState.AccountReleaseScheduleV0 (
 ) where
 
 import qualified Data.ByteString as BS
-import Data.Foldable
 import Data.Function
 import Data.List (sort, sortOn)
 import qualified Data.List.NonEmpty as NonEmpty

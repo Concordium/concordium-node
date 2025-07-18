@@ -2,7 +2,7 @@
 
 ## Unreleased changes
 
-- Update GHC version to 9.8.4 (lts-23.27).
+- Update GHC version to 9.10.2 (lts-24.0).
 
 ## 9.0.6 (DevNet)
 

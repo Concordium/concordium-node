@@ -837,7 +837,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                         amt10'000
                         (CborHolderAccount (dummyAccountAddress i) Nothing)
                         Nothing
-                      | i <- [1 .. 5000]
+                    | i <- [1 .. 5000]
                     ]
         let trace :: Trace (PLTCall EncodedTokenRejectReason AccountIndex) ()
             trace = (PLTQ GetDecimals :-> 3) :>>: traceLoop 1
@@ -1297,8 +1297,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
         let maxBlockEnergy = 10_000
         ts <-
             Runner.processUngroupedTransactions
-                ( txs1 totMintCost totTransferCost totBurnCost
-                )
+                (txs1 totMintCost totTransferCost totBurnCost)
         (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
             Helpers.runSchedulerTest
                 (testConfig maxBlockEnergy)
@@ -1322,8 +1321,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
         let maxBlockEnergy = 600
         ts <-
             Runner.processUngroupedTransactions
-                ( txs1 totMintCost totTransferCost totBurnCost
-                )
+                (txs1 totMintCost totTransferCost totBurnCost)
         (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
             Helpers.runSchedulerTest
                 (testConfig maxBlockEnergy)

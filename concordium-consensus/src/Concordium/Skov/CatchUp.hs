@@ -54,7 +54,6 @@ doHandleCatchUp peerCUS@CatchUpStatus{} limit = do
             return (response, if cusIsResponse peerCUS then ResultPendingBlock else ResultContinueCatchUp)
         else -- Our last finalized height is at least the peer's last finalized height
         -- Check if the peer's last finalized block is recognised
-
             getBlockStatus (cusLastFinalizedBlock peerCUS) >>= \case
                 Just (BlockFinalized peerFinBP peerFinRec) -> do
                     -- Determine if we need to catch up: i.e. if the peer has some

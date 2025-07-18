@@ -11,7 +11,6 @@
 module Concordium.GlobalState.Account where
 
 import Data.Bits
-import Data.Foldable
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import qualified Data.Sequence as Seq

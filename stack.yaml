@@ -1,7 +1,7 @@
 # This should be kept in line with concordium-consensus/stack.yaml and
 # concordium-base/stack.yaml
 
-resolver: lts-23.27
+resolver: lts-24.0
 
 packages:
 - ./concordium-base
@@ -9,13 +9,6 @@ packages:
 
 extra-deps:
 - ./concordium-consensus/haskell-lmdb
-# lts-23.27 uses Cabal-3.10.3.0, which includes a fix (https://github.com/haskell/cabal/pull/9554)
-# that unfortunately breaks linking on Windows by adding -rpath linker flags. It appears this
-# is fixed as of Cabal-3.12.1.0 (and maybe 3.12.0.0), and this seems to be compatible with our
-# other dependencies, so we use it. Once we update to an lts that uses a new enough version of
-# Cabal, we should remove this dependency (which shadows the one from the snapshot).
-- Cabal-3.12.1.0
-- Cabal-syntax-3.12.1.0
 
 extra-lib-dirs:
 - ./concordium-base/lib

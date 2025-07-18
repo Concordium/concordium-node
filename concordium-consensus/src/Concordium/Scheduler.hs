@@ -84,7 +84,7 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans.Class
 import Data.Function (on)
-import Data.List (find, foldl')
+import Data.List (find)
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
 import Data.Ord

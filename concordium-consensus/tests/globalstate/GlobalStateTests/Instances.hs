@@ -14,7 +14,6 @@ module GlobalStateTests.Instances where
 
 import Control.Monad
 import Data.FileEmbed
-import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import Data.IORef
 import qualified Data.Map.Strict as Map
