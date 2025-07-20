@@ -180,8 +180,8 @@ jobs:
           ~/.cargo/git
           concordium-base/rust-src/target
           concordium-base/lib
-          concordium-consensus/smart-contracts/wasm-chain-integration/target
-          concordium-consensus/smart-contracts/lib
+          concordium-base/smart-contracts/wasm-chain-integration/target
+          concordium-base/smart-contracts/lib
           concordium-node/target
         key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
         restore-keys: |
@@ -198,8 +198,8 @@ jobs:
     - name: Compute cache keys
       id: cache-keys
       run: |
-        echo "proto_hash=${{ hashFiles('**/*.proto') }}" >> $GITHUB_ENV
-        echo "base_hash=${{ hashFiles('concordium-base/**/*.hs') }}" >> $GITHUB_ENV
+        echo "proto_hash=${{ hashFiles('**/*.proto') }}" >> $GITHUB_OUTPUT
+        echo "base_hash=${{ hashFiles('concordium-base/**/*.hs') }}" >> $GITHUB_OUTPUT
       
     - name: Cache stack global package DB
       id: stack-global
