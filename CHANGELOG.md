@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased changes
+- Add P8 -> P9 update.
 
 - Update GHC version to 9.10.2 (lts-24.0).
 
