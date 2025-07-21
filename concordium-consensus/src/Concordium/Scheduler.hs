@@ -160,11 +160,11 @@ checkHeader meta mVerRes = do
                         then do
                             checkNonceAndFunds acc
                             return (iacc, cost)
-                        else -- the account information has changed, so we re-verify the signature.
-                            do
-                                unless (verifyTransaction currentKeys meta) (throwError $ Just IncorrectSignature)
-                                checkNonceAndFunds acc
-                                return (iacc, cost)
+                        -- the account information has changed, so we re-verify the signature.
+                        else do
+                            unless (verifyTransaction currentKeys meta) (throwError $ Just IncorrectSignature)
+                            checkNonceAndFunds acc
+                            return (iacc, cost)
                 -- An invalid verification result or `Nothing` was supplied to this function.
                 -- In either case we verify the transaction now.
                 -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
@@ -3034,10 +3034,11 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                               energyCost,
                               usedEnergy
                             )
-            else -- try to provide a more fine-grained error by analyzing what went wrong
+            -- try to provide a more fine-grained error by analyzing what went wrong
             -- at some point we should refine the scheduler monad to support cleaner error
             -- handling by adding MonadError capability to it. Until that is done this
             -- is a pretty clean alternative to avoid deep nesting.
+            else
                 if not firstCredNotRemoved
                     then return (TxReject RemoveFirstCredential, energyCost, usedEnergy)
                     else
@@ -3232,17 +3233,17 @@ filterTransactions maxSize timeout groups0 = do
                                                   ftAdded = (ui & _1 %~ chainUpdate, summary) : ftAdded currentFts
                                                 }
                                     runUpdateInstructions csize newFts rest
-                        else -- The cumulative block size with this update is too high.
-                            case uis of
-                                (nui : _)
-                                    | ((==) `on` (updateSeqNumber . uiHeader . wmdData . fst)) ui nui ->
-                                        -- There is another update with the same sequence number, so try that
-                                        let newFts = currentFts{ftUnprocessedUpdates = ui : ftUnprocessedUpdates currentFts}
-                                        in  runUpdateInstructions currentSize newFts uis
-                                _ ->
-                                    -- Otherwise, there's no chance of processing remaining updates
-                                    let newFts = currentFts{ftUnprocessedUpdates = ui : uis ++ ftUnprocessedUpdates currentFts}
-                                    in  runNext maxEnergy currentSize credLimit False newFts groups
+                        -- The cumulative block size with this update is too high.
+                        else case uis of
+                            (nui : _)
+                                | ((==) `on` (updateSeqNumber . uiHeader . wmdData . fst)) ui nui ->
+                                    -- There is another update with the same sequence number, so try that
+                                    let newFts = currentFts{ftUnprocessedUpdates = ui : ftUnprocessedUpdates currentFts}
+                                    in  runUpdateInstructions currentSize newFts uis
+                            _ ->
+                                -- Otherwise, there's no chance of processing remaining updates
+                                let newFts = currentFts{ftUnprocessedUpdates = ui : uis ++ ftUnprocessedUpdates currentFts}
+                                in  runNext maxEnergy currentSize credLimit False newFts groups
 
         -- Run a single credential and continue with 'runNext'.
         runCredential :: TVer.CredentialDeploymentWithStatus -> m FilteredTransactions
@@ -3300,8 +3301,9 @@ filterTransactions maxSize timeout groups0 = do
                     runNext maxEnergy currentSize credLimit True newFts groups
                 else
                     if csize <= maxSize && cenergy <= maxEnergy
-                        then -- The transaction fits regarding both block energy limit and max transaction size.
+                        -- The transaction fits regarding both block energy limit and max transaction size.
                         -- Thus try to add the transaction by executing it.
+                        then
                             dispatch t >>= \case
                                 -- The transaction was committed, add it to the list of added transactions.
                                 Just (TxValid summary) -> do
@@ -3313,9 +3315,10 @@ filterTransactions maxSize timeout groups0 = do
                                     let (newFts, rest) = invalidTs t reason currentFts ts
                                     in  runTransactionGroup currentSize newFts rest
                                 Nothing -> error "Unreachable. Dispatch honors maximum transaction energy."
-                        else -- If the stated energy of a single transaction exceeds the block energy limit the
+                        -- If the stated energy of a single transaction exceeds the block energy limit the
                         -- transaction is invalid. Add it to the list of failed transactions and
                         -- determine whether following transactions have to fail as well.
+                        else
                             if tenergy > maxEnergy
                                 then
                                     let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts

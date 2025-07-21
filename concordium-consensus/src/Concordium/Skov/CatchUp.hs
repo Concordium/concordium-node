@@ -41,8 +41,8 @@ doHandleCatchUp peerCUS@CatchUpStatus{} limit = do
     let resultDoCatchUp = if cusIsResponse peerCUS then ResultPendingBlock else ResultContinueCatchUp
     lfb <- fst <$> getLastFinalized
     if cusLastFinalizedHeight peerCUS > bpHeight lfb
+        -- Our last finalized height is below the peer's last finalized height
         then do
-            -- Our last finalized height is below the peer's last finalized height
             response <-
                 if cusIsRequest peerCUS
                     then do
@@ -52,8 +52,9 @@ doHandleCatchUp peerCUS@CatchUpStatus{} limit = do
             -- We are behind, so we mark the peer as pending, unless it is in progress
             -- and the message is not a response.
             return (response, if cusIsResponse peerCUS then ResultPendingBlock else ResultContinueCatchUp)
-        else -- Our last finalized height is at least the peer's last finalized height
+        -- Our last finalized height is at least the peer's last finalized height
         -- Check if the peer's last finalized block is recognised
+        else
             getBlockStatus (cusLastFinalizedBlock peerCUS) >>= \case
                 Just (BlockFinalized peerFinBP peerFinRec) -> do
                     -- Determine if we need to catch up: i.e. if the peer has some

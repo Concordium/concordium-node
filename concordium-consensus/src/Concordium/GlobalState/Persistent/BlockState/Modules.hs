@@ -564,19 +564,19 @@ migrateModules migration mods = do
             -- version by recompiling since execution no longer supports the old format.
             if GSWasm.isV0LegacyArtifact (GSWasm.imWasmArtifactBytes artifact)
                 then recompileArtifact @v wasmMod moduleVInterface
-                else -- If it is not a legacy module then we don't have to recompile
+                -- If it is not a legacy module then we don't have to recompile
                 -- unless we're migrating from P6 to P7 where the new reduced
                 -- execution costs were introduced.
-                    case migration of
-                        StateMigrationParametersTrivial -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                        StateMigrationParametersP1P2 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                        StateMigrationParametersP2P3 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                        StateMigrationParametersP3ToP4{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                        StateMigrationParametersP4ToP5{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                        StateMigrationParametersP5ToP6{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                        StateMigrationParametersP6ToP7{} -> migrateToP7 @v wasmMod -- always recompile to lower transaction costs.
-                        StateMigrationParametersP7ToP8{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
-                        StateMigrationParametersP8ToP9{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                else case migration of
+                    StateMigrationParametersTrivial -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP1P2 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP2P3 -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP3ToP4{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP4ToP5{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP5ToP6{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP6ToP7{} -> migrateToP7 @v wasmMod -- always recompile to lower transaction costs.
+                    StateMigrationParametersP7ToP8{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
+                    StateMigrationParametersP8ToP9{} -> return $! moduleVInterface{GSWasm.miModule = PIMVMem artifact}
 
         -- store the module into the new state, and remove it from memory
         makeFlushedHashedCachedRef $!

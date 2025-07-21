@@ -2662,30 +2662,30 @@ doUpdateBakerStake pbs ai newStake = do
             if sdPendingChange /= BaseAccounts.NoChange
                 then -- A change is already pending
                     return (BSUChangePending (BakerId ai), pbs)
-                else -- We can make the change
-                    do
-                        let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
-                        upds <- refLoad (bspUpdates bsp)
-                        cooldownEpochs <-
-                            (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized
-                                <$> refLoad (currentParameters upds)
+                else do
+                    -- We can make the change
+                    let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
+                    upds <- refLoad (bspUpdates bsp)
+                    cooldownEpochs <-
+                        (2 +) . _cpBakerExtraCooldownEpochs . _cpCooldownParameters . unStoreSerialized
+                            <$> refLoad (currentParameters upds)
 
-                        bakerStakeThreshold <- (^. cpPoolParameters . ppBakerStakeThreshold) <$> doGetChainParameters pbs
-                        let applyUpdate updAcc = do
-                                newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
-                                storePBS pbs bsp{bspAccounts = newAccounts}
-                        case compare newStake sdStakedCapital of
-                            LT ->
-                                if newStake < max 1 bakerStakeThreshold
-                                    then return (BSUStakeUnderThreshold, pbs)
-                                    else
-                                        (BSUStakeReduced (BakerId ai) (curEpoch + cooldownEpochs),)
-                                            <$> applyUpdate
-                                                ( setAccountStakePendingChange
-                                                    (BaseAccounts.ReduceStake newStake (BaseAccounts.PendingChangeEffectiveV0 $ curEpoch + cooldownEpochs))
-                                                )
-                            EQ -> return (BSUStakeUnchanged (BakerId ai), pbs)
-                            GT -> (BSUStakeIncreased (BakerId ai),) <$> applyUpdate (setAccountStake newStake)
+                    bakerStakeThreshold <- (^. cpPoolParameters . ppBakerStakeThreshold) <$> doGetChainParameters pbs
+                    let applyUpdate updAcc = do
+                            newAccounts <- Accounts.updateAccountsAtIndex' updAcc ai (bspAccounts bsp)
+                            storePBS pbs bsp{bspAccounts = newAccounts}
+                    case compare newStake sdStakedCapital of
+                        LT ->
+                            if newStake < max 1 bakerStakeThreshold
+                                then return (BSUStakeUnderThreshold, pbs)
+                                else
+                                    (BSUStakeReduced (BakerId ai) (curEpoch + cooldownEpochs),)
+                                        <$> applyUpdate
+                                            ( setAccountStakePendingChange
+                                                (BaseAccounts.ReduceStake newStake (BaseAccounts.PendingChangeEffectiveV0 $ curEpoch + cooldownEpochs))
+                                            )
+                        EQ -> return (BSUStakeUnchanged (BakerId ai), pbs)
+                        GT -> (BSUStakeIncreased (BakerId ai),) <$> applyUpdate (setAccountStake newStake)
         _ -> return (BSUInvalidBaker, pbs)
 
 doUpdateBakerRestakeEarnings ::
@@ -3190,56 +3190,56 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                         br <- makeBufferedRef newParams
                         return (newParams, br, newModuleInterface)
             if deltaAmnt == 0
-                then -- there is no change in amount owned by the contract
-                    case val of
-                        -- no change in either the state or the module. No need to change the instance
-                        Nothing
-                            | Nothing <- newModule -> return ((), PersistentInstanceV1 oldInst)
-                            | otherwise ->
-                                -- the module is the only thing that was updated, so change parameters, and rehash
-                                rehashV1
-                                    Nothing
-                                    (pinstanceParameterHash piParams)
-                                    oldInst
-                                        { pinstanceParameters = newParamsRef,
-                                          pinstanceModuleInterface = newModuleInterface
-                                        }
-                        Just newVal -> do
-                            -- the state has changed, we need to rehash the instance.
-                            -- we also update parameters, but the update might be a no-op if newModel = Nothing,
-                            -- since then newParamsRef = pinstanceParameters
-                            (csHash, newModel) <- freezeContractState newVal
-                            rehashV1
-                                (Just csHash)
-                                (pinstanceParameterHash piParams)
-                                ( oldInst
-                                    { pinstanceParameters = newParamsRef,
-                                      pinstanceModel = newModel,
-                                      pinstanceModuleInterface = newModuleInterface
-                                    }
-                                )
-                else -- at least the amount has changed rehash in all cases
-                    case val of
-                        Nothing ->
+                -- there is no change in amount owned by the contract
+                then case val of
+                    -- no change in either the state or the module. No need to change the instance
+                    Nothing
+                        | Nothing <- newModule -> return ((), PersistentInstanceV1 oldInst)
+                        | otherwise ->
+                            -- the module is the only thing that was updated, so change parameters, and rehash
                             rehashV1
                                 Nothing
                                 (pinstanceParameterHash piParams)
                                 oldInst
                                     { pinstanceParameters = newParamsRef,
-                                      pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
                                       pinstanceModuleInterface = newModuleInterface
                                     }
-                        Just newVal -> do
-                            (csHash, newModel) <- freezeContractState newVal
-                            rehashV1
-                                (Just csHash)
-                                (pinstanceParameterHash piParams)
-                                oldInst
-                                    { pinstanceParameters = newParamsRef,
-                                      pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
-                                      pinstanceModel = newModel,
-                                      pinstanceModuleInterface = newModuleInterface
-                                    }
+                    Just newVal -> do
+                        -- the state has changed, we need to rehash the instance.
+                        -- we also update parameters, but the update might be a no-op if newModel = Nothing,
+                        -- since then newParamsRef = pinstanceParameters
+                        (csHash, newModel) <- freezeContractState newVal
+                        rehashV1
+                            (Just csHash)
+                            (pinstanceParameterHash piParams)
+                            ( oldInst
+                                { pinstanceParameters = newParamsRef,
+                                  pinstanceModel = newModel,
+                                  pinstanceModuleInterface = newModuleInterface
+                                }
+                            )
+                -- at least the amount has changed rehash in all cases
+                else case val of
+                    Nothing ->
+                        rehashV1
+                            Nothing
+                            (pinstanceParameterHash piParams)
+                            oldInst
+                                { pinstanceParameters = newParamsRef,
+                                  pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
+                                  pinstanceModuleInterface = newModuleInterface
+                                }
+                    Just newVal -> do
+                        (csHash, newModel) <- freezeContractState newVal
+                        rehashV1
+                            (Just csHash)
+                            (pinstanceParameterHash piParams)
+                            oldInst
+                                { pinstanceParameters = newParamsRef,
+                                  pinstanceAmount = applyAmountDelta deltaAmnt (pinstanceAmount oldInst),
+                                  pinstanceModel = newModel,
+                                  pinstanceModuleInterface = newModuleInterface
+                                }
     rehashV0 (Just csHash) iph inst@PersistentInstanceV{..} = inst{pinstanceHash = Instances.makeInstanceHashV0 iph csHash pinstanceAmount}
     rehashV0 Nothing iph inst@PersistentInstanceV{..} =
         inst{pinstanceHash = Instances.makeInstanceHashV0State iph pinstanceModel pinstanceAmount}

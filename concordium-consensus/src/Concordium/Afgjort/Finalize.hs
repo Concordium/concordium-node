@@ -682,62 +682,62 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader = FinalizationMessa
     FinalizationState{..} <- use finState
     -- Check this is the right session
     if _finsSessionId == msgSessionId
-        then -- Check the finalization index is not out of date
-            case compare msgFinalizationIndex _finsIndex of
-                LT -> tryAddQueuedWitness msg
-                GT ->
-                    -- Message is from the future; consider it invalid if it's not the index after the current one.
-                    if msgFinalizationIndex - _finsIndex < 2
-                        then do
-                            -- Save the message for a later finalization index
-                            isDuplicate <- savePendingMessage msgFinalizationIndex msgDelta (PendingMessage msgSenderIndex msgBody msgSignature)
-                            if isDuplicate
-                                then return ResultDuplicate
-                                else do
-                                    -- Since we're behind, request the finalization record we're apparently missing
-                                    logEvent Afgjort LLDebug $ "Missing finalization at index " ++ show (msgFinalizationIndex - 1)
-                                    return ResultPendingFinalization
-                        else return ResultInvalid -- FIXME: possibly return ResultUnverifiable instead.
-                EQ ->
-                    -- handle the message now, since it's the current round
-                    if checkMessage _finsCommittee msg
-                        then do
-                            -- Save the message
-                            isDuplicate <- savePendingMessage msgFinalizationIndex msgDelta (PendingMessage msgSenderIndex msgBody msgSignature)
-                            if isDuplicate
-                                then return ResultDuplicate
-                                else do
-                                    -- Check if we're participating in finalization for this index
-                                    case _finsCurrentRound of
-                                        ActiveCurrentRound (FinalizationRound{..}) ->
-                                            -- And it's the current round
-                                            when (msgDelta == roundDelta) $ do
-                                                logEvent Afgjort LLDebug $ "Handling message: " ++ show msg
-                                                simpleWMVBA (receiveWMVBAMessage msgSenderIndex msgSignature msgBody)
-                                        PassiveCurrentRound (PassiveFinalizationRound pw) -> do
-                                            let
-                                                baid = roundBaid _finsSessionId _finsIndex msgDelta
-                                                pWeight party = partyWeight (parties _finsCommittee Vec.! fromIntegral party)
-                                                pVRFKey party = partyVRFKey (parties _finsCommittee Vec.! fromIntegral party)
-                                                pBlsKey party = partyBlsKey (parties _finsCommittee Vec.! fromIntegral party)
-                                                maxParty = fromIntegral $ Vec.length (parties _finsCommittee) - 1
-                                                inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
-                                                (mProof, ps') = runState (passiveReceiveWMVBAMessage inst msgSenderIndex msgBody) (pw ^. at' msgDelta . non initialWMVBAPassiveState)
-                                            finCurrentRound .= PassiveCurrentRound (PassiveFinalizationRound (pw & at' msgDelta ?~ ps'))
-                                            forM_ mProof (handleFinalizationProof _finsSessionId _finsIndex msgDelta _finsCommittee)
-                                    newFinIndex <- use finIndex
-                                    if newFinIndex == _finsIndex
-                                        then do
-                                            rcu <- messageRequiresCatchUp msgBody
-                                            if rcu
-                                                then do
-                                                    logEvent Afgjort LLDebug $ "Message refers to unjustified block; catch-up required."
-                                                    return ResultPendingBlock
-                                                else return ResultSuccess
-                                        else return ResultSuccess
-                        else do
-                            logEvent Afgjort LLWarning $ "Received bad finalization message"
-                            return ResultInvalid
+        -- Check the finalization index is not out of date
+        then case compare msgFinalizationIndex _finsIndex of
+            LT -> tryAddQueuedWitness msg
+            GT ->
+                -- Message is from the future; consider it invalid if it's not the index after the current one.
+                if msgFinalizationIndex - _finsIndex < 2
+                    then do
+                        -- Save the message for a later finalization index
+                        isDuplicate <- savePendingMessage msgFinalizationIndex msgDelta (PendingMessage msgSenderIndex msgBody msgSignature)
+                        if isDuplicate
+                            then return ResultDuplicate
+                            else do
+                                -- Since we're behind, request the finalization record we're apparently missing
+                                logEvent Afgjort LLDebug $ "Missing finalization at index " ++ show (msgFinalizationIndex - 1)
+                                return ResultPendingFinalization
+                    else return ResultInvalid -- FIXME: possibly return ResultUnverifiable instead.
+            EQ ->
+                -- handle the message now, since it's the current round
+                if checkMessage _finsCommittee msg
+                    then do
+                        -- Save the message
+                        isDuplicate <- savePendingMessage msgFinalizationIndex msgDelta (PendingMessage msgSenderIndex msgBody msgSignature)
+                        if isDuplicate
+                            then return ResultDuplicate
+                            else do
+                                -- Check if we're participating in finalization for this index
+                                case _finsCurrentRound of
+                                    ActiveCurrentRound (FinalizationRound{..}) ->
+                                        -- And it's the current round
+                                        when (msgDelta == roundDelta) $ do
+                                            logEvent Afgjort LLDebug $ "Handling message: " ++ show msg
+                                            simpleWMVBA (receiveWMVBAMessage msgSenderIndex msgSignature msgBody)
+                                    PassiveCurrentRound (PassiveFinalizationRound pw) -> do
+                                        let
+                                            baid = roundBaid _finsSessionId _finsIndex msgDelta
+                                            pWeight party = partyWeight (parties _finsCommittee Vec.! fromIntegral party)
+                                            pVRFKey party = partyVRFKey (parties _finsCommittee Vec.! fromIntegral party)
+                                            pBlsKey party = partyBlsKey (parties _finsCommittee Vec.! fromIntegral party)
+                                            maxParty = fromIntegral $ Vec.length (parties _finsCommittee) - 1
+                                            inst = WMVBAInstance baid (totalWeight _finsCommittee) (corruptWeight _finsCommittee) pWeight maxParty pVRFKey undefined undefined pBlsKey undefined
+                                            (mProof, ps') = runState (passiveReceiveWMVBAMessage inst msgSenderIndex msgBody) (pw ^. at' msgDelta . non initialWMVBAPassiveState)
+                                        finCurrentRound .= PassiveCurrentRound (PassiveFinalizationRound (pw & at' msgDelta ?~ ps'))
+                                        forM_ mProof (handleFinalizationProof _finsSessionId _finsIndex msgDelta _finsCommittee)
+                                newFinIndex <- use finIndex
+                                if newFinIndex == _finsIndex
+                                    then do
+                                        rcu <- messageRequiresCatchUp msgBody
+                                        if rcu
+                                            then do
+                                                logEvent Afgjort LLDebug $ "Message refers to unjustified block; catch-up required."
+                                                return ResultPendingBlock
+                                            else return ResultSuccess
+                                    else return ResultSuccess
+                    else do
+                        logEvent Afgjort LLWarning $ "Received bad finalization message"
+                        return ResultInvalid
         else return ResultIncorrectFinalizationSession
 
 -- | Called when a finalization pseudo-message is received.
