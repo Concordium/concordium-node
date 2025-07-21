@@ -4370,21 +4370,26 @@ doSetTokenState pbs tokenIndex mutableState = do
 -- | Helper function to update a reference to a token account state table.
 updateTokenAccountStateTable ::
     (Monad m, MonadBlobStore m, Reference m ref TokenAccountStateTable) =>
+    -- | The token account of the token account state
     ref TokenAccountStateTable ->
+    -- | The index of the token in question
     PLT.TokenIndex ->
+    -- | How to create a new token account state if the token doesn't have a token account state associated yet
+    m TokenAccountState ->
+    -- | How to update an existing token account state
     (TokenAccountState -> m TokenAccountState) ->
     m (ref TokenAccountStateTable)
-updateTokenAccountStateTable ref tokIx update = do
+updateTokenAccountStateTable ref tokIx createNewState updateExisting = do
     TokenAccountStateTable tst <- refLoad ref
     tst' <-
         Map.alterF
             ( \case
                 Nothing -> do
-                    newState <- update emptyTokenAccountState
+                    newState <- createNewState
                     Just <$> refMake newState
                 Just sRef -> do
                     s <- refLoad sRef
-                    s' <- update s
+                    s' <- updateExisting s
                     Just <$> refMake s'
             )
             tokIx
@@ -4412,7 +4417,7 @@ doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT
             doUpdate ref
       where
         doUpdate ref = do
-            ref' <- updateTokenAccountStateTable ref tokIx updateBalance
+            ref' <- updateTokenAccountStateTable ref tokIx (updateBalance emptyTokenAccountState) updateBalance
             return (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue $ Some ref'})
 
     updateBalance :: TokenAccountState -> MaybeT m TokenAccountState
@@ -4422,6 +4427,30 @@ doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT
         | otherwise = hoistMaybe $ Just $ tas{tasBalance = fromIntegral newBalanceInteger}
       where
         newBalanceInteger = fromIntegral (tasBalance tas) + delta
+
+-- | Touch a token account, i.e. set the balance of the given token to zero if
+--  the account didn't have a balance before.
+doTouchTokenAccount ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    AccountIndex ->
+    m (Maybe (PersistentBlockState pv))
+doTouchTokenAccount pbs tokIx accIx = runMaybeT $ do
+    bsp <- lift $ loadPBS pbs
+    newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
+    storePBS pbs bsp{bspAccounts = newAccounts}
+  where
+    upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
+        CTrue (Some ref) -> doUpdate ref
+        CTrue Null -> do
+            ref <- refMake emptyTokenAccountStateTable
+            doUpdate ref
+      where
+        doUpdate ref = do
+            ref' <- updateTokenAccountStateTable ref tokIx (return emptyTokenAccountState) (const $ hoistMaybe Nothing)
+            return (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue $ Some ref'})
 
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext
@@ -4738,6 +4767,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoCreateToken = doCreateToken
     bsoSetTokenState = doSetTokenState
     bsoUpdateTokenAccountBalance = doUpdateTokenAccountBalance
+    bsoTouchTokenAccount = doTouchTokenAccount
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
