@@ -880,7 +880,7 @@ fn ghc_variant(stack_install_lib: &Path) -> std::io::Result<std::path::PathBuf> 
     // Find the first subdirectory of <stack_install_lib> whose filename has
     // GHC_VARIANT as a prefix.
     let mut ghc_variant_dir: Option<std::path::PathBuf> = None;
-    for entry in std::fs::read_dir(&stack_install_lib)? {
+    for entry in std::fs::read_dir(stack_install_lib)? {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
             continue; // Skip files, we are looking for directories
@@ -896,10 +896,10 @@ fn ghc_variant(stack_install_lib: &Path) -> std::io::Result<std::path::PathBuf> 
         Some(path) => Ok(path),
         None => {
             eprintln!("No subdirectory in {:?} with prefix {}", stack_install_lib, GHC_VARIANT);
-            return Err(std::io::Error::new(
+            Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "GHC_VARIANT directory not found",
-            ));
+            ))
         }
     }
 }
