@@ -3,11 +3,11 @@ use std::{env, path::Path};
 use std::{process::Command, str};
 
 #[cfg(all(not(feature = "static"), target_os = "linux"))]
-const GHC_VARIANT: &str = "x86_64-linux-ghc-9.10.2";
+const GHC_VARIANT: &str = "x86_64-linux";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "x86_64"))]
-const GHC_VARIANT: &str = "x86_64-osx-ghc-9.10.2";
+const GHC_VARIANT: &str = "x86_64-osx";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "aarch64"))]
-const GHC_VARIANT: &str = "aarch64-osx-ghc-9.10.2";
+const GHC_VARIANT: &str = "aarch64-osx";
 
 #[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
@@ -79,12 +79,39 @@ fn main() -> std::io::Result<()> {
                 println!("cargo:rustc-link-search={}", stack_install_lib.to_string_lossy());
                 println!("cargo:rustc-link-lib=dylib=concordium-consensus");
 
-                let stack_install_lib_ghc_varaint = stack_install_lib.join(GHC_VARIANT);
-                let dir = std::fs::read_dir(&stack_install_lib_ghc_varaint)?;
+                // Find the first subdirectory of <stack_install_lib> whose filename has
+                // GHC_VARIANT as a prefix.
+                let mut ghc_variant_dir: Option<std::path::PathBuf> = None;
+                for entry in std::fs::read_dir(&stack_install_lib)? {
+                    if !entry.file_type()?.is_dir() {
+                        continue; // Skip files, we are looking for directories
+                    }
+                    let entry = entry?;
+                    let file_name = entry.file_name();
+                    let file_name_str = file_name.to_string_lossy();
+                    if file_name_str.starts_with(GHC_VARIANT) {
+                        ghc_variant_dir = Some(entry.path());
+                        break;
+                    }
+                }
+                let stack_install_lib_ghc_variant = match ghc_variant_dir {
+                    Some(path) => path,
+                    None => {
+                        eprintln!(
+                            "No subdirectory in {:?} with prefix {}",
+                            stack_install_lib, GHC_VARIANT
+                        );
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::NotFound,
+                            "GHC_VARIANT directory not found",
+                        ));
+                    }
+                };
+                let dir = std::fs::read_dir(&stack_install_lib_ghc_variant)?;
 
                 println!(
                     "cargo:rustc-link-search={}",
-                    stack_install_lib_ghc_varaint.to_string_lossy()
+                    stack_install_lib_ghc_variant.to_string_lossy()
                 );
                 // Traverse all the files in the lib directory, and add all that end with
                 // `.DYLIB_EXTENSION` to the linked libraries list.
@@ -119,7 +146,7 @@ fn main() -> std::io::Result<()> {
                     lib_path,
                     ghc_lib_dir.as_path().to_string_lossy(),
                     stack_install_lib.as_path().to_string_lossy(),
-                    stack_install_lib_ghc_varaint.as_path().to_string_lossy()
+                    stack_install_lib_ghc_variant.as_path().to_string_lossy()
                 );
             }
         }
@@ -817,7 +844,7 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
             "--print-libdir",
         ]))
     });
-    let rts_dir = Path::new(&ghc_lib_dir).join(GHC_VARIANT);
+    let rts_dir = ghc_variant(Path::new(&ghc_lib_dir))?;
     println!("cargo:rustc-link-search=native={}", rts_dir.to_string_lossy());
     for item in std::fs::read_dir(&rts_dir)?.filter_map(Result::ok) {
         let path = item.path();
@@ -872,4 +899,33 @@ fn link_static_libs() -> std::io::Result<()> {
     println!("cargo:rustc-link-lib=dylib=gmp");
 
     Ok(())
+}
+
+#[cfg(all(not(feature = "static"), not(windows)))]
+fn ghc_variant(stack_install_lib: &Path) -> std::io::Result<std::path::PathBuf> {
+    // Find the first subdirectory of <stack_install_lib> whose filename has
+    // GHC_VARIANT as a prefix.
+    let mut ghc_variant_dir: Option<std::path::PathBuf> = None;
+    for entry in std::fs::read_dir(&stack_install_lib)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue; // Skip files, we are looking for directories
+        }
+        let file_name = entry.file_name();
+        let file_name_str = file_name.to_string_lossy();
+        if file_name_str.starts_with(GHC_VARIANT) {
+            ghc_variant_dir = Some(entry.path());
+            break;
+        }
+    }
+    match ghc_variant_dir {
+        Some(path) => Ok(path),
+        None => {
+            eprintln!("No subdirectory in {:?} with prefix {}", stack_install_lib, GHC_VARIANT);
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "GHC_VARIANT directory not found",
+            ));
+        }
+    }
 }
