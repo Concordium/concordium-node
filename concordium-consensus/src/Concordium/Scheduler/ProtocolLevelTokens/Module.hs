@@ -455,6 +455,10 @@ accountStateKey accountIndex subkey = runPut $ do
 -- | Set the value in the account state.
 setAccountState :: (Monad m, PLTKernelUpdate m) => PLTAccount m -> TokenStateKey -> Maybe TokenStateValue -> m ()
 setAccountState account key maybeValue = do
+    -- make sure that the account state contains a balance. Otherwise the
+    -- updated account state might not be displayed in future queries.
+    void $ touch account
+
     accountIndex <- getAccountIndex account
     let accountKey = accountStateKey accountIndex key
     void $ Kernel.setTokenState accountKey maybeValue
