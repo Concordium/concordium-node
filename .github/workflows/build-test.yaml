@@ -55,9 +55,8 @@ on:
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 16                 # change to force cache invalidation
+  dummy: 17                # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
-  TEST_LEVEL: 1            # for stack tests
 
 jobs:
 
@@ -72,6 +71,13 @@ jobs:
         uri: 'https://github.com/fourmolu/fourmolu/releases/download/v0.18.0.0/fourmolu-0.18.0.0-linux-x86_64'
         name: 'fourmolu'
         version: '0.18.0.0'
+    
+    - name: Download hpack
+      run: |
+        curl -L https://github.com/sol/hpack/releases/download/0.38.1/hpack_linux.gz -o hpack.gz
+        gunzip hpack.gz
+        chmod +x hpack
+        mv hpack /usr/local/bin/
 
     - name: Checkout project
       uses: actions/checkout@v2
@@ -82,7 +88,8 @@ jobs:
     # needed to generate a cabal file from the package.yaml.
     - name: Setup the project
       run: |
-        stack setup
+        cd concordium-consensus
+        hpack package.yaml
 
     - name: Run fourmolu
       run: |
@@ -173,11 +180,13 @@ jobs:
           ~/.cargo/git
           concordium-base/rust-src/target
           concordium-base/lib
-          concordium-consensus/smart-contracts/wasm-chain-integration/target
-          concordium-consensus/smart-contracts/lib
+          concordium-base/smart-contracts/wasm-chain-integration/target
+          concordium-base/smart-contracts/lib
           concordium-node/target
-        key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          collector/target
+        key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}-${{ hashFiles('concordium-base/rust-src/**/*.rs','concordium-base/smart-contracts/wasm-chain-integration/**/*.rs')}}
         restore-keys: |
+          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
           ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}
 
     # HASKELL #
@@ -188,6 +197,12 @@ jobs:
     # The cache entry keys depend on the GHC version and contents of 'package.yaml' and 'stack.yaml'
     # but will fall back to cache entries from different versions if no match is found.
 
+    - name: Compute cache keys
+      id: cache-keys
+      run: |
+        echo "proto_hash=${{ hashFiles('**/*.proto') }}" >> $GITHUB_OUTPUT
+        echo "base_hash=${{ hashFiles('concordium-base/**/*.hs') }}" >> $GITHUB_OUTPUT
+      
     - name: Cache stack global package DB
       id: stack-global
       uses: actions/cache@v4
@@ -213,8 +228,10 @@ jobs:
           concordium-consensus/.stack-work
           concordium-consensus/haskell-lmdb/.stack-work
 
-        key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
+        key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-${{ steps.cache-keys.outputs.base_hash }}
         restore-keys: |
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}
 
     - name: Install GHC (unless it was cached)
@@ -224,23 +241,12 @@ jobs:
     - name: Build haskell dependencies (unless they were cached)
       if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
       run: |
-        stack build --test --bench --only-dependencies
+        stack build concordium-consensus --test --bench --only-dependencies
 
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
-    - name: Build consensus
+    - name: Build consensus and run tests
       run: |
-        stack build --test --bench --force-dirty --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
-
-    # Test Haskell sources. Could be run in parallel with the steps below.
-    - name: Test consensus
-      run: |
-        stack test concordium-consensus:consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
-    - name: Test globalstate
-      run: |
-        stack test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
-    - name: Test scheduler
-      run: |
-        stack test concordium-consensus:scheduler --bench --no-run-benchmarks
+        stack build concordium-consensus --test --bench --force-dirty --no-run-benchmarks --ghc-options "-Werror" --ghc-options -j
 
     # RUST #
 
