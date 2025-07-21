@@ -81,33 +81,7 @@ fn main() -> std::io::Result<()> {
 
                 // Find the first subdirectory of <stack_install_lib> whose filename has
                 // GHC_VARIANT as a prefix.
-                let mut ghc_variant_dir: Option<std::path::PathBuf> = None;
-                for entry in std::fs::read_dir(&stack_install_lib)? {
-                    if !entry.file_type()?.is_dir() {
-                        continue; // Skip files, we are looking for directories
-                    }
-                    let entry = entry?;
-                    let file_name = entry.file_name();
-                    let file_name_str = file_name.to_string_lossy();
-                    if file_name_str.starts_with(GHC_VARIANT) {
-                        ghc_variant_dir = Some(entry.path());
-                        break;
-                    }
-                }
-                let stack_install_lib_ghc_variant = match ghc_variant_dir {
-                    Some(path) => path,
-                    None => {
-                        eprintln!(
-                            "No subdirectory in {:?} with prefix {}",
-                            stack_install_lib, GHC_VARIANT
-                        );
-                        return Err(std::io::Error::new(
-                            std::io::ErrorKind::NotFound,
-                            "GHC_VARIANT directory not found",
-                        ));
-                    }
-                };
-                let dir = std::fs::read_dir(&stack_install_lib_ghc_variant)?;
+                let stack_install_lib_ghc_variant = ghc_variant(&stack_install_lib)?;
 
                 println!(
                     "cargo:rustc-link-search={}",
