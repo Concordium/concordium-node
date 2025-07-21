@@ -82,7 +82,7 @@ fn main() -> std::io::Result<()> {
                 // Find the first subdirectory of <stack_install_lib> whose filename has
                 // GHC_VARIANT as a prefix.
                 let stack_install_lib_ghc_variant = ghc_variant(&stack_install_lib)?;
-
+                let dir = std::fs::read_dir(&stack_install_lib_ghc_variant)?;
                 println!(
                     "cargo:rustc-link-search={}",
                     stack_install_lib_ghc_variant.to_string_lossy()
