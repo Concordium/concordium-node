@@ -280,7 +280,7 @@ testAddDelegator spv = withMaxSuccess 1000 $ property $ do
     let chooseInvalidAccount =
             elements
                 [ DelegateToBaker (BakerId (fromIntegral i))
-                  | i <- [length accounts .. length accounts + 10]
+                | i <- [length accounts .. length accounts + 10]
                 ]
     -- Favour delegating to a baker, as this covers the most interesting cases.
     target <-

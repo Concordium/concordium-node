@@ -84,7 +84,7 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans.Class
 import Data.Function (on)
-import Data.List (find, foldl')
+import Data.List (find)
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
 import Data.Ord
@@ -160,8 +160,8 @@ checkHeader meta mVerRes = do
                         then do
                             checkNonceAndFunds acc
                             return (iacc, cost)
-                        else -- the account information has changed, so we re-verify the signature.
-                        do
+                        -- the account information has changed, so we re-verify the signature.
+                        else do
                             unless (verifyTransaction currentKeys meta) (throwError $ Just IncorrectSignature)
                             checkNonceAndFunds acc
                             return (iacc, cost)
@@ -1568,7 +1568,6 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
                                                         if verifyAccountSignature dataPayload sigs keys
                                                             then -- The Wasm execution does not reset contract events for queries, hence we do not have to
                                                             -- add them here via an interrupt. They will be retained until the next interrupt.
-
                                                                 go events
                                                                     =<< runInterpreter
                                                                         ( return
@@ -2748,7 +2747,6 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
     if not (validatePayloadSize (protocolVersion @(MPV m)) (updatePayloadSize uiHeader))
         then return (TxInvalid InvalidPayloadSize)
         else -- check that the transaction is not expired
-
             if transactionExpired (updateTimeout uiHeader) (slotTime cm)
                 then return (TxInvalid ExpiredTransaction)
                 else do
@@ -3036,11 +3034,11 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                               energyCost,
                               usedEnergy
                             )
-            else -- try to provide a more fine-grained error by analyzing what went wrong
+            -- try to provide a more fine-grained error by analyzing what went wrong
             -- at some point we should refine the scheduler monad to support cleaner error
             -- handling by adding MonadError capability to it. Until that is done this
             -- is a pretty clean alternative to avoid deep nesting.
-
+            else
                 if not firstCredNotRemoved
                     then return (TxReject RemoveFirstCredential, energyCost, usedEnergy)
                     else
@@ -3210,7 +3208,6 @@ filterTransactions maxSize timeout groups0 = do
                 else
                     if csize <= maxSize
                         then -- Chain updates have no account footprint
-
                             handleChainUpdate ui >>= \case
                                 TxInvalid reason -> case uis of
                                     (nui : _)
@@ -3236,8 +3233,8 @@ filterTransactions maxSize timeout groups0 = do
                                                   ftAdded = (ui & _1 %~ chainUpdate, summary) : ftAdded currentFts
                                                 }
                                     runUpdateInstructions csize newFts rest
-                        else -- The cumulative block size with this update is too high.
-                        case uis of
+                        -- The cumulative block size with this update is too high.
+                        else case uis of
                             (nui : _)
                                 | ((==) `on` (updateSeqNumber . uiHeader . wmdData . fst)) ui nui ->
                                     -- There is another update with the same sequence number, so try that
@@ -3263,7 +3260,6 @@ filterTransactions maxSize timeout groups0 = do
                     let newFts = fts{ftUnprocessedCredentials = cws : ftUnprocessedCredentials fts}
                     runNext maxEnergy size credLimit True newFts groups
                 else -- NB: be aware that credLimit is of an unsigned type, so it is crucial that we never wrap around
-
                     if credLimit > 0 && csize <= maxSize && cenergy <= maxEnergy
                         then
                             handleDeployCredential cws wmdHash >>= \case
@@ -3279,7 +3275,6 @@ filterTransactions maxSize timeout groups0 = do
                             if Cost.deployCredential (ID.credentialType c) (ID.credNumKeys . ID.credPubKeys $ c) > maxEnergy
                                 then -- this case should not happen (it would mean we set the parameters of the chain wrong),
                                 -- but we keep it just in case.
-
                                     let newFts = fts{ftFailedCredentials = (cws, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}
                                     in  runNext maxEnergy size credLimit False newFts groups
                                 else
@@ -3306,9 +3301,9 @@ filterTransactions maxSize timeout groups0 = do
                     runNext maxEnergy currentSize credLimit True newFts groups
                 else
                     if csize <= maxSize && cenergy <= maxEnergy
-                        then -- The transaction fits regarding both block energy limit and max transaction size.
+                        -- The transaction fits regarding both block energy limit and max transaction size.
                         -- Thus try to add the transaction by executing it.
-
+                        then
                             dispatch t >>= \case
                                 -- The transaction was committed, add it to the list of added transactions.
                                 Just (TxValid summary) -> do
@@ -3320,24 +3315,24 @@ filterTransactions maxSize timeout groups0 = do
                                     let (newFts, rest) = invalidTs t reason currentFts ts
                                     in  runTransactionGroup currentSize newFts rest
                                 Nothing -> error "Unreachable. Dispatch honors maximum transaction energy."
-                        else -- If the stated energy of a single transaction exceeds the block energy limit the
+                        -- If the stated energy of a single transaction exceeds the block energy limit the
                         -- transaction is invalid. Add it to the list of failed transactions and
                         -- determine whether following transactions have to fail as well.
-
+                        else
                             if tenergy > maxEnergy
                                 then
                                     let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts
                                     in  runTransactionGroup currentSize newFts rest
                                 else -- otherwise still try the remaining transactions in the group to avoid deadlocks from
                                 -- one single too-big transaction (with same nonce).
-                                case ts of
-                                    (nt : _)
-                                        | transactionNonce (fst nt) == transactionNonce (fst t) ->
-                                            let newFts = currentFts{ftUnprocessed = t : ftUnprocessed currentFts}
-                                            in  runTransactionGroup currentSize newFts ts
-                                    _ ->
-                                        let newFts = currentFts{ftUnprocessed = t : ts ++ ftUnprocessed currentFts}
-                                        in  runNext maxEnergy currentSize credLimit False newFts groups
+                                    case ts of
+                                        (nt : _)
+                                            | transactionNonce (fst nt) == transactionNonce (fst t) ->
+                                                let newFts = currentFts{ftUnprocessed = t : ftUnprocessed currentFts}
+                                                in  runTransactionGroup currentSize newFts ts
+                                        _ ->
+                                            let newFts = currentFts{ftUnprocessed = t : ts ++ ftUnprocessed currentFts}
+                                            in  runNext maxEnergy currentSize credLimit False newFts groups
 
         -- Group processed, continue with the next group or credential
         runTransactionGroup currentSize currentFts [] =
@@ -3374,13 +3369,14 @@ filterTransactions maxSize timeout groups0 = do
             in  -- NOTE: Following transactions with the same nonce could be valid. Therefore,
                 -- if the next transaction has the same nonce as the failed, we continue with 'runNext'.
                 -- Note that we rely on the precondition of transactions being ordered by nonce.
-                if not (null ts) && transactionNonce (fst (head ts)) > transactionNonce (fst t)
-                    then
-                        let failedSuccessors = map (,SuccessorOfInvalidTransaction) ts
-                        in  ( currentFts{ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts},
-                              []
-                            )
-                    else (currentFts{ftFailed = newFailedEntry : ftFailed currentFts}, ts)
+                case ts of
+                    ((t0, _) : _)
+                        | transactionNonce t0 > transactionNonce (fst t) ->
+                            let failedSuccessors = map (,SuccessorOfInvalidTransaction) ts
+                            in  ( currentFts{ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts},
+                                  []
+                                )
+                    _ -> (currentFts{ftFailed = newFailedEntry : ftFailed currentFts}, ts)
 
 -- | Execute transactions in sequence, collecting the outcomes of each transaction.
 --  This is meant to execute the transactions of a given block.

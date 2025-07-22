@@ -263,7 +263,7 @@ extraAccountTransactions numAccts = trs 1
                 1
                 (Nonce n) -- \$ fromInteger $ toInteger maxAcc * toInteger (n - 1) + toInteger i)
           )
-          | i <- [1 .. maxAcc]
+        | i <- [1 .. maxAcc]
         ]
             ++ trs (Nonce (n + 1))
 

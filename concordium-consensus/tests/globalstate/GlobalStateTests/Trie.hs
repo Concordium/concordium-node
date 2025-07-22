@@ -37,14 +37,14 @@ testUpdateBranchSome :: Property
 testUpdateBranchSome = forAll genBranchList $ \v i x ->
     let v' = Trie.branchesToList $ Trie.updateBranch i (Some x) $ Trie.branchesFromList v
         (h, rr) = splitAt (fromIntegral i) v
-        r = tail rr
+        r = drop 1 rr
     in  conjoin (zipWith (===) v' (h ++ Some x : r))
 
 testUpdateBranchNull :: Property
 testUpdateBranchNull = forAll genBranchList $ \v i ->
     let v' = Trie.branchesToList $ Trie.updateBranch i Null $ Trie.branchesFromList v
         (h, rr) = splitAt (fromIntegral i) v
-        r = tail rr
+        r = drop 1 rr
     in  conjoin (zipWith (===) v' (h ++ Null : r))
 
 tests :: Spec

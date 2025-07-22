@@ -2662,8 +2662,8 @@ doUpdateBakerStake pbs ai newStake = do
             if sdPendingChange /= BaseAccounts.NoChange
                 then -- A change is already pending
                     return (BSUChangePending (BakerId ai), pbs)
-                else -- We can make the change
-                do
+                else do
+                    -- We can make the change
                     let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
                     cooldownEpochs <-
@@ -3190,8 +3190,8 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                         br <- makeBufferedRef newParams
                         return (newParams, br, newModuleInterface)
             if deltaAmnt == 0
-                then -- there is no change in amount owned by the contract
-                case val of
+                -- there is no change in amount owned by the contract
+                then case val of
                     -- no change in either the state or the module. No need to change the instance
                     Nothing
                         | Nothing <- newModule -> return ((), PersistentInstanceV1 oldInst)
@@ -3218,8 +3218,8 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                                   pinstanceModuleInterface = newModuleInterface
                                 }
                             )
-                else -- at least the amount has changed rehash in all cases
-                case val of
+                -- at least the amount has changed rehash in all cases
+                else case val of
                     Nothing ->
                         rehashV1
                             Nothing
@@ -3589,8 +3589,7 @@ doPrimeForSuspension pbs threshold = do
 --  addresses.
 doSuspendValidators ::
     forall pv m.
-    ( SupportsPersistentState pv m
-    ) =>
+    (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     [AccountIndex] ->
     m ([(AccountIndex, AccountAddress)], PersistentBlockState pv)

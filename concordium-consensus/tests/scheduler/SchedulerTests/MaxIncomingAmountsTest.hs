@@ -21,7 +21,6 @@ For now `numberOfTransactions == maxNumIncoming + 2`.
 -}
 
 import Control.Monad
-import Data.Foldable
 import Data.Maybe (fromJust)
 import qualified Data.Sequence as Seq
 import Test.HUnit

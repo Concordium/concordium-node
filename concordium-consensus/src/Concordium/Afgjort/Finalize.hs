@@ -682,8 +682,8 @@ receiveFinalizationMessage msg@FinalizationMessage{msgHeader = FinalizationMessa
     FinalizationState{..} <- use finState
     -- Check this is the right session
     if _finsSessionId == msgSessionId
-        then -- Check the finalization index is not out of date
-        case compare msgFinalizationIndex _finsIndex of
+        -- Check the finalization index is not out of date
+        then case compare msgFinalizationIndex _finsIndex of
             LT -> tryAddQueuedWitness msg
             GT ->
                 -- Message is from the future; consider it invalid if it's not the index after the current one.

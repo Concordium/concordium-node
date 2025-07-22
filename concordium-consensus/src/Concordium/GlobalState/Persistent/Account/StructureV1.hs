@@ -483,8 +483,7 @@ instance HashableTo (AccountMerkleHash av) (PersistentAccountEnduringData av) wh
 --  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV2 ::
-    ( MonadBlobStore m
-    ) =>
+    (MonadBlobStore m) =>
     EagerBufferedRef PersistingAccountData ->
     Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
     Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
@@ -514,8 +513,7 @@ makeAccountEnduringDataAV2 paedPersistingData paedEncryptedAmount paedReleaseSch
 --  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV3 ::
-    ( MonadBlobStore m
-    ) =>
+    (MonadBlobStore m) =>
     EagerBufferedRef PersistingAccountData ->
     Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
     Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
@@ -546,8 +544,7 @@ makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSch
 --  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV4 ::
-    ( MonadBlobStore m
-    ) =>
+    (MonadBlobStore m) =>
     EagerBufferedRef PersistingAccountData ->
     Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
     Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
@@ -578,8 +575,7 @@ makeAccountEnduringDataAV4 paedPersistingData paedEncryptedAmount paedReleaseSch
 --  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV5 ::
-    ( MonadBlobStore m
-    ) =>
+    (MonadBlobStore m) =>
     EagerBufferedRef PersistingAccountData ->
     Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
     Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
@@ -1446,7 +1442,7 @@ updateAccount !upd !acc0 = do
                     Add{..} -> addIncomingEncryptedAmount newAmount
                     ReplaceUpTo{..} -> replaceUpTo aggIndex newAmount
                     AddSelf{..} -> addToSelfEncryptedAmount newAmount
-                    )
+                )
                     oldEncAmount
             isInitial <- isInitialPersistentAccountEncryptedAmount newEncryptedAmount
             encryptedAmountRef <-

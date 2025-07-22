@@ -256,6 +256,22 @@ timeoutMessagesFor sProtocolVersion qc curRound curEpoch = mkTm <$> bakers sProt
               tsmQCEpoch = qcEpoch qc
             }
 
+-- | Produce a properly-signed timeout message for the given QC, round and current epoch from the
+--  first baker. (This assumes that the first baker is a finalizer for the purposes of computing
+--  finalizer indexes.)
+firstTimeoutMessageFor ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    QuorumCertificate ->
+    Round ->
+    Epoch ->
+    TimeoutMessage
+firstTimeoutMessageFor sProtocolVersion qc curRound curEpoch =
+    case timeoutMessagesFor sProtocolVersion qc curRound curEpoch of
+        (tm : _) -> tm
+        [] -> error "Impossible: there must be at least one baker"
+
 -- | Helper to compute the transaction outcomes hash for a given set of transaction outcomes and
 --  special transaction outcomes.
 transactionOutcomesHashV1 ::

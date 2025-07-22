@@ -47,7 +47,6 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import qualified Data.ByteString as BS
-import Data.Foldable (foldl')
 import Data.Kind (Type)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
@@ -397,7 +396,8 @@ data
     InstanceInfoTypeV
         (instrumentedModule :: Wasm.WasmVersion -> Type)
         (contractState :: Wasm.WasmVersion -> Type)
-        (v :: Wasm.WasmVersion) = InstanceInfoV
+        (v :: Wasm.WasmVersion)
+    = InstanceInfoV
     { -- | Immutable parameters that change rarely after the instance is created.
       iiParameters :: InstanceParameters (instrumentedModule v),
       -- | The state that will be modified during execution.
@@ -1563,8 +1563,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
     --  tandem with the slot duration.
     --  Note that this does not affect the next sequence number for election difficulty updates.
     bsoOverwriteElectionDifficulty ::
-        ( ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
-        ) =>
+        (ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0) =>
         UpdatableBlockState m ->
         ElectionDifficulty ->
         m (UpdatableBlockState m)

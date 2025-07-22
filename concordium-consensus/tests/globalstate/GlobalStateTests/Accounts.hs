@@ -96,7 +96,7 @@ data AccountAction
 
 randomizeAccount :: AccountAddress -> ID.CredentialPublicKeys -> Gen (Account (AccountVersionFor PV))
 randomizeAccount _accountAddress _accountVerificationKeys = do
-    let vfKey = snd . head $ Map.toAscList (ID.credKeys _accountVerificationKeys)
+    let vfKey = snd $ Map.findMin (ID.credKeys _accountVerificationKeys)
     let cred = dummyCredential dummyCryptographicParameters _accountAddress vfKey dummyMaxValidTo dummyCreatedAt
     let a0 = newAccount dummyCryptographicParameters _accountAddress cred
     nonce <- Nonce <$> arbitrary
