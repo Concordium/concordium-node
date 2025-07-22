@@ -60,7 +60,7 @@ instance FromJSON BakerIdentity where
             (Just bid, Just vid) ->
                 if bid == vid
                     then return vid
-                    else fail "'bakerId' and 'validatorId' are both specified, but different."
+                    else fail "'bakerId' and 'validatorId' are both specified, but different <touch for test>."
         bakerSignKey <- parseJSON v
         bakerElectionKey <- parseJSON v
         bakerAggregationKey <- obj .: "aggregationSignKey"
