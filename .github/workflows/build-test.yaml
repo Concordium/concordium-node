@@ -234,15 +234,6 @@ jobs:
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}
 
-    - name: Install GHC (unless it was cached)
-      if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
-      run: |
-        stack setup --install-ghc
-    - name: Build haskell dependencies (unless they were cached)
-      if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
-      run: |
-        stack build concordium-consensus --test --bench --only-dependencies
-
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
     - name: Build consensus and run tests
       run: |
