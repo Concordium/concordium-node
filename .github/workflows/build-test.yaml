@@ -211,14 +211,6 @@ jobs:
         key: ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
         restore-keys: |
           ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}
-    - name: Cache stack-installed programs in '~/.local/bin'
-      id: stack-programs
-      uses: actions/cache@v4
-      with:
-        path: ~/.local/bin
-        key: ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
-        restore-keys: |
-          ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}
     - name: Cache '.stack-work'
       uses: actions/cache@v4
       with:
@@ -233,15 +225,6 @@ jobs:
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}
-
-    - name: Install GHC (unless it was cached)
-      if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
-      run: |
-        stack setup --install-ghc
-    - name: Build haskell dependencies (unless they were cached)
-      if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
-      run: |
-        stack build concordium-consensus --test --bench --only-dependencies
 
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
     - name: Build consensus and run tests
