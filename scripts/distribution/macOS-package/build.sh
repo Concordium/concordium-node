@@ -38,14 +38,6 @@ readonly signedProductFile="$buildDir/packages/concordium-node-$version.pkg"
 ghcVersion="$(stack --stack-yaml "$baseDir/stack.yaml" ghc -- --version | cut -d' ' -f8)" # Get the GHC version used in Consensus.
 readonly ghcVersion
 
-# Fallback-compatible platform detection
-platformArch=""
-if stack --help | grep -q -- '--platform'; then
-    platformArch=$(stack --stack-yaml "$baseDir/stack.yaml" path --platform)
-fi
-
-ghcVariant="${platformArch}-ghc-${ghcVersion}"
-
 # Log info in green color.
 logInfo () {
     local GREEN='\033[0;32m'
@@ -269,39 +261,28 @@ function collectDylibs() {
 
     logInfo "Collecting dylibs with dylibbundler (this will take a few minutes)..."
 
-    concordiumDylibDir=$(stack --stack-yaml "$baseDir/stack.yaml" path --local-install-root)"/lib"
-    
-    if [[ -z "$platformArch" ]]; then
-        platformArch=$(basename "$(dirname "$(dirname "$(dirname "$concordiumDylibDir")")")")
-        ghcVariant="${platformArch}-ghc-${ghcVersion}"
-    fi
-
-    # We use `find` to get the first directory that matches the GHC variant.
+    concordiumDylibDir=$(stack --stack-yaml "$baseDir/stack.yaml" path --local-install-root)"/lib"    
+    # We use `find` to get the first directory that matches the GHC version.
     # There SHOULD be exactly one such directory. We do this because we do not want to
     # hardcode the ABI short hash, which is the last part of the directory name.
     concordiumDylibGhcDirs=()
     while IFS= read -r line; do
         concordiumDylibGhcDirs+=("$line")
-    done < <(find "$concordiumDylibDir" -maxdepth 1 -type d -name "${ghcVariant}*")
-
-    logInfo "ghcVariant: $ghcVariant"
-    logInfo "concordiumDylibDir: $concordiumDylibDir"
-
+    done < <(find "$concordiumDylibDir" -maxdepth 1 -type d -name "*-${ghcVersion}*")
     if [[ ${#concordiumDylibGhcDirs[@]} -ne 1 ]]; then
-        logInfo "Expected exactly one GHC variant directory matching '${ghcVariant}*' in '$concordiumDylibDir'. Found: ${#concordiumDylibGhcDirs[@]} directories."
+        logInfo "Expected exactly one directory matching '*-${ghcVersion}*' in '$concordiumDylibDir'. Found: ${#concordiumDylibGhcDirs[@]} directories."
         logInfo "Directories found: ${concordiumDylibGhcDirs[@]}"
         exit 1
     fi
     concordiumDylibGhcDir="${concordiumDylibGhcDirs[0]}"
-    stackSnapshotRoot=$(stack --stack-yaml "$baseDir/stack.yaml" path --snapshot-install-root)"/lib"
-    
+
+    stackSnapshotRoot=$(stack --stack-yaml "$baseDir/stack.yaml" path --snapshot-install-root)"/lib"    
     stackSnapshotDirs=()
     while IFS= read -r dir; do
         stackSnapshotDirs+=("$dir")
-    done < <(find "$stackSnapshotRoot" -maxdepth 1 -type d -name "${ghcVariant}*")
-
+    done < <(find "$stackSnapshotRoot" -maxdepth 1 -type d -name "*-${ghcVersion}*")
     if [[ ${#stackSnapshotDirs[@]} -ne 1 ]]; then
-        logInfo "Expected exactly one stack snapshot directory matching '${ghcVariant}*' in '$stackSnapshotRoot'. Found: ${#stackSnapshotDirs[@]} directories."
+        logInfo "Expected exactly one directory matching '*-${ghcVersion}*' in '$stackSnapshotRoot'. Found: ${#stackSnapshotDirs[@]} directories."
         logInfo "Directories found: ${stackSnapshotDirs[@]}"
         exit 1
     fi
