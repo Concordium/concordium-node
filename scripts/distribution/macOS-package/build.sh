@@ -266,18 +266,18 @@ function collectDylibs() {
     # We use `find` to get the first directory that matches the GHC variant.
     # There SHOULD be exactly one such directory. We do this because we do not want to
     # hardcode the ABI short hash, which is the last part of the directory name.
-    concordiumDylibGhcDirs=$(find "$concordiumDylibDir" -maxdepth 1 -type d -name "${ghcVariant}*")
+    mapfile -t concordiumDylibGhcDirs < <(find "$concordiumDylibDir" -maxdepth 1 -type d -name "${ghcVariant}*")
     if [[ ${#concordiumDylibGhcDirs[@]} -ne 1 ]]; then
         logInfo "Expected exactly one GHC variant directory matching '${ghcVariant}*' in '$concordiumDylibDir'. Found: ${#concordiumDylibGhcDirs[@]} directories."
-        logInfo "Directories found: $concordiumDylibGhcDirs"
+        logInfo "Directories found: ${concordiumDylibGhcDirs[@]}"
         exit 1
     fi
     concordiumDylibGhcDir="${concordiumDylibGhcDirs[0]}"
     stackSnapshotRoot=$(stack --stack-yaml "$baseDir/stack.yaml" path --snapshot-install-root)"/lib"
-    stackSnapshotDirs=$(find "$stackSnapshotRoot" -maxdepth 1 -type d -name "${ghcVariant}*")
+    mapfile -t stackSnapshotDirs < <(find "$stackSnapshotRoot" -maxdepth 1 -type d -name "${ghcVariant}*")
     if [[ ${#stackSnapshotDirs[@]} -ne 1 ]]; then
         logInfo "Expected exactly one stack snapshot directory matching '${ghcVariant}*' in '$stackSnapshotRoot'. Found: ${#stackSnapshotDirs[@]} directories."
-        logInfo "Directories found: $stackSnapshotDirs"
+        logInfo "Directories found: ${stackSnapshotDirs[@]}"
         exit 1
     fi
     stackSnapshotDir="${stackSnapshotDirs[0]}"
