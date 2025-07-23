@@ -232,6 +232,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
     let handleOperation !opIndex op = do
             case op of
                 PTOTransfer{..} -> do
+                    pltTickEnergy tokenTransferCost
                     checkPaused opIndex "transfer"
                     recipientAccount <- requireAccount opIndex pthoRecipient
                     -- If the allow list is enabled, check that the sender and recipient are
@@ -276,7 +277,6 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                       trrAddressNotPermitted = Just pthoRecipient,
                                       trrReason = Just "recipient in deny list"
                                     }
-                    pltTickEnergy tokenTransferCost
                     success <- transfer tcSender recipientAccount pthoAmount pthoMemo
                     unless success $ do
                         availableBalance <- getAccountBalance tcSender
@@ -287,6 +287,20 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                   trrRequiredBalance = ttAmount pthoUnprocessed
                                 }
                 tokenGovernanceOp -> do
+                    -- Charge energy immediately.
+                    case tokenGovernanceOp of
+                        -- Mint and Burn
+                        PTOTokenMint{} -> pltTickEnergy tokenMintCost
+                        PTOTokenBurn{} -> pltTickEnergy tokenBurnCost
+                        -- List operations
+                        PTOTokenAddAllowList{} -> pltTickEnergy tokenListOperationCost
+                        PTOTokenRemoveAllowList{} -> pltTickEnergy tokenListOperationCost
+                        PTOTokenAddDenyList{} -> pltTickEnergy tokenListOperationCost
+                        PTOTokenRemoveDenyList{} -> pltTickEnergy tokenListOperationCost
+                        -- Pause and Unpause
+                        PTOTokenPause -> pltTickEnergy tokenPauseUnpauseCost
+                        PTOTokenUnpause -> pltTickEnergy tokenPauseUnpauseCost
+
                     mbGovAccountIx <- getModuleState "governanceAccount"
                     govAccountIx <- case mbGovAccountIx of
                         Just govAccountIx -> return govAccountIx
@@ -311,7 +325,6 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                         PTOTokenMint{..} -> do
                             checkPaused opIndex "mint"
                             requireFeature opIndex "mint" "mintable"
-                            pltTickEnergy tokenMintCost
                             mintOK <- mint tcSender ptgoAmount
                             unless mintOK $ do
                                 availableSupply <- getCirculatingSupply
@@ -326,7 +339,6 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                         PTOTokenBurn{..} -> do
                             checkPaused opIndex "burn"
                             requireFeature opIndex "burn" "burnable"
-                            pltTickEnergy tokenBurnCost
                             burnOK <- burn tcSender ptgoAmount
                             unless burnOK $ do
                                 availableBalance <- getAccountBalance tcSender
@@ -339,33 +351,27 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                         PTOTokenAddAllowList{..} -> do
                             requireFeature opIndex "addAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
-                            pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" (Just "")
                             logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
                         PTOTokenRemoveAllowList{..} -> do
                             requireFeature opIndex "removeAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
-                            pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" Nothing
                             logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
                         PTOTokenAddDenyList{..} -> do
                             requireFeature opIndex "addDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
-                            pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" (Just "")
                             logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
                         PTOTokenRemoveDenyList{..} -> do
                             requireFeature opIndex "removeDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
-                            pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" Nothing
                             logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
                         PTOTokenPause -> do
-                            pltTickEnergy tokenPauseUnpauseCost
                             setModuleState "paused" (Just "")
                             logEncodeTokenEvent Pause
                         PTOTokenUnpause -> do
-                            pltTickEnergy tokenPauseUnpauseCost
                             setModuleState "paused" Nothing
                             logEncodeTokenEvent Unpause
             return (opIndex + 1)
