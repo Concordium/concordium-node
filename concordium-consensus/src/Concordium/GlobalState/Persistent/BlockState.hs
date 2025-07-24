@@ -4380,11 +4380,13 @@ doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT
     newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
     storePBS pbs bsp{bspAccounts = newAccounts}
   where
-    upd = updateTokenAccountState
+    upd =
+        updateTokenAccountState
             tokIx
-            (\case
+            ( \case
                 Nothing -> updateBalance emptyTokenAccountState
-                Just tas -> updateBalance tas)
+                Just tas -> updateBalance tas
+            )
 
     updateBalance :: TokenAccountState -> MaybeT m TokenAccountState
     updateBalance tas
@@ -4408,11 +4410,13 @@ doTouchTokenAccount pbs tokIx accIx = runMaybeT $ do
     newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
     storePBS pbs bsp{bspAccounts = newAccounts}
   where
-    upd = updateTokenAccountState
+    upd =
+        updateTokenAccountState
             tokIx
-            (\case
+            ( \case
                 Nothing -> return emptyTokenAccountState
-                Just _tas -> hoistMaybe Nothing)
+                Just _tas -> hoistMaybe Nothing
+            )
 
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext

@@ -11,7 +11,6 @@
     of an account by setting its balance to zero. This method only affects
     accounts that have no existing state for the token.
 
->>>>>>> Conflict 1 of 1 ends
 ## 9.0.6 (DevNet)
 
 - Protocol-level tokens:

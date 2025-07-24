@@ -447,16 +447,16 @@ updateTokenAccountState tokenIx upd (PAV5 acc) = case V1.accountTokenStateTable 
         ref' <- updateTokenAccountStateTable ref tokenIx (upd Nothing) (upd . Just)
         return (PAV5 $ acc{V1.accountTokenStateTable = CTrue $ Some ref'})
 
-    -- | Helper function to update a reference to a token account state table.
+    -- \| Helper function to update a reference to a token account state table.
     updateTokenAccountStateTable ::
         (Monad m, MonadBlobStore m, Reference m ref BlockState.TokenAccountStateTable) =>
-        -- | The token account of the token account state
+        -- \| The token account of the token account state
         ref BlockState.TokenAccountStateTable ->
-        -- | The index of the token in question
+        -- \| The index of the token in question
         BlockState.TokenIndex ->
-        -- | How to create a new token account state if the token doesn't have a token account state associated yet
+        -- \| How to create a new token account state if the token doesn't have a token account state associated yet
         m BlockState.TokenAccountState ->
-        -- | How to update an existing token account state
+        -- \| How to update an existing token account state
         (BlockState.TokenAccountState -> m BlockState.TokenAccountState) ->
         m (ref BlockState.TokenAccountStateTable)
     updateTokenAccountStateTable ref tokIx createNewState updateExisting = do
