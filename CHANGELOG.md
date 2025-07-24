@@ -1,8 +1,9 @@
 # Changelog
 
 ## Unreleased changes
-- Add P8 -> P9 update.
 
+- Change energy charging to occur as early as possible in the token module.
+- Add P8 -> P9 update.
 - Update GHC version to 9.10.2 (lts-24.0).
 
 ## 9.0.6 (DevNet)
