@@ -58,7 +58,6 @@ import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.Account.CooldownQueue (NextCooldownChange (..))
 import qualified Concordium.GlobalState.Persistent.Account.MigrationState as MigrationState
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
-import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as StructureV1
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
@@ -4367,35 +4366,6 @@ doSetTokenState pbs tokenIndex mutableState = do
     newPLTs <- PLT.setTokenState tokenIndex mutableState (bspProtocolLevelTokens bsp)
     storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
 
--- | Helper function to update a reference to a token account state table.
-updateTokenAccountStateTable ::
-    (Monad m, MonadBlobStore m, Reference m ref TokenAccountStateTable) =>
-    -- | The token account of the token account state
-    ref TokenAccountStateTable ->
-    -- | The index of the token in question
-    PLT.TokenIndex ->
-    -- | How to create a new token account state if the token doesn't have a token account state associated yet
-    m TokenAccountState ->
-    -- | How to update an existing token account state
-    (TokenAccountState -> m TokenAccountState) ->
-    m (ref TokenAccountStateTable)
-updateTokenAccountStateTable ref tokIx createNewState updateExisting = do
-    TokenAccountStateTable tst <- refLoad ref
-    tst' <-
-        Map.alterF
-            ( \case
-                Nothing -> do
-                    newState <- createNewState
-                    Just <$> refMake newState
-                Just sRef -> do
-                    s <- refLoad sRef
-                    s' <- updateExisting s
-                    Just <$> refMake s'
-            )
-            tokIx
-            tst
-    refMake $ TokenAccountStateTable{tokenAccountStateTable = tst'}
-
 -- | Update the token balance.
 doUpdateTokenAccountBalance ::
     forall pv m.
@@ -4410,15 +4380,11 @@ doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT
     newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
     storePBS pbs bsp{bspAccounts = newAccounts}
   where
-    upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
-        CTrue (Some ref) -> doUpdate ref
-        CTrue Null -> do
-            ref <- refMake emptyTokenAccountStateTable
-            doUpdate ref
-      where
-        doUpdate ref = do
-            ref' <- updateTokenAccountStateTable ref tokIx (updateBalance emptyTokenAccountState) updateBalance
-            return (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue $ Some ref'})
+    upd = updateTokenAccountState
+            tokIx
+            (\case
+                Nothing -> updateBalance emptyTokenAccountState
+                Just tas -> updateBalance tas)
 
     updateBalance :: TokenAccountState -> MaybeT m TokenAccountState
     updateBalance tas
@@ -4442,15 +4408,11 @@ doTouchTokenAccount pbs tokIx accIx = runMaybeT $ do
     newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
     storePBS pbs bsp{bspAccounts = newAccounts}
   where
-    upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
-        CTrue (Some ref) -> doUpdate ref
-        CTrue Null -> do
-            ref <- refMake emptyTokenAccountStateTable
-            doUpdate ref
-      where
-        doUpdate ref = do
-            ref' <- updateTokenAccountStateTable ref tokIx (return emptyTokenAccountState) (const $ hoistMaybe Nothing)
-            return (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue $ Some ref'})
+    upd = updateTokenAccountState
+            tokIx
+            (\case
+                Nothing -> return emptyTokenAccountState
+                Just _tas -> hoistMaybe Nothing)
 
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext
