@@ -652,6 +652,17 @@ instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelUpdate (
         tokenId <- asks (_pltTokenId . _pltecConfiguration)
         plteEvents %= (TokenModuleEvent tokenId eventType eventDetails :)
 
+    touch (accIx, _) = do
+        context <- ask
+        let tokenIx = _pltecTokenIndex context
+        bs0 <- use plteBlockState
+        mbBs1 <- lift $ BS.bsoTouchTokenAccount bs0 tokenIx accIx
+        case mbBs1 of
+            Nothing -> return False
+            Just bs1 -> do
+                plteBlockState .= bs1
+                return True
+
 instance (BS.BlockStateOperations m, PVSupportsPLT (MPV m)) => PLTKernelPrivilegedUpdate (KernelT fail ret m) where
     mint (accIx, accAddr) amount = do
         context <- ask

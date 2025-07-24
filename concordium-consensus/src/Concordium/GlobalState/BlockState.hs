@@ -1689,6 +1689,21 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
         GSAccount.TokenAmountDelta ->
         m (Maybe (UpdatableBlockState m))
 
+    -- Touch the token account. This initializes a token account state with a
+    -- balance of zero. This only affects an account if its state for the token
+    -- is empty.
+    --
+    -- Returns nothing, if the account already contained a token account state,
+    -- otherwise the updated block state.
+    bsoTouchTokenAccount ::
+        (PVSupportsPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | The token index to update
+        TokenIndex ->
+        -- | The account to update
+        AccountIndex ->
+        m (Maybe (UpdatableBlockState m))
+
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
 
@@ -2060,6 +2075,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoSetTokenCirculatingSupply s tokIx = lift . bsoSetTokenCirculatingSupply s tokIx
     bsoCreateToken s = lift . bsoCreateToken s
     bsoUpdateTokenAccountBalance s tokIx accIx = lift . bsoUpdateTokenAccountBalance s tokIx accIx
+    bsoTouchTokenAccount s tokIx = lift . bsoTouchTokenAccount s tokIx
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -2121,6 +2137,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetTokenCirculatingSupply #-}
     {-# INLINE bsoCreateToken #-}
     {-# INLINE bsoUpdateTokenAccountBalance #-}
+    {-# INLINE bsoTouchTokenAccount #-}
     {-# INLINE bsoSetTokenState #-}
     {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}

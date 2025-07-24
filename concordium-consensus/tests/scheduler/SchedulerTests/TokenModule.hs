@@ -92,6 +92,7 @@ data PLTKernelUpdateCall acct ret where
     SetTokenState :: TokenStateKey -> Maybe TokenStateValue -> PLTKernelUpdateCall acct (Maybe Bool)
     Transfer :: acct -> acct -> TokenRawAmount -> Maybe Memo -> PLTKernelUpdateCall acct Bool
     LogTokenEvent :: TokenEventType -> TokenEventDetails -> PLTKernelUpdateCall acct ()
+    Touch :: acct -> PLTKernelUpdateCall acct Bool
 
 deriving instance (Show acct) => Show (PLTKernelUpdateCall acct ret)
 deriving instance (Eq acct) => Eq (PLTKernelUpdateCall acct ret)
@@ -282,6 +283,7 @@ instance
     setTokenState key mValue = handleEvent $ PLTU $ SetTokenState key mValue
     transfer sender receiver amount mMemo = handleEvent $ PLTU $ Transfer sender receiver amount mMemo
     logTokenEvent eventType details = handleEvent $ PLTU $ LogTokenEvent eventType details
+    touch acc = handleEvent $ PLTU $ Touch acc
 
 instance
     (Eq e, Eq acct, Show e, Show acct, Show ret, Typeable e, Typeable acct, Typeable ret) =>
@@ -1143,6 +1145,7 @@ testLists = do
                             :>>: (PLTQ (GetAccountIndex 0) :-> AccountIndex 0)
                             :>>: (PLTQ (getModuleStateCall (ltcFeature listConf)) :-> Just "")
                             :>>: (PLTQ (GetAccount (dummyAccountAddress 1)) :-> Just 4)
+                            :>>: (PLTU (Touch 4) :-> False)
                             :>>: (PLTQ (GetAccountIndex 4) :-> 4)
                             :>>: (PLTU (setAccountStateCall 4 (ltcFeature listConf) (ltcNewValue listConf)) :-> Just False)
                             :>>: ( PLTU

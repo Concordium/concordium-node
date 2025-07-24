@@ -427,6 +427,55 @@ updateAccount upd (PAV3 acc) = PAV3 <$> V1.updateAccount upd acc
 updateAccount upd (PAV4 acc) = PAV4 <$> V1.updateAccount upd acc
 updateAccount upd (PAV5 acc) = PAV5 <$> V1.updateAccount upd acc
 
+-- | Apply an update to a token account state.
+updateTokenAccountState ::
+    (AVSupportsPLT av, MonadBlobStore m) =>
+    -- | The token index
+    BlockState.TokenIndex ->
+    -- | How to update the token account state if present (Just) and if not present (Nothing) in the token account state table.
+    (Maybe BlockState.TokenAccountState -> m BlockState.TokenAccountState) ->
+    -- | The account to update
+    PersistentAccount av ->
+    m (PersistentAccount av)
+updateTokenAccountState tokenIx upd (PAV5 acc) = case V1.accountTokenStateTable acc of
+    CTrue (Some ref) -> doUpdate ref
+    CTrue Null -> do
+        ref <- refMake BlockState.emptyTokenAccountStateTable
+        doUpdate ref
+  where
+    doUpdate ref = do
+        ref' <- updateTokenAccountStateTable ref tokenIx (upd Nothing) (upd . Just)
+        return (PAV5 $ acc{V1.accountTokenStateTable = CTrue $ Some ref'})
+
+    -- | Helper function to update a reference to a token account state table.
+    updateTokenAccountStateTable ::
+        (Monad m, MonadBlobStore m, Reference m ref BlockState.TokenAccountStateTable) =>
+        -- | The token account of the token account state
+        ref BlockState.TokenAccountStateTable ->
+        -- | The index of the token in question
+        BlockState.TokenIndex ->
+        -- | How to create a new token account state if the token doesn't have a token account state associated yet
+        m BlockState.TokenAccountState ->
+        -- | How to update an existing token account state
+        (BlockState.TokenAccountState -> m BlockState.TokenAccountState) ->
+        m (ref BlockState.TokenAccountStateTable)
+    updateTokenAccountStateTable ref tokIx createNewState updateExisting = do
+        BlockState.TokenAccountStateTable tst <- refLoad ref
+        tst' <-
+            Map.alterF
+                ( \case
+                    Nothing -> do
+                        newState <- createNewState
+                        Just <$> refMake newState
+                    Just sRef -> do
+                        s <- refLoad sRef
+                        s' <- updateExisting s
+                        Just <$> refMake s'
+                )
+                tokIx
+                tst
+        refMake $ BlockState.TokenAccountStateTable{tokenAccountStateTable = tst'}
+
 -- | Add or remove credentials on an account.
 --  The caller must ensure the following, which are not checked:
 --

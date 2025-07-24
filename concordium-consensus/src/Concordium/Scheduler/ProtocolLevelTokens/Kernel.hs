@@ -51,6 +51,15 @@ class (PLTKernelQuery m) => PLTKernelUpdate m where
     -- | Log a token module event with the specified type and details.
     logTokenEvent :: TokenEventType -> TokenEventDetails -> m ()
 
+    -- | Update the balance of the given account to zero if it didn't have a
+    --  balance before.
+    touch ::
+        -- | The account to update
+        PLTAccount m ->
+        -- | Returns 'True' if the balance wasn't present on the given account
+        --  and 'False' otherwise.
+        m Bool
+
 class (PLTKernelUpdate m) => PLTKernelPrivilegedUpdate m where
     -- | Mint a specified amount and deposit it in the specified account.
     --  The return value indicates if this was successful.
