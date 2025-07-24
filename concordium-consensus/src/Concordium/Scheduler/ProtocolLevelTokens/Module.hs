@@ -156,6 +156,8 @@ data PreprocessedTokenOperation
 
 -- | Convert 'TokenAmount's to 'TokenRawAmount's, checking that they are within
 --  the representable range.
+--  Note: The preprocess step should not include expensive operations as the operation
+--  specific charging of energy is done after this step.
 preprocessTokenUpdateTransaction ::
     (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     Word8 ->
@@ -212,9 +214,35 @@ logEncodeTokenEvent te = logTokenEvent eventType details
 --   - Check that amounts are within the representable range.
 --   - For each transfer operation:
 --
+--       - Check that the module is not paused.
 --       - Check that the recipient is valid.
+--       - Check allowList/denyList restrictions.
 --       - Transfer the amount from the sender to the recipient, if the sender's balance is
 --         sufficient.
+--
+--   - For each list update operation:
+--
+--       - Check that the governance account is the sender.
+--       - Check that the module configuration allows the list operation.
+--       - Check that the account to add/remove exists on-chain.
+--
+--   - For each mint operation:
+--
+--       - Check that the governance account is the sender.
+--       - Check that the module is not paused.
+--       - Check that the module configuration allows minting.
+--       - Check that the minting process was successful.
+--
+--   - For each burn operation:
+--
+--       - Check that the governance account is the sender.
+--       - Check that the module is not paused.
+--       - Check that the module configuration allows burning.
+--       - Check that the burning process was successful.
+--
+--   - For each pause/unpause operation:
+--
+--       - Check that the governance account is the sender.
 --
 -- INVARIANTS:
 --   - Token module state contains a correctly encoded governance account address.
@@ -232,6 +260,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
     let handleOperation !opIndex op = do
             case op of
                 PTOTransfer{..} -> do
+                    -- Charge energy immediately.
                     pltTickEnergy tokenTransferCost
                     checkPaused opIndex "transfer"
                     recipientAccount <- requireAccount opIndex pthoRecipient
@@ -288,18 +317,18 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                 }
                 tokenGovernanceOp -> do
                     -- Charge energy immediately.
-                    case tokenGovernanceOp of
+                    pltTickEnergy $ case tokenGovernanceOp of
                         -- Mint and Burn
-                        PTOTokenMint{} -> pltTickEnergy tokenMintCost
-                        PTOTokenBurn{} -> pltTickEnergy tokenBurnCost
+                        PTOTokenMint{} -> tokenMintCost
+                        PTOTokenBurn{} -> tokenBurnCost
                         -- List operations
-                        PTOTokenAddAllowList{} -> pltTickEnergy tokenListOperationCost
-                        PTOTokenRemoveAllowList{} -> pltTickEnergy tokenListOperationCost
-                        PTOTokenAddDenyList{} -> pltTickEnergy tokenListOperationCost
-                        PTOTokenRemoveDenyList{} -> pltTickEnergy tokenListOperationCost
+                        PTOTokenAddAllowList{} -> tokenListOperationCost
+                        PTOTokenRemoveAllowList{} -> tokenListOperationCost
+                        PTOTokenAddDenyList{} -> tokenListOperationCost
+                        PTOTokenRemoveDenyList{} -> tokenListOperationCost
                         -- Pause and Unpause
-                        PTOTokenPause -> pltTickEnergy tokenPauseUnpauseCost
-                        PTOTokenUnpause -> pltTickEnergy tokenPauseUnpauseCost
+                        PTOTokenPause -> tokenPauseUnpauseCost
+                        PTOTokenUnpause -> tokenPauseUnpauseCost
 
                     mbGovAccountIx <- getModuleState "governanceAccount"
                     govAccountIx <- case mbGovAccountIx of
