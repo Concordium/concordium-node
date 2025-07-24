@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased changes
+- Protocol-level tokens:
+  - Additional check in transaction verification asserting that the effective
+    time equals zero of CreatePLT update transactions.
 
 - Change energy charging to occur as early as possible in the token module.
 - Add P8 -> P9 update.

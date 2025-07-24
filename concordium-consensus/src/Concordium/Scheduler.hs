@@ -210,6 +210,7 @@ checkTransactionVerificationResult (TVer.NotOk TVer.NormalTransactionDepositInsu
 checkTransactionVerificationResult (TVer.NotOk (TVer.NormalTransactionDuplicateNonce nonce)) = Left $ NonSequentialNonce nonce
 checkTransactionVerificationResult (TVer.NotOk TVer.Expired) = Left ExpiredTransaction
 checkTransactionVerificationResult (TVer.NotOk TVer.InvalidPayloadSize) = Left InvalidPayloadSize
+checkTransactionVerificationResult (TVer.NotOk TVer.ChainUpdateEffectiveTimeNonZeroForCreatePLT) = Left InvalidUpdateTime
 
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
