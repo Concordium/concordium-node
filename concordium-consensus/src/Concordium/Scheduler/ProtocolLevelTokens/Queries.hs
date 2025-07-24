@@ -129,7 +129,7 @@ queryTokenInfo tokenId bs = case sSupportsPLT (accountVersion @(AccountVersionFo
                                       tsTotalSupply = toTokenAmount _pltDecimals totalSupply,
                                       tsModuleState = tms
                                     }
-                        return $ Right TokenInfo{tiTokenId = tokenId, tiTokenState = ts}
+                        return $ Right TokenInfo{tiTokenId = _pltTokenId, tiTokenState = ts}
 
 -- | Get the list of 'Token's on an account.
 queryAccountTokens :: forall m. (PVSupportsPLT (MPV m), BS.BlockStateQuery m) => IndexedAccount m -> BlockState m -> m [Token]
