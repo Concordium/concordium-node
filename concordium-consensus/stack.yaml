@@ -70,3 +70,7 @@ extra-lib-dirs:
 #
 # Allow a newer minor version of GHC than the snapshot specifies
 # compiler-check: newer-minor
+
+ghc-options:
+  # build modules in parallel
+  "$everything": -j
