@@ -350,26 +350,18 @@ dummyNormalTransaction =
     payload = encodePayload $ Transfer dummyAccountAddress 10
 
 -- | A dummy update instruction.
---
--- TODO (drsk) The signature needs to be changed to a correct one.
 dummyUpdateInstruction :: TransactionTime -> WithMetadata UpdateInstruction
 dummyUpdateInstruction effTime =
     addMetadata ChainUpdate 0 $
-        UpdateInstruction
-            { uiHeader = hdr,
-              uiPayload = cplt,
-              uiSignHash = makeUpdateInstructionSignHash "dummy",
-              uiSignatures = UpdateInstructionSignatures{signatures = Map.singleton 0 sig}
-            }
+        makeUpdateInstruction
+            RawUpdateInstruction
+                { ruiSeqNumber = 1,
+                  ruiEffectiveTime = effTime,
+                  ruiTimeout = 2,
+                  ruiPayload = cplt
+                }
+            (Map.singleton 0 dummyAuthorizationKeyPair)
   where
-    sig = SigScheme.sign dummySigSchemeKeys "updateInstruction"
-    hdr =
-        UpdateHeader
-            { updateSeqNumber = 1,
-              updateEffectiveTime = effTime,
-              updateTimeout = 2,
-              updatePayloadSize = 100
-            }
     cplt =
         CreatePLTUpdatePayload $
             CreatePLT
@@ -390,7 +382,7 @@ dummyChainUpdateBI effTime = chainUpdate $ dummyUpdateInstruction effTime
 -- | Test for transaction verification
 testTransactionVerification ::
     forall pv.
-    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    (IsConsensusV1 pv, IsProtocolVersion pv, PVSupportsPLT pv) =>
     SProtocolVersion pv ->
     Spec
 testTransactionVerification _ = describe "transaction verification" $ do
@@ -620,9 +612,10 @@ tests :: Spec
 tests = describe "KonsensusV1.TransactionProcessing" $ do
     Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
         describe pvString $ do
-            describe "Transaction verification" $ do
-                testTransactionVerification spv
             describe "Individual transaction processing" $ do
                 testProcessBlockItem spv
             describe "Batch transaction processing" $ do
                 testProcessBlockItems spv
+    describe "P9" $ do
+        describe "Transaction verification" $
+            testTransactionVerification SP9
