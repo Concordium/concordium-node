@@ -66,6 +66,35 @@ emptyTokenAccountState =
         { tasBalance = TokenRawAmount 0
         }
 
+-- | Helper function to update a reference to a token account state table.
+updateTokenAccountStateTable ::
+    (MonadBlobStore m, Reference m ref TokenAccountStateTable) =>
+    -- | The token account state table to update
+    ref TokenAccountStateTable ->
+    -- | The index of the token in question
+    TokenIndex ->
+    -- | How to create a new token account state if the token doesn't have a token account state associated yet
+    m TokenAccountState ->
+    -- | How to update an existing token account state
+    (TokenAccountState -> m TokenAccountState) ->
+    m (ref TokenAccountStateTable)
+updateTokenAccountStateTable ref tokIx createNewState updateExisting = do
+    TokenAccountStateTable tst <- refLoad ref
+    tst' <-
+        Map.alterF
+            ( \case
+                Nothing -> do
+                    newState <- createNewState
+                    Just <$> refMake newState
+                Just sRef -> do
+                    s <- refLoad sRef
+                    s' <- updateExisting s
+                    Just <$> refMake s'
+            )
+            tokIx
+            tst
+    refMake $ TokenAccountStateTable{tokenAccountStateTable = tst'}
+
 -- | Token state at the account level
 newtype TokenAccountState = TokenAccountState
     { -- | The available balance for the account.
