@@ -437,7 +437,7 @@ updateTokenAccountState ::
     -- | The account to update
     PersistentAccount av ->
     m (PersistentAccount av)
-updateTokenAccountState tokenIx upd (PAV5 acc) = case V1.accountTokenStateTable acc of
+updateTokenAccountState tokenIx upd (PAV5 acc) = PAV5 <$> V1.updateTokenAccountState tokenIx upd acc
     CTrue (Some ref) -> doUpdate ref
     CTrue Null -> do
         ref <- refMake BlockState.emptyTokenAccountStateTable
