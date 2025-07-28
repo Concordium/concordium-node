@@ -148,8 +148,8 @@ forEveryProtocolVersion check =
           check SP3 "P3",
           check SP4 "P4",
           check SP5 "P5",
-          check SP6 "P6"
-          -- check SP7 "P7",
+          check SP6 "P6",
+          check SP7 "P7"
           -- check SP8 "P8",
           -- check SP9 "P9"
         ]
