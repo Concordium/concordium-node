@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased changes
+- Protocol-level tokens:
+  - Additional check in transaction verification asserting that the effective
+    time equals zero of CreatePLT update transactions.
 
 - Add P8 -> P9 update.
 - Update GHC version to 9.10.2 (lts-24.0).
