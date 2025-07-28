@@ -427,6 +427,27 @@ updateAccount upd (PAV3 acc) = PAV3 <$> V1.updateAccount upd acc
 updateAccount upd (PAV4 acc) = PAV4 <$> V1.updateAccount upd acc
 updateAccount upd (PAV5 acc) = PAV5 <$> V1.updateAccount upd acc
 
+-- | Apply an update to a token account state.
+updateTokenAccountState ::
+    (AVSupportsPLT av, MonadBlobStore m) =>
+    -- | The token index
+    BlockState.TokenIndex ->
+    -- | How to update the token account state if present (Just) and if not present (Nothing) in the token account state table.
+    (Maybe BlockState.TokenAccountState -> m BlockState.TokenAccountState) ->
+    -- | The account to update
+    PersistentAccount av ->
+    m (PersistentAccount av)
+updateTokenAccountState tokenIx upd (PAV5 acc) =
+    PAV5 <$> case V1.accountTokenStateTable acc of
+        CTrue (Some ref) -> doUpdate ref
+        CTrue Null -> do
+            ref <- refMake BlockState.emptyTokenAccountStateTable
+            doUpdate ref
+  where
+    doUpdate ref = do
+        ref' <- BlockState.updateTokenAccountStateTable ref tokenIx (upd Nothing) (upd . Just)
+        return acc{V1.accountTokenStateTable = CTrue $ Some ref'}
+
 -- | Add or remove credentials on an account.
 --  The caller must ensure the following, which are not checked:
 --

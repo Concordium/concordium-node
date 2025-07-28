@@ -58,7 +58,6 @@ import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.Account.CooldownQueue (NextCooldownChange (..))
 import qualified Concordium.GlobalState.Persistent.Account.MigrationState as MigrationState
 import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
-import qualified Concordium.GlobalState.Persistent.Account.StructureV1 as StructureV1
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
@@ -4367,30 +4366,6 @@ doSetTokenState pbs tokenIndex mutableState = do
     newPLTs <- PLT.setTokenState tokenIndex mutableState (bspProtocolLevelTokens bsp)
     storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
 
--- | Helper function to update a reference to a token account state table.
-updateTokenAccountStateTable ::
-    (Monad m, MonadBlobStore m, Reference m ref TokenAccountStateTable) =>
-    ref TokenAccountStateTable ->
-    PLT.TokenIndex ->
-    (TokenAccountState -> m TokenAccountState) ->
-    m (ref TokenAccountStateTable)
-updateTokenAccountStateTable ref tokIx update = do
-    TokenAccountStateTable tst <- refLoad ref
-    tst' <-
-        Map.alterF
-            ( \case
-                Nothing -> do
-                    newState <- update emptyTokenAccountState
-                    Just <$> refMake newState
-                Just sRef -> do
-                    s <- refLoad sRef
-                    s' <- update s
-                    Just <$> refMake s'
-            )
-            tokIx
-            tst
-    refMake $ TokenAccountStateTable{tokenAccountStateTable = tst'}
-
 -- | Update the token balance.
 doUpdateTokenAccountBalance ::
     forall pv m.
@@ -4405,15 +4380,13 @@ doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT
     newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
     storePBS pbs bsp{bspAccounts = newAccounts}
   where
-    upd (PAV5 acc) = case StructureV1.accountTokenStateTable acc of
-        CTrue (Some ref) -> doUpdate ref
-        CTrue Null -> do
-            ref <- refMake emptyTokenAccountStateTable
-            doUpdate ref
-      where
-        doUpdate ref = do
-            ref' <- updateTokenAccountStateTable ref tokIx updateBalance
-            return (PAV5 $ acc{StructureV1.accountTokenStateTable = CTrue $ Some ref'})
+    upd =
+        updateTokenAccountState
+            tokIx
+            ( \case
+                Nothing -> updateBalance emptyTokenAccountState
+                Just tas -> updateBalance tas
+            )
 
     updateBalance :: TokenAccountState -> MaybeT m TokenAccountState
     updateBalance tas
@@ -4422,6 +4395,28 @@ doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT
         | otherwise = hoistMaybe $ Just $ tas{tasBalance = fromIntegral newBalanceInteger}
       where
         newBalanceInteger = fromIntegral (tasBalance tas) + delta
+
+-- | Touch a token account, i.e. set the balance of the given token to zero if
+--  the account didn't have a balance before.
+doTouchTokenAccount ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    AccountIndex ->
+    m (Maybe (PersistentBlockState pv))
+doTouchTokenAccount pbs tokIx accIx = runMaybeT $ do
+    bsp <- lift $ loadPBS pbs
+    newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
+    storePBS pbs bsp{bspAccounts = newAccounts}
+  where
+    upd =
+        updateTokenAccountState
+            tokIx
+            ( \case
+                Nothing -> return emptyTokenAccountState
+                Just _tas -> hoistMaybe Nothing
+            )
 
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext
@@ -4738,6 +4733,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoCreateToken = doCreateToken
     bsoSetTokenState = doSetTokenState
     bsoUpdateTokenAccountBalance = doUpdateTokenAccountBalance
+    bsoTouchTokenAccount = doTouchTokenAccount
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
