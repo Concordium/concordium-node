@@ -402,7 +402,7 @@ testTransactionVerification _ = describe "transaction verification" $ do
                 verifyBlockItem t (dummyChainUpdateBI 0) ctx
         assertEqual
             "A correct transaction should be verified"
-            (TVer.Ok TVer.ChainUpdateSuccess{keysHash = Hash.hash "dummy", seqNumber = 1})
+            (TVer.Ok TVer.ChainUpdateSuccess{keysHash = getHash (dummyKeyCollection @(AuthorizationsVersionFor pv)), seqNumber = 1})
             verResult
     it "ChainUpdate: CreatePLT: Non-zero effective time for CreatePLT" $ do
         (verResult, _) <- runMyTestMonad @pv myIdentityProviders theTime $
