@@ -1,4 +1,5 @@
 # Network Layer
+
 This document describes the network layer of the Concordium blockchain.
 
 ## Overview 

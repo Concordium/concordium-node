@@ -82,7 +82,7 @@ The general strategy for building the package is as follows.
 
    For example use the [../../static-binaries/build-static-binaries.sh](../../static-binaries/build-static-binaries.sh).
    ```console
-   $ UBUNTU_VERSION=20.04 STATIC_LIBRARIES_IMAGE_TAG=rust-1.82_ghc-9.10.2
+   $ UBUNTU_VERSION=24.04 STATIC_LIBRARIES_IMAGE_TAG=rust-1.82_ghc-9.10.2
         STATIC_BINARIES_IMAGE_TAG=latest GHC_VERSION=9.10.2 EXTRA_FEATURES=collector ./scripts/static-binaries/build-static-binaries.sh
    ```
 
@@ -103,7 +103,7 @@ scripts are [./build-mainnet-deb.sh](./build-mainnet-deb.sh) and
 directory they are in as follows.
 
 ```console
-UBUNTU_VERSION=20.04 ./build-testnet-deb.sh
+UBUNTU_VERSION=24.04 ./build-testnet-deb.sh
 ```
 
 The script uses docker to build the binaries and the debian package. The output

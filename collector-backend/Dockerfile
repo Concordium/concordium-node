@@ -5,6 +5,6 @@ WORKDIR /build
 COPY . .
 RUN cargo build --release
 
-FROM ubuntu:20.04
+FROM ubuntu:24.04
 COPY --from=build /build/target/release/node-collector-backend /node-collector-backend
 ENTRYPOINT ["/node-collector-backend"]

@@ -2,6 +2,9 @@
 
 ## Unreleased changes
 
+- Docker base images upgraded from Ubuntu 20.04 to 24.04
+- Node Docker image is now signed with Sigstore Cosign
+
 - Add P8 -> P9 update.
 - Update GHC version to 9.10.2 (lts-24.0).
 

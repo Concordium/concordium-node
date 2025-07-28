@@ -52,9 +52,13 @@ cloning this repository, or after changing branches.
 
 ## Configurations and scripts
 
-- The [scripts](./scripts/) directory contains a variety of bash scripts,
-  Dockerfiles, and similar, to build different configurations of the node for
-  testing and deployment.
+The [scripts](./scripts/) directory contains a variety of bash scripts,
+Dockerfiles, and similar, to build different configurations of the node for
+testing and deployment.
+
+## Documentation
+
+Refer to the [docs](./docs/) directory for technical documentation and guides (e.g. a step-by-step guide on how to run the node from the source code [docs/local-chain.md](./docs/local-chain.md)).
 
 ## Building the node
 
