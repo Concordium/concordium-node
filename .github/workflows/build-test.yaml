@@ -1,4 +1,4 @@
-# Workflow triggered by pushes to the main & plt branches and PRs targeting them
+# Workflow triggered by pushes to the main branch and PRs targeting it
 # (as long as the commits contain code changes).
 #
 # Jobs:
@@ -23,7 +23,6 @@ on:
   push:
     branches:
         - main
-        - plt
     paths:
     - '.github/workflows/build-test.yaml'
     - '**/Cargo.toml'
@@ -39,7 +38,6 @@ on:
   pull_request:
     branches:
         - main
-        - plt
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
     - '.github/workflows/build-test.yaml'

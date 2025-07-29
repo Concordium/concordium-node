@@ -1,21 +1,20 @@
 # Changelog
 
 ## Unreleased changes
-- Protocol-level tokens:
-  - Additional check in transaction verification asserting that the effective
-    time equals zero of CreatePLT update transactions.
+
+## 9.0.7
 
 - Docker base images upgraded from Ubuntu 20.04 to 24.04
 - Node Docker image is now signed with Sigstore Cosign
-
 - Add P8 -> P9 update.
 - Update GHC version to 9.10.2 (lts-24.0).
-
 - Protocol-level tokens:
   - Change energy charging to occur as early as possible in the token module.
   - Added `touch` kernel method. The `touch` method initializes the token state
     of an account by setting its balance to zero. This method only affects
     accounts that have no existing state for the token.
+  - Additional check in transaction verification asserting that the effective
+    time equals zero of CreatePLT update transactions.
 
 ## 9.0.6 (DevNet)
 
