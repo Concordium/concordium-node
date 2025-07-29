@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased changes
+- Protocol-level tokens:
+  - Additional check in transaction verification asserting that the effective
+    time equals zero of CreatePLT update transactions.
 
 - Docker base images upgraded from Ubuntu 20.04 to 24.04
 - Node Docker image is now signed with Sigstore Cosign
