@@ -2,8 +2,76 @@
 
 ## Unreleased changes
 
+## 9.0.7
+
 - Docker base images upgraded from Ubuntu 20.04 to 24.04
 - Node Docker image is now signed with Sigstore Cosign
+- Add P8 -> P9 update.
+- Update GHC version to 9.10.2 (lts-24.0).
+- Protocol-level tokens:
+  - Change energy charging to occur as early as possible in the token module.
+  - Added `touch` kernel method. The `touch` method initializes the token state
+    of an account by setting its balance to zero. This method only affects
+    accounts that have no existing state for the token.
+  - Additional check in transaction verification asserting that the effective
+    time equals zero of CreatePLT update transactions.
+
+## 9.0.6 (DevNet)
+
+- Protocol-level tokens:
+  - Adjusted energy cost of mint/burn from 100 to 50
+  - PLTs can now only be created with the module reference:
+    5c5c2645db84a7026d78f2501740f60a8ccb8fae5c166dc2428077fd9a699a4a
+  - Support for token pause/unpause operations.
+
+## 9.0.5 (DevNet)
+
+- Protocol-level tokens:
+  - Simplified token transaction handling: Consolidated all token holder and
+    governance operations for a single `TokenUpdateTransaction` type.
+  - Moved authorization from the scheduler to the token module.
+  - Fix a bug in checking authorization for CreatePLT update.
+
+## 9.0.4 (DevNet)
+
+- Protocol-level tokens:
+  - Changes to event representation and serialization.
+
+## 9.0.3 (DevNet)
+
+- Protocol-level tokens:
+  - `GetAccountInfo` reports the token module-defined state as CBOR-encoded, rather than directly
+    exposing the allow/deny list membership at the GRPC level.
+  - `metadata` in token module state (reported in `GetTokenInfo`) can now include the metadata
+    hash as well as the URL.
+  - A new set of authorized level-2 keys for the `CreatePLT` chain update.
+
+## 9.0.2 (DevNet)
+
+- Protocol-level tokens:
+  - Token operations emit events. This includes `CreatePLT`.
+  - Support for energy charging for token module execution.
+
+## 9.0.1 (DevNet)
+
+- Protocol-level tokens:
+  - Support for token governance transactions (mint, burn, modify allow/deny lists).
+  - Enforcement of allow and deny lists in transfer operations.
+  - `GetTokenInfo` returns state from token module.
+  - `GetAccountInfo` reports state of allow/deny lists.
+  - Changes to the caching and storage of account-level token state.
+
+
+## 9.0.0 (DevNet)
+
+- Preliminary support for protocol-level tokens (as part of protocol version 9), including:
+  - Support for `CreatePLT` chain update for creating a new protocol-level token.
+  - Support for transferring protocol-level tokens between accounts with the `TokenHolder`
+    transaction type.
+  - API support:
+    - Add `GetTokenList` query for getting a list of all protocol-level tokens.
+    - Add `GetTokenInfo` query for getting details about a specific protocol-level token.
+    - `GetAccountInfo` query displays balances of protocol-level tokens held by an account.
 
 ## 8.1.0
 

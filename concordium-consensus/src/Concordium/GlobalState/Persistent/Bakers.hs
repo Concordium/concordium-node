@@ -156,7 +156,9 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
                 SomeParam $ P6.updateFinalizationCommitteeParameters migrationProtocolUpdateData
             StateMigrationParametersP6ToP7{} -> _bakerFinalizationCommitteeParameters
             StateMigrationParametersP7ToP8{} ->
-                SomeParam $ unOParam $ _bakerFinalizationCommitteeParameters
+                SomeParam $ unOParam _bakerFinalizationCommitteeParameters
+            StateMigrationParametersP8ToP9{} ->
+                SomeParam $ unOParam _bakerFinalizationCommitteeParameters
     return
         PersistentEpochBakers
             { _bakerInfos = newBakerInfos,
@@ -330,6 +332,10 @@ migratePersistentActiveDelegators StateMigrationParametersP7ToP8{} = \case
     PersistentActiveDelegatorsV1{..} -> do
         newDelegators <- Trie.migrateTrieN True return adDelegators
         return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
+migratePersistentActiveDelegators StateMigrationParametersP8ToP9{} = \case
+    PersistentActiveDelegatorsV1{..} -> do
+        newDelegators <- Trie.migrateTrieN True return adDelegators
+        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
 
 emptyPersistentActiveDelegators :: forall av. (IsAccountVersion av) => PersistentActiveDelegators av
 emptyPersistentActiveDelegators =
@@ -380,6 +386,7 @@ migrateTotalActiveCapital StateMigrationParametersP4ToP5 _ (TotalActiveCapitalV1
 migrateTotalActiveCapital StateMigrationParametersP5ToP6{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
 migrateTotalActiveCapital StateMigrationParametersP6ToP7{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
 migrateTotalActiveCapital StateMigrationParametersP7ToP8{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
+migrateTotalActiveCapital StateMigrationParametersP8ToP9{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
 
 instance (IsAccountVersion av) => Serialize (TotalActiveCapital av) where
     put TotalActiveCapitalV0 = return ()

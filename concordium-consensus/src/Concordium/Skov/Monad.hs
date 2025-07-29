@@ -29,7 +29,7 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Concordium.GlobalState.Block as B
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockPointer
-import Concordium.GlobalState.BlockState (AccountOperations, BlockStateOperations, BlockStateQuery, BlockStateStorage, ContractStateOperations, ModuleQuery)
+import Concordium.GlobalState.BlockState (AccountOperations, BlockStateOperations, BlockStateQuery, BlockStateStorage, ContractStateOperations, ModuleQuery, PLTQuery, TokenStateOperations)
 import Concordium.GlobalState.Classes as C
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Parameters
@@ -140,6 +140,7 @@ transactionVerificationResultToUpdateResult (TV.NotOk TV.NormalTransactionDeposi
 transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDuplicateNonce _)) = ResultDuplicateNonce
 transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
 transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
+transactionVerificationResultToUpdateResult (TV.NotOk TV.ChainUpdateEffectiveTimeNonZeroForCreatePLT) = ResultChainUpdateInvalidEffectiveTime
 
 class
     ( Monad m,
@@ -454,6 +455,8 @@ deriving via (MGSTrans SkovQueryMonadT m) instance BlockStateTypes (SkovQueryMon
 deriving via (MGSTrans SkovQueryMonadT m) instance (AccountOperations m) => AccountOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance (ContractStateOperations m) => ContractStateOperations (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance (ModuleQuery m) => ModuleQuery (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance (TokenStateOperations ts m) => TokenStateOperations ts (SkovQueryMonadT m)
+deriving via (MGSTrans SkovQueryMonadT m) instance (PLTQuery bs ts m) => PLTQuery bs ts (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance (BlockStateQuery m) => BlockStateQuery (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance (BlockPointerMonad m) => BlockPointerMonad (SkovQueryMonadT m)
 deriving via (MGSTrans SkovQueryMonadT m) instance (AccountNonceQuery m) => AccountNonceQuery (SkovQueryMonadT m)

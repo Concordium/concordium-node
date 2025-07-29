@@ -13,6 +13,9 @@ extern crate log;
 
 #[allow(clippy::large_enum_variant, clippy::enum_variant_names)]
 mod grpc {
+    mod plt {
+        tonic::include_proto!("concordium.v2.plt");
+    }
     tonic::include_proto!("concordium.v2");
 }
 use grpc::{node_info::node::ConsensusStatus, tokenomics_info::Tokenomics};

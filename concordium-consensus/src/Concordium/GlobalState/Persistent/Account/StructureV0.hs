@@ -806,7 +806,7 @@ updateAccount !upd !acc = do
                     Add{..} -> addIncomingEncryptedAmount newAmount
                     ReplaceUpTo{..} -> replaceUpTo aggIndex newAmount
                     AddSelf{..} -> addToSelfEncryptedAmount newAmount
-                    )
+                )
                     encAmount
             encryptedAmountRef <- refMake newEncryptedAmount
             return (accountEncryptedAmount .~ encryptedAmountRef)
@@ -1204,7 +1204,7 @@ migratePersistentAccount migration PersistentAccount{..} = do
 -- ** Conversion
 
 -- | Converts an account to a transient (i.e. in memory) account. (Used for testing.)
-toTransientAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount av -> m (Transient.Account av)
+toTransientAccount :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, SupportsPLT av ~ 'False) => PersistentAccount av -> m (Transient.Account av)
 toTransientAccount PersistentAccount{..} = do
     _accountPersisting <- Transient.makeAccountPersisting <$> refLoad _persistingData
     _accountEncryptedAmount <- loadPersistentAccountEncryptedAmount =<< refLoad _accountEncryptedAmount
@@ -1214,4 +1214,5 @@ toTransientAccount PersistentAccount{..} = do
         PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
         PersistentAccountStakeDelegate dlg -> AccountStakeDelegate <$> refLoad dlg
     let _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av)
+    let _accountTokenStateTable = CFalse
     return $ Transient.Account{..}

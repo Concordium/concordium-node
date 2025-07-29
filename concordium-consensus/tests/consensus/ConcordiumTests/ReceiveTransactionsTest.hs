@@ -567,7 +567,7 @@ mkArData valid = if valid then validAr else Map.empty
   where
     validAr = Map.insert key arData Map.empty
     arData = ChainArData{ardIdCredPubShare = AREnc zeroElgamalCipher}
-    key = head $ Map.keys $ arRevokers dummyArs
+    key = fst $ Map.findMin $ arRevokers dummyArs
 
 dummyHash :: SHA256.Hash
 dummyHash = SHA256.hash B.empty

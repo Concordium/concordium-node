@@ -49,6 +49,7 @@ import Concordium.Genesis.Data.BaseV1
 import Concordium.Genesis.Data.P6
 import Concordium.Genesis.Data.P7
 import Concordium.Genesis.Data.P8
+import Concordium.Genesis.Data.P9
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.DummyData
 import Concordium.GlobalState.Parameters (defaultRuntimeParameters)
@@ -70,6 +71,8 @@ import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
+import Concordium.Types.Updates
+import Concordium.Utils
 
 import Concordium.GlobalState.Transactions
 import Concordium.KonsensusV1.Transactions
@@ -244,9 +247,9 @@ makeTestingGenesisData idps =
         genesisIdentityProviders = idps
         genesisAnonymityRevokers = myAnonymityRevokers
         genesisUpdateKeys =
-            withIsAuthorizationsVersionForPV
+            withIsAuthorizationsVersionFor
                 (protocolVersion @pv)
-                (dummyKeyCollection @(AuthorizationsVersionForPV pv))
+                (dummyKeyCollection @(AuthorizationsVersionFor pv))
         genesisChainParameters = dummyChainParameters @(ChainParametersVersionFor pv)
         genesisLeadershipElectionNonce = Hash.hash "LeadershipElectionNonce"
         genesisAccounts = Vec.fromList $ makeFakeBakers 1
@@ -266,6 +269,12 @@ makeTestingGenesisData idps =
             SP8 ->
                 GDP8
                     GDP8Initial
+                        { genesisCore = coreGenesisParams,
+                          genesisInitialState = Base.GenesisState{..}
+                        }
+            SP9 ->
+                GDP9
+                    GDP9Initial
                         { genesisCore = coreGenesisParams,
                           genesisInitialState = Base.GenesisState{..}
                         }
@@ -322,8 +331,8 @@ dummyAccountAddress = fst $ randomAccountAddress (mkStdGen 42)
 --  relation to the tree state in this test, hence
 --  when processed it will fail on looking up the sender.
 --  Note. that the signature is not correct either.
-dummyTransaction :: Transaction
-dummyTransaction =
+dummyNormalTransaction :: Transaction
+dummyNormalTransaction =
     addMetadata NormalTransaction 0 $
         makeAccountTransaction
             dummyTransactionSignature
@@ -340,9 +349,73 @@ dummyTransaction =
             }
     payload = encodePayload $ Transfer dummyAccountAddress 10
 
--- | The block item for 'dummyTransaction'.
-dummyTransactionBI :: BlockItem
-dummyTransactionBI = normalTransaction dummyTransaction
+-- | A dummy update instruction.
+dummyUpdateInstruction :: TransactionTime -> WithMetadata UpdateInstruction
+dummyUpdateInstruction effTime =
+    addMetadata ChainUpdate 0 $
+        makeUpdateInstruction
+            RawUpdateInstruction
+                { ruiSeqNumber = 1,
+                  ruiEffectiveTime = effTime,
+                  ruiTimeout = 2,
+                  ruiPayload = cplt
+                }
+            (Map.singleton 0 dummyAuthorizationKeyPair)
+  where
+    cplt =
+        CreatePLTUpdatePayload $
+            CreatePLT
+                { _cpltTokenId = TokenId "dummyToken",
+                  _cpltTokenModule = TokenModuleRef $ Hash.hash "dummyToken",
+                  _cpltDecimals = 4,
+                  _cpltInitializationParameters = TokenParameter ""
+                }
+
+-- | The block item for 'dummyNormalTransaction'.
+dummyNormalTransactionBI :: BlockItem
+dummyNormalTransactionBI = normalTransaction dummyNormalTransaction
+
+-- | The block item for 'dummyUpdateInstruction'.
+dummyChainUpdateBI :: TransactionTime -> BlockItem
+dummyChainUpdateBI effTime = chainUpdate $ dummyUpdateInstruction effTime
+
+-- | Test for transaction verification
+testTransactionVerification ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv, PVSupportsPLT pv) =>
+    SProtocolVersion pv ->
+    Spec
+testTransactionVerification _ = describe "transaction verification" $ do
+    it "ChainUpdate: CreatePLT: Ok" $ do
+        (verResult, _) <- runMyTestMonad @pv myIdentityProviders theTime $
+            do
+                t <- utcTimeToTimestamp <$> currentTime
+                ctx <- getCtx
+                verifyBlockItem t (dummyChainUpdateBI 0) ctx
+        assertEqual
+            "A correct transaction should be verified"
+            (TVer.Ok TVer.ChainUpdateSuccess{keysHash = getHash (dummyKeyCollection @(AuthorizationsVersionFor pv)), seqNumber = 1})
+            verResult
+    it "ChainUpdate: CreatePLT: Non-zero effective time for CreatePLT" $ do
+        (verResult, _) <- runMyTestMonad @pv myIdentityProviders theTime $
+            do
+                t <- utcTimeToTimestamp <$> currentTime
+                ctx <- getCtx
+                verifyBlockItem t (dummyChainUpdateBI 1) ctx
+        assertEqual
+            "A CreatePLT update with non-zero effective time should be rejected"
+            (TVer.NotOk TVer.ChainUpdateEffectiveTimeNonZeroForCreatePLT)
+            verResult
+  where
+    -- Create a context suitable for verifying a transaction within a 'Individual' context.
+    getCtx = do
+        _ctxBs <- bpState <$> gets' _lastFinalized
+        let chainParams = dummyChainParameters @(ChainParametersVersionFor pv)
+        let _ctxMaxBlockEnergy = chainParams ^. cpConsensusParameters . cpBlockEnergyLimit
+        return $! Context{_ctxTransactionOrigin = TVer.Individual, ..}
+
+    theTime :: UTCTime
+    theTime = posixSecondsToUTCTime 1 -- after genesis
 
 -- | Testing various cases for processing a block item individually.
 testProcessBlockItem ::
@@ -377,7 +450,7 @@ testProcessBlockItem _ = describe "processBlockItem" $ do
     it "MaybeOk transaction" $ do
         -- We use a normal transfer transaction here with an invalid sender as it will yield a
         -- 'MaybeOk' verification result.
-        (pbiRes, sd') <- runMyTestMonad @pv dummyIdentityProviders theTime (processBlockItem dummyTransactionBI)
+        (pbiRes, sd') <- runMyTestMonad @pv dummyIdentityProviders theTime (processBlockItem dummyNormalTransactionBI)
         assertEqual
             "The credential deployment should be rejected (the identity provider has correct id but wrong keys used for the credential deployment)"
             (NotAdded $ TVer.MaybeOk $ TVer.NormalTransactionInvalidSender dummyAccountAddress)
@@ -447,7 +520,7 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
     it "A non verifiable transaction first in the block makes it fail and stop processing the rest" $ do
         (processed, sd') <-
             runMyTestMonad dummyIdentityProviders theTime $
-                processBlockItems (blockToProcess [dummyCredentialDeployment, dummyTransactionBI]) =<< _lastFinalized <$> get
+                processBlockItems (blockToProcess [dummyCredentialDeployment, dummyNormalTransactionBI]) =<< _lastFinalized <$> get
         assertBool
             "Block should not have been successfully processed"
             (null processed)
@@ -458,7 +531,7 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
     it "A non verifiable transaction last in the block makes it fail but the valid ones have been put into the state." $ do
         (processed, sd') <-
             runMyTestMonad dummyIdentityProviders theTime $
-                processBlockItems (blockToProcess [dummyTransactionBI, dummyCredentialDeployment]) =<< _lastFinalized <$> get
+                processBlockItems (blockToProcess [dummyNormalTransactionBI, dummyCredentialDeployment]) =<< _lastFinalized <$> get
         assertBool
             "Block should not have been successfully processed"
             (null processed)
@@ -469,7 +542,7 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
     it "A block consisting of verifiable transactions only is accepted" $ do
         (processed, sd') <-
             runMyTestMonad myIdentityProviders theTime $
-                processBlockItems (blockToProcess [dummyTransactionBI, dummyCredentialDeployment]) =<< _lastFinalized <$> get
+                processBlockItems (blockToProcess [dummyNormalTransactionBI, dummyCredentialDeployment]) =<< _lastFinalized <$> get
         assertBool
             "Block should have been successfully processed"
             (isJust processed)
@@ -543,3 +616,6 @@ tests = describe "KonsensusV1.TransactionProcessing" $ do
                 testProcessBlockItem spv
             describe "Batch transaction processing" $ do
                 testProcessBlockItems spv
+    describe "P9" $ do
+        describe "Transaction verification" $
+            testTransactionVerification SP9

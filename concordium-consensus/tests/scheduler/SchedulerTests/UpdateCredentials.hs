@@ -94,17 +94,18 @@ updateAccountCredentialTest _ pvString =
             initialBlockState
             transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
         [ -- correctly update a keypair
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9) [] 1,
-                      metadata = makeDummyHeader cdi8address 1 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9) [] 1,
+                          metadata = makeDummyHeader cdi8address 1 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9)] 1 state
                 return $ do
                     Helpers.assertSuccessWithEvents
@@ -113,56 +114,60 @@ updateAccountCredentialTest _ pvString =
                     doCheckKeys
             },
           -- Correctly update threshold
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials Map.empty [] 2,
-                      metadata = makeDummyHeader cdi8address 2 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials Map.empty [] 2,
+                          metadata = makeDummyHeader cdi8address 2 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9)] 2 state
                 return $ do
                     Helpers.assertSuccessWithEvents [CredentialsUpdated cdi8address [] [] 2] result
                     doCheckKeys
             },
           -- Now, using the only one set of keys should fail, since threshold were updated
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials (Map.singleton 2 cdi10) [] 2,
-                      metadata = makeDummyHeader cdi8address 3 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])] -- not enough credential holders signing since threshold is now 2
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials (Map.singleton 2 cdi10) [] 2,
+                          metadata = makeDummyHeader cdi8address 3 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)])] -- not enough credential holders signing since threshold is now 2
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9)] 2 state
                 return $ do
                     Helpers.assertFailureWithReason IncorrectSignature result
                     doCheckKeys
             },
           -- Should reject since we try to add cdi10 at index 1
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials (Map.singleton 1 cdi10) [] 2,
-                      metadata = makeDummyHeader cdi8address 3 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])] -- now two credential holders are signing
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials (Map.singleton 1 cdi10) [] 2,
+                          metadata = makeDummyHeader cdi8address 3 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])] -- now two credential holders are signing
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (1, cdiKeys cdi9)] 2 state
                 return $ do
                     Helpers.assertRejectWithReason KeyIndexAlreadyInUse result
                     doCheckKeys
             },
           -- Now, using the new keys should work
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials (Map.singleton 2 cdi10) [] 2,
-                      metadata = makeDummyHeader cdi8address 4 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])] -- now two credential holders are signing
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials (Map.singleton 2 cdi10) [] 2,
+                          metadata = makeDummyHeader cdi8address 4 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])] -- now two credential holders are signing
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <-
                     checkKeys
                         [(0, cdiKeys cdi8), (1, cdiKeys cdi9), (2, cdiKeys cdi10)]
@@ -175,14 +180,15 @@ updateAccountCredentialTest _ pvString =
                     doCheckKeys
             },
           -- Updating threshold to 3
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials Map.empty [] 3,
-                      metadata = makeDummyHeader cdi8address 5 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials Map.empty [] 3,
+                          metadata = makeDummyHeader cdi8address 5 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <-
                     checkKeys
                         [(0, cdiKeys cdi8), (1, cdiKeys cdi9), (2, cdiKeys cdi10)]
@@ -193,14 +199,15 @@ updateAccountCredentialTest _ pvString =
                     doCheckKeys
             },
           -- Trying to remove cdi9 -  should reject since threshold is 3
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 3,
-                      metadata = makeDummyHeader cdi8address 6 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 3,
+                          metadata = makeDummyHeader cdi8address 6 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <-
                     checkKeys
                         [(0, cdiKeys cdi8), (1, cdiKeys cdi9), (2, cdiKeys cdi10)]
@@ -211,14 +218,15 @@ updateAccountCredentialTest _ pvString =
                     doCheckKeys
             },
           -- Trying to remove cdi9 -  should succeed since threshold is changed to 2
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 2,
-                      metadata = makeDummyHeader cdi8address 7 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 2,
+                          metadata = makeDummyHeader cdi8address 7 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2 state
                 return $ do
                     Helpers.assertSuccessWithEvents
@@ -227,98 +235,105 @@ updateAccountCredentialTest _ pvString =
                     doCheckKeys
             },
           -- Trying to sign with cdi9's keys -  should fail since cdi9 was removed
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials Map.empty [] 2,
-                      metadata = makeDummyHeader cdi8address 8 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials Map.empty [] 2,
+                          metadata = makeDummyHeader cdi8address 8 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (1, [(0, cdi9kp0), (1, cdi9kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2 state
                 return $ do
                     Helpers.assertFailureWithReason IncorrectSignature result
                     doCheckKeys
             },
           -- Trying to remove cdi8 -  should reject since it is the first credential
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials Map.empty [cdi8ID] 1, -- notice that we also change the threshold to 1, otherwise it would fail even if cdi8 could be removed.
-                      metadata = makeDummyHeader cdi8address 8 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials Map.empty [cdi8ID] 1, -- notice that we also change the threshold to 1, otherwise it would fail even if cdi8 could be removed.
+                          metadata = makeDummyHeader cdi8address 8 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2 state
                 return $ do
                     Helpers.assertRejectWithReason RemoveFirstCredential result
                     doCheckKeys
             },
           -- Trying to remove cdi9 that is already removed -  should reject
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 2,
-                      metadata = makeDummyHeader cdi8address 9 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials Map.empty [cdi9ID] 2,
+                          metadata = makeDummyHeader cdi8address 9 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2 state
                 return $ do
                     Helpers.assertRejectWithReason (NonExistentCredIDs [cdi9ID]) result
                     doCheckKeys
             },
           -- Trying to add cdi10 whos credID is already in use - should reject
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials (Map.singleton 1 cdi10) [] 2,
-                      metadata = makeDummyHeader cdi8address 10 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials (Map.singleton 1 cdi10) [] 2,
+                          metadata = makeDummyHeader cdi8address 10 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2 state
                 return $ do
                     Helpers.assertRejectWithReason (DuplicateCredIDs [cdi10ID]) result
                     doCheckKeys
             },
           -- Trying to add cdi9 whos credID has been used earlier - should reject
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9) [] 2,
-                      metadata = makeDummyHeader cdi8address 11 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials (Map.singleton 1 cdi9) [] 2,
+                          metadata = makeDummyHeader cdi8address 11 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi10)] 2 state
                 return $ do
                     Helpers.assertRejectWithReason (DuplicateCredIDs [cdi9ID]) result
                     doCheckKeys
             },
           -- Adding cdi11 at index 2 should succeed since we are deleting cdi10
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials (Map.singleton 2 cdi11) [cdi10ID] 2,
-                      metadata = makeDummyHeader cdi8address 12 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials (Map.singleton 2 cdi11) [cdi10ID] 2,
+                          metadata = makeDummyHeader cdi8address 12 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi10kp0), (1, cdi10kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi11)] 2 state
                 return $ do
                     Helpers.assertSuccessWithEvents [CredentialsUpdated cdi8address [cdi11ID] [cdi10ID] 2] result
                     doCheckKeys
             },
           -- Trying to add cdi7 which is not a cdi for deploying to cdi8 - should reject since for this purpose, cdi7 is invalid
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.UpdateCredentials (Map.singleton 3 cdi7'') [] 2,
-                      metadata = makeDummyHeader cdi8address 13 100_000,
-                      keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi11kp0), (1, cdi11kp1)])]
-                    },
-              taaAssertion = \result state -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.UpdateCredentials (Map.singleton 3 cdi7'') [] 2,
+                          metadata = makeDummyHeader cdi8address 13 100_000,
+                          keys = [(0, [(0, cdi8kp0), (1, cdi8kp1)]), (2, [(0, cdi11kp0), (1, cdi11kp1)])]
+                        },
+              biaaAssertion = \result state -> do
                 doCheckKeys <- checkKeys [(0, cdiKeys cdi8), (2, cdiKeys cdi11)] 2 state
                 return $ do
                     Helpers.assertRejectWithReason InvalidCredentials result

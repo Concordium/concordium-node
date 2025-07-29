@@ -43,6 +43,7 @@ import qualified Concordium.Cost as Cost
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import qualified Concordium.GlobalState.AccountMap.ModuleMap as ModuleMap
 import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
@@ -101,6 +102,9 @@ newtype PersistentBSM pv a = PersistentBSM
         )
 
 deriving instance (Types.IsProtocolVersion pv) => BS.AccountOperations (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.TokenStateOperations StateV1.MutableState (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.PersistentBlockState pv) StateV1.MutableState (PersistentBSM pv)
+deriving instance (Types.IsProtocolVersion pv) => BS.PLTQuery (BS.HashedPersistentBlockState pv) StateV1.MutableState (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateOperations (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => BS.BlockStateQuery (PersistentBSM pv)
 deriving instance (Types.IsProtocolVersion pv) => Types.MonadProtocolVersion (PersistentBSM pv)
@@ -117,7 +121,7 @@ deriving instance
     MonadCache (BS.AccountCache av) (PersistentBSM pv)
 
 instance MonadLogger (PersistentBSM pv) where
-    logEvent _ _ _ = return ()
+    logEvent src lvl msg = PersistentBSM (logEvent src lvl msg)
 
 instance TimeMonad (PersistentBSM pv) where
     currentTime = return $ read "1970-01-01 13:27:13.257285424 UTC"
@@ -137,7 +141,8 @@ forEveryProtocolVersion check =
       check Types.SP5 "P5",
       check Types.SP6 "P6",
       check Types.SP7 "P7",
-      check Types.SP8 "P8"
+      check Types.SP8 "P8",
+      check Types.SP9 "P9"
     ]
 
 -- | Convert an energy value to an amount, based on the exchange rates used in
@@ -145,13 +150,14 @@ forEveryProtocolVersion check =
 energyToAmount :: Types.Energy -> Types.Amount
 energyToAmount = Types.computeCost (Types.makeExchangeRates 0.000_1 1_000_000 ^. Types.energyRate)
 
--- | Construct a test block state containing the provided accounts.
-createTestBlockStateWithAccounts ::
+-- | Construct a test block state containing the provided accounts and chain-update keys.
+createTestBlockStateWithAccountsAndKeys ::
     forall pv.
     (Types.IsProtocolVersion pv) =>
     [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
+    Types.UpdateKeysCollection (Types.AuthorizationsVersionFor pv) ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv)
-createTestBlockStateWithAccounts accounts = do
+createTestBlockStateWithAccountsAndKeys accounts keys = do
     bs <-
         BS.initialPersistentState
             seedState
@@ -166,10 +172,20 @@ createTestBlockStateWithAccounts accounts = do
     void $ BS.saveGlobalMaps bs
     return bs
   where
-    keys = Types.withIsAuthorizationsVersionForPV (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
     seedState = case Types.consensusVersionFor (Types.protocolVersion @pv) of
         Types.ConsensusV0 -> initialSeedStateV0 (Hash.hash "") 1_000
         Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "") 3_600_000
+
+-- | Construct a test block state containing the provided accounts.
+createTestBlockStateWithAccounts ::
+    forall pv.
+    (Types.IsProtocolVersion pv) =>
+    [BS.PersistentAccount (Types.AccountVersionFor pv)] ->
+    PersistentBSM pv (BS.HashedPersistentBlockState pv)
+createTestBlockStateWithAccounts accounts =
+    createTestBlockStateWithAccountsAndKeys accounts keys
+  where
+    keys = Types.withIsAuthorizationsVersionFor (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
 
 -- | Construct a test block state containing the provided accounts.
 createTestBlockStateWithAccountsM ::
@@ -309,11 +325,11 @@ type TransactionAssertion pv =
     PersistentBSM pv Assertion
 
 -- | A test transaction paired with assertions to run on the scheduler result and block state.
-data TransactionAndAssertion pv = TransactionAndAssertion
+data BlockItemAndAssertion pv = BlockItemAndAssertion
     { -- | A transaction to run in the scheduler.
-      taaTransaction :: SchedTest.TransactionJSON,
+      biaaTransaction :: SchedTest.BlockItemDescription,
       -- | Assertions to make about the outcome from the scheduler and the resulting block state.
-      taaAssertion :: TransactionAssertion pv
+      biaaAssertion :: TransactionAssertion pv
     }
 
 -- | Run the scheduler on transactions in a test environment. Each transaction in the list of
@@ -327,7 +343,7 @@ runSchedulerTestAssertIntermediateStates ::
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    [TransactionAndAssertion pv] ->
+    [BlockItemAndAssertion pv] ->
     Assertion
 runSchedulerTestAssertIntermediateStates config constructState transactionsAndAssertions =
     join $ runTestBlockState blockStateComputation
@@ -340,14 +356,15 @@ runSchedulerTestAssertIntermediateStates config constructState transactionsAndAs
 
     transactionRunner ::
         (Assertion, BS.HashedPersistentBlockState pv, Types.Amount) ->
-        TransactionAndAssertion pv ->
+        BlockItemAndAssertion pv ->
         PersistentBSM pv (Assertion, BS.HashedPersistentBlockState pv, Types.Amount)
     transactionRunner (assertedSoFar, currentState, costsSoFar) step = do
-        transactions <- liftIO $ SchedTest.processUngroupedTransactions [taaTransaction step]
+        logEvent Scheduler LLError "Transaction runner"
+        transactions <- liftIO $ SchedTest.processUngroupedBlockItems [biaaTransaction step]
         (result, updatedState) <- runScheduler config currentState transactions
         let nextCostsSoFar = costsSoFar + srExecutionCosts result
         doStateAssertions <- assertBlockStateInvariantsH updatedState nextCostsSoFar
-        doAssertTransaction <- taaAssertion step result updatedState
+        doAssertTransaction <- biaaAssertion step result updatedState
         let nextAssertedSoFar = do
                 assertedSoFar
                 doAssertTransaction
@@ -778,6 +795,18 @@ assertRejectWithReason expectedReason =
 assertFailureWithReason :: Types.FailureKind -> SchedulerResult -> Assertion
 assertFailureWithReason expectedReason result =
     case ftFailed $ srTransactions result of
+        [(_, reason)] ->
+            assertEqual
+                "The correct reason for failure is produced"
+                expectedReason
+                reason
+        [] -> assertFailure "No transaction failed"
+        other -> assertFailure $ "Multiple transactions failed: " ++ show other
+
+-- | Assert the scheduler result has failed one chain update and check the reason.
+assertUpdateFailureWithReason :: Types.FailureKind -> SchedulerResult -> Assertion
+assertUpdateFailureWithReason expectedReason result =
+    case ftFailedUpdates $ srTransactions result of
         [(_, reason)] ->
             assertEqual
                 "The correct reason for failure is produced"

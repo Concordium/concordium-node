@@ -37,7 +37,6 @@ import Control.Monad.Catch
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Trans.Cont
-import Data.Foldable
 import qualified Data.HashSet as HashSet
 import qualified Data.Map.Strict as Map
 import Data.Maybe
@@ -429,7 +428,6 @@ processCatchUpTerminalData ::
       MonadState (SkovData (MPV m)) m,
       TimeMonad m,
       TimerMonad m,
-      MonadProtocolVersion m,
       MonadIO m,
       LowLevel.MonadTreeStateStore m,
       BlockStateStorage m,

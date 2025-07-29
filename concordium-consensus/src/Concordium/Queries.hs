@@ -1,10 +1,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# OPTIONS_GHC -Wno-redundant-constraints #-}
 
 -- | Consensus queries against the multi-version runner.
 module Concordium.Queries where
@@ -33,6 +35,7 @@ import Concordium.Types
 import Concordium.Types.Accounts
 import Concordium.Types.AnonymityRevokers
 import Concordium.Types.Block (absoluteToLocalBlockHeight, localToAbsoluteBlockHeight)
+import Concordium.Types.Conditionally
 import Concordium.Types.Execution (
     Payload (..),
     SupplementEvents (..),
@@ -44,12 +47,16 @@ import Concordium.Types.Execution (
  )
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
+import Concordium.Types.Option
 import Concordium.Types.Parameters
 import Concordium.Types.Queries hiding (PassiveCommitteeInfo (..), bakerId)
 import qualified Concordium.Types.Queries.KonsensusV1 as QueriesKonsensusV1
+import qualified Concordium.Types.Queries.Tokens as Tokens
 import Concordium.Types.SeedState
 import Concordium.Types.Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
+import Concordium.Types.Updates (minUpdateSequenceNumber)
+import qualified Concordium.Types.Updates as U
 import qualified Concordium.Wasm as Wasm
 import qualified Proto.V2.Concordium.Types as Proto
 
@@ -83,11 +90,12 @@ import qualified Concordium.KonsensusV1.Types as SkovV1
 import Concordium.Kontrol
 import Concordium.Kontrol.BestBlock
 import Concordium.MultiVersion
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError, queryAccountTokens, queryTokenInfo)
 import Concordium.Skov as Skov (
     SkovQueryMonad (getBlocksAtHeight),
     evalSkovT,
  )
-import Concordium.Types.Option
+
 import Control.Monad.State.Class
 import Data.Time
 
@@ -864,7 +872,7 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
   where
     query ::
         forall m.
-        (MonadProtocolVersion m, BS.BlockStateQuery m) =>
+        (BS.BlockStateQuery m) =>
         ( BlockState m ->
           m [(TransactionTime, PendingUpdateEffect)]
         )
@@ -885,16 +893,17 @@ getBlockPendingUpdates = liftSkovQueryStateBHI query
         -- That one needs access to account lookup so it is handled by a
         -- separate helper below.
         flattenUpdateQueues ::
-            forall cpv.
-            (IsChainParametersVersion cpv) =>
-            UQ.PendingUpdates cpv ->
+            forall cpv auv.
+            (IsChainParametersVersion cpv, IsAuthorizationsVersion auv) =>
+            UQ.PendingUpdates cpv auv ->
             [(TransactionTime, PendingUpdateEffect)]
         flattenUpdateQueues UQ.PendingUpdates{..} =
             queueMapper PUERootKeys _pRootKeysUpdateQueue
                 `merge` queueMapper PUELevel1Keys _pLevel1KeysUpdateQueue
-                `merge` ( case sAuthorizationsVersionFor cpv of
+                `merge` ( case authorizationsVersion @auv of
                             SAuthorizationsVersion0 -> queueMapper PUELevel2KeysV0 _pLevel2KeysUpdateQueue
                             SAuthorizationsVersion1 -> queueMapper PUELevel2KeysV1 _pLevel2KeysUpdateQueue
+                            SAuthorizationsVersion2 -> queueMapper PUELevel2KeysV2 _pLevel2KeysUpdateQueue
                         )
                 `merge` queueMapper PUEProtocol _pProtocolQueue
                 `merge` queueMapperOptional PUEElectionDifficulty _pElectionDifficultyQueue
@@ -1005,9 +1014,38 @@ getBlockFinalizationSummary = liftSkovQueryBHI getFinSummarySkovM (\_ -> return 
 getNextUpdateSequenceNumbers :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse NextUpdateSequenceNumbers)
 getNextUpdateSequenceNumbers = liftSkovQueryStateBHI query
   where
+    -- Get the next sequence number or minUpdateSequenceNumber (1), if not supported.
+    mNextSequenceNumber :: UQ.OUpdateQueue pt cpv e -> U.UpdateSequenceNumber
+    mNextSequenceNumber NoParam = minUpdateSequenceNumber
+    mNextSequenceNumber (SomeParam q) = UQ._uqNextSequenceNumber q
     query bs = do
         updates <- BS.getUpdates bs
-        return $ updateQueuesNextSequenceNumbers $ UQ._pendingUpdates updates
+        let UQ.PendingUpdates{..} = UQ._pendingUpdates updates
+        return
+            NextUpdateSequenceNumbers
+                { _nusnRootKeys = UQ._uqNextSequenceNumber _pRootKeysUpdateQueue,
+                  _nusnLevel1Keys = UQ._uqNextSequenceNumber _pLevel1KeysUpdateQueue,
+                  _nusnLevel2Keys = UQ._uqNextSequenceNumber _pLevel2KeysUpdateQueue,
+                  _nusnProtocol = UQ._uqNextSequenceNumber _pProtocolQueue,
+                  _nusnElectionDifficulty = mNextSequenceNumber _pElectionDifficultyQueue,
+                  _nusnEuroPerEnergy = UQ._uqNextSequenceNumber _pEuroPerEnergyQueue,
+                  _nusnMicroCCDPerEuro = UQ._uqNextSequenceNumber _pMicroGTUPerEuroQueue,
+                  _nusnFoundationAccount = UQ._uqNextSequenceNumber _pFoundationAccountQueue,
+                  _nusnMintDistribution = UQ._uqNextSequenceNumber _pMintDistributionQueue,
+                  _nusnTransactionFeeDistribution = UQ._uqNextSequenceNumber _pTransactionFeeDistributionQueue,
+                  _nusnGASRewards = UQ._uqNextSequenceNumber _pGASRewardsQueue,
+                  _nusnPoolParameters = UQ._uqNextSequenceNumber _pPoolParametersQueue,
+                  _nusnAddAnonymityRevoker = UQ._uqNextSequenceNumber _pAddAnonymityRevokerQueue,
+                  _nusnAddIdentityProvider = UQ._uqNextSequenceNumber _pAddIdentityProviderQueue,
+                  _nusnCooldownParameters = mNextSequenceNumber _pCooldownParametersQueue,
+                  _nusnTimeParameters = mNextSequenceNumber _pTimeParametersQueue,
+                  _nusnTimeoutParameters = mNextSequenceNumber _pTimeoutParametersQueue,
+                  _nusnMinBlockTime = mNextSequenceNumber _pMinBlockTimeQueue,
+                  _nusnBlockEnergyLimit = mNextSequenceNumber _pBlockEnergyLimitQueue,
+                  _nusnFinalizationCommitteeParameters = mNextSequenceNumber _pFinalizationCommitteeParametersQueue,
+                  _nusnValidatorScoreParameters = mNextSequenceNumber _pValidatorScoreParametersQueue,
+                  _nusnProtocolLevelTokensParameters = maybeConditionally minUpdateSequenceNumber id (UQ._pltUpdateSequenceNumber updates)
+                }
 
 -- | Get the index of accounts with scheduled releases.
 getScheduledReleaseAccounts ::
@@ -1098,7 +1136,7 @@ getBlockBirkParameters =
             return BlockBirkParameters{..}
         )
   where
-    getED :: forall m. (BS.BlockStateQuery m, MonadProtocolVersion m) => BlockState m -> m (Maybe ElectionDifficulty)
+    getED :: forall m. (BS.BlockStateQuery m) => BlockState m -> m (Maybe ElectionDifficulty)
     getED bs = case sConsensusParametersVersionFor (sChainParametersVersionFor (protocolVersion @(MPV m))) of
         SConsensusParametersVersion0 -> Just <$> BS.getCurrentElectionDifficulty bs
         SConsensusParametersVersion1 -> return Nothing -- There is no election difficulty in consensus version 1
@@ -1141,6 +1179,10 @@ getAncestors bhi count =
 getAccountList :: BlockHashInput -> MVR finconf (BHIQueryResponse [AccountAddress])
 getAccountList = liftSkovQueryStateBHI BS.getAccountList
 
+-- | Get a list of protocol level tokens that exist in the block state.
+getTokenList :: BlockHashInput -> MVR finconf (BHIQueryResponse [TokenId])
+getTokenList = liftSkovQueryStateBHI BS.getPLTList
+
 -- | Get a list of all smart contract instances in the block state.
 getInstanceList :: BlockHashInput -> MVR finconf (BHIQueryResponse [ContractAddress])
 getInstanceList = liftSkovQueryStateBHI BS.getContractInstanceList
@@ -1148,6 +1190,10 @@ getInstanceList = liftSkovQueryStateBHI BS.getContractInstanceList
 -- | Get the list of modules present as of a given block.
 getModuleList :: BlockHashInput -> MVR finconf (BHIQueryResponse [ModuleRef])
 getModuleList = liftSkovQueryStateBHI BS.getModuleList
+
+-- | Get the details of a token in the block state.
+getTokenInfo :: BlockHashInput -> TokenId -> MVR finconf (BHIQueryResponse (Either QueryTokenInfoError Tokens.TokenInfo))
+getTokenInfo blockHashInput tokenId = liftSkovQueryStateBHI (queryTokenInfo tokenId) blockHashInput
 
 -- | Get the details of an account in the block state.
 --  The account can be given via an address, an account index or a credential registration id.
@@ -1182,7 +1228,6 @@ getAccountInfoV0 = getAccountInfoHelper getASIv0 getCooldownsV0
 getAccountInfoV1 ::
     forall m.
     ( BS.BlockStateQuery m,
-      MonadProtocolVersion m,
       MonadState (SkovV1.SkovData (MPV m)) m,
       IsConsensusV1 (MPV m)
     ) =>
@@ -1218,6 +1263,7 @@ getAccountInfoV1 ai bs = getAccountInfoHelper getASIv1 getCooldownsV1 ai bs
 -- | Helper for getting the details of an account, given a function for getting the staking
 --  information.
 getAccountInfoHelper ::
+    forall m.
     (BS.BlockStateQuery m) =>
     (Account m -> m AccountStakingInfo) ->
     (Account m -> m [Cooldown]) ->
@@ -1229,7 +1275,7 @@ getAccountInfoHelper getASI getCooldowns acct bs = do
         AccAddress addr -> BS.getAccount bs addr
         AccIndex idx -> BS.getAccountByIndex bs idx
         CredRegID crid -> BS.getAccountByCredId bs crid
-    forM macc $ \(aiAccountIndex, acc) -> do
+    forM macc $ \iacc@(aiAccountIndex, acc) -> do
         aiAccountNonce <- BS.getAccountNonce acc
         aiAccountAmount <- BS.getAccountAmount acc
         aiAccountReleaseSchedule <- BS.getAccountReleaseSummary acc
@@ -1241,6 +1287,9 @@ getAccountInfoHelper getASI getCooldowns acct bs = do
         aiAccountAddress <- BS.getAccountCanonicalAddress acc
         aiAccountCooldowns <- getCooldowns acc
         aiAccountAvailableAmount <- BS.getAccountAvailableAmount acc
+        aiAccountTokens <- case sSupportsPLT (sAccountVersionFor (protocolVersion @(MPV m))) of
+            STrue -> queryAccountTokens iacc bs
+            SFalse -> return []
         return AccountInfo{..}
 
 -- | Get the details of a smart contract instance in the block state.
@@ -1313,7 +1362,7 @@ getPoolStatus blockHashInput mbid = do
   where
     poolStatus ::
         forall m.
-        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        (BS.BlockStateQuery m) =>
         BlockState m ->
         m (Maybe BakerPoolStatus)
     poolStatus bs = case delegationSupport @(AccountVersionFor (MPV m)) of
@@ -1327,7 +1376,7 @@ getPassiveDelegationStatus blockHashInput = do
   where
     poolStatus ::
         forall m.
-        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        (BS.BlockStateQuery m) =>
         BlockState m ->
         m (Maybe PassiveDelegationStatus)
     poolStatus bs = case delegationSupport @(AccountVersionFor (MPV m)) of
@@ -1358,7 +1407,7 @@ getDelegators bhi maybeBakerId = do
   where
     getter ::
         forall m.
-        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        (BS.BlockStateQuery m) =>
         BlockState m ->
         m (Either GetDelegatorsError [DelegatorInfo])
     getter bs = case delegationSupport @(AccountVersionFor (MPV m)) of
@@ -1382,7 +1431,7 @@ getDelegatorsRewardPeriod bhi maybeBakerId = do
   where
     getter ::
         forall m.
-        (BS.BlockStateQuery m, MonadProtocolVersion m) =>
+        (BS.BlockStateQuery m) =>
         BlockState m ->
         m (Either GetDelegatorsError [DelegatorRewardPeriodInfo])
     getter bs = case delegationSupport @(AccountVersionFor (MPV m)) of
@@ -1575,7 +1624,7 @@ getTransactionStatus trHash =
     -- Get the outcome of a transaction in consensus version 0.
     v0TransactionOutcome ::
         forall m.
-        (BlockPointerMonad m, BS.BlockStateQuery m, MonadProtocolVersion m, BlockData (BlockPointerType m)) =>
+        (BlockPointerMonad m, BS.BlockStateQuery m, BlockData (BlockPointerType m)) =>
         BlockPointerType m ->
         TransactionIndex ->
         m (Maybe SupplementedTransactionSummary)
@@ -1586,7 +1635,7 @@ getTransactionStatus trHash =
     -- Get the outcome of a transaction in consensus version 1.
     v1TransactionOutcome ::
         forall m.
-        (BlockPointerMonad m, BS.BlockStateQuery m, MonadProtocolVersion m, SkovV1.BlockData (BlockPointerType m)) =>
+        (BlockPointerMonad m, BS.BlockStateQuery m, SkovV1.BlockData (BlockPointerType m)) =>
         BlockPointerType m ->
         TransactionIndex ->
         m (Maybe SupplementedTransactionSummary)
@@ -1750,8 +1799,8 @@ getBlockCertificates = liftSkovQueryBHI (\_ -> return $ Left BlockCertificatesIn
     finalizerSetToBakerIds :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerSet -> [BakerId]
     finalizerSetToBakerIds committee signatories =
         [ finalizerBakerId
-          | SkovV1.FinalizerInfo{..} <- Vec.toList $ SkovV1.committeeFinalizers committee,
-            SkovV1.memberFinalizerSet finalizerIndex signatories
+        | SkovV1.FinalizerInfo{..} <- Vec.toList $ SkovV1.committeeFinalizers committee,
+          SkovV1.memberFinalizerSet finalizerIndex signatories
         ]
     finalizerRound :: SkovV1.FinalizationCommittee -> SkovV1.FinalizerRounds -> [QueriesKonsensusV1.FinalizerRound]
     finalizerRound committee rounds =

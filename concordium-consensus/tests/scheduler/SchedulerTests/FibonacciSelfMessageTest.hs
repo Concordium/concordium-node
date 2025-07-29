@@ -66,26 +66,28 @@ testCase1 _ pvString =
             transactions
   where
     transactions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.DeployModule V0 fibSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.DeployModule V0 fibSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV0 fibSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.InitContract 0 V0 fibSourceFile "init_fib" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.InitContract 0 V0 fibSourceFile "init_fib" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -97,14 +99,15 @@ testCase1 _ pvString =
                         result
             },
           -- compute F(10)
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload = Runner.Update 0 (Types.ContractAddress 0 0) "fib.receive" (fibParamBytes 10),
-                      metadata = makeDummyHeader accountAddress0 3 700_000,
-                      keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
-                    },
-              taaAssertion = ensureAllUpdates
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload = Runner.Update 0 (Types.ContractAddress 0 0) "fib.receive" (fibParamBytes 10),
+                          metadata = makeDummyHeader accountAddress0 3 700_000,
+                          keys = [(0, [(0, Helpers.keyPairFromSeed 0)])]
+                        },
+              biaaAssertion = ensureAllUpdates
             }
         ]
     ensureAllUpdates ::
@@ -157,7 +160,7 @@ testCase1 _ pvString =
     p event = assertFailure ("Unexpected event: " ++ show event)
 
     fib n =
-        let go = 1 : 1 : zipWith (+) go (tail go)
+        let go = 1 : 1 : zipWith (+) go (drop 1 go)
         in  go !! n
     fibNBytes n = ContractState (runPut (putWord64le (fib n)))
 

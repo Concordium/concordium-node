@@ -19,6 +19,7 @@ import qualified Concordium.Genesis.Data.P5 as P5
 import qualified Concordium.Genesis.Data.P6 as P6
 import qualified Concordium.Genesis.Data.P7 as P7
 import qualified Concordium.Genesis.Data.P8 as P8
+import qualified Concordium.Genesis.Data.P9 as P9
 import qualified Concordium.GlobalState.CapitalDistribution as CapDist
 import qualified Concordium.GlobalState.Persistent.Account as Account
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
@@ -26,6 +27,7 @@ import qualified Concordium.GlobalState.Persistent.Bakers as Bakers
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as PLT
 import qualified Concordium.GlobalState.Persistent.BlockState.Updates as Updates
 import qualified Concordium.GlobalState.Persistent.Cooldown as Cooldown
 import qualified Concordium.GlobalState.Persistent.Instances as Instances
@@ -84,6 +86,9 @@ genesisState gd = MTL.runExceptT $ case Types.protocolVersion @pv of
             buildGenesisBlockState (CGPV1 genesisCore) genesisInitialState
     Types.SP8 -> case gd of
         GenesisData.GDP8 P8.GDP8Initial{..} ->
+            buildGenesisBlockState (CGPV1 genesisCore) genesisInitialState
+    Types.SP9 -> case gd of
+        GenesisData.GDP9 P9.GDP9Initial{..} ->
             buildGenesisBlockState (CGPV1 genesisCore) genesisInitialState
 
 -------- Types -----------
@@ -234,6 +239,7 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
     updates <- Blob.refMakeFlushed persistentUpdates
 
     releaseSchedule <- ReleaseSchedule.emptyReleaseSchedule
+    protocolLevelTokens <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         Blob.refMakeFlushed $
             BS.BlockStatePointers
@@ -249,7 +255,8 @@ buildGenesisBlockState vcgp GenesisData.GenesisState{..} = do
                   bspUpdates = updates,
                   bspReleaseSchedule = releaseSchedule,
                   bspAccountsInCooldown = Cooldown.emptyAccountsInCooldownForPV,
-                  bspRewardDetails = rewardDetails
+                  bspRewardDetails = rewardDetails,
+                  bspProtocolLevelTokens = protocolLevelTokens
                 }
     bps <- MTL.liftIO $ newIORef $! bsp
     hashedBlockState <- BS.hashBlockState bps

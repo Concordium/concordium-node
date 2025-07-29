@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -43,7 +44,9 @@ import qualified Concordium.TransactionVerification as TVer
 import Control.Exception (assert)
 
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Token
 import qualified Concordium.ID.Types as ID
+import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTAccount, PLTKernelChargeEnergy, PLTKernelFail, PLTKernelPrivilegedUpdate)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
@@ -90,6 +93,13 @@ data RemoveExistingStake
     | -- | The account has no existing stake.
       NoExistingStake
     deriving (Eq, Show)
+
+-- | PLT module execution error.
+data PLTExecutionError fail
+    = -- | The PLT module run out of energy during execution.
+      PLTEOutOfEnergy
+    | -- | The PLT module encountered a runtime error during execution.
+      PLTEFail fail
 
 -- | Information needed to execute transactions in the form that is easy to use.
 class
@@ -346,7 +356,7 @@ class
     -- * Chain updates
 
     -- | Get the current authorized keys for updates.
-    getUpdateKeyCollection :: m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
+    getUpdateKeyCollection :: m (UpdateKeysCollection (AuthorizationsVersionFor (MPV m)))
 
     -- | Get the next sequence number of updates of a given type.
     getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber
@@ -356,7 +366,71 @@ class
     --  The next sequence number will be correspondingly incremented,
     --  and any queued updates of the given type with a later effective
     --  time are cancelled.
-    enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) -> m ()
+    enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> m ()
+
+    -- | Increment the update sequence number for Protocol Level Tokens (PLT).
+    -- Unlike the other chain updates this is a separate function,
+    -- since there is no queue associated with PLTs.
+    incrementPLTUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => m ()
+
+    -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
+    getTokenIndex :: (PVSupportsPLT (MPV m)) => TokenId -> m (Maybe Token.TokenIndex)
+
+    -- | Get the configuration of a protocol-level token.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getTokenConfiguration :: (PVSupportsPLT (MPV m)) => Token.TokenIndex -> m Token.PLTConfiguration
+
+    -- | Take a snapshot of the current block state, and run the given
+    --  computation. If the result is @(_, True)@, then the block state is
+    --  reverted to the snapshot. Otherwise, any changes to the block state are
+    --  retained. The return value is the result of the computation.
+    withBlockStateRollback :: m (a, Bool) -> m a
+
+    -- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel.
+    --  This call does not charge energy.
+    --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
+    runPLT ::
+        (PVSupportsPLT (MPV m)) =>
+        Token.TokenIndex ->
+        ( forall m1.
+          ( Monad m1,
+            PLTKernelPrivilegedUpdate m1,
+            PLTKernelFail e m1,
+            PLTAccount m1 ~ (AccountIndex, AccountAddress)
+          ) =>
+          m1 a
+        ) ->
+        m (Either e a, [Event])
+
+    -- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel
+    --  and uses at the maximum the specified amount of energy. Returns the result of
+    --  the computation together with the used energy.
+    --
+    --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
+    runPLTWithEnergy ::
+        (PVSupportsPLT (MPV m)) =>
+        Token.TokenIndex ->
+        Energy ->
+        ( forall m1.
+          ( Monad m1,
+            PLTKernelPrivilegedUpdate m1,
+            PLTKernelFail e m1,
+            PLTKernelChargeEnergy m1,
+            PLTAccount m1 ~ (AccountIndex, AccountAddress)
+          ) =>
+          m1 a
+        ) ->
+        m (Either (PLTExecutionError e) a, [Event], Energy)
+
+    -- | Create a new protocol-layer token with the given 'PLTConfiguration'.
+    --
+    --  PRECONDITION: There MUST NOT already be a token with the specified token ID.
+    --  The governance account index MUST reference a valid account.
+    createToken ::
+        (PVSupportsPLT (MPV m)) =>
+        Token.PLTConfiguration ->
+        m Token.TokenIndex
 
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the
@@ -871,6 +945,7 @@ instance BlockStateTypes (LocalT r m) where
     type ContractState (LocalT r m) = ContractState m
     type BakerInfoRef (LocalT r m) = BakerInfoRef m
     type InstrumentedModuleRef (LocalT r m) = InstrumentedModuleRef m
+    type MutableTokenState (LocalT r m) = MutableTokenState m
 
 -- | Given the deposited amount and the remaining amount of gas compute how much
 --  the sender of the transaction should be charged, as well as how much energy was used

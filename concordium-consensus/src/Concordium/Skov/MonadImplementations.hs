@@ -34,6 +34,7 @@ import Concordium.GlobalState
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockMonads
 import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Finalization
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
@@ -80,6 +81,9 @@ deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => GlobalStateTypes (
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ContractStateOperations (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => AccountOperations (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => ModuleQuery (GlobalStateM pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => TokenStateOperations StateV1.MutableState (GlobalStateM pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => PLTQuery (PersistentBlockState pv) StateV1.MutableState (GlobalStateM pv)
+deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateQuery (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateOperations (GlobalStateM pv)
 deriving instance (IsProtocolVersion pv, IsConsensusV0 pv) => BlockStateStorage (GlobalStateM pv)
@@ -530,6 +534,30 @@ instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDataba
 
 instance (c ~ SkovConfig pv finconfig handlerconfig) => LMDBAccountMap.HasDatabaseHandlers (SkovTContext h (SkovContext c)) where
     databaseHandlers = lens srContext (\s v -> s{srContext = v}) . LMDBAccountMap.databaseHandlers
+
+deriving instance
+    ( IsProtocolVersion pv,
+      MonadIO m,
+      MonadLogger m,
+      c ~ SkovConfig pv finconfig handlerconfig
+    ) =>
+    TokenStateOperations StateV1.MutableState (SkovT pv h c m)
+
+deriving instance
+    ( IsProtocolVersion pv,
+      MonadIO m,
+      MonadLogger m,
+      c ~ SkovConfig pv finconfig handlerconfig
+    ) =>
+    PLTQuery (PersistentBlockState pv) StateV1.MutableState (SkovT pv h c m)
+
+deriving instance
+    ( IsProtocolVersion pv,
+      MonadIO m,
+      MonadLogger m,
+      c ~ SkovConfig pv finconfig handlerconfig
+    ) =>
+    PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (SkovT pv h c m)
 
 deriving instance
     ( IsProtocolVersion pv,

@@ -72,7 +72,7 @@ genesisDataV1 sProtocolVersion =
         Dummy.dummyArs
         [ foundationAcct
         ]
-        (withIsAuthorizationsVersionForPV sProtocolVersion Dummy.dummyKeyCollection)
+        (withIsAuthorizationsVersionFor sProtocolVersion Dummy.dummyKeyCollection)
         Dummy.dummyChainParameters
   where
     foundationAcct =
@@ -179,7 +179,9 @@ testUponTimeoutEvent sProtocolVersion = it "Test uponTimeoutEvent" $ do
                 expectedMessages
                 receivedMessages
   where
-    baker = BakerContext $ Just $ fst $ head (bakers sProtocolVersion)
+    baker = case bakers sProtocolVersion of
+        [] -> error "No bakers"
+        ((bkrIdentity, _) : _) -> BakerContext $ Just bkrIdentity
     testTime = timestampToUTCTime 1_000
     expectedMessages =
         Present $
@@ -187,12 +189,12 @@ testUponTimeoutEvent sProtocolVersion = it "Test uponTimeoutEvent" $ do
     expectedMessage = dummyTimeoutMessage sProtocolVersion 0 0
 
 -- | Test 'processTimeout'.
---  The following is tested before receival of enough timeout messages to form a valid TC:
+--  The following is tested before receipt of enough timeout messages to form a valid TC:
 --  * that timeout messages are indeed stored in the field @receivedTimeoutMessages@ of 'SkovData'
 --  * that the round is not advanced
 --  * that rsPreviousRoundTC@ is still @Absent@
 --
---  The following is tested after receival of enough timeout messages to form a valid TC:
+--  The following is tested after receipt of enough timeout messages to form a valid TC:
 --  * that the round is indeed advanced
 --  * that the field @rsPreviousRoundTC@ is set with a valid TC
 --  * that the field @receivedTimeoutMessages@ of 'SkovData' is now @Absent@
@@ -664,7 +666,7 @@ testExecuteTimeoutMessages sProtocolVersion =
             Dummy.dummyArs
             [ foundationAcct
             ]
-            (withIsAuthorizationsVersionForPV sProtocolVersion Dummy.dummyKeyCollection)
+            (withIsAuthorizationsVersionFor sProtocolVersion Dummy.dummyKeyCollection)
             Dummy.dummyChainParameters
 
 -- | Tests the 'checkTimeoutCertificate' function.

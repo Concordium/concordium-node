@@ -20,6 +20,9 @@ import qualified SchedulerTests.RejectReasonsRustContract (tests)
 import qualified SchedulerTests.SimpleTransferSpec (tests)
 import qualified SchedulerTests.SimpleTransfersTest (tests)
 import qualified SchedulerTests.StakedAmountLocked (tests)
+import qualified SchedulerTests.TokenCreation (tests)
+import qualified SchedulerTests.TokenHolderTransactions (tests)
+import qualified SchedulerTests.TokenModule (tests)
 import qualified SchedulerTests.TransactionExpirySpec (tests)
 import qualified SchedulerTests.TransactionGroupingSpec2 (tests)
 import qualified SchedulerTests.TransfersWithScheduleTest (tests)
@@ -112,3 +115,6 @@ main = hspec $ do
     SchedulerTests.SmartContracts.V1.InspectModuleReferenceAndContractName.tests
     SchedulerTests.SmartContracts.V1.Caller.tests
     SchedulerTests.KonsensusV1.EpochTransition.tests
+    SchedulerTests.TokenModule.tests
+    SchedulerTests.TokenCreation.tests
+    SchedulerTests.TokenHolderTransactions.tests

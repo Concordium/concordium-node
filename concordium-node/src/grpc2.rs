@@ -25,6 +25,10 @@ pub mod types {
     use concordium_base::{common::Versioned, transactions::PayloadLike};
     use std::convert::{TryFrom, TryInto};
 
+    /// Types generated from the protocol-level-tokens.proto file.
+    pub mod plt {
+        include!(concat!(env!("OUT_DIR"), "/concordium.v2.plt.rs"));
+    }
     include!(concat!(env!("OUT_DIR"), "/concordium.v2.rs"));
 
     /// Convert an account address to a pointer to the content. The length of
@@ -610,7 +614,11 @@ struct ServiceConfig {
     #[serde(default)]
     get_account_list: bool,
     #[serde(default)]
+    get_token_list: bool,
+    #[serde(default)]
     get_account_info: bool,
+    #[serde(default)]
+    get_token_info: bool,
     #[serde(default)]
     get_module_list: bool,
     #[serde(default)]
@@ -733,7 +741,9 @@ impl ServiceConfig {
             get_finalized_blocks: true,
             get_blocks: true,
             get_account_list: true,
+            get_token_list: true,
             get_account_info: true,
+            get_token_info: true,
             get_module_list: true,
             get_module_source: true,
             get_instance_list: true,
@@ -1393,6 +1403,8 @@ pub mod server {
         /// Return type for the 'GetScheduledReleaseAccounts' method.
         type GetScheduledReleaseAccountsStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
+        /// Return type for the 'GetTokenList' method.
+        type GetTokenListStream = futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
         /// Return type for the 'GetWinningBakersEpoch' method.
         type GetWinningBakersEpochStream =
             futures::channel::mpsc::Receiver<Result<Vec<u8>, tonic::Status>>;
@@ -1458,6 +1470,27 @@ pub mod server {
             Ok(response)
         }
 
+        async fn get_token_info(
+            &self,
+            request: tonic::Request<crate::grpc2::types::TokenInfoRequest>,
+        ) -> Result<tonic::Response<Vec<u8>>, tonic::Status> {
+            if !self.service_config.get_token_info {
+                return Err(tonic::Status::unimplemented("`GetTokenInfo` is not enabled."));
+            }
+            let (hash, response) = self
+                .run_blocking(move |consensus| {
+                    let request = request.get_ref();
+                    let block_hash = request.block_hash.as_ref().require()?;
+                    let token_identifier = request.token_id.as_ref().require()?;
+                    consensus.get_token_info_v2(block_hash, token_identifier)
+                })
+                .await?;
+
+            let mut response = tonic::Response::new(response);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
         async fn get_account_list(
             &self,
             request: tonic::Request<crate::grpc2::types::BlockHashInput>,
@@ -1469,6 +1502,24 @@ pub mod server {
             let hash = self
                 .run_blocking(move |consensus| {
                     consensus.get_account_list_v2(request.get_ref(), sender)
+                })
+                .await?;
+            let mut response = tonic::Response::new(receiver);
+            add_hash(&mut response, hash)?;
+            Ok(response)
+        }
+
+        async fn get_token_list(
+            &self,
+            request: tonic::Request<crate::grpc2::types::BlockHashInput>,
+        ) -> Result<tonic::Response<Self::GetTokenListStream>, tonic::Status> {
+            if !self.service_config.get_token_list {
+                return Err(tonic::Status::unimplemented("`GetTokenList` is not enabled."));
+            }
+            let (sender, receiver) = futures::channel::mpsc::channel(100);
+            let hash = self
+                .run_blocking(move |consensus| {
+                    consensus.get_token_list_v2(request.get_ref(), sender)
                 })
                 .await?;
             let mut response = tonic::Response::new(receiver);

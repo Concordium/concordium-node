@@ -27,6 +27,7 @@ type family AccountReleaseSchedule' (av :: AccountVersion) where
     AccountReleaseSchedule' 'AccountV2 = ARSV1.AccountReleaseSchedule
     AccountReleaseSchedule' 'AccountV3 = ARSV1.AccountReleaseSchedule
     AccountReleaseSchedule' 'AccountV4 = ARSV1.AccountReleaseSchedule
+    AccountReleaseSchedule' 'AccountV5 = ARSV1.AccountReleaseSchedule
 
 -- | Release schedule on an account, parametrized by the account version.
 newtype AccountReleaseSchedule (av :: AccountVersion) = AccountReleaseSchedule
@@ -55,6 +56,7 @@ theAccountReleaseScheduleV1 = case accountVersion @av of
     SAccountV2 -> theAccountReleaseSchedule
     SAccountV3 -> theAccountReleaseSchedule
     SAccountV4 -> theAccountReleaseSchedule
+    SAccountV5 -> theAccountReleaseSchedule
 
 -- | Converse of 'theAccountReleaseScheduleV0'.
 fromAccountReleaseScheduleV0 ::
@@ -76,6 +78,7 @@ fromAccountReleaseScheduleV1 = case accountVersion @av of
     SAccountV2 -> AccountReleaseSchedule
     SAccountV3 -> AccountReleaseSchedule
     SAccountV4 -> AccountReleaseSchedule
+    SAccountV5 -> AccountReleaseSchedule
 
 instance (IsAccountVersion av) => Eq (AccountReleaseSchedule av) where
     (==) = case accountVersion @av of
@@ -84,6 +87,7 @@ instance (IsAccountVersion av) => Eq (AccountReleaseSchedule av) where
         SAccountV2 -> (==) `on` theAccountReleaseSchedule
         SAccountV3 -> (==) `on` theAccountReleaseSchedule
         SAccountV4 -> (==) `on` theAccountReleaseSchedule
+        SAccountV5 -> (==) `on` theAccountReleaseSchedule
 
 instance (IsAccountVersion av) => Show (AccountReleaseSchedule av) where
     show = case accountVersion @av of
@@ -92,6 +96,7 @@ instance (IsAccountVersion av) => Show (AccountReleaseSchedule av) where
         SAccountV2 -> show . theAccountReleaseSchedule
         SAccountV3 -> show . theAccountReleaseSchedule
         SAccountV4 -> show . theAccountReleaseSchedule
+        SAccountV5 -> show . theAccountReleaseSchedule
 
 -- | Produce an 'AccountReleaseSummary' from an 'AccountReleaseSchedule'.
 toAccountReleaseSummary :: forall av. (IsAccountVersion av) => AccountReleaseSchedule av -> AccountReleaseSummary
@@ -101,6 +106,7 @@ toAccountReleaseSummary = case accountVersion @av of
     SAccountV2 -> ARSV1.toAccountReleaseSummary . theAccountReleaseSchedule
     SAccountV3 -> ARSV1.toAccountReleaseSummary . theAccountReleaseSchedule
     SAccountV4 -> ARSV1.toAccountReleaseSummary . theAccountReleaseSchedule
+    SAccountV5 -> ARSV1.toAccountReleaseSummary . theAccountReleaseSchedule
 
 instance (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructureV0) => HashableTo ARSV0.AccountReleaseScheduleHashV0 (AccountReleaseSchedule av) where
     getHash = case accountVersion @av of
@@ -113,6 +119,7 @@ instance (IsAccountVersion av, AccountStructureVersionFor av ~ 'AccountStructure
         SAccountV2 -> getHash . theAccountReleaseSchedule
         SAccountV3 -> getHash . theAccountReleaseSchedule
         SAccountV4 -> getHash . theAccountReleaseSchedule
+        SAccountV5 -> getHash . theAccountReleaseSchedule
     {-# INLINE getHash #-}
 
 -- | Create an empty account release schedule
@@ -123,6 +130,7 @@ emptyAccountReleaseSchedule = case accountVersion @av of
     SAccountV2 -> AccountReleaseSchedule ARSV1.emptyAccountReleaseSchedule
     SAccountV3 -> AccountReleaseSchedule ARSV1.emptyAccountReleaseSchedule
     SAccountV4 -> AccountReleaseSchedule ARSV1.emptyAccountReleaseSchedule
+    SAccountV5 -> AccountReleaseSchedule ARSV1.emptyAccountReleaseSchedule
 
 -- | Add a list of amounts to this @AccountReleaseSchedule@.
 --
@@ -139,6 +147,7 @@ addReleases = case accountVersion @av of
     SAccountV2 -> \rels (AccountReleaseSchedule ars) -> AccountReleaseSchedule (ARSV1.addReleases rels ars)
     SAccountV3 -> \rels (AccountReleaseSchedule ars) -> AccountReleaseSchedule (ARSV1.addReleases rels ars)
     SAccountV4 -> \rels (AccountReleaseSchedule ars) -> AccountReleaseSchedule (ARSV1.addReleases rels ars)
+    SAccountV5 -> \rels (AccountReleaseSchedule ars) -> AccountReleaseSchedule (ARSV1.addReleases rels ars)
 
 -- | Remove the amounts up to and including the given timestamp.
 -- It returns the unlocked amount, maybe the next smallest timestamp for this account and the new account release schedule.
@@ -159,6 +168,8 @@ unlockAmountsUntil = case accountVersion @av of
         _3 %~ AccountReleaseSchedule $ ARSV1.unlockAmountsUntil ts ars
     SAccountV4 -> \ts (AccountReleaseSchedule ars) ->
         _3 %~ AccountReleaseSchedule $ ARSV1.unlockAmountsUntil ts ars
+    SAccountV5 -> \ts (AccountReleaseSchedule ars) ->
+        _3 %~ AccountReleaseSchedule $ ARSV1.unlockAmountsUntil ts ars
 
 -- | Get the timestamp at which the next scheduled release will occur (if any).
 nextReleaseTimestamp :: forall av. (IsAccountVersion av) => AccountReleaseSchedule av -> Maybe Timestamp
@@ -168,6 +179,7 @@ nextReleaseTimestamp = case accountVersion @av of
     SAccountV2 -> ARSV1.nextReleaseTimestamp . theAccountReleaseSchedule
     SAccountV3 -> ARSV1.nextReleaseTimestamp . theAccountReleaseSchedule
     SAccountV4 -> ARSV1.nextReleaseTimestamp . theAccountReleaseSchedule
+    SAccountV5 -> ARSV1.nextReleaseTimestamp . theAccountReleaseSchedule
 
 -- | Get the total locked balance.
 totalLockedUpBalance :: forall av. (IsAccountVersion av) => SimpleGetter (AccountReleaseSchedule av) Amount
@@ -177,6 +189,7 @@ totalLockedUpBalance = case accountVersion @av of
     SAccountV2 -> to (ARSV1.arsTotalLockedAmount . theAccountReleaseSchedule)
     SAccountV3 -> to (ARSV1.arsTotalLockedAmount . theAccountReleaseSchedule)
     SAccountV4 -> to (ARSV1.arsTotalLockedAmount . theAccountReleaseSchedule)
+    SAccountV5 -> to (ARSV1.arsTotalLockedAmount . theAccountReleaseSchedule)
 
 -- | Compute the sum of releases in the release schedule.
 --  This should produce the same result as '_totalLockedUpBalance', and is provided for testing
@@ -188,3 +201,4 @@ sumOfReleases = case accountVersion @av of
     SAccountV2 -> ARSV1.sumOfReleases . theAccountReleaseSchedule
     SAccountV3 -> ARSV1.sumOfReleases . theAccountReleaseSchedule
     SAccountV4 -> ARSV1.sumOfReleases . theAccountReleaseSchedule
+    SAccountV5 -> ARSV1.sumOfReleases . theAccountReleaseSchedule

@@ -129,7 +129,7 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
     runTest withCooldown suspended ValidatorConditions{..} = runTestBlockState @pv $ do
         let va =
@@ -291,7 +291,7 @@ validatorUpdateCases = do
           (Just (makeBakerKeyUpdate 0), "old keys", False),
           (Just (makeBakerKeyUpdate 2), "fresh keys", False),
           (Just (makeBakerKeyUpdate 1), "duplicate keys", True)
-            ]
+        ]
     (vuCapital, vuCapitalDesc, vcUnderThreshold) <-
         [ (Just 600_000_000_000, "increase", False),
           (Just initialStakedAmount, "same", False),
@@ -299,46 +299,46 @@ validatorUpdateCases = do
           (Just 999_999_999, "insufficient", True),
           (Just 0, "zero", False),
           (Nothing, "no change", False)
-            ]
+        ]
     (vuRestakeEarnings, vuRestakeEarningsDesc) <-
         [ (Just True, "restake"),
           (Just False, "no restake"),
           (Nothing, "no change")
-            ]
+        ]
     (vuOpenForDelegation, vuOpenForDelegationDesc) <-
         [ (Just OpenForAll, "open"),
           (Just ClosedForAll, "closed for all"),
           (Just ClosedForNew, "closed for new"),
           (Nothing, "no change")
-            ]
+        ]
     (vuMetadataURL, vuMetadataURLDesc) <-
         [ (Just (UrlText "Some URL"), "same URL"),
           (Just (UrlText "Some new URL"), "new URL"),
           (Nothing, "no change")
-            ]
+        ]
     (vuTransactionFeeCommission, vuTransactionFeeCommissionDesc, vcTransactionFeeNotInRange) <-
         [ (Just (makeAmountFraction 100), "in range", False),
           (Just (makeAmountFraction 201), "out of range", True),
           (Just (makeAmountFraction 150), "same", False),
           (Nothing, "no change", False)
-            ]
+        ]
     (vuBakingRewardCommission, vuBakingRewardCommissionDesc, vcBakingRewardNotInRange) <-
         [ (Just (makeAmountFraction 500), "in range", False),
           (Just (makeAmountFraction 400), "out of range", True),
           (Just (makeAmountFraction 550), "same", False),
           (Nothing, "no change", False)
-            ]
+        ]
     (vuFinalizationRewardCommission, vuFinalizationRewardCommissionDesc, vcFinalizationRewardNotInRange) <-
         [ (Just (makeAmountFraction 300), "in range", False),
           (Just (makeAmountFraction 401), "out of range", True),
           (Just (makeAmountFraction 350), "same", False),
           (Nothing, "no change", False)
-            ]
+        ]
     (vuSuspend, vuSuspendDesc) <-
         [ (Just True, "suspend"),
           (Just False, "resume"),
           (Nothing, "no change")
-            ]
+        ]
     let vucValidatorUpdate = ValidatorUpdate{..}
     let vucValidatorConditions = ValidatorConditions{..}
     vucPendingChangeOrCooldown <- [True, False]
@@ -494,7 +494,7 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                 forM_ (vuSuspend vu) $ \suspended ->
                     tell
                         [ if suspended then BakerConfigureSuspended else BakerConfigureResumed
-                          | STrue <- [hasValidatorSuspension]
+                        | STrue <- [hasValidatorSuspension]
                         ]
                 forM_ (vuCapital vu) $ \capital ->
                     tell $
@@ -577,7 +577,7 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
 
 tests :: Word -> Spec

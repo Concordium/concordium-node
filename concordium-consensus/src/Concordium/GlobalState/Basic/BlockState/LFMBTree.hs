@@ -71,7 +71,7 @@ import Concordium.Types.HashableTo
 import Control.Monad (join)
 import Data.Bits
 import Data.Coerce (Coercible, coerce)
-import Data.Foldable (foldl', toList)
+import Data.Foldable (toList)
 import Data.Hashable (Hashable)
 import Data.Maybe (fromJust)
 import qualified Data.Serialize as S

@@ -75,6 +75,7 @@ import Concordium.GlobalState.BlockState (
     ModuleQuery (..),
     NewInstanceData (..),
  )
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Token
 import Concordium.GlobalState.Types
 
 import Concordium.Logger
@@ -83,7 +84,7 @@ import Control.Monad
 import Control.Monad.Except
 import Control.Monad.Trans.Class
 import Data.Function (on)
-import Data.List (find, foldl')
+import Data.List (find)
 import qualified Data.Map.Strict as OrdMap
 import Data.Maybe
 import Data.Ord
@@ -94,14 +95,18 @@ import qualified Concordium.Crypto.Ed25519Signature as Ed25519
 import qualified Concordium.Crypto.Proofs as Proofs
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import qualified Concordium.TransactionVerification as TVer
+import qualified Concordium.Types.ProtocolLevelTokens.CBOR as PLTTypes
 
 import Lens.Micro.Platform
 
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConfiguration (..))
+import qualified Concordium.Scheduler.ProtocolLevelTokens.Module as TokenModule
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData (rrdCurrentState))
 import Concordium.Types.Accounts
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
+import Data.Either (isLeft)
 import Data.Proxy
 import Prelude hiding (exp, mod)
 
@@ -155,8 +160,8 @@ checkHeader meta mVerRes = do
                         then do
                             checkNonceAndFunds acc
                             return (iacc, cost)
-                        else -- the account information has changed, so we re-verify the signature.
-                        do
+                        -- the account information has changed, so we re-verify the signature.
+                        else do
                             unless (verifyTransaction currentKeys meta) (throwError $ Just IncorrectSignature)
                             checkNonceAndFunds acc
                             return (iacc, cost)
@@ -205,6 +210,7 @@ checkTransactionVerificationResult (TVer.NotOk TVer.NormalTransactionDepositInsu
 checkTransactionVerificationResult (TVer.NotOk (TVer.NormalTransactionDuplicateNonce nonce)) = Left $ NonSequentialNonce nonce
 checkTransactionVerificationResult (TVer.NotOk TVer.Expired) = Left ExpiredTransaction
 checkTransactionVerificationResult (TVer.NotOk TVer.InvalidPayloadSize) = Left InvalidPayloadSize
+checkTransactionVerificationResult (TVer.NotOk TVer.ChainUpdateEffectiveTimeNonZeroForCreatePLT) = Left InvalidUpdateTime
 
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.
@@ -378,6 +384,9 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                         ConfigureDelegation{..} ->
                             onlyWithDelegation $
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
+                        TokenUpdate{..} ->
+                            onlyWithPLT $
+                                handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -400,6 +409,10 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
     onlyWithDelegation c = case delegationSupport @(AccountVersionFor (MPV m)) of
         SAVDelegationNotSupported -> error "Operation unsupported at this protocol version."
         SAVDelegationSupported -> c
+    onlyWithPLT :: ((PVSupportsPLT (MPV m)) => a) -> a
+    onlyWithPLT c = case sSupportsPLT (accountVersion @(AccountVersionFor (MPV m))) of
+        SFalse -> error "Operation unsupported at this protocol version."
+        STrue -> c
 
 handleTransferWithSchedule ::
     forall m.
@@ -1269,6 +1282,7 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
                                                             P6 -> resumeEvent False : interruptEvent : events
                                                             P7 -> resumeEvent False : interruptEvent : events
                                                             P8 -> resumeEvent False : interruptEvent : events
+                                                            P9 -> resumeEvent False : interruptEvent : events
                                                 go newEvents =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                                             Just (InstanceInfoV0 targetInstance) -> do
                                                 -- we are invoking a V0 instance.
@@ -1555,7 +1569,6 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
                                                         if verifyAccountSignature dataPayload sigs keys
                                                             then -- The Wasm execution does not reset contract events for queries, hence we do not have to
                                                             -- add them here via an interrupt. They will be retained until the next interrupt.
-
                                                                 go events
                                                                     =<< runInterpreter
                                                                         ( return
@@ -2655,6 +2668,72 @@ handleUpdateCredentialKeys wtc cid keys sigs =
         updateCredentialKeys (fst senderAccount) index keys
         return (TxSuccess [CredentialKeysUpdated cid], energyCost, usedEnergy)
 
+-- | Handler for a token update transaction.
+handleTokenUpdate ::
+    forall m.
+    ( PVSupportsPLT (MPV m),
+      SchedulerMonad m
+    ) =>
+    WithDepositContext m ->
+    -- | Token symbol identifying the token to receive the operations.
+    TokenId ->
+    -- | Operations for the token.
+    TokenParameter ->
+    m (Maybe TransactionSummary)
+handleTokenUpdate depositContext tokenId tokenOperations =
+    withDeposit depositContext computeTransaction commitTransaction
+  where
+    senderAccount = depositContext ^. wtcSenderAccount
+    -- Execute the transaction in a modified environment
+    computeTransaction = do
+        -- Charge the base cost for this transaction type
+        tickEnergy Cost.tokenUpdateBaseCost
+        -- Fetch the token from state
+        tokenIndex <-
+            lift (getTokenIndex tokenId) >>= \case
+                Just tokenIndex -> return tokenIndex
+                Nothing -> rejectTransaction $ NonExistentTokenId tokenId
+        configuration <- lift $ getTokenConfiguration tokenIndex
+        let cannonicalTokenId = _pltTokenId configuration
+        let moduleRef = Token._pltModule configuration
+        -- TODO Tick energy for loading the module into memory based on the module size. (Issue https://linear.app/concordium/issue/COR-1337)
+        -- Invoke the token module with operations.
+        (energy, _energyLimitReason) <- getEnergy
+        (res, energyUsed) <- lift $ invokeTokenOperations energy moduleRef tokenIndex senderAccount tokenOperations
+        tickEnergy energyUsed
+        return (res, cannonicalTokenId)
+    -- Process the successful transaction computation.
+    commitTransaction computeState (computeResult, cannonicalTokenId) = do
+        (usedEnergy, energyCost) <-
+            computeExecutionCharge
+                (depositContext ^. wtcEnergyAmount)
+                (computeState ^. energyLeft)
+        chargeExecutionCost senderAccount energyCost
+        let result = case computeResult of
+                Left PLTEOutOfEnergy -> TxReject OutOfEnergy
+                Left (PLTEFail encodedRejectReason) ->
+                    TxReject . TokenUpdateTransactionFailed $
+                        makeTokenModuleRejectReason cannonicalTokenId encodedRejectReason
+                Right events -> TxSuccess events
+        return (result, energyCost, usedEnergy)
+    -- Call the module of the token with the operations and return the events emitted from the token module.
+    invokeTokenOperations ::
+        Energy ->
+        TokenModuleRef ->
+        Token.TokenIndex ->
+        IndexedAccount m ->
+        TokenParameter ->
+        m (Either (PLTExecutionError PLTTypes.EncodedTokenRejectReason) [Event], Energy)
+    invokeTokenOperations energy _ tokenIndex sender parameter = do
+        withBlockStateRollback $ do
+            let tc =
+                    TokenModule.TransactionContext
+                        { tcSender = (fst sender, depositContext ^. wtcSenderAddress),
+                          tcSenderAddress = depositContext ^. wtcSenderAddress
+                        }
+            (res, events, energyUsed) <- runPLTWithEnergy tokenIndex energy $ TokenModule.executeTokenUpdateTransaction tc parameter
+            return ((events <$ res, energyUsed), isLeft res)
+
 -- * Chain updates
 
 -- | Handle a chain update message
@@ -2663,13 +2742,12 @@ handleChainUpdate ::
     (SchedulerMonad m) =>
     TVer.ChainUpdateWithStatus ->
     m TxResult
-handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes) = do
+handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVerificationResult) = do
     cm <- getChainMetadata
     -- check that payload si
     if not (validatePayloadSize (protocolVersion @(MPV m)) (updatePayloadSize uiHeader))
         then return (TxInvalid InvalidPayloadSize)
         else -- check that the transaction is not expired
-
             if transactionExpired (updateTimeout uiHeader) (slotTime cm)
                 then return (TxInvalid ExpiredTransaction)
                 else do
@@ -2718,19 +2796,25 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                     SMintDistributionVersion1 -> checkSigAndEnqueue $ UVMintDistribution u
                                 RootUpdatePayload (RootKeysRootUpdate u) -> checkSigAndEnqueue $ UVRootKeys u
                                 RootUpdatePayload (Level1KeysRootUpdate u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                RootUpdatePayload (Level2KeysRootUpdate u) -> case sAuthorizationsVersionFor scpv of
+                                RootUpdatePayload (Level2KeysRootUpdate u) -> case sauv of
                                     SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
-                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> case sAuthorizationsVersionFor scpv of
-                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                RootUpdatePayload (Level2KeysRootUpdateV1 u) -> case sauv of
                                     SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                RootUpdatePayload (Level2KeysRootUpdateV2 u) -> case sauv of
+                                    SAuthorizationsVersion2 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 Level1UpdatePayload (Level1KeysLevel1Update u) -> checkSigAndEnqueue $ UVLevel1Keys u
-                                Level1UpdatePayload (Level2KeysLevel1Update u) -> case sAuthorizationsVersionFor scpv of
+                                Level1UpdatePayload (Level2KeysLevel1Update u) -> case sauv of
                                     SAuthorizationsVersion0 -> checkSigAndEnqueue $ UVLevel2Keys u
-                                    SAuthorizationsVersion1 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
-                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> case sAuthorizationsVersionFor scpv of
-                                    SAuthorizationsVersion0 -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV1 u) -> case sauv of
                                     SAuthorizationsVersion1 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                Level1UpdatePayload (Level2KeysLevel1UpdateV2 u) -> case sauv of
+                                    SAuthorizationsVersion2 -> checkSigAndEnqueue $ UVLevel2Keys u
+                                    _ -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                 TimeoutParametersUpdatePayload u -> case sIsSupported SPTTimeoutParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVTimeoutParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
@@ -2749,23 +2833,31 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                                 ValidatorScoreParametersUpdatePayload u -> case sIsSupported SPTValidatorScoreParameters scpv of
                                     STrue -> checkSigAndEnqueue $ UVValidatorScoreParameters u
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                CreatePLTUpdatePayload payload -> case sSupportsPLT (sAccountVersionFor (protocolVersion @(MPV m))) of
+                                    SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
+                                    STrue ->
+                                        checkSigThen $
+                                            handleCreatePLT uiHeader payload >>= \case
+                                                Left invalidReason -> return $ TxInvalid invalidReason
+                                                Right valid -> buildValidTxSummary' valid
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
-    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) -> m TxResult
-    checkSigAndEnqueue change = do
-        case mVerRes of
+    sauv :: SAuthorizationsVersion (AuthorizationsVersionFor (MPV m))
+    sauv = sAuthorizationsVersionFor $ protocolVersion @(MPV m)
+    checkSigThen :: m TxResult -> m TxResult
+    checkSigThen cont = do
+        case maybeVerificationResult of
             Just (TVer.Ok (TVer.ChainUpdateSuccess keysHash _)) -> do
                 currentKeys <- getUpdateKeyCollection
                 -- If the keys have not changed then the signature remains valid.
                 if matchesUpdateKeysCollection currentKeys keysHash
-                    then do
-                        enqueue change
+                    then cont
                     else do
                         -- keys might have changed and as such we try to verify the signature again.
                         if not (checkAuthorizedUpdate currentKeys ui)
                             then return $ TxInvalid IncorrectSignature
-                            else enqueue change
+                            else cont
             -- An invalid verification result or `Nothing` was supplied to this function.
             -- In either case we verify the transaction now.
             -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
@@ -2774,9 +2866,17 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                 newVerRes <- TVer.verifyChainUpdate ui
                 case checkTransactionVerificationResult newVerRes of
                     Left failure -> return $ TxInvalid failure
-                    Right _ -> enqueue change
+                    Right _ -> cont
+    checkSigAndEnqueue :: UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> m TxResult
+    checkSigAndEnqueue = checkSigThen . enqueue
     enqueue change = do
         enqueueUpdate (updateEffectiveTime uiHeader) change
+        buildValidTxSummary
+    -- Construct the transaction summary and signal the transaction is valid.
+    buildValidTxSummary =
+        buildValidTxSummary' $
+            TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload]
+    buildValidTxSummary' tsResult = do
         tsIndex <- bumpTransactionIndex
         return $
             TxValid
@@ -2786,9 +2886,37 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, mVerRes
                       tsCost = 0,
                       tsEnergyCost = 0,
                       tsType = TSTUpdateTransaction $ updateType uiPayload,
-                      tsResult = TxSuccess [UpdateEnqueued (updateEffectiveTime uiHeader) uiPayload],
                       ..
                     }
+
+-- | Handler for processing chain update creating a new protocol level token.
+-- It is assumed that the signatures have already been checked.
+--
+-- Unlike the other chain updates there is no support for queuing the update and the effective time
+-- is required to be zero.
+handleCreatePLT :: (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
+handleCreatePLT updateHeader payload = runExceptT $ do
+    unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
+    let tokenId = payload ^. cpltTokenId
+    maybeExistingToken <- lift $ getTokenIndex tokenId
+    when (isJust maybeExistingToken) $ throwError $ DuplicateTokenId tokenId
+    let tokenModuleRef = payload ^. cpltTokenModule
+    unless (tokenModuleRef == TokenModule.tokenModuleV0Ref) $ throwError $ InvalidTokenModuleRef tokenModuleRef
+    createResult <- lift . withBlockStateRollback $ do
+        let config =
+                PLTConfiguration
+                    { _pltTokenId = tokenId,
+                      _pltModule = tokenModuleRef,
+                      _pltDecimals = payload ^. cpltDecimals
+                    }
+        tokenIx <- createToken config
+        (res, events) <- runPLT tokenIx $ TokenModule.initializeToken (payload ^. cpltInitializationParameters)
+        return ((TokenCreated payload : events) <$ res, isLeft res)
+    case createResult of
+        Left (e :: TokenModule.InitializeTokenError) -> throwError $ TokenInitializeFailure (show e)
+        Right events -> do
+            lift incrementPLTUpdateSequenceNumber
+            return $ TxSuccess events
 
 handleUpdateCredentials ::
     (SchedulerMonad m) =>
@@ -2907,11 +3035,11 @@ handleUpdateCredentials wtc cdis removeRegIds threshold =
                               energyCost,
                               usedEnergy
                             )
-            else -- try to provide a more fine-grained error by analyzing what went wrong
+            -- try to provide a more fine-grained error by analyzing what went wrong
             -- at some point we should refine the scheduler monad to support cleaner error
             -- handling by adding MonadError capability to it. Until that is done this
             -- is a pretty clean alternative to avoid deep nesting.
-
+            else
                 if not firstCredNotRemoved
                     then return (TxReject RemoveFirstCredential, energyCost, usedEnergy)
                     else
@@ -3081,7 +3209,6 @@ filterTransactions maxSize timeout groups0 = do
                 else
                     if csize <= maxSize
                         then -- Chain updates have no account footprint
-
                             handleChainUpdate ui >>= \case
                                 TxInvalid reason -> case uis of
                                     (nui : _)
@@ -3107,8 +3234,8 @@ filterTransactions maxSize timeout groups0 = do
                                                   ftAdded = (ui & _1 %~ chainUpdate, summary) : ftAdded currentFts
                                                 }
                                     runUpdateInstructions csize newFts rest
-                        else -- The cumulative block size with this update is too high.
-                        case uis of
+                        -- The cumulative block size with this update is too high.
+                        else case uis of
                             (nui : _)
                                 | ((==) `on` (updateSeqNumber . uiHeader . wmdData . fst)) ui nui ->
                                     -- There is another update with the same sequence number, so try that
@@ -3134,7 +3261,6 @@ filterTransactions maxSize timeout groups0 = do
                     let newFts = fts{ftUnprocessedCredentials = cws : ftUnprocessedCredentials fts}
                     runNext maxEnergy size credLimit True newFts groups
                 else -- NB: be aware that credLimit is of an unsigned type, so it is crucial that we never wrap around
-
                     if credLimit > 0 && csize <= maxSize && cenergy <= maxEnergy
                         then
                             handleDeployCredential cws wmdHash >>= \case
@@ -3150,7 +3276,6 @@ filterTransactions maxSize timeout groups0 = do
                             if Cost.deployCredential (ID.credentialType c) (ID.credNumKeys . ID.credPubKeys $ c) > maxEnergy
                                 then -- this case should not happen (it would mean we set the parameters of the chain wrong),
                                 -- but we keep it just in case.
-
                                     let newFts = fts{ftFailedCredentials = (cws, ExceedsMaxBlockEnergy) : ftFailedCredentials fts}
                                     in  runNext maxEnergy size credLimit False newFts groups
                                 else
@@ -3177,9 +3302,9 @@ filterTransactions maxSize timeout groups0 = do
                     runNext maxEnergy currentSize credLimit True newFts groups
                 else
                     if csize <= maxSize && cenergy <= maxEnergy
-                        then -- The transaction fits regarding both block energy limit and max transaction size.
+                        -- The transaction fits regarding both block energy limit and max transaction size.
                         -- Thus try to add the transaction by executing it.
-
+                        then
                             dispatch t >>= \case
                                 -- The transaction was committed, add it to the list of added transactions.
                                 Just (TxValid summary) -> do
@@ -3191,24 +3316,24 @@ filterTransactions maxSize timeout groups0 = do
                                     let (newFts, rest) = invalidTs t reason currentFts ts
                                     in  runTransactionGroup currentSize newFts rest
                                 Nothing -> error "Unreachable. Dispatch honors maximum transaction energy."
-                        else -- If the stated energy of a single transaction exceeds the block energy limit the
+                        -- If the stated energy of a single transaction exceeds the block energy limit the
                         -- transaction is invalid. Add it to the list of failed transactions and
                         -- determine whether following transactions have to fail as well.
-
+                        else
                             if tenergy > maxEnergy
                                 then
                                     let (newFts, rest) = invalidTs t ExceedsMaxBlockEnergy currentFts ts
                                     in  runTransactionGroup currentSize newFts rest
                                 else -- otherwise still try the remaining transactions in the group to avoid deadlocks from
                                 -- one single too-big transaction (with same nonce).
-                                case ts of
-                                    (nt : _)
-                                        | transactionNonce (fst nt) == transactionNonce (fst t) ->
-                                            let newFts = currentFts{ftUnprocessed = t : ftUnprocessed currentFts}
-                                            in  runTransactionGroup currentSize newFts ts
-                                    _ ->
-                                        let newFts = currentFts{ftUnprocessed = t : ts ++ ftUnprocessed currentFts}
-                                        in  runNext maxEnergy currentSize credLimit False newFts groups
+                                    case ts of
+                                        (nt : _)
+                                            | transactionNonce (fst nt) == transactionNonce (fst t) ->
+                                                let newFts = currentFts{ftUnprocessed = t : ftUnprocessed currentFts}
+                                                in  runTransactionGroup currentSize newFts ts
+                                        _ ->
+                                            let newFts = currentFts{ftUnprocessed = t : ts ++ ftUnprocessed currentFts}
+                                            in  runNext maxEnergy currentSize credLimit False newFts groups
 
         -- Group processed, continue with the next group or credential
         runTransactionGroup currentSize currentFts [] =
@@ -3245,13 +3370,14 @@ filterTransactions maxSize timeout groups0 = do
             in  -- NOTE: Following transactions with the same nonce could be valid. Therefore,
                 -- if the next transaction has the same nonce as the failed, we continue with 'runNext'.
                 -- Note that we rely on the precondition of transactions being ordered by nonce.
-                if not (null ts) && transactionNonce (fst (head ts)) > transactionNonce (fst t)
-                    then
-                        let failedSuccessors = map (,SuccessorOfInvalidTransaction) ts
-                        in  ( currentFts{ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts},
-                              []
-                            )
-                    else (currentFts{ftFailed = newFailedEntry : ftFailed currentFts}, ts)
+                case ts of
+                    ((t0, _) : _)
+                        | transactionNonce t0 > transactionNonce (fst t) ->
+                            let failedSuccessors = map (,SuccessorOfInvalidTransaction) ts
+                            in  ( currentFts{ftFailed = newFailedEntry : failedSuccessors ++ ftFailed currentFts},
+                                  []
+                                )
+                    _ -> (currentFts{ftFailed = newFailedEntry : ftFailed currentFts}, ts)
 
 -- | Execute transactions in sequence, collecting the outcomes of each transaction.
 --  This is meant to execute the transactions of a given block.

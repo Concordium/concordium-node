@@ -41,6 +41,7 @@ import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Genesis.Data.P6 as P6
 import qualified Concordium.Genesis.Data.P7 as P7
 import qualified Concordium.Genesis.Data.P8 as P8
+import qualified Concordium.Genesis.Data.P9 as P9
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (hashAsLFMBTV0)
 import Concordium.GlobalState.BlockState (TransactionSummaryV1)
@@ -85,7 +86,7 @@ genesisDataV1 sProtocolVersion =
         Dummy.dummyArs
         [ foundationAcct
         ]
-        (withIsAuthorizationsVersionForPV sProtocolVersion Dummy.dummyKeyCollection)
+        (withIsAuthorizationsVersionFor sProtocolVersion Dummy.dummyKeyCollection)
         Dummy.dummyChainParameters
   where
     foundationAcct =
@@ -126,6 +127,7 @@ genesisLEN sProtocolVersion = case sProtocolVersion of
     SP6 -> genesisLeadershipElectionNonce $ P6.genesisInitialState $ unGDP6 $ genesisData sProtocolVersion
     SP7 -> genesisLeadershipElectionNonce $ P7.genesisInitialState $ unGDP7 $ genesisData sProtocolVersion
     SP8 -> genesisLeadershipElectionNonce $ P8.genesisInitialState $ unGDP8 $ genesisData sProtocolVersion
+    SP9 -> genesisLeadershipElectionNonce $ P9.genesisInitialState $ unGDP9 $ genesisData sProtocolVersion
 
 -- | Full bakers at genesis
 genesisFullBakers :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> FullBakers
@@ -253,6 +255,22 @@ timeoutMessagesFor sProtocolVersion qc curRound curEpoch = mkTm <$> bakers sProt
               tsmQCRound = qcRound qc,
               tsmQCEpoch = qcEpoch qc
             }
+
+-- | Produce a properly-signed timeout message for the given QC, round and current epoch from the
+--  first baker. (This assumes that the first baker is a finalizer for the purposes of computing
+--  finalizer indexes.)
+firstTimeoutMessageFor ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    QuorumCertificate ->
+    Round ->
+    Epoch ->
+    TimeoutMessage
+firstTimeoutMessageFor sProtocolVersion qc curRound curEpoch =
+    case timeoutMessagesFor sProtocolVersion qc curRound curEpoch of
+        (tm : _) -> tm
+        [] -> error "Impossible: there must be at least one baker"
 
 -- | Helper to compute the transaction outcomes hash for a given set of transaction outcomes and
 --  special transaction outcomes.

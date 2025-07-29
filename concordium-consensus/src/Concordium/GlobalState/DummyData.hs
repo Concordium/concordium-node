@@ -94,7 +94,8 @@ dummyAuthorizations =
           asAddAnonymityRevoker = theOnly,
           asAddIdentityProvider = theOnly,
           asCooldownParameters = conditionally (sSupportsCooldownParametersAccessStructure (sing @auv)) theOnly,
-          asTimeParameters = conditionally (sSupportsTimeParameters (sing @auv)) theOnly
+          asTimeParameters = conditionally (sSupportsTimeParameters (sing @auv)) theOnly,
+          asCreatePLT = conditionally (sSupportsCreatePLT (sing @auv)) theOnly
         }
   where
     theOnly = AccessStructure (Set.singleton 0) 1

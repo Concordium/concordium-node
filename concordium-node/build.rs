@@ -3,11 +3,11 @@ use std::{env, path::Path};
 use std::{process::Command, str};
 
 #[cfg(all(not(feature = "static"), target_os = "linux"))]
-const GHC_VARIANT: &str = "x86_64-linux-ghc-9.6.6";
+const GHC_VARIANT: &str = "x86_64-linux";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "x86_64"))]
-const GHC_VARIANT: &str = "x86_64-osx-ghc-9.6.6";
+const GHC_VARIANT: &str = "x86_64-osx";
 #[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "aarch64"))]
-const GHC_VARIANT: &str = "aarch64-osx-ghc-9.6.6";
+const GHC_VARIANT: &str = "aarch64-osx";
 
 #[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
@@ -64,10 +64,12 @@ fn main() -> std::io::Result<()> {
                 println!("cargo:rustc-link-lib=dylib=HSconcordium-base-0.1.0.0");
                 println!("cargo:rustc-link-lib=dylib=HSlmdb-0.2.5");
             } else {
-                // otherwise auto-discover the directories via stack
+                // Otherwise auto-discover the directories via stack. concordium-consensus
+                // is located in <local-install-root>/lib and HSconcordium-consensus,
+                // HSconcordium-base and HSlmdb in <local-install-root>/lib/<GHC_VARIANT>
                 let stack_install_root_command = command_output(Command::new("stack").args([
                     "--stack-yaml",
-                    "../concordium-consensus/stack.yaml",
+                    "../stack.yaml",
                     "path",
                     "--local-install-root",
                 ]));
@@ -77,10 +79,14 @@ fn main() -> std::io::Result<()> {
                 println!("cargo:rustc-link-search={}", stack_install_lib.to_string_lossy());
                 println!("cargo:rustc-link-lib=dylib=concordium-consensus");
 
-                let local_package = stack_install_lib.join(GHC_VARIANT);
-                let dir = std::fs::read_dir(&local_package)?;
-
-                println!("cargo:rustc-link-search={}", local_package.to_string_lossy());
+                // Find the first subdirectory of <stack_install_lib> whose filename has
+                // GHC_VARIANT as a prefix.
+                let stack_install_lib_ghc_variant = ghc_variant(&stack_install_lib)?;
+                let dir = std::fs::read_dir(&stack_install_lib_ghc_variant)?;
+                println!(
+                    "cargo:rustc-link-search={}",
+                    stack_install_lib_ghc_variant.to_string_lossy()
+                );
                 // Traverse all the files in the lib directory, and add all that end with
                 // `.DYLIB_EXTENSION` to the linked libraries list.
                 for dir_entry in dir {
@@ -110,10 +116,11 @@ fn main() -> std::io::Result<()> {
                 };
 
                 println!(
-                    "cargo:rustc-env={}={}:{}",
+                    "cargo:rustc-env={}={}:{}:{}",
                     lib_path,
                     ghc_lib_dir.as_path().to_string_lossy(),
-                    stack_install_lib.as_path().to_string_lossy()
+                    stack_install_lib.as_path().to_string_lossy(),
+                    stack_install_lib_ghc_variant.as_path().to_string_lossy()
                 );
             }
         }
@@ -132,7 +139,11 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
     {
         let types = format!("{}/v2/concordium/types.proto", proto_root_input);
         println!("cargo:rerun-if-changed={}", types);
-        prost_build::compile_protos(&[types], &[proto_root_input])?;
+        let plts = format!("{}/v2/concordium/protocol-level-tokens.proto", proto_root_input);
+        println!("cargo:rerun-if-changed={}", plts);
+        let kernel = format!("{}/v2/concordium/kernel.proto", proto_root_input);
+        println!("cargo:rerun-if-changed={}", kernel);
+        prost_build::compile_protos(&[kernel, plts, types], &[proto_root_input])?;
     }
 
     // Because we serialize messages in Haskell we need to construct the service
@@ -184,8 +195,27 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
         )
         .method(
             tonic_build::manual::Method::builder()
+                .name("get_token_info")
+                .route_name("GetTokenInfo")
+                .input_type("crate::grpc2::types::TokenInfoRequest")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
                 .name("get_account_list")
                 .route_name("GetAccountList")
+                .input_type("crate::grpc2::types::BlockHashInput")
+                .output_type("Vec<u8>")
+                .codec_path("crate::grpc2::RawCodec")
+                .server_streaming()
+                .build(),
+        )
+        .method(
+            tonic_build::manual::Method::builder()
+                .name("get_token_list")
+                .route_name("GetTokenList")
                 .input_type("crate::grpc2::types::BlockHashInput")
                 .output_type("Vec<u8>")
                 .codec_path("crate::grpc2::RawCodec")
@@ -782,13 +812,13 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
     let ghc_lib_dir = env::var("HASKELL_GHC_LIBDIR").unwrap_or_else(|_| {
         command_output(Command::new("stack").args([
             "--stack-yaml",
-            "../concordium-consensus/stack.yaml",
+            "../stack.yaml",
             "ghc",
             "--",
             "--print-libdir",
         ]))
     });
-    let rts_dir = Path::new(&ghc_lib_dir).join(GHC_VARIANT);
+    let rts_dir = ghc_variant(Path::new(&ghc_lib_dir))?;
     println!("cargo:rustc-link-search=native={}", rts_dir.to_string_lossy());
     for item in std::fs::read_dir(&rts_dir)?.filter_map(Result::ok) {
         let path = item.path();
@@ -843,4 +873,33 @@ fn link_static_libs() -> std::io::Result<()> {
     println!("cargo:rustc-link-lib=dylib=gmp");
 
     Ok(())
+}
+
+#[cfg(all(not(feature = "static"), not(windows)))]
+fn ghc_variant(stack_install_lib: &Path) -> std::io::Result<std::path::PathBuf> {
+    // Find the first subdirectory of <stack_install_lib> whose filename has
+    // GHC_VARIANT as a prefix.
+    let mut ghc_variant_dir: Option<std::path::PathBuf> = None;
+    for entry in std::fs::read_dir(stack_install_lib)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue; // Skip files, we are looking for directories
+        }
+        let file_name = entry.file_name();
+        let file_name_str = file_name.to_string_lossy();
+        if file_name_str.starts_with(GHC_VARIANT) {
+            ghc_variant_dir = Some(entry.path());
+            break;
+        }
+    }
+    match ghc_variant_dir {
+        Some(path) => Ok(path),
+        None => {
+            eprintln!("No subdirectory in {:?} with prefix {}", stack_install_lib, GHC_VARIANT);
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "GHC_VARIANT directory not found",
+            ))
+        }
+    }
 }

@@ -130,6 +130,8 @@ data NotOkResult
       CredentialDeploymentInvalidSignatures
     | -- | The 'ChainUpdate' had an expiry set too late.
       ChainUpdateEffectiveTimeBeforeTimeout
+    | -- | The 'ChainUpdate' is creating a PLT, but its effective time is non-zero.
+      ChainUpdateEffectiveTimeNonZeroForCreatePLT
     | -- | The `UpdateSequenceNumber` of the 'ChainUpdate' was too old.
       --  Reason for 'NotOk': the UpdateSequenceNumber can never be valid in a later block if the
       --  nonce is already used.
@@ -171,7 +173,7 @@ class (Monad m, Types.MonadProtocolVersion m) => TransactionVerifier m where
     getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
 
     -- | Get the UpdateKeysCollection
-    getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Params.AuthorizationsVersionForPV (Types.MPV m)))
+    getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Types.AuthorizationsVersionFor (Types.MPV m)))
 
     -- | Get the current available amount for the specified account.
     getAccountAvailableAmount :: GSTypes.Account m -> m Types.Amount
@@ -271,6 +273,11 @@ verifyChainUpdate ui@Updates.UpdateInstruction{..} =
                 unless (Types.validatePayloadSize (Types.protocolVersion @(Types.MPV m)) (Updates.updatePayloadSize uiHeader)) $
                     throwError $
                         NotOk InvalidPayloadSize
+                case uiPayload of
+                    Updates.CreatePLTUpdatePayload _
+                        | Updates.updateEffectiveTime uiHeader > 0 ->
+                            throwError $ NotOk ChainUpdateEffectiveTimeNonZeroForCreatePLT
+                    _otherwise -> return ()
                 -- Check that the timeout is no later than the effective time,
                 -- or the update is immediate
                 when (Updates.updateTimeout uiHeader >= Updates.updateEffectiveTime uiHeader && Updates.updateEffectiveTime uiHeader /= 0) $

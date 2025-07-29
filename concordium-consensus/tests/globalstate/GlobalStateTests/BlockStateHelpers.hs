@@ -68,6 +68,11 @@ dummyCooldownAccount ai amt cooldowns = do
             cq <- CooldownQueue.makeCooldownQueue cooldowns
             newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
             return $ PAV4 acc{SV1.accountEnduringData = newEnduring}
+        PAV5 acc -> do
+            let ed = SV1.enduringData acc
+            cq <- CooldownQueue.makeCooldownQueue cooldowns
+            newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
+            return $ PAV5 acc{SV1.accountEnduringData = newEnduring}
 
 -- | A configuration for an account, specifying the account index, amount, staking details and
 --  cooldowns. This is used to create accounts for testing.
@@ -162,6 +167,16 @@ makeDummyAccount AccountConfig{..} = do
                             ed{SV1.paedStakeCooldown = cq}
                 return $
                     PAV4
+                        acc{SV1.accountEnduringData = newEnduring}
+            PAV5 acc -> do
+                let ed = SV1.enduringData acc
+                cq <- CooldownQueue.makeCooldownQueue acCooldowns
+                newEnduring <-
+                    refMake
+                        =<< SV1.rehashAccountEnduringData
+                            ed{SV1.paedStakeCooldown = cq}
+                return $
+                    PAV5
                         acc{SV1.accountEnduringData = newEnduring}
         SFalse -> return acc1
 
@@ -282,7 +297,7 @@ checkActiveBakers bs = do
             accounts
             DummyData.dummyIdentityProviders
             DummyData.dummyArs
-            (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+            (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
             DummyData.dummyChainParameters
 
 dumpState :: (SupportsPersistentState pv m) => HashedPersistentBlockState pv -> m ()

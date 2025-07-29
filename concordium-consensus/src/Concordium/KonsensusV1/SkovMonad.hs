@@ -36,6 +36,7 @@ import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
 import qualified Concordium.GlobalState.BlockState as PBS
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
@@ -254,6 +255,24 @@ deriving via
 deriving via
     (PersistentBlockStateMonadHelper pv m)
     instance
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) =>
+        TokenStateOperations StateV1.MutableState (SkovV1T pv m)
+
+deriving via
+    (PersistentBlockStateMonadHelper pv m)
+    instance
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) =>
+        PLTQuery (PersistentBlockState pv) StateV1.MutableState (SkovV1T pv m)
+
+deriving via
+    (PersistentBlockStateMonadHelper pv m)
+    instance
+        (IsProtocolVersion pv, MonadIO m, MonadLogger m) =>
+        PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (SkovV1T pv m)
+
+deriving via
+    (PersistentBlockStateMonadHelper pv m)
+    instance
         (IsProtocolVersion pv, MonadIO m, MonadLogger m) => BlockStateQuery (SkovV1T pv m)
 
 deriving via
@@ -439,6 +458,18 @@ deriving via
 deriving via
     (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
     instance
+        (IsProtocolVersion pv) => TokenStateOperations StateV1.MutableState (InitMonad pv)
+deriving via
+    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    instance
+        (IsProtocolVersion pv) => PLTQuery (PersistentBlockState pv) StateV1.MutableState (InitMonad pv)
+deriving via
+    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    instance
+        (IsProtocolVersion pv) => PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (InitMonad pv)
+deriving via
+    (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
+    instance
         (IsProtocolVersion pv) => BlockStateQuery (InitMonad pv)
 deriving via
     (PersistentBlockStateMonad pv (InitContext pv) (InnerInitMonad pv))
@@ -451,8 +482,7 @@ deriving via
 deriving via
     (DiskLLDBM pv (InitMonad pv))
     instance
-        ( IsProtocolVersion pv
-        ) =>
+        (IsProtocolVersion pv) =>
         LowLevel.MonadTreeStateStore (InitMonad pv)
 
 -- | Run an 'InitMonad' in a 'LogIO' context, given the 'InitContext'.

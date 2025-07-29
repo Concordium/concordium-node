@@ -131,6 +131,7 @@ import qualified Control.Monad.Catch as MonadCatch
 import Control.Monad.Reader.Class
 import Control.Monad.Trans
 import Control.Monad.Trans.Except (ExceptT)
+import Control.Monad.Trans.Maybe (MaybeT)
 import Control.Monad.Trans.Reader (ReaderT (..))
 import Control.Monad.Trans.State.Strict (StateT)
 import Control.Monad.Trans.Writer.Strict (WriterT)
@@ -167,6 +168,7 @@ import Concordium.Types.Accounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.Types.IdentityProviders as IPS
 import Concordium.Types.Parameters
+import Concordium.Types.Tokens (TokenRawAmount (..))
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Wasm
@@ -661,6 +663,11 @@ deriving via
     (LiftMonadBlobStore (ExceptT e) m)
     instance
         (MonadBlobStore m) => MonadBlobStore (ExceptT e m)
+
+deriving via
+    (LiftMonadBlobStore MaybeT m)
+    instance
+        (MonadBlobStore m) => MonadBlobStore (MaybeT m)
 
 -- | This instance lifts a 'MonadBlobStore' over a 'ReaderT' transformer.
 --  This is used to implement a 'Cacheable' instance for the persistent
@@ -1570,6 +1577,7 @@ instance (MonadBlobStore m) => BlobStorable m ()
 instance (MonadBlobStore m) => BlobStorable m Word8
 instance (MonadBlobStore m) => BlobStorable m Word32
 instance (MonadBlobStore m) => BlobStorable m Word64
+instance (MonadBlobStore m) => BlobStorable m TokenRawAmount
 
 instance (MonadBlobStore m) => BlobStorable m AccountEncryptedAmount
 instance (MonadBlobStore m) => BlobStorable m PersistingAccountData
