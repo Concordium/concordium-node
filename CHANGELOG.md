@@ -4,7 +4,8 @@
 
 ## 9.0.7
 
-- Docker base images upgraded from Ubuntu 20.04 to 24.04
+- Ubuntu 20.04 LTS is no longer supported for running the node. Minimum supported version is 22.04 LTS. 
+  The Docker base images have been upgraded accordingly from Ubuntu 20.04 to 22.04
 - Node Docker image is now signed with Sigstore Cosign
 - Add P8 -> P9 update.
 - Update GHC version to 9.10.2 (lts-24.0).
