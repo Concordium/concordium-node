@@ -189,7 +189,7 @@ jobs:
           path: /tmp
 
       - name: Set tag
-        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["docker-p2p-bootstrapper"]')" >> $GITHUB_ENV
+        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["docker-bootstrapper"]')" >> $GITHUB_ENV
 
       - name: Extrapolate artifact name
         run: |
