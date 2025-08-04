@@ -28,7 +28,6 @@ import Criterion
 import Criterion.Main
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
-import Data.Foldable
 import qualified Data.Sequence as Seq
 import qualified SchedulerBench.Helpers as Helpers
 

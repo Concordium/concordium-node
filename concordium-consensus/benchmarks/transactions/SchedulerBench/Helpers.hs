@@ -34,12 +34,12 @@ import qualified Concordium.Cost as Cost
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import qualified Concordium.GlobalState.AccountMap.ModuleMap as ModuleMap
 import qualified Concordium.GlobalState.BlockState as BS
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import qualified Concordium.GlobalState.DummyData as DummyData
 import qualified Concordium.GlobalState.Persistent.Account as BS
 import qualified Concordium.GlobalState.Persistent.BlobStore as Blob
 import qualified Concordium.GlobalState.Persistent.BlockState as BS
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as BS
-import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.Cache
 import Concordium.GlobalState.Types
 import Concordium.Logger
@@ -48,9 +48,10 @@ import qualified Concordium.Scheduler.DummyData as DummyData
 import qualified Concordium.Scheduler.EnvironmentImplementation as EI
 import qualified Concordium.Scheduler.Types as Types
 import Concordium.TimeMonad
+import qualified Data.Bifunctor as Bifunctor
 
 getResults :: [(a, Types.TransactionSummary)] -> [(a, Types.ValidResult)]
-getResults = map (\(x, r) -> (x, Types.tsResult r))
+getResults = map $ Bifunctor.second Types.tsResult
 
 -- | The cost for processing a simple transfer (account to account)
 --  with one signature in the transaction.
@@ -122,7 +123,7 @@ createTestBlockStateWithAccounts accounts = do
     void $ BS.saveGlobalMaps bs
     return bs
   where
-    keys = Types.withIsAuthorizationsVersionFor (Types.protocolVersion @pv) $ DummyData.dummyKeyCollection
+    keys = Types.withIsAuthorizationsVersionFor (Types.protocolVersion @pv) DummyData.dummyKeyCollection
     seedState = case Types.consensusVersionFor (Types.protocolVersion @pv) of
         Types.ConsensusV0 -> initialSeedStateV0 (Hash.hash "") 1_000
         Types.ConsensusV1 -> initialSeedStateV1 (Hash.hash "") 3_600_000
