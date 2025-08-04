@@ -161,42 +161,42 @@ transferPltOp to value =
 mintPltOp :: TokenRawAmount -> CBOR.TokenOperation
 mintPltOp value =
     CBOR.TokenMint
-        { tgoMintAmount = TokenAmount{taValue = value, taDecimals = 6}
+        { toMintAmount = TokenAmount{taValue = value, taDecimals = 6}
         }
 
 -- | PLT burn operation
 burnPltOp :: TokenRawAmount -> CBOR.TokenOperation
 burnPltOp value =
     CBOR.TokenBurn
-        { tgoBurnAmount = TokenAmount{taValue = value, taDecimals = 6}
+        { toBurnAmount = TokenAmount{taValue = value, taDecimals = 6}
         }
 
 -- | PLT add allow list operation
 addAllowListPltOp :: AccountAddress -> CBOR.TokenOperation
 addAllowListPltOp target =
     CBOR.TokenAddAllowList
-        { tgoTarget = CBOR.accountTokenHolder target
+        { toTarget = CBOR.accountTokenHolder target
         }
 
 -- | PLT remove allow list operation
 removeAllowListPltOp :: AccountAddress -> CBOR.TokenOperation
 removeAllowListPltOp target =
     CBOR.TokenRemoveAllowList
-        { tgoTarget = CBOR.accountTokenHolder target
+        { toTarget = CBOR.accountTokenHolder target
         }
 
 -- | PLT add deny list operation
 addDenyListPltOp :: AccountAddress -> CBOR.TokenOperation
 addDenyListPltOp target =
     CBOR.TokenAddDenyList
-        { tgoTarget = CBOR.accountTokenHolder target
+        { toTarget = CBOR.accountTokenHolder target
         }
 
 -- | PLT remove deny list operation
 removeDenyListPltOp :: AccountAddress -> CBOR.TokenOperation
 removeDenyListPltOp target =
     CBOR.TokenRemoveDenyList
-        { tgoTarget = CBOR.accountTokenHolder target
+        { toTarget = CBOR.accountTokenHolder target
         }
 
 plt1 :: TokenId
