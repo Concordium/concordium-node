@@ -1,4 +1,3 @@
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE EmptyCase #-}
@@ -12,7 +11,9 @@ import Control.Monad.Trans.Class
 import Data.Bits
 import Data.Bool.Singletons
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Char8 as BSC
 import qualified Data.ByteString.Short as SBS
+import Data.Char (toUpper)
 import qualified Data.Map.Strict as Map
 import Data.Serialize
 import Data.Word
@@ -24,11 +25,12 @@ import Concordium.Types.Conditionally
 import Concordium.Types.HashableTo
 import Concordium.Types.Tokens
 import Concordium.Utils
-import Concordium.Utils.Serialization
 
 import Concordium.GlobalState.Basic.BlockState.LFMBTree (LFMBTreeHash' (..))
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBTree
+import Control.Monad.IO.Class (liftIO)
 
 -- | A token index is the index of a token in the 'ProtocolLevelTokens' table.
 newtype TokenIndex = TokenIndex {theTokenIndex :: Word64}
@@ -48,7 +50,7 @@ data PLTConfiguration = PLTConfiguration
       -- | The number of decimal places used in the representation of the token.
       _pltDecimals :: !Word8
     }
-    deriving (Eq, Ord, Show)
+    deriving (Eq, Show)
 
 instance Serialize PLTConfiguration where
     put PLTConfiguration{..} = do
@@ -75,7 +77,7 @@ instance HashableTo PLTConfigurationHash PLTConfiguration where
 instance (Monad m) => MHashableTo m PLTConfigurationHash PLTConfiguration
 
 -- | The type of keys in the token state key-value map.
-type TokenStateKey = SBS.ShortByteString
+type TokenStateKey = BS.ByteString
 
 -- | The type of values in the token state key-value map.
 type TokenStateValue = BS.ByteString
@@ -85,8 +87,7 @@ data PLT = PLT
     { -- | The token configuration.
       _pltConfiguration :: !(HashedBufferedRef' PLTConfigurationHash PLTConfiguration),
       -- | The token-level state of the PLT.
-      -- TODO: Replace with trie-based state. https://linear.app/concordium/issue/NOD-700/switch-plt-key-value-maps-to-trie-implementation
-      _pltState :: !(Map.Map TokenStateKey TokenStateValue),
+      _pltState :: !StateV1.PersistentState,
       -- | The total amount of the token that exists in circulation.
       _pltCirculatingSupply :: !TokenRawAmount
     }
@@ -94,18 +95,20 @@ data PLT = PLT
 instance (MonadBlobStore m) => BlobStorable m PLT where
     load = do
         configRef <- load
-        _pltState <- getSafeMapOf get get
+        stateRef <- load
         _pltCirculatingSupply <- get
         return $ do
             _pltConfiguration <- configRef
+            _pltState <- stateRef
             return PLT{..}
     storeUpdate plt = do
         (putConfig, newConfig) <- storeUpdate (_pltConfiguration plt)
+        (putState, newState) <- storeUpdate (_pltState plt)
         let thePutter = do
                 putConfig
-                putSafeMapOf put put (_pltState plt)
+                putState
                 put (_pltCirculatingSupply plt)
-        return $!! (thePutter, plt{_pltConfiguration = newConfig})
+        return $!! (thePutter, plt{_pltConfiguration = newConfig, _pltState = newState})
 
 instance (MonadBlobStore m) => Cacheable m PLT where
     cache plt = do
@@ -115,14 +118,23 @@ instance (MonadBlobStore m) => Cacheable m PLT where
 instance (MonadBlobStore m) => MHashableTo m SHA256.Hash PLT where
     getHashM PLT{..} = do
         (PLTConfigurationHash configHash) <- getHashM _pltConfiguration
-
+        tokenStateHash :: SHA256.Hash <- getHashM _pltState
         let stateHash = SHA256.hashLazy $ runPutLazy $ do
-                putSafeMapOf put put _pltState
+                put tokenStateHash
                 put _pltCirculatingSupply
-
         return $! SHA256.hashOfHashes configHash stateHash
 
 type TokenRef = HashedBufferedRef PLT
+
+-- Normalized version of 'TokenId'. Normalized here means with all letters capitalized.
+-- The 'TokenIndex' is stored under a 'NormalizedTokenId', so when looking up a token, it is first
+-- normalized, so that a token can be looked up by any capitalization.
+newtype NormalizedTokenId = NormalizedTokenId BS.ByteString
+    deriving (Eq, Ord)
+
+-- Normalize a 'TokenId', making all letters upper case.
+normalizeTokenId :: TokenId -> NormalizedTokenId
+normalizeTokenId (TokenId tid) = NormalizedTokenId $ BSC.map toUpper $ SBS.fromShort tid
 
 -- | The table holding the protocol level token state.
 data ProtocolLevelTokens = ProtocolLevelTokens
@@ -132,7 +144,7 @@ data ProtocolLevelTokens = ProtocolLevelTokens
       -- TODO: In future it would likely make sense to handle this with a difference map and store
       -- the finalized map in the LMDB database. (As, for instance, for modules.)
       -- This is not necessary if the number of tokens remains small.
-      _pltMap :: !(Map.Map TokenId TokenIndex)
+      _pltMap :: !(Map.Map NormalizedTokenId TokenIndex)
     }
 
 instance (MonadBlobStore m) => BlobStorable m ProtocolLevelTokens where
@@ -143,7 +155,7 @@ instance (MonadBlobStore m) => BlobStorable m ProtocolLevelTokens where
             -- We construct the map by simply iterating over the LFMBTree.
             let f (nxtIndex, m) v = do
                     config <- refLoad (_pltConfiguration v)
-                    return $!! (nxtIndex + 1, Map.insert (_pltTokenId config) nxtIndex m)
+                    return $!! (nxtIndex + 1, Map.insert (normalizeTokenId (_pltTokenId config)) nxtIndex m)
             (_, _pltMap) <- LFMBTree.mfold f (0, Map.empty) _pltTable
 
             return ProtocolLevelTokens{..}
@@ -245,7 +257,13 @@ emptyProtocolLevelTokensForPV = conditionallyStorePLTs emptyProtocolLevelTokens
 --  This returns the empty list when the protocol version does not support PLTs.
 getPLTList :: (MonadBlobStore m) => ProtocolLevelTokensForPV pv -> m [TokenId]
 getPLTList (ProtocolLevelTokensForPV CFalse) = return []
-getPLTList (ProtocolLevelTokensForPV (CTrue plts)) = Map.keys . _pltMap <$> refLoad plts
+getPLTList (ProtocolLevelTokensForPV (CTrue plts)) = do
+    table <- _pltTable <$> refLoad plts
+    LFMBTree.mfold step [] table
+  where
+    step acc v = do
+        tid <- _pltTokenId <$> refLoad (_pltConfiguration v)
+        return (tid : acc)
 
 -- | Get the 'TokenIndex' for a 'TokenId'. Returns @Nothing@ if there is no token with the given
 -- 'TokenId'.
@@ -254,7 +272,9 @@ getTokenIndex ::
     TokenId ->
     ProtocolLevelTokensForPV pv ->
     m (Maybe TokenIndex)
-getTokenIndex tokId = fmap (Map.lookup tokId . _pltMap) . loadPLTs
+getTokenIndex tokId = fmap (Map.lookup ntid . _pltMap) . loadPLTs
+  where
+    ntid = normalizeTokenId tokId
 
 -- | Get the 'PLT' with the given 'TokenIndex'.
 --
@@ -272,33 +292,31 @@ lookupPLT index pvPLTs = do
         Nothing ->
             error $ "lookupPLT: TokenIndex (" ++ show index ++ ") not found in ProtocolLevelTokens"
 
--- | Get the state of a token for a given 'TokenStateKey'. Returns @Nothing@ if the token does not
---  have a state for the given key.
+-- | Create a mutable state from a persistent one. This is generative, it creates independent
+-- mutable states in different calls.
 --
 --  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
-getTokenState ::
+getMutableTokenState ::
     (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->
-    TokenStateKey ->
     ProtocolLevelTokensForPV pv ->
-    m (Maybe TokenStateValue)
-getTokenState index key pvPLTs = do
+    m StateV1.MutableState
+getMutableTokenState index pvPLTs = do
     plt <- lookupPLT index pvPLTs
-    return $ Map.lookup key (_pltState plt)
+    loadCallback <- fst <$> getCallbacks
+    liftIO $ StateV1.thaw loadCallback (_pltState plt)
 
--- | Set the state of a token for a given 'TokenStateKey'. If the value is @Nothing@, the key is
---  removed from the token state. Otherwise, the key is set to the given value.
---  Returns the updated 'ProtocolLevelTokensForPV'.
+-- | Convert the mutable state to a persistent one, setting it as the state of the provided token
+-- index.
 --
--- PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
+--  PRECONDITION: The 'TokenIndex' MUST exist in the given 'ProtocolLevelTokensForPV'.
 setTokenState ::
     (PVSupportsPLT pv, MonadBlobStore m) =>
     TokenIndex ->
-    TokenStateKey ->
-    Maybe TokenStateValue ->
+    StateV1.MutableState ->
     ProtocolLevelTokensForPV pv ->
     m (ProtocolLevelTokensForPV pv)
-setTokenState index key mValue pvPLTs = do
+setTokenState index mutableState pvPLTs = do
     plts <- loadPLTs pvPLTs
     LFMBTree.update upd index (_pltTable plts) >>= \case
         Nothing ->
@@ -307,10 +325,36 @@ setTokenState index key mValue pvPLTs = do
         Just (_, newTable) -> storePLTs plts{_pltTable = newTable}
   where
     upd plt = do
-        let !newState = case mValue of
-                Nothing -> Map.delete key (_pltState plt)
-                Just v -> Map.insert key v (_pltState plt)
-        return ((), plt{_pltState = newState})
+        loadCallback <- fst <$> getCallbacks
+        (_hash, persistentState) <- liftIO $ StateV1.freeze loadCallback mutableState
+        return ((), plt{_pltState = persistentState})
+
+-- | Get the state of a token for a given 'TokenStateKey'. Returns @Nothing@ if the token does not
+--  have a state for the given key.
+lookupTokenState ::
+    (MonadBlobStore m) =>
+    TokenStateKey ->
+    StateV1.MutableState ->
+    m (Maybe TokenStateValue)
+lookupTokenState key mutableState = liftIO $ StateV1.lookupMutableState key mutableState
+
+-- | Insert entry into the mutable state, overwriting the value if already present.
+-- If the provided value is @Nothing@ the entry gets deleted.
+--
+-- Returns
+-- * @Just True@ signals an entry was present in the state.
+-- * @Just False@ if no entry was present.
+-- * @Nothing@ signals error due to the entry being locked.
+updateTokenState ::
+    (MonadBlobStore m) =>
+    TokenStateKey ->
+    Maybe TokenStateValue ->
+    StateV1.MutableState ->
+    m (Maybe Bool)
+updateTokenState key maybeValue mutableState =
+    liftIO $ case maybeValue of
+        Just value -> StateV1.insertMutableState key value mutableState
+        Nothing -> StateV1.deleteEntryMutableState key mutableState
 
 -- | Get the configuration data of a token for a given 'TokenIndex'.
 --
@@ -371,14 +415,15 @@ createToken ::
 createToken config pvPLTs = do
     plts <- loadPLTs pvPLTs
     newConfigRef <- refMake config
+    state <- liftIO StateV1.emptyPersistentState
     let plt =
             PLT
                 { _pltConfiguration = newConfigRef,
-                  _pltState = Map.empty,
+                  _pltState = state,
                   _pltCirculatingSupply = TokenRawAmount 0
                 }
     (tokIndex, newTable) <- LFMBTree.append plt (_pltTable plts)
-    let newMap = Map.insert (_pltTokenId config) tokIndex (_pltMap plts)
+    let newMap = Map.insert (normalizeTokenId (_pltTokenId config)) tokIndex (_pltMap plts)
     pvPLTs' <- storePLTs ProtocolLevelTokens{_pltTable = newTable, _pltMap = newMap}
     return (tokIndex, pvPLTs')
 

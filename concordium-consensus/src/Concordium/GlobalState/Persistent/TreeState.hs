@@ -542,7 +542,9 @@ newtype PersistentTreeStateMonad state (m :: Type -> Type) (a :: Type) = Persist
           TimeMonad
         )
 
-deriving instance (PLTQuery bs m) => PLTQuery bs (PersistentTreeStateMonad state m)
+deriving instance (TokenStateOperations ts m) => TokenStateOperations ts (PersistentTreeStateMonad state m)
+
+deriving instance (PLTQuery bs ts m) => PLTQuery bs ts (PersistentTreeStateMonad state m)
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad state m)
 
@@ -589,7 +591,6 @@ getWeakPointer weakPtr ptrHash name = do
                 -- a parent that is also alive, which means either actually in memory `BlockAlive` or already
                 -- finalized. If we fail to dereference the weak pointer we should thus be able to directly look
                 -- up the block from the block table.
-
                     use (skovPersistentData . blockTable . liveMap . at' ptrHash)
                         >>= \case
                             Just (BlockAlive bp) -> return bp

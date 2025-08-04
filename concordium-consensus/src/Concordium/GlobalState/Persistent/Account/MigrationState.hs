@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
@@ -170,7 +171,8 @@ newtype
         (pv :: ProtocolVersion)
         (t :: (Type -> Type) -> (Type -> Type))
         (m :: (Type -> Type))
-        (a :: Type) = AccountMigrationStateTT
+        (a :: Type)
+    = AccountMigrationStateTT
     { runAccountMigrationStateTT' ::
         StateT (AccountMigrationState oldpv pv) (t m) a
     }
@@ -199,8 +201,7 @@ deriving via
         (pv :: ProtocolVersion)
         (t :: (Type -> Type) -> (Type -> Type))
         (m :: (Type -> Type)).
-    ( StateT (AccountMigrationState oldpv pv) (t m)
-    )
+    (StateT (AccountMigrationState oldpv pv) (t m))
     instance
         (MonadBlobStore (t m)) =>
         (MonadBlobStore (AccountMigrationStateTT oldpv pv t m))
@@ -211,8 +212,7 @@ deriving via
         (pv :: ProtocolVersion)
         (t :: (Type -> Type) -> (Type -> Type))
         (m :: (Type -> Type)).
-    ( StateT (AccountMigrationState oldpv pv) (t m)
-    )
+    (StateT (AccountMigrationState oldpv pv) (t m))
     instance
         (MonadCache c (t m)) =>
         (MonadCache c (AccountMigrationStateTT oldpv pv t m))

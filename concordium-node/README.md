@@ -64,7 +64,7 @@ The package supports the following features related to linking with the Haskell 
   mkdir out
   docker run -v $(pwd)/out:/out concordium/static-libraries
   mkdir -p concordium-node/deps/static-libs/linux
-  tar -xf out/static-consensus-9.6.6.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
+  tar -xf out/static-consensus-9.10.2.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
   ```
 
   (this is assuming a GNU version of tar)
@@ -107,6 +107,23 @@ Environment variables only apply to the default build. This links with shared Ha
 
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
+
+### Genesis Data
+Running the node on a local machine would requires the *genesis data* to be set up in the `<CONCORDIUM_NODE_DATA_DIR>`.
+To run your own local chain, you can use the [genesis-creator](https://github.com/Concordium/concordium-misc-tools/tree/main/genesis-creator) tool to generate the required genesis data and initial validator keys.
+
+To run the node agains the mainnet or testnet you would need to get the relevant `genesis.dat` [file](https://docs.concordium.com/en/mainnet/docs/installation/downloads.html#genesis-block).
+
+```
+cargo install --git https://github.com/Concordium/concordium-misc-tools.git genesis-creator --locked
+```
+
+You will also need to have a genesis-config TOML file. You can use the following [file](https://raw.githubusercontent.com/Concordium/concordium-misc-tools/main/genesis-creator/examples/single-baker-example-p6.toml) as an example.
+
+To generate the genesis data run:
+```
+~/.cargo/bin/genesis-creator your-genesis-config.toml
+```
 
 ### MacOS Specific
 

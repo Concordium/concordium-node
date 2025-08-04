@@ -63,26 +63,50 @@ emptyTokenAccountStateTable = TokenAccountStateTable{tokenAccountStateTable = Ma
 emptyTokenAccountState :: TokenAccountState
 emptyTokenAccountState =
     TokenAccountState
-        { tasBalance = TokenRawAmount 0,
-          tasModuleState = Map.empty
+        { tasBalance = TokenRawAmount 0
         }
 
+-- | Helper function to update a reference to a token account state table.
+updateTokenAccountStateTable ::
+    (MonadBlobStore m, Reference m ref TokenAccountStateTable) =>
+    -- | The token account state table to update
+    ref TokenAccountStateTable ->
+    -- | The index of the token in question
+    TokenIndex ->
+    -- | How to create a new token account state if the token doesn't have a token account state associated yet
+    m TokenAccountState ->
+    -- | How to update an existing token account state
+    (TokenAccountState -> m TokenAccountState) ->
+    m (ref TokenAccountStateTable)
+updateTokenAccountStateTable ref tokIx createNewState updateExisting = do
+    TokenAccountStateTable tst <- refLoad ref
+    tst' <-
+        Map.alterF
+            ( \case
+                Nothing -> do
+                    newState <- createNewState
+                    Just <$> refMake newState
+                Just sRef -> do
+                    s <- refLoad sRef
+                    s' <- updateExisting s
+                    Just <$> refMake s'
+            )
+            tokIx
+            tst
+    refMake $ TokenAccountStateTable{tokenAccountStateTable = tst'}
+
 -- | Token state at the account level
-data TokenAccountState = TokenAccountState
+newtype TokenAccountState = TokenAccountState
     { -- | The available balance for the account.
-      tasBalance :: !TokenRawAmount,
-      -- | The token module state for the account, represented as a key-value map.
-      tasModuleState :: !(Map.Map TokenStateKey TokenStateValue)
+      tasBalance :: TokenRawAmount
     }
     deriving (Eq, Show, Ord)
 
 instance Serialize TokenAccountState where
     put TokenAccountState{..} = do
         put tasBalance
-        put tasModuleState
     get = do
         tasBalance <- get
-        tasModuleState <- get
         return TokenAccountState{..}
 
 instance HashableTo Hash.Hash TokenAccountState where
@@ -91,15 +115,6 @@ instance HashableTo Hash.Hash TokenAccountState where
 instance (Monad m) => MHashableTo m Hash.Hash TokenAccountState
 
 instance (MonadBlobStore m) => BlobStorable m TokenAccountState
-
--- | An update to the token account state.
-data TokenAccountStateDelta = TokenAccountStateDelta
-    { -- | A change to the token balance.
-      tasBalanceDelta :: !(Maybe TokenAmountDelta),
-      -- | A change to the token module state.
-      tasModuleStateDelta :: ![(TokenStateKey, TokenAccountStateValueDelta)]
-    }
-    deriving (Eq, Show)
 
 -- | A change in a 'TokenRawAmount'.
 newtype TokenAmountDelta = TokenAmountDelta {tokenAmountDelta :: Integer} deriving (Eq, Show)
@@ -112,11 +127,3 @@ toTokenAmountDelta = TokenAmountDelta . fromIntegral
 --  of the given amount.
 negativeTokenAmountDelta :: TokenRawAmount -> TokenAmountDelta
 negativeTokenAmountDelta = TokenAmountDelta . negate . fromIntegral
-
--- | The possible update actions of a token module state.
-data TokenAccountStateValueDelta
-    = -- | Delete the state.
-      TASVDelete
-    | -- | Update the state to a new value or create it if it doesn't already exist.
-      TASVUpdate TokenStateValue
-    deriving (Eq, Show)

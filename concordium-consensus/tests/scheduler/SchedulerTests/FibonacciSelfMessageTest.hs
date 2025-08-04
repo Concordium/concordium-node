@@ -160,7 +160,7 @@ testCase1 _ pvString =
     p event = assertFailure ("Unexpected event: " ++ show event)
 
     fib n =
-        let go = 1 : 1 : zipWith (+) go (tail go)
+        let go = 1 : 1 : zipWith (+) go (drop 1 go)
         in  go !! n
     fibNBytes n = ContractState (runPut (putWord64le (fib n)))
 

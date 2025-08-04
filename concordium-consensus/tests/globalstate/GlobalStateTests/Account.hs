@@ -45,17 +45,10 @@ instance Arbitrary SBS.ShortByteString where
     arbitrary = SBS.toShort <$> arbitrary
     shrink sbs = SBS.toShort <$> shrink (SBS.fromShort sbs)
 
-arbitraryTokenModuleState :: Gen (Map.Map TokenStateKey TokenStateValue)
-arbitraryTokenModuleState = sized $ \n -> do
-    k <- choose (0, n)
-    kvs <- vectorOf k $ (,) <$> arbitrary <*> arbitrary
-    return $ Map.fromList kvs
-
 arbitraryTokenAccountState :: Gen TokenAccountState
 arbitraryTokenAccountState = do
     balance <- TokenRawAmount <$> arbitrary
-    state <- arbitraryTokenModuleState
-    return $ TokenAccountState{tasBalance = balance, tasModuleState = state}
+    return $ TokenAccountState{tasBalance = balance}
 
 arbitraryInMemoryTokenStateTable :: Gen InMemoryTokenStateTable
 arbitraryInMemoryTokenStateTable = sized $ \n -> do

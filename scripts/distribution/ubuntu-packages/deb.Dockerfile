@@ -1,10 +1,10 @@
 # The ubuntu version to build the package in. This influences the dependencies
 # that will be added to the package. This should be the same as was used to
 # build the binaries.
-ARG ubuntu_version
-ARG static_binaries_image_tag
+ARG ubuntu_version=latest
+ARG static_binaries_image_tag=latest
 
-FROM static-node-binaries:$static_binaries_image_tag as binaries
+FROM static-node-binaries:$static_binaries_image_tag AS binaries
 
 COPY template /pkg-root
 

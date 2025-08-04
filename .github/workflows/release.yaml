@@ -20,15 +20,15 @@ on:
      - '*.*.*-*-alpha'
 
 env:
-  UBUNTU_VERSION: '20.04'
-  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.82_ghc-9.6.6-0'
+  UBUNTU_VERSION: '22.04'
+  STATIC_LIBRARIES_IMAGE_TAG: 'rust-1.82_ghc-9.10.2'
   RUST_VERSION: '1.82'
-  STACK_VERSION: '3.1.1'
+  STACK_VERSION: '3.7.1'
   FLATBUFFERS_VERSION: '23.5.26'
-  GHC_VERSION: '9.6.6'
+  GHC_VERSION: '9.10.2'
   PROTOC_VERSION: '28.3'
   STATIC_NODE_BINARY_IMAGE_NAME: 'static-node-binaries'
-  ARTIFACT_FILE_NAME: 'image'
+  DOCKER_ARTIFACT_NAME: 'image'
   AWS_ROLE_TO_ASSUME: 'arn:aws:iam::192549843005:role/github_concordium-node'
   S3_ARN_TEMPLATES: '{
       \"database-exporter\": {\"bucket\": \"distribution.concordium.software\", \"dir\": \"tools/linux\", \"name\": \"database-exporter_${VERSION}.deb\"},
@@ -43,7 +43,8 @@ env:
   DOCKER_TAGS_TEMPLATES: '{
       \"docker-stagenet\": \"concordium/stagenet-node:${VERSION}\",
       \"docker-testnet\": \"concordium/testnet-node:${VERSION}\",
-      \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}\"
+      \"docker-mainnet\": \"concordium/mainnet-node:${VERSION}\",
+      \"docker-bootstrapper\": \"concordium/bootstrapper:${VERSION}\"
     }'
   REGISTRY: docker.io
   SERVICE: "${{ inputs.service }}"
@@ -187,6 +188,9 @@ jobs:
           name: ${{ env.STATIC_NODE_BINARY_IMAGE_NAME }}
           path: /tmp
 
+      - name: Set tag
+        run: echo "TAG=$(echo '${{ needs.validate-preconditions.outputs.docker_tags }}' | jq -r '.["docker-bootstrapper"]')" >> $GITHUB_ENV
+
       - name: Extrapolate artifact name
         run: |
           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].name')
@@ -206,7 +210,7 @@ jobs:
           context: .
           push: false
           file: scripts/bootstrapper/Dockerfile
-          tags: build-deb:${{ github.run_id }}
+          tags: ${{ env.TAG }}
           no-cache: true
           build-args: |
             ubuntu_version=${{ env.UBUNTU_VERSION }}
@@ -219,8 +223,17 @@ jobs:
 
       - name: Run Docker and Extract Artifacts
         run: |
-          id=$(docker create build-deb:${{ github.run_id }})
+          id=$(docker create ${{ env.TAG }})
           docker cp $id:/build/${{ github.job }}_${{ needs.validate-preconditions.outputs.version }}.deb ./${{ env.ARTIFACT_NAME }}
+
+      - name: Save image
+        run: docker save -o /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar ${{ env.TAG }}
+  
+      - name: Upload docker artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-bootstrapper
+          path: /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -229,7 +242,8 @@ jobs:
           path: ${{ env.ARTIFACT_NAME }}
 
   node-windows:
-    runs-on: windows-latest
+    runs-on: windows-latest  
+    environment: release # This step needs to use the release context to access credentials for code signing.
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
     defaults:
@@ -251,6 +265,36 @@ jobs:
           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].name')
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
         shell: bash
+
+      - name: Install DigiCert Client tools (Windows only)
+        id: digicert_client
+        uses: digicert/ssm-code-signing@v1.0.0
+
+      - name: Import Windows certificate (Windows only)
+        id: windows_certificate
+        env:
+          # Base64 encoding of the pfx/p12 certificate for Windows code signing.
+          SM_CLIENT_CERT_FILE_B64: ${{ secrets.WINDOWS_SM_CLIENT_CERT_FILE_B64 }}
+        run: |
+          $CERTIFICATE_PATH_BASE64="$env:RUNNER_TEMP\cert-b64.txt"
+          $CERTIFICATE_PATH="$env:RUNNER_TEMP\cert.pfx"
+
+          Set-Content -Path $CERTIFICATE_PATH_BASE64 -Value $env:SM_CLIENT_CERT_FILE_B64
+          certutil -decode $CERTIFICATE_PATH_BASE64 $CERTIFICATE_PATH
+          echo "CERTIFICATE_PATH=$CERTIFICATE_PATH" >> $env:GITHUB_OUTPUT
+
+      - name: Run smctl healthcheck to confirm if the tool is configured properly.
+        working-directory: ${{steps.build.outputs.bin_dir}}
+        env:
+          WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
+          WINDOWS_SM_KEYPAIR_ALIAS: ${{ secrets.WINDOWS_SM_KEYPAIR_ALIAS }}
+          SM_HOST: ${{ vars.WINDOWS_SM_HOST }}
+          SM_API_KEY: ${{ secrets.WINDOWS_SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ steps.windows_certificate.outputs.CERTIFICATE_PATH }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
+        run: |
+          smctl healthcheck --all
+        shell: cmd
 
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -301,6 +345,90 @@ jobs:
       - name: Build Windows Node
         run: |
           ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ env.RUST_VERSION }}
+
+      - name: Extract files to prepare for signing 
+        run: |
+          dir service\windows\installer
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer/Node.msi -x Node.cab
+          mkdir Node
+          dir
+          expand -d Node.cab
+          expand -F:* Node.cab ./Node
+          dir Node
+        shell: cmd
+      
+      - name: Rename files to prepare for signing (smctl can only sign files of certain types supported by signtool)
+        # See: https://docs.digicert.com/it/digicert-keylocker/client-tools/signing-tools/files-supported-for-signing.html
+        run: |
+          mv ./Node/ConcordiumConsensusDLL ./Node/ConcordiumConsensusDLL.dll
+          mv ./Node/ConcordiumBaseDLL ./Node/ConcordiumBaseDLL.dll
+          mv ./Node/ConcordiumSmartContractEngineDLL ./Node/ConcordiumSmartContractEngineDLL.dll
+          mv ./Node/Sha2DLL ./Node/Sha2DLL.dll
+          mv ./Node/NodeRunnerService ./Node/NodeRunnerService.exe
+          mv ./Node/NodeCollector ./Node/NodeCollector.exe 
+          mv ./Node/ConcordiumNode ./Node/ConcordiumNode.exe
+
+      - name: Sign files with smctl
+        working-directory: ${{steps.build.outputs.bin_dir}}
+        env:
+          WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
+          WINDOWS_SM_KEYPAIR_ALIAS: ${{ secrets.WINDOWS_SM_KEYPAIR_ALIAS }}
+          SM_HOST: ${{ vars.WINDOWS_SM_HOST }}
+          SM_API_KEY: ${{ secrets.WINDOWS_SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ steps.windows_certificate.outputs.CERTIFICATE_PATH }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
+          SM_ARGS: "--verbose --exit-non-zero-on-fail --failfast"
+        run: |
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumConsensusDLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumBaseDLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumSmartContractEngineDLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/Sha2DLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }}  ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/NodeRunnerService.exe --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/NodeCollector.exe  --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumNode.exe  --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+        shell: cmd
+
+      - name: Rename files back to their original form without extension. 
+        run: |
+          mv ./Node/ConcordiumConsensusDLL.dll ./Node/ConcordiumConsensusDLL
+          mv ./Node/ConcordiumBaseDLL.dll ./Node/ConcordiumBaseDLL
+          mv ./Node/ConcordiumSmartContractEngineDLL.dll ./Node/ConcordiumSmartContractEngineDLL
+          mv ./Node/Sha2DLL.dll ./Node/Sha2DLL
+          mv ./Node/NodeRunnerService.exe ./Node/NodeRunnerService
+          mv ./Node/NodeCollector.exe ./Node/NodeCollector
+          mv ./Node/ConcordiumNode.exe ./Node/ConcordiumNode
+
+      - name: Recreate the cabinet file. 
+        run: |
+          dir Node /b /a-d > cabfiles.txt
+          makecab.exe /D MaxDiskSize=0 /D Cabinet=ON /D Compress=ON /D CabinetName1=Node.cab /D SourceDir=Node /f cabfiles.txt
+        shell: cmd
+
+      - name: Repackage the cabinet file. 
+        run: |
+          del Node.cab
+          move disk1\Node.cab .
+          expand -d Node.cab
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer\Node.msi -k Node.cab
+          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer\Node.msi -a Node.cab
+        shell: cmd
+  
+      - name: Sign files with smctl
+        working-directory: ${{steps.build.outputs.bin_dir}}
+        env:
+          WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
+          WINDOWS_SM_KEYPAIR_ALIAS: ${{ secrets.WINDOWS_SM_KEYPAIR_ALIAS }}
+          SM_HOST: ${{ vars.WINDOWS_SM_HOST }}
+          SM_API_KEY: ${{ secrets.WINDOWS_SM_API_KEY }}
+          SM_CLIENT_CERT_FILE: ${{ steps.windows_certificate.outputs.CERTIFICATE_PATH }}
+          SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
+          SM_ARGS: "--verbose --exit-non-zero-on-fail --failfast"
+        run: |
+          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./service/windows/installer/Node.msi --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
+        shell: cmd
+
+      - name: Rename the package to target filename.
+        run: |
           cp ./service/windows/installer/Node.msi ./${{ env.ARTIFACT_NAME }}
 
       - name: Upload artifact
@@ -311,6 +439,7 @@ jobs:
 
   node-macos:
     runs-on: macos-latest-large
+    environment: release # This step needs to use the release context to access credentials for code signing.
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-macos"]'), needs.validate-preconditions.outputs.release_type)
     steps:
@@ -323,6 +452,37 @@ jobs:
         run: |
           ARTIFACT_NAME=$(echo '${{ needs.validate-preconditions.outputs.s3_arns }}' | jq -r '.["${{ github.job }}"].name')
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> $GITHUB_ENV
+
+      - name: Import Apple signing certificates into a keychain)
+        env:
+          # Base64 encoding of the p12 certificate for Apple code signing.
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.APPLE_BUILD_CERTIFICATE_BASE64 }}
+          BUILD_INSTALLER_CERTIFICATE_BASE64: ${{ secrets.APPLE_BUILD_INSTALLER_CERTIFICATE_BASE64 }}
+          # Password for the p12 certificate for Apple code signing.
+          BUILD_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_BUILD_CERTIFICATE_PASSWORD }}
+          BUILD_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_BUILD_INSTALLER_CERTIFICATE_PASSWORD }}
+          # Random string to use as the keychain password.
+          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+        run: |
+          # create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/apple_build_certificate.p12
+          INSTALLER_CERTIFICATE_PATH=$RUNNER_TEMP/apple_build_installer_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+          # import certificate and provisioning profile from secrets
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          echo -n "$BUILD_INSTALLER_CERTIFICATE_BASE64" | base64 --decode -o $INSTALLER_CERTIFICATE_PATH
+
+          # create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$BUILD_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security import $INSTALLER_CERTIFICATE_PATH -P "$BUILD_INSTALLER_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -352,9 +512,13 @@ jobs:
           brew install lmdb llvm
 
       - name: Build macOS Package
+        env:
+          # Apple code signing variables:
+          APPLEIDPASS: ${{ secrets.APPLEIDPASS }}
+          APPLEID: ${{ secrets.APPLEID }}        
         run: |
-          printf "N\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
-          cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}-unsigned.pkg ./${{ env.ARTIFACT_NAME }}
+          printf "Y\n" | ./scripts/distribution/macOS-package/build.sh ${{ needs.validate-preconditions.outputs.version }}
+          cp ./scripts/distribution/macOS-package/build/packages/concordium-node-${{ needs.validate-preconditions.outputs.version }}.pkg ./${{ env.ARTIFACT_NAME }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -503,7 +667,7 @@ jobs:
 
   generate-release-matrixes:
     runs-on: ubuntu-latest
-    needs: [ node-linux, node-macos, node-windows, p2p-bootstrapper, database-exporter, validate-preconditions ]
+    needs: [ node-linux, node-macos, node-windows, p2p-bootstrapper, database-exporter, validate-preconditions, docker-build ]
     outputs:
       s3_names: ${{ steps.s3-matrix.outputs.intersection }}
       docker_names: ${{ steps.docker-matrix.outputs.intersection }}
@@ -589,13 +753,13 @@ jobs:
             environment=${{ matrix.node.env }}
 
       - name: Save image
-        run: docker save -o /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar ${{ env.TAG }}
+        run: docker save -o /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar ${{ env.TAG }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: docker-${{ matrix.node.env }}
-          path: /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
+          path: /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar
 
   s3_publish:
     runs-on: ubuntu-latest
@@ -654,7 +818,7 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       - name: Load image
-        run: docker load --input /tmp/${{ env.ARTIFACT_FILE_NAME }}.tar
+        run: docker load --input /tmp/${{ env.DOCKER_ARTIFACT_NAME }}.tar
 
       - name: Push image
         run: |
@@ -663,6 +827,20 @@ jobs:
             exit 1
           fi
           docker push ${{ env.TAG }}
+        
+      - name: Digest docker image
+        run: |
+          echo "IMAGE_HASH=$(docker inspect --format='{{index .RepoDigests 0}}' ${{ env.TAG }})" >> $GITHUB_ENV
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.8.2
+        with:
+          cosign-release: 'v2.5.0'
+
+      - name: Sign image
+        run: |
+          echo ${{ env.IMAGE_HASH }}
+          cosign sign --yes ${{ env.IMAGE_HASH }}
 
   notify-immutable-infrastructure:
     runs-on: ubuntu-latest

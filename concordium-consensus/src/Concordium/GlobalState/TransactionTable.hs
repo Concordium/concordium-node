@@ -6,7 +6,6 @@ module Concordium.GlobalState.TransactionTable where
 
 import Control.Exception
 import Data.Coerce
-import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Map.Strict as Map
@@ -513,7 +512,7 @@ groupPendingTransactions transTable pendingTable = transactionGroups
     grouped0 =
         MinPQ.fromList
             [ (wmdArrivalTime c, TGCredentialDeployment (c, Just verRes))
-              | Just (c, verRes) <- credentials
+            | Just (c, verRes) <- credentials
             ]
     groupAcctTxs groups (acc, (l, _)) =
         case lookupAccountTransactions acc l transTable of

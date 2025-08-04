@@ -483,8 +483,7 @@ instance HashableTo (AccountMerkleHash av) (PersistentAccountEnduringData av) wh
 --  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV2 ::
-    ( MonadBlobStore m
-    ) =>
+    (MonadBlobStore m) =>
     EagerBufferedRef PersistingAccountData ->
     Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
     Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
@@ -514,8 +513,7 @@ makeAccountEnduringDataAV2 paedPersistingData paedEncryptedAmount paedReleaseSch
 --  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV3 ::
-    ( MonadBlobStore m
-    ) =>
+    (MonadBlobStore m) =>
     EagerBufferedRef PersistingAccountData ->
     Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
     Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
@@ -546,8 +544,7 @@ makeAccountEnduringDataAV3 paedPersistingData paedEncryptedAmount paedReleaseSch
 --  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV4 ::
-    ( MonadBlobStore m
-    ) =>
+    (MonadBlobStore m) =>
     EagerBufferedRef PersistingAccountData ->
     Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
     Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
@@ -578,8 +575,7 @@ makeAccountEnduringDataAV4 paedPersistingData paedEncryptedAmount paedReleaseSch
 --  Precondition: if the 'AccountReleaseSchedule' is present, then it must have some releases
 --  and the total amount of the releases must be the provided amount.
 makeAccountEnduringDataAV5 ::
-    ( MonadBlobStore m
-    ) =>
+    (MonadBlobStore m) =>
     EagerBufferedRef PersistingAccountData ->
     Nullable (LazyBufferedRef PersistentAccountEncryptedAmount) ->
     Nullable (LazyBufferedRef AccountReleaseSchedule, Amount) ->
@@ -1405,25 +1401,6 @@ getTokenBalance acc tokenIx = do
                     tokenState <- refLoad tokenStateRef
                     return $ tasBalance tokenState
 
--- | Look up the 'TokenStateValue' associated with a particular token and key on an account.
---  This is only available at account versions that support protocol-level tokens.
-getTokenState ::
-    (MonadBlobStore m, AVSupportsPLT av) =>
-    PersistentAccount av ->
-    TokenIndex ->
-    TokenStateKey ->
-    m (Maybe TokenStateValue)
-getTokenState acc tokenIx key = do
-    case uncond (accountTokenStateTable acc) of
-        Null -> return Nothing
-        Some ref -> do
-            table <- refLoad ref
-            case Map.lookup tokenIx (tokenAccountStateTable table) of
-                Nothing -> return Nothing
-                Just tokenStateRef -> do
-                    tokenState <- refLoad tokenStateRef
-                    return $ Map.lookup key (tasModuleState tokenState)
-
 -- ** Updates
 
 -- | Apply account updates to an account. It is assumed that the address in
@@ -1465,7 +1442,7 @@ updateAccount !upd !acc0 = do
                     Add{..} -> addIncomingEncryptedAmount newAmount
                     ReplaceUpTo{..} -> replaceUpTo aggIndex newAmount
                     AddSelf{..} -> addToSelfEncryptedAmount newAmount
-                    )
+                )
                     oldEncAmount
             isInitial <- isInitialPersistentAccountEncryptedAmount newEncryptedAmount
             encryptedAmountRef <-

@@ -31,6 +31,7 @@ import qualified Concordium.Genesis.Data.P8 as P8
 import qualified Concordium.Genesis.Data.P9 as P9
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Parameters (
     GenesisData (GDP6, GDP7, GDP8, GDP9),
     defaultRuntimeParameters,
@@ -236,12 +237,17 @@ deriving via
 deriving via
     (PersistentBlockStateMonadHelper pv)
     instance
-        (IsProtocolVersion pv) => PLTQuery (HashedPersistentBlockState pv) (TestMonad pv)
+        (IsProtocolVersion pv) => TokenStateOperations StateV1.MutableState (TestMonad pv)
 
 deriving via
     (PersistentBlockStateMonadHelper pv)
     instance
-        (IsProtocolVersion pv) => PLTQuery (PersistentBlockState pv) (TestMonad pv)
+        (IsProtocolVersion pv) => PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (TestMonad pv)
+
+deriving via
+    (PersistentBlockStateMonadHelper pv)
+    instance
+        (IsProtocolVersion pv) => PLTQuery (PersistentBlockState pv) StateV1.MutableState (TestMonad pv)
 
 deriving via
     (PersistentBlockStateMonadHelper pv)

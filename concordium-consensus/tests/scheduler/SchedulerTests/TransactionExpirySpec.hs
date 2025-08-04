@@ -152,12 +152,12 @@ testExpiryTime expiry transactions _ =
         assertEqual "No unprocessed transactions." [] ftUnprocessed
         let results = Helpers.getResults ftAdded
         if expiryTime <= expiry
-            then -- transactions haven't expired, so they should all succeed
-            do
+            -- transactions haven't expired, so they should all succeed
+            then do
                 assertEqual "No failed transactions." [] ftFailed
                 assertBool "All added transactions succeed." $ all isSuccess results
-            else -- transactions expired and they should all fail
-            do
+            -- transactions expired and they should all fail
+            else do
                 assertEqual "No transactions added." [] results
                 assertBool "All failed transactions expired." $ all isExpired ftFailed
         doBlockStateAssertions

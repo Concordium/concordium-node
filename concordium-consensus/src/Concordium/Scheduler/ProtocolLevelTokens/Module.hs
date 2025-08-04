@@ -16,11 +16,20 @@ import qualified Data.Text.Encoding as Text
 import Data.Word
 
 import Concordium.Cost
+import Concordium.Crypto.SHA256 as Hash
 import Concordium.Types
 import Concordium.Types.ProtocolLevelTokens.CBOR
 import Concordium.Types.Tokens
 
-import Concordium.Scheduler.ProtocolLevelTokens.Kernel
+import Concordium.Scheduler.ProtocolLevelTokens.Kernel hiding (getTokenState, setTokenState)
+import qualified Concordium.Scheduler.ProtocolLevelTokens.Kernel as Kernel
+
+-- | The token module reference for version 0 of the token module.
+--  This is the hash of "TokenModuleV0".
+--
+--  5c5c2645db84a7026d78f2501740f60a8ccb8fae5c166dc2428077fd9a699a4a
+tokenModuleV0Ref :: TokenModuleRef
+tokenModuleV0Ref = TokenModuleRef $ Hash.hash "TokenModuleV0"
 
 -- | The context for a token-holder or token-governance transaction.
 data TransactionContext' account = TransactionContext
@@ -88,19 +97,19 @@ initializeToken tokenParam = do
     case tokenInitializationParametersFromBytes tokenParamLBS of
         Left failureReason -> pltError $ ITEDeserializationFailure failureReason
         Right TokenInitializationParameters{..} -> do
-            setTokenState "name" (Just $ Text.encodeUtf8 tipName)
-            setTokenState "metadata" (Just $ tokenMetadataUrlToBytes tipMetadata)
-            when tipAllowList $ setTokenState "allowList" (Just "")
-            when tipDenyList $ setTokenState "denyList" (Just "")
-            when tipMintable $ setTokenState "mintable" (Just "")
-            when tipBurnable $ setTokenState "burnable" (Just "")
+            void $ setModuleState "name" (Just $ Text.encodeUtf8 tipName)
+            void $ setModuleState "metadata" (Just $ tokenMetadataUrlToBytes tipMetadata)
+            when tipAllowList $ void $ setModuleState "allowList" (Just "")
+            when tipDenyList $ void $ setModuleState "denyList" (Just "")
+            when tipMintable $ void $ setModuleState "mintable" (Just "")
+            when tipBurnable $ void $ setModuleState "burnable" (Just "")
             mbGovAccount <- getAccount $ chaAccount tipGovernanceAccount
             case mbGovAccount of
                 Nothing ->
                     pltError (ITEGovernanceAccountDoesNotExist $ chaAccount tipGovernanceAccount)
                 Just govAccount -> do
                     govIx <- getAccountIndex govAccount
-                    setTokenState "governanceAccount" (Just $ encode govIx)
+                    void $ setModuleState "governanceAccount" (Just $ encode govIx)
                     forM_ tipInitialSupply $ \initSupply -> do
                         decimals <- getDecimals
                         case toTokenRawAmount decimals initSupply of
@@ -141,10 +150,14 @@ data PreprocessedTokenOperation
         {ptgoTarget :: !CborTokenHolder}
     | PTOTokenRemoveDenyList
         {ptgoTarget :: !CborTokenHolder}
+    | PTOTokenPause
+    | PTOTokenUnpause
     deriving (Eq, Show)
 
 -- | Convert 'TokenAmount's to 'TokenRawAmount's, checking that they are within
 --  the representable range.
+--  Note: The preprocess step should not include expensive operations as the operation
+--  specific charging of energy is done after this step.
 preprocessTokenUpdateTransaction ::
     (PLTKernelFail EncodedTokenRejectReason m, Monad m) =>
     Word8 ->
@@ -186,6 +199,8 @@ preprocessTokenUpdateTransaction decimals = mapM preproc . tokenOperations
         return PTOTokenAddDenyList{ptgoTarget = receiver}
     preproc (TokenRemoveDenyList receiver) =
         return PTOTokenRemoveDenyList{ptgoTarget = receiver}
+    preproc TokenPause = return PTOTokenPause
+    preproc TokenUnpause = return PTOTokenUnpause
 
 -- | Encode and log a 'TokenEvent'.
 logEncodeTokenEvent :: (PLTKernelUpdate m) => TokenEvent -> m ()
@@ -199,9 +214,35 @@ logEncodeTokenEvent te = logTokenEvent eventType details
 --   - Check that amounts are within the representable range.
 --   - For each transfer operation:
 --
+--       - Check that the module is not paused.
 --       - Check that the recipient is valid.
+--       - Check allowList/denyList restrictions.
 --       - Transfer the amount from the sender to the recipient, if the sender's balance is
 --         sufficient.
+--
+--   - For each list update operation:
+--
+--       - Check that the governance account is the sender.
+--       - Check that the module configuration allows the list operation.
+--       - Check that the account to add/remove exists on-chain.
+--
+--   - For each mint operation:
+--
+--       - Check that the governance account is the sender.
+--       - Check that the module is not paused.
+--       - Check that the module configuration allows minting.
+--       - Check that the minting process was successful.
+--
+--   - For each burn operation:
+--
+--       - Check that the governance account is the sender.
+--       - Check that the module is not paused.
+--       - Check that the module configuration allows burning.
+--       - Check that the burning process was successful.
+--
+--   - For each pause/unpause operation:
+--
+--       - Check that the governance account is the sender.
 --
 -- INVARIANTS:
 --   - Token module state contains a correctly encoded governance account address.
@@ -219,10 +260,13 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
     let handleOperation !opIndex op = do
             case op of
                 PTOTransfer{..} -> do
+                    -- Charge energy immediately.
+                    pltTickEnergy tokenTransferCost
+                    checkPaused opIndex "transfer"
                     recipientAccount <- requireAccount opIndex pthoRecipient
                     -- If the allow list is enabled, check that the sender and recipient are
                     -- both on the allow list.
-                    enforceAllowList <- isJust <$> getTokenState "allowList"
+                    enforceAllowList <- isJust <$> getModuleState "allowList"
                     when enforceAllowList $ do
                         senderAllowed <- isJust <$> getAccountState tcSender "allowList"
                         unless senderAllowed $
@@ -241,7 +285,7 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                       trrAddressNotPermitted = Just pthoRecipient,
                                       trrReason = Just "recipient not in allow list"
                                     }
-                    enforceDenyList <- isJust <$> getTokenState "denyList"
+                    enforceDenyList <- isJust <$> getModuleState "denyList"
                     -- If the deny list is enabled, check that neither the sender nor the
                     -- recipient are on the deny list.
                     when enforceDenyList $ do
@@ -262,7 +306,6 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                       trrAddressNotPermitted = Just pthoRecipient,
                                       trrReason = Just "recipient in deny list"
                                     }
-                    pltTickEnergy tokenTransferCost
                     success <- transfer tcSender recipientAccount pthoAmount pthoMemo
                     unless success $ do
                         availableBalance <- getAccountBalance tcSender
@@ -273,7 +316,21 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                   trrRequiredBalance = ttAmount pthoUnprocessed
                                 }
                 tokenGovernanceOp -> do
-                    mbGovAccountIx <- getTokenState "governanceAccount"
+                    -- Charge energy immediately.
+                    pltTickEnergy $ case tokenGovernanceOp of
+                        -- Mint and Burn
+                        PTOTokenMint{} -> tokenMintCost
+                        PTOTokenBurn{} -> tokenBurnCost
+                        -- List operations
+                        PTOTokenAddAllowList{} -> tokenListOperationCost
+                        PTOTokenRemoveAllowList{} -> tokenListOperationCost
+                        PTOTokenAddDenyList{} -> tokenListOperationCost
+                        PTOTokenRemoveDenyList{} -> tokenListOperationCost
+                        -- Pause and Unpause
+                        PTOTokenPause -> tokenPauseUnpauseCost
+                        PTOTokenUnpause -> tokenPauseUnpauseCost
+
+                    mbGovAccountIx <- getModuleState "governanceAccount"
                     govAccountIx <- case mbGovAccountIx of
                         Just govAccountIx -> return govAccountIx
                         Nothing ->
@@ -295,8 +352,8 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                 }
                     case tokenGovernanceOp of
                         PTOTokenMint{..} -> do
+                            checkPaused opIndex "mint"
                             requireFeature opIndex "mint" "mintable"
-                            pltTickEnergy tokenMintCost
                             mintOK <- mint tcSender ptgoAmount
                             unless mintOK $ do
                                 availableSupply <- getCirculatingSupply
@@ -309,8 +366,8 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                                             toTokenAmount decimals (maxBound :: TokenRawAmount)
                                         }
                         PTOTokenBurn{..} -> do
+                            checkPaused opIndex "burn"
                             requireFeature opIndex "burn" "burnable"
-                            pltTickEnergy tokenBurnCost
                             burnOK <- burn tcSender ptgoAmount
                             unless burnOK $ do
                                 availableBalance <- getAccountBalance tcSender
@@ -323,33 +380,95 @@ executeTokenUpdateTransaction TransactionContext{..} tokenParam = do
                         PTOTokenAddAllowList{..} -> do
                             requireFeature opIndex "addAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
-                            pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" (Just "")
                             logEncodeTokenEvent (AddAllowListEvent ptgoTarget)
                         PTOTokenRemoveAllowList{..} -> do
                             requireFeature opIndex "removeAllowList" "allowList"
                             account <- requireAccount opIndex ptgoTarget
-                            pltTickEnergy tokenListOperationCost
                             setAccountState account "allowList" Nothing
                             logEncodeTokenEvent (RemoveAllowListEvent ptgoTarget)
                         PTOTokenAddDenyList{..} -> do
                             requireFeature opIndex "addDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
-                            pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" (Just "")
                             logEncodeTokenEvent (AddDenyListEvent ptgoTarget)
                         PTOTokenRemoveDenyList{..} -> do
                             requireFeature opIndex "removeDenyList" "denyList"
                             account <- requireAccount opIndex ptgoTarget
-                            pltTickEnergy tokenListOperationCost
                             setAccountState account "denyList" Nothing
                             logEncodeTokenEvent (RemoveDenyListEvent ptgoTarget)
+                        PTOTokenPause -> do
+                            setModuleState "paused" (Just "")
+                            logEncodeTokenEvent Pause
+                        PTOTokenUnpause -> do
+                            setModuleState "paused" Nothing
+                            logEncodeTokenEvent Unpause
             return (opIndex + 1)
     foldM_ handleOperation 0 operations
   where
     tokenParamLBS =
         BS.Builder.toLazyByteString $ BS.Builder.shortByteString $ parameterBytes tokenParam
     failTH = pltError . encodeTokenRejectReason
+    checkPaused opIndex op = do
+        paused <- isJust <$> getModuleState "paused"
+        when paused $
+            failTH
+                OperationNotPermitted
+                    { trrOperationIndex = opIndex,
+                      trrAddressNotPermitted = Nothing,
+                      trrReason = Just $ Text.pack $ "token operation " ++ op ++ " is paused"
+                    }
+
+-- | Token state key prefix for global module state.
+moduleStatePrefix :: Word16
+moduleStatePrefix = 0
+
+-- | Build a module state key by prefixing the module state prefix.
+moduleStateKey :: TokenStateKey -> TokenStateKey
+moduleStateKey key = runPut $ do
+    putWord16le moduleStatePrefix
+    putByteString key
+
+-- | Set the value in the module state.
+setModuleState :: (Monad m, PLTKernelUpdate m) => TokenStateKey -> Maybe TokenStateValue -> m ()
+setModuleState key maybeValue = do
+    let moduleKey = moduleStateKey key
+    void $ Kernel.setTokenState moduleKey maybeValue
+
+-- | Get the value from the module state.
+getModuleState :: (PLTKernelQuery m) => TokenStateKey -> m (Maybe TokenStateValue)
+getModuleState = Kernel.getTokenState . moduleStateKey
+
+-- | Token state key prefix for account state, should be followed by the account index.
+accountStatePrefix :: Word16
+accountStatePrefix = 40307
+
+-- | Build the token state key for an account state.
+-- This groups the account related state with the same prefix in the token state, making it easier
+-- to iterate in the future.
+accountStateKey :: AccountIndex -> TokenStateKey -> TokenStateKey
+accountStateKey accountIndex subkey = runPut $ do
+    putWord16le accountStatePrefix
+    put accountIndex
+    putByteString subkey
+
+-- | Set the value in the account state.
+setAccountState :: (Monad m, PLTKernelUpdate m) => PLTAccount m -> TokenStateKey -> Maybe TokenStateValue -> m ()
+setAccountState account key maybeValue = do
+    -- make sure that the account state contains a balance. Otherwise the
+    -- updated account state might not be displayed in future queries.
+    void $ touch account
+
+    accountIndex <- getAccountIndex account
+    let accountKey = accountStateKey accountIndex key
+    void $ Kernel.setTokenState accountKey maybeValue
+
+-- | Get the value from the account state.
+getAccountState :: (Monad m, PLTKernelQuery m) => PLTAccount m -> TokenStateKey -> m (Maybe TokenStateValue)
+getAccountState account key = do
+    accountIndex <- getAccountIndex account
+    let accountKey = accountStateKey accountIndex key
+    Kernel.getTokenState accountKey
 
 -- | Check that a particular feature is enabled for the token, and otherwise fail with
 --  'UnsupportedOperation'.
@@ -363,7 +482,7 @@ requireFeature ::
     TokenStateKey ->
     m ()
 requireFeature trrOperationIndex trrOperationType feature = do
-    featureState <- getTokenState feature
+    featureState <- getModuleState feature
     when (isNothing featureState) $
         pltError . encodeTokenRejectReason $
             UnsupportedOperation{trrReason = Just "feature not enabled", ..}
@@ -397,17 +516,17 @@ instance Show QueryTokenError where
 queryTokenModuleState :: (PLTKernelQuery m, PLTKernelFail QueryTokenError m, Monad m) => m BS.ByteString
 queryTokenModuleState = do
     tmsName <-
-        getTokenState "name" >>= \case
+        getModuleState "name" >>= \case
             Nothing -> pltError $ QTEInvariantViolation "Missing 'name'"
             Just name -> return $ Text.decodeUtf8Lenient name
     tmsMetadata <-
-        getTokenState "metadata" >>= \case
+        getModuleState "metadata" >>= \case
             Nothing -> pltError $ QTEInvariantViolation "Missing 'metadata'"
             Just metadata ->
                 either (corruptDataError "metadata url") return $ tokenMetadataUrlFromBytes $ LBS.fromStrict metadata
     tmsGovernanceAccount <- do
         govAccountBytes <-
-            getTokenState "governanceAccount" >>= \case
+            getModuleState "governanceAccount" >>= \case
                 Nothing -> pltError $ QTEInvariantViolation "Missing governance account"
                 Just govAccountBytes -> return govAccountBytes
         govAccountIndex <- either (corruptDataError "governance account address") return $ decode govAccountBytes
@@ -416,10 +535,11 @@ queryTokenModuleState = do
                 Nothing -> pltError $ QTEInvariantViolation "Governance account does not exist"
                 Just account -> return account
         accountTokenHolderShort <$> getAccountCanonicalAddress account
-    tmsAllowList <- Just . isJust <$> getTokenState "allowList"
-    tmsDenyList <- Just . isJust <$> getTokenState "denyList"
-    tmsMintable <- Just . isJust <$> getTokenState "mintable"
-    tmsBurnable <- Just . isJust <$> getTokenState "burnable"
+    tmsPaused <- Just . isJust <$> getModuleState "paused"
+    tmsAllowList <- Just . isJust <$> getModuleState "allowList"
+    tmsDenyList <- Just . isJust <$> getModuleState "denyList"
+    tmsMintable <- Just . isJust <$> getModuleState "mintable"
+    tmsBurnable <- Just . isJust <$> getModuleState "burnable"
     let tmsAdditional = Map.empty
     return $ tokenModuleStateToBytes TokenModuleState{..}
   where
@@ -429,12 +549,12 @@ queryTokenModuleState = do
 -- | Get the CBOR-encoded representation of the token module account state.
 queryAccountState :: (PLTKernelQuery m, Monad m) => PLTAccount m -> m (Maybe BS.ByteString)
 queryAccountState account = do
-    allowListEnabled <- isJust <$> getTokenState "allowList"
+    allowListEnabled <- isJust <$> getModuleState "allowList"
     tmasAllowList <-
         if allowListEnabled
             then Just . isJust <$> getAccountState account "allowList"
             else return Nothing
-    denyListEnabled <- isJust <$> getTokenState "denyList"
+    denyListEnabled <- isJust <$> getModuleState "denyList"
     tmasDenyList <-
         if denyListEnabled
             then Just . isJust <$> getAccountState account "denyList"

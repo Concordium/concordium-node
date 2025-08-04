@@ -15,7 +15,6 @@ module Concordium.KonsensusV1.Types where
 import Control.Monad
 import Data.Bits
 import qualified Data.ByteString as BS
-import Data.List (foldl')
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Serialize

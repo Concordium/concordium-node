@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -53,7 +54,8 @@ deriving via (MGSTrans AccountNonceQueryT m) instance (MonadProtocolVersion m) =
 
 -- Instances required in order to use the 'AccountNonceQueryT' monad from within a block state context.
 deriving via (MGSTrans AccountNonceQueryT m) instance GSTypes.BlockStateTypes (AccountNonceQueryT m)
-deriving via (MGSTrans AccountNonceQueryT m) instance (PLTQuery bs m) => PLTQuery bs (AccountNonceQueryT m)
+deriving via (MGSTrans AccountNonceQueryT m) instance (TokenStateOperations ts m) => TokenStateOperations ts (AccountNonceQueryT m)
+deriving via (MGSTrans AccountNonceQueryT m) instance (PLTQuery bs ts m) => PLTQuery bs ts (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (BlockStateQuery m) => BlockStateQuery (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (ContractStateOperations m) => ContractStateOperations (AccountNonceQueryT m)
 deriving via (MGSTrans AccountNonceQueryT m) instance (AccountOperations m) => AccountOperations (AccountNonceQueryT m)
