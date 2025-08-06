@@ -56,6 +56,7 @@ If these are enabled then the following options become available
   get_blocks = true
   get_account_list = true
   get_account_info = false
+  get_token_info = true
   get_token_list = true
   get_module_list = true
   get_module_source = true
