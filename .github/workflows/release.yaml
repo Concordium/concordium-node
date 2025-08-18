@@ -342,34 +342,7 @@ jobs:
       - name: Install LMDB
         run: stack exec -- pacman -S --noconfirm mingw-w64-x86_64-lmdb
 
-      - name: Build Windows Node
-        run: |
-          ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ env.RUST_VERSION }}
-
-      - name: Extract files to prepare for signing 
-        run: |
-          dir service\windows\installer
-          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer/Node.msi -x Node.cab
-          mkdir Node
-          dir
-          expand -d Node.cab
-          expand -F:* Node.cab ./Node
-          dir Node
-        shell: cmd
-      
-      - name: Rename files to prepare for signing (smctl can only sign files of certain types supported by signtool)
-        # See: https://docs.digicert.com/it/digicert-keylocker/client-tools/signing-tools/files-supported-for-signing.html
-        run: |
-          mv ./Node/ConcordiumConsensusDLL ./Node/ConcordiumConsensusDLL.dll
-          mv ./Node/ConcordiumBaseDLL ./Node/ConcordiumBaseDLL.dll
-          mv ./Node/ConcordiumSmartContractEngineDLL ./Node/ConcordiumSmartContractEngineDLL.dll
-          mv ./Node/Sha2DLL ./Node/Sha2DLL.dll
-          mv ./Node/NodeRunnerService ./Node/NodeRunnerService.exe
-          mv ./Node/NodeCollector ./Node/NodeCollector.exe 
-          mv ./Node/ConcordiumNode ./Node/ConcordiumNode.exe
-
-      - name: Sign files with smctl
-        working-directory: ${{steps.build.outputs.bin_dir}}
+      - name: Build and Sign Windows Node
         env:
           WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
           WINDOWS_SM_KEYPAIR_ALIAS: ${{ secrets.WINDOWS_SM_KEYPAIR_ALIAS }}
@@ -379,41 +352,9 @@ jobs:
           SM_CLIENT_CERT_PASSWORD: ${{ secrets.WINDOWS_SM_CLIENT_CERT_PASSWORD }}
           SM_ARGS: "--verbose --exit-non-zero-on-fail --failfast"
         run: |
-          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumConsensusDLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
-          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumBaseDLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
-          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumSmartContractEngineDLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
-          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/Sha2DLL.dll --config-file ${{ env.WINDOWS_PKCS11_CONFIG }}  ${{ env.SM_ARGS }}
-          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/NodeRunnerService.exe --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
-          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/NodeCollector.exe  --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
-          smctl sign --keypair-alias ${{ env.WINDOWS_SM_KEYPAIR_ALIAS }} --input ./Node/ConcordiumNode.exe  --config-file ${{ env.WINDOWS_PKCS11_CONFIG }} ${{ env.SM_ARGS }}
-        shell: cmd
+          ./scripts/distribution/windows/build-all.ps1 -nodeVersion ${{ needs.validate-preconditions.outputs.version }} -rustVersion ${{ env.RUST_VERSION }}
 
-      - name: Rename files back to their original form without extension. 
-        run: |
-          mv ./Node/ConcordiumConsensusDLL.dll ./Node/ConcordiumConsensusDLL
-          mv ./Node/ConcordiumBaseDLL.dll ./Node/ConcordiumBaseDLL
-          mv ./Node/ConcordiumSmartContractEngineDLL.dll ./Node/ConcordiumSmartContractEngineDLL
-          mv ./Node/Sha2DLL.dll ./Node/Sha2DLL
-          mv ./Node/NodeRunnerService.exe ./Node/NodeRunnerService
-          mv ./Node/NodeCollector.exe ./Node/NodeCollector
-          mv ./Node/ConcordiumNode.exe ./Node/ConcordiumNode
-
-      - name: Recreate the cabinet file. 
-        run: |
-          dir Node /b /a-d > cabfiles.txt
-          makecab.exe /D MaxDiskSize=0 /D Cabinet=ON /D Compress=ON /D CabinetName1=Node.cab /D SourceDir=Node /f cabfiles.txt
-        shell: cmd
-
-      - name: Repackage the cabinet file. 
-        run: |
-          del Node.cab
-          move disk1\Node.cab .
-          expand -d Node.cab
-          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer\Node.msi -k Node.cab
-          "C:\Program Files (x86)\Windows Kits\10\bin\10.0.22000.0\x86\MsiDb.exe" -d service\windows\installer\Node.msi -a Node.cab
-        shell: cmd
-  
-      - name: Sign files with smctl
+      - name: Sign installer with smctl
         working-directory: ${{steps.build.outputs.bin_dir}}
         env:
           WINDOWS_PKCS11_CONFIG: ${{ steps.digicert_client.outputs.PKCS11_CONFIG }}
