@@ -164,7 +164,10 @@ fn start_haskell_init(
         args.push("+RTS".to_owned())
     }
 
-    if rts_flags.iter().all(|arg| !arg.trim().starts_with("--install-signal-handlers")) {
+    if rts_flags
+        .iter()
+        .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
+    {
         args.push("--install-signal-handlers=no".to_owned());
     }
 
@@ -178,10 +181,18 @@ fn start_haskell_init(
         args.push("-RTS".to_owned());
     }
 
-    info!("Starting consensus with the following profiling arguments {:?}", args);
-    let args =
-        args.iter().map(|arg| CString::new(arg.as_bytes()).unwrap()).collect::<Vec<CString>>();
-    let c_args = args.iter().map(|arg| arg.as_ptr()).collect::<Vec<*const c_char>>();
+    info!(
+        "Starting consensus with the following profiling arguments {:?}",
+        args
+    );
+    let args = args
+        .iter()
+        .map(|arg| CString::new(arg.as_bytes()).unwrap())
+        .collect::<Vec<CString>>();
+    let c_args = args
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .collect::<Vec<*const c_char>>();
     let ptr_c_argc = &(c_args.len() as c_int);
     let ptr_c_argv = &c_args.as_ptr();
     unsafe {
@@ -195,7 +206,10 @@ fn start_haskell_init(rts_flags: &[String]) {
     let mut args = vec![program_name];
     args.push("+RTS".to_owned());
     if !rts_flags.is_empty() {
-        if rts_flags.iter().all(|arg| !arg.trim().starts_with("--install-signal-handlers")) {
+        if rts_flags
+            .iter()
+            .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
+        {
             args.push("--install-signal-handlers=no".to_owned());
         }
         for flag in rts_flags {
@@ -207,9 +221,14 @@ fn start_haskell_init(rts_flags: &[String]) {
         args.push("--install-signal-handlers=no".to_owned());
     }
     args.push("-RTS".to_owned());
-    let args =
-        args.iter().map(|arg| CString::new(arg.as_bytes()).unwrap()).collect::<Vec<CString>>();
-    let c_args = args.iter().map(|arg| arg.as_ptr()).collect::<Vec<*const c_char>>();
+    let args = args
+        .iter()
+        .map(|arg| CString::new(arg.as_bytes()).unwrap())
+        .collect::<Vec<CString>>();
+    let c_args = args
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .collect::<Vec<*const c_char>>();
     let ptr_c_argc = &(c_args.len() as c_int);
     let ptr_c_argv = &c_args.as_ptr();
     unsafe {
@@ -227,9 +246,11 @@ fn start_haskell_init(rts_flags: &[String]) {
 /// Will panic if called more than once.
 pub fn stop_haskell() {
     if STOPPED.swap(true, Ordering::SeqCst) {
-        panic!("The GHC runtime may only be stopped once. See \
+        panic!(
+            "The GHC runtime may only be stopped once. See \
                 https://downloads.haskell.org/%7Eghc/latest/docs/html/users_guide\
-                /ffi-chap.html#id1 ");
+                /ffi-chap.html#id1 "
+        );
     }
     stop_nopanic();
 }
@@ -296,7 +317,7 @@ type CopyCryptographicParametersCallback =
 /// Context for returning V1 contract state in the
 /// [`get_instance_state_v2`](ConsensusContainer::get_instance_state_v2) query.
 pub struct V1ContractStateReceiver {
-    state:  concordium_smart_contract_engine::v1::trie::PersistentState,
+    state: concordium_smart_contract_engine::v1::trie::PersistentState,
     loader: concordium_smart_contract_engine::v1::trie::LoadCallback,
 }
 
@@ -348,7 +369,7 @@ pub struct NotificationContext {
 type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64, u8);
 
 pub struct NotificationHandlers {
-    pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
+    pub blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
     pub finalized_blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
 }
 
@@ -1699,7 +1720,9 @@ unsafe extern "C" fn notify_callback(
     match ty {
         0u8 => {
             sender.last_arrived_block_height.set(block_height);
-            sender.last_arrived_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+            sender
+                .last_arrived_block_timestamp
+                .set(chrono::Utc::now().timestamp_millis());
             if home_baked {
                 sender.baked_blocks.inc()
             }
@@ -1720,7 +1743,9 @@ unsafe extern "C" fn notify_callback(
         }
         1u8 => {
             sender.last_finalized_block_height.set(block_height);
-            sender.last_finalized_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+            sender
+                .last_finalized_block_timestamp
+                .set(chrono::Utc::now().timestamp_millis());
             if home_baked {
                 sender.finalized_baked_blocks.inc()
             }
@@ -1739,7 +1764,10 @@ unsafe extern "C" fn notify_callback(
             }
         }
         unexpected => {
-            error!("Unexpected notification type {}. This is a bug.", unexpected);
+            error!(
+                "Unexpected notification type {}. This is a bug.",
+                unexpected
+            );
             // do nothing
         }
     }
@@ -1753,19 +1781,21 @@ unsafe extern "C" fn unsupported_update_callback(
     unsupported_update_pending: u64,
 ) {
     let context = &*context_ptr;
-    context.unsupported_pending_protocol_version.set(unsupported_update_pending);
+    context
+        .unsupported_pending_protocol_version
+        .set(unsupported_update_pending);
 }
 
 /// Information needed to start consensus.
 pub struct StartConsensusConfig {
     /// Serialized genesis data.
-    pub genesis_data:               Vec<u8>,
+    pub genesis_data: Vec<u8>,
     /// Maximum logging level.
-    pub maximum_log_level:          ConsensusLogLevel,
+    pub maximum_log_level: ConsensusLogLevel,
     /// Regenesis object.
-    pub regenesis_arc:              Arc<Regenesis>,
+    pub regenesis_arc: Arc<Regenesis>,
     /// Context for notifying upon new block arrival, and new finalized blocks.
-    pub notification_context:       Option<NotificationContext>,
+    pub notification_context: Option<NotificationContext>,
     /// Context for when signalling a unsupported protocol update is pending.
     pub unsupported_update_context: Option<NotifyUnsupportedUpdatesContext>,
 }
@@ -1883,7 +1913,9 @@ pub struct DryRun {
 unsafe impl Send for DryRun {}
 
 impl Drop for DryRun {
-    fn drop(&mut self) { unsafe { dryRunEnd(self.handle) } }
+    fn drop(&mut self) {
+        unsafe { dryRunEnd(self.handle) }
+    }
 }
 
 impl DryRun {
@@ -1951,9 +1983,12 @@ impl DryRun {
             invoker_contract_subindex,
         ) = if let Some(address) = &request.invoker {
             match address.r#type.as_ref().require()? {
-                crate::grpc2::types::address::Type::Account(account) => {
-                    (1, crate::grpc2::types::account_address_to_ffi(account).require()?, 0, 0)
-                }
+                crate::grpc2::types::address::Type::Account(account) => (
+                    1,
+                    crate::grpc2::types::account_address_to_ffi(account).require()?,
+                    0,
+                    0,
+                ),
                 crate::grpc2::types::address::Type::Contract(contract) => {
                     (2, std::ptr::null(), contract.index, contract.subindex)
                 }
@@ -2252,7 +2287,10 @@ impl ConsensusContainer {
         };
 
         let status = ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|err| {
-            unreachable!("An error occured when trying to convert FFI return code: {}", err)
+            unreachable!(
+                "An error occured when trying to convert FFI return code: {}",
+                err
+            )
         });
 
         (status, has_baker_id != 0, baker_id, baker_lottery_power)
@@ -2264,7 +2302,9 @@ impl ConsensusContainer {
 
     /// Checks if consensus is running, i.e. if consensus has been shut down,
     /// this will return false.
-    pub fn is_consensus_running(&self) -> bool { wrap_c_bool_call!(self, checkIfRunning) }
+    pub fn is_consensus_running(&self) -> bool {
+        wrap_c_bool_call!(self, checkIfRunning)
+    }
 
     /// Import blocks from the given file path. If the file exists and the node
     /// could import all blocks from the file `Ok(())` is returned. Otherwise an
@@ -2272,8 +2312,11 @@ impl ConsensusContainer {
     pub fn import_blocks(&self, import_file_path: &Path) -> anyhow::Result<()> {
         let consensus = self.consensus.load(Ordering::SeqCst);
 
-        let path_bytes =
-            import_file_path.as_os_str().to_str().context("Cannot decode path.")?.as_bytes();
+        let path_bytes = import_file_path
+            .as_os_str()
+            .to_str()
+            .context("Cannot decode path.")?
+            .as_bytes();
 
         let len = path_bytes.len();
 
@@ -2456,8 +2499,8 @@ impl ConsensusContainer {
             .ok_or_else(|| tonic::Status::internal("Failed to access cryptographic parameters"))?;
 
         let out = crate::grpc2::types::CryptographicParameters {
-            genesis_string:          crypto_parameters.genesis_string.clone(),
-            bulletproof_generators:  concordium_base::common::to_bytes(
+            genesis_string: crypto_parameters.genesis_string.clone(),
+            bulletproof_generators: concordium_base::common::to_bytes(
                 crypto_parameters.bulletproof_generators(),
             ),
             on_chain_commitment_key: concordium_base::common::to_bytes(
@@ -2690,13 +2733,14 @@ impl ConsensusContainer {
         };
         response.ensure_ok("block or instance")?;
         match out_v1_data {
-            None => Ok((out_hash, ContractStateResponse::V0 {
-                state: out_v0_data,
-            })),
-            Some(data) => Ok((out_hash, ContractStateResponse::V1 {
-                state:  data.state,
-                loader: data.loader,
-            })),
+            None => Ok((out_hash, ContractStateResponse::V0 { state: out_v0_data })),
+            Some(data) => Ok((
+                out_hash,
+                ContractStateResponse::V1 {
+                    state: data.state,
+                    loader: data.loader,
+                },
+            )),
         }
     }
 
@@ -2818,9 +2862,12 @@ impl ConsensusContainer {
             invoker_contract_subindex,
         ) = if let Some(address) = &request.invoker {
             match address.r#type.as_ref().require()? {
-                crate::grpc2::types::address::Type::Account(account) => {
-                    (1, crate::grpc2::types::account_address_to_ffi(account).require()?, 0, 0)
-                }
+                crate::grpc2::types::address::Type::Account(account) => (
+                    1,
+                    crate::grpc2::types::account_address_to_ffi(account).require()?,
+                    0,
+                    0,
+                ),
                 crate::grpc2::types::address::Type::Contract(contract) => {
                     (2, std::ptr::null(), contract.index, contract.subindex)
                 }
@@ -3664,7 +3711,12 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let response: ConsensusQueryResponse = unsafe {
-            getBakerEarliestWinTimeV2(consensus, request.value, &mut out_data, copy_to_vec_callback)
+            getBakerEarliestWinTimeV2(
+                consensus,
+                request.value,
+                &mut out_data,
+                copy_to_vec_callback,
+            )
         }
         .try_into()?;
         response.ensure_ok("baker")?;
@@ -3675,9 +3727,7 @@ impl ConsensusContainer {
     pub fn dry_run(&self, energy_quota: u64) -> DryRun {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let handle = unsafe { dryRunStart(consensus, copy_to_vec_callback, energy_quota) };
-        DryRun {
-            handle,
-        }
+        DryRun { handle }
     }
 }
 

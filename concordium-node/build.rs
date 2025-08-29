@@ -11,13 +11,19 @@ const GHC_VARIANT: &str = "aarch64-osx";
 
 #[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
-    str::from_utf8(&cmd.output().unwrap().stdout).unwrap().trim_end().to_string()
+    str::from_utf8(&cmd.output().unwrap().stdout)
+        .unwrap()
+        .trim_end()
+        .to_string()
 }
 
 fn main() -> std::io::Result<()> {
     let cargo_dir = env!("CARGO_MANIFEST_DIR");
     // Compile the flatbuffers schema
-    println!("cargo:rerun-if-changed={}/src/network/serialization/schema.fbs", cargo_dir);
+    println!(
+        "cargo:rerun-if-changed={}/src/network/serialization/schema.fbs",
+        cargo_dir
+    );
     flatc_rust::run(flatc_rust::Args {
         inputs: &[Path::new("src/network/serialization/schema.fbs")],
         out_dir: Path::new("target/"),
@@ -45,7 +51,10 @@ fn main() -> std::io::Result<()> {
             let stack_install_root = Path::new(&stack_install_root_command);
             let dll_location = stack_install_root.join("lib");
 
-            println!("cargo:rustc-link-search=native={}", dll_location.to_string_lossy());
+            println!(
+                "cargo:rustc-link-search=native={}",
+                dll_location.to_string_lossy()
+            );
             println!("cargo:rustc-link-lib=dylib=concordium-consensus");
         }
         #[cfg(not(windows))]
@@ -76,7 +85,10 @@ fn main() -> std::io::Result<()> {
                 let stack_install_root = Path::new(&stack_install_root_command);
                 let stack_install_lib = stack_install_root.join("lib");
 
-                println!("cargo:rustc-link-search={}", stack_install_lib.to_string_lossy());
+                println!(
+                    "cargo:rustc-link-search={}",
+                    stack_install_lib.to_string_lossy()
+                );
                 println!("cargo:rustc-link-lib=dylib=concordium-consensus");
 
                 // Find the first subdirectory of <stack_install_lib> whose filename has
@@ -91,8 +103,9 @@ fn main() -> std::io::Result<()> {
                 // `.DYLIB_EXTENSION` to the linked libraries list.
                 for dir_entry in dir {
                     let path = dir_entry?.path();
-                    if let Some(true) =
-                        path.extension().map(|ext| ext.to_string_lossy() == DYLIB_EXTENSION)
+                    if let Some(true) = path
+                        .extension()
+                        .map(|ext| ext.to_string_lossy() == DYLIB_EXTENSION)
                     // FIXME: On a mac we should ignore case, but not on linux
                     {
                         let name = path
@@ -139,7 +152,10 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
     {
         let types = format!("{}/v2/concordium/types.proto", proto_root_input);
         println!("cargo:rerun-if-changed={}", types);
-        let plts = format!("{}/v2/concordium/protocol-level-tokens.proto", proto_root_input);
+        let plts = format!(
+            "{}/v2/concordium/protocol-level-tokens.proto",
+            proto_root_input
+        );
         println!("cargo:rerun-if-changed={}", plts);
         let kernel = format!("{}/v2/concordium/kernel.proto", proto_root_input);
         println!("cargo:rerun-if-changed={}", kernel);
@@ -763,7 +779,9 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
     // Due to the slightly hacky nature of the RawCodec (i.e., it does not support
     // deserialization) we cannot build the client. But we also don't need it in the
     // node.
-    tonic_build::manual::Builder::new().build_client(false).compile(&[query_service]);
+    tonic_build::manual::Builder::new()
+        .build_client(false)
+        .compile(&[query_service]);
 
     {
         let health = format!("{}/v2/concordium/health.proto", proto_root_input);
@@ -819,7 +837,10 @@ fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
         ]))
     });
     let rts_dir = ghc_variant(Path::new(&ghc_lib_dir))?;
-    println!("cargo:rustc-link-search=native={}", rts_dir.to_string_lossy());
+    println!(
+        "cargo:rustc-link-search=native={}",
+        rts_dir.to_string_lossy()
+    );
     for item in std::fs::read_dir(&rts_dir)?.filter_map(Result::ok) {
         let path = item.path();
         let file_stem = path.file_stem().unwrap().to_string_lossy();
@@ -842,31 +863,36 @@ fn link_static_libs() -> std::io::Result<()> {
     #[cfg(feature = "profiling")]
     let path = format!("{}/deps/static-libs/linux/profiling", out_dir);
 
-    ["concordium", "dependencies", "ghc"].iter().for_each(|subdir| {
-        println!("cargo:rustc-link-search=native={}/{}", path, subdir);
-        let walker = walkdir::WalkDir::new(Path::new(&format!("{}/{}", path, subdir)))
-            .into_iter()
-            .filter_map(Result::ok);
-        for item in walker {
-            match item.file_name().to_str() {
-                Some(lib_file) => {
-                    // We link with all the libraries, but exclude the non-threaded Haskell RTS.
-                    if lib_file.starts_with("lib")
-                        && lib_file.ends_with(".a")
-                        && (!lib_file.starts_with("libHSrts") || lib_file.contains("_thr"))
-                    {
-                        println!(
-                            "cargo:rustc-link-lib=static={}",
-                            &lib_file[3..lib_file.len() - 2]
-                        );
+    ["concordium", "dependencies", "ghc"]
+        .iter()
+        .for_each(|subdir| {
+            println!("cargo:rustc-link-search=native={}/{}", path, subdir);
+            let walker = walkdir::WalkDir::new(Path::new(&format!("{}/{}", path, subdir)))
+                .into_iter()
+                .filter_map(Result::ok);
+            for item in walker {
+                match item.file_name().to_str() {
+                    Some(lib_file) => {
+                        // We link with all the libraries, but exclude the non-threaded Haskell RTS.
+                        if lib_file.starts_with("lib")
+                            && lib_file.ends_with(".a")
+                            && (!lib_file.starts_with("libHSrts") || lib_file.contains("_thr"))
+                        {
+                            println!(
+                                "cargo:rustc-link-lib=static={}",
+                                &lib_file[3..lib_file.len() - 2]
+                            );
+                        }
                     }
+                    _ => panic!("Unable to link ghc libs"),
                 }
-                _ => panic!("Unable to link ghc libs"),
             }
-        }
-    });
+        });
 
-    println!("cargo:rustc-link-search=native={}/deps/static-libs/linux/rust", out_dir);
+    println!(
+        "cargo:rustc-link-search=native={}/deps/static-libs/linux/rust",
+        out_dir
+    );
     println!("cargo:rustc-link-lib=static=Rcrypto");
     println!("cargo:rustc-link-lib=static=concordium_smart_contract_engine");
 
@@ -895,7 +921,10 @@ fn ghc_variant(stack_install_lib: &Path) -> std::io::Result<std::path::PathBuf> 
     match ghc_variant_dir {
         Some(path) => Ok(path),
         None => {
-            eprintln!("No subdirectory in {:?} with prefix {}", stack_install_lib, GHC_VARIANT);
+            eprintln!(
+                "No subdirectory in {:?} with prefix {}",
+                stack_install_lib, GHC_VARIANT
+            );
             Err(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 "GHC_VARIANT directory not found",

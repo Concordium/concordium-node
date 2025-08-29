@@ -14,10 +14,10 @@ use std::{fmt, net::IpAddr, sync::Arc};
 
 /// A structure containing network data to be dumped to the disk.
 pub struct DumpItem {
-    timestamp:   DateTime<Utc>,
-    inbound:     bool,
+    timestamp: DateTime<Utc>,
+    inbound: bool,
     remote_addr: IpAddr,
-    msg:         Arc<[u8]>,
+    msg: Arc<[u8]>,
 }
 
 impl DumpItem {
@@ -38,11 +38,7 @@ impl fmt::Display for DumpItem {
             f,
             "{} - {} - {} - {:?} - {:?}",
             self.timestamp,
-            if self.inbound {
-                "IN"
-            } else {
-                "OUT"
-            },
+            if self.inbound { "IN" } else { "OUT" },
             self.remote_addr,
             self.msg,
             NetworkMessage::deserialize(&self.msg)

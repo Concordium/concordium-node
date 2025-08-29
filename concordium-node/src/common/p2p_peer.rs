@@ -25,10 +25,14 @@ pub enum PeerType {
 
 impl fmt::Display for PeerType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", match self {
-            PeerType::Node => "Node",
-            PeerType::Bootstrapper => "Bootstrapper",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                PeerType::Node => "Node",
+                PeerType::Bootstrapper => "Bootstrapper",
+            }
+        )
     }
 }
 
@@ -68,9 +72,7 @@ impl std::str::FromStr for RemotePeerId {
 
     fn from_str(s: &str) -> anyhow::Result<Self> {
         match usize::from_str_radix(s, 16) {
-            Ok(remote_peer_id) => Ok(RemotePeerId {
-                remote_peer_id,
-            }),
+            Ok(remote_peer_id) => Ok(RemotePeerId { remote_peer_id }),
             Err(e) => bail!("Invalid Remote Peer Id ({})", e),
         }
     }
@@ -80,15 +82,15 @@ impl std::str::FromStr for RemotePeerId {
 /// existing platforms.
 impl From<RemotePeerId> for u64 {
     #[inline]
-    fn from(x: RemotePeerId) -> Self { x.remote_peer_id as u64 }
+    fn from(x: RemotePeerId) -> Self {
+        x.remote_peer_id as u64
+    }
 }
 
 impl From<usize> for RemotePeerId {
     #[inline]
     fn from(remote_peer_id: usize) -> Self {
-        Self {
-            remote_peer_id,
-        }
+        Self { remote_peer_id }
     }
 }
 
@@ -122,7 +124,9 @@ impl RemotePeerId {
     /// purposes; the name documents intent better then `::from` or `.into`
     /// would.
     #[inline]
-    pub fn to_token(self) -> mio::Token { mio::Token(self.remote_peer_id) }
+    pub fn to_token(self) -> mio::Token {
+        mio::Token(self.remote_peer_id)
+    }
 }
 
 /// A remote node in the network.
@@ -133,17 +137,17 @@ pub struct RemotePeer {
     /// the handshake completes.
     /// This id is only used in logging and externally, i.e., when
     /// reporting peers. It is not used by the node for managing peers.
-    pub self_id:       Option<P2PNodeId>,
+    pub self_id: Option<P2PNodeId>,
     /// Our local address of the node.
-    pub addr:          SocketAddr,
+    pub addr: SocketAddr,
     /// Our local identifier for the peer.
-    pub local_id:      RemotePeerId,
+    pub local_id: RemotePeerId,
     /// External port communicated to us by the node itself as part of the
     /// handshake. This is the port that the node can be reached at to
     /// initiate connections, as a result this is the port that is
     /// advertised as part of the peer list we serve.
     pub external_port: u16,
-    pub peer_type:     PeerType,
+    pub peer_type: PeerType,
 }
 
 // This instance is only used for storing peers in buckets, in which case
@@ -151,7 +155,9 @@ pub struct RemotePeer {
 // purpose then it should be considered whether it is adequate to only compare
 // the ids.
 impl PartialEq for RemotePeer {
-    fn eq(&self, other: &Self) -> bool { self.local_id == other.local_id }
+    fn eq(&self, other: &Self) -> bool {
+        self.local_id == other.local_id
+    }
 }
 
 // This instance is only used for storing peers in buckets, in which case
@@ -159,7 +165,9 @@ impl PartialEq for RemotePeer {
 // purpose then it should be considered whether it is adequate to only hash the
 // ids.
 impl Hash for RemotePeer {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.local_id.hash(state); }
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.local_id.hash(state);
+    }
 }
 
 impl RemotePeer {
@@ -184,20 +192,24 @@ impl RemotePeer {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct P2PPeer {
     /// The peer's chosen identifier.
-    pub id:        P2PNodeId,
+    pub id: P2PNodeId,
     /// The peer's address. Note that this is the address they advertise as part
     /// of the handshake, and thus it is ostensibly the address where it
     /// listens to for new connections.
-    pub addr:      SocketAddr,
+    pub addr: SocketAddr,
     pub peer_type: PeerType,
 }
 
 impl P2PPeer {
     /// Get the peer's IP address.
-    pub fn ip(&self) -> IpAddr { self.addr.ip() }
+    pub fn ip(&self) -> IpAddr {
+        self.addr.ip()
+    }
 
     /// Get the peer's port.
-    pub fn port(&self) -> u16 { self.addr.port() }
+    pub fn port(&self) -> u16 {
+        self.addr.port()
+    }
 }
 
 impl Display for P2PPeer {
@@ -210,16 +222,16 @@ impl Display for P2PPeer {
 #[derive(Debug)]
 pub struct PeerStats {
     /// The peer's self identifier. Only used for reporting.
-    pub self_id:        P2PNodeId,
-    pub addr:           SocketAddr,
-    pub external_port:  u16,
+    pub self_id: P2PNodeId,
+    pub addr: SocketAddr,
+    pub external_port: u16,
     /// Our identifier for the remote peer.
-    pub local_id:       RemotePeerId,
-    pub peer_type:      PeerType,
-    pub latency:        u64,
-    pub msgs_sent:      u64,
-    pub msgs_received:  u64,
-    pub bytes_sent:     u64,
+    pub local_id: RemotePeerId,
+    pub peer_type: PeerType,
+    pub latency: u64,
+    pub msgs_sent: u64,
+    pub msgs_received: u64,
+    pub bytes_sent: u64,
     pub bytes_received: u64,
 }
 

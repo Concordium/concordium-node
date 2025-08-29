@@ -56,8 +56,13 @@ impl Connection {
                 self.send_peer_list_resp(networks, conn_stats)
             }
             NetworkPayload::NetworkResponse(NetworkResponse::PeerList(peers), ..) => {
-                debug!("Got a PeerList ({} peers) from peer {}", peers.len(), peer_id);
-                self.handler.register_conn_change(ConnChange::NewPeers(peers));
+                debug!(
+                    "Got a PeerList ({} peers) from peer {}",
+                    peers.len(),
+                    peer_id
+                );
+                self.handler
+                    .register_conn_change(ConnChange::NewPeers(peers));
                 Ok(())
             }
             NetworkPayload::NetworkRequest(NetworkRequest::JoinNetwork(network), ..) => {
@@ -83,7 +88,10 @@ impl Connection {
         debug!("Got a Handshake request from peer {}", handshake.remote_id);
 
         if !is_compatible_version(&handshake.node_version) {
-            bail!("Rejecting handshake: incompatible client ({}).", handshake.node_version);
+            bail!(
+                "Rejecting handshake: incompatible client ({}).",
+                handshake.node_version
+            );
         }
         if handshake.wire_versions.is_empty() {
             bail!("Rejecting handshake: Handshake message lacked wire versions.");
@@ -139,9 +147,13 @@ impl Connection {
     }
 
     /// Check whether the connection has completed the handshake.
-    pub(crate) fn is_post_handshake(&self) -> bool { self.remote_peer.self_id.is_some() }
+    pub(crate) fn is_post_handshake(&self) -> bool {
+        self.remote_peer.self_id.is_some()
+    }
 
-    fn handle_pong(&self) -> anyhow::Result<()> { self.stats.notify_pong() }
+    fn handle_pong(&self) -> anyhow::Result<()> {
+        self.stats.notify_pong()
+    }
 
     fn handle_incoming_packet(
         &self,
@@ -151,6 +163,12 @@ impl Connection {
         let is_broadcast = matches!(pac.destination, PacketDestination::Broadcast(..));
 
         // Ignore the deserialized p2p node ids to be excluded from the wire.
-        handle_pkt_out(&self.handler, vec![peer_id], peer_id, pac.message, is_broadcast)
+        handle_pkt_out(
+            &self.handler,
+            vec![peer_id],
+            peer_id,
+            pac.message,
+            is_broadcast,
+        )
     }
 }

@@ -41,9 +41,14 @@ fn main() -> anyhow::Result<()> {
         "Bootstrapper can't run without specifying genesis hashes."
     );
 
-    let (node, server, poll) =
-        P2PNode::new(conf.common.id, &conf, PeerType::Node, stats_export_service, regenesis_arc)
-            .context("Failed to create the node.")?;
+    let (node, server, poll) = P2PNode::new(
+        conf.common.id,
+        &conf,
+        PeerType::Node,
+        stats_export_service,
+        regenesis_arc,
+    )
+    .context("Failed to create the node.")?;
 
     spawn(&node, server, poll, None);
 

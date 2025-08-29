@@ -18,9 +18,9 @@ macro_rules! test_s11n {
         #[test]
         fn $name() {
             let msg = NetworkMessage {
-                created:  get_current_stamp(),
+                created: get_current_stamp(),
                 received: None,
-                payload:  $payload,
+                payload: $payload,
             };
             let mut buffer = Cursor::new(Vec::new());
 
@@ -31,23 +31,34 @@ macro_rules! test_s11n {
     };
 }
 
-test_s11n!(s11n_req_ping, NetworkPayload::NetworkRequest(NetworkRequest::Ping));
+test_s11n!(
+    s11n_req_ping,
+    NetworkPayload::NetworkRequest(NetworkRequest::Ping)
+);
 test_s11n!(
     s11n_req_get_peers,
     NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(
-        [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
+        [100u16, 1000, 1234, 9999]
+            .iter()
+            .copied()
+            .map(NetworkId::from)
+            .collect(),
     ))
 );
 test_s11n!(
     s11n_req_handshake,
     NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
-        remote_id:      P2PNodeId(77),
-        remote_port:    1234,
-        networks:       [100u16, 1000, 1234, 9999].iter().copied().map(NetworkId::from).collect(),
-        node_version:   Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
-        wire_versions:  vec![0, 1, 2],
+        remote_id: P2PNodeId(77),
+        remote_port: 1234,
+        networks: [100u16, 1000, 1234, 9999]
+            .iter()
+            .copied()
+            .map(NetworkId::from)
+            .collect(),
+        node_version: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
+        wire_versions: vec![0, 1, 2],
         genesis_blocks: dummy_regenesis_blocks(),
-        proof:          Vec::new(),
+        proof: Vec::new(),
     }))
 );
 test_s11n!(
@@ -59,20 +70,23 @@ test_s11n!(
     NetworkPayload::NetworkRequest(NetworkRequest::LeaveNetwork(NetworkId::from(1337),))
 );
 
-test_s11n!(s11n_resp_pong, NetworkPayload::NetworkResponse(NetworkResponse::Pong));
+test_s11n!(
+    s11n_resp_pong,
+    NetworkPayload::NetworkResponse(NetworkResponse::Pong)
+);
 
 test_s11n!(
     s11n_resp_peer_list,
     NetworkPayload::NetworkResponse(NetworkResponse::PeerList(
         [
             P2PPeer {
-                id:        P2PNodeId(1234567890123),
-                addr:      SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 80),
+                id: P2PNodeId(1234567890123),
+                addr: SocketAddr::new(IpAddr::from([1, 2, 3, 4]), 80),
                 peer_type: PeerType::Bootstrapper,
             },
             P2PPeer {
-                id:        P2PNodeId(1),
-                addr:      SocketAddr::new(IpAddr::from([8, 7, 6, 5, 4, 3, 2, 1]), 8080),
+                id: P2PNodeId(1),
+                addr: SocketAddr::new(IpAddr::from([8, 7, 6, 5, 4, 3, 2, 1]), 8080),
                 peer_type: PeerType::Node,
             },
         ]

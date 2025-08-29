@@ -46,9 +46,9 @@ pub const CONSENSUS_QUEUE_DEPTH_IN_LO: usize = 32 * 1024;
 
 pub struct ConsensusInboundQueues {
     pub receiver_high_priority: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
-    pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
+    pub sender_high_priority: QueueSyncSender<ConsensusMessage>,
+    pub receiver_low_priority: Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_low_priority: QueueSyncSender<ConsensusMessage>,
 }
 
 impl Default for ConsensusInboundQueues {
@@ -68,9 +68,9 @@ impl Default for ConsensusInboundQueues {
 
 pub struct ConsensusOutboundQueues {
     pub receiver_high_priority: Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_high_priority:   QueueSyncSender<ConsensusMessage>,
-    pub receiver_low_priority:  Mutex<QueueReceiver<ConsensusMessage>>,
-    pub sender_low_priority:    QueueSyncSender<ConsensusMessage>,
+    pub sender_high_priority: QueueSyncSender<ConsensusMessage>,
+    pub receiver_low_priority: Mutex<QueueReceiver<ConsensusMessage>>,
+    pub sender_low_priority: QueueSyncSender<ConsensusMessage>,
 }
 
 impl Default for ConsensusOutboundQueues {
@@ -90,25 +90,37 @@ impl Default for ConsensusOutboundQueues {
 
 #[derive(Default)]
 pub struct ConsensusQueues {
-    pub inbound:  ConsensusInboundQueues,
+    pub inbound: ConsensusInboundQueues,
     pub outbound: ConsensusOutboundQueues,
 }
 
 impl ConsensusQueues {
     pub fn send_in_high_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.inbound.sender_high_priority.send_msg(message).map_err(|e| e.into())
+        self.inbound
+            .sender_high_priority
+            .send_msg(message)
+            .map_err(|e| e.into())
     }
 
     pub fn send_in_low_priority_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.inbound.sender_low_priority.send_msg(message).map_err(|e| e.into())
+        self.inbound
+            .sender_low_priority
+            .send_msg(message)
+            .map_err(|e| e.into())
     }
 
     pub fn send_out_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.outbound.sender_low_priority.send_msg(message).map_err(|e| e.into())
+        self.outbound
+            .sender_low_priority
+            .send_msg(message)
+            .map_err(|e| e.into())
     }
 
     pub fn send_out_blocking_msg(&self, message: ConsensusMessage) -> anyhow::Result<()> {
-        self.outbound.sender_high_priority.send_blocking_msg(message).map_err(|e| e.into())
+        self.outbound
+            .sender_high_priority
+            .send_blocking_msg(message)
+            .map_err(|e| e.into())
     }
 
     pub fn clear(&self) {
@@ -172,29 +184,29 @@ impl std::fmt::Display for ConsensusType {
 #[derive(Clone)]
 pub struct ConsensusRuntimeParameters {
     /// Size limit on blocks baked by this node in bytes.
-    pub max_block_size:             u64,
+    pub max_block_size: u64,
     /// Timeout in milliseconds for executing transactions when constructing a
     /// block.
     pub block_construction_timeout: u64,
-    pub insertions_before_purging:  u64,
+    pub insertions_before_purging: u64,
     /// Time in seconds that a transaction is kept before being a candidate for
     /// purging.
-    pub transaction_keep_alive:     u64,
+    pub transaction_keep_alive: u64,
     /// Number of seconds between automatic transaction table purging runs.
     pub transactions_purging_delay: u64,
     /// Number of accounts that may be cached in memory.
-    pub accounts_cache_size:        u32,
+    pub accounts_cache_size: u32,
     /// Number of modules that may be cached in memory.
-    pub modules_cache_size:         u32,
+    pub modules_cache_size: u32,
 }
 
 #[derive(Clone)]
 pub struct ConsensusContainer {
     pub runtime_parameters: ConsensusRuntimeParameters,
-    pub is_baking:          Arc<AtomicBool>,
-    pub consensus:          Arc<AtomicPtr<consensus_runner>>,
-    pub genesis:            Arc<[u8]>,
-    pub consensus_type:     ConsensusType,
+    pub is_baking: Arc<AtomicBool>,
+    pub consensus: Arc<AtomicPtr<consensus_runner>>,
+    pub genesis: Arc<[u8]>,
+    pub consensus_type: ConsensusType,
 }
 
 impl ConsensusContainer {
@@ -266,30 +278,34 @@ impl ConsensusContainer {
         true
     }
 
-    pub fn is_baking(&self) -> bool { self.is_baking.load(Ordering::SeqCst) }
+    pub fn is_baking(&self) -> bool {
+        self.is_baking.load(Ordering::SeqCst)
+    }
 
-    pub fn is_active(&self) -> bool { self.consensus_type == ConsensusType::Active }
+    pub fn is_active(&self) -> bool {
+        self.consensus_type == ConsensusType::Active
+    }
 }
 
 /// A Regenesis object consists of a list of the genesis block hashes and a flag
 /// that is set when regenesis occurs to trigger catch-up with peers.
 pub struct Regenesis {
     /// The list of genesis block hashes, in order of increasing genesis index.
-    pub blocks:          RwLock<Vec<BlockHash>>,
+    pub blocks: RwLock<Vec<BlockHash>>,
     /// A flag that is set to indicate that peers should be added to the
     /// catch-up queue.
     pub trigger_catchup: AtomicBool,
     /// A flag that is set to indicate to drop all network connections.
     /// Triggered on an unrecognized protocol update.
-    pub stop_network:    AtomicBool,
+    pub stop_network: AtomicBool,
 }
 
 impl Default for Regenesis {
     fn default() -> Self {
         Regenesis {
-            blocks:          RwLock::new(vec![]),
+            blocks: RwLock::new(vec![]),
             trigger_catchup: AtomicBool::new(false),
-            stop_network:    AtomicBool::new(false),
+            stop_network: AtomicBool::new(false),
         }
     }
 }
@@ -297,9 +313,9 @@ impl Default for Regenesis {
 impl Regenesis {
     pub fn from_blocks(regenesis_blocks: Vec<BlockHash>) -> Self {
         Regenesis {
-            blocks:          RwLock::new(regenesis_blocks),
+            blocks: RwLock::new(regenesis_blocks),
             trigger_catchup: AtomicBool::new(false),
-            stop_network:    AtomicBool::new(false),
+            stop_network: AtomicBool::new(false),
         }
     }
 }

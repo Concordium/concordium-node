@@ -103,34 +103,40 @@ pub type Connections = HashMap<Token, Connection, BuildNoHashHasher<usize>>;
 /// Intercepts changes to connections and provides change notifiers.
 pub struct ConnChanges {
     pub changes: Receiver<ConnChange>,
-    notifier:    Sender<ConnChange>,
+    notifier: Sender<ConnChange>,
 }
 
 /// The set of objects related to node's connections.
 pub struct ConnectionHandler {
-    pub next_token:           AtomicUsize,
-    pub buckets:              RwLock<Buckets>,
+    pub next_token: AtomicUsize,
+    pub buckets: RwLock<Buckets>,
     #[cfg(feature = "network_dump")]
-    pub log_dumper:           RwLock<Option<Sender<DumpItem>>>,
-    pub conn_candidates:      Mutex<Connections>,
-    pub connections:          RwLock<Connections>,
-    pub conn_changes:         ConnChanges,
-    pub soft_bans:            RwLock<HashMap<BanId, Instant>>, // (id, expiry)
-    pub networks:             RwLock<Networks>,
+    pub log_dumper: RwLock<Option<Sender<DumpItem>>>,
+    pub conn_candidates: Mutex<Connections>,
+    pub connections: RwLock<Connections>,
+    pub conn_changes: ConnChanges,
+    pub soft_bans: RwLock<HashMap<BanId, Instant>>, // (id, expiry)
+    pub networks: RwLock<Networks>,
     pub deduplication_queues: DeduplicationQueues,
-    pub last_bootstrap:       AtomicU64,
-    pub last_peer_update:     AtomicU64,
-    pub total_received:       AtomicU64,
-    pub total_sent:           AtomicU64,
+    pub last_bootstrap: AtomicU64,
+    pub last_peer_update: AtomicU64,
+    pub total_received: AtomicU64,
+    pub total_sent: AtomicU64,
 }
 
 impl ConnectionHandler {
     fn new(conf: &Config) -> Self {
-        let networks = conf.common.network_ids.iter().cloned().map(NetworkId::from).collect();
+        let networks = conf
+            .common
+            .network_ids
+            .iter()
+            .cloned()
+            .map(NetworkId::from)
+            .collect();
         let (sndr, rcvr) =
             crossbeam_channel::bounded(conf.connection.hard_connection_limit as usize);
         let conn_changes = ConnChanges {
-            changes:  rcvr,
+            changes: rcvr,
             notifier: sndr,
         };
 
@@ -207,53 +213,62 @@ pub struct BadEvents {
     pub dropped_high_queue: Mutex<HashMap<RemotePeerId, u64>>,
     /// Number of low priority messages that were dropped because they could not
     /// be enqueued.
-    pub dropped_low_queue:  Mutex<HashMap<RemotePeerId, u64>>,
+    pub dropped_low_queue: Mutex<HashMap<RemotePeerId, u64>>,
     /// Number of invalid messages received from the given peer.
-    pub invalid_messages:   Mutex<HashMap<RemotePeerId, u64>>,
+    pub invalid_messages: Mutex<HashMap<RemotePeerId, u64>>,
 }
 
 impl BadEvents {
     /// Register a new dropped value for the given peer and return the amount of
     /// dropped high priority messages for the peer.
     pub fn inc_dropped_high_queue(&self, peer_id: RemotePeerId) -> u64 {
-        *lock_or_die!(self.dropped_high_queue).entry(peer_id).and_modify(|x| *x += 1).or_insert(1)
+        *lock_or_die!(self.dropped_high_queue)
+            .entry(peer_id)
+            .and_modify(|x| *x += 1)
+            .or_insert(1)
     }
 
     /// Register a new dropped value for the given peer and return the amount of
     /// dropped high priority messages for the peer.
     pub fn inc_dropped_low_queue(&self, peer_id: RemotePeerId) -> u64 {
-        *lock_or_die!(self.dropped_low_queue).entry(peer_id).and_modify(|x| *x += 1).or_insert(1)
+        *lock_or_die!(self.dropped_low_queue)
+            .entry(peer_id)
+            .and_modify(|x| *x += 1)
+            .or_insert(1)
     }
 
     /// Register a new dropped value for the given peer and return the amount of
     /// invalid messages that were received.
     pub fn inc_invalid_messages(&self, peer_id: RemotePeerId) -> u64 {
-        *lock_or_die!(self.invalid_messages).entry(peer_id).and_modify(|x| *x += 1).or_insert(1)
+        *lock_or_die!(self.invalid_messages)
+            .entry(peer_id)
+            .and_modify(|x| *x += 1)
+            .or_insert(1)
     }
 }
 
 /// The central object belonging to a node in the network; it handles
 /// connectivity and contains the metadata, statistics etc.
 pub struct P2PNode {
-    pub self_peer:          P2PPeer,
+    pub self_peer: P2PPeer,
     /// Holds the handles to threads spawned by the node.
-    pub threads:            RwLock<Vec<JoinHandle<()>>>,
+    pub threads: RwLock<Vec<JoinHandle<()>>>,
     /// The handle to the poll registry.
-    pub poll_registry:      Registry,
+    pub poll_registry: Registry,
     pub connection_handler: ConnectionHandler,
     #[cfg(feature = "network_dump")]
-    pub network_dumper:     NetworkDumper,
-    pub stats:              Arc<StatsExportService>,
-    pub config:             NodeConfig,
+    pub network_dumper: NetworkDumper,
+    pub stats: Arc<StatsExportService>,
+    pub config: NodeConfig,
     /// The time the node was launched.
-    pub start_time:         DateTime<Utc>,
+    pub start_time: DateTime<Utc>,
     /// The key-value store holding the node's persistent data.
-    pub kvs:                Arc<RwLock<Rkv<LmdbEnvironment>>>,
+    pub kvs: Arc<RwLock<Rkv<LmdbEnvironment>>>,
     /// The catch-up list of peers.
-    pub peers:              RwLock<PeerList>,
+    pub peers: RwLock<PeerList>,
     /// Cache of bad events that we report on each connection housekeeping
     /// interval to avoid spamming the logs in case of failure.
-    pub bad_events:         BadEvents,
+    pub bad_events: BadEvents,
 }
 
 impl P2PNode {
@@ -299,8 +314,10 @@ impl P2PNode {
             "Could not listen on the given listen-port ({}).",
             conf.common.listen_port
         ))?;
-        let poll_registry =
-            poll.registry().try_clone().context("Could not clone the poll registry.")?;
+        let poll_registry = poll
+            .registry()
+            .try_clone()
+            .context("Could not clone the poll registry.")?;
         poll_registry
             .register(&mut server, SELF_TOKEN, Interest::READABLE)
             .context("Could not register server with poll!")?;
@@ -414,19 +431,27 @@ impl P2PNode {
 
     /// Get the timestamp of the node's last bootstrap attempt.
     pub fn get_last_bootstrap(&self) -> u64 {
-        self.connection_handler.last_bootstrap.load(Ordering::Relaxed)
+        self.connection_handler
+            .last_bootstrap
+            .load(Ordering::Relaxed)
     }
 
     /// Update the timestamp of the last bootstrap attempt.
     pub fn update_last_bootstrap(&self) {
-        self.connection_handler.last_bootstrap.store(get_current_stamp(), Ordering::Relaxed);
+        self.connection_handler
+            .last_bootstrap
+            .store(get_current_stamp(), Ordering::Relaxed);
     }
 
-    fn is_bucket_cleanup_enabled(&self) -> bool { self.config.timeout_bucket_entry_period > 0 }
+    fn is_bucket_cleanup_enabled(&self) -> bool {
+        self.config.timeout_bucket_entry_period > 0
+    }
 
     /// A convenience method for accessing the collection of node's connections.
     #[inline]
-    pub fn connections(&self) -> &RwLock<Connections> { &self.connection_handler.connections }
+    pub fn connections(&self) -> &RwLock<Connections> {
+        &self.connection_handler.connections
+    }
 
     /// A convenience method for accessing the collection of node's connection
     /// candidates.
@@ -471,17 +496,27 @@ impl P2PNode {
 
     /// A convenience method for accessing the collection of  node's networks.
     #[inline]
-    pub fn networks(&self) -> &RwLock<Networks> { &self.connection_handler.networks }
+    pub fn networks(&self) -> &RwLock<Networks> {
+        &self.connection_handler.networks
+    }
 
     /// A convenience method for accessing the collection of  node's buckets.
     #[inline]
-    pub fn buckets(&self) -> &RwLock<Buckets> { &self.connection_handler.buckets }
+    pub fn buckets(&self) -> &RwLock<Buckets> {
+        &self.connection_handler.buckets
+    }
 
     /// Notify the node handler that a connection needs to undergo a major
     /// change.
     #[inline]
     pub fn register_conn_change(&self, change: ConnChange) {
-        if self.connection_handler.conn_changes.notifier.try_send(change).is_err() {
+        if self
+            .connection_handler
+            .conn_changes
+            .notifier
+            .try_send(change)
+            .is_err()
+        {
             warn!("Connection change queue full; change request will be delayed");
         }
     }
@@ -512,17 +547,25 @@ impl P2PNode {
 
     /// Stop dumping network data to the disk.
     #[cfg(feature = "network_dump")]
-    pub fn dump_stop(&self) { *write_or_die!(self.connection_handler.log_dumper) = None; }
+    pub fn dump_stop(&self) {
+        *write_or_die!(self.connection_handler.log_dumper) = None;
+    }
 
     /// Get the node's client version.
-    pub fn get_version(&self) -> String { crate::VERSION.to_string() }
+    pub fn get_version(&self) -> String {
+        crate::VERSION.to_string()
+    }
 
     /// Get the node's identifier.
-    pub fn id(&self) -> P2PNodeId { self.self_peer.id }
+    pub fn id(&self) -> P2PNodeId {
+        self.self_peer.id
+    }
 
     /// Get the node's `PeerType`.
     #[inline]
-    pub fn peer_type(&self) -> PeerType { self.self_peer.peer_type }
+    pub fn peer_type(&self) -> PeerType {
+        self.self_peer.peer_type
+    }
 
     /// Get the node's uptime in milliseconds.
     pub fn get_uptime(&self) -> i64 {
@@ -573,7 +616,9 @@ impl P2PNode {
     }
 
     /// Get the IP of the node.
-    pub fn internal_addr(&self) -> SocketAddr { self.self_peer.addr }
+    pub fn internal_addr(&self) -> SocketAddr {
+        self.self_peer.addr
+    }
 
     /// Shut the node down gracefully without terminating its threads.
     pub fn close(&self) -> anyhow::Result<()> {
@@ -639,7 +684,10 @@ pub fn spawn(
             PeerType::Bootstrapper => 1,
             PeerType::Node => node.config.thread_pool_size,
         };
-        let pool = rayon::ThreadPoolBuilder::new().num_threads(num_socket_threads).build().unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_socket_threads)
+            .build()
+            .unwrap();
         let poll_interval = Duration::from_millis(node.config.poll_interval);
 
         // A flag indicating whether there are unprocessed incoming connection attempts.
@@ -676,10 +724,7 @@ pub fn spawn(
                         Ok((socket, addr)) => {
                             if let Err(e) = accept(&node, socket, addr) {
                                 error!("{}", e);
-                                if let AcceptFailureReason::TooManyConnections {
-                                    addr: _,
-                                } = e
-                                {
+                                if let AcceptFailureReason::TooManyConnections { addr: _ } = e {
                                     break;
                                 }
                             }

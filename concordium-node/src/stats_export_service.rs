@@ -54,14 +54,16 @@ impl PrometheusStateData {
 /// on scrape.
 struct GrpcInFlightRequestsCollector {
     /// The prometheus gauge exposed.
-    gauge:   IntGauge,
+    gauge: IntGauge,
     /// Counter used to track in flight requests by
     /// `tower_http::metrics::InFlightRequestsLayer`.
     counter: InFlightRequestsCounter,
 }
 
 impl prometheus::core::Collector for GrpcInFlightRequestsCollector {
-    fn desc(&self) -> Vec<&prometheus::core::Desc> { self.gauge.desc() }
+    fn desc(&self) -> Vec<&prometheus::core::Desc> {
+        self.gauge.desc()
+    }
 
     fn collect(&self) -> Vec<prometheus::proto::MetricFamily> {
         let in_flight_requests = self.counter.get();
@@ -74,15 +76,15 @@ impl prometheus::core::Collector for GrpcInFlightRequestsCollector {
 /// through the FFI.
 pub struct StatsConsensusCollector {
     /// Reference to consensus to support consensus queries.
-    consensus:                  ConsensusContainer,
+    consensus: ConsensusContainer,
     /// The baking committee status of the node for the current best block.
-    baking_committee:           IntGauge,
+    baking_committee: IntGauge,
     /// Whether the node is a member of the finalization committee for the
     /// current finalization round.
-    finalization_committee:     IntGauge,
+    finalization_committee: IntGauge,
     /// Current active lottery power. Is only non-zero when active member of
     /// the baking committee.
-    baking_lottery_power:       Gauge,
+    baking_lottery_power: Gauge,
     /// The current number of non-finalized transactions across all accounts.
     non_finalized_transactions: IntGauge,
 }
@@ -138,16 +140,12 @@ impl prometheus::core::Collector for StatsConsensusCollector {
         self.baking_lottery_power.set(lottery_power);
 
         let in_finalization_committee = self.consensus.in_finalization_committee();
-        self.finalization_committee.set(
-            if in_finalization_committee {
-                1
-            } else {
-                0
-            },
-        );
+        self.finalization_committee
+            .set(if in_finalization_committee { 1 } else { 0 });
 
         let non_finalized_transactions = self.consensus.number_of_non_finalized_transactions();
-        self.non_finalized_transactions.set(non_finalized_transactions as i64);
+        self.non_finalized_transactions
+            .set(non_finalized_transactions as i64);
 
         let mut metrics = self.baking_committee.collect();
         metrics.extend(self.finalization_committee.collect());
@@ -338,8 +336,10 @@ impl StatsExportService {
         ))?;
         registry.register(Box::new(received_bytes.clone()))?;
 
-        let sent_bytes =
-            IntCounter::with_opts(Opts::new("network_sent_bytes", "Total number of bytes sent"))?;
+        let sent_bytes = IntCounter::with_opts(Opts::new(
+            "network_sent_bytes",
+            "Total number of bytes sent",
+        ))?;
         registry.register(Box::new(sent_bytes.clone()))?;
 
         let last_finalized_block_height = GenericGauge::with_opts(Opts::new(
@@ -455,7 +455,7 @@ impl StatsExportService {
         ))?;
         let grpc_in_flight_requests_counter = InFlightRequestsCounter::new();
         let grpc_in_flight_requests = GrpcInFlightRequestsCollector {
-            gauge:   grpc_in_flight_requests_gauge,
+            gauge: grpc_in_flight_requests_gauge,
             counter: grpc_in_flight_requests_counter.clone(),
         };
         registry.register(Box::new(grpc_in_flight_requests))?;
@@ -592,10 +592,9 @@ impl StatsExportService {
         let _th = spawn_or_die!("Prometheus", move || loop {
             debug!("Pushing data to push gateway");
             let username_pass = prometheus_push_username.clone().and_then(|username| {
-                prometheus_push_password.clone().map(|password| prometheus::BasicAuthentication {
-                    username,
-                    password,
-                })
+                prometheus_push_password
+                    .clone()
+                    .map(|password| prometheus::BasicAuthentication { username, password })
             });
             thread::sleep(time::Duration::from_secs(prometheus_push_interval));
             prometheus::push_metrics(
