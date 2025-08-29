@@ -22,10 +22,10 @@ type LogLevelT = u8;
 /// Log severity levels with `u8` values for macOS.
 pub enum Level {
     _Default = 0,
-    Info     = 1,
-    Debug    = 2,
-    Error    = 16,
-    Fault    = 17,
+    Info = 1,
+    Debug = 2,
+    Error = 16,
+    Fault = 17,
 }
 
 /// Map log levels into appropriate macOS levels.
@@ -92,9 +92,7 @@ impl MacOsLog {
         // valid logger.
         assert!(!inner.is_null(), "Unexpected null value from os_log_create");
 
-        MacOsLog {
-            inner,
-        }
+        MacOsLog { inner }
     }
 
     /// Send a log message to the macOS syslog with the provided [Level].
@@ -106,7 +104,7 @@ impl MacOsLog {
 
 /// Logger that logs to the macOS syslog and implements [log::Log].
 pub struct MacOsLogger {
-    loggers:   RwLock<HashMap<String, (Option<log::LevelFilter>, MacOsLog)>>,
+    loggers: RwLock<HashMap<String, (Option<log::LevelFilter>, MacOsLog)>>,
     subsystem: String,
 }
 
@@ -118,7 +116,7 @@ impl MacOsLogger {
     /// must be called**, otherwise logging won't occur.
     pub fn new(subsystem: &str) -> Self {
         Self {
-            loggers:   RwLock::new(HashMap::new()),
+            loggers: RwLock::new(HashMap::new()),
             subsystem: subsystem.to_string(),
         }
     }
@@ -145,7 +143,9 @@ impl MacOsLogger {
 
     /// Initialises the logger with `log::set_boxed_logger`.
     /// **Must be called**, otherwise logging is not enabled.
-    pub fn init(self) -> Result<(), log::SetLoggerError> { log::set_boxed_logger(Box::new(self)) }
+    pub fn init(self) -> Result<(), log::SetLoggerError> {
+        log::set_boxed_logger(Box::new(self))
+    }
 }
 
 impl log::Log for MacOsLogger {

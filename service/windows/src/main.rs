@@ -41,7 +41,10 @@ fn runner_service_main(arguments: Vec<OsString>) {
     winlog::init(EVENT_LOG_NAME).unwrap();
 
     if let Err(e) = run_service(arguments) {
-        error!("The node runner service failed for the following reason:\n{:#}", e);
+        error!(
+            "The node runner service failed for the following reason:\n{:#}",
+            e
+        );
         panic!()
     }
 }
@@ -246,9 +249,15 @@ fn run_service(_arguments: Vec<OsString>) -> anyhow::Result<()> {
     }
 
     for node in &mut nodes {
-        error!("Node '{}' did not shutdown gracefully; it will be killed.", node.node_config.name);
+        error!(
+            "Node '{}' did not shutdown gracefully; it will be killed.",
+            node.node_config.name
+        );
         node.force_shutdown().unwrap_or_else(|e| {
-            error!("Error while killing node '{}': {:#}", node.node_config.name, e)
+            error!(
+                "Error while killing node '{}': {:#}",
+                node.node_config.name, e
+            )
         });
     }
 
@@ -278,7 +287,10 @@ fn main() -> anyhow::Result<()> {
 /// Parse the command line argument as one of the commands "install", "remove",
 /// "start" or "stop", and perform the associated action for the service.
 fn nonservice_main() -> anyhow::Result<()> {
-    let arg = env::args().nth(1).map(|s| s.to_lowercase()).unwrap_or_else(|| String::from(""));
+    let arg = env::args()
+        .nth(1)
+        .map(|s| s.to_lowercase())
+        .unwrap_or_else(|| String::from(""));
     match &arg as &str {
         "install" => {
             println!("Installing service...");
@@ -304,7 +316,9 @@ fn nonservice_main() -> anyhow::Result<()> {
         }
         "configure" => {
             let config_path = get_config_file_path()?;
-            std::process::Command::new("notepad").arg(config_path).spawn()?;
+            std::process::Command::new("notepad")
+                .arg(config_path)
+                .spawn()?;
         }
         _ => {
             println!("Try running this program with one of the following arguments:");
