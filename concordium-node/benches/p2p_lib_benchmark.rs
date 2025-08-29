@@ -15,7 +15,15 @@ macro_rules! bench_s11n {
         pub fn bench_s11n(c: &mut Criterion) {
             let mut group = c.benchmark_group($name);
 
-            for &size in &[256, 1024, 4096, 64 * 1024, 256 * 1024, 1024 * 1024, 4 * 1024 * 1024] {
+            for &size in &[
+                256,
+                1024,
+                4096,
+                64 * 1024,
+                256 * 1024,
+                1024 * 1024,
+                4 * 1024 * 1024,
+            ] {
                 let msg = create_random_packet(size);
                 let mut buffer = Cursor::new(Vec::with_capacity(size));
 
@@ -86,7 +94,13 @@ mod dedup {
 
     dedup_bench!(small_bench_dedup_xxhash64, XxHash64, "XxHash64", 8, 250);
     dedup_bench!(small_bench_dedup_sha256, Sha256, "SHA256", 32, 250);
-    dedup_bench!(medium_bench_dedup_xxhash64, XxHash64, "XxHash64", 8, 1_048_576);
+    dedup_bench!(
+        medium_bench_dedup_xxhash64,
+        XxHash64,
+        "XxHash64",
+        8,
+        1_048_576
+    );
     dedup_bench!(medium_bench_dedup_sha256, Sha256, "SHA256", 32, 1_048_576);
     dedup_bench!(big_bench_dedup_xxhash64, XxHash64, "XxHash64", 8, 4_194_304);
     dedup_bench!(big_bench_dedup_sha256, Sha256, "SHA256", 32, 4_194_304);

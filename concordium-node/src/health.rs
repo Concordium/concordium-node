@@ -38,7 +38,7 @@ enum ServiceError<'a> {
          {min_allowed_peers}."
     )]
     TooFewPeers {
-        num_peers:         usize,
+        num_peers: usize,
         min_allowed_peers: usize,
     },
     #[error("Last finalized block is too far behind.")]
@@ -48,13 +48,13 @@ enum ServiceError<'a> {
     #[error("Node local time is before Unix epoch: {0}.")]
     TimeInPast(#[from] std::time::SystemTimeError),
     #[error("Service not known: {service}")]
-    ServiceNotFound {
-        service: &'a str,
-    },
+    ServiceNotFound { service: &'a str },
 }
 
 impl<'a> ServiceError<'a> {
-    pub fn is_not_found(&self) -> bool { matches!(self, Self::ServiceNotFound { .. }) }
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, Self::ServiceNotFound { .. })
+    }
 }
 
 impl<'a> From<ServiceError<'a>> for tonic::Status {
@@ -74,9 +74,7 @@ impl HealthServiceImpl {
     /// `concordium.v2.Queries` but is implemented to follow the specification.
     async fn check_service<'a>(&self, service: &'a str) -> Result<(), ServiceError<'a>> {
         if !service.is_empty() && service != "concordium.v2.Queries" {
-            return Err(ServiceError::ServiceNotFound {
-                service,
-            });
+            return Err(ServiceError::ServiceNotFound { service });
         }
 
         let consensus_running = self.consensus.is_consensus_running();
@@ -87,8 +85,9 @@ impl HealthServiceImpl {
 
         let last_fin_slot_time = self.consensus.get_last_finalized_block_slot_time_v2();
 
-        let current_time =
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_millis() as u64;
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_millis() as u64;
 
         // If the slot time is in the future that is also good. We do accept blocks
         // a little bit in the future, but consensus ensures they are not too far.
@@ -134,7 +133,10 @@ pub mod grpc_health_v1 {
             &self,
             request: tonic::Request<HealthCheckRequest>,
         ) -> Result<tonic::Response<HealthCheckResponse>, tonic::Status> {
-            match self.check_service(request.into_inner().service.as_str()).await {
+            match self
+                .check_service(request.into_inner().service.as_str())
+                .await
+            {
                 Ok(()) => Ok(tonic::Response::new(HealthCheckResponse {
                     status: health_check_response::ServingStatus::Serving.into(),
                 })),

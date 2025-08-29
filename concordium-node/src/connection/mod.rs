@@ -89,7 +89,7 @@ pub trait DeduplicationQueue: Send + Sync {
 /// XxHash64 deduplication struct
 pub struct DeduplicationQueueXxHash64 {
     /// Random seed generated per queue when constructed
-    seed:  u64,
+    seed: u64,
     /// The queue itself
     queue: CircularQueue<u64>,
 }
@@ -99,7 +99,7 @@ impl DeduplicationQueueXxHash64 {
     pub fn new(capacity: usize) -> Self {
         use rand::Rng;
         Self {
-            seed:  rand::thread_rng().gen::<u64>(),
+            seed: rand::thread_rng().gen::<u64>(),
             queue: CircularQueue::with_capacity(capacity),
         }
     }
@@ -118,7 +118,10 @@ impl DeduplicationQueue for DeduplicationQueueXxHash64 {
     fn check_and_insert(&mut self, input: &[u8]) -> anyhow::Result<bool> {
         let num = self.hash(input);
         if !self.queue.iter().any(|n| n == &num) {
-            trace!("Message XxHash64 {:x} is unique, adding to dedup queue", num);
+            trace!(
+                "Message XxHash64 {:x} is unique, adding to dedup queue",
+                num
+            );
             self.queue.push(num);
             Ok(false)
         } else {
@@ -161,7 +164,10 @@ impl DeduplicationQueue for DeduplicationQueueSha256 {
     fn check_and_insert(&mut self, input: &[u8]) -> anyhow::Result<bool> {
         let hash = self.hash(input);
         if !self.queue.iter().any(|n| *n == hash) {
-            trace!("Message SHA256 {:X?} is unique, adding to dedup queue", &hash[..]);
+            trace!(
+                "Message SHA256 {:X?} is unique, adding to dedup queue",
+                &hash[..]
+            );
             self.queue.push(hash);
             Ok(false)
         } else {
@@ -184,9 +190,9 @@ impl DeduplicationQueue for DeduplicationQueueSha256 {
 /// for deduplication purposes.
 pub struct DeduplicationQueues {
     pub finalizations: RwLock<Box<dyn DeduplicationQueue>>,
-    pub transactions:  RwLock<Box<dyn DeduplicationQueue>>,
-    pub blocks:        RwLock<Box<dyn DeduplicationQueue>>,
-    pub fin_records:   RwLock<Box<dyn DeduplicationQueue>>,
+    pub transactions: RwLock<Box<dyn DeduplicationQueue>>,
+    pub blocks: RwLock<Box<dyn DeduplicationQueue>>,
+    pub fin_records: RwLock<Box<dyn DeduplicationQueue>>,
 }
 
 impl DeduplicationQueues {
@@ -197,15 +203,15 @@ impl DeduplicationQueues {
         match algorithm {
             DeduplicationHashAlgorithm::XxHash64 => Self {
                 finalizations: RwLock::new(Box::new(DeduplicationQueueXxHash64::new(long_size))),
-                transactions:  RwLock::new(Box::new(DeduplicationQueueXxHash64::new(long_size))),
-                blocks:        RwLock::new(Box::new(DeduplicationQueueXxHash64::new(short_size))),
-                fin_records:   RwLock::new(Box::new(DeduplicationQueueXxHash64::new(short_size))),
+                transactions: RwLock::new(Box::new(DeduplicationQueueXxHash64::new(long_size))),
+                blocks: RwLock::new(Box::new(DeduplicationQueueXxHash64::new(short_size))),
+                fin_records: RwLock::new(Box::new(DeduplicationQueueXxHash64::new(short_size))),
             },
             DeduplicationHashAlgorithm::Sha256 => Self {
                 finalizations: RwLock::new(Box::new(DeduplicationQueueSha256::new(long_size))),
-                transactions:  RwLock::new(Box::new(DeduplicationQueueSha256::new(long_size))),
-                blocks:        RwLock::new(Box::new(DeduplicationQueueSha256::new(short_size))),
-                fin_records:   RwLock::new(Box::new(DeduplicationQueueSha256::new(short_size))),
+                transactions: RwLock::new(Box::new(DeduplicationQueueSha256::new(long_size))),
+                blocks: RwLock::new(Box::new(DeduplicationQueueSha256::new(short_size))),
+                fin_records: RwLock::new(Box::new(DeduplicationQueueSha256::new(short_size))),
             },
         }
     }
@@ -214,49 +220,50 @@ impl DeduplicationQueues {
 /// Contains all the statistics of a connection.
 pub struct ConnectionStats {
     /// Timestamp of connection creation.
-    pub created:           u64,
+    pub created: u64,
     /// Timestamp at which the connection was last seen.
     /// For regular peers, this is the timestamp of the
     /// last received message.
-    pub last_seen:         AtomicU64,
+    pub last_seen: AtomicU64,
     /// Timestamp of last ping message being sent
-    last_ping:             AtomicU64,
+    last_ping: AtomicU64,
     /// Interval between sending the last two pings
-    last_ping_interval:    AtomicU64,
+    last_ping_interval: AtomicU64,
     /// Number of pings sent minus number of pongs received
-    pending_pongs:         AtomicI64,
+    pending_pongs: AtomicI64,
     /// Latency measured at last received pong
-    last_latency:          AtomicU64,
+    last_latency: AtomicU64,
     /// Number of messages sent.
-    pub messages_sent:     AtomicU64,
+    pub messages_sent: AtomicU64,
     /// Number of messages received.
     pub messages_received: AtomicU64,
     /// Number of bytes received.
-    pub bytes_received:    AtomicU64,
+    pub bytes_received: AtomicU64,
     /// Number of bytes sent.
-    pub bytes_sent:        AtomicU64,
+    pub bytes_sent: AtomicU64,
 }
 
 impl ConnectionStats {
     pub fn new(timestamp: u64) -> Self {
         ConnectionStats {
-            created:            timestamp,
-            last_seen:          AtomicU64::new(timestamp),
-            last_ping:          AtomicU64::new(0),
+            created: timestamp,
+            last_seen: AtomicU64::new(timestamp),
+            last_ping: AtomicU64::new(0),
             last_ping_interval: AtomicU64::new(0),
-            pending_pongs:      AtomicI64::new(0),
-            last_latency:       AtomicU64::new(0),
-            messages_sent:      AtomicU64::new(0),
-            messages_received:  AtomicU64::new(0),
-            bytes_received:     AtomicU64::new(0),
-            bytes_sent:         AtomicU64::new(0),
+            pending_pongs: AtomicI64::new(0),
+            last_latency: AtomicU64::new(0),
+            messages_sent: AtomicU64::new(0),
+            messages_received: AtomicU64::new(0),
+            bytes_received: AtomicU64::new(0),
+            bytes_sent: AtomicU64::new(0),
         }
     }
 
     pub fn notify_ping(&self) {
         let now = get_current_stamp();
         let previous_ping = self.last_ping.swap(now, Ordering::AcqRel);
-        self.last_ping_interval.store(now - previous_ping, Ordering::Release);
+        self.last_ping_interval
+            .store(now - previous_ping, Ordering::Release);
         self.pending_pongs.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -286,7 +293,9 @@ impl ConnectionStats {
     }
 
     #[inline]
-    pub fn get_latency(&self) -> u64 { self.last_latency.load(Ordering::Relaxed) }
+    pub fn get_latency(&self) -> u64 {
+        self.last_latency.load(Ordering::Relaxed)
+    }
 }
 
 /// Specifies the type of change to be applied to the list of connections.
@@ -296,11 +305,11 @@ pub enum ConnChange {
     /// Prospect node address to attempt to connect to.
     NewConn {
         /// address to connect to
-        addr:      SocketAddr,
+        addr: SocketAddr,
         /// what kind of a peer to expect on the address
         peer_type: PeerType,
         /// whether the connection was given or discovered
-        given:     bool,
+        given: bool,
     },
     /// Prospect peers to possibly connect to.
     NewPeers(Vec<P2PPeer>),
@@ -313,7 +322,7 @@ pub enum ConnChange {
 
 /// Message queues, indexed by priority.
 pub struct MessageQueues {
-    pub low:  VecDeque<Arc<[u8]>>,
+    pub low: VecDeque<Arc<[u8]>>,
     pub high: VecDeque<Arc<[u8]>>,
 }
 
@@ -341,7 +350,7 @@ impl MessageQueues {
     /// Create queues with the specified initial capacities.
     pub fn new(low_capacity: usize, high_capacity: usize) -> Self {
         Self {
-            low:  VecDeque::with_capacity(low_capacity),
+            low: VecDeque::with_capacity(low_capacity),
             high: VecDeque::with_capacity(high_capacity),
         }
     }
@@ -363,22 +372,24 @@ impl MessageQueues {
 /// A collection of objects related to the connection to a single peer.
 pub struct Connection {
     /// A reference to the parent node.
-    handler:                 Arc<P2PNode>,
+    handler: Arc<P2PNode>,
     /// The connection's representation as a peer object.
-    pub remote_peer:         RemotePeer,
+    pub remote_peer: RemotePeer,
     /// Low-level connection objects.
-    pub low_level:           ConnectionLowLevel,
+    pub low_level: ConnectionLowLevel,
     /// The list of networks the connection belongs to.
     pub remote_end_networks: Networks,
-    pub stats:               ConnectionStats,
+    pub stats: ConnectionStats,
     /// The queue of messages to be sent to the connection.
-    pub pending_messages:    MessageQueues,
+    pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
-    pub wire_version:        WireProtocolVersion,
+    pub wire_version: WireProtocolVersion,
 }
 
 impl PartialEq for Connection {
-    fn eq(&self, other: &Self) -> bool { self.token() == other.token() }
+    fn eq(&self, other: &Self) -> bool {
+        self.token() == other.token()
+    }
 }
 
 impl Eq for Connection {}
@@ -438,25 +449,39 @@ impl Connection {
 
     #[inline]
     /// The poll token of the connection's socket.
-    pub fn token(&self) -> Token { self.remote_peer.local_id.to_token() }
+    pub fn token(&self) -> Token {
+        self.remote_peer.local_id.to_token()
+    }
 
     /// Obtain the connection's latency.
-    pub fn get_latency(&self) -> u64 { self.stats.get_latency() }
+    pub fn get_latency(&self) -> u64 {
+        self.stats.get_latency()
+    }
 
     /// Obtain the node id related to the connection, if available.
-    pub fn remote_id(&self) -> Option<P2PNodeId> { self.remote_peer.self_id }
+    pub fn remote_id(&self) -> Option<P2PNodeId> {
+        self.remote_peer.self_id
+    }
 
     /// Obtain the type of the peer associated with the connection.
-    pub fn remote_peer_type(&self) -> PeerType { self.remote_peer.peer_type }
+    pub fn remote_peer_type(&self) -> PeerType {
+        self.remote_peer.peer_type
+    }
 
     /// Obtain the remote address of the connection.
-    pub fn remote_addr(&self) -> SocketAddr { self.remote_peer.addr }
+    pub fn remote_addr(&self) -> SocketAddr {
+        self.remote_peer.addr
+    }
 
     /// Obtain the external port of the connection.
-    pub fn remote_peer_external_port(&self) -> u16 { self.remote_peer.external_port }
+    pub fn remote_peer_external_port(&self) -> u16 {
+        self.remote_peer.external_port
+    }
 
     /// Obtain the timestamp of when the connection was interacted with last.
-    pub fn last_seen(&self) -> u64 { self.stats.last_seen.load(Ordering::Relaxed) }
+    pub fn last_seen(&self) -> u64 {
+        self.stats.last_seen.load(Ordering::Relaxed)
+    }
 
     #[inline]
     fn is_packet_duplicate(&self, packet: &mut NetworkPacket) -> anyhow::Result<bool> {
@@ -482,12 +507,14 @@ impl Connection {
                 &packet.message,
                 &mut **write_or_die!(deduplication_queues.transactions),
             )?,
-            PacketType::Block => {
-                dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.blocks))?
-            }
-            PacketType::FinalizationRecord => {
-                dedup_with(&packet.message, &mut **write_or_die!(deduplication_queues.fin_records))?
-            }
+            PacketType::Block => dedup_with(
+                &packet.message,
+                &mut **write_or_die!(deduplication_queues.blocks),
+            )?,
+            PacketType::FinalizationRecord => dedup_with(
+                &packet.message,
+                &mut **write_or_die!(deduplication_queues.fin_records),
+            )?,
             _ => false,
         };
 
@@ -517,8 +544,13 @@ impl Connection {
     ) -> anyhow::Result<()> {
         self.update_last_seen();
         self.stats.messages_received.fetch_add(1, Ordering::Relaxed);
-        self.stats.bytes_received.fetch_add(bytes.len() as u64, Ordering::Relaxed);
-        self.handler.connection_handler.total_received.fetch_add(1, Ordering::Relaxed);
+        self.stats
+            .bytes_received
+            .fetch_add(bytes.len() as u64, Ordering::Relaxed);
+        self.handler
+            .connection_handler
+            .total_received
+            .fetch_add(1, Ordering::Relaxed);
         self.handler.stats.packets_received.inc();
         self.handler.stats.received_bytes.inc_by(bytes.len() as u64);
 
@@ -561,7 +593,8 @@ impl Connection {
         }
         self.populate_remote_end_networks(self.remote_peer, nets);
         self.wire_version = wire_version;
-        self.handler.register_conn_change(ConnChange::Promotion(self.token()));
+        self.handler
+            .register_conn_change(ConnChange::Promotion(self.token()));
         debug!(
             "Concluded handshake with peer {} (their id {}); wire protocol version {}",
             self.remote_peer.local_id, id, wire_version
@@ -578,7 +611,9 @@ impl Connection {
     #[inline]
     pub fn update_last_seen(&self) {
         if self.handler.peer_type() != PeerType::Bootstrapper {
-            self.stats.last_seen.store(get_current_stamp(), Ordering::Relaxed);
+            self.stats
+                .last_seen
+                .store(get_current_stamp(), Ordering::Relaxed);
         }
     }
 
@@ -684,7 +719,10 @@ impl Connection {
                     && random_nodes.len()
                         >= usize::from(self.handler.config.bootstrapper_wait_minimum_peers)
                 {
-                    Some(netmsg!(NetworkResponse, NetworkResponse::PeerList(random_nodes)))
+                    Some(netmsg!(
+                        NetworkResponse,
+                        NetworkResponse::PeerList(random_nodes)
+                    ))
                 } else {
                     None
                 }
@@ -694,8 +732,8 @@ impl Connection {
                     .iter()
                     .filter(|stat| stat.local_id != requestor)
                     .map(|stat| P2PPeer {
-                        id:        stat.self_id,
-                        addr:      stat.external_address(),
+                        id: stat.self_id,
+                        addr: stat.external_address(),
                         peer_type: stat.peer_type,
                     })
                     .collect::<Vec<_>>();
@@ -734,11 +772,16 @@ impl Connection {
 
             self.low_level.write_to_socket(msg.clone())?;
 
-            self.handler.connection_handler.total_sent.fetch_add(1, Ordering::Relaxed);
+            self.handler
+                .connection_handler
+                .total_sent
+                .fetch_add(1, Ordering::Relaxed);
             self.handler.stats.packets_sent.inc();
             self.handler.stats.sent_bytes.inc_by(msg.len() as u64);
             self.stats.messages_sent.fetch_add(1, Ordering::Relaxed);
-            self.stats.bytes_sent.fetch_add(msg.len() as u64, Ordering::Relaxed);
+            self.stats
+                .bytes_sent
+                .fetch_add(msg.len() as u64, Ordering::Relaxed);
 
             #[cfg(feature = "network_dump")]
             {
@@ -761,8 +804,15 @@ impl Drop for Connection {
             self.handler.stats.connected_peers.dec();
         }
 
-        if let Err(e) = self.handler.poll_registry.deregister(&mut self.low_level.socket) {
-            error!("Can't deregister socket poll for dropped connection {}: {}", self, e);
+        if let Err(e) = self
+            .handler
+            .poll_registry
+            .deregister(&mut self.low_level.socket)
+        {
+            error!(
+                "Can't deregister socket poll for dropped connection {}: {}",
+                self, e
+            );
         } else {
             trace!(
                 "Deregistered socket poll for connection {} on socket {:?}.",

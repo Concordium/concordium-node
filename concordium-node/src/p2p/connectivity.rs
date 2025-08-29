@@ -68,7 +68,9 @@ impl P2PNode {
         let mut sent_messages = 0usize;
         let data = Arc::from(data);
 
-        for conn in write_or_die!(self.connections()).values_mut().filter(|conn| conn_filter(conn))
+        for conn in write_or_die!(self.connections())
+            .values_mut()
+            .filter(|conn| conn_filter(conn))
         {
             conn.async_send(Arc::clone(&data), MessageSendingPriority::Normal);
             sent_messages += 1;
@@ -251,14 +253,22 @@ impl P2PNode {
         lock_or_die!(self.conn_candidates())
             .par_iter_mut()
             .map(|(_, conn)| conn)
-            .chain(write_or_die!(self.connections()).par_iter_mut().map(|(_, conn)| conn))
+            .chain(
+                write_or_die!(self.connections())
+                    .par_iter_mut()
+                    .map(|(_, conn)| conn),
+            )
             .for_each(|conn| {
-                if events.iter().any(|event| event.token() == conn.token() && event.is_writable()) {
+                if events
+                    .iter()
+                    .any(|event| event.token() == conn.token() && event.is_writable())
+                {
                     conn.low_level.notify_writable();
                 }
 
-                if let Err(e) =
-                    conn.send_pending_messages().and_then(|_| conn.low_level.flush_socket())
+                if let Err(e) = conn
+                    .send_pending_messages()
+                    .and_then(|_| conn.low_level.flush_socket())
                 {
                     error!("[sending to {}] {}", conn, e);
                     if let Ok(_io_err) = e.downcast::<io::Error>() {
@@ -269,7 +279,10 @@ impl P2PNode {
                     return;
                 }
 
-                if events.iter().any(|event| event.token() == conn.token() && event.is_readable()) {
+                if events
+                    .iter()
+                    .any(|event| event.token() == conn.token() && event.is_readable())
+                {
                     match conn.read_stream(&conn_stats) {
                         Err(e) => {
                             error!("[receiving from {}] {}", conn, e);
@@ -313,13 +326,13 @@ impl P2PNode {
         let handshake_request = netmsg!(
             NetworkRequest,
             NetworkRequest::Handshake(Handshake {
-                remote_id:      self.self_peer.id,
-                remote_port:    self.self_peer.port(),
-                networks:       read_or_die!(self.networks()).iter().copied().collect(),
-                node_version:   Version::parse(env!("CARGO_PKG_VERSION"))?,
-                wire_versions:  WIRE_PROTOCOL_VERSIONS.to_vec(),
+                remote_id: self.self_peer.id,
+                remote_port: self.self_peer.port(),
+                networks: read_or_die!(self.networks()).iter().copied().collect(),
+                node_version: Version::parse(env!("CARGO_PKG_VERSION"))?,
+                wire_versions: WIRE_PROTOCOL_VERSIONS.to_vec(),
                 genesis_blocks: read_or_die!(self.config.regenesis_arc.blocks).clone(),
-                proof:          vec![],
+                proof: vec![],
             })
         );
         let mut serialized = Vec::with_capacity(128);
@@ -330,29 +343,29 @@ impl P2PNode {
 
     /// Check whether the network layer has been stopped.
     pub fn is_network_stopped(&self) -> bool {
-        self.config.regenesis_arc.stop_network.load(Ordering::Acquire)
+        self.config
+            .regenesis_arc
+            .stop_network
+            .load(Ordering::Acquire)
     }
 
     /// Signal that the network layer should be stopped.
     pub fn stop_network(&self) {
-        self.config.regenesis_arc.stop_network.store(true, Ordering::Release);
+        self.config
+            .regenesis_arc
+            .stop_network
+            .store(true, Ordering::Release);
     }
 }
 
 #[derive(Debug, Error)]
 pub enum AcceptFailureReason {
     #[error("Too many existing connections. Not accepting an additional one from {addr}.")]
-    TooManyConnections {
-        addr: SocketAddr,
-    },
+    TooManyConnections { addr: SocketAddr },
     #[error("Already connected to IP {ip}.")]
-    AlreadyConnectedToIP {
-        ip: IpAddr,
-    },
+    AlreadyConnectedToIP { ip: IpAddr },
     #[error("Duplicate connection attempt from {addr}.")]
-    DuplicateConnection {
-        addr: SocketAddr,
-    },
+    DuplicateConnection { addr: SocketAddr },
     #[error("Connection attempt from a banned address.")]
     Banned,
     #[error("Connection attempt from a soft-banned address.")]
@@ -378,7 +391,10 @@ pub fn accept(
 
     // if we fail to read the database we allow the connection.
     // This is fine as long as we assume that nobody can corrupt our ban database.
-    if node.is_banned(PersistedBanId::Ip(addr.ip())).unwrap_or(false) {
+    if node
+        .is_banned(PersistedBanId::Ip(addr.ip()))
+        .unwrap_or(false)
+    {
         warn!("Connection attempt from a banned IP {}.", addr.ip());
         return Err(AcceptFailureReason::Banned);
     }
@@ -400,36 +416,37 @@ pub fn accept(
             && candidates_lock.len() + conn_read_lock.len()
                 >= node.config.hard_connection_limit as usize
         {
-            return Err(AcceptFailureReason::TooManyConnections {
-                addr,
-            });
+            return Err(AcceptFailureReason::TooManyConnections { addr });
         }
 
         for conn in candidates_lock.values().chain(conn_read_lock.values()) {
             if conn.remote_addr().ip() == addr.ip() {
                 if node.config.disallow_multiple_peers_on_ip {
-                    return Err(AcceptFailureReason::AlreadyConnectedToIP {
-                        ip: addr.ip(),
-                    });
+                    return Err(AcceptFailureReason::AlreadyConnectedToIP { ip: addr.ip() });
                 } else if conn.remote_addr().port() == addr.port()
                     || conn.remote_peer.external_port == addr.port()
                 {
-                    return Err(AcceptFailureReason::DuplicateConnection {
-                        addr,
-                    });
+                    return Err(AcceptFailureReason::DuplicateConnection { addr });
                 }
             }
         }
 
         if node.connection_handler.is_soft_banned(addr) {
-            warn!("Connection attempt from a soft-banned IP ({}); rejecting", addr.ip());
+            warn!(
+                "Connection attempt from a soft-banned IP ({}); rejecting",
+                addr.ip()
+            );
             return Err(AcceptFailureReason::SoftBanned);
         }
     }
 
     debug!("Accepting a connection from {}", addr);
 
-    let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
+    let token = Token(
+        node.connection_handler
+            .next_token
+            .fetch_add(1, Ordering::SeqCst),
+    );
 
     let remote_peer = RemotePeer {
         self_id: Default::default(),
@@ -482,20 +499,29 @@ pub fn connect(
     }
 
     // Don't connect to banned IPs.
-    if node.is_banned(PersistedBanId::Ip(peer_addr.ip())).unwrap_or(false) {
+    if node
+        .is_banned(PersistedBanId::Ip(peer_addr.ip()))
+        .unwrap_or(false)
+    {
         bail!("Refusing to connect to a banned IP ({})", peer_addr.ip());
     }
 
     // Or to soft-banned nodes.
     if node.connection_handler.is_soft_banned(peer_addr) {
-        bail!("Refusing to connect to a soft-banned IP ({})", peer_addr.ip());
+        bail!(
+            "Refusing to connect to a soft-banned IP ({})",
+            peer_addr.ip()
+        );
     }
 
     // Lock the candidate list for added safety against duplicate connections
     let mut candidates_lock = lock_or_die!(node.conn_candidates());
 
     // Don't connect to established connections on a given IP + port
-    for conn in read_or_die!(node.connections()).values().chain(candidates_lock.values()) {
+    for conn in read_or_die!(node.connections())
+        .values()
+        .chain(candidates_lock.values())
+    {
         if node.config.disallow_multiple_peers_on_ip {
             if conn.remote_addr().ip() == peer_addr.ip() {
                 bail!("Already connected to IP {}", peer_addr.ip());
@@ -510,7 +536,11 @@ pub fn connect(
             trace!("Connected to {}", peer_addr);
             node.stats.connections_received.inc();
 
-            let token = Token(node.connection_handler.next_token.fetch_add(1, Ordering::SeqCst));
+            let token = Token(
+                node.connection_handler
+                    .next_token
+                    .fetch_add(1, Ordering::SeqCst),
+            );
 
             let remote_peer = RemotePeer {
                 self_id: None,
@@ -627,19 +657,31 @@ pub fn connection_housekeeping(node: &Arc<P2PNode>) -> bool {
     // Try to connect to any given addresses we are not connected to.
     for given in node.unconnected_given_addresses() {
         if let Err(e) = connect(node, PeerType::Node, given, None, false) {
-            warn!("Cannot establish connection to a given address {}: {}", given, e)
+            warn!(
+                "Cannot establish connection to a given address {}: {}",
+                given, e
+            )
         }
     }
 
     // Log all the bad events that happened and reset all their counters.
     for (peer_id, invalid_msgs) in lock_or_die!(node.bad_events.invalid_messages).drain() {
-        warn!("Received {} invalid messages from peer {}", invalid_msgs, peer_id);
+        warn!(
+            "Received {} invalid messages from peer {}",
+            invalid_msgs, peer_id
+        );
     }
     for (peer_id, dropped) in lock_or_die!(node.bad_events.dropped_high_queue).drain() {
-        warn!("Dropped {} high priority messages from peer {}.", dropped, peer_id);
+        warn!(
+            "Dropped {} high priority messages from peer {}.",
+            dropped, peer_id
+        );
     }
     for (peer_id, dropped) in lock_or_die!(node.bad_events.dropped_low_queue).drain() {
-        warn!("Dropped {} low priority messages from peer {}.", dropped, peer_id);
+        warn!(
+            "Dropped {} low priority messages from peer {}.",
+            dropped, peer_id
+        );
     }
 
     // Reconnect to bootstrappers after a specified amount of time.

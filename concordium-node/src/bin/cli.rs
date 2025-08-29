@@ -55,11 +55,17 @@ async fn main() -> anyhow::Result<()> {
     let regenesis_arc: Arc<Regenesis> = Arc::new(Default::default());
 
     // The P2PNode thread
-    let (node, server, poll) =
-        instantiate_node(&conf, &mut app_prefs, stats_export_service, regenesis_arc.clone())
-            .context("Failed to create the node.")?;
+    let (node, server, poll) = instantiate_node(
+        &conf,
+        &mut app_prefs,
+        stats_export_service,
+        regenesis_arc.clone(),
+    )
+    .context("Failed to create the node.")?;
     // Set the startime in the stats.
-    node.stats.node_startup_timestamp.set(node.start_time.timestamp_millis());
+    node.stats
+        .node_startup_timestamp
+        .set(node.start_time.timestamp_millis());
 
     // Setup task with signal handling before doing any irreversible operations
     // to avoid being interrupted in the middle of sensitive operations, e.g.,
@@ -72,7 +78,9 @@ async fn main() -> anyhow::Result<()> {
             let stats = node.stats.clone();
             let pla = conf.prometheus.prometheus_listen_addr;
             tokio::spawn(async move {
-                stats.start_server(SocketAddr::new(pla, plp), shutdown_sender).await
+                stats
+                    .start_server(SocketAddr::new(pla, plp), shutdown_sender)
+                    .await
             });
         }
     }
@@ -104,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
             finalized_baked_blocks: node.stats.finalized_baked_blocks.clone(),
         };
         let notification_handlers = ffi::NotificationHandlers {
-            blocks:           receiver_blocks,
+            blocks: receiver_blocks,
             finalized_blocks: receiver_finalized,
         };
         (Some(notify_context), Some(notification_handlers))
@@ -161,7 +169,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Start stats collecting which depend on querying consensus.
     let consensus_collector = StatsConsensusCollector::new(consensus.clone())?;
-    node.stats.registry.register(Box::new(consensus_collector))?;
+    node.stats
+        .registry
+        .register(Box::new(consensus_collector))?;
 
     // A flag to record that the import was stopped by a signal handler.
     let import_stopped = Arc::new(atomic::AtomicBool::new(false));
@@ -248,7 +258,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Wait for the consensus queue threads to stop
     for consensus_queue_thread in consensus_queue_threads {
-        consensus_queue_thread.join().expect("A consensus queue thread panicked");
+        consensus_queue_thread
+            .join()
+            .expect("A consensus queue thread panicked");
     }
 
     // Shut down the consensus layer
@@ -324,8 +336,9 @@ fn instantiate_node(
     // Otherwise try to look it up from the persistent config.
     let node_id = match conf.common.id {
         None => {
-            let maybe_id =
-                app_prefs.get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID).context(
+            let maybe_id = app_prefs
+                .get_config(config::APP_PREFERENCES_PERSISTED_NODE_ID)
+                .context(
                     "Could not read ID from persistent config.\nFix or delete the \
                      `main.config.json` file in the configuration directory.",
                 )?;
@@ -343,7 +356,13 @@ fn instantiate_node(
         error!("Failed to persist own node id.");
     };
 
-    P2PNode::new(Some(node_id), conf, PeerType::Node, stats_export_service, regenesis_arc)
+    P2PNode::new(
+        Some(node_id),
+        conf,
+        PeerType::Node,
+        stats_export_service,
+        regenesis_arc,
+    )
 }
 
 /// Establish initial connections to peers on the network.
@@ -390,8 +409,11 @@ fn start_consensus_message_threads(
 
     let node_ref = Arc::clone(node);
     threads.push(spawn_or_die!("inbound consensus requests", {
-        let consensus_receiver_high_priority =
-            CALLBACK_QUEUE.inbound.receiver_high_priority.lock().unwrap();
+        let consensus_receiver_high_priority = CALLBACK_QUEUE
+            .inbound
+            .receiver_high_priority
+            .lock()
+            .unwrap();
         let consensus_receiver_low_priority =
             CALLBACK_QUEUE.inbound.receiver_low_priority.lock().unwrap();
         let mut exhausted: bool;
@@ -460,10 +482,16 @@ fn start_consensus_message_threads(
 
     let node_ref = Arc::clone(node);
     threads.push(spawn_or_die!("outbound consensus requests", {
-        let consensus_receiver_high_priority =
-            CALLBACK_QUEUE.outbound.receiver_high_priority.lock().unwrap();
-        let consensus_receiver_low_priority =
-            CALLBACK_QUEUE.outbound.receiver_low_priority.lock().unwrap();
+        let consensus_receiver_high_priority = CALLBACK_QUEUE
+            .outbound
+            .receiver_high_priority
+            .lock()
+            .unwrap();
+        let consensus_receiver_low_priority = CALLBACK_QUEUE
+            .outbound
+            .receiver_low_priority
+            .lock()
+            .unwrap();
         let mut exhausted: bool;
 
         'outer_loop: loop {
@@ -534,7 +562,8 @@ fn start_consensus_message_threads(
 
 fn handle_queue_stop<F>(msg: QueueMsg<ConsensusMessage>, dir: &'static str, f: F) -> bool
 where
-    F: FnOnce(ConsensusMessage) -> anyhow::Result<()>, {
+    F: FnOnce(ConsensusMessage) -> anyhow::Result<()>,
+{
     match msg {
         QueueMsg::Relay(msg) => {
             if let Err(e) = f(msg) {
@@ -576,7 +605,10 @@ async fn maybe_do_out_of_band_catchup(
                 );
             }
         } else {
-            info!("Completed out of band catch-up from {}.", import_blocks_from.display());
+            info!(
+                "Completed out of band catch-up from {}.",
+                import_blocks_from.display()
+            );
         }
     } else if let Some(download_url) = download_blocks_from.as_ref().cloned() {
         info!("Starting out of band catch-up");
@@ -607,14 +639,14 @@ async fn maybe_do_out_of_band_catchup(
 #[derive(serde::Deserialize)]
 struct BlockChunkData {
     // exported chunk of blocks' filename
-    filename:           String,
+    filename: String,
     // genesis block index from which relative heights of blocks in the chunk are counted
-    genesis_index:      usize,
+    genesis_index: usize,
     // relative height of the oldest block stored in the chunk
     #[allow(dead_code)]
     first_block_height: u64,
     // relative height of the newest block stored in the chunk
-    last_block_height:  u64,
+    last_block_height: u64,
 }
 
 async fn import_missing_blocks(
@@ -629,13 +661,18 @@ async fn import_missing_blocks(
     let last_finalized_block_height = consensus.get_last_finalized_block_height();
 
     trace!("Current genesis index: {}", current_genesis_index);
-    trace!("Local last finalized block height: {}", last_finalized_block_height);
+    trace!(
+        "Local last finalized block height: {}",
+        last_finalized_block_height
+    );
 
     let connect_timeout = std::time::Duration::from_secs(10);
     let request_timeout = std::time::Duration::from_secs(request_timeout.into());
 
-    let http_client =
-        Client::builder().connect_timeout(connect_timeout).timeout(request_timeout).build()?;
+    let http_client = Client::builder()
+        .connect_timeout(connect_timeout)
+        .timeout(request_timeout)
+        .build()?;
     let index_response = http_client.get(index_url.clone()).send().await?;
     anyhow::ensure!(
         index_response.status().is_success(),
@@ -724,7 +761,11 @@ async fn download_chunk(
     // write access, that is why it is used.
     let mut temp_file =
         tempfile::NamedTempFile::new_in(data_dir_path).context("Cannot create output file.")?;
-    info!("Downloading the catch-up file from {} to {}", download_url, temp_file.path().display());
+    info!(
+        "Downloading the catch-up file from {} to {}",
+        download_url,
+        temp_file.path().display()
+    );
     {
         let chunk_response = http_client.get(download_url.clone()).send().await?;
         anyhow::ensure!(

@@ -9,11 +9,11 @@ use std::{fmt, sync::Arc};
 /// It contains an optional identifier of the source peer if it is not our own
 /// consensus layer.
 pub struct ConsensusMessage {
-    pub direction:     MessageType,
-    pub variant:       PacketType,
-    pub payload:       Arc<[u8]>,
+    pub direction: MessageType,
+    pub variant: PacketType,
+    pub payload: Arc<[u8]>,
     pub dont_relay_to: Vec<RemotePeerId>,
-    pub omit_status:   Option<PeerStatus>,
+    pub omit_status: Option<PeerStatus>,
 }
 
 impl ConsensusMessage {
@@ -57,7 +57,9 @@ impl ConsensusMessage {
         }
     }
 
-    pub fn dont_relay_to(&self) -> Vec<RemotePeerId> { self.dont_relay_to.clone() }
+    pub fn dont_relay_to(&self) -> Vec<RemotePeerId> {
+        self.dont_relay_to.clone()
+    }
 }
 
 impl fmt::Display for ConsensusMessage {

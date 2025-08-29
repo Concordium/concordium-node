@@ -31,8 +31,10 @@ async fn main() -> anyhow::Result<()> {
         .regenesis_block_hashes
         .clone()
         .unwrap_or_else(|| data_dir_path.join(std::path::Path::new("genesis_hash")));
-    let regenesis_hashes_bytes = std::fs::read(&fname)
-        .context(format!("Could not open file {} with genesis hashes.", fname.to_string_lossy()))?;
+    let regenesis_hashes_bytes = std::fs::read(&fname).context(format!(
+        "Could not open file {} with genesis hashes.",
+        fname.to_string_lossy()
+    ))?;
     let regenesis_blocks: Vec<BlockHash> = serde_json::from_slice(&regenesis_hashes_bytes)
         .context("Could not parse genesis hashes.")?;
     let regenesis_arc: Arc<Regenesis> = Arc::new(Regenesis::from_blocks(regenesis_blocks));
@@ -58,13 +60,18 @@ async fn main() -> anyhow::Result<()> {
         let (sender, _) = tokio::sync::broadcast::channel(1);
         tokio::spawn(async move {
             stats_export_service
-                .start_server(SocketAddr::new(conf.prometheus.prometheus_listen_addr, plp), sender)
+                .start_server(
+                    SocketAddr::new(conf.prometheus.prometheus_listen_addr, plp),
+                    sender,
+                )
                 .await
         });
     }
 
     // Set the startime in the stats.
-    node.stats.node_startup_timestamp.set(node.start_time.timestamp_millis());
+    node.stats
+        .node_startup_timestamp
+        .set(node.start_time.timestamp_millis());
 
     spawn(&node, server, poll, None);
 

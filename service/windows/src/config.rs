@@ -16,11 +16,17 @@ pub fn get_config_file_path() -> anyhow::Result<PathBuf> {
     let hklm = RegKey::predef(HKEY_LOCAL_MACHINE);
     let key_name = r"SOFTWARE\Concordium\Node Runner";
     let node_runner_key = hklm.open_subkey(key_name).with_context(|| {
-        format!("Could not resolve registry key 'HKEY_LOCAL_MACHINE\\{}'", key_name)
+        format!(
+            "Could not resolve registry key 'HKEY_LOCAL_MACHINE\\{}'",
+            key_name
+        )
     })?;
     let value_name = "Config";
     let conf: String = node_runner_key.get_value(value_name).with_context(|| {
-        format!("Could not get registry value 'HKEY_LOCAL_MACHINE\\{}\\{}'", key_name, value_name)
+        format!(
+            "Could not get registry value 'HKEY_LOCAL_MACHINE\\{}\\{}'",
+            key_name, value_name
+        )
     })?;
     Ok(PathBuf::from(conf))
 }
@@ -60,7 +66,11 @@ fn get_env(
     if let Some(env_table) = env_table_opt {
         for (k, v) in env_table {
             let value = v.as_str().ok_or_else(|| {
-                anyhow!("Environment variables must be strings, but {}.{} is not", table_name, k)
+                anyhow!(
+                    "Environment variables must be strings, but {}.{} is not",
+                    table_name,
+                    k
+                )
             })?;
             env.insert(k.to_string(), value.to_string());
         }
@@ -103,7 +113,9 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
     let conf_val: Value = toml::from_str(conf_str)?;
 
     // The [common] table.
-    let common = toml_get_as!(as_table, &conf_val, "common").cloned().unwrap_or_default();
+    let common = toml_get_as!(as_table, &conf_val, "common")
+        .cloned()
+        .unwrap_or_default();
 
     // Common node environment variables
     let mut common_node_env = HashMap::new();
@@ -115,8 +127,10 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
     let common_node_env = common_node_env; // Should not be mutated further
 
     // Common node arguments
-    let common_node_args =
-        get_args(toml_get_as!(as_array, &common, "node", "args"), "common.node.args")?;
+    let common_node_args = get_args(
+        toml_get_as!(as_array, &common, "node", "args"),
+        "common.node.args",
+    )?;
 
     // Common collector environment variables
     let mut common_collector_env = HashMap::new();
@@ -128,8 +142,10 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
     let common_collector_env = common_collector_env; // Should not be mutated further
 
     // Common collector arguments
-    let common_collector_args =
-        get_args(toml_get_as!(as_array, &common, "collector", "args"), "common.collector.args")?;
+    let common_collector_args = get_args(
+        toml_get_as!(as_array, &common, "collector", "args"),
+        "common.collector.args",
+    )?;
 
     let mut nodes = Vec::new();
     if let Some(node_table) = toml_get_as!(as_table, &conf_val, "node") {
@@ -139,7 +155,9 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
                 continue;
             }
 
-            let name = toml_get_as!(as_str, &node, "name").unwrap_or_else(|| nname).to_string();
+            let name = toml_get_as!(as_str, &node, "name")
+                .unwrap_or_else(|| nname)
+                .to_string();
             let bootstrap_nodes = toml_get_as!(as_str, &node, "bootstrap_nodes")
                 .or_else(|| toml_get_as!(as_str, &common, "bootstrap_nodes"))
                 .ok_or_else(|| anyhow!("Missing string entry node.{}.bootstrap_nodes", nname))?
@@ -295,9 +313,7 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
             });
         }
     }
-    Ok(Config {
-        nodes,
-    })
+    Ok(Config { nodes })
 }
 
 /// Load the configuration by looking up the configuration file in the registry
@@ -305,7 +321,10 @@ fn load_config_file(conf_str: &str, conf_root: &Path) -> anyhow::Result<Config> 
 pub fn load_config() -> anyhow::Result<Config> {
     let conf_path = get_config_file_path()?;
     let conf_str = fs::read_to_string(&conf_path).with_context(|| {
-        format!("Could not read configuration file '{}'", conf_path.as_path().display(),)
+        format!(
+            "Could not read configuration file '{}'",
+            conf_path.as_path().display(),
+        )
     })?;
     let conf_root = conf_path.parent().ok_or_else(|| {
         anyhow!(
@@ -315,6 +334,9 @@ pub fn load_config() -> anyhow::Result<Config> {
     })?;
 
     load_config_file(conf_str.as_ref(), conf_root).with_context(|| {
-        format!("Failed to parse configuration file '{}'", conf_path.as_path().display())
+        format!(
+            "Failed to parse configuration file '{}'",
+            conf_path.as_path().display()
+        )
     })
 }

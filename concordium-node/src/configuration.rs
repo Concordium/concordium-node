@@ -18,7 +18,7 @@ use structopt::{clap::AppSettings, StructOpt};
 
 /// Client's details for local directory setup purposes.
 pub const APP_INFO: AppInfo = AppInfo {
-    name:   "concordium",
+    name: "concordium",
     author: "concordium",
 };
 
@@ -39,7 +39,10 @@ pub(crate) fn is_compatible_version(other: &semver::Version) -> bool {
 pub(crate) fn is_compatible_wire_version(
     other: &[WireProtocolVersion],
 ) -> Option<WireProtocolVersion> {
-    WIRE_PROTOCOL_VERSIONS.iter().find(|&&ours| other.iter().any(|&theirs| theirs == ours)).copied()
+    WIRE_PROTOCOL_VERSIONS
+        .iter()
+        .find(|&&ours| other.iter().any(|&theirs| theirs == ours))
+        .copied()
 }
 
 /// The maximum size of objects accepted from the network.
@@ -551,7 +554,9 @@ pub struct GRPC2Config {
 
 impl GRPC2Config {
     /// Return whether the grpc2 server is enabled.
-    pub fn is_enabled(&self) -> bool { self.listen_addr.is_some() && self.listen_port.is_some() }
+    pub fn is_enabled(&self) -> bool {
+        self.listen_addr.is_some() && self.listen_port.is_some()
+    }
 }
 
 #[derive(StructOpt, Debug)]
@@ -854,7 +859,11 @@ pub struct CommonConfig {
 // Client's parameters.
 #[derive(StructOpt, Debug)]
 pub struct CliConfig {
-    #[structopt(long = "no-network", help = "Disable network", env = "CONCORDIUM_NODE_NO_NETWORK")]
+    #[structopt(
+        long = "no-network",
+        help = "Disable network",
+        env = "CONCORDIUM_NODE_NO_NETWORK"
+    )]
     pub no_network: bool,
     #[structopt(
         long = "poll-interval",
@@ -943,18 +952,18 @@ pub struct MacOsConfig {
 #[structopt(about = "Concordium P2P node.")]
 pub struct Config {
     #[structopt(flatten)]
-    pub common:       CommonConfig,
+    pub common: CommonConfig,
     #[structopt(flatten)]
-    pub prometheus:   PrometheusConfig,
+    pub prometheus: PrometheusConfig,
     #[structopt(flatten)]
-    pub connection:   ConnectionConfig,
+    pub connection: ConnectionConfig,
     #[structopt(flatten)]
-    pub cli:          CliConfig,
+    pub cli: CliConfig,
     #[structopt(flatten)]
     pub bootstrapper: BootstrapperConfig,
     #[cfg(target_os = "macos")]
     #[structopt(flatten)]
-    pub macos:        MacOsConfig,
+    pub macos: MacOsConfig,
 }
 
 impl Config {
@@ -1049,8 +1058,8 @@ pub fn parse_config() -> anyhow::Result<Config> {
 /// Handles the configuration data.
 #[derive(Debug)]
 pub struct AppPreferences {
-    preferences_map:     PreferencesMap<String>,
-    override_data_dir:   PathBuf,
+    preferences_map: PreferencesMap<String>,
+    override_data_dir: PathBuf,
     override_config_dir: PathBuf,
 }
 
@@ -1061,7 +1070,10 @@ impl AppPreferences {
 
         let mut new_prefs = if file_path.as_path().is_file() {
             let file = File::open(&file_path).with_context(|| {
-                format!("Could not open configuration file: '{}'", file_path.as_path().display())
+                format!(
+                    "Could not open configuration file: '{}'",
+                    file_path.as_path().display()
+                )
             })?;
 
             let mut reader = BufReader::new(&file);
@@ -1072,21 +1084,24 @@ impl AppPreferences {
             });
 
             AppPreferences {
-                preferences_map:     prefs,
-                override_data_dir:   override_data,
+                preferences_map: prefs,
+                override_data_dir: override_data,
                 override_config_dir: override_conf,
             }
         } else {
             info!("Node configuration file not found. Creating a new one.");
 
             let _ = File::create(&file_path).with_context(|| {
-                format!("Could not create configuration file: '{}'", file_path.as_path().display())
+                format!(
+                    "Could not create configuration file: '{}'",
+                    file_path.as_path().display()
+                )
             })?;
             let prefs = PreferencesMap::<String>::new();
 
             AppPreferences {
-                preferences_map:     prefs,
-                override_data_dir:   override_data,
+                preferences_map: prefs,
+                override_data_dir: override_data,
                 override_config_dir: override_conf,
             }
         };
@@ -1104,12 +1119,19 @@ impl AppPreferences {
     /// Add a piece of config to the config map.
     pub fn set_config<X: ToString>(&mut self, key: &str, value: Option<X>) -> bool {
         match value {
-            Some(val) => self.preferences_map.insert(key.to_string(), val.to_string()),
+            Some(val) => self
+                .preferences_map
+                .insert(key.to_string(), val.to_string()),
             _ => self.preferences_map.remove(key),
         };
         let file_path =
             Self::calculate_config_file_path(&self.override_config_dir, APP_PREFERENCES_MAIN);
-        match OpenOptions::new().read(true).write(true).truncate(true).open(file_path) {
+        match OpenOptions::new()
+            .read(true)
+            .write(true)
+            .truncate(true)
+            .open(file_path)
+        {
             Ok(ref mut file) => {
                 let mut writer = BufWriter::new(file);
                 if self.preferences_map.save_to(&mut writer).is_err() {
@@ -1145,8 +1167,12 @@ impl AppPreferences {
     }
 
     /// Returns the path to the application directory.
-    pub fn get_data_dir(&self) -> &Path { &self.override_data_dir }
+    pub fn get_data_dir(&self) -> &Path {
+        &self.override_data_dir
+    }
 
     /// Returns the path to the config directory.
-    pub fn get_config_dir(&self) -> &Path { &self.override_config_dir }
+    pub fn get_config_dir(&self) -> &Path {
+        &self.override_config_dir
+    }
 }

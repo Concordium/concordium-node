@@ -39,7 +39,10 @@ fn basic_connectivity() {
     }
     possible_connections.sort();
     possible_connections.dedup();
-    assert_eq!(possible_connections.len(), NODE_COUNT * (NODE_COUNT - 1) / 2);
+    assert_eq!(
+        possible_connections.len(),
+        NODE_COUNT * (NODE_COUNT - 1) / 2
+    );
 
     // connect the nodes in a mesh
     for pair in &possible_connections {
