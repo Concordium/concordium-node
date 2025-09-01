@@ -68,19 +68,19 @@ keyPair0 = Helpers.keyPairFromSeed 0
 tokenInitializationParameters :: AccountAddress -> CBOR.TokenInitializationParameters
 tokenInitializationParameters accountAddress =
     CBOR.TokenInitializationParameters
-        { tipName = "Protocol-level token",
-          tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
-          tipAllowList = False,
-          tipDenyList = False,
-          tipGovernanceAccount = CBOR.accountTokenHolder accountAddress,
+        { tipName = Just "Protocol-level token",
+          tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
+          tipAllowList = Just False,
+          tipDenyList = Just False,
+          tipGovernanceAccount = Just $ CBOR.accountTokenHolder accountAddress,
           tipInitialSupply =
             Just
                 TokenAmount
                     { taValue = 1_000_000_000_000,
                       taDecimals = 6
                     },
-          tipMintable = True,
-          tipBurnable = True
+          tipMintable = Just True,
+          tipBurnable = Just True
         }
 
 -- | Block item that create a PLT token
