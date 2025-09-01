@@ -1316,9 +1316,9 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                     :>>: Done
                         ( tokenModuleStateToBytes
                             TokenModuleState
-                                { tmsName = "My protocol-level token",
-                                  tmsMetadata = metadata,
-                                  tmsGovernanceAccount = governanceAccount,
+                                { tmsName = Just "My protocol-level token",
+                                  tmsMetadata = Just metadata,
+                                  tmsGovernanceAccount = Just governanceAccount,
                                   tmsPaused = Just False,
                                   tmsAllowList = Just True,
                                   tmsDenyList = Just False,
@@ -1350,9 +1350,9 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                     :>>: Done
                         ( tokenModuleStateToBytes
                             TokenModuleState
-                                { tmsName = "Another PLT",
-                                  tmsMetadata = metadata,
-                                  tmsGovernanceAccount = governanceAccount,
+                                { tmsName = Just "Another PLT",
+                                  tmsMetadata = Just metadata,
+                                  tmsGovernanceAccount = Just governanceAccount,
                                   tmsPaused = Just True,
                                   tmsAllowList = Just False,
                                   tmsDenyList = Just True,
