@@ -348,9 +348,9 @@ testInitializeToken = describe "initializeToken" $ do
                 TokenInitializationParameters
                     { tipName = Nothing, -- missing required parameter
                       tipMetadata = Just metadata,
-                      tipGovernanceAccount =Just governanceAccount,
+                      tipGovernanceAccount = Just governanceAccount,
                       tipAllowList = Just True,
-                      tipDenyList =Just False,
+                      tipDenyList = Just False,
                       tipInitialSupply = Nothing,
                       tipMintable = Just True,
                       tipBurnable = Just True
@@ -361,8 +361,8 @@ testInitializeToken = describe "initializeToken" $ do
                 abortPLTError $
                     ITEDeserializationFailure "Token name is missing"
         assertTrace
-            (initializeToken  tokenParam)
-            trace     
+            (initializeToken tokenParam)
+            trace
     -- An example with minimal parameters specified, tests default value for parameters.
     it "parameter default values" $ do
         let metadata = createTokenMetadataUrl "https://plt.token"
@@ -375,9 +375,9 @@ testInitializeToken = describe "initializeToken" $ do
                 TokenInitializationParameters
                     { tipName = Just "Protocol-level token",
                       tipMetadata = Just metadata,
-                      tipGovernanceAccount =Just governanceAccount,
+                      tipGovernanceAccount = Just governanceAccount,
                       tipAllowList = Nothing,
-                      tipDenyList =Nothing,
+                      tipDenyList = Nothing,
                       tipInitialSupply = Nothing,
                       tipMintable = Nothing,
                       tipBurnable = Nothing
@@ -404,9 +404,9 @@ testInitializeToken = describe "initializeToken" $ do
                 TokenInitializationParameters
                     { tipName = Just "Protocol-level token",
                       tipMetadata = Just metadata,
-                      tipGovernanceAccount =Just governanceAccount,
+                      tipGovernanceAccount = Just governanceAccount,
                       tipAllowList = Just True,
-                      tipDenyList =Just False,
+                      tipDenyList = Just False,
                       tipInitialSupply = Nothing,
                       tipMintable = Just True,
                       tipBurnable = Just True
@@ -436,7 +436,7 @@ testInitializeToken = describe "initializeToken" $ do
                 TokenInitializationParameters
                     { tipName = Just "Protocol-level token2",
                       tipMetadata = Just metadata,
-                      tipGovernanceAccount =Just governanceAccount,
+                      tipGovernanceAccount = Just governanceAccount,
                       tipAllowList = Just False,
                       tipDenyList = Just True,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
@@ -468,7 +468,7 @@ testInitializeToken = describe "initializeToken" $ do
                 TokenInitializationParameters
                     { tipName = Just "Protocol-level token2",
                       tipMetadata = Just metadata,
-                      tipGovernanceAccount =Just governanceAccount,
+                      tipGovernanceAccount = Just governanceAccount,
                       tipAllowList = Just False,
                       tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
@@ -500,7 +500,7 @@ testInitializeToken = describe "initializeToken" $ do
                 TokenInitializationParameters
                     { tipName = Just "Protocol-level token2",
                       tipMetadata = Just metadata,
-                      tipGovernanceAccount =Just governanceAccount,
+                      tipGovernanceAccount = Just governanceAccount,
                       tipAllowList = Just False,
                       tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 6},
@@ -531,9 +531,9 @@ testInitializeToken = describe "initializeToken" $ do
                 TokenInitializationParameters
                     { tipName = Just "Protocol-level token2",
                       tipMetadata = Just metadata,
-                      tipGovernanceAccount =Just governanceAccount,
+                      tipGovernanceAccount = Just governanceAccount,
                       tipAllowList = Just False,
-                      tipDenyList =Just False,
+                      tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
                       tipMintable = Just False,
                       tipBurnable = Just False
