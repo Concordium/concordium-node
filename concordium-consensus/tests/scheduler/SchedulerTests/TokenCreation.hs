@@ -129,6 +129,58 @@ testCreatePLT _ pvString = describe pvString $ do
             Helpers.defaultTestConfig
             initialBlockState
             transactionsAndAssertions
+    it "Create PLT - minimal parameters" $ do
+        let createPLT1MinimalParameters =
+                Types.CreatePLT
+                    { _cpltTokenModule = testModuleRef,
+                      _cpltTokenId = plt1,
+                      -- set parameters that are allowed to be not set to Nothing
+                      _cpltInitializationParameters =
+                        toTokenParam
+                            params1
+                                { CBOR.tipMintable = Nothing,
+                                  CBOR.tipBurnable = Nothing,
+                                  CBOR.tipDenyList = Nothing,
+                                  CBOR.tipAllowList = Nothing
+                                },
+                      _cpltDecimals = 0
+                    }
+
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction = txCreatePLT 1 createPLT1MinimalParameters,
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertSuccessWithEvents [TokenCreated{etcPayload = createPLT1MinimalParameters}] result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
+    it "Create PLT - missing parameter" $ do
+        let createPLT1MissingNameParameter =
+                Types.CreatePLT
+                    { _cpltTokenModule = testModuleRef,
+                      _cpltTokenId = plt1,
+                      _cpltInitializationParameters = toTokenParam params1{CBOR.tipName = Nothing},
+                      _cpltDecimals = 0
+                    }
+
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction = txCreatePLT 1 createPLT1MissingNameParameter,
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Token name is missing") result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
     it "Create PLT - duplicate" $ do
         let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
@@ -331,14 +383,14 @@ testCreatePLT _ pvString = describe pvString $ do
     plt2 = Types.TokenId "PLT2"
     params1 =
         CBOR.TokenInitializationParameters
-            { tipName = "Protocol-level token",
-              tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
-              tipGovernanceAccount = dummyCborTokenHolder,
-              tipAllowList = False,
-              tipDenyList = False,
+            { tipName = Just "Protocol-level token",
+              tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
+              tipGovernanceAccount = Just dummyCborTokenHolder,
+              tipAllowList = Just False,
+              tipDenyList = Just False,
               tipInitialSupply = Nothing,
-              tipMintable = True,
-              tipBurnable = True
+              tipMintable = Just True,
+              tipBurnable = Just True
             }
     toTokenParam = Types.TokenParameter . BSS.toShort . CBOR.tokenInitializationParametersToBytes
     createPLT1 =
@@ -350,14 +402,14 @@ testCreatePLT _ pvString = describe pvString $ do
             }
     params2 =
         CBOR.TokenInitializationParameters
-            { tipName = "Protocol-level token",
-              tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
-              tipGovernanceAccount = dummyCborTokenHolder,
-              tipAllowList = False,
-              tipDenyList = False,
+            { tipName = Just "Protocol-level token",
+              tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
+              tipGovernanceAccount = Just dummyCborTokenHolder,
+              tipAllowList = Just False,
+              tipDenyList = Just False,
               tipInitialSupply = Just (TokenAmount 10 0),
-              tipMintable = True,
-              tipBurnable = True
+              tipMintable = Just True,
+              tipBurnable = Just True
             }
     createPLT2 =
         Types.CreatePLT
