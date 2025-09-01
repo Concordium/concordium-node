@@ -292,7 +292,7 @@ benchPltAddRemoveAllowList :: Benchmark
 benchPltAddRemoveAllowList =
     benchBlockItemsAssertSuccess
         "PLT add/remove allow list"
-        [ createPltBlockItem plt1 (tokenInitializationParameters accountAddress0){CBOR.tipAllowList = True},
+        [ createPltBlockItem plt1 (tokenInitializationParameters accountAddress0){CBOR.tipAllowList = Just True},
           Runner.AccountTx transaction
         ]
   where
@@ -305,7 +305,7 @@ benchPltAddRemoveDenyList :: Benchmark
 benchPltAddRemoveDenyList =
     benchBlockItemsAssertSuccess
         "PLT add/remove deny list"
-        [ createPltBlockItem plt1 $ (tokenInitializationParameters accountAddress0){CBOR.tipDenyList = True},
+        [ createPltBlockItem plt1 $ (tokenInitializationParameters accountAddress0){CBOR.tipDenyList = Just True},
           Runner.AccountTx transaction
         ]
   where
