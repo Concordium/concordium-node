@@ -8,7 +8,9 @@ pub mod utils;
 use chrono::prelude::*;
 
 /// Returns the current timestamp.
-pub fn get_current_stamp() -> u64 { Utc::now().timestamp_millis() as u64 }
+pub fn get_current_stamp() -> u64 {
+    Utc::now().timestamp_millis() as u64
+}
 
 pub use self::{
     p2p_node_id::P2PNodeId,

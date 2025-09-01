@@ -48,8 +48,11 @@ pub fn next_available_port() -> u16 {
 /// It is the responsibility of the test to delete those temporary directories.
 pub fn get_test_config(port: u16, networks: Vec<u16>) -> Config {
     let td = tempfile::tempdir().expect("Cannot create temporary test directory.");
-    let test_config =
-        ["concordium_node".to_string(), "--config-dir=.".to_string(), "--data-dir=.".to_string()];
+    let test_config = [
+        "concordium_node".to_string(),
+        "--config-dir=.".to_string(),
+        "--data-dir=.".to_string(),
+    ];
     let mut config = Config::from_iter(test_config.iter()).add_options(
         Some("127.0.0.1".to_owned()),
         port,
@@ -76,7 +79,8 @@ pub struct DeletePermission {
 /// directory**. This is only meant to be used in combination with
 /// `make_node_and_sync`. Panic on any errors.
 pub fn stop_node_delete_dirs(_: DeletePermission, node: Arc<P2PNode>) {
-    node.close_and_join().expect("Could not stop node's threads.");
+    node.close_and_join()
+        .expect("Could not stop node's threads.");
     std::fs::remove_dir_all(&node.config.data_dir_path)
         .expect("Could not delete node's data directory");
 }
@@ -91,7 +95,11 @@ pub fn wait_node_delete_dirs(_: DeletePermission, node: Arc<P2PNode>) {
 }
 
 pub fn dummy_regenesis_blocks() -> Vec<BlockHash> {
-    vec![BlockHash::new([0u8; 32]), BlockHash::new([1u8; 32]), BlockHash::new([2u8; 32])]
+    vec![
+        BlockHash::new([0u8; 32]),
+        BlockHash::new([1u8; 32]),
+        BlockHash::new([2u8; 32]),
+    ]
 }
 
 /// Creates a `P2PNode` for test purposes
@@ -114,9 +122,7 @@ pub fn make_node_and_sync(
     let (node, server, poll) = P2PNode::new(None, &config, node_type, stats, regenesis_arc)?;
 
     spawn(&node, server, poll, None);
-    Ok((node, DeletePermission {
-        _private: (),
-    }))
+    Ok((node, DeletePermission { _private: () }))
 }
 
 /// Connects `source` and `target` nodes
@@ -139,7 +145,11 @@ pub fn await_handshakes(node: &P2PNode) {
 
 /// Creates a vector of given size containing random bytes.
 pub fn generate_random_data(size: usize) -> Vec<u8> {
-    thread_rng().sample_iter(&Alphanumeric).take(size).map(|c| c as u32 as u8).collect()
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(size)
+        .map(|c| c as u32 as u8)
+        .collect()
 }
 
 fn generate_fake_block(size: usize) -> anyhow::Result<Vec<u8>> {
@@ -152,9 +162,12 @@ fn generate_fake_block(size: usize) -> anyhow::Result<Vec<u8>> {
 /// Produces a network message containing a packet that simulates a block of
 /// given size.
 pub fn create_random_packet(size: usize) -> NetworkMessage {
-    netmsg!(NetworkPacket, NetworkPacket {
-        destination: PacketDestination::Direct(rand::thread_rng().gen::<RemotePeerId>()),
-        network_id:  NetworkId::from(thread_rng().gen::<u16>()),
-        message:     generate_fake_block(size).unwrap(),
-    })
+    netmsg!(
+        NetworkPacket,
+        NetworkPacket {
+            destination: PacketDestination::Direct(rand::thread_rng().gen::<RemotePeerId>()),
+            network_id: NetworkId::from(thread_rng().gen::<u16>()),
+            message: generate_fake_block(size).unwrap(),
+        }
+    )
 }

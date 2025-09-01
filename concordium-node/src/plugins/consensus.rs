@@ -56,13 +56,13 @@ pub fn start_consensus_layer(
     ffi::start_haskell(&conf.rts_flags);
 
     let runtime_parameters = ConsensusRuntimeParameters {
-        max_block_size:             u64::from(conf.maximum_block_size),
+        max_block_size: u64::from(conf.maximum_block_size),
         block_construction_timeout: u64::from(conf.block_construction_timeout),
-        insertions_before_purging:  u64::from(conf.transaction_insertions_before_purge),
-        transaction_keep_alive:     u64::from(conf.transaction_keep_alive),
+        insertions_before_purging: u64::from(conf.transaction_insertions_before_purge),
+        transaction_keep_alive: u64::from(conf.transaction_keep_alive),
         transactions_purging_delay: u64::from(conf.transactions_purging_delay),
-        accounts_cache_size:        conf.account_cache_size,
-        modules_cache_size:         conf.modules_cache_size,
+        accounts_cache_size: conf.account_cache_size,
+        modules_cache_size: conf.modules_cache_size,
     };
 
     ConsensusContainer::new(runtime_parameters, start_config, private_data, appdata_dir)
@@ -177,7 +177,10 @@ pub fn handle_consensus_outbound_msg(
     node: &P2PNode,
     message: ConsensusMessage,
 ) -> anyhow::Result<()> {
-    node.stats.sent_consensus_messages.with_label_values(&[message.variant.label()]).inc();
+    node.stats
+        .sent_consensus_messages
+        .with_label_values(&[message.variant.label()])
+        .inc();
 
     if let Some(status) = message.omit_status {
         for peer in read_or_die!(node.peers)
@@ -275,11 +278,17 @@ fn send_msg_to_consensus(
         }
         FinalizationMessage => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
-            (consensus.send_finalization(genesis_index, &payload[4..]), Option::None)
+            (
+                consensus.send_finalization(genesis_index, &payload[4..]),
+                Option::None,
+            )
         }
         FinalizationRecord => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
-            (consensus.send_finalization_record(genesis_index, &payload[4..]), Option::None)
+            (
+                consensus.send_finalization_record(genesis_index, &payload[4..]),
+                Option::None,
+            )
         }
         CatchUpStatus => {
             let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
@@ -303,7 +312,10 @@ fn send_msg_to_consensus(
         // we do log some invalid messages to both ease debugging and see problems in
         // normal circumstances
         if num_bad_events < 10 {
-            warn!("Couldn't process a {} due to error code {:?}", message, consensus_response.0);
+            warn!(
+                "Couldn't process a {} due to error code {:?}",
+                message, consensus_response.0
+            );
         }
     }
 
@@ -413,7 +425,10 @@ pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
         (peers.catch_up_peer, peers.catch_up_stamp)
     };
     if let Some(peer_id) = catch_up_peer {
-        if read_or_die!(node.connections()).get(&peer_id.to_token()).is_some() {
+        if read_or_die!(node.connections())
+            .get(&peer_id.to_token())
+            .is_some()
+        {
             if now > catch_up_stamp + MAX_CATCH_UP_TIME {
                 // Try to remove the peer since it timed-out.
                 debug!("Peer {} took too long to catch up; dropping", peer_id);
@@ -423,7 +438,10 @@ pub fn check_peer_states(node: &P2PNode, consensus: &ConsensusContainer) {
             }
         } else {
             // Connection no longer exists
-            debug!("Connection to catch-up-in-progress peer {} no longer exists", peer_id);
+            debug!(
+                "Connection to catch-up-in-progress peer {} no longer exists",
+                peer_id
+            );
             let peers = &mut write_or_die!(node.peers);
             peers.catch_up_peer = None;
             peers.peer_states.remove(&peer_id);

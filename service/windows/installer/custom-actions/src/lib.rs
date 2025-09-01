@@ -153,13 +153,23 @@ fn get_data(install_handle: MsiHandle) -> Result<Vec<u16>, UINT> {
     let property: &OsStr = "CustomActionData\0".as_ref();
     let property_vec: Vec<u16> = property.encode_wide().collect();
     let res = unsafe {
-        MsiGetPropertyW(install_handle, property_vec.as_ptr(), value_vec.as_mut_ptr(), &mut len)
+        MsiGetPropertyW(
+            install_handle,
+            property_vec.as_ptr(),
+            value_vec.as_mut_ptr(),
+            &mut len,
+        )
     };
     if res == ERROR_MORE_DATA {
         len += 1;
         value_vec = vec![0; len as usize];
         let res = unsafe {
-            MsiGetPropertyW(install_handle, property_vec.as_ptr(), value_vec.as_mut_ptr(), &mut len)
+            MsiGetPropertyW(
+                install_handle,
+                property_vec.as_ptr(),
+                value_vec.as_mut_ptr(),
+                &mut len,
+            )
         };
         if res == ERROR_SUCCESS {
             Ok(value_vec)

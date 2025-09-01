@@ -36,20 +36,20 @@ const WRITE_QUEUE_ALLOC: usize = 1024 * 1024;
 #[derive(Default)]
 struct IncomingMessage {
     /// Contains bytes comprising the length of the message.
-    size_bytes:    Vec<u8>,
+    size_bytes: Vec<u8>,
     /// The number of bytes remaining to be read in order to complete the
     /// current message.
     pending_bytes: usize,
     /// The encrypted message currently being read.
-    message:       Vec<u8>,
+    message: Vec<u8>,
 }
 
 /// A buffer used to handle reads/writes to the socket.
 struct SocketBuffer {
     /// The socket read/write buffer.
-    buf:       Box<[u8]>,
+    buf: Box<[u8]>,
     /// The buffer's offset.
-    offset:    usize,
+    offset: usize,
     /// The bytes remaining from the last read from the socket.
     remaining: usize,
 }
@@ -57,8 +57,8 @@ struct SocketBuffer {
 impl SocketBuffer {
     fn new(socket_read_size: usize) -> Self {
         Self {
-            buf:       vec![0u8; socket_read_size].into_boxed_slice(),
-            offset:    0,
+            buf: vec![0u8; socket_read_size].into_boxed_slice(),
+            offset: 0,
             remaining: 0,
         }
     }
@@ -66,13 +66,19 @@ impl SocketBuffer {
 
 impl SocketBuffer {
     #[inline]
-    fn is_exhausted(&self) -> bool { self.offset == self.buf.len() }
+    fn is_exhausted(&self) -> bool {
+        self.offset == self.buf.len()
+    }
 
     #[inline]
-    fn slice(&self, len: usize) -> &[u8] { &self.buf[self.offset..][..len] }
+    fn slice(&self, len: usize) -> &[u8] {
+        &self.buf[self.offset..][..len]
+    }
 
     #[inline]
-    fn slice_mut(&mut self, len: usize) -> &mut [u8] { &mut self.buf[self.offset..][..len] }
+    fn slice_mut(&mut self, len: usize) -> &mut [u8] {
+        &mut self.buf[self.offset..][..len]
+    }
 
     #[inline]
     fn shift(&mut self, offset: usize) {
@@ -106,23 +112,23 @@ pub enum ReadResult {
 /// The `Connection`'s socket, noise session and some helper objects.
 pub struct ConnectionLowLevel {
     /// A reference to the node.
-    pub handler:    Weak<P2PNode>,
+    pub handler: Weak<P2PNode>,
     /// The socket associated with the connection.
-    pub socket:     TcpStream,
-    noise_session:  NoiseSession,
-    noise_buffer:   Box<[u8]>,
-    socket_buffer:  SocketBuffer,
-    incoming_msg:   IncomingMessage,
+    pub socket: TcpStream,
+    noise_session: NoiseSession,
+    noise_buffer: Box<[u8]>,
+    socket_buffer: SocketBuffer,
+    incoming_msg: IncomingMessage,
     /// A priority queue for bytes waiting to be written to the socket.
-    output_queue:   VecDeque<u8>,
+    output_queue: VecDeque<u8>,
     /// The desired size of a single write to the socket.
-    write_size:     usize,
+    write_size: usize,
     /// Whether the socket is writable.
-    is_writable:    bool,
+    is_writable: bool,
     /// Whether the socket has been initialized
     is_initialized: bool,
     /// If specified, the linger value to set for the socket
-    so_linger:      Option<u16>,
+    so_linger: Option<u16>,
 }
 
 macro_rules! recv_xx_msg {
@@ -197,11 +203,7 @@ impl ConnectionLowLevel {
         use libc::{c_int, c_void, linger, setsockopt, socklen_t, SOL_SOCKET, SO_LINGER};
         use std::os::unix::io::AsRawFd;
         let so_linger = linger {
-            l_onoff:  if onoff {
-                1
-            } else {
-                0
-            },
+            l_onoff: if onoff { 1 } else { 0 },
             l_linger: linger_time as c_int,
         };
         let res = unsafe {
@@ -229,18 +231,14 @@ impl ConnectionLowLevel {
 
         #[repr(C)]
         struct linger {
-            pub l_onoff:  c_ushort,
+            pub l_onoff: c_ushort,
             pub l_linger: c_ushort,
         }
         const SOL_SOCKET: c_int = 0xffff;
         const SO_LINGER: c_int = 0x0080;
 
         let so_linger = linger {
-            l_onoff:  if onoff {
-                1
-            } else {
-                0
-            },
+            l_onoff: if onoff { 1 } else { 0 },
             l_linger: linger_time as c_ushort,
         };
 
@@ -286,7 +284,11 @@ impl ConnectionLowLevel {
         recv_xx_msg!(self, len, "A");
         let pad = 16;
         let payload_in = self.socket_buffer.slice(len)[DHLEN..][..len - DHLEN - pad].to_vec();
-        let payload_out = self.handler.upgrade().unwrap().produce_handshake_request()?; // safe
+        let payload_out = self
+            .handler
+            .upgrade()
+            .unwrap()
+            .produce_handshake_request()?; // safe
         send_xx_msg!(self, DHLEN * 2 + MAC_LENGTH, &payload_out, MAC_LENGTH, "B");
 
         Ok(payload_in)
@@ -297,7 +299,11 @@ impl ConnectionLowLevel {
         let payload_in = self.socket_buffer.slice(len)[DHLEN * 2 + MAC_LENGTH..]
             [..len - DHLEN * 2 - MAC_LENGTH * 2]
             .to_vec();
-        let payload_out = self.handler.upgrade().unwrap().produce_handshake_request()?; // safe
+        let payload_out = self
+            .handler
+            .upgrade()
+            .unwrap()
+            .produce_handshake_request()?; // safe
         send_xx_msg!(self, DHLEN + MAC_LENGTH, &payload_out, MAC_LENGTH, "C");
         self.socket.set_nodelay(false)?;
         Ok(payload_in)
@@ -369,7 +375,9 @@ impl ConnectionLowLevel {
             self.socket_buffer.remaining,
             PAYLOAD_SIZE - self.incoming_msg.size_bytes.len(),
         );
-        self.incoming_msg.size_bytes.write_all(self.socket_buffer.slice(read_size))?;
+        self.incoming_msg
+            .size_bytes
+            .write_all(self.socket_buffer.slice(read_size))?;
         self.socket_buffer.shift(read_size);
 
         if self.incoming_msg.size_bytes.len() == PAYLOAD_SIZE {
@@ -398,7 +406,10 @@ impl ConnectionLowLevel {
                 );
             }
 
-            trace!("Expecting a {} message", ByteSize(expected_size as u64).to_string_as(true));
+            trace!(
+                "Expecting a {} message",
+                ByteSize(expected_size as u64).to_string_as(true)
+            );
             self.incoming_msg.pending_bytes = expected_size as usize;
             self.incoming_msg.message = Vec::with_capacity(expected_size as usize);
         }
@@ -411,9 +422,14 @@ impl ConnectionLowLevel {
     /// current message and decrypt it when all bytes have been read.
     #[inline]
     fn process_incoming_msg(&mut self) -> anyhow::Result<ReadResult> {
-        let to_read = cmp::min(self.incoming_msg.pending_bytes, self.socket_buffer.remaining);
+        let to_read = cmp::min(
+            self.incoming_msg.pending_bytes,
+            self.socket_buffer.remaining,
+        );
 
-        self.incoming_msg.message.write_all(self.socket_buffer.slice(to_read))?;
+        self.incoming_msg
+            .message
+            .write_all(self.socket_buffer.slice(to_read))?;
         self.incoming_msg.pending_bytes -= to_read;
 
         // When we are post-handshake, i.e., the noise session has been established
@@ -467,12 +483,7 @@ impl ConnectionLowLevel {
         let num_full_chunks = len / NOISE_MAX_MESSAGE_LEN;
         // calculate the number of the last, incomplete chunk (if there is one)
         let last_chunk_size = len % NOISE_MAX_MESSAGE_LEN;
-        let num_all_chunks = num_full_chunks
-            + if last_chunk_size > 0 {
-                1
-            } else {
-                0
-            };
+        let num_all_chunks = num_full_chunks + if last_chunk_size > 0 { 1 } else { 0 };
 
         // decrypt the chunks
         for i in 0..num_all_chunks {
@@ -493,12 +504,17 @@ impl ConnectionLowLevel {
         offset_mul: usize,
     ) -> anyhow::Result<()> {
         msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_MESSAGE_LEN) as u64))?;
-        let read_size =
-            cmp::min(NOISE_MAX_MESSAGE_LEN, msg.get_ref().len() - msg.position() as usize);
+        let read_size = cmp::min(
+            NOISE_MAX_MESSAGE_LEN,
+            msg.get_ref().len() - msg.position() as usize,
+        );
         msg.read_exact(&mut self.noise_buffer[..read_size])?;
         msg.seek(SeekFrom::Start((offset_mul * NOISE_MAX_PAYLOAD_LEN) as u64))?;
 
-        if let Err(err) = self.noise_session.recv_message(&mut self.noise_buffer[..read_size]) {
+        if let Err(err) = self
+            .noise_session
+            .recv_message(&mut self.noise_buffer[..read_size])
+        {
             Err(err.into())
         } else {
             msg.write_all(&self.noise_buffer[..read_size - MAC_LENGTH])?;
@@ -568,7 +584,10 @@ impl ConnectionLowLevel {
             Ok(num_bytes) => num_bytes,
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 self.is_writable = false;
-                debug!("Sending would block (setting non-writable). {:?}", self.socket);
+                debug!(
+                    "Sending would block (setting non-writable). {:?}",
+                    self.socket
+                );
                 return Ok(0);
             }
             Err(e) => return Err(e.into()),
@@ -599,7 +618,8 @@ impl ConnectionLowLevel {
         };
         let full_msg_len = num_full_chunks * NOISE_MAX_MESSAGE_LEN + last_chunk_len;
 
-        self.output_queue.extend(&(full_msg_len as PayloadSize).to_be_bytes());
+        self.output_queue
+            .extend(&(full_msg_len as PayloadSize).to_be_bytes());
 
         let mut input = Cursor::new(input);
         let eof = input.get_ref().len() as u64;
@@ -624,18 +644,24 @@ impl ConnectionLowLevel {
         input.read_exact(&mut self.noise_buffer[..chunk_size])?;
         let encrypted_len = chunk_size + MAC_LENGTH;
 
-        self.noise_session.send_message(&mut self.noise_buffer[..encrypted_len])?;
+        self.noise_session
+            .send_message(&mut self.noise_buffer[..encrypted_len])?;
 
-        self.output_queue.extend(&self.noise_buffer[..encrypted_len]);
+        self.output_queue
+            .extend(&self.noise_buffer[..encrypted_len]);
 
         Ok(())
     }
 
     /// Get the desired socket read size.
     #[inline]
-    fn read_size(&self) -> usize { self.socket_buffer.buf.len() }
+    fn read_size(&self) -> usize {
+        self.socket_buffer.buf.len()
+    }
 
     /// Get the desired socket write size.
     #[inline]
-    fn write_size(&self) -> usize { self.write_size }
+    fn write_size(&self) -> usize {
+        self.write_size
+    }
 }

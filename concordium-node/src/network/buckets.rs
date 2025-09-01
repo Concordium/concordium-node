@@ -17,18 +17,22 @@ const BUCKET_COUNT: usize = 1;
 /// A representation of a node in a bucket.
 #[derive(Eq, Clone)]
 struct Node {
-    pub peer:      RemotePeer,
-    pub networks:  Networks,
+    pub peer: RemotePeer,
+    pub networks: Networks,
     /// The timestamp pointing to when the node was seen last.
     pub last_seen: u64,
 }
 
 impl PartialEq for Node {
-    fn eq(&self, other: &Node) -> bool { self.peer.external_addr() == other.peer.external_addr() }
+    fn eq(&self, other: &Node) -> bool {
+        self.peer.external_addr() == other.peer.external_addr()
+    }
 }
 
 impl Hash for Node {
-    fn hash<H: Hasher>(&self, state: &mut H) { self.peer.external_addr().hash(state) }
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.peer.external_addr().hash(state)
+    }
 }
 
 /// A bucket of nodes.
@@ -91,7 +95,12 @@ impl Buckets {
         };
 
         for bucket in &self.buckets {
-            nodes.extend(bucket.iter().filter(filter_criteria).map(|node| node.peer.to_owned()))
+            nodes.extend(
+                bucket
+                    .iter()
+                    .filter(filter_criteria)
+                    .map(|node| node.peer.to_owned()),
+            )
         }
 
         nodes
@@ -99,11 +108,17 @@ impl Buckets {
 
     /// Returns the number of networks in the buckets.
     pub fn len(&self) -> usize {
-        self.buckets.iter().flat_map(HashSet::iter).map(|node| node.networks.len()).sum()
+        self.buckets
+            .iter()
+            .flat_map(HashSet::iter)
+            .map(|node| node.networks.len())
+            .sum()
     }
 
     /// Checks whether the buckets are empty.
-    pub fn is_empty(&self) -> bool { self.len() == 0 }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 
     /// Returns the desired number of nodes from the buckets.
     /// This is only used if the node is running as a bootstrapper.
@@ -114,7 +129,9 @@ impl Buckets {
         networks: &Networks,
     ) -> Vec<RemotePeer> {
         let mut rng = rand::thread_rng();
-        self.get_all_nodes(Some(sender), networks).into_iter().choose_multiple(&mut rng, number)
+        self.get_all_nodes(Some(sender), networks)
+            .into_iter()
+            .choose_multiple(&mut rng, number)
     }
 
     /// Removes the bucket nodes older than then specified amount of time.
@@ -127,7 +144,9 @@ impl Buckets {
         let bucket = &mut self.buckets[0];
         bucket.retain(|entry| entry.last_seen >= clean_before);
         let new_bucket_size = bucket.len();
-        bucket_size_gauge.with_label_values(&["0"]).set(new_bucket_size as i64);
+        bucket_size_gauge
+            .with_label_values(&["0"])
+            .set(new_bucket_size as i64);
     }
 }
 

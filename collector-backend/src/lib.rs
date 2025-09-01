@@ -14,7 +14,8 @@ pub enum IsInBakingCommittee {
 impl Serialize for IsInBakingCommittee {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer, {
+        S: serde::Serializer,
+    {
         use IsInBakingCommittee::*;
         match self {
             ActiveInCommittee => serializer.serialize_str("ActiveInCommittee"),
@@ -30,7 +31,8 @@ impl Serialize for IsInBakingCommittee {
 impl<'de> Deserialize<'de> for IsInBakingCommittee {
     fn deserialize<D>(deserializer: D) -> Result<IsInBakingCommittee, D::Error>
     where
-        D: Deserializer<'de>, {
+        D: Deserializer<'de>,
+    {
         use IsInBakingCommittee::*;
         let s: String = Deserialize::deserialize(deserializer)?;
         let res = match s.as_str() {
@@ -219,26 +221,26 @@ impl<'a> From<&'a NodeInfo> for NodeInfoDashboard<'a> {
 #[allow(non_snake_case)]
 #[derive(Serialize)]
 pub struct NodeInfoChainViz<'a> {
-    pub nodeName:                &'a str,
-    pub nodeId:                  &'a str,
-    pub bestBlock:               &'a str,
-    pub bestBlockHeight:         u64,
-    pub finalizedBlock:          &'a str,
-    pub finalizedBlockHeight:    u64,
-    pub finalizedBlockParent:    &'a str,
+    pub nodeName: &'a str,
+    pub nodeId: &'a str,
+    pub bestBlock: &'a str,
+    pub bestBlockHeight: u64,
+    pub finalizedBlock: &'a str,
+    pub finalizedBlockHeight: u64,
+    pub finalizedBlockParent: &'a str,
     pub ancestorsSinceBestBlock: Option<&'a [String]>,
 }
 
 impl<'a> From<&'a NodeInfo> for NodeInfoChainViz<'a> {
     fn from(other: &'a NodeInfo) -> Self {
         Self {
-            nodeName:                &other.nodeName,
-            nodeId:                  &other.nodeId,
-            bestBlock:               &other.bestBlock,
-            bestBlockHeight:         other.bestBlockHeight,
-            finalizedBlock:          &other.finalizedBlock,
-            finalizedBlockHeight:    other.finalizedBlockHeight,
-            finalizedBlockParent:    &other.finalizedBlockParent,
+            nodeName: &other.nodeName,
+            nodeId: &other.nodeId,
+            bestBlock: &other.bestBlock,
+            bestBlockHeight: other.bestBlockHeight,
+            finalizedBlock: &other.finalizedBlock,
+            finalizedBlockHeight: other.finalizedBlockHeight,
+            finalizedBlockParent: &other.finalizedBlockParent,
             ancestorsSinceBestBlock: other.ancestorsSinceBestBlock.as_deref(),
         }
     }
@@ -259,7 +261,13 @@ pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) {
         log_builder.format_timestamp(None);
     } else {
         log_builder.format(|buf, record| {
-            writeln!(buf, "{}: {}: {}", buf.timestamp_nanos(), record.level(), record.args())
+            writeln!(
+                buf,
+                "{}: {}: {}",
+                buf.timestamp_nanos(),
+                record.level(),
+                record.args()
+            )
         });
     }
     log_builder.filter(Some("tokio_reactor"), LevelFilter::Warn);

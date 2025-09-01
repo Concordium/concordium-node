@@ -29,7 +29,13 @@ pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) {
         log_builder.format_timestamp(None);
     } else {
         log_builder.format(|buf, record| {
-            writeln!(buf, "{}: {}: {}", buf.timestamp_nanos(), record.level(), record.args())
+            writeln!(
+                buf,
+                "{}: {}: {}",
+                buf.timestamp_nanos(),
+                record.level(),
+                record.args()
+            )
         });
     }
     log_builder.filter(Some("tokio_reactor"), LevelFilter::Error);
@@ -106,19 +112,33 @@ pub fn get_config_and_logging_setup() -> anyhow::Result<(config::Config, config:
     #[cfg(target_os = "macos")]
     match conf.macos.use_mac_log {
         Some(ref subsystem) => setup_macos_logger(conf.common.trace, conf.common.debug, subsystem),
-        None => setup_logger(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp),
+        None => setup_logger(
+            conf.common.trace,
+            conf.common.debug,
+            conf.common.no_log_timestamp,
+        ),
     };
 
     #[cfg(not(target_os = "macos"))]
     if let Some(ref log_config) = conf.common.log_config {
         setup_logger_config(log_config);
     } else {
-        setup_logger(conf.common.trace, conf.common.debug, conf.common.no_log_timestamp);
+        setup_logger(
+            conf.common.trace,
+            conf.common.debug,
+            conf.common.no_log_timestamp,
+        );
     }
 
     info!("Starting up {} version {}!", crate::APPNAME, crate::VERSION);
-    info!("Application data directory: {}", app_prefs.get_data_dir().display());
-    info!("Application config directory: {}", app_prefs.get_config_dir().display());
+    info!(
+        "Application data directory: {}",
+        app_prefs.get_data_dir().display()
+    );
+    info!(
+        "Application config directory: {}",
+        app_prefs.get_config_dir().display()
+    );
     info!(
         "Network: {}",
         if conf.cli.no_network {
