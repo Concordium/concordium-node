@@ -284,7 +284,17 @@ jobs:
         cargo install grcov
     - name: Run grcov to produce lcov files
       run: |
-        grcov . -s . --binary-path ./concordium-node/target/debug/ -t lcov --branch --ignore-not-existing -o ./concordium-node/target/debug/coverage/
+        grcov . -s . --binary-path ./concordium-node/target/debug/ -t lcov --branch --ignore-not-existing -o ./concordium-node/target/debug/coverage/lcov.info
     - name: Display contents of coverage directory.
       run: |
         ls -alh ./concordium-node/target/debug/coverage/
+
+    # Token not created yet.
+    # - name: Upload coverage to CodeCov 
+    #   # Options documented here: https://github.com/codecov/codecov-action
+    #   uses: codecov/codecov-action@v5
+    #   with:
+    #     fail_ci_if_error: false # optional (default = false)
+    #     files: ./concordium-node/target/debug/coverage/lcov.info
+    #     token: ${{ secrets.CODECOV_TOKEN }}
+    #     verbose: true # optional (default = false)
