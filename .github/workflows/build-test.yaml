@@ -279,22 +279,17 @@ jobs:
     - name: Check for .profraw files
       run: |
         find . -type f -name "*.profraw"
-    - name: Install grcov
+    - name: Install cargo-llvm-cov
       run: |
-        cargo install grcov
-    - name: Run grcov to produce lcov files
+        cargo +stable install cargo-llvm-cov --locked
+    - name: Run llvm-cov to produce lcov files
       run: |
-        grcov . -s . --binary-path ./concordium-node/target/debug/ -t lcov --branch --ignore-not-existing -o ./concordium-node/target/debug/coverage/lcov.info
-    - name: Display contents of coverage directory.
-      run: |
-        ls -alh ./concordium-node/target/debug/coverage/
+        cargo llvm-cov --manifest-path concordium-node/Cargo.toml --workspace --lcov --output-path lcov.info
+    - name: Upload coverage to Codecov
+      # Options documented here: https://github.com/codecov/codecov-action
+      uses: codecov/codecov-action@v5
+      with:
+        files: lcov.info
+        fail_ci_if_error: false
 
-    # Token not created yet.
-    # - name: Upload coverage to CodeCov 
-    #   # Options documented here: https://github.com/codecov/codecov-action
-    #   uses: codecov/codecov-action@v5
-    #   with:
-    #     fail_ci_if_error: false # optional (default = false)
-    #     files: ./concordium-node/target/debug/coverage/lcov.info
-    #     token: ${{ secrets.CODECOV_TOKEN }}
-    #     verbose: true # optional (default = false)
+      
