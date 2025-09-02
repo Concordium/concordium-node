@@ -62,3 +62,7 @@ hie.yaml
 xcuserdata/
 /scripts/distribution/macOS-package/NodeConfigurationInstallerPlugin/build/
 /scripts/distribution/macOS-package/NodeConfigurationInstallerPlugin/*.gcno
+
+# Code Coverage reporting
+*.profraw
+*.lcov

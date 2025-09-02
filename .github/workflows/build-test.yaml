@@ -130,6 +130,9 @@ jobs:
     # Use fixed OS version because we install packages on the system.
     runs-on: ubuntu-22.04
     if: ${{ !github.event.pull_request.draft }}
+    env:
+      RUSTFLAGS: "-Cinstrument-coverage"
+      LLVM_PROFILE_FILE: "concordium-node-%p-%m.profraw"
 
     strategy:
       matrix:
@@ -168,7 +171,7 @@ jobs:
         profile: minimal
         toolchain: ${{ matrix.plan.rust }}
         override: true
-        components: clippy
+        components: clippy, llvm-tools
         target: x86_64-pc-windows-gnu
     - name: Cache cargo dependencies and targets
       uses: actions/cache@v4
@@ -271,3 +274,17 @@ jobs:
     - name: Test Rust crates (with feature 'network_dump')
       run: |
         cargo test --manifest-path concordium-node/Cargo.toml --all --features=network_dump
+    
+    # WIP: coverage reporting:
+    - name: Check for .profraw files
+      run: |
+        find . -type f -name "*.profraw"
+    - name: Install grcov
+      run: |
+        cargo install grcov
+    - name: Run grcov to produce lcov files
+      run: |
+        grcov . -s . --binary-path ./concordium-node/target/debug/ -t lcov --branch --ignore-not-existing -o ./concordium-node/target/debug/coverage/
+    - name: Display contents of coverage directory.
+      run: |
+        ls -alh ./concordium-node/target/debug/coverage/
