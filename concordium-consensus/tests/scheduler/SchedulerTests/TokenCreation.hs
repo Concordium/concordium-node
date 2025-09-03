@@ -41,7 +41,7 @@ dummyAddress2 = Helpers.accountAddressFromSeed 2
 dummyTokenHolder :: TokenHolder
 dummyTokenHolder = HolderAccount dummyAddress2
 
-dummyCborTokenHolder :: CBOR.CborTokenHolder
+dummyCborTokenHolder :: CBOR.CborHolderAccount
 dummyCborTokenHolder =
     CBOR.CborHolderAccount
         { chaAccount = dummyAddress2,

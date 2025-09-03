@@ -131,7 +131,7 @@ data PreprocessedTokenOperation
         { -- | The raw amount to transfer.
           pthoAmount :: !TokenRawAmount,
           -- | The recipient account address.
-          pthoRecipient :: !CborTokenHolder,
+          pthoRecipient :: !CborHolderAccount,
           -- | The (optional) memo.
           pthoMemo :: !(Maybe Memo),
           -- | The original, unprocessed, 'TokenTransferBody'.
@@ -146,13 +146,13 @@ data PreprocessedTokenOperation
           ptgoUnprocessedAmount :: !TokenAmount
         }
     | PTOTokenAddAllowList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborHolderAccount}
     | PTOTokenRemoveAllowList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborHolderAccount}
     | PTOTokenAddDenyList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborHolderAccount}
     | PTOTokenRemoveDenyList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborHolderAccount}
     | PTOTokenPause
     | PTOTokenUnpause
     deriving (Eq, Show)
@@ -497,7 +497,7 @@ requireAccount ::
     -- | The operation index.
     Word64 ->
     -- | The account to check.
-    CborTokenHolder ->
+    CborHolderAccount ->
     m (PLTAccount m)
 requireAccount trrOperationIndex holder@CborHolderAccount{..} = do
     getAccount chaAccount >>= \case

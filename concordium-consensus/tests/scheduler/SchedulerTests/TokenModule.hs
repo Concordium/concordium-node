@@ -1265,7 +1265,7 @@ testLists = do
         ltcAction (Remove, _) = "remove"
         ltcList (_, Allow) = "Allow"
         ltcList (_, Deny) = "Deny"
-    ltcMakeOperation :: ListTestConf -> CborTokenHolder -> TokenOperation
+    ltcMakeOperation :: ListTestConf -> CborHolderAccount -> TokenOperation
     ltcMakeOperation (Add, Allow) = TokenAddAllowList
     ltcMakeOperation (Remove, Allow) = TokenRemoveAllowList
     ltcMakeOperation (Add, Deny) = TokenAddDenyList
