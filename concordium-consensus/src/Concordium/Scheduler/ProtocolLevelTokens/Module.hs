@@ -109,7 +109,7 @@ initializeToken tokenParam = do
             mbGovAccount <- getAccount $ chaAccount $ governanceAccount
             case mbGovAccount of
                 Nothing ->
-                    pltError (ITEGovernanceAccountDoesNotExist $ chaAccount $ governanceAccount)
+                    pltError (ITEGovernanceAccountDoesNotExist $ chaAccount governanceAccount)
                 Just govAccount -> do
                     govIx <- getAccountIndex govAccount
                     void $ setModuleState "governanceAccount" (Just $ encode govIx)
