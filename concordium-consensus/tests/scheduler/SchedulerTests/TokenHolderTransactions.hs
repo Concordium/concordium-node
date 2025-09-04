@@ -25,10 +25,10 @@ import qualified Concordium.Types.DummyData as DummyData
 
 import Data.Bool.Singletons
 import qualified Data.ByteString.Short as BSS
+import qualified Data.Map as Map
 import Data.String
 import qualified SchedulerTests.Helpers as Helpers
 import Test.Hspec
-import qualified Data.Map as Map
 
 dummyKP :: SigScheme.KeyPair
 dummyKP = Helpers.keyPairFromSeed 1

@@ -8,6 +8,7 @@
 -- | Tests for creating PLTs.
 module SchedulerTests.TokenCreation (tests) where
 
+import qualified Codec.CBOR.Term as CBOR
 import Data.Bool.Singletons
 import qualified Data.ByteString.Short as BSS
 import qualified Data.Map as Map
@@ -15,7 +16,6 @@ import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import qualified SchedulerTests.Helpers as Helpers
 import Test.Hspec
-import qualified Codec.CBOR.Term as CBOR
 
 import qualified Concordium.Crypto.DummyData as DummyData
 import qualified Concordium.Crypto.SHA256 as Hash

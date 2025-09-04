@@ -18,6 +18,7 @@
 --  be a return value or aborting the execution).
 module SchedulerTests.TokenModule where
 
+import qualified Codec.CBOR.Term as CBOR
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
@@ -31,7 +32,6 @@ import Lens.Micro.Platform
 import System.Random
 import Test.HUnit
 import Test.Hspec
-import qualified Codec.CBOR.Term as CBOR
 
 import qualified Concordium.Crypto.SHA256 as SHA256
 import Concordium.ID.Types (randomAccountAddress)
@@ -60,8 +60,8 @@ import Concordium.Scheduler.ProtocolLevelTokens.Module (
  )
 import qualified Concordium.Scheduler.Runner as Runner
 import qualified Concordium.Scheduler.Types as Types
-import qualified SchedulerTests.Helpers as Helpers
 import qualified Data.Map as Map
+import qualified SchedulerTests.Helpers as Helpers
 
 -- | A value of type @PLTKernelQueryCall acct ret@ represents an invocation of an operation
 --  in a 'PLTKernelQuery' monad where @PLTAccount m ~ acct@. The parameter @ret@ is the type
