@@ -340,7 +340,7 @@ testInitializeToken = describe "initializeToken" $ do
     it "invalid parameters: missing parameter" $ do
         let metadata = createTokenMetadataUrl "https://plt.token"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -367,7 +367,7 @@ testInitializeToken = describe "initializeToken" $ do
     it "parameter default values" $ do
         let metadata = createTokenMetadataUrl "https://plt.token"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -396,7 +396,7 @@ testInitializeToken = describe "initializeToken" $ do
     it "valid1" $ do
         let metadata = createTokenMetadataUrl "https://plt.token"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -428,7 +428,7 @@ testInitializeToken = describe "initializeToken" $ do
     it "valid2" $ do
         let metadata = createTokenMetadataUrlWithSha256 "https://plt2.token" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -460,7 +460,7 @@ testInitializeToken = describe "initializeToken" $ do
     it "mint fails" $ do
         let metadata = createTokenMetadataUrl "https://plt2.token"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -492,7 +492,7 @@ testInitializeToken = describe "initializeToken" $ do
     it "too many decimals specified" $ do
         let metadata = createTokenMetadataUrl "https://plt2.token"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -523,7 +523,7 @@ testInitializeToken = describe "initializeToken" $ do
     it "not enough decimals specified" $ do
         let metadata = createTokenMetadataUrl "https://plt2.token"
         let governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -899,7 +899,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 TokenUpdateTransaction . Seq.fromList $
                     [ mkTransferOp
                         amt10'000
-                        (CborHolderAccount (dummyAccountAddress i) Nothing)
+                        (CborAccountAddress (dummyAccountAddress i) Nothing)
                         Nothing
                     | i <- [1 .. 5000]
                     ]
@@ -917,8 +917,8 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                         :>>: traceLoop (n + 1)
         assertTrace (executeTokenUpdateTransaction (sender 123_456) (encodeTransaction transaction)) trace
   where
-    receiver1 = CborHolderAccount (dummyAccountAddress 1) Nothing
-    receiver2 = CborHolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
+    receiver1 = CborAccountAddress (dummyAccountAddress 1) Nothing
+    receiver2 = CborAccountAddress (dummyAccountAddress 2) (Just CoinInfoConcordium)
     amt10'000 = TokenAmount 10_000 3
     amtMax = TokenAmount maxBound 0
     amt10'000000 = TokenAmount 10_000_000 6
@@ -963,7 +963,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
                                 { trrOperationIndex = 0,
                                   trrAddressNotPermitted =
                                     Just $
-                                        CborHolderAccount
+                                        CborAccountAddress
                                             { chaAccount = dummyAccountAddress 1,
                                               chaCoinInfo = Just CoinInfoConcordium
                                             },
@@ -1253,8 +1253,8 @@ testLists = do
                 assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
   where
     encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
-    receiver1 = CborHolderAccount (dummyAccountAddress 1) Nothing
-    receiver2 = CborHolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
+    receiver1 = CborAccountAddress (dummyAccountAddress 1) Nothing
+    receiver2 = CborAccountAddress (dummyAccountAddress 2) (Just CoinInfoConcordium)
     ltcFeature :: ListTestConf -> TokenStateKey
     ltcFeature (_, Allow) = "allowList"
     ltcFeature (_, Deny) = "denyList"
@@ -1265,7 +1265,7 @@ testLists = do
         ltcAction (Remove, _) = "remove"
         ltcList (_, Allow) = "Allow"
         ltcList (_, Deny) = "Deny"
-    ltcMakeOperation :: ListTestConf -> CborTokenHolder -> TokenOperation
+    ltcMakeOperation :: ListTestConf -> CborAccountAddress -> TokenOperation
     ltcMakeOperation (Add, Allow) = TokenAddAllowList
     ltcMakeOperation (Remove, Allow) = TokenRemoveAllowList
     ltcMakeOperation (Add, Deny) = TokenAddDenyList
@@ -1297,7 +1297,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
     it "Example 1" $ do
         let metadata = createTokenMetadataUrl "some URL"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -1331,7 +1331,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
     it "Example 2" $ do
         let metadata = createTokenMetadataUrlWithSha256 "https://token.metadata" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -1593,7 +1593,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
         TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
     encodeTxGV =
         TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
-    receiver1 = CborHolderAccount (dummyAccountAddress 0) Nothing
+    receiver1 = CborAccountAddress (dummyAccountAddress 0) Nothing
     amt10'000 = TokenAmount 10_000 3
     mkMintOp toMintAmount = TokenMint{..}
     mkBurnOp toBurnAmount = TokenBurn{..}

@@ -97,9 +97,21 @@ initializeToken tokenParam = do
     case tokenInitializationParametersFromBytes tokenParamLBS of
         Left failureReason -> pltError $ ITEDeserializationFailure failureReason
         Right TokenInitializationParameters{..} -> do
-            name <- maybe (pltError $ ITEDeserializationFailure "Token name is missing") pure tipName
-            metadata <- maybe (pltError $ ITEDeserializationFailure "Token metadata is missing") pure tipMetadata
-            governanceAccount <- maybe (pltError $ ITEDeserializationFailure "Token governance account is missing") pure tipGovernanceAccount
+            name <-
+                maybe
+                    (pltError $ ITEDeserializationFailure "Token name is missing")
+                    pure
+                    tipName
+            metadata <-
+                maybe
+                    (pltError $ ITEDeserializationFailure "Token metadata is missing")
+                    pure
+                    tipMetadata
+            governanceAccount <-
+                maybe
+                    (pltError $ ITEDeserializationFailure "Token governance account is missing")
+                    pure
+                    tipGovernanceAccount
             void $ setModuleState "name" (Just $ Text.encodeUtf8 $ name)
             void $ setModuleState "metadata" (Just $ tokenMetadataUrlToBytes $ metadata)
             when (fromMaybe False tipAllowList) $ void $ setModuleState "allowList" (Just "")
@@ -109,7 +121,7 @@ initializeToken tokenParam = do
             mbGovAccount <- getAccount $ chaAccount $ governanceAccount
             case mbGovAccount of
                 Nothing ->
-                    pltError (ITEGovernanceAccountDoesNotExist $ chaAccount governanceAccount)
+                    pltError (ITEGovernanceAccountDoesNotExist $ chaAccount $ governanceAccount)
                 Just govAccount -> do
                     govIx <- getAccountIndex govAccount
                     void $ setModuleState "governanceAccount" (Just $ encode govIx)
@@ -131,7 +143,7 @@ data PreprocessedTokenOperation
         { -- | The raw amount to transfer.
           pthoAmount :: !TokenRawAmount,
           -- | The recipient account address.
-          pthoRecipient :: !CborTokenHolder,
+          pthoRecipient :: !CborAccountAddress,
           -- | The (optional) memo.
           pthoMemo :: !(Maybe Memo),
           -- | The original, unprocessed, 'TokenTransferBody'.
@@ -146,13 +158,13 @@ data PreprocessedTokenOperation
           ptgoUnprocessedAmount :: !TokenAmount
         }
     | PTOTokenAddAllowList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborAccountAddress}
     | PTOTokenRemoveAllowList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborAccountAddress}
     | PTOTokenAddDenyList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborAccountAddress}
     | PTOTokenRemoveDenyList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborAccountAddress}
     | PTOTokenPause
     | PTOTokenUnpause
     deriving (Eq, Show)
@@ -497,9 +509,9 @@ requireAccount ::
     -- | The operation index.
     Word64 ->
     -- | The account to check.
-    CborTokenHolder ->
+    CborAccountAddress ->
     m (PLTAccount m)
-requireAccount trrOperationIndex holder@CborHolderAccount{..} = do
+requireAccount trrOperationIndex holder@CborAccountAddress{..} = do
     getAccount chaAccount >>= \case
         Nothing ->
             pltError . encodeTokenRejectReason $
