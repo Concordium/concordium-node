@@ -28,6 +28,7 @@ import qualified Data.ByteString.Short as BSS
 import Data.String
 import qualified SchedulerTests.Helpers as Helpers
 import Test.Hspec
+import qualified Data.Map as Map
 
 dummyKP :: SigScheme.KeyPair
 dummyKP = Helpers.keyPairFromSeed 1
@@ -145,7 +146,8 @@ testTokenHolder _ pvString =
               tipDenyList = Just False,
               tipInitialSupply = Nothing,
               tipMintable = Just True,
-              tipBurnable = Just True
+              tipBurnable = Just True,
+              tipAdditional = Map.empty
             }
     tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
     createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 tp

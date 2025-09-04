@@ -97,6 +97,8 @@ initializeToken tokenParam = do
     case tokenInitializationParametersFromBytes tokenParamLBS of
         Left failureReason -> pltError $ ITEDeserializationFailure failureReason
         Right TokenInitializationParameters{..} -> do
+            unless (null tipAdditional) $ 
+               pltError $ ITEDeserializationFailure ("Unknown additional parameters: " ++ show (Map.keys tipAdditional))
             name <-
                 maybe
                     (pltError $ ITEDeserializationFailure "Token name is missing")

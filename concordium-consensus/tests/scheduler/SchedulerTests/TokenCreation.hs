@@ -10,10 +10,12 @@ module SchedulerTests.TokenCreation (tests) where
 
 import Data.Bool.Singletons
 import qualified Data.ByteString.Short as BSS
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Vector as Vec
 import qualified SchedulerTests.Helpers as Helpers
 import Test.Hspec
+import qualified Codec.CBOR.Term as CBOR
 
 import qualified Concordium.Crypto.DummyData as DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -174,6 +176,35 @@ testCreatePLT _ pvString = describe pvString $ do
                     { biaaTransaction = txCreatePLT 1 createPLT1MissingNameParameter,
                       biaaAssertion = \result _ -> do
                         return $ Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Token name is missing") result
+                    }
+                ]
+        Helpers.runSchedulerTestAssertIntermediateStates
+            @pv
+            Helpers.defaultTestConfig
+            initialBlockState
+            transactionsAndAssertions
+    it "Create PLT - additional parameter" $ do
+        let createPLT1AdditionalNameParameter =
+                Types.CreatePLT
+                    { _cpltTokenModule = testModuleRef,
+                      _cpltTokenId = plt1,
+                      _cpltInitializationParameters =
+                        toTokenParam
+                            params1
+                                { CBOR.tipAdditional =
+                                    Map.fromList
+                                        [ ("_param1", CBOR.TString "extravalue1")
+                                        ]
+                                },
+                      _cpltDecimals = 0
+                    }
+
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
+            transactionsAndAssertions =
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction = txCreatePLT 1 createPLT1AdditionalNameParameter,
+                      biaaAssertion = \result _ -> do
+                        return $ Helpers.assertUpdateFailureWithReason (TokenInitializeFailure "Token initialization parameters could not be deserialized: Unknown additional parameters: [\"_param1\"]") result
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -390,7 +421,8 @@ testCreatePLT _ pvString = describe pvString $ do
               tipDenyList = Just False,
               tipInitialSupply = Nothing,
               tipMintable = Just True,
-              tipBurnable = Just True
+              tipBurnable = Just True,
+              tipAdditional = Map.empty
             }
     toTokenParam = Types.TokenParameter . BSS.toShort . CBOR.tokenInitializationParametersToBytes
     createPLT1 =
@@ -409,7 +441,8 @@ testCreatePLT _ pvString = describe pvString $ do
               tipDenyList = Just False,
               tipInitialSupply = Just (TokenAmount 10 0),
               tipMintable = Just True,
-              tipBurnable = Just True
+              tipBurnable = Just True,
+              tipAdditional = Map.empty
             }
     createPLT2 =
         Types.CreatePLT
