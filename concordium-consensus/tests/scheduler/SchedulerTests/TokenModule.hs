@@ -328,7 +328,7 @@ abortPLTError = Abort . AbortCall @_ @ret . PLTF . PLTError
 testInitializeToken :: Spec
 testInitializeToken = describe "initializeToken" $ do
     -- In this example, the parameters are not a valid encoding.
-    it "invalid parameters" $ do
+    it "invalid parameters: decode failure" $ do
         let trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 abortPLTError $
@@ -336,6 +336,62 @@ testInitializeToken = describe "initializeToken" $ do
         assertTrace
             (initializeToken (TokenParameter mempty))
             trace
+    -- In this example, a parameter is missing from the required initialization parameters
+    it "invalid parameters: missing parameter" $ do
+        let metadata = createTokenMetadataUrl "https://plt.token"
+            governanceAccount =
+                CborHolderAccount
+                    { chaAccount = dummyAccountAddress 1,
+                      chaCoinInfo = Nothing
+                    }
+            params =
+                TokenInitializationParameters
+                    { tipName = Nothing, -- missing required parameter
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just True,
+                      tipDenyList = Just False,
+                      tipInitialSupply = Nothing,
+                      tipMintable = Just True,
+                      tipBurnable = Just True
+                    }
+            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace =
+                abortPLTError $
+                    ITEDeserializationFailure "Token name is missing"
+        assertTrace
+            (initializeToken tokenParam)
+            trace
+    -- An example with minimal parameters specified, tests default value for parameters.
+    it "parameter default values" $ do
+        let metadata = createTokenMetadataUrl "https://plt.token"
+            governanceAccount =
+                CborHolderAccount
+                    { chaAccount = dummyAccountAddress 1,
+                      chaCoinInfo = Nothing
+                    }
+            params =
+                TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Nothing,
+                      tipDenyList = Nothing,
+                      tipInitialSupply = Nothing,
+                      tipMintable = Nothing,
+                      tipBurnable = Nothing
+                    }
+            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace =
+                (PLTU (setModuleStateCall "name" $ Just "Protocol-level token") :-> Just False)
+                    :>>: (PLTU (setModuleStateCall "metadata" $ Just $ tokenMetadataUrlToBytes metadata) :-> Just False)
+                    :>>: (PLTQ (GetAccount $ dummyAccountAddress 1) :-> Just 1)
+                    :>>: (PLTQ (GetAccountIndex 1) :-> 1)
+                    :>>: (PLTU (setModuleStateCall "governanceAccount" $ Just $ encode (1 :: Word64)) :-> Just False)
+                    :>>: Done ()
+        assertTrace (initializeToken tokenParam) trace
     -- An example with valid parameters (no minting).
     it "valid1" $ do
         let metadata = createTokenMetadataUrl "https://plt.token"
@@ -346,14 +402,14 @@ testInitializeToken = describe "initializeToken" $ do
                     }
             params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = True,
-                      tipDenyList = False,
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just True,
+                      tipDenyList = Just False,
                       tipInitialSupply = Nothing,
-                      tipMintable = True,
-                      tipBurnable = True
+                      tipMintable = Just True,
+                      tipBurnable = Just True
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -378,14 +434,14 @@ testInitializeToken = describe "initializeToken" $ do
                     }
             params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = False,
-                      tipDenyList = True,
+                    { tipName = Just "Protocol-level token2",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just False,
+                      tipDenyList = Just True,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
-                      tipMintable = False,
-                      tipBurnable = False
+                      tipMintable = Just False,
+                      tipBurnable = Just False
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -410,14 +466,14 @@ testInitializeToken = describe "initializeToken" $ do
                     }
             params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = False,
-                      tipDenyList = False,
+                    { tipName = Just "Protocol-level token2",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just False,
+                      tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
-                      tipMintable = False,
-                      tipBurnable = False
+                      tipMintable = Just False,
+                      tipBurnable = Just False
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -442,14 +498,14 @@ testInitializeToken = describe "initializeToken" $ do
                     }
             params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = False,
-                      tipDenyList = False,
+                    { tipName = Just "Protocol-level token2",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just False,
+                      tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 6},
-                      tipMintable = False,
-                      tipBurnable = False
+                      tipMintable = Just False,
+                      tipBurnable = Just False
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -473,14 +529,14 @@ testInitializeToken = describe "initializeToken" $ do
                     }
         let params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = False,
-                      tipDenyList = False,
+                    { tipName = Just "Protocol-level token2",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just False,
+                      tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
-                      tipMintable = False,
-                      tipBurnable = False
+                      tipMintable = Just False,
+                      tipBurnable = Just False
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -1260,9 +1316,9 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                     :>>: Done
                         ( tokenModuleStateToBytes
                             TokenModuleState
-                                { tmsName = "My protocol-level token",
-                                  tmsMetadata = metadata,
-                                  tmsGovernanceAccount = governanceAccount,
+                                { tmsName = Just "My protocol-level token",
+                                  tmsMetadata = Just metadata,
+                                  tmsGovernanceAccount = Just governanceAccount,
                                   tmsPaused = Just False,
                                   tmsAllowList = Just True,
                                   tmsDenyList = Just False,
@@ -1294,9 +1350,9 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                     :>>: Done
                         ( tokenModuleStateToBytes
                             TokenModuleState
-                                { tmsName = "Another PLT",
-                                  tmsMetadata = metadata,
-                                  tmsGovernanceAccount = governanceAccount,
+                                { tmsName = Just "Another PLT",
+                                  tmsMetadata = Just metadata,
+                                  tmsGovernanceAccount = Just governanceAccount,
                                   tmsPaused = Just True,
                                   tmsAllowList = Just False,
                                   tmsDenyList = Just True,
