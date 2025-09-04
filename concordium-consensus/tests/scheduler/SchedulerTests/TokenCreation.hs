@@ -41,9 +41,9 @@ dummyAddress2 = Helpers.accountAddressFromSeed 2
 dummyTokenHolder :: TokenHolder
 dummyTokenHolder = HolderAccount dummyAddress2
 
-dummyCborTokenHolder :: CBOR.CborHolderAccount
-dummyCborTokenHolder =
-    CBOR.CborHolderAccount
+dummyCborAccountAddress :: CBOR.CborAccountAddress
+dummyCborAccountAddress =
+    CBOR.CborAccountAddress
         { chaAccount = dummyAddress2,
           chaCoinInfo = Nothing
         }
@@ -385,7 +385,7 @@ testCreatePLT _ pvString = describe pvString $ do
         CBOR.TokenInitializationParameters
             { tipName = Just "Protocol-level token",
               tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
-              tipGovernanceAccount = Just dummyCborTokenHolder,
+              tipGovernanceAccount = Just dummyCborAccountAddress,
               tipAllowList = Just False,
               tipDenyList = Just False,
               tipInitialSupply = Nothing,
@@ -404,7 +404,7 @@ testCreatePLT _ pvString = describe pvString $ do
         CBOR.TokenInitializationParameters
             { tipName = Just "Protocol-level token",
               tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
-              tipGovernanceAccount = Just dummyCborTokenHolder,
+              tipGovernanceAccount = Just dummyCborAccountAddress,
               tipAllowList = Just False,
               tipDenyList = Just False,
               tipInitialSupply = Just (TokenAmount 10 0),
