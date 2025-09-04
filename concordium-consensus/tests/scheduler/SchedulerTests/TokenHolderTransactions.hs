@@ -38,9 +38,9 @@ dummyAddress = Helpers.accountAddressFromSeed 1
 dummyAddress2 :: AccountAddress
 dummyAddress2 = Helpers.accountAddressFromSeed 2
 
-dummyCborTokenHolder :: CBOR.CborTokenHolder
-dummyCborTokenHolder =
-    CBOR.CborHolderAccount
+dummyCborAccountAddress :: CBOR.CborAccountAddress
+dummyCborAccountAddress =
+    CBOR.CborAccountAddress
         { chaAccount = dummyAddress2,
           chaCoinInfo = Nothing
         }
@@ -138,14 +138,14 @@ testTokenHolder _ pvString =
     gtu2 = Types.TokenId $ fromString "gtU"
     params =
         CBOR.TokenInitializationParameters
-            { tipName = "Protocol-level token",
-              tipMetadata = CBOR.createTokenMetadataUrl "https://plt.token",
-              tipGovernanceAccount = dummyCborTokenHolder,
-              tipAllowList = True,
-              tipDenyList = False,
+            { tipName = Just "Protocol-level token",
+              tipMetadata = Just $ CBOR.createTokenMetadataUrl "https://plt.token",
+              tipGovernanceAccount = Just dummyCborAccountAddress,
+              tipAllowList = Just True,
+              tipDenyList = Just False,
               tipInitialSupply = Nothing,
-              tipMintable = True,
-              tipBurnable = True
+              tipMintable = Just True,
+              tipBurnable = Just True
             }
     tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
     createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 tp
