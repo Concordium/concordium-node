@@ -103,17 +103,17 @@ initializeToken tokenParam = do
             name <-
                 maybe
                     (pltError $ ITEDeserializationFailure "Token name is missing")
-                    pure
+                    return
                     tipName
             metadata <-
                 maybe
                     (pltError $ ITEDeserializationFailure "Token metadata is missing")
-                    pure
+                    return
                     tipMetadata
             governanceAccount <-
                 maybe
                     (pltError $ ITEDeserializationFailure "Token governance account is missing")
-                    pure
+                    return
                     tipGovernanceAccount
             void $ setModuleState "name" (Just $ Text.encodeUtf8 $ name)
             void $ setModuleState "metadata" (Just $ tokenMetadataUrlToBytes $ metadata)
