@@ -28,6 +28,7 @@ import Criterion
 import Criterion.Main
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as BSS
+import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
 import qualified SchedulerBench.Helpers as Helpers
 
@@ -80,7 +81,8 @@ tokenInitializationParameters accountAddress =
                       taDecimals = 6
                     },
           tipMintable = Just True,
-          tipBurnable = Just True
+          tipBurnable = Just True,
+          tipAdditional = Map.empty
         }
 
 -- | Block item that create a PLT token

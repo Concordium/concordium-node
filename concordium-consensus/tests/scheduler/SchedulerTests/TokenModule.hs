@@ -18,6 +18,7 @@
 --  be a return value or aborting the execution).
 module SchedulerTests.TokenModule where
 
+import qualified Codec.CBOR.Term as CBOR
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
@@ -59,6 +60,7 @@ import Concordium.Scheduler.ProtocolLevelTokens.Module (
  )
 import qualified Concordium.Scheduler.Runner as Runner
 import qualified Concordium.Scheduler.Types as Types
+import qualified Data.Map as Map
 import qualified SchedulerTests.Helpers as Helpers
 
 -- | A value of type @PLTKernelQueryCall acct ret@ represents an invocation of an operation
@@ -353,13 +355,42 @@ testInitializeToken = describe "initializeToken" $ do
                       tipDenyList = Just False,
                       tipInitialSupply = Nothing,
                       tipMintable = Just True,
-                      tipBurnable = Just True
+                      tipBurnable = Just True,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 abortPLTError $
                     ITEDeserializationFailure "Token name is missing"
+        assertTrace
+            (initializeToken tokenParam)
+            trace
+    -- In this example, additional parameter is specified but not supported
+    it "invalid parameters: additional parameter" $ do
+        let metadata = createTokenMetadataUrl "https://plt.token"
+            governanceAccount =
+                CborAccountAddress
+                    { chaAccount = dummyAccountAddress 1,
+                      chaCoinInfo = Nothing
+                    }
+            params =
+                TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Nothing,
+                      tipDenyList = Nothing,
+                      tipInitialSupply = Nothing,
+                      tipMintable = Nothing,
+                      tipBurnable = Nothing,
+                      tipAdditional = Map.fromList [("_param1", CBOR.TString "extravalue1")]
+                    }
+            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace =
+                abortPLTError $
+                    ITEDeserializationFailure "Unknown additional parameters: [\"_param1\"]"
         assertTrace
             (initializeToken tokenParam)
             trace
@@ -380,7 +411,8 @@ testInitializeToken = describe "initializeToken" $ do
                       tipDenyList = Nothing,
                       tipInitialSupply = Nothing,
                       tipMintable = Nothing,
-                      tipBurnable = Nothing
+                      tipBurnable = Nothing,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -409,7 +441,8 @@ testInitializeToken = describe "initializeToken" $ do
                       tipDenyList = Just False,
                       tipInitialSupply = Nothing,
                       tipMintable = Just True,
-                      tipBurnable = Just True
+                      tipBurnable = Just True,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -441,7 +474,8 @@ testInitializeToken = describe "initializeToken" $ do
                       tipDenyList = Just True,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
                       tipMintable = Just False,
-                      tipBurnable = Just False
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -473,7 +507,8 @@ testInitializeToken = describe "initializeToken" $ do
                       tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
                       tipMintable = Just False,
-                      tipBurnable = Just False
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -505,7 +540,8 @@ testInitializeToken = describe "initializeToken" $ do
                       tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 6},
                       tipMintable = Just False,
-                      tipBurnable = Just False
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -536,7 +572,8 @@ testInitializeToken = describe "initializeToken" $ do
                       tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
                       tipMintable = Just False,
-                      tipBurnable = Just False
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
