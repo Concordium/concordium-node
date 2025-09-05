@@ -2,6 +2,12 @@
 
 ## Unreleased changes
 
+- Updated the token module interface in accordance with adjustments to the PLT specification
+  <https://proposals.concordium.com/CIS/cis-7.html>
+  where token name, metadata and governance account are optional in the token module initialization parameterts and
+  the token module state. They are still required by the current token module implementation, and initialization
+  without the parameters set will be rejected, so there are no observable changes to PLT behaviour.
+
 ## 9.0.7
 
 - Ubuntu 20.04 LTS is no longer supported for running the node. Minimum supported version is 22.04 LTS. 
