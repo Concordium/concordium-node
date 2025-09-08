@@ -230,6 +230,19 @@ p2p_boostrapper-cli ... --regenesis-block-hashes 0e8a30009f9cf7c7ab76929cf6bad05
 $> cargo test --all
 ```
 
+## Test coverage reporting [WIP]
+
+[cargo-llvm-cov](https://github.com/taiki-e/cargo-llvm-cov) is a wrapper around LLVM source-based [code coverage](https://rustc-dev-guide.rust-lang.org/llvm-coverage-instrumentation.html).
+
+You can print a coverage report to the console like this:
+
+```
+cargo +stable install cargo-llvm-cov --locked
+RUSTFLAGS=-Cinstrument-coverage cargo llvm-cov --manifest-path concordium-node/Cargo.toml --all
+```
+
+See the project docs for examples of how to output different formats and suggestions for extensions to display coverage in your IDE. 
+
 ## Obtaining documentation
 
 The output is placed in [./target/doc](./target/doc) by default.
