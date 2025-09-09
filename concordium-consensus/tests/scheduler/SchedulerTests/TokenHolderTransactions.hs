@@ -25,6 +25,7 @@ import qualified Concordium.Types.DummyData as DummyData
 
 import Data.Bool.Singletons
 import qualified Data.ByteString.Short as BSS
+import qualified Data.Map as Map
 import Data.String
 import qualified SchedulerTests.Helpers as Helpers
 import Test.Hspec
@@ -145,7 +146,8 @@ testTokenHolder _ pvString =
               tipDenyList = Just False,
               tipInitialSupply = Nothing,
               tipMintable = Just True,
-              tipBurnable = Just True
+              tipBurnable = Just True,
+              tipAdditional = Map.empty
             }
     tp = Types.TokenParameter $ BSS.toShort $ CBOR.tokenInitializationParametersToBytes params
     createPLT = Types.CreatePLT gtu tokenModuleV0Ref 0 tp
