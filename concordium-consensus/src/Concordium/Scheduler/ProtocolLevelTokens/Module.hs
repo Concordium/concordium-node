@@ -97,16 +97,34 @@ initializeToken tokenParam = do
     case tokenInitializationParametersFromBytes tokenParamLBS of
         Left failureReason -> pltError $ ITEDeserializationFailure failureReason
         Right TokenInitializationParameters{..} -> do
-            void $ setModuleState "name" (Just $ Text.encodeUtf8 tipName)
-            void $ setModuleState "metadata" (Just $ tokenMetadataUrlToBytes tipMetadata)
-            when tipAllowList $ void $ setModuleState "allowList" (Just "")
-            when tipDenyList $ void $ setModuleState "denyList" (Just "")
-            when tipMintable $ void $ setModuleState "mintable" (Just "")
-            when tipBurnable $ void $ setModuleState "burnable" (Just "")
-            mbGovAccount <- getAccount $ chaAccount tipGovernanceAccount
+            unless (null tipAdditional) $
+                pltError $
+                    ITEDeserializationFailure ("Unknown additional parameters: " ++ show (Map.keys tipAdditional))
+            name <-
+                maybe
+                    (pltError $ ITEDeserializationFailure "Token name is missing")
+                    return
+                    tipName
+            metadata <-
+                maybe
+                    (pltError $ ITEDeserializationFailure "Token metadata is missing")
+                    return
+                    tipMetadata
+            governanceAccount <-
+                maybe
+                    (pltError $ ITEDeserializationFailure "Token governance account is missing")
+                    return
+                    tipGovernanceAccount
+            void $ setModuleState "name" (Just $ Text.encodeUtf8 $ name)
+            void $ setModuleState "metadata" (Just $ tokenMetadataUrlToBytes $ metadata)
+            when (fromMaybe False tipAllowList) $ void $ setModuleState "allowList" (Just "")
+            when (fromMaybe False tipDenyList) $ void $ setModuleState "denyList" (Just "")
+            when (fromMaybe False tipMintable) $ void $ setModuleState "mintable" (Just "")
+            when (fromMaybe False tipBurnable) $ void $ setModuleState "burnable" (Just "")
+            mbGovAccount <- getAccount $ chaAccount $ governanceAccount
             case mbGovAccount of
                 Nothing ->
-                    pltError (ITEGovernanceAccountDoesNotExist $ chaAccount tipGovernanceAccount)
+                    pltError (ITEGovernanceAccountDoesNotExist $ chaAccount governanceAccount)
                 Just govAccount -> do
                     govIx <- getAccountIndex govAccount
                     void $ setModuleState "governanceAccount" (Just $ encode govIx)
@@ -128,7 +146,7 @@ data PreprocessedTokenOperation
         { -- | The raw amount to transfer.
           pthoAmount :: !TokenRawAmount,
           -- | The recipient account address.
-          pthoRecipient :: !CborTokenHolder,
+          pthoRecipient :: !CborAccountAddress,
           -- | The (optional) memo.
           pthoMemo :: !(Maybe Memo),
           -- | The original, unprocessed, 'TokenTransferBody'.
@@ -143,13 +161,13 @@ data PreprocessedTokenOperation
           ptgoUnprocessedAmount :: !TokenAmount
         }
     | PTOTokenAddAllowList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborAccountAddress}
     | PTOTokenRemoveAllowList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborAccountAddress}
     | PTOTokenAddDenyList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborAccountAddress}
     | PTOTokenRemoveDenyList
-        {ptgoTarget :: !CborTokenHolder}
+        {ptgoTarget :: !CborAccountAddress}
     | PTOTokenPause
     | PTOTokenUnpause
     deriving (Eq, Show)
@@ -494,9 +512,9 @@ requireAccount ::
     -- | The operation index.
     Word64 ->
     -- | The account to check.
-    CborTokenHolder ->
+    CborAccountAddress ->
     m (PLTAccount m)
-requireAccount trrOperationIndex holder@CborHolderAccount{..} = do
+requireAccount trrOperationIndex holder@CborAccountAddress{..} = do
     getAccount chaAccount >>= \case
         Nothing ->
             pltError . encodeTokenRejectReason $
@@ -518,12 +536,12 @@ queryTokenModuleState = do
     tmsName <-
         getModuleState "name" >>= \case
             Nothing -> pltError $ QTEInvariantViolation "Missing 'name'"
-            Just name -> return $ Text.decodeUtf8Lenient name
+            Just name -> return $ Just $ Text.decodeUtf8Lenient name
     tmsMetadata <-
         getModuleState "metadata" >>= \case
             Nothing -> pltError $ QTEInvariantViolation "Missing 'metadata'"
             Just metadata ->
-                either (corruptDataError "metadata url") return $ tokenMetadataUrlFromBytes $ LBS.fromStrict metadata
+                either (corruptDataError "metadata url") (return . Just) $ tokenMetadataUrlFromBytes $ LBS.fromStrict metadata
     tmsGovernanceAccount <- do
         govAccountBytes <-
             getModuleState "governanceAccount" >>= \case
@@ -534,7 +552,7 @@ queryTokenModuleState = do
             getAccountByIndex govAccountIndex >>= \case
                 Nothing -> pltError $ QTEInvariantViolation "Governance account does not exist"
                 Just account -> return account
-        accountTokenHolderShort <$> getAccountCanonicalAddress account
+        Just <$> accountTokenHolderShort <$> getAccountCanonicalAddress account
     tmsPaused <- Just . isJust <$> getModuleState "paused"
     tmsAllowList <- Just . isJust <$> getModuleState "allowList"
     tmsDenyList <- Just . isJust <$> getModuleState "denyList"

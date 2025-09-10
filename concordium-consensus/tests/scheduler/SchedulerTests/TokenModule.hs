@@ -18,6 +18,7 @@
 --  be a return value or aborting the execution).
 module SchedulerTests.TokenModule where
 
+import qualified Codec.CBOR.Term as CBOR
 import Control.Monad
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Short as SBS
@@ -59,6 +60,7 @@ import Concordium.Scheduler.ProtocolLevelTokens.Module (
  )
 import qualified Concordium.Scheduler.Runner as Runner
 import qualified Concordium.Scheduler.Types as Types
+import qualified Data.Map as Map
 import qualified SchedulerTests.Helpers as Helpers
 
 -- | A value of type @PLTKernelQueryCall acct ret@ represents an invocation of an operation
@@ -328,7 +330,7 @@ abortPLTError = Abort . AbortCall @_ @ret . PLTF . PLTError
 testInitializeToken :: Spec
 testInitializeToken = describe "initializeToken" $ do
     -- In this example, the parameters are not a valid encoding.
-    it "invalid parameters" $ do
+    it "invalid parameters: decode failure" $ do
         let trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
             trace =
                 abortPLTError $
@@ -336,24 +338,111 @@ testInitializeToken = describe "initializeToken" $ do
         assertTrace
             (initializeToken (TokenParameter mempty))
             trace
-    -- An example with valid parameters (no minting).
-    it "valid1" $ do
+    -- In this example, a parameter is missing from the required initialization parameters
+    it "invalid parameters: missing parameter" $ do
         let metadata = createTokenMetadataUrl "https://plt.token"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
             params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = True,
-                      tipDenyList = False,
+                    { tipName = Nothing, -- missing required parameter
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just True,
+                      tipDenyList = Just False,
                       tipInitialSupply = Nothing,
-                      tipMintable = True,
-                      tipBurnable = True
+                      tipMintable = Just True,
+                      tipBurnable = Just True,
+                      tipAdditional = Map.empty
+                    }
+            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace =
+                abortPLTError $
+                    ITEDeserializationFailure "Token name is missing"
+        assertTrace
+            (initializeToken tokenParam)
+            trace
+    -- In this example, additional parameter is specified but not supported
+    it "invalid parameters: additional parameter" $ do
+        let metadata = createTokenMetadataUrl "https://plt.token"
+            governanceAccount =
+                CborAccountAddress
+                    { chaAccount = dummyAccountAddress 1,
+                      chaCoinInfo = Nothing
+                    }
+            params =
+                TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Nothing,
+                      tipDenyList = Nothing,
+                      tipInitialSupply = Nothing,
+                      tipMintable = Nothing,
+                      tipBurnable = Nothing,
+                      tipAdditional = Map.fromList [("_param1", CBOR.TString "extravalue1")]
+                    }
+            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace =
+                abortPLTError $
+                    ITEDeserializationFailure "Unknown additional parameters: [\"_param1\"]"
+        assertTrace
+            (initializeToken tokenParam)
+            trace
+    -- An example with minimal parameters specified, tests default value for parameters.
+    it "parameter default values" $ do
+        let metadata = createTokenMetadataUrl "https://plt.token"
+            governanceAccount =
+                CborAccountAddress
+                    { chaAccount = dummyAccountAddress 1,
+                      chaCoinInfo = Nothing
+                    }
+            params =
+                TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Nothing,
+                      tipDenyList = Nothing,
+                      tipInitialSupply = Nothing,
+                      tipMintable = Nothing,
+                      tipBurnable = Nothing,
+                      tipAdditional = Map.empty
+                    }
+            tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
+            trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
+            trace =
+                (PLTU (setModuleStateCall "name" $ Just "Protocol-level token") :-> Just False)
+                    :>>: (PLTU (setModuleStateCall "metadata" $ Just $ tokenMetadataUrlToBytes metadata) :-> Just False)
+                    :>>: (PLTQ (GetAccount $ dummyAccountAddress 1) :-> Just 1)
+                    :>>: (PLTQ (GetAccountIndex 1) :-> 1)
+                    :>>: (PLTU (setModuleStateCall "governanceAccount" $ Just $ encode (1 :: Word64)) :-> Just False)
+                    :>>: Done ()
+        assertTrace (initializeToken tokenParam) trace
+    -- An example with valid parameters (no minting).
+    it "valid1" $ do
+        let metadata = createTokenMetadataUrl "https://plt.token"
+            governanceAccount =
+                CborAccountAddress
+                    { chaAccount = dummyAccountAddress 1,
+                      chaCoinInfo = Nothing
+                    }
+            params =
+                TokenInitializationParameters
+                    { tipName = Just "Protocol-level token",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just True,
+                      tipDenyList = Just False,
+                      tipInitialSupply = Nothing,
+                      tipMintable = Just True,
+                      tipBurnable = Just True,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -372,20 +461,21 @@ testInitializeToken = describe "initializeToken" $ do
     it "valid2" $ do
         let metadata = createTokenMetadataUrlWithSha256 "https://plt2.token" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
             params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = False,
-                      tipDenyList = True,
+                    { tipName = Just "Protocol-level token2",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just False,
+                      tipDenyList = Just True,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
-                      tipMintable = False,
-                      tipBurnable = False
+                      tipMintable = Just False,
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -404,20 +494,21 @@ testInitializeToken = describe "initializeToken" $ do
     it "mint fails" $ do
         let metadata = createTokenMetadataUrl "https://plt2.token"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
             params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = False,
-                      tipDenyList = False,
+                    { tipName = Just "Protocol-level token2",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just False,
+                      tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
-                      tipMintable = False,
-                      tipBurnable = False
+                      tipMintable = Just False,
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -436,20 +527,21 @@ testInitializeToken = describe "initializeToken" $ do
     it "too many decimals specified" $ do
         let metadata = createTokenMetadataUrl "https://plt2.token"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
             params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = False,
-                      tipDenyList = False,
+                    { tipName = Just "Protocol-level token2",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just False,
+                      tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 6},
-                      tipMintable = False,
-                      tipBurnable = False
+                      tipMintable = Just False,
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -467,20 +559,21 @@ testInitializeToken = describe "initializeToken" $ do
     it "not enough decimals specified" $ do
         let metadata = createTokenMetadataUrl "https://plt2.token"
         let governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
         let params =
                 TokenInitializationParameters
-                    { tipName = "Protocol-level token2",
-                      tipMetadata = metadata,
-                      tipGovernanceAccount = governanceAccount,
-                      tipAllowList = False,
-                      tipDenyList = False,
+                    { tipName = Just "Protocol-level token2",
+                      tipMetadata = Just metadata,
+                      tipGovernanceAccount = Just governanceAccount,
+                      tipAllowList = Just False,
+                      tipDenyList = Just False,
                       tipInitialSupply = Just TokenAmount{taValue = 500_000, taDecimals = 2},
-                      tipMintable = False,
-                      tipBurnable = False
+                      tipMintable = Just False,
+                      tipBurnable = Just False,
+                      tipAdditional = Map.empty
                     }
             tokenParam = TokenParameter $ SBS.toShort $ tokenInitializationParametersToBytes params
             trace :: Trace (PLTCall InitializeTokenError AccountIndex) ()
@@ -843,7 +936,7 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                 TokenUpdateTransaction . Seq.fromList $
                     [ mkTransferOp
                         amt10'000
-                        (CborHolderAccount (dummyAccountAddress i) Nothing)
+                        (CborAccountAddress (dummyAccountAddress i) Nothing)
                         Nothing
                     | i <- [1 .. 5000]
                     ]
@@ -861,8 +954,8 @@ testExecuteTokenUpdateTransactionTransfer = describe "executeTokenUpdateTransact
                         :>>: traceLoop (n + 1)
         assertTrace (executeTokenUpdateTransaction (sender 123_456) (encodeTransaction transaction)) trace
   where
-    receiver1 = CborHolderAccount (dummyAccountAddress 1) Nothing
-    receiver2 = CborHolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
+    receiver1 = CborAccountAddress (dummyAccountAddress 1) Nothing
+    receiver2 = CborAccountAddress (dummyAccountAddress 2) (Just CoinInfoConcordium)
     amt10'000 = TokenAmount 10_000 3
     amtMax = TokenAmount maxBound 0
     amt10'000000 = TokenAmount 10_000_000 6
@@ -907,7 +1000,7 @@ testExecuteTokenUpdateTransactionMintBurnPause = describe "executeTokenUpdateTra
                                 { trrOperationIndex = 0,
                                   trrAddressNotPermitted =
                                     Just $
-                                        CborHolderAccount
+                                        CborAccountAddress
                                             { chaAccount = dummyAccountAddress 1,
                                               chaCoinInfo = Just CoinInfoConcordium
                                             },
@@ -1197,8 +1290,8 @@ testLists = do
                 assertTrace (executeTokenUpdateTransaction (sender 0) (encodeTransaction transaction)) trace
   where
     encodeTransaction = TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
-    receiver1 = CborHolderAccount (dummyAccountAddress 1) Nothing
-    receiver2 = CborHolderAccount (dummyAccountAddress 2) (Just CoinInfoConcordium)
+    receiver1 = CborAccountAddress (dummyAccountAddress 1) Nothing
+    receiver2 = CborAccountAddress (dummyAccountAddress 2) (Just CoinInfoConcordium)
     ltcFeature :: ListTestConf -> TokenStateKey
     ltcFeature (_, Allow) = "allowList"
     ltcFeature (_, Deny) = "denyList"
@@ -1209,7 +1302,7 @@ testLists = do
         ltcAction (Remove, _) = "remove"
         ltcList (_, Allow) = "Allow"
         ltcList (_, Deny) = "Deny"
-    ltcMakeOperation :: ListTestConf -> CborTokenHolder -> TokenOperation
+    ltcMakeOperation :: ListTestConf -> CborAccountAddress -> TokenOperation
     ltcMakeOperation (Add, Allow) = TokenAddAllowList
     ltcMakeOperation (Remove, Allow) = TokenRemoveAllowList
     ltcMakeOperation (Add, Deny) = TokenAddDenyList
@@ -1241,7 +1334,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
     it "Example 1" $ do
         let metadata = createTokenMetadataUrl "some URL"
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -1260,9 +1353,9 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                     :>>: Done
                         ( tokenModuleStateToBytes
                             TokenModuleState
-                                { tmsName = "My protocol-level token",
-                                  tmsMetadata = metadata,
-                                  tmsGovernanceAccount = governanceAccount,
+                                { tmsName = Just "My protocol-level token",
+                                  tmsMetadata = Just metadata,
+                                  tmsGovernanceAccount = Just governanceAccount,
                                   tmsPaused = Just False,
                                   tmsAllowList = Just True,
                                   tmsDenyList = Just False,
@@ -1275,7 +1368,7 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
     it "Example 2" $ do
         let metadata = createTokenMetadataUrlWithSha256 "https://token.metadata" $ SHA256.hashShort $ SBS.pack $ replicate 32 0
             governanceAccount =
-                CborHolderAccount
+                CborAccountAddress
                     { chaAccount = dummyAccountAddress 1,
                       chaCoinInfo = Nothing
                     }
@@ -1294,9 +1387,9 @@ testQueryTokenModuleState = describe "queryTokenModuleState" $ do
                     :>>: Done
                         ( tokenModuleStateToBytes
                             TokenModuleState
-                                { tmsName = "Another PLT",
-                                  tmsMetadata = metadata,
-                                  tmsGovernanceAccount = governanceAccount,
+                                { tmsName = Just "Another PLT",
+                                  tmsMetadata = Just metadata,
+                                  tmsGovernanceAccount = Just governanceAccount,
                                   tmsPaused = Just True,
                                   tmsAllowList = Just False,
                                   tmsDenyList = Just True,
@@ -1537,7 +1630,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
         TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
     encodeTxGV =
         TokenParameter . SBS.toShort . tokenUpdateTransactionToBytes
-    receiver1 = CborHolderAccount (dummyAccountAddress 0) Nothing
+    receiver1 = CborAccountAddress (dummyAccountAddress 0) Nothing
     amt10'000 = TokenAmount 10_000 3
     mkMintOp toMintAmount = TokenMint{..}
     mkBurnOp toBurnAmount = TokenBurn{..}
