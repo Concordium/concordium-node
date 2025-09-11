@@ -176,7 +176,7 @@ jobs:
     # Install tool for code coverage reporting.
     - name: Install cargo-llvm-cov
       run: |
-        cargo +stable install cargo-llvm-cov cargo-nextest --locked
+        cargo +stable install cargo-llvm-cov --locked
     - name: Cache cargo dependencies and targets
       uses: actions/cache@v4
       with:
@@ -286,10 +286,10 @@ jobs:
         cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -D warnings
     - name: Test Rust crates (without extra features)
       run: |
-        cargo llvm-cov nextest --manifest-path concordium-node/Cargo.toml --all --lcov --output-path lcov-default.info --profile ci
+        cargo llvm-cov --manifest-path concordium-node/Cargo.toml --all --lcov --output-path lcov-default.info
     - name: Test Rust crates (with feature 'network_dump')
       run: |
-        cargo llvm-cov nextest --manifest-path concordium-node/Cargo.toml --all --features=network_dump  --lcov --output-path lcov-network-dump.info --profile ci-network
+        cargo llvm-cov --manifest-path concordium-node/Cargo.toml --all --features=network_dump  --lcov --output-path lcov-network-dump.info
     - name: Upload coverage to Codecov
       # Options documented here: https://github.com/codecov/codecov-action
       uses: codecov/codecov-action@v5
@@ -298,8 +298,3 @@ jobs:
         fail_ci_if_error: false
         token: ${{ secrets.CODECOV_TOKEN }}
         verbose: true
-    - name: Upload Junit test results to Codecov
-      if: ${{ !cancelled() }}
-      uses: codecov/test-results-action@v1
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
