@@ -1,0 +1,9 @@
+# Settings via https://docs.codecov.com/docs/common-recipe-list
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+comment:
+  layout: " diff, flags, files"
+  behavior: default
