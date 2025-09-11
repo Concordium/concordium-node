@@ -1,0 +1,11 @@
+[profile.ci]
+# Do not cancel the test run on the first failure.
+fail-fast = false
+# Outputs machine readable data on how long tests take to run
+junit.path = "junit.xml"
+
+[profile.ci-network]
+# Do not cancel the test run on the first failure.
+fail-fast = false
+# Outputs machine readable data on how long tests take to run
+junit.path = "junit.xml"

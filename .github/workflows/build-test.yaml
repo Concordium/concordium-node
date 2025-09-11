@@ -173,6 +173,10 @@ jobs:
         override: true
         components: clippy, llvm-tools
         target: x86_64-pc-windows-gnu
+    # Install tool for code coverage reporting.
+    - name: Install cargo-llvm-cov
+      run: |
+        cargo +stable install cargo-llvm-cov cargo-nextest --locked
     - name: Cache cargo dependencies and targets
       uses: actions/cache@v4
       with:
@@ -282,23 +286,15 @@ jobs:
         cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -D warnings
     - name: Test Rust crates (without extra features)
       run: |
-        cargo test --manifest-path concordium-node/Cargo.toml --all
+        cargo llvm-cov nextest --manifest-path concordium-node/Cargo.toml --all --lcov --output-path lcov-default.info --profile ci
     - name: Test Rust crates (with feature 'network_dump')
       run: |
-        cargo test --manifest-path concordium-node/Cargo.toml --all --features=network_dump
-    
-    # Code coverage reporting.
-    # Does not cover Windows installer or Windows node runner service currently.
-    - name: Install cargo-llvm-cov
-      run: |
-        cargo +stable install cargo-llvm-cov --locked
-    - name: Run llvm-cov to produce lcov files
-      run: |
-        cargo llvm-cov --manifest-path concordium-node/Cargo.toml --workspace --lcov --output-path lcov.info
+        cargo llvm-cov nextest --manifest-path concordium-node/Cargo.toml --all --features=network_dump  --lcov --output-path lcov-network-dump.info --profile ci-network
     - name: Upload coverage to Codecov
       # Options documented here: https://github.com/codecov/codecov-action
       uses: codecov/codecov-action@v5
       with:
-        files: lcov.info
+        disable_telem: true
         fail_ci_if_error: false
         token: ${{ secrets.CODECOV_TOKEN }}
+        verbose: true
