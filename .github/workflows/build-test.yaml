@@ -130,9 +130,7 @@ jobs:
     # Use fixed OS version because we install packages on the system.
     runs-on: ubuntu-22.04
     if: ${{ !github.event.pull_request.draft }}
-    env:
-      RUSTFLAGS: "-Cinstrument-coverage"
-      LLVM_PROFILE_FILE: "concordium-node-%p-%m.profraw"
+
 
     strategy:
       matrix:
@@ -176,7 +174,7 @@ jobs:
     # Install tool for code coverage reporting.
     - name: Install cargo-llvm-cov
       run: |
-        cargo +stable install cargo-llvm-cov --locked
+        cargo install cargo-llvm-cov --locked
     - name: Cache cargo dependencies and targets
       uses: actions/cache@v4
       with:
@@ -286,12 +284,15 @@ jobs:
         cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -D warnings
     - name: Test Rust crates (without extra features)
       run: |
-        cargo llvm-cov --manifest-path concordium-node/Cargo.toml --all --lcov --output-path lcov-default.info
+        cargo llvm-cov test --manifest-path concordium-node/Cargo.toml --all --no-report
     - name: Test Rust crates (with feature 'network_dump')
       run: |
-        cargo llvm-cov --manifest-path concordium-node/Cargo.toml --all --features=network_dump  --lcov --output-path lcov-network-dump.info
-    - name: Upload coverage to Codecov
+        cargo llvm-cov test --manifest-path concordium-node/Cargo.toml --all --features=network_dump --no-report
+    - name: Generate a composite report of the tests above.
+      run: |
+        cargo llvm-cov report --lcov
       # Options documented here: https://github.com/codecov/codecov-action
+    - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5
       with:
         disable_telem: true
