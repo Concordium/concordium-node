@@ -290,7 +290,7 @@ jobs:
         cargo llvm-cov test --manifest-path concordium-node/Cargo.toml --all --features=network_dump --no-report
     - name: Generate a composite report of the tests above.
       run: |
-        cargo llvm-cov report --lcov
+        cargo llvm-cov report --manifest-path concordium-node/Cargo.toml  --lcov
       # Options documented here: https://github.com/codecov/codecov-action
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v5
