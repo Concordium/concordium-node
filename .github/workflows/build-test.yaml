@@ -264,11 +264,9 @@ jobs:
       run: |
         cargo clippy --locked --manifest-path collector/Cargo.toml -- -D warnings
     - name: Run clippy on Windows node runner service
-      # Setting instrument coverage flag for Windows targets results in error because profiler builtins aren't available.
       run: |
         cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --all --no-default-features -- -D warnings
     - name: Run clippy on Windows installer custom action library
-      # Setting instrument coverage flag for Windows targets results in error because profiler builtins aren't available.
       run: |
         cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -D warnings
     - name: Test Rust crates (without extra features)
