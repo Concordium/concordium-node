@@ -131,7 +131,6 @@ jobs:
     runs-on: ubuntu-22.04
     if: ${{ !github.event.pull_request.draft }}
 
-
     strategy:
       matrix:
         plan:
@@ -247,15 +246,9 @@ jobs:
       run: |
         cargo check --locked --manifest-path collector/Cargo.toml
     - name: Check that the Windows node runner service compiles (gnu toolchain, disable embedded resources)
-      # Setting instrument coverage flag for Windows targets results in error because profiler builtins aren't available.
-      env:
-        RUSTFLAGS: ""
       run: |
         cargo check --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/Cargo.toml --workspace --no-default-features
     - name: Check that the Windows installer custom action library compiles (gnu toolchain)
-      # Setting instrument coverage flag for Windows targets results in error because profiler builtins aren't available.
-      env:
-        RUSTFLAGS: ""
       run: |
         cargo check --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --workspace
     - name: Run clippy (without extra features)
