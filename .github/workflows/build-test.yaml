@@ -166,8 +166,12 @@ jobs:
         profile: minimal
         toolchain: ${{ matrix.plan.rust }}
         override: true
-        components: clippy
+        components: clippy, llvm-tools
         target: x86_64-pc-windows-gnu
+    # Install tool for code coverage reporting.
+    - name: Install cargo-llvm-cov
+      run: |
+        cargo install cargo-llvm-cov --locked
     - name: Cache cargo dependencies and targets
       uses: actions/cache@v4
       with:
@@ -265,7 +269,18 @@ jobs:
         cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -D warnings
     - name: Test Rust crates (without extra features)
       run: |
-        cargo test --manifest-path concordium-node/Cargo.toml --all
+        cargo llvm-cov test --manifest-path concordium-node/Cargo.toml --all --no-report
     - name: Test Rust crates (with feature 'network_dump')
       run: |
-        cargo test --manifest-path concordium-node/Cargo.toml --all --features=network_dump
+        cargo llvm-cov test --manifest-path concordium-node/Cargo.toml --all --features=network_dump --no-report
+    - name: Generate a composite report of the tests above.
+      run: |
+        cargo llvm-cov report --manifest-path concordium-node/Cargo.toml  --lcov --output-path lcov.info
+      # Options documented here: https://github.com/codecov/codecov-action
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        disable_telem: true
+        fail_ci_if_error: false
+        token: ${{ secrets.CODECOV_TOKEN }}
+        verbose: true
