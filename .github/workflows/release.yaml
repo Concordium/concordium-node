@@ -588,7 +588,7 @@ jobs:
              static_binaries_image_tag=${{ github.run_id }}
              build_env_name=${{ env.BUILD_ENV_NAME }}
              build_env_name_lower=${{ matrix.node.env }}
-             build_catchup_url=https://${{ env.DOMAIN }}/blocks.idx
+             build_catchup_url=https://catchup.${{ env.DOMAIN }}/blocks.idx
              build_genesis_hash=${{ env.BUILD_GENESIS_HASH }}
              build_collector_backend_url=https://dashboard.${{ env.DOMAIN }}/nodes/post
              build_grpc2_listen_port=${{ matrix.node.grpc_port }}
