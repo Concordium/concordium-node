@@ -7,6 +7,7 @@
   where token name, metadata and governance account are now optional in the token module initialization parameterts and
   the token module state. They are still required by the current token module implementation, and initialization
   without the parameters set will be rejected, so there are no observable changes to PLT behaviour.
+- Fixed the `build_catchup_url` in the Ubuntu build release pipeline.
 
 ## 9.0.7
 
