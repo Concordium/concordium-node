@@ -1,6 +1,14 @@
 name: Deployment unit checks
 
 on:
+  push:
+    branches:
+    - main
+    paths:
+    - '.github/workflows/deployment-build-test.yaml'
+    - 'concordium-base'
+    - 'deployment'
+
   pull_request:
     paths:
     - '.github/workflows/deployment-build-test.yaml'
@@ -36,7 +44,7 @@ jobs:
         working-directory: deployment
         run: |
           rustup component add clippy
-          cargo clippy --all-targets --all-features -- -D warnings
+          cargo clippy --all-targets --all-features --locked -- -D warnings
       - name: Test
         working-directory: deployment
         run: cargo test --all-targets --all-features
@@ -55,9 +63,13 @@ jobs:
         working-directory: deployment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo build --release --target wasm32-unknown-unknown --locked
+      - name: Report the byte size of WASM deployment unit on PRs
+        working-directory: deployment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cargo build --release --target wasm32-unknown-unknown --locked
-
           # Read the size of the build artifact in number of bytes
           BYTESIZE=$(du -b target/wasm32-unknown-unknown/release/deployment.wasm | egrep -o '^[0-9]+')
           # Format the exact bytes.
