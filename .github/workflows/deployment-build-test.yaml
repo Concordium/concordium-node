@@ -1,4 +1,4 @@
-name: Deployment unit checks
+name: PLT Deployment unit checks
 
 on:
   push:
@@ -27,7 +27,7 @@ jobs:
         with:
           submodules: recursive
       - name: Run rustfmt
-        working-directory: deployment
+        working-directory: plt-deployment-unit
         run: |
           rustup component add rustfmt
           cargo fmt -- --check
@@ -41,12 +41,12 @@ jobs:
         with:
           submodules: recursive
       - name: Clippy
-        working-directory: deployment
+        working-directory: plt-deployment-unit
         run: |
           rustup component add clippy
           cargo clippy --all-targets --all-features --locked -- -D warnings
       - name: Test
-        working-directory: deployment
+        working-directory: plt-deployment-unit
         run: cargo test --all-targets --all-features
 
   # Build the deployment unit to WebAssembly and report the size in bytes
@@ -60,19 +60,19 @@ jobs:
         with:
           submodules: recursive
       - name: Build to WebAssembly
-        working-directory: deployment
+        working-directory: plt-deployment-unit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: cargo build --release --target wasm32-unknown-unknown --locked
       - name: Report the byte size of WASM deployment unit on PRs
-        working-directory: deployment
+        working-directory: plt-deployment-unit
         if: github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Read the size of the build artifact in number of bytes
-          BYTESIZE=$(du -b target/wasm32-unknown-unknown/release/deployment.wasm | egrep -o '^[0-9]+')
+          BYTESIZE=$(du -b target/wasm32-unknown-unknown/release/plt-deployment-unit.wasm | egrep -o '^[0-9]+')
           # Format the exact bytes.
           GROUPED=$(numfmt --suffix B --grouping $BYTESIZE)
           # Attach comment to PR.
-          gh pr comment ${{ github.event.number }} --edit-last --create-if-none --body "The file size of the WebAssembly deployment unit is **$GROUPED**."
+          gh pr comment ${{ github.event.number }} --edit-last --create-if-none --body "The file size of the WebAssembly PLT deployment unit is **$GROUPED**."

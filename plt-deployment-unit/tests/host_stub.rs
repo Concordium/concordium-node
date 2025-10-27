@@ -1,7 +1,10 @@
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Memo;
-use deployment::HostOperations;
+use plt_deployment_unit::{
+    AmountNotRepresentableError, HostOperations, InsufficientBalanceError, LockedStateKeyError,
+    StateKey, StateValue, TokenEventDetails, TokenEventType,
+};
 
 /// The deployment host stub providing an implementation of [`HostOperations`] and methods for
 /// configuring the state of the host.
@@ -105,7 +108,7 @@ impl HostOperations for HostStub {
         &mut self,
         _account: Self::Account,
         _amount: u64,
-    ) -> Result<(), deployment::AmountNotRepresentableError> {
+    ) -> Result<(), AmountNotRepresentableError> {
         todo!()
     }
 
@@ -113,7 +116,7 @@ impl HostOperations for HostStub {
         &mut self,
         _account: Self::Account,
         _amount: u64,
-    ) -> Result<(), deployment::InsufficientBalanceError> {
+    ) -> Result<(), InsufficientBalanceError> {
         todo!()
     }
 
@@ -123,7 +126,7 @@ impl HostOperations for HostStub {
         _to: Self::Account,
         _amount: u64,
         _memo: Option<Memo>,
-    ) -> Result<(), deployment::InsufficientBalanceError> {
+    ) -> Result<(), InsufficientBalanceError> {
         todo!()
     }
 
@@ -135,15 +138,15 @@ impl HostOperations for HostStub {
         todo!()
     }
 
-    fn get_token_state(&self, _key: deployment::StateKey) -> Option<deployment::StateValue> {
+    fn get_token_state(&self, _key: StateKey) -> Option<StateValue> {
         todo!()
     }
 
     fn set_token_state(
         &mut self,
-        _key: deployment::StateKey,
-        _value: Option<deployment::StateValue>,
-    ) -> Result<bool, deployment::LockedStateKeyError> {
+        _key: StateKey,
+        _value: Option<StateValue>,
+    ) -> Result<bool, LockedStateKeyError> {
         todo!()
     }
 
@@ -151,11 +154,7 @@ impl HostOperations for HostStub {
         todo!()
     }
 
-    fn log_token_event(
-        &mut self,
-        _event_type: deployment::TokenEventType,
-        _event_details: deployment::TokenEventDetails,
-    ) {
+    fn log_token_event(&mut self, _event_type: TokenEventType, _event_details: TokenEventDetails) {
         todo!()
     }
 }
