@@ -8,6 +8,7 @@
   the token module state. They are still required by the current token module implementation, and initialization
   without the parameters set will be rejected, so there are no observable changes to PLT behaviour.
 - Fixed the `build_catchup_url` in the Ubuntu build release pipeline.
+- Extended the GRPC API to support submitting sponsored transactions.
 
 ## 9.0.7
 
