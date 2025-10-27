@@ -1,4 +1,6 @@
-use concordium_contracts_common::AccountAddress;
+use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::contracts_common::AccountAddress;
+use concordium_base::transactions::Memo;
 use deployment::HostOperations;
 
 /// The deployment host stub providing an implementation of [`HostOperations`] and methods for
@@ -13,7 +15,7 @@ pub struct HostStub {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Account {
     /// The index of the account
-    index: deployment::AccountIndex,
+    index: AccountIndex,
     /// The canonical account address of the account.
     address: AccountAddress,
     /// The token balance of the account.
@@ -32,7 +34,7 @@ impl HostStub {
     /// assert!(host.account_by_address(account_address1).is_some(), "Account must exist");
     /// ```
     pub fn with_accounts(
-        accounts: impl IntoIterator<Item = (deployment::AccountIndex, AccountAddress, Option<u64>)>,
+        accounts: impl IntoIterator<Item = (AccountIndex, AccountAddress, Option<u64>)>,
     ) -> Self {
         let accounts = accounts
             .into_iter()
@@ -68,7 +70,7 @@ impl HostOperations for HostStub {
         })
     }
 
-    fn account_by_index(&self, index: deployment::AccountIndex) -> Option<Self::Account> {
+    fn account_by_index(&self, index: AccountIndex) -> Option<Self::Account> {
         self.accounts.iter().enumerate().find_map(|(i, account)| {
             if account.index == index {
                 Some(AccountStubIndex(i))
@@ -78,7 +80,7 @@ impl HostOperations for HostStub {
         })
     }
 
-    fn account_index(&self, account: Self::Account) -> deployment::AccountIndex {
+    fn account_index(&self, account: Self::Account) -> AccountIndex {
         self.accounts[account.0].index
     }
 
@@ -120,7 +122,7 @@ impl HostOperations for HostStub {
         _from: Self::Account,
         _to: Self::Account,
         _amount: u64,
-        _memo: Option<deployment::Memo>,
+        _memo: Option<Memo>,
     ) -> Result<(), deployment::InsufficientBalanceError> {
         todo!()
     }
@@ -145,7 +147,7 @@ impl HostOperations for HostStub {
         todo!()
     }
 
-    fn tick_energy(&mut self, _energy: deployment::Energy) {
+    fn tick_energy(&mut self, _energy: Energy) {
         todo!()
     }
 
@@ -166,7 +168,10 @@ const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
 
 #[test]
 fn test_account_lookup() {
-    let host = HostStub::with_accounts([(0, TEST_ACCOUNT0, None), (1, TEST_ACCOUNT1, None)]);
+    let host = HostStub::with_accounts([
+        (0.into(), TEST_ACCOUNT0, None),
+        (1.into(), TEST_ACCOUNT1, None),
+    ]);
 
     let _ = host
         .account_by_address(TEST_ACCOUNT0)
@@ -181,20 +186,23 @@ fn test_account_lookup() {
     // TODO test lookup using alias.
 
     let _ = host
-        .account_by_index(0)
+        .account_by_index(0.into())
         .expect("Account is expected to exist");
     let _ = host
-        .account_by_index(1)
+        .account_by_index(1.into())
         .expect("Account is expected to exist");
     assert!(
-        host.account_by_index(2).is_none(),
+        host.account_by_index(2.into()).is_none(),
         "Account is not expected to exist"
     );
 }
 
 #[test]
 fn test_account_balance() {
-    let host = HostStub::with_accounts([(0, TEST_ACCOUNT0, Some(245)), (1, TEST_ACCOUNT1, None)]);
+    let host = HostStub::with_accounts([
+        (0.into(), TEST_ACCOUNT0, Some(245)),
+        (1.into(), TEST_ACCOUNT1, None),
+    ]);
     {
         let account = host
             .account_by_address(TEST_ACCOUNT0)
@@ -213,7 +221,10 @@ fn test_account_balance() {
 
 #[test]
 fn test_account_canonical_address() {
-    let host = HostStub::with_accounts([(0, TEST_ACCOUNT0, Some(245)), (1, TEST_ACCOUNT1, None)]);
+    let host = HostStub::with_accounts([
+        (0.into(), TEST_ACCOUNT0, Some(245)),
+        (1.into(), TEST_ACCOUNT1, None),
+    ]);
     {
         let account = host
             .account_by_address(TEST_ACCOUNT0)

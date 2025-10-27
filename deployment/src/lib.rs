@@ -1,15 +1,13 @@
-use concordium_contracts_common::AccountAddress;
+use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_tokens::RawCbor;
+use concordium_base::transactions::Memo;
 
-// Placeholder types below until we decide how to reuse content from concordium-base:
-pub type Memo = Vec<u8>;
 pub type StateKey = Vec<u8>;
 pub type StateValue = Vec<u8>;
 pub type TokenEventType = String;
-pub type Cbor = Vec<u8>;
-pub type TokenEventDetails = Cbor;
-pub type Parameter = Cbor;
-pub type AccountIndex = u64;
-pub type Energy = u64;
+pub type TokenEventDetails = RawCbor;
+pub type Parameter = RawCbor;
 pub type TokenRawAmount = u64;
 
 /// Operations provided by the deployment unit host.
@@ -201,7 +199,7 @@ where
 }
 
 /// Get the CBOR-encoded representation of the token module state.
-pub fn query_token_module_state(_host: &impl HostOperations) -> Result<Cbor, QueryError> {
+pub fn query_token_module_state(_host: &impl HostOperations) -> Result<RawCbor, QueryError> {
     todo!()
 }
 
@@ -209,7 +207,7 @@ pub fn query_token_module_state(_host: &impl HostOperations) -> Result<Cbor, Que
 pub fn query_account_state<Host>(
     _host: &Host,
     _account: Host::Account,
-) -> Result<Option<Cbor>, QueryError>
+) -> Result<Option<RawCbor>, QueryError>
 where
     Host: HostOperations,
 {

@@ -7,4 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-concordium-contracts-common = { path = "../concordium-base/smart-contracts/contracts-common/concordium-contracts-common" }
+concordium_base = {path = "../concordium-base/rust-src/concordium_base"}
+# TODO Remove getrandom as dependency when possible, ideally as part of https://linear.app/concordium/issue/COR-2027
+getrandom = { version = "0.2", features = ["custom"]}
+
