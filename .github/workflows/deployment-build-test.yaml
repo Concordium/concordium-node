@@ -71,7 +71,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Read the size of the build artifact in number of bytes
-          BYTESIZE=$(du -b target/wasm32-unknown-unknown/release/plt-deployment-unit.wasm | egrep -o '^[0-9]+')
+          BYTESIZE=$(du -b target/wasm32-unknown-unknown/release/plt_deployment_unit.wasm | egrep -o '^[0-9]+')
           # Format the exact bytes.
           GROUPED=$(numfmt --suffix B --grouping $BYTESIZE)
           # Attach comment to PR.

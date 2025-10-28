@@ -42,6 +42,10 @@ pub trait HostOperations {
 
     /// Mint a specified amount and deposit it in the account.
     ///
+    /// # Events
+    ///
+    /// This will produce a `TokenMintEvent` in the logs.
+    ///
     /// # Errors
     ///
     /// - [`AmountNotRepresentableError`] The total supply would exceed the representable amount.
@@ -53,6 +57,10 @@ pub trait HostOperations {
 
     /// Burn a specified amount from the account.
     ///
+    /// # Events
+    ///
+    /// This will produce a `TokenBurnEvent` in the logs.
+    ///
     /// # Errors
     ///
     /// - [`InsufficientBalanceError`] The sender has insufficient balance.
@@ -63,6 +71,10 @@ pub trait HostOperations {
     ) -> Result<(), InsufficientBalanceError>;
 
     /// Transfer a token amount from one account to another, with an optional memo.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenTransferEvent` in the logs.
     ///
     /// # Errors
     ///
@@ -105,6 +117,10 @@ pub trait HostOperations {
     fn tick_energy(&mut self, energy: Energy);
 
     /// Log a token module event with the specified type and details.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenModuleEvent` in the logs.
     fn log_token_event(&mut self, event_type: TokenEventType, event_details: TokenEventDetails);
 }
 
@@ -120,11 +136,13 @@ pub struct LockedStateKeyError;
 #[derive(Debug)]
 pub struct AmountNotRepresentableError;
 
-/// Represents the reasons why [`initialize_Token`] can fail.
+/// Represents the reasons why [`initialize_token`] can fail.
 #[derive(Debug)]
 pub enum InitError {}
+/// Represents the reasons why [`execute_token_update_transaction`] can fail.
 #[derive(Debug)]
 pub enum UpdateError {}
+/// Represents the reasons why a query to the token module can fail.
 #[derive(Debug)]
 pub enum QueryError {}
 
@@ -146,7 +164,11 @@ pub fn initialize_token(
     todo!()
 }
 
-/// Execute a token update transaction.
+/// Execute a token update transaction using the [`HostOperations`] implementation on `host` to
+/// update state and produce events.
+///
+/// When resulting in an `Err` signals a rejected operation and all of the calls to
+/// [`HostOperations`] must be rolled back y the caller.
 ///
 /// The process is as follows:
 ///
