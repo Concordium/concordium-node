@@ -24,7 +24,7 @@ import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import qualified Concordium.ProtocolUpdate.P10.Reboot as Reboot
 
--- | Updates that are supported from protocol version P9.
+-- | Updates that are supported from protocol version P10.
 data Update = Reboot
     deriving (Show)
 
