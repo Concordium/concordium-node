@@ -453,6 +453,7 @@ pub mod types {
         )
     {
         type Error = tonic::Status;
+
         fn try_from(value: PreAccountTransactionV1) -> Result<Self, Self::Error> {
             let header = value.header.require()?;
             let payload = value.payload.require()?;
@@ -462,7 +463,6 @@ pub mod types {
             let expiry = header.expiry.require()?.into();
             let payload: concordium_base::transactions::EncodedPayload = payload.try_into()?;
             let payload_size = payload.size();
-            // TODO(drsk) there should be a shortcut for this.
             let sponsor = match header.sponsor {
                 Some(s) => Some(s.try_into()?),
                 None => None,
@@ -527,43 +527,42 @@ pub mod types {
         fn try_from(value: AccountTransactionV1Signatures) -> Result<Self, Self::Error> {
             fn convert_account_transaction_signature(
                 signature: AccountTransactionSignature,
-            ) -> Result<
-                BTreeMap<
-                    concordium_base::common::types::CredentialIndex,
-                    BTreeMap<
-                        concordium_base::common::types::KeyIndex,
-                        concordium_base::common::types::Signature,
-                    >,
-                >,
-                tonic::Status,
-            > {
-                signature
+            ) -> Result<concordium_base::common::types::TransactionSignature, tonic::Status>
+            {
+                let signatures = signature
                     .signatures
                     .into_iter()
                     .map(|(ci, m)| {
                         let ci = u8::try_from(ci).map_err(|_| {
                             tonic::Status::invalid_argument("Invalid credential index.")
                         })?;
-                        let cred_sigs = m
-                            .signatures
-                            .into_iter()
-                            .map(|(ki, sig)| {
-                                let ki = u8::try_from(ki).map_err(|_| {
-                                    tonic::Status::invalid_argument("Invalid key index.")
-                                })?;
-                                let sig = sig.try_into()?;
-                                Ok::<_, tonic::Status>((ki.into(), sig))
-                            })
-                            .collect::<Result<BTreeMap<concordium_base::common::types::KeyIndex, _>, _>>()?;
+                        let cred_sigs =
+                                m.signatures
+                                    .into_iter()
+                                    .map(|(ki, sig)| {
+                                        let ki = u8::try_from(ki).map_err(|_| {
+                                            tonic::Status::invalid_argument("Invalid key index.")
+                                        })?;
+                                        let sig = sig.try_into()?;
+                                        Ok::<_, tonic::Status>((ki.into(), sig))
+                                    })
+                                    .collect::<Result<
+                                        BTreeMap<concordium_base::common::types::KeyIndex, _>,
+                                        _,
+                                    >>()?;
                         Ok::<_, tonic::Status>((ci.into(), cred_sigs))
                     })
                     .collect::<Result<
                         BTreeMap<
                             concordium_base::common::types::CredentialIndex,
-                            BTreeMap<concordium_base::common::types::KeyIndex, concordium_base::common::types::Signature>,
+                            BTreeMap<
+                                concordium_base::common::types::KeyIndex,
+                                concordium_base::common::types::Signature,
+                            >,
                         >,
                         _,
-                    >>()
+                    >>()?;
+                Ok(concordium_base::common::types::TransactionSignature { signatures })
             }
             // TODO(drsk) Why is the sender_signatures an optional field?
             let sender_signatures =
@@ -688,8 +687,8 @@ pub mod types {
                     )))
                 }
                 send_block_item_request::BlockItem::RawBlockItem(bytes) => {
-                    let data = concordium_base::common::to_bytes(&Versioned::new(0.into(), ()));
-                     // Add raw bytes in a separate step to avoid encoding the length
+                    let mut data = concordium_base::common::to_bytes(&Versioned::new(0.into(), ()));
+                    // Add raw bytes in a separate step to avoid encoding the length
                     data.extend_from_slice(&bytes);
                     Ok(data)
                 }
