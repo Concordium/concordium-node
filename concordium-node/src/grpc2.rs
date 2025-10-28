@@ -688,13 +688,10 @@ pub mod types {
                     )))
                 }
                 send_block_item_request::BlockItem::RawBlockItem(bytes) => {
-                    Ok(concordium_base::common::to_bytes(&Versioned::new(
-                        // TODO(drsk) is this the right version here?
-                        1.into(),
-                        concordium_base::transactions::BlockItem::<
-                            concordium_base::transactions::Payload,
-                        >::RawBlockItem(bytes),
-                    )))
+                    let data = concordium_base::common::to_bytes(&Versioned::new(0.into(), ()));
+                     // Add raw bytes in a separate step to avoid encoding the length
+                    data.extend_from_slice(&bytes);
+                    Ok(data)
                 }
             }
         }
