@@ -865,6 +865,7 @@ migratePersistentAccount m@StateMigrationParametersP5ToP6{} (PAV2 acc) = PAV2 <$
 migratePersistentAccount m@StateMigrationParametersP6ToP7{} (PAV2 acc) = PAV3 <$> V1.migratePersistentAccount m acc
 migratePersistentAccount m@StateMigrationParametersP7ToP8{} (PAV3 acc) = PAV4 <$> V1.migratePersistentAccount m acc
 migratePersistentAccount m@StateMigrationParametersP8ToP9{} (PAV4 acc) = PAV5 <$> V1.migratePersistentAccount m acc
+migratePersistentAccount m@StateMigrationParametersP9ToP10{} (PAV5 acc) = PAV5 <$> V1.migratePersistentAccount m acc
 
 -- | Migrate a 'PersistentBakerInfoRef' between protocol versions according to a state migration.
 migratePersistentBakerInfoRef ::
@@ -887,6 +888,7 @@ migratePersistentBakerInfoRef m@StateMigrationParametersP5ToP6{} (PBIRV2 bir) = 
 migratePersistentBakerInfoRef m@StateMigrationParametersP6ToP7{} (PBIRV2 bir) = PBIRV3 <$> V1.migratePersistentBakerInfoEx m bir
 migratePersistentBakerInfoRef m@StateMigrationParametersP7ToP8{} (PBIRV3 bir) = PBIRV4 <$> V1.migratePersistentBakerInfoEx m bir
 migratePersistentBakerInfoRef m@StateMigrationParametersP8ToP9{} (PBIRV4 bir) = PBIRV5 <$> V1.migratePersistentBakerInfoEx m bir
+migratePersistentBakerInfoRef m@StateMigrationParametersP9ToP10{} (PBIRV5 bir) = PBIRV5 <$> V1.migratePersistentBakerInfoEx m bir
 
 -- * Conversion
 

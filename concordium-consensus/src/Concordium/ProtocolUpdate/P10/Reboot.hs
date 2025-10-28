@@ -2,10 +2,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | This module implements the P9.Reboot protocol update.
---  This protocol update is valid at protocol version P9, and updates
---  to protocol version P9.
---  This produces a new 'RegenesisDataP9 using the 'GDP9Regenesis' constructor,
+-- | This module implements the P10.Reboot protocol update.
+--  This protocol update is valid at protocol version P10, and updates
+--  to protocol version P10.
+--  This produces a new 'RegenesisDataP10 using the 'GDP10Regenesis' constructor,
 --  as follows:
 --
 --  * 'genesisCore':
@@ -16,9 +16,9 @@
 --
 --  * 'genesisFirstGenesis' is either:
 --
---      * the hash of the genesis block of the previous chain, if it is a 'GDP9Initial'; or
+--      * the hash of the genesis block of the previous chain, if it is a 'GDP10Initial'; or
 --      * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
---        is a 'GDP9Regenesis'.
+--        is a 'GDP10Regenesis'.
 --
 --  * 'genesisPreviousGenesis' is the hash of the previous genesis block.
 --
@@ -52,7 +52,7 @@
 --  time in the final epoch of the old consensus.)
 --  Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
 --  initial epoch of the new chain.
-module Concordium.ProtocolUpdate.P9.Reboot where
+module Concordium.ProtocolUpdate.P10.Reboot where
 
 import Control.Monad.State
 import Lens.Micro.Platform
@@ -60,7 +60,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
-import qualified Concordium.Genesis.Data.P9 as P9
+import qualified Concordium.Genesis.Data.P10 as P10
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
@@ -71,22 +71,22 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.ProtocolVersion
 
--- | The hash that identifies the P9.Reboot update:
---  814a277cb081bfcdb1895c04ee90efe4af91dd0b8a87d1c8db272d568463e0e5
+-- | The hash that identifies the P10.Reboot update:
+-- e135d02624bcf91d8184c6746f6b2fc2e869df0b2716693e47e5ece8ec4d9704
 updateHash :: SHA256.Hash
-updateHash = SHA256.hash "P9.Reboot"
+updateHash = SHA256.hash "P10.Reboot"
 
--- | Construct the genesis data for a P9.Reboot update.
+-- | Construct the genesis data for a P10.Reboot update.
 --  This takes the terminal block of the old chain which is used as the basis for constructing
 --  the new genesis block.
 updateRegenesis ::
-    ( MPV m ~ 'P9,
+    ( MPV m ~ 'P10,
       BlockStateStorage m,
       MonadState (SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
     -- | The terminal block of the old chain.
-    BlockPointer 'P9 ->
+    BlockPointer 'P10 ->
     m (PVInit m)
 updateRegenesis terminal = do
     -- Genesis time is the timestamp of the terminal block
@@ -107,5 +107,5 @@ updateRegenesis terminal = do
         genesisTerminalBlock = getHash terminal
     let regenesisBlockState = bpState terminal
     genesisStateHash <- getStateHash regenesisBlockState
-    let newGenesis = GenesisData.RGDP9 $ P9.GDP9Regenesis{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}}
+    let newGenesis = GenesisData.RGDP10 $ P10.GDP10Regenesis{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}}
     return (PVInit newGenesis GenesisData.StateMigrationParametersTrivial (bmHeight $ bpInfo terminal))
