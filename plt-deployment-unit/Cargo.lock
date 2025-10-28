@@ -365,7 +365,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base"
-version = "8.0.0"
+version = "8.0.0-alpha.3"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base_derive"
-version = "1.1.0"
+version = "1.1.0-alpha.3"
 dependencies = [
  "convert_case 0.8.0",
  "darling 0.20.11",
