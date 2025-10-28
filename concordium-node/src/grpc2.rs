@@ -683,8 +683,7 @@ pub mod types {
                         payload,
                     };
                     Ok(concordium_base::common::to_bytes(&Versioned::new(
-                        // TODO(drsk) is this the right version here?
-                        1.into(),
+                        0.into(),
                         concordium_base::transactions::BlockItem::AccountTransactionV1(atv1),
                     )))
                 }
