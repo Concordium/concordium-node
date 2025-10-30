@@ -525,52 +525,8 @@ pub mod types {
     {
         type Error = tonic::Status;
         fn try_from(value: AccountTransactionV1Signatures) -> Result<Self, Self::Error> {
-            fn convert_account_transaction_signature(
-                signature: AccountTransactionSignature,
-            ) -> Result<concordium_base::common::types::TransactionSignature, tonic::Status>
-            {
-                let signatures = signature
-                    .signatures
-                    .into_iter()
-                    .map(|(ci, m)| {
-                        let ci = u8::try_from(ci).map_err(|_| {
-                            tonic::Status::invalid_argument("Invalid credential index.")
-                        })?;
-                        let cred_sigs =
-                                m.signatures
-                                    .into_iter()
-                                    .map(|(ki, sig)| {
-                                        let ki = u8::try_from(ki).map_err(|_| {
-                                            tonic::Status::invalid_argument("Invalid key index.")
-                                        })?;
-                                        let sig = sig.try_into()?;
-                                        Ok::<_, tonic::Status>((ki.into(), sig))
-                                    })
-                                    .collect::<Result<
-                                        BTreeMap<concordium_base::common::types::KeyIndex, _>,
-                                        _,
-                                    >>()?;
-                        Ok::<_, tonic::Status>((ci.into(), cred_sigs))
-                    })
-                    .collect::<Result<
-                        BTreeMap<
-                            concordium_base::common::types::CredentialIndex,
-                            BTreeMap<
-                                concordium_base::common::types::KeyIndex,
-                                concordium_base::common::types::Signature,
-                            >,
-                        >,
-                        _,
-                    >>()?;
-                Ok(concordium_base::common::types::TransactionSignature { signatures })
-            }
-            // TODO(drsk) Why is the sender_signatures an optional field?
-            let sender_signatures =
-                convert_account_transaction_signature(value.sender_signatures.require()?)?;
-            let sponsor_signatures = match value.sponsor_signatures {
-                Some(s) => Some(convert_account_transaction_signature(s)?),
-                None => None,
-            };
+            let sender_signatures = value.sender_signatures.require()?.try_into()?;
+            let sponsor_signatures = value.sponsor_signatures.map(|s| s.try_into()).transpose()?;
             Ok(Self {
                 sender: sender_signatures,
                 sponsor: sponsor_signatures,
