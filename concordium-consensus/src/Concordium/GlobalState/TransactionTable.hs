@@ -414,6 +414,8 @@ forwardPTT trs ptt0 = foldl' forward1 ptt0 trs
             assert (low == updateSeqNumber (uiHeader biUpdate)) $
                 assert (low <= high) $
                     if low == high then Nothing else Just (low + 1, high)
+    forward1 _ptt WithMetadata{wmdData = ExtendedTransaction{}} =
+        error "TODO(SPO-10): transaction verifier support for sponsored transactions"
 
 -- | Update the pending transaction table by considering the supplied 'BlockItem's
 --  pending again. The 'BlockItem's must be ordered correctly with respect
@@ -439,6 +441,8 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
         upd (Just (low, high)) =
             assert (low == sn + 1) $
                 Just (low - 1, high)
+    reverse1 WithMetadata{wmdData = ExtendedTransaction{}} = 
+        error "TODO(SPO-10): transaction verifier support for sponsored transactions"
 
 -- | Returns the next available account nonce for the
 --  provided account address from the perspective of the 'TransactionTable'.

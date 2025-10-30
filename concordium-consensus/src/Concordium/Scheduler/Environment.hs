@@ -1469,6 +1469,8 @@ logInvalidBlockItem WithMetadata{wmdData = CredentialDeployment cred} fk =
     logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId . credential $ cred) ++ " was invalid with reason " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData = ChainUpdate{}, ..} fk =
     logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
+logInvalidBlockItem WithMetadata{wmdData = ExtendedTransaction{}} _fk =
+    error "TODO(SPO-10): transaction verifier support for sponsored transactions"
 
 {-# INLINE logInvalidTransaction #-}
 logInvalidTransaction :: (SchedulerMonad m) => TVer.TransactionWithStatus -> FailureKind -> m ()

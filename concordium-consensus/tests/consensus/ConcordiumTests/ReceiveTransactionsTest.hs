@@ -389,6 +389,8 @@ toBlockItem now bbi =
         CredentialDeployment cred -> credentialDeployment $ addMetadata (\x -> CredentialDeployment{biCred = x}) now cred
         ChainUpdate ui -> chainUpdate $ addMetadata (\x -> ChainUpdate{biUpdate = x}) now ui
         NormalTransaction tx -> normalTransaction $ addMetadata (\x -> NormalTransaction{biTransaction = x}) now tx
+        ExtendedTransaction _tx ->
+            error "TODO(SP0-10): transaction verifier support for sponsored transactions"
 
 duplicateRegId :: CredentialRegistrationID
 duplicateRegId = credId (makeTestCredentialFromSeed 1)

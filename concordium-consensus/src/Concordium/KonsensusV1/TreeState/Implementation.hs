@@ -896,6 +896,8 @@ finalizeTransactions = mapM_ removeTrans
             . TT.ttNonFinalizedChainUpdates
             . at' uty
             ?=! (nfcu & (TT.nfcuMap . at' sn .~ Nothing) & (TT.nfcuNextSequenceNumber .~ sn + 1))
+    removeTrans WithMetadata{wmdData = ExtendedTransaction{}} =
+        error "TODO(SP0-10): transaction verifier support for sponsored transactions"
 
 -- | Mark a live transaction as committed in a particular block.
 --  This does nothing if the transaction is not live.

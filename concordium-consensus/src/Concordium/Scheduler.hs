@@ -3409,6 +3409,8 @@ runTransactions = go []
     predispatch (WithMetadata{wmdData = NormalTransaction tr, ..}, verRes) = dispatch (WithMetadata{wmdData = tr, ..}, verRes)
     predispatch (WithMetadata{wmdData = CredentialDeployment cred, ..}, verRes) = handleDeployCredential (WithMetadata{wmdData = cred, ..}, verRes) wmdHash
     predispatch (WithMetadata{wmdData = ChainUpdate cu, ..}, verRes) = Just <$> handleChainUpdate (WithMetadata{wmdData = cu, ..}, verRes)
+    predispatch (WithMetadata{wmdData = ExtendedTransaction _tr}, _verRes) =
+        error "TODO(SPO-10): transaction verifier support for sponsored transactions"
 
 -- | Execute transactions in sequence. Like 'runTransactions' but only for side-effects on global state.
 --
@@ -3444,3 +3446,5 @@ execTransactions = go
     predispatch (WithMetadata{wmdData = NormalTransaction tr, ..}, verRes) = dispatch (WithMetadata{wmdData = tr, ..}, verRes)
     predispatch (WithMetadata{wmdData = CredentialDeployment cred, ..}, verRes) = handleDeployCredential (WithMetadata{wmdData = cred, ..}, verRes) wmdHash
     predispatch (WithMetadata{wmdData = ChainUpdate cu, ..}, verRes) = Just <$> handleChainUpdate (WithMetadata{wmdData = cu, ..}, verRes)
+    predispatch (WithMetadata{wmdData = ExtendedTransaction _tr}, _verRes) =
+        error "TODO(SPO-10): transaction verifier support for sponsored transactions"
