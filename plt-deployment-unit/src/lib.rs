@@ -1,7 +1,15 @@
+use anyhow::anyhow;
 use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::common::cbor::{
+    CborSerializationError, SerializationOptions, UnknownMapKeys, cbor_decode_with_options,
+    cbor_encode,
+};
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::RawCbor;
+use concordium_base::protocol_level_tokens::{
+    RawCbor, TokenAmount, TokenModuleInitializationParameters,
+};
 use concordium_base::transactions::Memo;
+use itertools::Itertools;
 
 pub type StateKey = Vec<u8>;
 pub type StateValue = Vec<u8>;
@@ -26,19 +34,19 @@ pub trait HostOperations {
     fn account_by_index(&self, index: AccountIndex) -> Option<Self::Account>;
 
     /// Get the account index for the account.
-    fn account_index(&self, account: Self::Account) -> AccountIndex;
+    fn account_index(&self, account: &Self::Account) -> AccountIndex;
 
     /// Get the canonical account address of the account, i.e. the address used as part of the
     /// credential deployment and not an alias.
-    fn account_canonical_address(&self, account: Self::Account) -> AccountAddress;
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress;
 
     /// Get the token balance of the account.
-    fn account_balance(&self, account: Self::Account) -> TokenRawAmount;
+    fn account_balance(&self, account: &Self::Account) -> TokenRawAmount;
 
     /// Update the balance of the given account to zero if it didn't have a balance before.
     ///
     /// Returns `true` if the balance wasn't present on the given account and `false` otherwise.
-    fn touch(&mut self, account: Self::Account) -> bool;
+    fn touch(&mut self, account: &Self::Account) -> bool;
 
     /// Mint a specified amount and deposit it in the account.
     ///
@@ -51,7 +59,7 @@ pub trait HostOperations {
     /// - [`AmountNotRepresentableError`] The total supply would exceed the representable amount.
     fn mint(
         &mut self,
-        account: Self::Account,
+        account: &Self::Account,
         amount: TokenRawAmount,
     ) -> Result<(), AmountNotRepresentableError>;
 
@@ -66,7 +74,7 @@ pub trait HostOperations {
     /// - [`InsufficientBalanceError`] The sender has insufficient balance.
     fn burn(
         &mut self,
-        account: Self::Account,
+        account: &Self::Account,
         amount: TokenRawAmount,
     ) -> Result<(), InsufficientBalanceError>;
 
@@ -81,8 +89,8 @@ pub trait HostOperations {
     /// - [`InsufficientBalanceError`] The sender has insufficient balance.
     fn transfer(
         &mut self,
-        from: Self::Account,
-        to: Self::Account,
+        from: &Self::Account,
+        to: &Self::Account,
         amount: TokenRawAmount,
         memo: Option<Memo>,
     ) -> Result<(), InsufficientBalanceError>;
@@ -124,21 +132,59 @@ pub trait HostOperations {
     fn log_token_event(&mut self, event_type: TokenEventType, event_details: TokenEventDetails);
 }
 
+trait HostOperationsExt: HostOperations {
+    /// Set or clear a value in the token module state at the corresponding key.
+    fn set_module_state(
+        &mut self,
+        key: impl IntoIterator<Item = u8>,
+        value: Option<StateValue>,
+    ) -> Result<(), LockedStateKeyError> {
+        self.set_token_state(module_state_key(key), value)?;
+        Ok(())
+    }
+}
+
+impl<T: HostOperations> HostOperationsExt for T {}
+
+fn module_state_key(key: impl IntoIterator<Item = u8>) -> StateKey {
+    let mut module_key = Vec::from([0, 0]);
+    module_key.extend(key);
+    module_key
+}
+
 /// The account has insufficient balance.
 #[derive(Debug)]
 pub struct InsufficientBalanceError;
 
 /// Update to state key failed because the key was locked by an iterator.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("State key is locked")]
 pub struct LockedStateKeyError;
 
 /// Mint exceed the representable amount.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("Amount not representable")]
 pub struct AmountNotRepresentableError;
 
 /// Represents the reasons why [`initialize_token`] can fail.
-#[derive(Debug)]
-pub enum InitError {}
+#[derive(Debug, thiserror::Error)]
+pub enum InitError {
+    #[error("Token initialization parameters could not be deserialized: {0}")]
+    DeserializationFailure(anyhow::Error),
+    #[error("{0}")]
+    LockedStateKey(#[from] LockedStateKeyError),
+    #[error("The given governance account does not exist: {0}")]
+    GovernanceAccountDoesNotExist(AccountAddress),
+    #[error("Invalid mint amount: {0}")]
+    InvalidMintAmount(anyhow::Error),
+}
+
+impl From<CborSerializationError> for InitError {
+    fn from(value: CborSerializationError) -> Self {
+        Self::DeserializationFailure(value.into())
+    }
+}
+
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
 #[derive(Debug)]
 pub enum UpdateError {}
@@ -155,13 +201,90 @@ pub struct TransactionContext<Account> {
     pub sender_address: AccountAddress,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum TokenAmountError {
+    #[error("Token amount decimals mismatch: expected {expected}, found {found}")]
+    DecimalsMismatch { expected: u8, found: u8 },
+}
+
+fn to_token_raw_amount(
+    amount: TokenAmount,
+    actual_decimals: u8,
+) -> Result<TokenRawAmount, TokenAmountError> {
+    let decimals = amount.decimals();
+    if decimals != actual_decimals {
+        return Err(TokenAmountError::DecimalsMismatch {
+            expected: actual_decimals,
+            found: decimals,
+        });
+    }
+    Ok(amount.value())
+}
+
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
 /// (if necessary) minting the initial supply to the token governance account.
 pub fn initialize_token(
-    _host: &mut impl HostOperations,
-    _token_parameter: Parameter,
+    host: &mut impl HostOperations,
+    token_parameter: Parameter,
 ) -> Result<(), InitError> {
-    todo!()
+    let decode_options = SerializationOptions {
+        unknown_map_keys: UnknownMapKeys::Fail,
+    };
+    let parameter: TokenModuleInitializationParameters =
+        cbor_decode_with_options(token_parameter, decode_options)?;
+    if !parameter.additional.is_empty() {
+        return Err(InitError::DeserializationFailure(anyhow!(
+            "Unknown additional parameters: {}",
+            parameter.additional.keys().join(", ")
+        )));
+    }
+    let Some(name) = parameter.name else {
+        return Err(InitError::DeserializationFailure(anyhow!(
+            "Token name is missing"
+        )));
+    };
+    let Some(metadata) = parameter.metadata else {
+        return Err(InitError::DeserializationFailure(anyhow!(
+            "Token metadata is missing"
+        )));
+    };
+    let Some(governance_account) = parameter.governance_account else {
+        return Err(InitError::DeserializationFailure(anyhow!(
+            "Token governance account is missing"
+        )));
+    };
+    host.set_module_state(b"name".iter().copied(), Some(name.into()))?;
+    let encoded_metadata = cbor_encode(&metadata)?;
+    host.set_module_state(b"metadata".iter().copied(), Some(encoded_metadata))?;
+    if let Some(true) = parameter.allow_list {
+        host.set_module_state(b"allowList".iter().copied(), Some(vec![]))?;
+    }
+    if let Some(true) = parameter.deny_list {
+        host.set_module_state(b"denyList".iter().copied(), Some(vec![]))?;
+    }
+    if let Some(true) = parameter.mintable {
+        host.set_module_state(b"mintable".iter().copied(), Some(vec![]))?;
+    }
+    if let Some(true) = parameter.burnable {
+        host.set_module_state(b"burnable".iter().copied(), Some(vec![]))?;
+    }
+    let Some(governance_account) = host.account_by_address(governance_account.address) else {
+        return Err(InitError::GovernanceAccountDoesNotExist(
+            governance_account.address,
+        ));
+    };
+    let governance_account_index = host.account_index(&governance_account);
+    host.set_module_state(
+        b"governanceAccount".iter().copied(),
+        Some(governance_account_index.index.to_be_bytes().to_vec()),
+    )?;
+    if let Some(initial_supply) = parameter.initial_supply {
+        let mint_amount = to_token_raw_amount(initial_supply, host.decimals())
+            .map_err(|e| InitError::InvalidMintAmount(e.into()))?;
+        host.mint(&governance_account, mint_amount)
+            .map_err(|_| InitError::InvalidMintAmount(anyhow!("Kernel failed to mint")))?;
+    }
+    Ok(())
 }
 
 /// Execute a token update transaction using the [`HostOperations`] implementation on `host` to

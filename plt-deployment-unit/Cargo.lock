@@ -1046,8 +1046,11 @@ dependencies = [
 name = "plt-deployment-unit"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "concordium_base",
  "getrandom",
+ "itertools 0.14.0",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

@@ -10,4 +10,6 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 concordium_base = {path = "../concordium-base/rust-src/concordium_base"}
 # TODO Remove getrandom as dependency when possible, ideally as part of https://linear.app/concordium/issue/COR-2027
 getrandom = { version = "0.2", features = ["custom"]}
-
+thiserror = "2.0"
+anyhow = "1.0"
+itertools = "0.14.0"
