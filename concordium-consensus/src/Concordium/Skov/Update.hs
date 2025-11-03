@@ -834,6 +834,8 @@ doAddPreverifiedTransaction blockItem okRes = do
                     when (nextSN <= updateSeqNumber (uiHeader cu)) $
                         putPendingTransactions $!
                             addPendingUpdate nextSN cu ptrs
+                ExtendedTransaction _tx ->
+                    error "TODO(SP0-10): transaction verifier support for sponsored transactions"
             purgeTransactionTable False =<< currentTime
             return $! transactionVerificationResultToUpdateResult verRes
         Duplicate{} -> return ResultDuplicate
@@ -900,6 +902,9 @@ doReceiveTransactionInternal origin verifyBs tr ts slot = do
                     when (nextSN <= updateSeqNumber (uiHeader cu)) $
                         putPendingTransactions $!
                             addPendingUpdate nextSN cu ptrs
+                ExtendedTransaction _tx ->
+                    error "TODO(SP0-10): transaction verifier support for sponsored transactions"
+
             -- The actual verification result here is only used if the transaction was received individually.
             -- If the transaction was received as part of a block we don't use the result for anything.
             return (Just (bi, Just verRes), transactionVerificationResultToUpdateResult verRes)

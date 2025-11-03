@@ -976,6 +976,8 @@ instance
                 . at' uty
                 ?= (nfcu & (nfcuMap . at' sn .~ Nothing) & (nfcuNextSequenceNumber .~ sn + 1))
             return ss
+        finTrans WithMetadata{wmdData = ExtendedTransaction{}} =
+            error "TODO(SP0-10): transaction verifier support for sponsored transactions"
 
         deleteAndFinalizeStatus txHash = do
             status <- preuse (skovPersistentData . transactionTable . ttHashMap . ix txHash . _2)

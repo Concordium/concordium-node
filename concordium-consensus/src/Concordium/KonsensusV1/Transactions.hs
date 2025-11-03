@@ -136,6 +136,8 @@ addPendingTransaction bi = do
             when (nextSN <= updateSeqNumber (uiHeader cu)) $ do
                 Impl.pendingTransactionTable %=! TT.addPendingUpdate nextSN cu
                 Impl.purgeTransactionTable False =<< currentTime
+        ExtendedTransaction _tx ->
+            error "TODO(SP0-10): transaction verifier support for sponsored transactions"
   where
     txHash = getHash bi
 

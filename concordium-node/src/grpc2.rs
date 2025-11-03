@@ -443,6 +443,39 @@ pub mod types {
         }
     }
 
+    impl TryFrom<PreAccountTransactionV1>
+        for (
+            concordium_base::transactions::TransactionHeaderV1,
+            concordium_base::transactions::EncodedPayload,
+        )
+    {
+        type Error = tonic::Status;
+
+        fn try_from(value: PreAccountTransactionV1) -> Result<Self, Self::Error> {
+            let header = value.header.require()?;
+            let payload = value.payload.require()?;
+            let sender = header.sender.require()?.try_into()?;
+            let nonce = header.sequence_number.require()?.into();
+            let energy_amount = header.energy_amount.require()?.into();
+            let expiry = header.expiry.require()?.into();
+            let payload: concordium_base::transactions::EncodedPayload = payload.try_into()?;
+            let payload_size = payload.size();
+            let sponsor = match header.sponsor {
+                Some(s) => Some(s.try_into()?),
+                None => None,
+            };
+            let header = concordium_base::transactions::TransactionHeaderV1 {
+                sender,
+                nonce,
+                energy_amount,
+                payload_size,
+                expiry,
+                sponsor,
+            };
+            Ok((header, payload))
+        }
+    }
+
     impl TryFrom<Signature> for concordium_base::common::types::Signature {
         type Error = tonic::Status;
 
@@ -481,6 +514,20 @@ pub mod types {
                 })
                 .collect::<Result<_, _>>()?;
             Ok(Self { signatures })
+        }
+    }
+
+    impl TryFrom<AccountTransactionV1Signatures>
+        for concordium_base::common::types::TransactionSignaturesV1
+    {
+        type Error = tonic::Status;
+        fn try_from(value: AccountTransactionV1Signatures) -> Result<Self, Self::Error> {
+            let sender_signatures = value.sender_signatures.require()?.try_into()?;
+            let sponsor_signatures = value.sponsor_signatures.map(|s| s.try_into()).transpose()?;
+            Ok(Self {
+                sender: sender_signatures,
+                sponsor: sponsor_signatures,
+            })
         }
     }
 
@@ -573,6 +620,29 @@ pub mod types {
                     );
                     data.extend_from_slice(&payload);
                     signatures.serial(&mut data);
+                    Ok(data)
+                }
+                send_block_item_request::BlockItem::AccountTransactionV1(atv1) => {
+                    let patv1 = PreAccountTransactionV1 {
+                        header: atv1.header,
+                        payload: atv1.payload,
+                    };
+                    let (header, payload) = patv1.try_into()?;
+                    let signatures = atv1.signatures.require()?.try_into()?;
+                    let atv1 = concordium_base::transactions::AccountTransactionV1 {
+                        signatures,
+                        header,
+                        payload,
+                    };
+                    Ok(concordium_base::common::to_bytes(&Versioned::new(
+                        0.into(),
+                        concordium_base::transactions::BlockItem::AccountTransactionV1(atv1),
+                    )))
+                }
+                send_block_item_request::BlockItem::RawBlockItem(bytes) => {
+                    let mut data = concordium_base::common::to_bytes(&Versioned::new(0.into(), ()));
+                    // Add raw bytes in a separate step to avoid encoding the length
+                    data.extend_from_slice(&bytes);
                     Ok(data)
                 }
             }

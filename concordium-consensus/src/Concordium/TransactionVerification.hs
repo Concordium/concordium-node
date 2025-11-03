@@ -215,6 +215,8 @@ verify now bi = do
                 verifyChainUpdate ui
             Tx.WithMetadata{wmdData = Tx.NormalTransaction tx} -> do
                 verifyNormalTransaction tx
+            Tx.WithMetadata{wmdData = Tx.ExtendedTransaction _tx} ->
+                error "TODO(SPO-10): transaction verifier support for sponsored transactions"
 
 -- | Verifies a 'CredentialDeployment' transaction.
 --
