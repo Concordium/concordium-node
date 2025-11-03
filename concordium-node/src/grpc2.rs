@@ -23,10 +23,7 @@ pub mod types {
 
     use super::Require;
     use concordium_base::{common::Versioned, transactions::PayloadLike};
-    use std::{
-        collections::BTreeMap,
-        convert::{TryFrom, TryInto},
-    };
+    use std::convert::{TryFrom, TryInto};
 
     /// Types generated from the protocol-level-tokens.proto file.
     pub mod plt {
@@ -643,7 +640,7 @@ pub mod types {
                     )))
                 }
                 send_block_item_request::BlockItem::RawBlockItem(bytes) => {
-                    let mut data = concordium_base::common::to_bytes(&Version::from(0));
+                    let mut data = concordium_base::common::to_bytes(&Versioned::new(0.into(), ()));
                     // Add raw bytes in a separate step to avoid encoding the length
                     data.extend_from_slice(&bytes);
                     Ok(data)
