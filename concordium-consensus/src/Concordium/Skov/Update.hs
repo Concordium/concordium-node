@@ -904,7 +904,7 @@ doReceiveTransactionInternal origin verifyBs tr ts slot = do
                             addPendingUpdate nextSN cu ptrs
                 ExtendedTransaction _tx ->
                     error "TODO(SP0-10): transaction verifier support for sponsored transactions"
-                    
+
             -- The actual verification result here is only used if the transaction was received individually.
             -- If the transaction was received as part of a block we don't use the result for anything.
             return (Just (bi, Just verRes), transactionVerificationResultToUpdateResult verRes)

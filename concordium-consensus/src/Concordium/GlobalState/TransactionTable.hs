@@ -441,7 +441,7 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
         upd (Just (low, high)) =
             assert (low == sn + 1) $
                 Just (low - 1, high)
-    reverse1 WithMetadata{wmdData = ExtendedTransaction{}} = 
+    reverse1 WithMetadata{wmdData = ExtendedTransaction{}} =
         error "TODO(SPO-10): transaction verifier support for sponsored transactions"
 
 -- | Returns the next available account nonce for the
