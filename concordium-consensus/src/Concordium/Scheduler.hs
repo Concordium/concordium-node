@@ -290,6 +290,7 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                         { tsEnergyCost = checkHeaderCost,
                           tsCost = payment,
                           tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
+                          tsSponsor = transactionSponsor msg,
                           tsResult = transactionReject SerializationFailure,
                           tsHash = transactionHash msg,
                           tsType = TSTAccountTransaction Nothing,
@@ -302,6 +303,7 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                         { _wtcSenderAccount = senderAccount,
                           _wtcTransactionHash = transactionHash msg,
                           _wtcSenderAddress = thSender meta,
+                          _wtcSponsorAddress = transactionSponsor msg,
                           _wtcEnergyAmount = thEnergyAmount meta,
                           _wtcTransactionCheckHeaderCost = checkHeaderCost,
                           -- NB: We already account for the cost we used here.
@@ -2620,6 +2622,7 @@ handleDeployCredential (WithMetadata{wmdData = cred@AccountCreation{messageExpir
             TxValid $
                 TransactionSummary
                     { tsSender = Nothing,
+                      tsSponsor = Nothing,
                       tsHash = cdiHash,
                       tsCost = 0,
                       tsEnergyCost = theCost,
@@ -2882,6 +2885,7 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
             TxValid
                 TransactionSummary
                     { tsSender = Nothing,
+                      tsSponsor = Nothing,
                       tsHash = wmdHash,
                       tsCost = 0,
                       tsEnergyCost = 0,
