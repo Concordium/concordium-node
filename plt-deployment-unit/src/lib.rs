@@ -1,5 +1,8 @@
+use std::u64;
+
 use anyhow::anyhow;
 use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::common::Serial;
 use concordium_base::common::cbor::{
     CborSerializationError, SerializationOptions, UnknownMapKeys, cbor_decode_with_options,
     cbor_encode,
@@ -28,7 +31,7 @@ pub trait HostOperations {
     type Account;
 
     /// Lookup the account using an account address.
-    fn account_by_address(&self, address: AccountAddress) -> Option<Self::Account>;
+    fn account_by_address(&self, address: &AccountAddress) -> Option<Self::Account>;
 
     /// Lookup the account using an account index.
     fn account_by_index(&self, index: AccountIndex) -> Option<Self::Account>;
@@ -134,9 +137,9 @@ pub trait HostOperations {
 
 trait HostOperationsExt: HostOperations {
     /// Set or clear a value in the token module state at the corresponding key.
-    fn set_module_state(
+    fn set_module_state<'a>(
         &mut self,
-        key: impl IntoIterator<Item = u8>,
+        key: impl IntoIterator<Item = &'a u8>,
         value: Option<StateValue>,
     ) -> Result<(), LockedStateKeyError> {
         self.set_token_state(module_state_key(key), value)?;
@@ -146,9 +149,16 @@ trait HostOperationsExt: HostOperations {
 
 impl<T: HostOperations> HostOperationsExt for T {}
 
-fn module_state_key(key: impl IntoIterator<Item = u8>) -> StateKey {
-    let mut module_key = Vec::from([0, 0]);
-    module_key.extend(key);
+/// Little-endian prefix used to distinguish module state keys.
+const MODULE_STATE_PREFIX: u16 = 0;
+
+/// Construct a [`StateKey`] for a module key. This prefixes the key to
+/// distinguish it from other keys.
+fn module_state_key<'a>(key: impl IntoIterator<Item = &'a u8>) -> StateKey {
+    let iter = key.into_iter();
+    let mut module_key = Vec::with_capacity(2 + iter.size_hint().0);
+    module_key.extend_from_slice(&MODULE_STATE_PREFIX.to_le_bytes());
+    module_key.extend(iter);
     module_key
 }
 
@@ -186,8 +196,11 @@ impl From<CborSerializationError> for InitError {
 }
 
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
-#[derive(Debug)]
-pub enum UpdateError {}
+#[derive(Debug, thiserror::Error)]
+pub enum UpdateError {
+    #[error("")]
+    DeserializationFailure(anyhow::Error),
+}
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug)]
 pub enum QueryError {}
@@ -221,6 +234,14 @@ fn to_token_raw_amount(
     Ok(amount.value())
 }
 
+const STATE_KEY_NAME: &[u8] = b"name";
+const STATE_KEY_METADATA: &[u8] = b"metadata";
+const STATE_KEY_ALLOW_LIST: &[u8] = b"allowList";
+const STATE_KEY_DENY_LIST: &[u8] = b"denyList";
+const STATE_KEY_MINTABLE: &[u8] = b"mintable";
+const STATE_KEY_BURNABLE: &[u8] = b"burnable";
+const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
+
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
 /// (if necessary) minting the initial supply to the token governance account.
 pub fn initialize_token(
@@ -253,29 +274,29 @@ pub fn initialize_token(
             "Token governance account is missing"
         )));
     };
-    host.set_module_state(b"name".iter().copied(), Some(name.into()))?;
+    host.set_module_state(STATE_KEY_NAME, Some(name.into()))?;
     let encoded_metadata = cbor_encode(&metadata)?;
-    host.set_module_state(b"metadata".iter().copied(), Some(encoded_metadata))?;
+    host.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata))?;
     if let Some(true) = parameter.allow_list {
-        host.set_module_state(b"allowList".iter().copied(), Some(vec![]))?;
+        host.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]))?;
     }
     if let Some(true) = parameter.deny_list {
-        host.set_module_state(b"denyList".iter().copied(), Some(vec![]))?;
+        host.set_module_state(STATE_KEY_DENY_LIST, Some(vec![]))?;
     }
     if let Some(true) = parameter.mintable {
-        host.set_module_state(b"mintable".iter().copied(), Some(vec![]))?;
+        host.set_module_state(STATE_KEY_MINTABLE, Some(vec![]))?;
     }
     if let Some(true) = parameter.burnable {
-        host.set_module_state(b"burnable".iter().copied(), Some(vec![]))?;
+        host.set_module_state(STATE_KEY_BURNABLE, Some(vec![]))?;
     }
-    let Some(governance_account) = host.account_by_address(governance_account.address) else {
+    let Some(governance_account) = host.account_by_address(&governance_account.address) else {
         return Err(InitError::GovernanceAccountDoesNotExist(
             governance_account.address,
         ));
     };
     let governance_account_index = host.account_index(&governance_account);
     host.set_module_state(
-        b"governanceAccount".iter().copied(),
+        STATE_KEY_GOVERNANCE_ACCOUNT,
         Some(governance_account_index.index.to_be_bytes().to_vec()),
     )?;
     if let Some(initial_supply) = parameter.initial_supply {
