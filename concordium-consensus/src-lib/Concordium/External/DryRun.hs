@@ -760,7 +760,7 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                                 Nothing -> do
                                     lift . lift . liftIO $ writeIORef shiQuotaRef 0
                                     return $ Left OutOfEnergyQuota
-                                Just (res :: TransactionSummary' ValidResultWithReturn) -> do
+                                Just (res :: TransactionSummary' tov ValidResultWithReturn) -> do
                                     let newQuotaRem = shiQuotaRem - tsEnergyCost res
                                     lift . lift . liftIO $
                                         writeIORef shiQuotaRef newQuotaRem
@@ -768,7 +768,7 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                                             let spv = protocolVersion @pv
                                             InitContract{..} <- decodePayload spv payload ^? _Right
                                             return icParam
-                                    case supplementEvents (addInitializeParameter mInitParam) res of
+                                    case supplementEvents (addInitializeParameter mInitParam) (toTransactionSummary0 res) of
                                         Nothing -> do
                                             -- This should not occur, since 'mInitParam' is only
                                             -- needed if the transaction is an 'InitContract', in

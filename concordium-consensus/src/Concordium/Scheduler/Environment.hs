@@ -1014,7 +1014,8 @@ makeLenses ''WithDepositContext
 --    * The deposited amount exists in the public account value.
 --    * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
-    (SchedulerMonad m, TransactionResult res) =>
+    forall tov m res a.
+    (SchedulerMonad m, TransactionResult res, tov ~ TransactionOutcomesVersionFor (MPV m)) =>
     WithDepositContext m ->
     -- | The computation to run in the modified environment with reduced amount on the initial account.
     LocalT a m a ->
@@ -1023,7 +1024,7 @@ withDeposit ::
     --  remaining energy and the ChangeSet. It should return the result, and the amount that was charged
     --  for the execution.
     (LocalState m -> a -> m (res, Amount, Energy)) ->
-    m (Maybe (TransactionSummary' res))
+    m (Maybe (TransactionSummary' tov res))
 withDeposit wtc comp k = do
     let tsHash = wtc ^. wtcTransactionHash
     let totalEnergyToUse = wtc ^. wtcEnergyAmount
@@ -1049,12 +1050,16 @@ withDeposit wtc comp k = do
             -- (energy ticked so far).
             (usedEnergy, payment) <- computeExecutionCharge totalEnergyToUse (ls ^. energyLeft)
             chargeExecutionCost (wtc ^. wtcSenderAccount) payment
+            -- The exuction cost is payed for by the sponsor if present, otherwise by the sender.
+            let (tsCost, mbSponsorDetails)
+                    | Just sdSponsor <- (wtc ^. wtcSponsorAddress) =
+                        (0, Just SponsorDetails{sdCost = payment, ..})
+                    | otherwise = (payment, Nothing)
             return $!
                 Just $!
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
-                          tsSponsor = wtc ^. wtcSponsorAddress,
-                          tsCost = payment,
+                          tsSponsorDetails = conditionally cHasSponsorDetails mbSponsorDetails,
                           tsEnergyCost = usedEnergy,
                           tsResult = addReturn $ transactionReject reason,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
@@ -1064,17 +1069,24 @@ withDeposit wtc comp k = do
         -- Computation successful
         Right a -> do
             -- In this case we invoke the continuation, which should charge for the used energy.
-            (tsResult0, tsCost, tsEnergyCost) <- k ls a
+            (tsResult0, cost, tsEnergyCost) <- k ls a
+            -- The exuction cost is payed for by the sponsor if present, otherwise by the sender.
+            let (tsCost, mbSponsorDetails)
+                    | Just sdSponsor <- (wtc ^. wtcSponsorAddress) =
+                        (0, Just $ SponsorDetails{sdCost = cost, ..})
+                    | otherwise = (cost, Nothing)
             return $!
                 Just $!
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
-                          tsSponsor = wtc ^. wtcSponsorAddress,
+                          tsSponsorDetails = conditionally cHasSponsorDetails mbSponsorDetails,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
                           tsIndex = wtc ^. wtcTransactionIndex,
                           tsResult = addReturn tsResult0,
                           ..
                         }
+  where
+    cHasSponsorDetails = (sHasSponsorDetails (sTransactionOutcomesVersionFor (protocolVersion @(MPV m))))
 
 {-# INLINE defaultSuccess #-}
 

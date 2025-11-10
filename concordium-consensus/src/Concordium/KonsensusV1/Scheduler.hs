@@ -557,7 +557,7 @@ constructBlockTransactions ::
     Timestamp ->
     -- | Block state.
     UpdatableBlockState m ->
-    m (FilteredTransactions, TransactionExecutionResult m)
+    m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)), TransactionExecutionResult m)
 constructBlockTransactions runtimeParams startTime transTable pendingTable blockTimestamp theState0 = do
     -- The block energy limit and account creation limit are taken from the current chain parameters.
     chainParams <- bsoGetChainParameters theState0
@@ -726,7 +726,7 @@ constructBlockState ::
     TransactionTable ->
     PendingTransactionTable ->
     BlockExecutionData pv ->
-    m (FilteredTransactions, PBS.HashedPersistentBlockState pv, Energy)
+    m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)), PBS.HashedPersistentBlockState pv, Energy)
 constructBlockState runtimeParams transactionTable pendingTable execData@BlockExecutionData{..} = do
     seedState <- getSeedState bedParentState
     if seedState ^. shutdownTriggered
