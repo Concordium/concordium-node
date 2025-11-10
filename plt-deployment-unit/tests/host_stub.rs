@@ -62,10 +62,10 @@ pub struct AccountStubIndex(usize);
 impl HostOperations for HostStub {
     type Account = AccountStubIndex;
 
-    fn account_by_address(&self, address: AccountAddress) -> Option<Self::Account> {
+    fn account_by_address(&self, address: &AccountAddress) -> Option<Self::Account> {
         self.accounts.iter().enumerate().find_map(|(i, account)| {
             // TODO resolve an account alias as well here.
-            if account.address == address {
+            if account.address == *address {
                 Some(AccountStubIndex(i))
             } else {
                 None
@@ -83,19 +83,19 @@ impl HostOperations for HostStub {
         })
     }
 
-    fn account_index(&self, account: Self::Account) -> AccountIndex {
+    fn account_index(&self, account: &Self::Account) -> AccountIndex {
         self.accounts[account.0].index
     }
 
-    fn account_canonical_address(&self, account: Self::Account) -> AccountAddress {
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
         self.accounts[account.0].address
     }
 
-    fn account_balance(&self, account: Self::Account) -> u64 {
+    fn account_balance(&self, account: &Self::Account) -> u64 {
         self.accounts[account.0].balance.unwrap_or(0)
     }
 
-    fn touch(&mut self, account: Self::Account) -> bool {
+    fn touch(&mut self, account: &Self::Account) -> bool {
         if self.accounts[account.0].balance.is_some() {
             false
         } else {
@@ -106,7 +106,7 @@ impl HostOperations for HostStub {
 
     fn mint(
         &mut self,
-        _account: Self::Account,
+        _account: &Self::Account,
         _amount: u64,
     ) -> Result<(), AmountNotRepresentableError> {
         todo!()
@@ -114,7 +114,7 @@ impl HostOperations for HostStub {
 
     fn burn(
         &mut self,
-        _account: Self::Account,
+        _account: &Self::Account,
         _amount: u64,
     ) -> Result<(), InsufficientBalanceError> {
         todo!()
@@ -122,8 +122,8 @@ impl HostOperations for HostStub {
 
     fn transfer(
         &mut self,
-        _from: Self::Account,
-        _to: Self::Account,
+        _from: &Self::Account,
+        _to: &Self::Account,
         _amount: u64,
         _memo: Option<Memo>,
     ) -> Result<(), InsufficientBalanceError> {
@@ -173,13 +173,13 @@ fn test_account_lookup() {
     ]);
 
     let _ = host
-        .account_by_address(TEST_ACCOUNT0)
+        .account_by_address(&TEST_ACCOUNT0)
         .expect("Account is expected to exist");
     let _ = host
-        .account_by_address(TEST_ACCOUNT1)
+        .account_by_address(&TEST_ACCOUNT1)
         .expect("Account is expected to exist");
     assert!(
-        host.account_by_address(TEST_ACCOUNT2).is_none(),
+        host.account_by_address(&TEST_ACCOUNT2).is_none(),
         "Account is not expected to exist"
     );
     // TODO test lookup using alias.
@@ -204,16 +204,16 @@ fn test_account_balance() {
     ]);
     {
         let account = host
-            .account_by_address(TEST_ACCOUNT0)
+            .account_by_address(&TEST_ACCOUNT0)
             .expect("Account is expected to exist");
-        let balance = host.account_balance(account);
+        let balance = host.account_balance(&account);
         assert_eq!(balance, 245);
     }
     {
         let account = host
-            .account_by_address(TEST_ACCOUNT1)
+            .account_by_address(&TEST_ACCOUNT1)
             .expect("Account is expected to exist");
-        let balance = host.account_balance(account);
+        let balance = host.account_balance(&account);
         assert_eq!(balance, 0);
     }
 }
@@ -226,16 +226,16 @@ fn test_account_canonical_address() {
     ]);
     {
         let account = host
-            .account_by_address(TEST_ACCOUNT0)
+            .account_by_address(&TEST_ACCOUNT0)
             .expect("Account is expected to exist");
-        let balance = host.account_balance(account);
+        let balance = host.account_balance(&account);
         assert_eq!(balance, 245);
     }
     {
         let account = host
-            .account_by_address(TEST_ACCOUNT1)
+            .account_by_address(&TEST_ACCOUNT1)
             .expect("Account is expected to exist");
-        let balance = host.account_balance(account);
+        let balance = host.account_balance(&account);
         assert_eq!(balance, 0);
     }
 }
