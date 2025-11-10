@@ -2,7 +2,6 @@ use std::u64;
 
 use anyhow::anyhow;
 use concordium_base::base::{AccountIndex, Energy};
-use concordium_base::common::Serial;
 use concordium_base::common::cbor::{
     CborSerializationError, SerializationOptions, UnknownMapKeys, cbor_decode_with_options,
     cbor_encode,
