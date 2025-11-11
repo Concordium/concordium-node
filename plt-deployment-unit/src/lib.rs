@@ -1,5 +1,3 @@
-use std::u64;
-
 use anyhow::anyhow;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor::{
