@@ -72,6 +72,15 @@ data OkResult
         { keysHash :: !Sha256.Hash,
           nonce :: !Types.Nonce
         }
+    | -- | The sponsored transaction passed verification.
+      --  The result contains the hash of the keys of the sender and of the sponsor and the transaction nonce.
+      --  These can be used to short-circuit signature verification when executing the transaction.
+      --  If the sender or sponsor keys have changed for the account then the corresponding signature(s) have to be verified again.
+      SponsoredTransactionSuccess
+        { senderKeysHash :: !Sha256.Hash,
+          sponsorKeysHash :: !Sha256.Hash,
+          nonce :: !Types.Nonce
+        }
     | -- | At start-up, the transaction was taken from a block that has already been verified, so
       --  we trust that it was verified correctly, but do not have the keys used to verify it.
       TrustedSuccess
@@ -102,8 +111,8 @@ data MaybeOkResult
       --  The result contains the next nonce.
       --  Reason for 'MaybeOk': the nonce could be valid at a later point in time.
       NormalTransactionInvalidNonce !Types.Nonce
-    | -- | The sender does not have enough funds to cover the transfer.
-      --  Reason for 'MaybeOk': the sender could have enough funds at a later point in time.
+    | -- | The sender (or sponsor) does not have enough funds to cover the transfer.
+      --  Reason for 'MaybeOk': the sender (or sponsor) could have enough funds at a later point in time.
       NormalTransactionInsufficientFunds
     | -- | The 'NormalTransaction' contained invalid signatures.
       --  Reason for 'MaybeOk': the sender could've changed account information at a later point in time.
@@ -114,6 +123,9 @@ data MaybeOkResult
       --  This is treated as a 'MaybeOk' for simplicity also for older protocol versions as the transaction will
       --  be rejected when executed anyhow if it is surpassing the maximum block energy limit.
       NormalTransactionEnergyExceeded
+    | -- | The sponsored transaction contained an invalid sponsor.
+      -- Reason for 'MaybeOk': the sponsor could exist at a later point in time.
+      SponsoredTransactionInvalidSponsor !Types.AccountAddress
     deriving (Eq, Show, Ord)
 
 -- | Verification results which always should result in a transaction being rejected.

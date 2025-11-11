@@ -200,6 +200,7 @@ checkTransactionVerificationResult (TVer.MaybeOk (TVer.NormalTransactionInvalidN
 checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionInvalidSignatures) = Left IncorrectSignature
 checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionInsufficientFunds) = Left InsufficientFunds
 checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionEnergyExceeded) = Left ExceedsMaxBlockEnergy
+checkTransactionVerificationResult (TVer.MaybeOk (TVer.SponsoredTransactionInvalidSponsor aaddr)) = Left $ UnknownAccount aaddr
 -- 'NotOk' mappings
 checkTransactionVerificationResult (TVer.NotOk (TVer.CredentialDeploymentDuplicateAccountRegistrationID regId)) = Left $ DuplicateAccountRegistrationID regId
 checkTransactionVerificationResult (TVer.NotOk TVer.CredentialDeploymentInvalidSignatures) = Left AccountCredentialInvalid
