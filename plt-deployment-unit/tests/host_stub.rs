@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Memo;
@@ -11,18 +13,22 @@ use plt_deployment_unit::{
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HostStub {
     /// List of accounts existing.
-    accounts: Vec<Account>,
+    pub accounts: Vec<Account>,
+    /// Token managed state.
+    pub state: HashMap<StateKey, StateValue>,
+    /// Decimal places in token representation.
+    pub decimals: u8,
 }
 
 /// Internal representation of an Account in [`HostStub`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Account {
+pub struct Account {
     /// The index of the account
-    index: AccountIndex,
+    pub index: AccountIndex,
     /// The canonical account address of the account.
-    address: AccountAddress,
+    pub address: AccountAddress,
     /// The token balance of the account.
-    balance: Option<u64>,
+    pub balance: Option<u64>,
 }
 
 impl HostStub {
@@ -48,7 +54,11 @@ impl HostStub {
             })
             .collect();
 
-        Self { accounts }
+        Self {
+            accounts,
+            state: HashMap::new(),
+            decimals: 0,
+        }
     }
 }
 
@@ -106,10 +116,20 @@ impl HostOperations for HostStub {
 
     fn mint(
         &mut self,
-        _account: &Self::Account,
-        _amount: u64,
+        account: &Self::Account,
+        amount: u64,
     ) -> Result<(), AmountNotRepresentableError> {
-        todo!()
+        if let Some(balance) = self.accounts[account.0].balance {
+            if balance > u64::MAX - amount {
+                Err(AmountNotRepresentableError)
+            } else {
+                self.accounts[account.0].balance = Some(balance + amount);
+                Ok(())
+            }
+        } else {
+            self.accounts[account.0].balance = Some(amount);
+            Ok(())
+        }
     }
 
     fn burn(
@@ -135,19 +155,23 @@ impl HostOperations for HostStub {
     }
 
     fn decimals(&self) -> u8 {
-        todo!()
+        self.decimals
     }
 
-    fn get_token_state(&self, _key: StateKey) -> Option<StateValue> {
-        todo!()
+    fn get_token_state(&self, key: StateKey) -> Option<StateValue> {
+        self.state.get(&key).cloned()
     }
 
     fn set_token_state(
         &mut self,
-        _key: StateKey,
-        _value: Option<StateValue>,
+        key: StateKey,
+        value: Option<StateValue>,
     ) -> Result<bool, LockedStateKeyError> {
-        todo!()
+        let res = match value {
+            None => self.state.remove(&key).is_some(),
+            Some(value) => self.state.insert(key, value).is_some(),
+        };
+        Ok(res)
     }
 
     fn tick_energy(&mut self, _energy: Energy) {
@@ -161,9 +185,9 @@ impl HostOperations for HostStub {
 
 // Tests for the HostStub
 
-const TEST_ACCOUNT0: AccountAddress = AccountAddress([0u8; 32]);
-const TEST_ACCOUNT1: AccountAddress = AccountAddress([1u8; 32]);
-const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
+pub const TEST_ACCOUNT0: AccountAddress = AccountAddress([0u8; 32]);
+pub const TEST_ACCOUNT1: AccountAddress = AccountAddress([1u8; 32]);
+pub const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
 
 #[test]
 fn test_account_lookup() {
