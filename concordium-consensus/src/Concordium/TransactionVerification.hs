@@ -125,7 +125,7 @@ data MaybeOkResult
       NormalTransactionEnergyExceeded
     | -- | The sponsored transaction contained an invalid sponsor.
       -- Reason for 'MaybeOk': the sponsor could exist at a later point in time.
-      SponsoredTransactionInvalidSponsor !Types.AccountAddress
+      ExtendedTransactionInvalidSponsor !Types.AccountAddress
     deriving (Eq, Show, Ord)
 
 -- | Verification results which always should result in a transaction being rejected.
