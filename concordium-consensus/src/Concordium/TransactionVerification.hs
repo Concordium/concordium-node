@@ -114,8 +114,8 @@ data MaybeOkResult
     | -- | The sender (or sponsor) does not have enough funds to cover the transfer.
       --  Reason for 'MaybeOk': the sender (or sponsor) could have enough funds at a later point in time.
       NormalTransactionInsufficientFunds
-    | -- | The 'NormalTransaction' contained invalid signatures.
-      --  Reason for 'MaybeOk': the sender could've changed account information at a later point in time.
+    | -- | The 'NormalTransaction' (or sponsored) contained invalid signatures.
+      --  Reason for 'MaybeOk': the sender/sponsor could've changed account information at a later point in time.
       NormalTransactionInvalidSignatures
     | -- | The energy requirement of the transaction exceeds the maximum allowed for a block.
       --  P6 makes the maxBlockEnergy configurable as a chain parameter, so it could be valid in a future block where
