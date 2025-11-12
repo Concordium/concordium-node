@@ -39,12 +39,10 @@ import Concordium.Types.Conditionally
 import Concordium.Types.Execution (
     Payload (..),
     SupplementEvents (..),
-    SupplementedTransactionSummary,
     TransactionIndex,
     TransactionSummary,
     addInitializeParameter,
     decodePayload,
-    toTransactionSummary0,
  )
 import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
@@ -861,7 +859,7 @@ getBlockTransactionSummaries =
                         case decoded of
                             InitContract{..} -> return icParam
                             _ -> Left "Initialization event is not for a contract initialization"
-                lift $ supplementEvents (addInitializeParameter mInitParam) (toTransactionSummary0 ts)
+                lift $ toSupplementedTransactionSummary <$> supplementEvents (addInitializeParameter mInitParam) ts
 
 -- | Get the transaction outcomes in the block.
 getBlockSpecialEvents :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Seq.Seq SpecialTransactionOutcome))
@@ -1657,7 +1655,7 @@ getTransactionStatus trHash =
                 (NormalTransaction acctTransaction) <- wmdData <$> mbi
                 (InitContract{..}) <- decodePayload spv (atrPayload acctTransaction) ^? _Right
                 return icParam
-        supplementEvents (addInitializeParameter mip) (toTransactionSummary0 ts)
+        toSupplementedTransactionSummary <$> supplementEvents (addInitializeParameter mip) ts
 
 -- * Smart contract invocations
 invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR finconf (BHIQueryResponse InvokeContract.InvokeContractResult)

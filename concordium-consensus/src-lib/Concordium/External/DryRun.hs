@@ -768,7 +768,7 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                                             let spv = protocolVersion @pv
                                             InitContract{..} <- decodePayload spv payload ^? _Right
                                             return icParam
-                                    case supplementEvents (addInitializeParameter mInitParam) (toTransactionSummary0 res) of
+                                    case supplementEvents (addInitializeParameter mInitParam) res of
                                         Nothing -> do
                                             -- This should not occur, since 'mInitParam' is only
                                             -- needed if the transaction is an 'InitContract', in
