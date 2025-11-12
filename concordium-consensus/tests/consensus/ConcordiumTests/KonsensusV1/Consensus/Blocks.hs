@@ -275,7 +275,7 @@ firstTimeoutMessageFor sProtocolVersion qc curRound curEpoch =
 -- | Helper to compute the transaction outcomes hash for a given set of transaction outcomes and
 --  special transaction outcomes.
 transactionOutcomesHashV1 ::
-    [TransactionSummaryV1] ->
+    [TransactionSummaryV1 tov] ->
     [Transactions.SpecialTransactionOutcome] ->
     TransactionOutcomes.TransactionOutcomesHash
 transactionOutcomesHashV1 outcomes specialOutcomes =
