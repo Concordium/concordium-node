@@ -200,7 +200,7 @@ checkTransactionVerificationResult (TVer.MaybeOk (TVer.NormalTransactionInvalidN
 checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionInvalidSignatures) = Left IncorrectSignature
 checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionInsufficientFunds) = Left InsufficientFunds
 checkTransactionVerificationResult (TVer.MaybeOk TVer.NormalTransactionEnergyExceeded) = Left ExceedsMaxBlockEnergy
-checkTransactionVerificationResult (TVer.MaybeOk (TVer.SponsoredTransactionInvalidSponsor aaddr)) = Left $ UnknownAccount aaddr
+checkTransactionVerificationResult (TVer.MaybeOk (TVer.ExtendedTransactionInvalidSponsor aaddr)) = Left $ UnknownAccount aaddr
 -- 'NotOk' mappings
 checkTransactionVerificationResult (TVer.NotOk (TVer.CredentialDeploymentDuplicateAccountRegistrationID regId)) = Left $ DuplicateAccountRegistrationID regId
 checkTransactionVerificationResult (TVer.NotOk TVer.CredentialDeploymentInvalidSignatures) = Left AccountCredentialInvalid
@@ -212,6 +212,8 @@ checkTransactionVerificationResult (TVer.NotOk (TVer.NormalTransactionDuplicateN
 checkTransactionVerificationResult (TVer.NotOk TVer.Expired) = Left ExpiredTransaction
 checkTransactionVerificationResult (TVer.NotOk TVer.InvalidPayloadSize) = Left InvalidPayloadSize
 checkTransactionVerificationResult (TVer.NotOk TVer.ChainUpdateEffectiveTimeNonZeroForCreatePLT) = Left InvalidUpdateTime
+checkTransactionVerificationResult (TVer.NotOk TVer.SponsoredTransactionMissingSponsor) = Left MissingSponsorAccount
+checkTransactionVerificationResult (TVer.NotOk TVer.SponsoredTransactionMissingSponsorSignature) = Left MissingSponsorSignature
 
 -- | Execute a transaction on the current block state, charging valid accounts
 -- for the resulting energy cost.

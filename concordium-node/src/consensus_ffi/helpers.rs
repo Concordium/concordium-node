@@ -192,6 +192,12 @@ pub enum ConsensusFfiResponse {
     DoubleSign,
     #[error("Consensus entered an unrecoverable state")]
     ConsensusFailure,
+    #[error("Sponsor account does not exist")]
+    NonexistingSponsorAccount,
+    #[error("Sponsor account is missing")]
+    MissingSponsorAccount,
+    #[error("Sponsor signature is missing")]
+    MissingSponsorSignature,
 }
 
 impl ConsensusFfiResponse {
@@ -268,7 +274,10 @@ impl ConsensusFfiResponse {
             | MissingImportFile
             | ContinueCatchUp
             | DoubleSign
-            | ConsensusFailure => false,
+            | ConsensusFailure
+            | NonexistingSponsorAccount
+            | MissingSponsorAccount
+            | MissingSponsorSignature => false,
             PendingBlock => packet_type != PacketType::Block,
             Success | PendingFinalization | Asynchronous => true,
         }
@@ -352,6 +361,9 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             30 => Ok(InsufficientFunds),
             31 => Ok(DoubleSign),
             32 => Ok(ConsensusFailure),
+            33 => Ok(NonexistingSponsorAccount),
+            34 => Ok(MissingSponsorAccount),
+            35 => Ok(MissingSponsorSignature),
             _ => Err(ConsensusFfiResponseConversionError {
                 unknown_code: value,
             }),

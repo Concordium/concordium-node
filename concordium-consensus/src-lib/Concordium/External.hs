@@ -757,6 +757,12 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    32 | ResultConsensusFailure                      | The consensus has thrown an exception and entered an unrecoverable state.                     | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    33 | ResultNonexistingSponsorAccount             | No account corresponding to the transaction's sponsor exists.                                 | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    34 | ResultMissingSponsorAccount                 | The transaction includes a sponsor signature but no sponsor account.                          | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    35 | ResultMissingSponsorSignature               | The transaction includes a sponsor account but no sponsor signature.                          | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
 -- | Convert an 'UpdateResult' to the corresponding 'ReceiveResult' value.
@@ -794,6 +800,9 @@ toReceiveResult ResultEnergyExceeded = 29
 toReceiveResult ResultInsufficientFunds = 30
 toReceiveResult ResultDoubleSign = 31
 toReceiveResult ResultConsensusFailure = 32
+toReceiveResult ResultNonexistingSponsorAccount = 33
+toReceiveResult ResultMissingSponsorAccount = 34
+toReceiveResult ResultMissingSponsorSignature = 35
 
 -- | Handle receipt of a block.
 --  The possible return codes are @ResultSuccess@, @ResultSerializationFail@,
@@ -891,7 +900,8 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 --  @ResultCredentialDeploymentInvalidIP@, @ResultCredentialDeploymentInvalidAR@,
 --  @ResultCredentialDeploymentExpired@, @ResultChainUpdateInvalidSequenceNumber@,
 --  @ResultChainUpdateInvalidEffectiveTime@, @ResultChainUpdateInvalidSignatures@,
---  @ResultEnergyExceeded@.
+--  @ResultEnergyExceeded@, @ResultNonexistingSponsorAccount@,
+--  @ResultMissingSponsorAccount@, @ResultMissingSponsorSignature@.
 --  Additionally @ResultConsensusFailure@ is returned if an exception occurs.
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO ReceiveResult
 receiveTransaction bptr transactionData transactionLen outPtr = do

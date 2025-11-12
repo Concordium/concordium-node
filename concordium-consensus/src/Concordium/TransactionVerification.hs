@@ -156,6 +156,10 @@ data NotOkResult
       Expired
     | -- | Transaction payload size exceeds protocol limit.
       InvalidPayloadSize
+    | -- | The transaction has a sponsor signature, but the sponsor is not specified in the header.
+      SponsoredTransactionMissingSponsor
+    | -- | The transaction has a sponsor specified in the header, but no sponsor signature.
+      SponsoredTransactionMissingSponsorSignature
     deriving (Eq, Show, Ord)
 
 -- | Type which can verify transactions in a monadic context.
