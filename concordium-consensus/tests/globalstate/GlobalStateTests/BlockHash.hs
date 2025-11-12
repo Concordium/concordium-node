@@ -207,3 +207,7 @@ tests = do
             specify "Hash of emptyPersistentTransactionOutcomes (TOV2) is emptyTransactionOutcomesHashV2" $
                 runDummyHashMonad (getHashM (emptyPersistentTransactionOutcomes @'TOV2))
                     `shouldBe` emptyTransactionOutcomesHashV2
+
+            specify "Hash of emptyPersistentTransactionOutcomes (TOV3) is emptyTransactionOutcomesHashV3" $
+                runDummyHashMonad (getHashM (emptyPersistentTransactionOutcomes @'TOV3))
+                    `shouldBe` emptyTransactionOutcomesHashV3
