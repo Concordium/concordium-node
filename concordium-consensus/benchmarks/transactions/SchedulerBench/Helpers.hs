@@ -187,9 +187,9 @@ defaultContextState =
         }
 
 -- | Result from running the scheduler in a test environment.
-data SchedulerResult = SchedulerResult
+data SchedulerResult tov = SchedulerResult
     { -- | The outcome for constructing a block.
-      srTransactions :: FilteredTransactions,
+      srTransactions :: FilteredTransactions tov,
       -- | The total execution cost of the block.
       srExecutionCosts :: Types.Amount,
       -- | The total execution energy of the block.
@@ -204,7 +204,7 @@ runScheduler ::
     TestConfig ->
     BS.HashedPersistentBlockState pv ->
     Types.GroupedTransactions ->
-    PersistentBSM pv (SchedulerResult, BS.PersistentBlockState pv)
+    PersistentBSM pv (SchedulerResult (Types.TransactionOutcomesVersionFor pv), BS.PersistentBlockState pv)
 runScheduler TestConfig{..} stateBefore transactions = do
     blockStateBefore <- BS.thawBlockState stateBefore
     let txs = filterTransactions tcBlockSize (Time.timestampToUTCTime tcBlockTimeout) transactions
@@ -226,16 +226,16 @@ runScheduler TestConfig{..} stateBefore transactions = do
 -- running transactions and the extractor, meaning the result of the extractor should not retain any
 -- references and should be fully evaluated.
 runSchedulerTest ::
-    forall pv a.
-    (Types.IsProtocolVersion pv) =>
+    forall tov pv a.
+    (Types.IsProtocolVersion pv, tov ~ Types.TransactionOutcomesVersionFor pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult tov -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     Types.GroupedTransactions ->
-    IO (SchedulerResult, a)
+    IO (SchedulerResult tov, a)
 runSchedulerTest config constructState extractor transactions = runTestBlockState computation
   where
-    computation :: PersistentBSM pv (SchedulerResult, a)
+    computation :: PersistentBSM pv (SchedulerResult tov, a)
     computation = do
         blockStateBefore <- constructState
         (result, blockStateAfter) <- runScheduler config blockStateBefore transactions
