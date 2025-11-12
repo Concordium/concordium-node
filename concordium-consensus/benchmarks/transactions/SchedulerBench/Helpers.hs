@@ -50,7 +50,7 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.TimeMonad
 import qualified Data.Bifunctor as Bifunctor
 
-getResults :: [(a, Types.TransactionSummary)] -> [(a, Types.ValidResult)]
+getResults :: [(a, Types.TransactionSummary tov)] -> [(a, Types.ValidResult)]
 getResults = map $ Bifunctor.second Types.tsResult
 
 -- | The cost for processing a simple transfer (account to account)
