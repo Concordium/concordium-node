@@ -15,6 +15,7 @@ import qualified Concordium.ID.IdentityProvider as IP
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.Types as Types
 import Concordium.Types.HashableTo (getHash)
+import Concordium.Types.Option
 import qualified Concordium.Types.Parameters as Params
 import qualified Concordium.Types.Transactions as Tx
 import Concordium.Types.Updates (UpdateSequenceNumber)
@@ -72,13 +73,13 @@ data OkResult
         { keysHash :: !Sha256.Hash,
           nonce :: !Types.Nonce
         }
-    | -- | The sponsored transaction passed verification.
-      --  The result contains the hash of the keys of the sender and of the sponsor and the transaction nonce.
+    | -- | The extended transaction passed verification.
+      --  The result contains the hash of the keys of the sender and of the sponsor (if any), and the transaction nonce.
       --  These can be used to short-circuit signature verification when executing the transaction.
       --  If the sender or sponsor keys have changed for the account then the corresponding signature(s) have to be verified again.
-      SponsoredTransactionSuccess
+      ExtendedTransactionSuccess
         { senderKeysHash :: !Sha256.Hash,
-          sponsorKeysHash :: !Sha256.Hash,
+          sponsorKeysHash :: !(Option Sha256.Hash),
           nonce :: !Types.Nonce
         }
     | -- | At start-up, the transaction was taken from a block that has already been verified, so
