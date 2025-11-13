@@ -66,7 +66,7 @@ fn test_initiailize_token_additional_parameter() {
     let mut additional = HashMap::with_capacity(1);
     additional.insert("_param1".into(), Value::Text("extravalue1".into()));
     let parameters = TokenModuleInitializationParameters {
-        name: Some("Protocol-level token".to_owned().into()),
+        name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
         governance_account: Some(TEST_ACCOUNT1.into()),
         allow_list: Some(true),
@@ -97,9 +97,9 @@ fn test_initiailize_token_default_values() {
     ]);
     let init_accounts = host.accounts.clone();
     let metadata = "https://plt.token".to_owned().into();
-    let encoded_metadata = cbor_encode(&metadata).unwrap().into();
+    let encoded_metadata = cbor_encode(&metadata).unwrap();
     let parameters = TokenModuleInitializationParameters {
-        name: Some("Protocol-level token".to_owned().into()),
+        name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata),
         governance_account: Some(TEST_ACCOUNT1.into()),
         allow_list: None,
@@ -128,9 +128,9 @@ fn test_initiailize_token_valid_1() {
     ]);
     let init_accounts = host.accounts.clone();
     let metadata = "https://plt.token".to_owned().into();
-    let encoded_metadata = cbor_encode(&metadata).unwrap().into();
+    let encoded_metadata = cbor_encode(&metadata).unwrap();
     let parameters = TokenModuleInitializationParameters {
-        name: Some("Protocol-level token".to_owned().into()),
+        name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata),
         governance_account: Some(TEST_ACCOUNT1.into()),
         allow_list: Some(true),
@@ -163,9 +163,9 @@ fn test_initiailize_token_valid_2() {
     host.decimals = 2;
     let mut accounts = host.accounts.clone();
     let metadata = "https://plt.token".to_owned().into();
-    let encoded_metadata = cbor_encode(&metadata).unwrap().into();
+    let encoded_metadata = cbor_encode(&metadata).unwrap();
     let parameters = TokenModuleInitializationParameters {
-        name: Some("Protocol-level token".to_owned().into()),
+        name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata),
         governance_account: Some(TEST_ACCOUNT1.into()),
         allow_list: Some(false),
@@ -202,7 +202,7 @@ fn test_initiailize_token_excessive_mint_decimals() {
     host.decimals = 2;
     let metadata = "https://plt.token".to_owned().into();
     let parameters = TokenModuleInitializationParameters {
-        name: Some("Protocol-level token".to_owned().into()),
+        name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata),
         governance_account: Some(TEST_ACCOUNT1.into()),
         allow_list: Some(false),
@@ -237,7 +237,7 @@ fn test_initiailize_token_insufficient_mint_decimals() {
     host.decimals = 6;
     let metadata = "https://plt.token".to_owned().into();
     let parameters = TokenModuleInitializationParameters {
-        name: Some("Protocol-level token".to_owned().into()),
+        name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata),
         governance_account: Some(TEST_ACCOUNT1.into()),
         allow_list: Some(false),
