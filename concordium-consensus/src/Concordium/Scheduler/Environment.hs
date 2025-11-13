@@ -1065,17 +1065,12 @@ withDeposit wtc comp k = do
         -- Computation successful
         Right a -> do
             -- In this case we invoke the continuation, which should charge for the used energy.
-            (tsResult0, cost, tsEnergyCost) <- k ls a
-            -- The exuction cost is payed for by the sponsor if present, otherwise by the sender.
-            let (tsCost, mbSponsorDetails)
-                    | Just sdSponsor <- (wtc ^. wtcSponsorAddress) =
-                        (0, Just $ SponsorDetails{sdCost = cost, ..})
-                    | otherwise = (cost, Nothing)
+            (tsResult0, tsCost, tsEnergyCost) <- k ls a
             return $!
                 Just $!
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
-                          tsSponsorDetails = conditionally cHasSponsorDetails mbSponsorDetails,
+                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
                           tsIndex = wtc ^. wtcTransactionIndex,
                           tsResult = addReturn tsResult0,

@@ -688,7 +688,7 @@ emptyBlockRewardDetails =
 type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockStatePointers pv))
 
 -- | Transaction outcomes stored in a merkle binary tree.
-data MerkleTransactionOutcomes tov = MerkleTransactionOutcomes
+data MerkleTransactionOutcomes (tov :: TransactionOutcomesVersion) = MerkleTransactionOutcomes
     { -- | Normal transaction outcomes
       mtoOutcomes :: LFMBT.LFMBTree TransactionIndex HashedBufferedRef (TransactionSummaryV1 tov),
       -- | Special transaction outcomes
@@ -3422,7 +3422,7 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                     then return $ Just BakerPoolStatus{..}
                     else return Nothing
 
-doGetTransactionOutcome :: forall tov pv m. (SupportsPersistentState pv m, TransactionOutcomesVersionFor (MPV m) ~ tov) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe (TransactionSummary tov))
+doGetTransactionOutcome :: forall tov pv m. (SupportsPersistentState pv m, TransactionOutcomesVersionFor pv ~ tov) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe (TransactionSummary tov))
 doGetTransactionOutcome pbs transHash = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
