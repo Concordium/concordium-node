@@ -441,7 +441,9 @@ class (Monad m, BlockStateTypes m) => ModuleQuery m where
 -- | We create a wrapper here so we can
 --  derive another 'HashableTo' instance which omits
 --  the exact 'RejectReason' in the resulting hash.
-newtype TransactionSummaryV1 tov = TransactionSummaryV1 {_transactionSummaryV1 :: TransactionSummary' tov ValidResult}
+newtype TransactionSummaryV1 (tov :: TransactionOutcomesVersion) = TransactionSummaryV1 {
+        _transactionSummaryV1 :: TransactionSummary' tov ValidResult
+    }
     deriving (Eq, Show)
 
 -- | A 'HashableTo' instance for a 'TransactionSummary'' which omits the exact
