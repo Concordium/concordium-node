@@ -1,4 +1,4 @@
-{-# LANGUAGE DataKinds  #-}
+{-# LANGUAGE DataKinds #-}
 
 module Concordium.Scheduler.Types (
     module Concordium.Scheduler.Types,
