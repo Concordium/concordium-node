@@ -187,7 +187,7 @@ defaultContextState =
         }
 
 -- | Result from running the scheduler in a test environment.
-data SchedulerResult tov = SchedulerResult
+data SchedulerResult (tov :: TransactionOutcomesVersion) = SchedulerResult
     { -- | The outcome for constructing a block.
       srTransactions :: FilteredTransactions tov,
       -- | The total execution cost of the block.
