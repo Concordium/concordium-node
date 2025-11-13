@@ -141,7 +141,7 @@ emptyTransactionOutcomesHashV stov = case stov of
     STOV2 -> emptyTransactionOutcomesHashV2
     STOV3 -> emptyTransactionOutcomesHashV3
 
-transactionOutcomesV0FromList :: [TransactionSummary tsv] -> TransactionOutcomes tsv
+transactionOutcomesV0FromList :: [TransactionSummary tov] -> TransactionOutcomes tov
 transactionOutcomesV0FromList l =
     let outcomeValues = Vec.fromList l
         _outcomeSpecial = Seq.empty
