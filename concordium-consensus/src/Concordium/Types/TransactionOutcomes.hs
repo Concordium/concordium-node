@@ -92,7 +92,7 @@ newtype TransactionOutcomesHashV (tov :: TransactionOutcomesVersion) = Transacti
 toTransactionOutcomesHash :: TransactionOutcomesHashV tov -> TransactionOutcomesHash
 toTransactionOutcomesHash = TransactionOutcomesHash . theTransactionOutcomesHashV
 
-emptyTransactionOutcomesV0 :: TransactionOutcomes tov
+emptyTransactionOutcomesV0 :: TransactionOutcomes 'TOV0
 emptyTransactionOutcomesV0 = TransactionOutcomes Vec.empty Seq.empty
 
 -- | Hash of the empty V0 transaction outcomes structure. This transaction outcomes
