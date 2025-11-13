@@ -9,7 +9,6 @@
   without the parameters set will be rejected, so there are no observable changes to PLT behaviour.
 - Fixed the `build_catchup_url` in the Ubuntu build release pipeline.
 - Extended the GRPC API to support submitting sponsored transactions.
-- Extend `TransactionSummary` to contain optional sponsor address.
 
 ## 9.0.7
 
