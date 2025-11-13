@@ -54,7 +54,7 @@ testAccountCreation _ pvString = specify
         doAssertions
   where
     makeAssertions ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     makeAssertions result state = do
