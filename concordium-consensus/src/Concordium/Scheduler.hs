@@ -284,17 +284,12 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
             -- exists on the account with 'checkHeader'.
             payment <- energyToGtu checkHeaderCost
             chargeExecutionCost senderAccount payment
-            -- The execution cost is paid for by the sponsor if present, otherwise by the sender.
-            let (tsCost, mbSponsorDetails)
-                    | Just sdSponsor <- transactionSponsor msg =
-                        (0, Just SponsorDetails{sdCost = payment, ..})
-                    | otherwise = (payment, Nothing)
             return $
                 Just $
                     TransactionSummary
                         { tsEnergyCost = checkHeaderCost,
                           tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
-                          tsSponsorDetails = conditionally cHasSponsorDetails mbSponsorDetails,
+                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
                           tsResult = transactionReject SerializationFailure,
                           tsHash = transactionHash msg,
                           tsType = TSTAccountTransaction Nothing,

@@ -1050,16 +1050,12 @@ withDeposit wtc comp k = do
             -- (energy ticked so far).
             (usedEnergy, payment) <- computeExecutionCharge totalEnergyToUse (ls ^. energyLeft)
             chargeExecutionCost (wtc ^. wtcSenderAccount) payment
-            -- The exuction cost is payed for by the sponsor if present, otherwise by the sender.
-            let (tsCost, mbSponsorDetails)
-                    | Just sdSponsor <- (wtc ^. wtcSponsorAddress) =
-                        (0, Just SponsorDetails{sdCost = payment, ..})
-                    | otherwise = (payment, Nothing)
             return $!
                 Just $!
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
-                          tsSponsorDetails = conditionally cHasSponsorDetails mbSponsorDetails,
+                          tsCost = payment,
+                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
                           tsEnergyCost = usedEnergy,
                           tsResult = addReturn $ transactionReject reason,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
