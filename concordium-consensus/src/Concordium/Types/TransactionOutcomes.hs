@@ -27,7 +27,7 @@ import Concordium.Utils.Serialization
 
 -- | Outcomes of transactions. The vector of outcomes must have the same size as the
 --  number of transactions in the block, and ordered in the same way.
-data TransactionOutcomes tov = TransactionOutcomes
+data TransactionOutcomes (tov  :: TransactionOutcomesVersion)= TransactionOutcomes
     { outcomeValues :: !(Vec.Vector (TransactionSummary tov)),
       _outcomeSpecial :: !(Seq.Seq SpecialTransactionOutcome)
     }
