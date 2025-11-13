@@ -726,7 +726,7 @@ constructBlockState ::
     TransactionTable ->
     PendingTransactionTable ->
     BlockExecutionData pv ->
-    m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)), PBS.HashedPersistentBlockState pv, Energy)
+    m (FilteredTransactions (TransactionOutcomesVersionFor pv), PBS.HashedPersistentBlockState pv, Energy)
 constructBlockState runtimeParams transactionTable pendingTable execData@BlockExecutionData{..} = do
     seedState <- getSeedState bedParentState
     if seedState ^. shutdownTriggered
