@@ -3481,7 +3481,7 @@ doGetSpecialOutcomes pbs = do
         PTOV2 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
         PTOV3 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
 
-doGetOutcomes :: (SupportsPersistentState pv m, MonadProtocolVersion m) => PersistentBlockState pv -> m (Vec.Vector (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+doGetOutcomes :: (SupportsPersistentState pv m, MonadProtocolVersion m) => PersistentBlockState pv -> m (Vec.Vector (TransactionSummary (TransactionOutcomesVersionFor pv)))
 doGetOutcomes pbs = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
