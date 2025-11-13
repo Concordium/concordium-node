@@ -460,7 +460,7 @@ instance HashableTo H.Hash (TransactionSummaryV1 tov) where
             S.runPutLazy $!
                 S.putShortByteString "TransactionOutcomeHashV1"
                     <> encodeSender (tsSender summary)
-                    <> mapM_ S.put (tsSponsorDetails summary)
+                    <> mapM_ (putMaybe S.put) (tsSponsorDetails summary)
                     <> S.put (tsHash summary)
                     <> S.put (tsCost summary)
                     <> S.put (tsEnergyCost summary)
