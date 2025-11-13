@@ -28,7 +28,7 @@ import Concordium.ID.Types (IdentityProviderIdentity)
 import qualified Concordium.TransactionVerification as TVer
 
 -- | Result of constructing a block from 'GroupedTransactions'.
-data FilteredTransactions tov = FilteredTransactions
+data FilteredTransactions (tov :: TransactionOutcomesVersion) = FilteredTransactions
     { -- | Transactions which have been added to the block, in the order added, with results.
       ftAdded :: [(TVer.BlockItemWithStatus, TransactionSummary tov)],
       -- | Transactions which failed. No order is guaranteed.
