@@ -284,7 +284,7 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
             -- exists on the account with 'checkHeader'.
             payment <- energyToGtu checkHeaderCost
             chargeExecutionCost senderAccount payment
-            -- The execution cost is payed for by the sponsor if present, otherwise by the sender.
+            -- The execution cost is paid for by the sponsor if present, otherwise by the sender.
             let (tsCost, mbSponsorDetails)
                     | Just sdSponsor <- transactionSponsor msg =
                         (0, Just SponsorDetails{sdCost = payment, ..})
