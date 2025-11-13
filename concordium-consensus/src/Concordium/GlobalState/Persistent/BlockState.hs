@@ -3441,7 +3441,7 @@ doGetTransactionOutcomesHash pbs = do
     TransactionOutcomes.toTransactionOutcomesHash @(TransactionOutcomesVersionFor pv)
         <$> getHashM (bspTransactionOutcomes bsp)
 
-doSetTransactionOutcomes :: forall tov pv m. (SupportsPersistentState pv m, tov ~ TransactionOutcomesVersionFor (MPV m)) => PersistentBlockState pv -> [TransactionSummary tov] -> m (PersistentBlockState pv)
+doSetTransactionOutcomes :: forall pv m tov. (SupportsPersistentState pv m, tov ~ TransactionOutcomesVersionFor pv) => PersistentBlockState pv -> [TransactionSummary tov] -> m (PersistentBlockState pv)
 doSetTransactionOutcomes pbs transList = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
@@ -3481,7 +3481,7 @@ doGetSpecialOutcomes pbs = do
         PTOV2 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
         PTOV3 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
 
-doGetOutcomes :: (SupportsPersistentState pv m, MonadProtocolVersion m) => PersistentBlockState pv -> m (Vec.Vector (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
+doGetOutcomes :: (SupportsPersistentState pv m, MonadProtocolVersion m) => PersistentBlockState pv -> m (Vec.Vector (TransactionSummary (TransactionOutcomesVersionFor pv)))
 doGetOutcomes pbs = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
