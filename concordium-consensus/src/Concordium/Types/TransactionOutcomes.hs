@@ -45,7 +45,7 @@ putTransactionOutcomes TransactionOutcomes{..} = do
 getTransactionOutcomes :: SProtocolVersion pv -> S.Get (TransactionOutcomes (TransactionOutcomesVersionFor pv))
 getTransactionOutcomes spv = TransactionOutcomes <$> (Vec.fromList <$> getListOf (getTransactionSummary spv)) <*> S.get
 
-instance HashableTo (TransactionOutcomesHashV 'TOV0) (TransactionOutcomes tov) where
+instance HashableTo (TransactionOutcomesHashV 'TOV0) (TransactionOutcomes 'TOV0) where
     getHash transactionoutcomes =
         TransactionOutcomesHashV . H.hash . S.runPut $
             putTransactionOutcomes transactionoutcomes
