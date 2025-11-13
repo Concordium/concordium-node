@@ -289,6 +289,7 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                     TransactionSummary
                         { tsEnergyCost = checkHeaderCost,
                           tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
+                          tsCost = payment,
                           tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
                           tsResult = transactionReject SerializationFailure,
                           tsHash = transactionHash msg,
