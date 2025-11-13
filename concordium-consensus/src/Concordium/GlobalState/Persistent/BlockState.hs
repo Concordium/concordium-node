@@ -3441,7 +3441,7 @@ doGetTransactionOutcomesHash pbs = do
     TransactionOutcomes.toTransactionOutcomesHash @(TransactionOutcomesVersionFor pv)
         <$> getHashM (bspTransactionOutcomes bsp)
 
-doSetTransactionOutcomes :: forall pv m tov. (SupportsPersistentState pv m, tov ~ TransactionOutcomesVersionFor pv) => PersistentBlockState pv -> [TransactionSummary tov] -> m (PersistentBlockState pv)
+doSetTransactionOutcomes :: forall tov pv m. (SupportsPersistentState pv m, tov ~ TransactionOutcomesVersionFor pv) => PersistentBlockState pv -> [TransactionSummary tov] -> m (PersistentBlockState pv)
 doSetTransactionOutcomes pbs transList = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of

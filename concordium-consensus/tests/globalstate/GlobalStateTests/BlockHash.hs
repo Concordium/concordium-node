@@ -208,6 +208,7 @@ tests = do
                 runDummyHashMonad @'P9 (getHashM (emptyPersistentTransactionOutcomes @'TOV2))
                     `shouldBe` emptyTransactionOutcomesHashV2
 
--- specify "Hash of emptyPersistentTransactionOutcomes (TOV3) is emptyTransactionOutcomesHashV3" $
---     runDummyHashMonad @'P10 (getHashM (emptyPersistentTransactionOutcomes @'TOV3))
---         `shouldBe` emptyTransactionOutcomesHashV3
+            -- TODO (RUN-18): Turn on tests for P10.
+            -- specify "Hash of emptyPersistentTransactionOutcomes (TOV3) is emptyTransactionOutcomesHashV3" $
+            --     runDummyHashMonad @'P10 (getHashM (emptyPersistentTransactionOutcomes @'TOV3))
+            --         `shouldBe` emptyTransactionOutcomesHashV3
