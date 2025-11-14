@@ -1343,7 +1343,7 @@ constructBlock ::
     Maybe FinalizerInfo ->
     -- | New seed state
     SeedState (SeedStateVersionFor (MPV m)) ->
-    m (Sch.FilteredTransactions, ExecutionResult m)
+    m (Sch.FilteredTransactions (TransactionOutcomesVersionFor (MPV m)), ExecutionResult m)
 constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState =
     let cm = ChainMetadata{..}
     in  do

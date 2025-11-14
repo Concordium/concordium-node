@@ -40,7 +40,7 @@ initialBlockState =
           Helpers.makeTestAccountFromSeed 1_000_000 1
         ]
 
-assertApplied :: Bool -> Int -> Helpers.SchedulerResult -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv ()
+assertApplied :: Bool -> Int -> Helpers.SchedulerResult (TransactionOutcomesVersionFor pv) -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv ()
 assertApplied assertSuccess txnCount result _state = do
     let results = Helpers.getResults $ ftAdded (Helpers.srTransactions result)
     if length results /= txnCount

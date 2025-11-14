@@ -104,7 +104,7 @@ testAccountCreation _ pvString = specify
             (map snd ftFailedCredentials)
         assertEqual "Execution cost should be 0." 0 srExecutionCosts
   where
-    checkState :: Helpers.SchedulerResult -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
+    checkState :: Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) -> BS.PersistentBlockState pv -> Helpers.PersistentBSM pv Assertion
     checkState _ state = do
         doInvariantAssertions <- Helpers.assertBlockStateInvariantsH state 0
         let addedAccountAddresses =

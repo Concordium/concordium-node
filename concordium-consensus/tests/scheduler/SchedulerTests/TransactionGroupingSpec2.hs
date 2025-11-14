@@ -315,7 +315,7 @@ testGroups _ groups = do
     return (Helpers.getResults ftAdded, ftFailed, ftUnprocessed, concat (Types.perAccountTransactions ts))
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockstate =

@@ -1012,7 +1012,8 @@ makeLenses ''WithDepositContext
 --    * The deposited amount exists in the public account value.
 --    * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
-    (SchedulerMonad m, TransactionResult res) =>
+    forall tov m res a.
+    (SchedulerMonad m, TransactionResult res, tov ~ TransactionOutcomesVersionFor (MPV m)) =>
     WithDepositContext m ->
     -- | The computation to run in the modified environment with reduced amount on the initial account.
     LocalT a m a ->
@@ -1021,7 +1022,7 @@ withDeposit ::
     --  remaining energy and the ChangeSet. It should return the result, and the amount that was charged
     --  for the execution.
     (LocalState m -> a -> m (res, Amount, Energy)) ->
-    m (Maybe (TransactionSummary' res))
+    m (Maybe (TransactionSummary' tov res))
 withDeposit wtc comp k = do
     let tsHash = wtc ^. wtcTransactionHash
     let totalEnergyToUse = wtc ^. wtcEnergyAmount
@@ -1052,6 +1053,7 @@ withDeposit wtc comp k = do
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
                           tsCost = payment,
+                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
                           tsEnergyCost = usedEnergy,
                           tsResult = addReturn $ transactionReject reason,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
@@ -1066,11 +1068,14 @@ withDeposit wtc comp k = do
                 Just $!
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
+                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
                           tsIndex = wtc ^. wtcTransactionIndex,
                           tsResult = addReturn tsResult0,
                           ..
                         }
+  where
+    cHasSponsorDetails = sHasSponsorDetails (sTransactionOutcomesVersionFor (protocolVersion @(MPV m)))
 
 {-# INLINE defaultSuccess #-}
 

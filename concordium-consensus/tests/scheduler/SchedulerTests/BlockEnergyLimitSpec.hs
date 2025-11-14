@@ -138,7 +138,7 @@ testMaxBlockEnergy _ pvString = specify (pvString ++ ": One valid, two invalid, 
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result state = do
@@ -150,7 +150,7 @@ testMaxBlockEnergy _ pvString = specify (pvString ++ ": One valid, two invalid, 
             doAssertReloadedState
 
     blockStateAssertions ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     blockStateAssertions result state = do
