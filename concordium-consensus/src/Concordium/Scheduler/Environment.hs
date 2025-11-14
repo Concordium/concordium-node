@@ -1077,7 +1077,7 @@ withDeposit wtc comp k = do
                           ..
                         }
   where
-    cHasSponsorDetails = (sHasSponsorDetails (sTransactionOutcomesVersionFor (protocolVersion @(MPV m))))
+    cHasSponsorDetails = sHasSponsorDetails (sTransactionOutcomesVersionFor (protocolVersion @(MPV m)))
 
 {-# INLINE defaultSuccess #-}
 
