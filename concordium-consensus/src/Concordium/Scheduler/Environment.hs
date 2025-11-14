@@ -989,8 +989,6 @@ data WithDepositContext m = WithDepositContext
       -- | Address of the sender of the transaction.
       -- This should correspond to '_wtcSenderAccount', but need not be the canonical address.
       _wtcSenderAddress :: !AccountAddress,
-      -- | Address of the optional sponsor of the transaction.
-      _wtcSponsorAddress :: !(Maybe AccountAddress),
       -- | The amount of energy dedicated for the execution of this transaction.
       _wtcEnergyAmount :: !Energy,
       -- | Cost to be charged for checking the transaction header.
