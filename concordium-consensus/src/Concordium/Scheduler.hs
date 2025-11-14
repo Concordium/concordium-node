@@ -306,7 +306,6 @@ dispatchTransactionBody msg senderAccount checkHeaderCost = do
                         { _wtcSenderAccount = senderAccount,
                           _wtcTransactionHash = transactionHash msg,
                           _wtcSenderAddress = thSender meta,
-                          _wtcSponsorAddress = transactionSponsor msg,
                           _wtcEnergyAmount = thEnergyAmount meta,
                           _wtcTransactionCheckHeaderCost = checkHeaderCost,
                           -- NB: We already account for the cost we used here.
