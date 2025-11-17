@@ -952,6 +952,14 @@ instance BlockStateTypes (LocalT r m) where
     type InstrumentedModuleRef (LocalT r m) = InstrumentedModuleRef m
     type MutableTokenState (LocalT r m) = MutableTokenState m
 
+-- | The energy used in executing a transaction and the cost that was paid for it.
+data ExecutionCharge = ExecutionCharge
+    { -- | The amount of energy used in the transaction.
+      ecUsedEnergy :: !Energy,
+      -- | The cost charged for the energy used in the transaction.
+      ecEnergyCost :: !Amount
+    }
+
 -- | Given the deposited amount and the remaining amount of gas compute how much
 --  the sender of the transaction should be charged, as well as how much energy was used
 --  for execution.
@@ -962,10 +970,11 @@ computeExecutionCharge ::
     Energy ->
     -- | Energy remaining unused.
     Energy ->
-    m (Energy, Amount)
-computeExecutionCharge allocated unused =
-    let used = allocated - unused
-    in  (used,) <$> energyToGtu used
+    m ExecutionCharge
+computeExecutionCharge allocated unused = do
+    let ecUsedEnergy = allocated - unused
+    ecEnergyCost <- energyToGtu ecUsedEnergy
+    return ExecutionCharge{..}
 
 -- | Reduce the public balance on the account to charge for execution cost. The
 --  given amount is the amount to charge (subtract). The precondition of this
@@ -984,14 +993,6 @@ chargeExecutionCostAccount (ai, acc) amnt = do
         commitChanges csWithAccountDelta
     notifyExecutionCost amnt
 
--- | The energy used in executing a transaction and the cost that was paid for it.
-data ExecutionCharge = ExecutionCharge
-    { -- | The amount of energy used in the transaction.
-      ecUsedEnergy :: !Energy,
-      -- | The cost charged for the energy used in the transaction.
-      ecEnergyCost :: !Amount
-    }
-
 computeChargeExecution ::
     (SchedulerMonad m) =>
     -- | The context for the transaction execution.
@@ -1000,9 +1001,9 @@ computeChargeExecution ::
     Energy ->
     m ExecutionCharge
 computeChargeExecution wtc unused = do
-    (used, cost) <- computeExecutionCharge (_wtcEnergyAmount wtc) unused
-    chargeExecutionCostAccount (_wtcPayerAccount wtc) cost
-    return $ ExecutionCharge{ecUsedEnergy = used, ecEnergyCost = cost}
+    executionCharge <- computeExecutionCharge (_wtcEnergyAmount wtc) unused
+    chargeExecutionCostAccount (_wtcPayerAccount wtc) (ecEnergyCost executionCharge)
+    return executionCharge
 
 data WithDepositContext m = WithDepositContext
     { -- | The account initiating the transaction.
@@ -1111,13 +1112,13 @@ withDeposit wtc comp k = do
 -- | Default continuation to use with 'withDeposit'. It commits the changes
 --  from the current changeset and returns the recorded events, the amount corresponding to the
 --  used energy and the used energy.
-{-# INLINE defaultSuccessNoCharge #-}
-defaultSuccessNoCharge ::
+{-# INLINE defaultSuccess #-}
+defaultSuccess ::
     (SchedulerMonad m, TransactionResult res) =>
     LocalState m ->
     [Event] ->
     m res
-defaultSuccessNoCharge = \ls res -> do
+defaultSuccess = \ls res -> do
     commitChanges (ls ^. changeSet)
     return (transactionSuccess res)
 

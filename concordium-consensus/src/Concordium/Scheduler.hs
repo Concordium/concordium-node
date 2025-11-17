@@ -974,7 +974,7 @@ handleSimpleTransfer ::
     Maybe Memo ->
     m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleSimpleTransfer wtc toAddr transferamount maybeMemo =
-    withDeposit wtc c defaultSuccessNoCharge
+    withDeposit wtc c defaultSuccess
   where
     senderAccount = wtc ^. wtcSenderAccount
     senderAddress = wtc ^. wtcSenderAddress
@@ -1007,7 +1007,7 @@ handleUpdateContract ::
     Wasm.Parameter ->
     m (Maybe (TransactionSummary' (TransactionOutcomesVersionFor (MPV m)) res))
 handleUpdateContract wtc uAmount uAddress uReceiveName uMessage =
-    withDeposit wtc computeAndCharge defaultSuccessNoCharge
+    withDeposit wtc computeAndCharge defaultSuccess
   where
     senderAccount = wtc ^. wtcSenderAccount
     senderAddress = wtc ^. wtcSenderAddress
@@ -3009,7 +3009,7 @@ handleRegisterData ::
     RegisteredData ->
     m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 handleRegisterData wtc regData =
-    withDeposit wtc c defaultSuccessNoCharge
+    withDeposit wtc c defaultSuccess
   where
     c = do
         tickEnergy Cost.registerDataCost
