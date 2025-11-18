@@ -4,8 +4,10 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE UndecidableInstances #-}
 
 -- | This module tests processing of transactions for consensus V1.
@@ -19,10 +21,12 @@ module ConcordiumTests.KonsensusV1.TransactionProcessingTest where
 
 import Control.Monad
 import Control.Monad.Catch
+import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.Aeson as AE
 import qualified Data.ByteString.Lazy as BSL
+import qualified Data.ByteString.Short as BSS
 import Data.FileEmbed
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
@@ -30,6 +34,7 @@ import Data.Kind (Type)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isJust)
 import Data.Ratio
+import qualified Data.Text as T
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import qualified Data.Vector as Vec
@@ -39,6 +44,7 @@ import Test.HUnit
 import Test.Hspec
 
 import Concordium.Common.Version
+import qualified Concordium.Cost as Cost
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -57,7 +63,12 @@ import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.GlobalState.Persistent.BlockState
 import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.TransactionTable
+import Concordium.GlobalState.Transactions
+import qualified Concordium.GlobalState.Types as GSTypes
+import qualified Concordium.ID.AnonymityRevoker as AR
+import qualified Concordium.ID.IdentityProvider as IP
 import Concordium.ID.Types (randomAccountAddress)
+import qualified Concordium.ID.Types as ID
 import Concordium.Logger
 import Concordium.Scheduler.DummyData
 import Concordium.TimeMonad
@@ -69,9 +80,12 @@ import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Option
 import Concordium.Types.Parameters
+import qualified Concordium.Types.Parameters as Params
 import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
+import qualified Concordium.Types.Transactions as Tx
 import Concordium.Types.Updates
+import qualified Concordium.Types.Updates as Updates
 import Concordium.Utils
 
 import Concordium.GlobalState.Transactions
@@ -608,6 +622,207 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
                   ..
                 }
 
+-- TransactionVerifier testing
+------------------------------
+
+data AccountTestData (pv :: ProtocolVersion) = AccountTestData
+    { atdAccountAvailableAmount :: !Amount,
+      atdAccountNonce :: !Nonce,
+      atdAccountVerificationKeys :: ID.AccountInformation
+    }
+data TransactionVerifierTestData (pv :: ProtocolVersion) = TransactionVerifierTestData
+    { tvtdAccounts :: !(Map.Map (GSTypes.Account (TVTM pv)) (AccountTestData pv)),
+      tvtdAccountsByAddress :: !(Map.Map AccountAddress (GSTypes.Account (TVTM pv)))
+    }
+
+newtype TVTM (pv :: ProtocolVersion) a = TVTM
+    { runTVTM :: TransactionVerifierT' (TransactionVerifierTestData pv) Identity a
+    }
+    deriving (Functor, Applicative, Monad, MonadReader (TransactionVerifierTestData pv))
+
+instance
+    forall (pv :: ProtocolVersion).
+    (IsProtocolVersion pv, IsCompatibleAuthorizationsVersion (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ~ 'True) => MonadProtocolVersion (TVTM pv)
+    where
+    type MPV (TVTM pv) = pv
+
+instance forall (pv :: ProtocolVersion). GSTypes.BlockStateTypes (TVTM pv) where
+    type Account (TVTM pv) = T.Text
+    type BlockState (TVTM pv) = ()
+    type UpdatableBlockState (TVTM pv) = ()
+
+    -- type ContractState (TransactionVerifierTestTVTM pv) = WasmVersion -> ()
+    type BakerInfoRef (TVTM pv) = ()
+
+    -- type InstrumentedModuleRef (TransactionVerifierTestTVTM pv) = WasmVersion -> ()
+    type MutableTokenState (TVTM pv) = ()
+
+instance
+    forall (pv :: ProtocolVersion).
+    (IsProtocolVersion pv, IsCompatibleAuthorizationsVersion (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ~ 'True) =>
+    TVer.TransactionVerifier (TVTM pv)
+    where
+    -- \| Get the account associated for the given account address.
+    --  Returns 'Nothing' if no such account exists.
+    -- getAccount :: AccountAddress -> m (Maybe (GSTypes.Account m))
+    getAccount addr = do
+        testData <- ask
+        return $ Map.lookup addr $ tvtdAccountsByAddress testData
+
+    -- \| Get the current available amount for the specified account.
+    -- getAccountAvailableAmount :: GSTypes.Account m -> m Amount
+    getAccountAvailableAmount acc = do
+        testData <- tvtdAccounts <$> ask
+        case Map.lookup acc testData of
+            Nothing -> error "account not available in test data"
+            Just atd -> return $ atdAccountAvailableAmount atd
+
+    -- \| Get the next account nonce.
+    -- getNextAccountNonce :: GSTypes.Account m -> m Nonce
+    getNextAccountNonce acc = do
+        testData <- tvtdAccounts <$> ask
+        case Map.lookup acc testData of
+            Nothing -> error "account not available in test data"
+            Just atd -> return $ atdAccountNonce atd
+
+    -- \| Get the verification keys associated with an Account.
+    -- getAccountVerificationKeys :: GSTypes.Account m -> m ID.AccountInformation
+    getAccountVerificationKeys acc = do
+        testData <- tvtdAccounts <$> ask
+        case Map.lookup acc testData of
+            Nothing -> error "account not available in test data"
+            Just atd -> return $ atdAccountVerificationKeys atd
+
+    -- \| Get the maximum energy for a block.
+    -- getMaxBlockEnergy :: m Energy
+    getMaxBlockEnergy = return 1000
+
+    -- We don't check the verification of the nonce.
+    checkExactNonce = return True
+
+    -- One-once conversion for simplicity.
+    energyToCcd (Energy x) = return (Amount x)
+
+    getIdentityProvider = error "Unexpected use of `getIdentityProvider` in TransactionVerifierTestM"
+    getAnonymityRevokers = error "Unexpected use of `getAnonymityRevokers` in TransactionVerifierTestM"
+    getCryptographicParameters = error "Unexpected use of `getCryptographicParameters` in TransactionVerifierTestM"
+    registrationIdExists = error "Unexpected use of `registrationIdExists` in TransactionVerifierTestM"
+    getNextUpdateSequenceNumber = error "Unexpected use of `getNextUpdateSequenceNumber` in TransactionVerifierTestM"
+    getUpdateKeysCollection = error "Unexpected use of `getUpdateKeysCollection` in TransactionVerifierTestM"
+
+testExtendedTransactionVerification ::
+    forall pv.
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    SProtocolVersion pv ->
+    Spec
+testExtendedTransactionVerification _spv =
+    it "A well-formed extended transaction with sponsor should pass verification" $ do
+        let senderAccountAddress = fst $ randomAccountAddress (mkStdGen 42)
+        let sponsorAccountAddress = fst $ randomAccountAddress (mkStdGen 43)
+        let ((senderSignKey, senderVerifyKey), _) = randomEd25519KeyPair $ mkStdGen 42
+        let senderKeyPair = SigScheme.KeyPairEd25519{signKey = senderSignKey, verifyKey = senderVerifyKey}
+        let ((sponsorSignKey, sponsorVerifyKey), _) = randomEd25519KeyPair $ mkStdGen 43
+        let sponsorKeyPair = SigScheme.KeyPairEd25519{signKey = sponsorSignKey, verifyKey = sponsorVerifyKey}
+        let senderAccountVerificationKeys =
+                ID.AccountInformation
+                    { aiCredentials =
+                        Map.singleton
+                            (ID.CredentialIndex 0)
+                            ( ID.CredentialPublicKeys
+                                { credKeys = Map.singleton 0 (SigScheme.VerifyKeyEd25519 senderVerifyKey),
+                                  credThreshold = 0
+                                }
+                            ),
+                      aiThreshold = 0
+                    }
+        let sponsorAccountVerificationKeys =
+                ID.AccountInformation
+                    { aiCredentials =
+                        Map.singleton
+                            (ID.CredentialIndex 0)
+                            ( ID.CredentialPublicKeys
+                                { credKeys = Map.singleton 0 (SigScheme.VerifyKeyEd25519 senderVerifyKey),
+                                  credThreshold = 0
+                                }
+                            ),
+                      aiThreshold = 0
+                    }
+
+        let testData :: TransactionVerifierTestData pv =
+                TransactionVerifierTestData
+                    { tvtdAccounts =
+                        Map.fromList
+                            [   ( "sponsor_account",
+                                  AccountTestData
+                                    { atdAccountAvailableAmount = 1000,
+                                      atdAccountNonce = 0,
+                                      atdAccountVerificationKeys = sponsorAccountVerificationKeys
+                                    }
+                                ),
+                                ( "sender_account",
+                                  AccountTestData
+                                    { atdAccountAvailableAmount = 1000,
+                                      atdAccountNonce = 0,
+                                      atdAccountVerificationKeys = senderAccountVerificationKeys
+                                    }
+                                )
+                            ],
+                      tvtdAccountsByAddress =
+                        Map.fromList
+                            [ (senderAccountAddress, "sender_account"),
+                              (sponsorAccountAddress, "sponsor_account")
+                            ]
+                    }
+        let txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 360, -- equal to tx cost,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+        let txPayload = EncodedPayload "deadbeef"
+        let txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+        let senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+        let sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+        let txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+        let tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res = runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                    testData
+        assertEqual
+            "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
+            ( TVer.Ok
+                TVer.ExtendedTransactionSuccess
+                    { senderKeysHash = getHash senderAccountVerificationKeys,
+                      sponsorKeysHash = Present $ getHash sponsorAccountVerificationKeys,
+                      nonce = 0
+                    }
+            )
+            res
+
 tests :: Spec
 tests = describe "KonsensusV1.TransactionProcessing" $ do
     Common.forEveryProtocolVersionConsensusV1 $ \spv pvString ->
@@ -619,3 +834,6 @@ tests = describe "KonsensusV1.TransactionProcessing" $ do
     describe "P9" $ do
         describe "Transaction verification" $
             testTransactionVerification SP9
+    describe "P10" $ do
+        describe "ExtendedTransaction verification" $
+            testExtendedTransactionVerification SP9 -- TODO (drsk) switch to SP10
