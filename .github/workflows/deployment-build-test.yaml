@@ -1,0 +1,78 @@
+name: PLT Deployment unit checks
+
+on:
+  push:
+    branches:
+    - main
+    paths:
+    - '.github/workflows/deployment-build-test.yaml'
+    - 'concordium-base'
+    - 'deployment'
+
+  pull_request:
+    paths:
+    - '.github/workflows/deployment-build-test.yaml'
+    - 'concordium-base'
+    - 'deployment'
+env:
+  CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
+
+jobs:
+  rustfmt:
+    name: Check formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Run rustfmt
+        working-directory: plt-deployment-unit
+        run: |
+          rustup component add rustfmt
+          cargo fmt -- --check
+
+  clippy_test:
+    name: Run Clippy and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Clippy
+        working-directory: plt-deployment-unit
+        run: |
+          rustup component add clippy
+          cargo clippy --all-targets --all-features --locked -- -D warnings
+      - name: Test
+        working-directory: plt-deployment-unit
+        run: cargo test --all-targets --all-features
+
+  # Build the deployment unit to WebAssembly and report the size in bytes
+  report_wasm_size:
+    name: Build and report byte size of Wasm deployment unit
+    runs-on: ubuntu-latest
+    needs: [rustfmt, clippy_test]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build to WebAssembly
+        working-directory: plt-deployment-unit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cargo build --release --target wasm32-unknown-unknown --locked
+      - name: Report the byte size of WASM deployment unit on PRs
+        working-directory: plt-deployment-unit
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Read the size of the build artifact in number of bytes
+          BYTESIZE=$(du -b target/wasm32-unknown-unknown/release/plt_deployment_unit.wasm | egrep -o '^[0-9]+')
+          # Format the exact bytes.
+          GROUPED=$(numfmt --suffix B --grouping $BYTESIZE)
+          # Attach comment to PR.
+          gh pr comment ${{ github.event.number }} --edit-last --create-if-none --body "The file size of the WebAssembly PLT deployment unit is **$GROUPED**."
