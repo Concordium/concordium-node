@@ -378,7 +378,7 @@ verifyNormalTransaction meta =
 --  * Checks that the sender is a valid account.
 --  * Checks that the sponsor is a valid account, if present.
 --  * Checks that the nonce is correct.
---  * Checks that the 'ExtendedTransaction' is correctly signed by both sender and the optional  sponsor.
+--  * Checks that the 'ExtendedTransaction' is correctly signed by both sender and the optional sponsor.
 verifyExtendedTransaction ::
     forall m msg.
     (TransactionVerifier m, Tx.TransactionData msg) =>
@@ -392,11 +392,10 @@ verifyExtendedTransaction meta =
                     throwError $
                         NotOk InvalidPayloadSize
 
-                let (mbSponsorAddr, mbSponsorSignature) = (Tx.transactionSponsor meta, Tx.transactionSponsorSignature meta)
                 -- Check that either both, the sponsor and the sponsor signature are specified or neither.
-                case (mbSponsorAddr, mbSponsorSignature) of
-                    (Just _sponsorAddr, Just _sponsorSignature) -> return ()
-                    (Nothing, Nothing) -> return ()
+                mbSponsorAddrAndSig <- case (Tx.transactionSponsor meta, Tx.transactionSponsorSignature meta) of
+                    (Just sponsorAddr, Just sponsorSig) -> return $ Just (sponsorAddr, sponsorSig)
+                    (Nothing, Nothing) -> return Nothing
                     (Just _sponsorAddr, Nothing) -> throwError $ NotOk SponsoredTransactionMissingSponsorSignature
                     (Nothing, Just _sponsorSignature) -> throwError $ NotOk SponsoredTransactionMissingSponsor
 
@@ -404,7 +403,7 @@ verifyExtendedTransaction meta =
                 let cost =
                         Cost.baseCost
                             (Tx.getTransactionHeaderPayloadSize $ Tx.transactionHeader meta)
-                            (Tx.getTransactionNumSigs (Tx.transactionSignature meta) + maybe 0 Tx.getTransactionNumSigs mbSponsorSignature)
+                            (Tx.getTransactionNumSigs (Tx.transactionSignature meta) + maybe 0 Tx.getTransactionNumSigs (snd <$> mbSponsorAddrAndSig))
                 unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient
                 -- Check that the required energy does not exceed the maximum allowed for a block
                 maxEnergy <- lift getMaxBlockEnergy
@@ -415,6 +414,14 @@ verifyExtendedTransaction meta =
                 senderAcc <- case mbSenderAcc of
                     Nothing -> throwError (MaybeOk $ NormalTransactionInvalidSender senderAddr)
                     Just senderAcc -> return senderAcc
+                -- Check that the sponsor account exists if a sponsor is present
+                mbSponsorAccAndSig <- case mbSponsorAddrAndSig of
+                    Just (sponsorAddr, sponsorSig) -> do
+                        macc <- lift (getAccount sponsorAddr)
+                        case macc of
+                            Nothing -> throwError (MaybeOk $ ExtendedTransactionInvalidSponsor sponsorAddr)
+                            Just acc -> return $ Just (acc, sponsorSig)
+                    Nothing -> return Nothing
                 -- Check that the nonce of the transaction is correct.
                 nextNonce <- lift (getNextAccountNonce senderAcc)
                 let nonce = Tx.transactionNonce meta
@@ -428,33 +435,25 @@ verifyExtendedTransaction meta =
                 -- which would lead us to rejecting the valid transaction(s).
                 exactNonce <- lift checkExactNonce
                 when (exactNonce && nonce /= nextNonce) $ throwError (MaybeOk $ NormalTransactionInvalidNonce nextNonce)
-                -- Check that the sponsor account exists if a sponsor is present
-                mbSponsorAcc <- case mbSponsorAddr of
-                    Just sponsorAddr -> do
-                        macc <- lift (getAccount sponsorAddr)
-                        case macc of
-                            Nothing -> throwError (MaybeOk $ ExtendedTransactionInvalidSponsor sponsorAddr)
-                            Just acc -> return $ Just acc
-                    Nothing -> return Nothing
                 -- check that the sender or sponsor account has enough funds to cover the transfer
-                amnt <- case mbSponsorAcc of
+                amnt <- case mbSponsorAccAndSig of
                     Nothing -> lift $ getAccountAvailableAmount senderAcc
-                    Just sponsorAcc -> lift $ getAccountAvailableAmount sponsorAcc
+                    Just (sponsorAcc, _sponsorSig) -> lift $ getAccountAvailableAmount sponsorAcc
                 depositedAmount <- lift (energyToCcd (Tx.transactionGasAmount meta))
                 unless (depositedAmount <= amnt) $ throwError $ MaybeOk NormalTransactionInsufficientFunds
-                -- Check the sender signature
+                -- Check the sender and sponsor signatures
                 senderKeys <- lift (getAccountVerificationKeys senderAcc)
-                let senderSigCheck = Tx.verifyTransaction senderKeys meta
-                unless senderSigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
-                -- Check the sponsor signature
-                case mbSponsorAcc of
-                    Just sponsorAcc -> do
-                        sponsorKeys <- lift (getAccountVerificationKeys sponsorAcc)
-                        let sponsorSigCheck = Tx.verifyTransaction sponsorKeys meta
-                        unless sponsorSigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
-                        return $ Ok $ ExtendedTransactionSuccess (getHash senderKeys) (Present $ getHash sponsorKeys) nonce
-                    Nothing ->
+                case mbSponsorAccAndSig of
+                    Nothing -> do
+                        let sigCheck = Tx.verifyTransaction senderKeys meta
+                        unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
                         return $ Ok $ NormalTransactionSuccess (getHash senderKeys) nonce
+                    Just (sponsorAcc, sponsorSig) -> do
+                        sponsorKeys <- lift (getAccountVerificationKeys sponsorAcc)
+                        let senderSig = Tx.transactionSignature meta
+                        let sigCheck = Tx.verifySponsoredTransaction (senderKeys, senderSig) (sponsorKeys, sponsorSig) meta
+                        unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
+                        return $ Ok $ ExtendedTransactionSuccess (getHash senderKeys) (Present $ getHash sponsorKeys) nonce
             )
 
 -- | Wrapper types for pairing a transaction with its verification result (if it has one).
