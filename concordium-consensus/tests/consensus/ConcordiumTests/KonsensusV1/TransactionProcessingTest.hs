@@ -44,6 +44,7 @@ import Test.HUnit
 import Test.Hspec
 
 import Concordium.Common.Version
+import Concordium.Constants
 import qualified Concordium.Cost as Cost
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -704,10 +705,9 @@ instance
     -- getMaxBlockEnergy :: m Energy
     getMaxBlockEnergy = return 1000
 
-    -- We don't check the verification of the nonce.
     checkExactNonce = return True
 
-    -- One-once conversion for simplicity.
+    -- One-one conversion for simplicity.
     energyToCcd (Energy x) = return (Amount x)
 
     getIdentityProvider = error "Unexpected use of `getIdentityProvider` in TransactionVerifierTestM"
@@ -722,65 +722,10 @@ testExtendedTransactionVerification ::
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
     SProtocolVersion pv ->
     Spec
-testExtendedTransactionVerification _spv =
+testExtendedTransactionVerification spv = do
     it "A well-formed extended transaction with sponsor should pass verification" $ do
-        let senderAccountAddress = fst $ randomAccountAddress (mkStdGen 42)
-        let sponsorAccountAddress = fst $ randomAccountAddress (mkStdGen 43)
-        let ((senderSignKey, senderVerifyKey), _) = randomEd25519KeyPair $ mkStdGen 42
-        let senderKeyPair = SigScheme.KeyPairEd25519{signKey = senderSignKey, verifyKey = senderVerifyKey}
-        let ((sponsorSignKey, sponsorVerifyKey), _) = randomEd25519KeyPair $ mkStdGen 43
-        let sponsorKeyPair = SigScheme.KeyPairEd25519{signKey = sponsorSignKey, verifyKey = sponsorVerifyKey}
-        let senderAccountVerificationKeys =
-                ID.AccountInformation
-                    { aiCredentials =
-                        Map.singleton
-                            (ID.CredentialIndex 0)
-                            ( ID.CredentialPublicKeys
-                                { credKeys = Map.singleton 0 (SigScheme.VerifyKeyEd25519 senderVerifyKey),
-                                  credThreshold = 0
-                                }
-                            ),
-                      aiThreshold = 0
-                    }
-        let sponsorAccountVerificationKeys =
-                ID.AccountInformation
-                    { aiCredentials =
-                        Map.singleton
-                            (ID.CredentialIndex 0)
-                            ( ID.CredentialPublicKeys
-                                { credKeys = Map.singleton 0 (SigScheme.VerifyKeyEd25519 senderVerifyKey),
-                                  credThreshold = 0
-                                }
-                            ),
-                      aiThreshold = 0
-                    }
-
-        let testData :: TransactionVerifierTestData pv =
-                TransactionVerifierTestData
-                    { tvtdAccounts =
-                        Map.fromList
-                            [   ( "sponsor_account",
-                                  AccountTestData
-                                    { atdAccountAvailableAmount = 1000,
-                                      atdAccountNonce = 0,
-                                      atdAccountVerificationKeys = sponsorAccountVerificationKeys
-                                    }
-                                ),
-                                ( "sender_account",
-                                  AccountTestData
-                                    { atdAccountAvailableAmount = 1000,
-                                      atdAccountNonce = 0,
-                                      atdAccountVerificationKeys = senderAccountVerificationKeys
-                                    }
-                                )
-                            ],
-                      tvtdAccountsByAddress =
-                        Map.fromList
-                            [ (senderAccountAddress, "sender_account"),
-                              (sponsorAccountAddress, "sponsor_account")
-                            ]
-                    }
-        let txHeader =
+        let
+            txHeader =
                 TransactionHeaderV1
                     { thv1HeaderV0 =
                         TransactionHeader
@@ -792,9 +737,9 @@ testExtendedTransactionVerification _spv =
                             },
                       thv1Sponsor = Just sponsorAccountAddress
                     }
-        let txPayload = EncodedPayload "deadbeef"
-        let txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-        let senderTxSignature =
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
                 TransactionSignature $
                     Map.singleton
                         0
@@ -802,7 +747,7 @@ testExtendedTransactionVerification _spv =
                             0
                             (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
                         )
-        let sponsorTxSignature =
+            sponsorTxSignature =
                 TransactionSignature $
                     Map.singleton
                         0
@@ -810,15 +755,16 @@ testExtendedTransactionVerification _spv =
                             0
                             (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
                         )
-        let txSignatures =
+            txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
                       tsv1Sponsor = Just sponsorTxSignature
                     }
-        let tx = makeAccountTransactionV1 txSignatures txHeader txPayload
-        let res = runIdentity $
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
                     (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
-                    testData
+                        testData
         assertEqual
             "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
             ( TVer.Ok
@@ -829,6 +775,566 @@ testExtendedTransactionVerification _spv =
                     }
             )
             res
+    it "A transaction with a too big payload size should be rejected" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 360, -- equal to tx cost,
+                              thPayloadSize = (fromIntegral $ maxPayloadSize spv + 1),
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testData
+        assertEqual
+            "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
+            (TVer.NotOk TVer.InvalidPayloadSize)
+            res
+
+    it "A transaction with a sponsor address but without sponsor signature should be rejected" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 360, -- equal to tx cost,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Nothing
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testData
+        assertEqual
+            "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
+            (TVer.NotOk TVer.SponsoredTransactionMissingSponsorSignature)
+            res
+    it "A transaction with no sponsor address but a sponsor signature should be rejected" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 360, -- equal to tx cost,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Nothing
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testData
+        assertEqual
+            "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
+            (TVer.NotOk TVer.SponsoredTransactionMissingSponsor)
+            res
+    it "An extended transaction with too little energy should be rejected" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 0, -- 360 is the cost of this transaction,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testData
+        assertEqual
+            "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
+            (TVer.NotOk TVer.NormalTransactionDepositInsufficient)
+            res
+    it "An extended transaction with energy exceeding the maximally allowed energy should be rejected" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = fromIntegral $ 1000 + 1,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testData
+        assertEqual
+            "The verification should yield the expected `MaybeOk NormalTransactionEnergyExceeded` result"
+            (TVer.MaybeOk TVer.NormalTransactionEnergyExceeded)
+            res
+    it "An extended transaction with wrong noce should not pass verification" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 1,
+                              thEnergyAmount = 360,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testData
+        assertEqual
+            "The verification should yield the expected `MaybeOk NormalTransactionInvalidNonce` result"
+            (TVer.MaybeOk $ TVer.NormalTransactionInvalidNonce 0)
+            res
+    it "An extended transaction with sponsor but missing sponsor account should not pass verification" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 360, -- equal to tx cost,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testDataNoSponsor
+        assertEqual
+            "The verification should yield the expected `MaybeOk ExtendedTransactionInvalidSponsor` result"
+            (TVer.MaybeOk $ TVer.ExtendedTransactionInvalidSponsor sponsorAccountAddress)
+            res
+    it "An extended transaction where the sponsor has too little funds should be rejected" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 360, -- equal to tx cost,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testDataTooLittleFunding
+        assertEqual
+            "The verification should yield the expected `MaybeOk NormalTransactionInsufficientFunds` result"
+            (TVer.MaybeOk $ TVer.NormalTransactionInsufficientFunds)
+            res
+    it "An extended transaction with invalid sender signature should be rejected" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 360, -- equal to tx cost,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair "nice_try")
+                        )
+            sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testData
+        assertEqual
+            "The verification should yield the expected `MaybeOk NormalTransactionInvalidSignatures` result"
+            (TVer.MaybeOk $ TVer.NormalTransactionInvalidSignatures)
+            res
+    it "An extended transaction with invalid sponsor signature should be rejected" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 360, -- equal to tx cost,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
+                        )
+            sponsorTxSignature =
+                TransactionSignature $
+                    Map.singleton
+                        0
+                        ( Map.singleton
+                            0
+                            (SigScheme.sign sponsorKeyPair "some_other_transaction")
+                        )
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testData
+        assertEqual
+            "The verification should yield the expected `MaybeOk NormalTransactionInvalidSignatures` result"
+            (TVer.MaybeOk $ TVer.NormalTransactionInvalidSignatures)
+            res
+  where
+    senderAccountAddress = fst $ randomAccountAddress (mkStdGen 42)
+    sponsorAccountAddress = fst $ randomAccountAddress (mkStdGen 43)
+    ((senderSignKey, senderVerifyKey), _) = randomEd25519KeyPair $ mkStdGen 42
+    senderKeyPair =
+        SigScheme.KeyPairEd25519
+            { signKey = senderSignKey,
+              verifyKey = senderVerifyKey
+            }
+    ((sponsorSignKey, sponsorVerifyKey), _) = randomEd25519KeyPair $ mkStdGen 43
+    sponsorKeyPair =
+        SigScheme.KeyPairEd25519
+            { signKey = sponsorSignKey,
+              verifyKey = sponsorVerifyKey
+            }
+    senderAccountVerificationKeys =
+        ID.AccountInformation
+            { aiCredentials =
+                Map.singleton
+                    (ID.CredentialIndex 0)
+                    ( ID.CredentialPublicKeys
+                        { credKeys = Map.singleton 0 (SigScheme.VerifyKeyEd25519 senderVerifyKey),
+                          credThreshold = 0
+                        }
+                    ),
+              aiThreshold = 0
+            }
+    sponsorAccountVerificationKeys =
+        ID.AccountInformation
+            { aiCredentials =
+                Map.singleton
+                    (ID.CredentialIndex 0)
+                    ( ID.CredentialPublicKeys
+                        { credKeys = Map.singleton 0 (SigScheme.VerifyKeyEd25519 sponsorVerifyKey),
+                          credThreshold = 0
+                        }
+                    ),
+              aiThreshold = 0
+            }
+    testData :: TransactionVerifierTestData pv =
+        TransactionVerifierTestData
+            { tvtdAccounts =
+                Map.fromList
+                    [   ( "sender_account",
+                          AccountTestData
+                            { atdAccountAvailableAmount = 1000,
+                              atdAccountNonce = 0,
+                              atdAccountVerificationKeys = senderAccountVerificationKeys
+                            }
+                        ),
+                        ( "sponsor_account",
+                          AccountTestData
+                            { atdAccountAvailableAmount = 1000,
+                              atdAccountNonce = 0,
+                              atdAccountVerificationKeys = sponsorAccountVerificationKeys
+                            }
+                        )
+                    ],
+              tvtdAccountsByAddress =
+                Map.fromList
+                    [ (senderAccountAddress, "sender_account"),
+                      (sponsorAccountAddress, "sponsor_account")
+                    ]
+            }
+    -- test data with missing sponsor account
+    testDataNoSponsor :: TransactionVerifierTestData pv =
+        TransactionVerifierTestData
+            { tvtdAccounts =
+                Map.fromList
+                    [   ( "sender_account",
+                          AccountTestData
+                            { atdAccountAvailableAmount = 1000,
+                              atdAccountNonce = 0,
+                              atdAccountVerificationKeys = senderAccountVerificationKeys
+                            }
+                        )
+                    ],
+              tvtdAccountsByAddress =
+                Map.fromList
+                    [ (senderAccountAddress, "sender_account")
+                    ]
+            }
+    testDataTooLittleFunding :: TransactionVerifierTestData pv =
+        TransactionVerifierTestData
+            { tvtdAccounts =
+                Map.fromList
+                    [   ( "sender_account",
+                          AccountTestData
+                            { atdAccountAvailableAmount = 1000,
+                              atdAccountNonce = 0,
+                              atdAccountVerificationKeys = senderAccountVerificationKeys
+                            }
+                        ),
+                        ( "sponsor_account",
+                          AccountTestData
+                            { atdAccountAvailableAmount = 1,
+                              atdAccountNonce = 0,
+                              atdAccountVerificationKeys = sponsorAccountVerificationKeys
+                            }
+                        )
+                    ],
+              tvtdAccountsByAddress =
+                Map.fromList
+                    [ (senderAccountAddress, "sender_account"),
+                      (sponsorAccountAddress, "sponsor_account")
+                    ]
+            }
 
 tests :: Spec
 tests = describe "KonsensusV1.TransactionProcessing" $ do
