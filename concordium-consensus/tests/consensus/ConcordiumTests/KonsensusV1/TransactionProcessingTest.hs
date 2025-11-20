@@ -26,7 +26,6 @@ import Control.Monad.Reader
 import Control.Monad.State
 import qualified Data.Aeson as AE
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.ByteString.Short as BSS
 import Data.FileEmbed
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
@@ -45,7 +44,6 @@ import Test.Hspec
 
 import Concordium.Common.Version
 import Concordium.Constants
-import qualified Concordium.Cost as Cost
 import Concordium.Crypto.DummyData
 import qualified Concordium.Crypto.SHA256 as Hash
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
@@ -67,8 +65,6 @@ import Concordium.GlobalState.Persistent.Genesis (genesisState)
 import Concordium.GlobalState.TransactionTable
 import Concordium.GlobalState.Transactions
 import qualified Concordium.GlobalState.Types as GSTypes
-import qualified Concordium.ID.AnonymityRevoker as AR
-import qualified Concordium.ID.IdentityProvider as IP
 import Concordium.ID.Types (randomAccountAddress)
 import qualified Concordium.ID.Types as ID
 import Concordium.Logger
@@ -82,15 +78,11 @@ import Concordium.Types.HashableTo
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Option
 import Concordium.Types.Parameters
-import qualified Concordium.Types.Parameters as Params
 import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
-import qualified Concordium.Types.Transactions as Tx
 import Concordium.Types.Updates
-import qualified Concordium.Types.Updates as Updates
 import Concordium.Utils
 
-import Concordium.GlobalState.Transactions
 import Concordium.KonsensusV1.Transactions
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
@@ -633,16 +625,19 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
 -- TransactionVerifier testing
 ------------------------------
 
-data AccountTestData (pv :: ProtocolVersion) = AccountTestData
-    { atdAccountAvailableAmount :: !Amount,
-      atdAccountNonce :: !Nonce,
-      atdAccountVerificationKeys :: ID.AccountInformation
-    }
+-- | Test data used for testing transaction verification
 data TransactionVerifierTestData (pv :: ProtocolVersion) = TransactionVerifierTestData
     { tvtdAccounts :: !(Map.Map (GSTypes.Account (TVTM pv)) (AccountTestData pv)),
       tvtdAccountsByAddress :: !(Map.Map AccountAddress (GSTypes.Account (TVTM pv)))
     }
 
+data AccountTestData (pv :: ProtocolVersion) = AccountTestData
+    { atdAccountAvailableAmount :: !Amount,
+      atdAccountNonce :: !Nonce,
+      atdAccountVerificationKeys :: ID.AccountInformation
+    }
+
+-- The transaction verifier test monad.
 newtype TVTM (pv :: ProtocolVersion) a = TVTM
     { runTVTM :: TransactionVerifierT' (TransactionVerifierTestData pv) Identity a
     }
@@ -650,66 +645,50 @@ newtype TVTM (pv :: ProtocolVersion) a = TVTM
 
 instance
     forall (pv :: ProtocolVersion).
-    (IsProtocolVersion pv, IsCompatibleAuthorizationsVersion (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ~ 'True) => MonadProtocolVersion (TVTM pv)
+    (IsProtocolVersion pv, IsCompatibleAuthorizationsVersion (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ~ 'True) =>
+    MonadProtocolVersion (TVTM pv)
     where
     type MPV (TVTM pv) = pv
 
 instance forall (pv :: ProtocolVersion). GSTypes.BlockStateTypes (TVTM pv) where
     type Account (TVTM pv) = T.Text
-    type BlockState (TVTM pv) = ()
-    type UpdatableBlockState (TVTM pv) = ()
-
-    -- type ContractState (TransactionVerifierTestTVTM pv) = WasmVersion -> ()
-    type BakerInfoRef (TVTM pv) = ()
-
-    -- type InstrumentedModuleRef (TransactionVerifierTestTVTM pv) = WasmVersion -> ()
-    type MutableTokenState (TVTM pv) = ()
 
 instance
     forall (pv :: ProtocolVersion).
     (IsProtocolVersion pv, IsCompatibleAuthorizationsVersion (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ~ 'True) =>
     TVer.TransactionVerifier (TVTM pv)
     where
-    -- \| Get the account associated for the given account address.
-    --  Returns 'Nothing' if no such account exists.
-    -- getAccount :: AccountAddress -> m (Maybe (GSTypes.Account m))
     getAccount addr = do
         testData <- ask
         return $ Map.lookup addr $ tvtdAccountsByAddress testData
 
-    -- \| Get the current available amount for the specified account.
-    -- getAccountAvailableAmount :: GSTypes.Account m -> m Amount
     getAccountAvailableAmount acc = do
         testData <- tvtdAccounts <$> ask
         case Map.lookup acc testData of
             Nothing -> error "account not available in test data"
             Just atd -> return $ atdAccountAvailableAmount atd
 
-    -- \| Get the next account nonce.
-    -- getNextAccountNonce :: GSTypes.Account m -> m Nonce
     getNextAccountNonce acc = do
         testData <- tvtdAccounts <$> ask
         case Map.lookup acc testData of
             Nothing -> error "account not available in test data"
             Just atd -> return $ atdAccountNonce atd
 
-    -- \| Get the verification keys associated with an Account.
-    -- getAccountVerificationKeys :: GSTypes.Account m -> m ID.AccountInformation
     getAccountVerificationKeys acc = do
         testData <- tvtdAccounts <$> ask
         case Map.lookup acc testData of
             Nothing -> error "account not available in test data"
             Just atd -> return $ atdAccountVerificationKeys atd
 
-    -- \| Get the maximum energy for a block.
-    -- getMaxBlockEnergy :: m Energy
     getMaxBlockEnergy = return 1000
 
+    -- For testing, we assume exact nonces.
     checkExactNonce = return True
 
     -- One-one conversion for simplicity.
     energyToCcd (Energy x) = return (Amount x)
 
+    -- We currently use the following for testing.
     getIdentityProvider = error "Unexpected use of `getIdentityProvider` in TransactionVerifierTestM"
     getAnonymityRevokers = error "Unexpected use of `getAnonymityRevokers` in TransactionVerifierTestM"
     getCryptographicParameters = error "Unexpected use of `getCryptographicParameters` in TransactionVerifierTestM"
@@ -717,6 +696,7 @@ instance
     getNextUpdateSequenceNumber = error "Unexpected use of `getNextUpdateSequenceNumber` in TransactionVerifierTestM"
     getUpdateKeysCollection = error "Unexpected use of `getUpdateKeysCollection` in TransactionVerifierTestM"
 
+-- | Tests for the transaction verification of extended transaction introduced in P10.
 testExtendedTransactionVerification ::
     forall pv.
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
@@ -731,7 +711,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360, -- equal to tx cost,
+                              thEnergyAmount = 360,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -783,7 +763,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360, -- equal to tx cost,
+                              thEnergyAmount = 360,
                               thPayloadSize = (fromIntegral $ maxPayloadSize spv + 1),
                               thExpiry = 0
                             },
@@ -818,7 +798,7 @@ testExtendedTransactionVerification spv = do
                     (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
                         testData
         assertEqual
-            "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
+            "The verification should yield the expected `NotOk InvalidPayloadSize` result"
             (TVer.NotOk TVer.InvalidPayloadSize)
             res
 
@@ -830,7 +810,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360, -- equal to tx cost,
+                              thEnergyAmount = 360,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -857,7 +837,7 @@ testExtendedTransactionVerification spv = do
                     (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
                         testData
         assertEqual
-            "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
+            "The verification should yield the expected `NotOk SponsoredTransactionMissingSponsorSignature` result"
             (TVer.NotOk TVer.SponsoredTransactionMissingSponsorSignature)
             res
     it "A transaction with no sponsor address but a sponsor signature should be rejected" $ do
@@ -868,7 +848,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360, -- equal to tx cost,
+                              thEnergyAmount = 360,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -903,7 +883,7 @@ testExtendedTransactionVerification spv = do
                     (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
                         testData
         assertEqual
-            "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
+            "The verification should yield the expected `NotOk SponsoredTransactionMissingSponsor` result"
             (TVer.NotOk TVer.SponsoredTransactionMissingSponsor)
             res
     it "An extended transaction with too little energy should be rejected" $ do
@@ -914,7 +894,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 0, -- 360 is the cost of this transaction,
+                              thEnergyAmount = 0,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -949,7 +929,7 @@ testExtendedTransactionVerification spv = do
                     (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
                         testData
         assertEqual
-            "The verification should yield the expected `Ok ExtendTransactionSuccess` result"
+            "The verification should yield the expected `NotOk NormalTransactionDepositInsufficient` result"
             (TVer.NotOk TVer.NormalTransactionDepositInsufficient)
             res
     it "An extended transaction with energy exceeding the maximally allowed energy should be rejected" $ do
@@ -960,7 +940,8 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = fromIntegral $ 1000 + 1,
+                              -- max energy is set by the TVTM mock to 1000
+                              thEnergyAmount = fromIntegral $ (1000 + 1 :: Int),
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -998,13 +979,14 @@ testExtendedTransactionVerification spv = do
             "The verification should yield the expected `MaybeOk NormalTransactionEnergyExceeded` result"
             (TVer.MaybeOk TVer.NormalTransactionEnergyExceeded)
             res
-    it "An extended transaction with wrong noce should not pass verification" $ do
+    it "An extended transaction with wrong nonce should not pass verification" $ do
         let
             txHeader =
                 TransactionHeaderV1
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
+                              -- the expected nonce is 0
                               thNonce = 1,
                               thEnergyAmount = 360,
                               thPayloadSize = 8,
@@ -1349,4 +1331,4 @@ tests = describe "KonsensusV1.TransactionProcessing" $ do
             testTransactionVerification SP9
     describe "P10" $ do
         describe "ExtendedTransaction verification" $
-            testExtendedTransactionVerification SP9 -- TODO (drsk) switch to SP10
+            testExtendedTransactionVerification SP10

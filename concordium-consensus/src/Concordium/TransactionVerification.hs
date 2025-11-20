@@ -403,7 +403,9 @@ verifyExtendedTransaction meta =
                 let cost =
                         Cost.baseCost
                             (Tx.getTransactionHeaderPayloadSize $ Tx.transactionHeader meta)
-                            (Tx.getTransactionNumSigs (Tx.transactionSignature meta) + maybe 0 Tx.getTransactionNumSigs (snd <$> mbSponsorAddrAndSig))
+                            ( Tx.getTransactionNumSigs (Tx.transactionSignature meta)
+                                + maybe 0 Tx.getTransactionNumSigs (snd <$> mbSponsorAddrAndSig)
+                            )
                 unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient
                 -- Check that the required energy does not exceed the maximum allowed for a block
                 maxEnergy <- lift getMaxBlockEnergy
