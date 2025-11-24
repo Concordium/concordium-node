@@ -37,6 +37,7 @@ import qualified Data.Text as T
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
 import qualified Data.Vector as Vec
+import Data.Void
 import Lens.Micro.Platform
 import System.Random
 import Test.HUnit
@@ -82,6 +83,7 @@ import Concordium.Types.TransactionOutcomes
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Utils
+import Concordium.Wasm (WasmVersion)
 
 import Concordium.KonsensusV1.Transactions
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -650,8 +652,18 @@ instance
     where
     type MPV (TVTM pv) = pv
 
+-- type family used to define the following void type instances for
+-- `BlockStateTypes (TVTM pv)``
+type family X m :: WasmVersion -> Type
+
 instance forall (pv :: ProtocolVersion). GSTypes.BlockStateTypes (TVTM pv) where
     type Account (TVTM pv) = T.Text
+    type BlockState (TVTM pv) = Void
+    type UpdatableBlockState (TVTM pv) = Void
+    type ContractState (TVTM pv) = X Void
+    type BakerInfoRef (TVTM pv) = Void
+    type InstrumentedModuleRef (TVTM pv) = X Void
+    type MutableTokenState (TVTM pv) = Void
 
 instance
     forall (pv :: ProtocolVersion).
