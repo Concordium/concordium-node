@@ -857,7 +857,11 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 0,
+                              -- cost: 302
+                              -- V1 header: 2 (bitmap) + 60 (V0 header) + 32 (sponsor address) = 94
+                              -- payload: 8
+                              -- signatures: 2 * 100
+                              thEnergyAmount = 301,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
