@@ -921,7 +921,40 @@ testExtendedTransactionVerification spv = do
             "The verification should yield the expected `MaybeOk NormalTransactionEnergyExceeded` result"
             (TVer.MaybeOk TVer.NormalTransactionEnergyExceeded)
             res
-    it "An extended transaction with nonce != next expected nonce should not pass verification if `checkExactNonce == True`" $ do
+
+    it "An extended transaction with nonce < next expected nonce should not pass verification" $ do
+        let
+            txHeader =
+                TransactionHeaderV1
+                    { thv1HeaderV0 =
+                        TransactionHeader
+                            { thSender = senderAccountAddress,
+                              thNonce = 0,
+                              thEnergyAmount = 302,
+                              thPayloadSize = 8,
+                              thExpiry = 0
+                            },
+                      thv1Sponsor = Just sponsorAccountAddress
+                    }
+            txPayload = EncodedPayload "deadbeef"
+            txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
+            txSignatures =
+                TransactionSignaturesV1
+                    { tsv1Sender = senderTxSignature,
+                      tsv1Sponsor = Just sponsorTxSignature
+                    }
+            tx = makeAccountTransactionV1 txSignatures txHeader txPayload
+        let res =
+                runIdentity $
+                    (runTransactionVerifierT $ runTVTM $ TVer.verifyExtendedTransaction tx)
+                        testData
+        assertEqual
+            "The verification should yield the expected `NotOk NormalTransactionDuplicateNonce` result"
+            (TVer.NotOk $ TVer.NormalTransactionDuplicateNonce 0)
+            res
+    it "An extended transaction with nonce > next expected nonce should not pass verification if `checkExactNonce == True`" $ do
         let
             txHeader =
                 TransactionHeaderV1
@@ -954,7 +987,7 @@ testExtendedTransactionVerification spv = do
             "The verification should yield the expected `MaybeOk NormalTransactionInvalidNonce` result"
             (TVer.MaybeOk $ TVer.NormalTransactionInvalidNonce 1)
             res
-    it "An extended transaction with nonce != next expected nonce should pass verification if `checkExactNonce == False`" $ do
+    it "An extended transaction with nonce > next expected nonce should pass verification if `checkExactNonce == False`" $ do
         let
             txHeader =
                 TransactionHeaderV1
