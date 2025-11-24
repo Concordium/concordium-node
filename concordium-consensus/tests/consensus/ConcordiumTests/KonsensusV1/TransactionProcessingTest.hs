@@ -630,7 +630,8 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
 -- | Test data used for testing transaction verification
 data TransactionVerifierTestData (pv :: ProtocolVersion) = TransactionVerifierTestData
     { tvtdAccounts :: !(Map.Map (GSTypes.Account (TVTM pv)) (AccountTestData pv)),
-      tvtdAccountsByAddress :: !(Map.Map AccountAddress (GSTypes.Account (TVTM pv)))
+      tvtdAccountsByAddress :: !(Map.Map AccountAddress (GSTypes.Account (TVTM pv))),
+      tvtdEnergyRate :: !EnergyRate
     }
 
 data AccountTestData (pv :: ProtocolVersion) = AccountTestData
@@ -694,11 +695,12 @@ instance
 
     getMaxBlockEnergy = return 1000
 
-    -- For testing, we assume exact nonces.
+    -- For testing we assume exact nonces.
     checkExactNonce = return True
 
-    -- One-one conversion for simplicity.
-    energyToCcd (Energy x) = return (Amount x)
+    energyToCcd nrg = do
+        testData <- ask
+        return $ computeCost (tvtdEnergyRate testData) nrg
 
     -- We currently don't use the following for testing.
     getIdentityProvider = error "Unexpected use of `getIdentityProvider` in TransactionVerifierTestM"
@@ -723,7 +725,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360,
+                              thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -761,7 +763,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360,
+                              thEnergyAmount = 302,
                               thPayloadSize = (fromIntegral $ maxPayloadSize spv + 1),
                               thExpiry = 0
                             },
@@ -794,7 +796,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360,
+                              thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -825,7 +827,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360,
+                              thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -927,7 +929,7 @@ testExtendedTransactionVerification spv = do
                             { thSender = senderAccountAddress,
                               -- the expected nonce is 0
                               thNonce = 1,
-                              thEnergyAmount = 360,
+                              thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -959,7 +961,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360, -- equal to tx cost,
+                              thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -991,7 +993,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360, -- equal to tx cost,
+                              thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -1023,7 +1025,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360, -- equal to tx cost,
+                              thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -1062,7 +1064,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               thNonce = 0,
-                              thEnergyAmount = 360, -- equal to tx cost,
+                              thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
                             },
@@ -1146,14 +1148,15 @@ testExtendedTransactionVerification spv = do
                 Map.fromList
                     [   ( "sender_account",
                           AccountTestData
-                            { atdAccountAvailableAmount = 1000,
+                            { -- transasction cost is `computeCost 1/3 302` = 100+2/3
+                              atdAccountAvailableAmount = 101,
                               atdAccountNonce = 0,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
                         ),
                         ( "sponsor_account",
                           AccountTestData
-                            { atdAccountAvailableAmount = 1000,
+                            { atdAccountAvailableAmount = 101,
                               atdAccountNonce = 0,
                               atdAccountVerificationKeys = sponsorAccountVerificationKeys
                             }
@@ -1163,7 +1166,8 @@ testExtendedTransactionVerification spv = do
                 Map.fromList
                     [ (senderAccountAddress, "sender_account"),
                       (sponsorAccountAddress, "sponsor_account")
-                    ]
+                    ],
+              tvtdEnergyRate = 1 % 3
             }
     -- test data with missing sponsor account
     testDataNoSponsor :: TransactionVerifierTestData pv =
@@ -1172,7 +1176,7 @@ testExtendedTransactionVerification spv = do
                 Map.fromList
                     [   ( "sender_account",
                           AccountTestData
-                            { atdAccountAvailableAmount = 1000,
+                            { atdAccountAvailableAmount = 101,
                               atdAccountNonce = 0,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
@@ -1181,7 +1185,8 @@ testExtendedTransactionVerification spv = do
               tvtdAccountsByAddress =
                 Map.fromList
                     [ (senderAccountAddress, "sender_account")
-                    ]
+                    ],
+              tvtdEnergyRate = 1 % 3
             }
     testDataTooLittleFunding :: TransactionVerifierTestData pv =
         TransactionVerifierTestData
@@ -1189,14 +1194,15 @@ testExtendedTransactionVerification spv = do
                 Map.fromList
                     [   ( "sender_account",
                           AccountTestData
-                            { atdAccountAvailableAmount = 1000,
+                            { atdAccountAvailableAmount = 101,
                               atdAccountNonce = 0,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
                         ),
                         ( "sponsor_account",
                           AccountTestData
-                            { atdAccountAvailableAmount = 1,
+                            { -- transasction cost is `computeCost 1/3 302` = 100+2/3. So this is just too little.
+                              atdAccountAvailableAmount = 100,
                               atdAccountNonce = 0,
                               atdAccountVerificationKeys = sponsorAccountVerificationKeys
                             }
@@ -1206,7 +1212,8 @@ testExtendedTransactionVerification spv = do
                 Map.fromList
                     [ (senderAccountAddress, "sender_account"),
                       (sponsorAccountAddress, "sponsor_account")
-                    ]
+                    ],
+              tvtdEnergyRate = 1 % 3
             }
 
 tests :: Spec
