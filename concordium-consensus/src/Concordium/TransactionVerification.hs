@@ -400,12 +400,7 @@ verifyExtendedTransaction meta =
                     (Nothing, Just _sponsorSignature) -> throwError $ NotOk SponsoredTransactionMissingSponsor
 
                 -- Check that enough energy is supplied
-                let cost =
-                        Cost.baseCost
-                            (Tx.getTransactionHeaderPayloadSize $ Tx.transactionHeader meta)
-                            ( Tx.getTransactionNumSigs (Tx.transactionSignature meta)
-                                + maybe 0 Tx.getTransactionNumSigs (snd <$> mbSponsorAddrAndSig)
-                            )
+                let cost = Tx.transactionBaseCost meta
                 unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient
                 -- Check that the required energy does not exceed the maximum allowed for a block
                 maxEnergy <- lift getMaxBlockEnergy
