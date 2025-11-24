@@ -731,22 +731,8 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
-            sponsorTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -783,22 +769,8 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
-            sponsorTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -830,14 +802,7 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -868,22 +833,8 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
-            sponsorTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -914,22 +865,8 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
-            sponsorTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -961,22 +898,8 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
-            sponsorTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -1008,22 +931,8 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
-            sponsorTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -1054,22 +963,8 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
-            sponsorTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -1100,22 +995,8 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
-            sponsorTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -1154,14 +1035,7 @@ testExtendedTransactionVerification spv = do
                             0
                             (SigScheme.sign senderKeyPair "nice_try")
                         )
-            sponsorTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign sponsorKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            sponsorTxSignature = makeTxSignature sponsorKeyPair txBodyHash
             txSignatures =
                 TransactionSignaturesV1
                     { tsv1Sender = senderTxSignature,
@@ -1192,14 +1066,7 @@ testExtendedTransactionVerification spv = do
                     }
             txPayload = EncodedPayload "deadbeef"
             txBodyHash = transactionV1SignHashFromHeaderPayload txHeader txPayload
-            senderTxSignature =
-                TransactionSignature $
-                    Map.singleton
-                        0
-                        ( Map.singleton
-                            0
-                            (SigScheme.sign senderKeyPair (transactionSignHashToByteString txBodyHash))
-                        )
+            senderTxSignature = makeTxSignature senderKeyPair txBodyHash
             sponsorTxSignature =
                 TransactionSignature $
                     Map.singleton
@@ -1261,6 +1128,14 @@ testExtendedTransactionVerification spv = do
                     ),
               aiThreshold = 0
             }
+    makeTxSignature keyPair txBodyHash =
+        TransactionSignature $
+            Map.singleton
+                0
+                ( Map.singleton
+                    0
+                    (SigScheme.sign keyPair (transactionSignHashToByteString txBodyHash))
+                )
     testData :: TransactionVerifierTestData pv =
         TransactionVerifierTestData
             { tvtdAccounts =
