@@ -725,7 +725,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -752,7 +752,7 @@ testExtendedTransactionVerification spv = do
                 TVer.ExtendedTransactionSuccess
                     { senderKeysHash = getHash senderAccountVerificationKeys,
                       sponsorKeysHash = Present $ getHash sponsorAccountVerificationKeys,
-                      nonce = 1
+                      nonce = 2
                     }
             )
             res
@@ -763,7 +763,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               thEnergyAmount = 302,
                               thPayloadSize = (fromIntegral $ maxPayloadSize spv + 1),
                               thExpiry = 0
@@ -796,7 +796,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -827,7 +827,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -859,7 +859,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               -- cost: 302
                               -- V1 header: 2 (bitmap) + 60 (V0 header) + 32 (sponsor address) = 94
                               -- payload: 8
@@ -895,7 +895,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               -- max energy is set by the TVTM mock to 1000
                               thEnergyAmount = fromIntegral $ (1000 + 1 :: Int),
                               thPayloadSize = 8,
@@ -929,7 +929,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -952,7 +952,7 @@ testExtendedTransactionVerification spv = do
                         testData
         assertEqual
             "The verification should yield the expected `NotOk NormalTransactionDuplicateNonce` result"
-            (TVer.NotOk $ TVer.NormalTransactionDuplicateNonce 0)
+            (TVer.NotOk $ TVer.NormalTransactionDuplicateNonce 1)
             res
     it "An extended transaction with nonce > next expected nonce should not pass verification if `checkExactNonce == True`" $ do
         let
@@ -961,8 +961,8 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              -- the expected nonce is 1
-                              thNonce = 2,
+                              -- the expected nonce is 2
+                              thNonce = 3,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -985,7 +985,7 @@ testExtendedTransactionVerification spv = do
                         testData
         assertEqual
             "The verification should yield the expected `MaybeOk NormalTransactionInvalidNonce` result"
-            (TVer.MaybeOk $ TVer.NormalTransactionInvalidNonce 1)
+            (TVer.MaybeOk $ TVer.NormalTransactionInvalidNonce 2)
             res
     it "An extended transaction with nonce > next expected nonce should pass verification if `checkExactNonce == False`" $ do
         let
@@ -995,7 +995,7 @@ testExtendedTransactionVerification spv = do
                         TransactionHeader
                             { thSender = senderAccountAddress,
                               -- the expected nonce is 1
-                              thNonce = 2,
+                              thNonce = 3,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -1022,7 +1022,7 @@ testExtendedTransactionVerification spv = do
                 TVer.ExtendedTransactionSuccess
                     { senderKeysHash = getHash senderAccountVerificationKeys,
                       sponsorKeysHash = Present $ getHash sponsorAccountVerificationKeys,
-                      nonce = 2
+                      nonce = 3
                     }
             )
             res
@@ -1033,7 +1033,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -1065,7 +1065,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -1097,7 +1097,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -1136,7 +1136,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 1,
+                              thNonce = 2,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -1183,7 +1183,7 @@ testExtendedTransactionVerification spv = do
             { signKey = sponsorSignKey,
               verifyKey = sponsorVerifyKey
             }
-    mkAccountVerificationKeys key = 
+    mkAccountVerificationKeys key =
         ID.AccountInformation
             { aiCredentials =
                 Map.singleton
@@ -1206,7 +1206,7 @@ testExtendedTransactionVerification spv = do
                     (SigScheme.sign keyPair (transactionSignHashToByteString txBodyHash))
                 )
     mkTestData :: Amount -> Amount -> Bool -> TransactionVerifierTestData pv
-    mkTestData senderAvailableAmount sponsorAvailableAmount checkExactNonce = 
+    mkTestData senderAvailableAmount sponsorAvailableAmount checkExactNonce =
         TransactionVerifierTestData
             { tvtdAccounts =
                 Map.fromList
@@ -1214,14 +1214,14 @@ testExtendedTransactionVerification spv = do
                           AccountTestData
                             { -- transasction cost is `computeCost 1/3 302` = 100+2/3
                               atdAccountAvailableAmount = senderAvailableAmount,
-                              atdAccountNonce = 1,
+                              atdAccountNonce = 2,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
                         ),
                         ( "sponsor_account",
                           AccountTestData
                             { atdAccountAvailableAmount = sponsorAvailableAmount,
-                              atdAccountNonce = 1,
+                              atdAccountNonce = 2,
                               atdAccountVerificationKeys = sponsorAccountVerificationKeys
                             }
                         )
@@ -1247,7 +1247,7 @@ testExtendedTransactionVerification spv = do
                     [   ( "sender_account",
                           AccountTestData
                             { atdAccountAvailableAmount = minFunding,
-                              atdAccountNonce = 1,
+                              atdAccountNonce = 2,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
                         )
@@ -1258,7 +1258,7 @@ testExtendedTransactionVerification spv = do
                     ],
               tvtdEnergyRate = 1 % 3,
               tvtdCheckExactNonce = True
-            } 
+            }
 
 tests :: Spec
 tests = describe "KonsensusV1.TransactionProcessing" $ do
