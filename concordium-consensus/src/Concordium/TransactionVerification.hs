@@ -394,7 +394,7 @@ verifyExtendedTransaction meta =
 
                 -- Check that either both, the sponsor and the sponsor signature are specified or neither.
                 mbSponsorAddr <- case (Tx.transactionSponsor meta, Tx.transactionSponsorSignature meta) of
-                    (Just sponsorAddr, Just sponsorSig) -> return $ Just sponsorAddr
+                    (Just sponsorAddr, Just _sponsorSig) -> return $ Just sponsorAddr
                     (Nothing, Nothing) -> return Nothing
                     (Just _sponsorAddr, Nothing) -> throwError $ NotOk SponsoredTransactionMissingSponsorSignature
                     (Nothing, Just _sponsorSignature) -> throwError $ NotOk SponsoredTransactionMissingSponsor
@@ -412,12 +412,12 @@ verifyExtendedTransaction meta =
                     Nothing -> throwError (MaybeOk $ NormalTransactionInvalidSender senderAddr)
                     Just senderAcc -> return senderAcc
                 -- Check that the sponsor account exists if a sponsor is present
-                mbSponsorAccAndSig <- case mbSponsorAddrAndSig of
-                    Just (sponsorAddr, sponsorSig) -> do
+                mbSponsorAcc <- case mbSponsorAddr of
+                    Just sponsorAddr -> do
                         macc <- lift (getAccount sponsorAddr)
                         case macc of
                             Nothing -> throwError (MaybeOk $ ExtendedTransactionInvalidSponsor sponsorAddr)
-                            Just acc -> return $ Just (acc, sponsorSig)
+                            Just acc -> return $ Just acc
                     Nothing -> return Nothing
                 -- Check that the nonce of the transaction is correct.
                 nextNonce <- lift (getNextAccountNonce senderAcc)
@@ -433,22 +433,21 @@ verifyExtendedTransaction meta =
                 exactNonce <- lift checkExactNonce
                 when (exactNonce && nonce /= nextNonce) $ throwError (MaybeOk $ NormalTransactionInvalidNonce nextNonce)
                 -- check that the sender or sponsor account has enough funds to cover the transfer
-                amnt <- case mbSponsorAccAndSig of
+                amnt <- case mbSponsorAcc of
                     Nothing -> lift $ getAccountAvailableAmount senderAcc
-                    Just (sponsorAcc, _sponsorSig) -> lift $ getAccountAvailableAmount sponsorAcc
+                    Just sponsorAcc -> lift $ getAccountAvailableAmount sponsorAcc
                 depositedAmount <- lift (energyToCcd (Tx.transactionGasAmount meta))
                 unless (depositedAmount <= amnt) $ throwError $ MaybeOk NormalTransactionInsufficientFunds
                 -- Check the sender and sponsor signatures
                 senderKeys <- lift (getAccountVerificationKeys senderAcc)
-                case mbSponsorAccAndSig of
+                case mbSponsorAcc of
                     Nothing -> do
                         let sigCheck = Tx.verifyTransaction senderKeys meta
                         unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
                         return $ Ok $ ExtendedTransactionSuccess (getHash senderKeys) Absent nonce
-                    Just (sponsorAcc, sponsorSig) -> do
+                    Just sponsorAcc -> do
                         sponsorKeys <- lift (getAccountVerificationKeys sponsorAcc)
-                        let senderSig = Tx.transactionSignature meta
-                        let sigCheck = Tx.verifySponsoredTransaction (senderKeys, senderSig) (sponsorKeys, sponsorSig) meta
+                        let sigCheck = Tx.verifySponsoredTransaction senderKeys sponsorKeys meta
                         unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
                         return $ Ok $ ExtendedTransactionSuccess (getHash senderKeys) (Present $ getHash sponsorKeys) nonce
             )
