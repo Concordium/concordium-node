@@ -1183,30 +1183,20 @@ testExtendedTransactionVerification spv = do
             { signKey = sponsorSignKey,
               verifyKey = sponsorVerifyKey
             }
-    senderAccountVerificationKeys =
+    mkAccountVerificationKeys key = 
         ID.AccountInformation
             { aiCredentials =
                 Map.singleton
                     (ID.CredentialIndex 0)
                     ( ID.CredentialPublicKeys
-                        { credKeys = Map.singleton 0 (SigScheme.VerifyKeyEd25519 senderVerifyKey),
+                        { credKeys = Map.singleton 0 (SigScheme.VerifyKeyEd25519 key),
                           credThreshold = 0
                         }
                     ),
               aiThreshold = 0
             }
-    sponsorAccountVerificationKeys =
-        ID.AccountInformation
-            { aiCredentials =
-                Map.singleton
-                    (ID.CredentialIndex 0)
-                    ( ID.CredentialPublicKeys
-                        { credKeys = Map.singleton 0 (SigScheme.VerifyKeyEd25519 sponsorVerifyKey),
-                          credThreshold = 0
-                        }
-                    ),
-              aiThreshold = 0
-            }
+    senderAccountVerificationKeys = mkAccountVerificationKeys senderVerifyKey
+    sponsorAccountVerificationKeys = mkAccountVerificationKeys sponsorVerifyKey
     makeTxSignature keyPair txBodyHash =
         TransactionSignature $
             Map.singleton
@@ -1215,21 +1205,22 @@ testExtendedTransactionVerification spv = do
                     0
                     (SigScheme.sign keyPair (transactionSignHashToByteString txBodyHash))
                 )
-    testData :: TransactionVerifierTestData pv =
+    mkTestData :: Amount -> Amount -> Bool -> TransactionVerifierTestData pv
+    mkTestData senderAvailableAmount sponsorAvailableAmount checkExactNonce = 
         TransactionVerifierTestData
             { tvtdAccounts =
                 Map.fromList
                     [   ( "sender_account",
                           AccountTestData
                             { -- transasction cost is `computeCost 1/3 302` = 100+2/3
-                              atdAccountAvailableAmount = 101,
+                              atdAccountAvailableAmount = senderAvailableAmount,
                               atdAccountNonce = 1,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
                         ),
                         ( "sponsor_account",
                           AccountTestData
-                            { atdAccountAvailableAmount = 101,
+                            { atdAccountAvailableAmount = sponsorAvailableAmount,
                               atdAccountNonce = 1,
                               atdAccountVerificationKeys = sponsorAccountVerificationKeys
                             }
@@ -1241,36 +1232,13 @@ testExtendedTransactionVerification spv = do
                       (sponsorAccountAddress, "sponsor_account")
                     ],
               tvtdEnergyRate = 1 % 3,
-              tvtdCheckExactNonce = True
+              tvtdCheckExactNonce = checkExactNonce
             }
-    testDataNotExactNonce :: TransactionVerifierTestData pv =
-        TransactionVerifierTestData
-            { tvtdAccounts =
-                Map.fromList
-                    [   ( "sender_account",
-                          AccountTestData
-                            { -- transasction cost is `computeCost 1/3 302` = 100+2/3
-                              atdAccountAvailableAmount = 101,
-                              atdAccountNonce = 1,
-                              atdAccountVerificationKeys = senderAccountVerificationKeys
-                            }
-                        ),
-                        ( "sponsor_account",
-                          AccountTestData
-                            { atdAccountAvailableAmount = 101,
-                              atdAccountNonce = 1,
-                              atdAccountVerificationKeys = sponsorAccountVerificationKeys
-                            }
-                        )
-                    ],
-              tvtdAccountsByAddress =
-                Map.fromList
-                    [ (senderAccountAddress, "sender_account"),
-                      (sponsorAccountAddress, "sponsor_account")
-                    ],
-              tvtdEnergyRate = 1 % 3,
-              tvtdCheckExactNonce = False
-            }
+    -- the minimal funding for the test transactions
+    minFunding = 101
+    testData = mkTestData minFunding minFunding True
+    testDataNotExactNonce = mkTestData minFunding minFunding False
+    testDataTooLittleFunding = mkTestData minFunding (minFunding - 1) True
     -- test data with missing sponsor account
     testDataNoSponsor :: TransactionVerifierTestData pv =
         TransactionVerifierTestData
@@ -1278,7 +1246,7 @@ testExtendedTransactionVerification spv = do
                 Map.fromList
                     [   ( "sender_account",
                           AccountTestData
-                            { atdAccountAvailableAmount = 101,
+                            { atdAccountAvailableAmount = minFunding,
                               atdAccountNonce = 1,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
@@ -1290,35 +1258,7 @@ testExtendedTransactionVerification spv = do
                     ],
               tvtdEnergyRate = 1 % 3,
               tvtdCheckExactNonce = True
-            }
-    testDataTooLittleFunding :: TransactionVerifierTestData pv =
-        TransactionVerifierTestData
-            { tvtdAccounts =
-                Map.fromList
-                    [   ( "sender_account",
-                          AccountTestData
-                            { atdAccountAvailableAmount = 101,
-                              atdAccountNonce = 1,
-                              atdAccountVerificationKeys = senderAccountVerificationKeys
-                            }
-                        ),
-                        ( "sponsor_account",
-                          AccountTestData
-                            { -- transasction cost is `computeCost 1/3 302` = 100+2/3. So this is just too little.
-                              atdAccountAvailableAmount = 100,
-                              atdAccountNonce = 1,
-                              atdAccountVerificationKeys = sponsorAccountVerificationKeys
-                            }
-                        )
-                    ],
-              tvtdAccountsByAddress =
-                Map.fromList
-                    [ (senderAccountAddress, "sender_account"),
-                      (sponsorAccountAddress, "sponsor_account")
-                    ],
-              tvtdEnergyRate = 1 % 3,
-              tvtdCheckExactNonce = True
-            }
+            } 
 
 tests :: Spec
 tests = describe "KonsensusV1.TransactionProcessing" $ do
