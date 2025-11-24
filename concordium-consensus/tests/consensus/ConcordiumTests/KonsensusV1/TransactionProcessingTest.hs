@@ -688,7 +688,7 @@ instance
     -- One-one conversion for simplicity.
     energyToCcd (Energy x) = return (Amount x)
 
-    -- We currently use the following for testing.
+    -- We currently don't use the following for testing.
     getIdentityProvider = error "Unexpected use of `getIdentityProvider` in TransactionVerifierTestM"
     getAnonymityRevokers = error "Unexpected use of `getAnonymityRevokers` in TransactionVerifierTestM"
     getCryptographicParameters = error "Unexpected use of `getCryptographicParameters` in TransactionVerifierTestM"
