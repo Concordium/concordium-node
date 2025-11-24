@@ -631,7 +631,8 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
 data TransactionVerifierTestData (pv :: ProtocolVersion) = TransactionVerifierTestData
     { tvtdAccounts :: !(Map.Map (GSTypes.Account (TVTM pv)) (AccountTestData pv)),
       tvtdAccountsByAddress :: !(Map.Map AccountAddress (GSTypes.Account (TVTM pv))),
-      tvtdEnergyRate :: !EnergyRate
+      tvtdEnergyRate :: !EnergyRate,
+      tvtdCheckExactNonce :: !Bool
     }
 
 data AccountTestData (pv :: ProtocolVersion) = AccountTestData
@@ -696,7 +697,7 @@ instance
     getMaxBlockEnergy = return 1000
 
     -- For testing we assume exact nonces.
-    checkExactNonce = return True
+    checkExactNonce = tvtdCheckExactNonce <$> ask
 
     energyToCcd nrg = do
         testData <- ask
@@ -1167,7 +1168,8 @@ testExtendedTransactionVerification spv = do
                     [ (senderAccountAddress, "sender_account"),
                       (sponsorAccountAddress, "sponsor_account")
                     ],
-              tvtdEnergyRate = 1 % 3
+              tvtdEnergyRate = 1 % 3,
+              tvtdCheckExactNonce = True
             }
     -- test data with missing sponsor account
     testDataNoSponsor :: TransactionVerifierTestData pv =
@@ -1186,7 +1188,8 @@ testExtendedTransactionVerification spv = do
                 Map.fromList
                     [ (senderAccountAddress, "sender_account")
                     ],
-              tvtdEnergyRate = 1 % 3
+              tvtdEnergyRate = 1 % 3,
+              tvtdCheckExactNonce = True
             }
     testDataTooLittleFunding :: TransactionVerifierTestData pv =
         TransactionVerifierTestData
@@ -1213,7 +1216,8 @@ testExtendedTransactionVerification spv = do
                     [ (senderAccountAddress, "sender_account"),
                       (sponsorAccountAddress, "sponsor_account")
                     ],
-              tvtdEnergyRate = 1 % 3
+              tvtdEnergyRate = 1 % 3,
+              tvtdCheckExactNonce = True
             }
 
 tests :: Spec
