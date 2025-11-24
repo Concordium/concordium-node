@@ -724,7 +724,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -751,7 +751,7 @@ testExtendedTransactionVerification spv = do
                 TVer.ExtendedTransactionSuccess
                     { senderKeysHash = getHash senderAccountVerificationKeys,
                       sponsorKeysHash = Present $ getHash sponsorAccountVerificationKeys,
-                      nonce = 0
+                      nonce = 1
                     }
             )
             res
@@ -762,7 +762,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               thEnergyAmount = 302,
                               thPayloadSize = (fromIntegral $ maxPayloadSize spv + 1),
                               thExpiry = 0
@@ -795,7 +795,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -826,7 +826,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -858,7 +858,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               -- cost: 302
                               -- V1 header: 2 (bitmap) + 60 (V0 header) + 32 (sponsor address) = 94
                               -- payload: 8
@@ -894,7 +894,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               -- max energy is set by the TVTM mock to 1000
                               thEnergyAmount = fromIntegral $ (1000 + 1 :: Int),
                               thPayloadSize = 8,
@@ -927,8 +927,8 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              -- the expected nonce is 0
-                              thNonce = 1,
+                              -- the expected nonce is 1
+                              thNonce = 2,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -951,7 +951,7 @@ testExtendedTransactionVerification spv = do
                         testData
         assertEqual
             "The verification should yield the expected `MaybeOk NormalTransactionInvalidNonce` result"
-            (TVer.MaybeOk $ TVer.NormalTransactionInvalidNonce 0)
+            (TVer.MaybeOk $ TVer.NormalTransactionInvalidNonce 1)
             res
     it "An extended transaction with sponsor but missing sponsor account should not pass verification" $ do
         let
@@ -960,7 +960,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -992,7 +992,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -1024,7 +1024,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -1063,7 +1063,7 @@ testExtendedTransactionVerification spv = do
                     { thv1HeaderV0 =
                         TransactionHeader
                             { thSender = senderAccountAddress,
-                              thNonce = 0,
+                              thNonce = 1,
                               thEnergyAmount = 302,
                               thPayloadSize = 8,
                               thExpiry = 0
@@ -1150,14 +1150,14 @@ testExtendedTransactionVerification spv = do
                           AccountTestData
                             { -- transasction cost is `computeCost 1/3 302` = 100+2/3
                               atdAccountAvailableAmount = 101,
-                              atdAccountNonce = 0,
+                              atdAccountNonce = 1,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
                         ),
                         ( "sponsor_account",
                           AccountTestData
                             { atdAccountAvailableAmount = 101,
-                              atdAccountNonce = 0,
+                              atdAccountNonce = 1,
                               atdAccountVerificationKeys = sponsorAccountVerificationKeys
                             }
                         )
@@ -1177,7 +1177,7 @@ testExtendedTransactionVerification spv = do
                     [   ( "sender_account",
                           AccountTestData
                             { atdAccountAvailableAmount = 101,
-                              atdAccountNonce = 0,
+                              atdAccountNonce = 1,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
                         )
@@ -1195,7 +1195,7 @@ testExtendedTransactionVerification spv = do
                     [   ( "sender_account",
                           AccountTestData
                             { atdAccountAvailableAmount = 101,
-                              atdAccountNonce = 0,
+                              atdAccountNonce = 1,
                               atdAccountVerificationKeys = senderAccountVerificationKeys
                             }
                         ),
@@ -1203,7 +1203,7 @@ testExtendedTransactionVerification spv = do
                           AccountTestData
                             { -- transasction cost is `computeCost 1/3 302` = 100+2/3. So this is just too little.
                               atdAccountAvailableAmount = 100,
-                              atdAccountNonce = 0,
+                              atdAccountNonce = 1,
                               atdAccountVerificationKeys = sponsorAccountVerificationKeys
                             }
                         )
