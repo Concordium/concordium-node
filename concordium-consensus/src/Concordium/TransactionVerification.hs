@@ -449,7 +449,7 @@ verifyExtendedTransaction meta =
                     Nothing -> do
                         let sigCheck = Tx.verifyTransaction senderKeys meta
                         unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
-                        return $ Ok $ NormalTransactionSuccess (getHash senderKeys) nonce
+                        return $ Ok $ ExtendedTransactionSuccess (getHash senderKeys) Absent nonce
                     Just (sponsorAcc, sponsorSig) -> do
                         sponsorKeys <- lift (getAccountVerificationKeys sponsorAcc)
                         let senderSig = Tx.transactionSignature meta
