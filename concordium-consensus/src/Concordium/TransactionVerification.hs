@@ -393,8 +393,8 @@ verifyExtendedTransaction meta =
                         NotOk InvalidPayloadSize
 
                 -- Check that either both, the sponsor and the sponsor signature are specified or neither.
-                mbSponsorAddrAndSig <- case (Tx.transactionSponsor meta, Tx.transactionSponsorSignature meta) of
-                    (Just sponsorAddr, Just sponsorSig) -> return $ Just (sponsorAddr, sponsorSig)
+                mbSponsorAddr <- case (Tx.transactionSponsor meta, Tx.transactionSponsorSignature meta) of
+                    (Just sponsorAddr, Just sponsorSig) -> return $ Just sponsorAddr
                     (Nothing, Nothing) -> return Nothing
                     (Just _sponsorAddr, Nothing) -> throwError $ NotOk SponsoredTransactionMissingSponsorSignature
                     (Nothing, Just _sponsorSignature) -> throwError $ NotOk SponsoredTransactionMissingSponsor
