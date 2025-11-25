@@ -654,17 +654,15 @@ instance
     where
     type MPV (TVTM pv) = pv
 
--- type family used to define the following void type instances for
--- `BlockStateTypes (TVTM pv)``
-type family X m :: WasmVersion -> Type
+data WasmVersionedVoid (v :: WasmVersion)
 
 instance forall (pv :: ProtocolVersion). GSTypes.BlockStateTypes (TVTM pv) where
     type Account (TVTM pv) = T.Text
     type BlockState (TVTM pv) = Void
     type UpdatableBlockState (TVTM pv) = Void
-    type ContractState (TVTM pv) = X Void
+    type ContractState (TVTM pv) = WasmVersionedVoid
     type BakerInfoRef (TVTM pv) = Void
-    type InstrumentedModuleRef (TVTM pv) = X Void
+    type InstrumentedModuleRef (TVTM pv) = WasmVersionedVoid 
     type MutableTokenState (TVTM pv) = Void
 
 instance
