@@ -663,7 +663,7 @@ instance forall (pv :: ProtocolVersion). GSTypes.BlockStateTypes (TVTM pv) where
     type UpdatableBlockState (TVTM pv) = Void
     type ContractState (TVTM pv) = WasmVersionedVoid
     type BakerInfoRef (TVTM pv) = Void
-    type InstrumentedModuleRef (TVTM pv) = WasmVersionedVoid 
+    type InstrumentedModuleRef (TVTM pv) = WasmVersionedVoid
     type MutableTokenState (TVTM pv) = Void
 
 instance
