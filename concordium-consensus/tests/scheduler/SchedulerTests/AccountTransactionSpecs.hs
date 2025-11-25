@@ -45,7 +45,7 @@ cdi7' =
 
 transactionsInput :: [CredentialDeploymentWithStatus]
 transactionsInput =
-    map ((\x -> (x, Nothing)) . Types.addMetadata Types.CredentialDeployment 0) $
+    map ((\x -> (x, Nothing)) . Types.addMetadata 0) $
         [ cdi1,
           cdi2,
           cdi3,

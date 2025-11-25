@@ -106,6 +106,7 @@ import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (PLTConf
 import qualified Concordium.Scheduler.ProtocolLevelTokens.Module as TokenModule
 import Concordium.Scheduler.WasmIntegration.V1 (ReceiveResultData (rrdCurrentState))
 import Concordium.Types.Accounts
+import Concordium.Types.Option
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
 import Data.Either (isLeft)
@@ -156,52 +157,71 @@ checkHeader meta mVerRes = do
     cm <- lift getChainMetadata
     when (transactionExpired (thExpiry $ transactionHeader meta) $ slotTime cm) $ throwError . Just $ ExpiredTransaction
 
-    let addr = transactionSender meta
-    miacc <- lift (getStateAccount addr)
-    case miacc of
-        -- check if the sender is present on the chain.
-        Nothing -> throwError (Just $ UnknownAccount addr)
-        Just iacc -> do
-            -- The sender exists and thus we continue verifying the transaction.
+    let senderAddr = transactionSender meta
+    -- Check that the sender is present on the chain.
+    senderAccount <-
+        lift (getStateAccount senderAddr) >>= \case
+            Nothing -> throwError (Just $ UnknownAccount senderAddr)
+            Just senderAccount -> return senderAccount
+    -- Check that the sponsor (if any) is present on the chain.
+    -- If there is no sponsor, payerAccount will be the senderAccount.
+    payerAccount <- case transactionSponsor meta of
+        Nothing -> return senderAccount
+        Just sponsorAddr ->
+            lift (getStateAccount sponsorAddr) >>= \case
+                Nothing -> throwError (Just $ UnknownAccount sponsorAddr)
+                Just sponsorAccount -> return sponsorAccount
+    -- The sender exists and thus we continue verifying the transaction.
 
-            -- We check if we previously have deemed the transaction valid and check if the
-            -- current account information matches with one at the point of verification.
-            -- Also we check that the nonce is valid and that the sender has enough funds to cover his transfer.
-            let acc = snd iacc
-            case mVerRes of
-                Just (TVer.Ok (TVer.NormalTransactionSuccess keysHash _)) -> do
-                    currentKeys <- lift (TVer.getAccountVerificationKeys acc)
-                    -- Check that the keys match from initial verification.
-                    -- If they match we skip checking the signature as it has already been verified.
-                    if ID.matchesAccountInformation currentKeys keysHash
-                        then do
-                            checkNonceAndFunds acc
-                            return (CheckHeaderResult iacc iacc cost)
-                        -- the account information has changed, so we re-verify the signature.
-                        else do
-                            unless (verifyTransaction currentKeys meta) (throwError $ Just IncorrectSignature)
-                            checkNonceAndFunds acc
-                            return (CheckHeaderResult iacc iacc cost)
-                -- An invalid verification result or `Nothing` was supplied to this function.
-                -- In either case we verify the transaction now.
-                -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
-                -- Since the case is uncommon, it is reasonable to redo the verification.
-                _ -> do
-                    newVerRes <- lift (TVer.verifyNormalTransaction meta)
-                    case checkTransactionVerificationResult newVerRes of
-                        Left failure -> throwError . Just $ failure
-                        Right _ -> return (CheckHeaderResult iacc iacc cost)
-  where
-    -- check that the nonce is ok and that the sender has enough funds to cover the transaction fee deposit.
-    checkNonceAndFunds acc = do
-        -- Check that the nonce is still 'Ok'.
-        nextNonce <- lift (TVer.getNextAccountNonce acc)
-        let nonce = transactionNonce meta
-        unless (nonce == nextNonce) $ throwError (Just $ NonSequentialNonce nonce)
-        -- Check that the account still has enough funds to cover the deposit
-        amnt <- lift (TVer.getAccountAvailableAmount acc)
-        depositedAmount <- lift (TVer.energyToCcd (transactionGasAmount meta))
-        unless (depositedAmount <= amnt) $ throwError $ Just InsufficientFunds
+    -- We check if we previously have deemed the transaction valid and check if the
+    -- current account information matches with one at the point of verification.
+    -- Also we check that the nonce is valid and that the sender has enough funds to cover his transfer.
+    let senderAcc = snd senderAccount
+
+    let bodyHash = transactionSignHashToByteString (transactionSignHash meta)
+        validateAccountKeys account expectedKeys signature = do
+            actualKeys <- lift (TVer.getAccountVerificationKeys (snd account))
+            unless (ID.matchesAccountInformation actualKeys expectedKeys) $ do
+                -- The account keys have changed, so we re-verify the signature.
+                -- Note, the keys changing does not automatically mean the signature is invalid,
+                -- since it could be a subset of keys that have not changed.
+                unless (verifyAccountSignature bodyHash (tsSignatures signature) actualKeys) $
+                    throwError (Just IncorrectSignature)
+        checkNonceAndFunds = do
+            -- Check that the sender's nonce is OK.
+            nextNonce <- lift (TVer.getNextAccountNonce senderAcc)
+            let nonce = transactionNonce meta
+            unless (nonce == nextNonce) $ throwError (Just $ NonSequentialNonce nonce)
+            -- Check that the payer account still has enough funds to cover the deposit
+            amnt <- lift (TVer.getAccountAvailableAmount (snd payerAccount))
+            depositedAmount <- lift (TVer.energyToCcd (transactionGasAmount meta))
+            unless (depositedAmount <= amnt) $ throwError $ Just InsufficientFunds
+    case mVerRes of
+        Just (TVer.Ok (TVer.NormalTransactionSuccess keysHash _))
+            | Nothing <- transactionSponsorSignature meta -> do
+                validateAccountKeys senderAccount keysHash (transactionSignature meta)
+                checkNonceAndFunds
+        Just (TVer.Ok (TVer.ExtendedTransactionSuccess{sponsorKeysHash = Absent, ..}))
+            | Nothing <- transactionSponsorSignature meta -> do
+                validateAccountKeys senderAccount senderKeysHash (transactionSignature meta)
+                checkNonceAndFunds
+        Just (TVer.Ok (TVer.ExtendedTransactionSuccess{sponsorKeysHash = Present sponsorHash, ..}))
+            | Just sponsorSig <- transactionSponsorSignature meta -> do
+                validateAccountKeys senderAccount senderKeysHash (transactionSignature meta)
+                validateAccountKeys payerAccount sponsorHash sponsorSig
+                checkNonceAndFunds
+        -- An invalid verification result or `Nothing` was supplied to this function.
+        -- In either case we verify the transaction now.
+        -- Note: we do not have special handling for 'TVer.TrustedSuccess'.
+        -- Since the case is uncommon, it is reasonable to redo the verification.
+        _ -> do
+            -- Although the transaction may be a normal (non-extended) transaction, we verify it
+            -- as an extended transaction, which should produce the same result
+            newVerRes <- lift (TVer.verifyExtendedTransaction meta)
+            case checkTransactionVerificationResult newVerRes of
+                Left failure -> throwError . Just $ failure
+                Right _ -> return ()
+    return (CheckHeaderResult senderAccount payerAccount cost)
 
 -- | Maps transaction verification results into Either `FailureKind`s. or `OkResult`s
 checkTransactionVerificationResult :: TVer.VerificationResult -> Either FailureKind TVer.OkResult
@@ -316,6 +336,7 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                         }
         Right payload -> do
             usedBlockEnergy <- getUsedEnergy
+            logEvent Scheduler LLInfo $ "Executing transaction with sender " ++ show (thSender meta) ++ " and sponsor " ++ show (transactionSponsor msg) ++ ". Payer index: " ++ show (fst chrPayerAccount)
             let mkWTC _wtcTransactionType =
                     WithDepositContext
                         { _wtcSenderAccount = chrSenderAccount,
@@ -3176,7 +3197,7 @@ filterTransactions maxSize timeout groups0 = do
                                         newFts =
                                             currentFts
                                                 { ftFailedUpdates = ((,NonSequentialNonce (curSN + 1)) <$> invalid) ++ ftFailedUpdates currentFts,
-                                                  ftAdded = (ui & _1 %~ chainUpdate, summary) : ftAdded currentFts
+                                                  ftAdded = (ui & _1 %~ toBlockItem, summary) : ftAdded currentFts
                                                 }
                                     runUpdateInstructions csize newFts rest
                         -- The cumulative block size with this update is too high.
@@ -3214,7 +3235,7 @@ filterTransactions maxSize timeout groups0 = do
                                     runNext maxEnergy size (credLimit - 1) False newFts groups -- NB: We keep the old size
                                 Just (TxValid summary) -> do
                                     markEnergyUsed (tsEnergyCost summary)
-                                    let newFts = fts{ftAdded = ((credentialDeployment c, verRes), summary) : ftAdded fts}
+                                    let newFts = fts{ftAdded = ((toBlockItem c, verRes), summary) : ftAdded fts}
                                     runNext maxEnergy csize (credLimit - 1) False newFts groups
                                 Nothing -> error "Unreachable due to cenergy <= maxEnergy check."
                         else
@@ -3301,7 +3322,7 @@ filterTransactions maxSize timeout groups0 = do
                         { ftFailed =
                             map (,NonSequentialNonce nextNonce) invalid
                                 ++ ftFailed currentFts,
-                          ftAdded = ((normalTransaction (fst t), snd t), summary) : ftAdded currentFts
+                          ftAdded = ((toBlockItem (fst t), snd t), summary) : ftAdded currentFts
                         }
             return (newFts, rest)
 
@@ -3354,8 +3375,7 @@ runTransactions = go []
     predispatch (WithMetadata{wmdData = NormalTransaction tr, ..}, verRes) = dispatch (WithMetadata{wmdData = tr, ..}, verRes)
     predispatch (WithMetadata{wmdData = CredentialDeployment cred, ..}, verRes) = handleDeployCredential (WithMetadata{wmdData = cred, ..}, verRes) wmdHash
     predispatch (WithMetadata{wmdData = ChainUpdate cu, ..}, verRes) = Just <$> handleChainUpdate (WithMetadata{wmdData = cu, ..}, verRes)
-    predispatch (WithMetadata{wmdData = ExtendedTransaction _tr}, _verRes) =
-        error "TODO(SPO-10): transaction verifier support for sponsored transactions"
+    predispatch (WithMetadata{wmdData = ExtendedTransaction tr, ..}, verRes) = dispatch (WithMetadata{wmdData = tr, ..}, verRes)
 
 -- | Execute transactions in sequence. Like 'runTransactions' but only for side-effects on global state.
 --
@@ -3391,5 +3411,4 @@ execTransactions = go
     predispatch (WithMetadata{wmdData = NormalTransaction tr, ..}, verRes) = dispatch (WithMetadata{wmdData = tr, ..}, verRes)
     predispatch (WithMetadata{wmdData = CredentialDeployment cred, ..}, verRes) = handleDeployCredential (WithMetadata{wmdData = cred, ..}, verRes) wmdHash
     predispatch (WithMetadata{wmdData = ChainUpdate cu, ..}, verRes) = Just <$> handleChainUpdate (WithMetadata{wmdData = cu, ..}, verRes)
-    predispatch (WithMetadata{wmdData = ExtendedTransaction _tr}, _verRes) =
-        error "TODO(SPO-10): transaction verifier support for sponsored transactions"
+    predispatch (WithMetadata{wmdData = ExtendedTransaction tr, ..}, verRes) = dispatch (WithMetadata{wmdData = tr, ..}, verRes)

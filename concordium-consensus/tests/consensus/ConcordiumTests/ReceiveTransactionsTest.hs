@@ -116,7 +116,7 @@ test = do
                 now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
                 txArrivalTime = utcTimeToTransactionTime now
                 genesis = testGenesisData now myips myars myCryptoParams
-                txs = [toBlockItem txArrivalTime mycdi, toBlockItem txArrivalTime myicdi]
+                txs = [makeBlockItem txArrivalTime mycdi, makeBlockItem txArrivalTime myicdi]
             s <- runTransactions testDoReceiveTransaction txs now genesis
             let results = fst s
                 resultingState = snd s
@@ -164,7 +164,7 @@ test = do
             let credentialDeploymentExpiryTime = 1596409020
                 now = posixSecondsToUTCTime $ credentialDeploymentExpiryTime - 1
                 txArrivalTime = utcTimeToTransactionTime now
-                txs = [toBlockItem txArrivalTime mycdi, toBlockItem txArrivalTime myicdi]
+                txs = [makeBlockItem txArrivalTime mycdi, makeBlockItem txArrivalTime myicdi]
                 genesis = testGenesisData now myips myars myCryptoParams
             s <- runTransactions testDoReceiveTransactionInternal txs now genesis
             let results = fst s
@@ -176,8 +176,8 @@ test = do
             let now = utcTimeToTransactionTime theTime
                 genesis = testGenesisData theTime dummyIdentityProviders dummyArs dummyCryptographicParameters
                 txs =
-                    [ toBlockItem now $ mkAccountTransaction (now + 1) True 2 True TheCost,
-                      toBlockItem now $ mkAccountTransaction (now + 1) True 1 True TheCost
+                    [ makeBlockItem now $ mkAccountTransaction (now + 1) True 2 True TheCost,
+                      makeBlockItem now $ mkAccountTransaction (now + 1) True 1 True TheCost
                     ]
             s <- runTransactions testDoReceiveTransactionInternal txs theTime genesis
             let results = fst s
@@ -316,13 +316,13 @@ accountCreations gCtx now =
     ]
   where
     expiry = now + 1
-    expiredTransaction = toBlockItem now (mkAccountCreation (now - 1) (regId 1) 0 True True False)
-    expiredCredentialDeployment = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True True True)
-    credentialDeploymentWithDuplicateRegId = toBlockItem now (mkAccountCreation expiry duplicateRegId 0 True True False)
-    credentialWithInvalidIP = toBlockItem now (mkAccountCreation expiry (regId 1) 42 True True False)
-    credentialWithInvalidAr = toBlockItem now (mkAccountCreation expiry (regId 1) 0 False True False)
-    credentialWithInvalidSignatures = toBlockItem now (mkAccountCreation expiry (regId 1) 0 True True False)
-    intialCredentialWithInvalidSignatures = toBlockItem now (mkInitialAccountCreationWithInvalidSignatures expiry (regId 42))
+    expiredTransaction = makeBlockItem now (mkAccountCreation (now - 1) (regId 1) 0 True True False)
+    expiredCredentialDeployment = makeBlockItem now (mkAccountCreation expiry (regId 1) 0 True True True)
+    credentialDeploymentWithDuplicateRegId = makeBlockItem now (mkAccountCreation expiry duplicateRegId 0 True True False)
+    credentialWithInvalidIP = makeBlockItem now (mkAccountCreation expiry (regId 1) 42 True True False)
+    credentialWithInvalidAr = makeBlockItem now (mkAccountCreation expiry (regId 1) 0 False True False)
+    credentialWithInvalidSignatures = makeBlockItem now (mkAccountCreation expiry (regId 1) 0 True True False)
+    intialCredentialWithInvalidSignatures = makeBlockItem now (mkInitialAccountCreationWithInvalidSignatures expiry (regId 42))
     regId seed = RegIdCred $ generateGroupElementFromSeed gCtx seed
 
 chainUpdates :: TransactionTime -> [BlockItem]
@@ -335,12 +335,12 @@ chainUpdates now =
       verifiable
     ]
   where
-    expiredTimeout = toBlockItem now (mkChainUpdate (now - 1) (now - 1) getValidSequenceNumber True)
-    invalidEffectiveTime = toBlockItem now (mkChainUpdate (now + 1) (now + 2) getValidSequenceNumber True)
-    sequenceNumberTooOld = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getTooOldSequenceNumber True)
-    sequenceNumberTooLarge = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getTooLargeSequenceNumber True)
-    invalidSignature = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getValidSequenceNumber False)
-    verifiable = toBlockItem now (mkChainUpdate (now + 2) (now + 1) getValidSequenceNumber True)
+    expiredTimeout = makeBlockItem now (mkChainUpdate (now - 1) (now - 1) getValidSequenceNumber True)
+    invalidEffectiveTime = makeBlockItem now (mkChainUpdate (now + 1) (now + 2) getValidSequenceNumber True)
+    sequenceNumberTooOld = makeBlockItem now (mkChainUpdate (now + 2) (now + 1) getTooOldSequenceNumber True)
+    sequenceNumberTooLarge = makeBlockItem now (mkChainUpdate (now + 2) (now + 1) getTooLargeSequenceNumber True)
+    invalidSignature = makeBlockItem now (mkChainUpdate (now + 2) (now + 1) getValidSequenceNumber False)
+    verifiable = makeBlockItem now (mkChainUpdate (now + 2) (now + 1) getValidSequenceNumber True)
     getValidSequenceNumber = minUpdateSequenceNumber + 1
     getTooOldSequenceNumber = minUpdateSequenceNumber
     getTooLargeSequenceNumber = minUpdateSequenceNumber + 2
@@ -362,35 +362,26 @@ normals now isSingle successNonce =
       atMaxBlockEnergy
     ]
   where
-    expired = toBlockItem now $ mkAccountTransaction (now - 1) True 1 True TheCost
-    depositInsufficient = toBlockItem now $ mkAccountTransaction (now + 1) True 1 True TooLittle
-    invalidSender = toBlockItem now $ mkAccountTransaction (now + 1) True 1 False TheCost
+    expired = makeBlockItem now $ mkAccountTransaction (now - 1) True 1 True TheCost
+    depositInsufficient = makeBlockItem now $ mkAccountTransaction (now + 1) True 1 True TooLittle
+    invalidSender = makeBlockItem now $ mkAccountTransaction (now + 1) True 1 False TheCost
     -- 'invalidNonce' should be accepted for transactions received individually, but rejected if it was part of a block.
-    nonceTooLarge = toBlockItem now $ mkAccountTransaction (now + 1) True 3 True TheCost
+    nonceTooLarge = makeBlockItem now $ mkAccountTransaction (now + 1) True 3 True TheCost
     -- since the one above was accepted because it was part of a block we must increment the nonce here,
     -- if the transaction  is part of a block
     invalidSignature =
         if isSingle
-            then toBlockItem now $ mkAccountTransaction (now + 1) False 1 True TheCost
-            else toBlockItem now $ mkAccountTransaction (now + 1) False 3 True TheCost
+            then makeBlockItem now $ mkAccountTransaction (now + 1) False 1 True TheCost
+            else makeBlockItem now $ mkAccountTransaction (now + 1) False 3 True TheCost
     -- This ones also needs a nonce depending of the `TransactionOrigin`
-    verifiable nonce = toBlockItem now $ mkAccountTransaction (now + 1) True nonce True TheCost
+    verifiable nonce = makeBlockItem now $ mkAccountTransaction (now + 1) True nonce True TheCost
     -- Also this one.
     tooMuchEnergy =
         if isSingle
-            then toBlockItem now $ mkAccountTransaction (now + 1) True 2 True TooMuch
-            else toBlockItem now $ mkAccountTransaction (now + 1) True 5 True TooMuch
+            then makeBlockItem now $ mkAccountTransaction (now + 1) True 2 True TooMuch
+            else makeBlockItem now $ mkAccountTransaction (now + 1) True 5 True TooMuch
     -- transactions which state exactly the max block energy bound should be accepted
-    atMaxBlockEnergy = toBlockItem now $ mkAccountTransaction (now + 1) True (if isSingle then 3 else 6) True MaxBlockEnergy
-
-toBlockItem :: TransactionTime -> BareBlockItem -> BlockItem
-toBlockItem now bbi =
-    case bbi of
-        CredentialDeployment cred -> credentialDeployment $ addMetadata (\x -> CredentialDeployment{biCred = x}) now cred
-        ChainUpdate ui -> chainUpdate $ addMetadata (\x -> ChainUpdate{biUpdate = x}) now ui
-        NormalTransaction tx -> normalTransaction $ addMetadata (\x -> NormalTransaction{biTransaction = x}) now tx
-        ExtendedTransaction _tx ->
-            error "TODO(SP0-10): transaction verifier support for sponsored transactions"
+    atMaxBlockEnergy = makeBlockItem now $ mkAccountTransaction (now + 1) True (if isSingle then 3 else 6) True MaxBlockEnergy
 
 duplicateRegId :: CredentialRegistrationID
 duplicateRegId = credId (makeTestCredentialFromSeed 1)

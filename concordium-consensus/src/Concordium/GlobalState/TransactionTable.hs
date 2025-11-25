@@ -265,18 +265,26 @@ addTransaction blockItem@WithMetadata{..} cp !verRes tt0 =
             senderANFT = ttNonFinalizedTransactions . at' sender . non anft
             anft = emptyANFT
             nonce = transactionNonce tr
-            wmdtr = WithMetadata{wmdData = tr, ..}
+            wmdtr = WithMetadata{wmdData = TransactionV0 tr, ..}
         CredentialDeployment{} -> (True, tt1)
         ChainUpdate cu
             | tt0 ^. utNFCU . nfcuNextSequenceNumber <= sn ->
                 (True, tt1 & utNFCU . nfcuMap . at' sn . non Map.empty . at' wmdcu ?~ verRes)
+            | otherwise -> (False, tt0)
           where
             uty = updateType (uiPayload cu)
             sn = updateSeqNumber (uiHeader cu)
             utNFCU :: Lens' TransactionTable NonFinalizedChainUpdates
             utNFCU = ttNonFinalizedChainUpdates . at' uty . non emptyNFCU
             wmdcu = WithMetadata{wmdData = cu, ..}
-        _ -> (False, tt0)
+        ExtendedTransaction tr -> (True, tt1 & senderANFT . anftMap . at' nonce . non Map.empty . at' wmdtr ?~ verRes)
+          where
+            sender = accountAddressEmbed (transactionSender tr)
+            senderANFT :: Lens' TransactionTable AccountNonFinalizedTransactions
+            senderANFT = ttNonFinalizedTransactions . at' sender . non anft
+            anft = emptyANFT
+            nonce = transactionNonce tr
+            wmdtr = WithMetadata{wmdData = TransactionV1 tr, ..}
   where
     tt1 = tt0 & ttHashMap . at' wmdHash ?~ (blockItem, Received cp verRes)
 
@@ -414,8 +422,14 @@ forwardPTT trs ptt0 = foldl' forward1 ptt0 trs
             assert (low == updateSeqNumber (uiHeader biUpdate)) $
                 assert (low <= high) $
                     if low == high then Nothing else Just (low + 1, high)
-    forward1 _ptt WithMetadata{wmdData = ExtendedTransaction{}} =
-        error "TODO(SPO-10): transaction verifier support for sponsored transactions"
+    forward1 ptt WithMetadata{wmdData = ExtendedTransaction tr} = ptt & pttWithSender . at' sender %~ upd
+      where
+        sender = accountAddressEmbed (transactionSender tr)
+        upd Nothing = error "forwardPTT : forwarding transaction that is not pending"
+        upd (Just (low, high)) =
+            assert (low == transactionNonce tr) $
+                assert (low <= high) $
+                    if low == high then Nothing else Just (low + 1, high)
 
 -- | Update the pending transaction table by considering the supplied 'BlockItem's
 --  pending again. The 'BlockItem's must be ordered correctly with respect
@@ -425,6 +439,13 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
   where
     reverse1 :: BlockItem -> PendingTransactionTable -> PendingTransactionTable
     reverse1 WithMetadata{wmdData = NormalTransaction tr} = pttWithSender . at' sender %~ upd
+      where
+        sender = accountAddressEmbed (transactionSender tr)
+        upd Nothing = Just (transactionNonce tr, transactionNonce tr)
+        upd (Just (low, high)) =
+            assert (low == transactionNonce tr + 1) $
+                Just (low - 1, high)
+    reverse1 WithMetadata{wmdData = ExtendedTransaction tr} = pttWithSender . at' sender %~ upd
       where
         sender = accountAddressEmbed (transactionSender tr)
         upd Nothing = Just (transactionNonce tr, transactionNonce tr)
@@ -441,8 +462,6 @@ reversePTT trs ptt0 = foldr reverse1 ptt0 trs
         upd (Just (low, high)) =
             assert (low == sn + 1) $
                 Just (low - 1, high)
-    reverse1 WithMetadata{wmdData = ExtendedTransaction{}} =
-        error "TODO(SPO-10): transaction verifier support for sponsored transactions"
 
 -- | Returns the next available account nonce for the
 --  provided account address from the perspective of the 'TransactionTable'.

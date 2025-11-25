@@ -83,7 +83,7 @@ testMaxBlockEnergy _ pvString = specify (pvString ++ ": One valid, two invalid, 
         -- block energy limit
         let ts =
                 Types.TGCredentialDeployment
-                    (Types.addMetadata Types.CredentialDeployment 0 cdi1, Nothing)
+                    (Types.addMetadata 0 cdi1, Nothing)
                     : ts' -- dummy arrival time of 0
         (Helpers.SchedulerResult{..}, doBlockStateAssertions) <-
             Helpers.runSchedulerTest
@@ -107,7 +107,7 @@ testMaxBlockEnergy _ pvString = specify (pvString ++ ": One valid, two invalid, 
                 ] -> do
                     assertEqual
                         "The first transaction should be valid:"
-                        (Types.normalTransaction $ fst t1)
+                        (Types.toBlockItem $ fst t1)
                         $ fst t
                     assertEqual "Correct energy cost: " Helpers.simpleTransferCost energyCost
             _ -> assertFailure "There should be one valid transaction with a TxSuccess result."
@@ -120,7 +120,7 @@ testMaxBlockEnergy _ pvString = specify (pvString ++ ": One valid, two invalid, 
             invalidTs
         assertEqual
             "The credential deployment is invalid."
-            [Types.addMetadata Types.CredentialDeployment 0 cdi1]
+            [Types.addMetadata 0 cdi1]
             $ map fst invalidCreds
         assertEqual
             "There is one normal transaction whose energy exceeds the block energy limit, and one with non-sequential nonce:"

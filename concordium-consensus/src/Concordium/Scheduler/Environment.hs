@@ -987,6 +987,7 @@ computeExecutionCharge allocated unused = do
 --  balance such as DeployCredential, or DeployModule.
 chargeExecutionCostAccount :: forall m. (SchedulerMonad m) => IndexedAccount m -> Amount -> m ()
 chargeExecutionCostAccount (ai, acc) amnt = do
+    logEvent Scheduler LLInfo $ "Charging execution cost of " ++ show amnt ++ " to " ++ show ai
     balance <- getAccountAmount acc
     let csWithAccountDelta = emptyCS (Proxy @m) & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auAmount ?~ amountDiff 0 amnt)
     assert (balance >= amnt) $
@@ -1069,6 +1070,9 @@ withDeposit wtc comp k = do
                 (setTransactionReturnValue . V1.returnValueToByteString)
                 result
                 (ls ^. transactionReturnValue)
+    let (tsCost, sponsorDetails)
+            | Just sponsorAddress <- wtc ^. wtcSponsorAddress = (0, Just $ SponsorDetails{sdSponsor = sponsorAddress, sdCost = tsCost})
+            | otherwise = (tsCost, Nothing)
     case res of
         -- Failure: maximum block energy exceeded
         Left Nothing -> return Nothing
@@ -1077,12 +1081,12 @@ withDeposit wtc comp k = do
             -- The only effect of this transaction is that the payer is charged for the execution cost
             -- (energy ticked so far).
             executionCharge <- computeChargeExecution wtc (ls ^. energyLeft)
+
             return $!
                 Just $!
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
-                          tsCost = ecEnergyCost executionCharge,
-                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
+                          tsSponsorDetails = conditionally cHasSponsorDetails sponsorDetails,
                           tsEnergyCost = ecUsedEnergy executionCharge,
                           tsResult = addReturn $ transactionReject reason,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
@@ -1098,8 +1102,7 @@ withDeposit wtc comp k = do
                 Just $!
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
-                          tsCost = ecEnergyCost executionCharge,
-                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
+                          tsSponsorDetails = conditionally cHasSponsorDetails sponsorDetails,
                           tsEnergyCost = ecUsedEnergy executionCharge,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
                           tsIndex = wtc ^. wtcTransactionIndex,
@@ -1500,8 +1503,8 @@ logInvalidBlockItem WithMetadata{wmdData = CredentialDeployment cred} fk =
     logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId . credential $ cred) ++ " was invalid with reason " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData = ChainUpdate{}, ..} fk =
     logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
-logInvalidBlockItem WithMetadata{wmdData = ExtendedTransaction{}} _fk =
-    error "TODO(SPO-10): transaction verifier support for sponsored transactions"
+logInvalidBlockItem WithMetadata{wmdData = ExtendedTransaction{}, ..} fk =
+    logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
 {-# INLINE logInvalidTransaction #-}
 logInvalidTransaction :: (SchedulerMonad m) => TVer.TransactionWithStatus -> FailureKind -> m ()

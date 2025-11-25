@@ -902,12 +902,17 @@ instance
                         mAcc <- getAccount lfbState $ transactionSender tr
                         nonce <- maybe (pure minNonce) getAccountNonce (snd <$> mAcc)
                         return $! nonce <= transactionNonce tr
+                    ExtendedTransaction tr -> do
+                        lfbState <- use (skovPersistentData . lastFinalized . to _bpState)
+                        mAcc <- getAccount lfbState $ transactionSender tr
+                        nonce <- maybe (pure minNonce) getAccountNonce (snd <$> mAcc)
+                        return $! nonce <= transactionNonce tr
                     -- We need to check here that the nonce is still ok with respect to the last finalized block,
                     -- because it could be that a block was finalized thus the next account nonce being incremented
                     -- after this transaction was received and pre-verified.
                     CredentialDeployment{} -> not <$> memberTransactionTable wmdHash
                     -- the sequence number will be checked by @Impl.addTransaction@.
-                    _ -> return True
+                    ChainUpdate{} -> return True
                 if mayAddTransaction
                     then do
                         let ~(added, newTT) = addTransaction bi 0 verRes tt
@@ -929,7 +934,7 @@ instance
     type FinTrans (PersistentTreeStateMonad state m) = [(TransactionHash, FinalizedTransactionStatus)]
     finalizeTransactions bh slot txs = mapM finTrans txs
       where
-        finTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
+        finAccountTrans WithMetadata{wmdData = tr, ..} = do
             let nonce = transactionNonce tr
                 sender = accountAddressEmbed (transactionSender tr)
             anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
@@ -950,6 +955,8 @@ instance
                     return ss
                 else do
                     logErrorAndThrowTS $ "Tried to finalize transaction which is not known to be in the set of non-finalized transactions for the sender " ++ show sender
+        finTrans WithMetadata{wmdData = NormalTransaction tr, ..} =
+            finAccountTrans WithMetadata{wmdData = TransactionV0 tr, ..}
         finTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
             deleteAndFinalizeStatus wmdHash
         finTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
@@ -976,8 +983,8 @@ instance
                 . at' uty
                 ?= (nfcu & (nfcuMap . at' sn .~ Nothing) & (nfcuNextSequenceNumber .~ sn + 1))
             return ss
-        finTrans WithMetadata{wmdData = ExtendedTransaction{}} =
-            error "TODO(SP0-10): transaction verifier support for sponsored transactions"
+        finTrans WithMetadata{wmdData = ExtendedTransaction tr, ..} =
+            finAccountTrans WithMetadata{wmdData = TransactionV1 tr, ..}
 
         deleteAndFinalizeStatus txHash = do
             status <- preuse (skovPersistentData . transactionTable . ttHashMap . ix txHash . _2)

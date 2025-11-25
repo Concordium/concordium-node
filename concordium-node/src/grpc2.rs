@@ -22,7 +22,7 @@ pub mod types {
     use crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE;
 
     use super::Require;
-    use concordium_base::{common::Versioned, transactions::PayloadLike};
+    use concordium_base::{common::{Version, Versioned}, transactions::PayloadLike};
     use std::convert::{TryFrom, TryInto};
 
     /// Types generated from the protocol-level-tokens.proto file.
@@ -640,7 +640,7 @@ pub mod types {
                     )))
                 }
                 send_block_item_request::BlockItem::RawBlockItem(bytes) => {
-                    let mut data = concordium_base::common::to_bytes(&Versioned::new(0.into(), ()));
+                    let mut data = concordium_base::common::to_bytes(&Version::from(0));
                     // Add raw bytes in a separate step to avoid encoding the length
                     data.extend_from_slice(&bytes);
                     Ok(data)
@@ -2872,6 +2872,7 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::SendBlockItemRequest>,
         ) -> Result<tonic::Response<crate::grpc2::types::TransactionHash>, tonic::Status> {
             use ConsensusFfiResponse::*;
+            debug!("Received block item {:?}", request);
             if !self.service_config.send_block_item {
                 return Err(tonic::Status::unimplemented(
                     "`SendBlockItem` is not enabled.",
@@ -2962,6 +2963,7 @@ pub mod server {
                     mk_err_invalid_argument_response(ConsensusShutDown.to_string())
                 }
                 (_, consensus_error) => {
+                    warn!("Consensus rejected a transaction due to {}", consensus_error.to_string());
                     mk_err_invalid_argument_response(consensus_error.to_string())
                 }
             }
