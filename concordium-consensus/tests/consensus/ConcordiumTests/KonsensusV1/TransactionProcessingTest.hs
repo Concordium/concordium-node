@@ -654,6 +654,7 @@ instance
     where
     type MPV (TVTM pv) = pv
 
+-- Used to define the following type family instances.
 data WasmVersionedVoid (v :: WasmVersion)
 
 instance forall (pv :: ProtocolVersion). GSTypes.BlockStateTypes (TVTM pv) where
