@@ -1070,9 +1070,6 @@ withDeposit wtc comp k = do
                 (setTransactionReturnValue . V1.returnValueToByteString)
                 result
                 (ls ^. transactionReturnValue)
-    let (tsCost, sponsorDetails)
-            | Just sponsorAddress <- wtc ^. wtcSponsorAddress = (0, Just $ SponsorDetails{sdSponsor = sponsorAddress, sdCost = tsCost})
-            | otherwise = (tsCost, Nothing)
     case res of
         -- Failure: maximum block energy exceeded
         Left Nothing -> return Nothing
@@ -1081,6 +1078,7 @@ withDeposit wtc comp k = do
             -- The only effect of this transaction is that the payer is charged for the execution cost
             -- (energy ticked so far).
             executionCharge <- computeChargeExecution wtc (ls ^. energyLeft)
+            let (tsCost, sponsorDetails) = computeCostDetails executionCharge
 
             return $!
                 Just $!
@@ -1097,6 +1095,7 @@ withDeposit wtc comp k = do
         Right a -> do
             -- In this case we charge for the used energy then invoke the continuation.
             executionCharge <- computeChargeExecution wtc (ls ^. energyLeft)
+            let (tsCost, sponsorDetails) = computeCostDetails executionCharge
             tsResult0 <- k ls a
             return $!
                 Just $!
@@ -1111,6 +1110,16 @@ withDeposit wtc comp k = do
                         }
   where
     cHasSponsorDetails = sHasSponsorDetails (sTransactionOutcomesVersionFor (protocolVersion @(MPV m)))
+    computeCostDetails ExecutionCharge{..}
+        | Just sponsorAddress <- wtc ^. wtcSponsorAddress =
+            ( 0,
+              Just $
+                SponsorDetails
+                    { sdSponsor = sponsorAddress,
+                      sdCost = ecEnergyCost
+                    }
+            )
+        | otherwise = (ecEnergyCost, Nothing)
 
 -- | Default continuation to use with 'withDeposit'. It commits the changes
 --  from the current changeset and returns the recorded events, the amount corresponding to the
