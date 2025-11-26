@@ -22,7 +22,10 @@ pub mod types {
     use crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE;
 
     use super::Require;
-    use concordium_base::{common::{Version, Versioned}, transactions::PayloadLike};
+    use concordium_base::{
+        common::{Version, Versioned},
+        transactions::PayloadLike,
+    };
     use std::convert::{TryFrom, TryInto};
 
     /// Types generated from the protocol-level-tokens.proto file.
