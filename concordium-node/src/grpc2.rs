@@ -2872,7 +2872,6 @@ pub mod server {
             request: tonic::Request<crate::grpc2::types::SendBlockItemRequest>,
         ) -> Result<tonic::Response<crate::grpc2::types::TransactionHash>, tonic::Status> {
             use ConsensusFfiResponse::*;
-            debug!("Received block item {:?}", request);
             if !self.service_config.send_block_item {
                 return Err(tonic::Status::unimplemented(
                     "`SendBlockItem` is not enabled.",
@@ -2963,7 +2962,6 @@ pub mod server {
                     mk_err_invalid_argument_response(ConsensusShutDown.to_string())
                 }
                 (_, consensus_error) => {
-                    warn!("Consensus rejected a transaction due to {}", consensus_error.to_string());
                     mk_err_invalid_argument_response(consensus_error.to_string())
                 }
             }

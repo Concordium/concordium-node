@@ -981,19 +981,27 @@ computeExecutionCharge allocated unused = do
 --  method is that the account exists and its balance is sufficient to
 --  cover the costs. These are not checked.
 --
---  NB: This method should only be used directly when the given account's balance
---  is the only one affected by the transaction, either because a transaction was
---  rejected, or because it was a transaction which only affects one account's
---  balance such as DeployCredential, or DeployModule.
-chargeExecutionCostAccount :: forall m. (SchedulerMonad m) => IndexedAccount m -> Amount -> m ()
-chargeExecutionCostAccount (ai, acc) amnt = do
-    logEvent Scheduler LLInfo $ "Charging execution cost of " ++ show amnt ++ " to " ++ show ai
+--  NB: This function is only called in two ways:
+--
+--    - by 'computeChargeExecution' to charge for executing a payload that was deserialized.
+--    - by 'dispatchTransactionBody' to charge for a payload that could not be deserialized.
+chargeExecutionCost ::
+    forall m.
+    (SchedulerMonad m) =>
+    -- | Payer account.`
+    IndexedAccount m ->
+    -- | Execution cost.
+    Amount ->
+    m ()
+chargeExecutionCost (ai, acc) amnt = do
     balance <- getAccountAmount acc
     let csWithAccountDelta = emptyCS (Proxy @m) & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auAmount ?~ amountDiff 0 amnt)
     assert (balance >= amnt) $
         commitChanges csWithAccountDelta
     notifyExecutionCost amnt
 
+-- | Compute the amount to charge the transaction payer for executing the transaction,
+--  and charge the account. Returns the energy and cost charged.
 computeChargeExecution ::
     (SchedulerMonad m) =>
     -- | The context for the transaction execution.
@@ -1003,7 +1011,7 @@ computeChargeExecution ::
     m ExecutionCharge
 computeChargeExecution wtc unused = do
     executionCharge <- computeExecutionCharge (_wtcEnergyAmount wtc) unused
-    chargeExecutionCostAccount (_wtcPayerAccount wtc) (ecEnergyCost executionCharge)
+    chargeExecutionCost (_wtcPayerAccount wtc) (ecEnergyCost executionCharge)
     return executionCharge
 
 data WithDepositContext m = WithDepositContext

@@ -176,9 +176,9 @@ checkHeader meta mVerRes = do
     -- We check if we previously have deemed the transaction valid and check if the
     -- current account information matches with one at the point of verification.
     -- Also we check that the nonce is valid and that the sender has enough funds to cover his transfer.
-    let senderAcc = snd senderAccount
-
     let bodyHash = transactionSignHashToByteString (transactionSignHash meta)
+        -- Raise an error if the account keys have changed since the previous verification and
+        -- the signature cannot be verified with the updated keys.
         validateAccountKeys account expectedKeys signature = do
             actualKeys <- lift (TVer.getAccountVerificationKeys (snd account))
             unless (ID.matchesAccountInformation actualKeys expectedKeys) $ do
@@ -187,9 +187,10 @@ checkHeader meta mVerRes = do
                 -- since it could be a subset of keys that have not changed.
                 unless (verifyAccountSignature bodyHash (tsSignatures signature) actualKeys) $
                     throwError (Just IncorrectSignature)
+        -- Raise an error if the sender's nonce is incorrect or the payer has insufficient funds.
         checkNonceAndFunds = do
             -- Check that the sender's nonce is OK.
-            nextNonce <- lift (TVer.getNextAccountNonce senderAcc)
+            nextNonce <- lift (TVer.getNextAccountNonce (snd senderAccount))
             let nonce = transactionNonce meta
             unless (nonce == nextNonce) $ throwError (Just $ NonSequentialNonce nonce)
             -- Check that the payer account still has enough funds to cover the deposit
@@ -321,7 +322,7 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
             -- the header and reject the transaction; we have checked that the amount
             -- exists on the account with 'checkHeader'.
             payment <- energyToGtu chrCheckHeaderCost
-            chargeExecutionCostAccount chrPayerAccount payment
+            chargeExecutionCost chrPayerAccount payment
             return $
                 Just $
                     TransactionSummary
@@ -336,7 +337,6 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                         }
         Right payload -> do
             usedBlockEnergy <- getUsedEnergy
-            logEvent Scheduler LLInfo $ "Executing transaction with sender " ++ show (thSender meta) ++ " and sponsor " ++ show (transactionSponsor msg) ++ ". Payer index: " ++ show (fst chrPayerAccount)
             let mkWTC _wtcTransactionType =
                     WithDepositContext
                         { _wtcSenderAccount = chrSenderAccount,
