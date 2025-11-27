@@ -10,6 +10,7 @@
 - Fixed the `build_catchup_url` in the Ubuntu build release pipeline.
 - Added boilerplate code for the upcoming P10.
 - Extended the GRPC API to support submitting sponsored transactions.
+- Support for sponsored transactions from protocol version 10.
 
 ## 9.0.7
 

@@ -124,6 +124,7 @@ data CheckHeaderResult m = CheckHeaderResult
     }
 
 -- | The function asserts the following
+--   * if the transaction is an 'AccountTransactionV1', then the protocol version supports sponsored transactions.
 --   * the transaction has a valid sender,
 --   * the amount corresponding to the deposited energy is on the sender account,
 --   * the transaction is not expired,
@@ -145,6 +146,11 @@ checkHeader ::
     Maybe TVer.VerificationResult ->
     ExceptT (Maybe FailureKind) m (CheckHeaderResult m)
 checkHeader meta mVerRes = do
+    case sSupportsSponsoredTransactions (protocolVersion @(MPV m)) of
+        SFalse
+            | transactionIsExtended meta ->
+                throwError $ Just NotSupportedAtCurrentProtocolVersion
+        _ -> return ()
     unless (validatePayloadSize (protocolVersion @(MPV m)) (thPayloadSize (transactionHeader meta))) $ throwError $ Just InvalidPayloadSize
     -- Before even checking the header we calculate the cost that will be charged for this
     -- and check that at least that much energy is deposited and remaining from the maximum block energy.
