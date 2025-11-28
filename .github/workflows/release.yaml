@@ -242,7 +242,7 @@ jobs:
           path: ${{ env.ARTIFACT_NAME }}
 
   node-windows:
-    runs-on: windows-latest  
+    runs-on: windows-2022  
     environment: release # This step needs to use the release context to access credentials for code signing.
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
