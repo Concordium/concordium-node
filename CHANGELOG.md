@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+## 10.0.0 (DevNet)
+
 - Updated the token module interface in accordance with adjustments to the PLT specification
   <https://proposals.concordium.com/CIS/cis-7.html>
   where token name, metadata and governance account are now optional in the token module initialization parameterts and
@@ -10,6 +12,7 @@
 - Fixed the `build_catchup_url` in the Ubuntu build release pipeline.
 - Added boilerplate code for the upcoming P10.
 - Extended the GRPC API to support submitting sponsored transactions.
+- Support for sponsored transactions from protocol version 10.
 
 ## 9.0.7
 

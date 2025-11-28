@@ -852,10 +852,11 @@ getBlockTransactionSummaries =
             (item : items') -> do
                 State.put items'
                 let mInitParam = do
-                        accTransaction <- case wmdData item of
-                            NormalTransaction t -> return t
+                        payload <- case wmdData item of
+                            NormalTransaction t -> return (transactionPayload t)
+                            ExtendedTransaction t -> return (transactionPayload t)
                             _ -> Left "Initialization event is not for an account transaction"
-                        decoded <- decodePayload spv (atrPayload accTransaction)
+                        decoded <- decodePayload spv payload
                         case decoded of
                             InitContract{..} -> return icParam
                             _ -> Left "Initialization event is not for a contract initialization"

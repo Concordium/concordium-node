@@ -62,21 +62,21 @@ cred3 = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata
 -- | A credential deployment transaction yielding cred1.
 credBi1 :: BlockItem
 credBi1 =
-    credentialDeployment $ addMetadata (\x -> CredentialDeployment{biCred = x}) (tt + 1) cred1
+    makeBlockItem (tt + 1) cred1
   where
     tt = utcTimeToTransactionTime testTime
 
 -- | A credential deployment transaction yielding cred2.
 credBi2 :: BlockItem
 credBi2 =
-    credentialDeployment $ addMetadata (\x -> CredentialDeployment{biCred = x}) (tt + 1) cred2
+    makeBlockItem (tt + 1) cred2
   where
     tt = utcTimeToTransactionTime testTime
 
 -- | A credential deployment transaction yielding cred3
 credBi3 :: BlockItem
 credBi3 =
-    credentialDeployment $ addMetadata (\x -> CredentialDeployment{biCred = x}) (tt + 1) cred3
+    makeBlockItem (tt + 1) cred3
   where
     tt = utcTimeToTransactionTime testTime
 

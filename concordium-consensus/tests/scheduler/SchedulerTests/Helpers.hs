@@ -142,7 +142,8 @@ forEveryProtocolVersion check =
       check Types.SP6 "P6",
       check Types.SP7 "P7",
       check Types.SP8 "P8",
-      check Types.SP9 "P9"
+      check Types.SP9 "P9",
+      check Types.SP10 "P10"
     ]
 
 -- | Convert an energy value to an amount, based on the exchange rates used in

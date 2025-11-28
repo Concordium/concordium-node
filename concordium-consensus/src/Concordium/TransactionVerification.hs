@@ -6,7 +6,6 @@ module Concordium.TransactionVerification where
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Serialize as S
 
-import qualified Concordium.Cost as Cost
 import qualified Concordium.Crypto.SHA256 as Sha256
 import qualified Concordium.GlobalState.Types as GSTypes
 import qualified Concordium.ID.Account as A
@@ -335,7 +334,7 @@ verifyNormalTransaction meta =
                     throwError $
                         NotOk InvalidPayloadSize
                 -- Check that enough energy is supplied
-                let cost = Cost.baseCost (Tx.getTransactionHeaderPayloadSize $ Tx.transactionHeader meta) (Tx.getTransactionNumSigs (Tx.transactionSignature meta))
+                let cost = Tx.transactionBaseCost meta
                 unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient
                 -- Check that the required energy does not exceed the maximum allowed for a block
                 maxEnergy <- lift getMaxBlockEnergy

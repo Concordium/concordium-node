@@ -845,7 +845,7 @@ finalizeTransactions ::
     m ()
 finalizeTransactions = mapM_ removeTrans
   where
-    removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
+    removeAccountTrans WithMetadata{wmdData = tr, ..} = do
         let nonce = transactionNonce tr
             sender = accountAddressEmbed (transactionSender tr)
         anft <- use (transactionTable . TT.ttNonFinalizedTransactions . at' sender . non TT.emptyANFT)
@@ -865,6 +865,10 @@ finalizeTransactions = mapM_ removeTrans
         -- If there are no non-finalized transactions left then remove the entry
         -- for the sender in @ttNonFinalizedTransactions@.
         transactionTable %=! TT.finalizeTransactionAt sender nonce
+    removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
+        removeAccountTrans (WithMetadata{wmdData = TransactionV0 tr, ..})
+    removeTrans WithMetadata{wmdData = ExtendedTransaction tr, ..} = do
+        removeAccountTrans (WithMetadata{wmdData = TransactionV1 tr, ..})
     removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} = do
         transactionTable . TT.ttHashMap . at' wmdHash .= Nothing
     removeTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
@@ -896,8 +900,6 @@ finalizeTransactions = mapM_ removeTrans
             . TT.ttNonFinalizedChainUpdates
             . at' uty
             ?=! (nfcu & (TT.nfcuMap . at' sn .~ Nothing) & (TT.nfcuNextSequenceNumber .~ sn + 1))
-    removeTrans WithMetadata{wmdData = ExtendedTransaction{}} =
-        error "TODO(SP0-10): transaction verifier support for sponsored transactions"
 
 -- | Mark a live transaction as committed in a particular block.
 --  This does nothing if the transaction is not live.

@@ -133,11 +133,11 @@ myCryptographicParameters =
 
 -- | The valid credential deployment wrapped in 'WithMetadata' and @1@ for the transaction time.
 credentialDeploymentWM :: WithMetadata AccountCreation
-credentialDeploymentWM = addMetadata CredentialDeployment 1 validAccountCreation
+credentialDeploymentWM = addMetadata 1 validAccountCreation
 
 -- | The valid credential deployment wrapped in a 'BlockItem'.
 dummyCredentialDeployment :: BlockItem
-dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
+dummyCredentialDeployment = toBlockItem credentialDeploymentWM
 
 -- | A dummy credential deployment 'TransactionHash'.
 dummyCredentialDeploymentHash :: TransactionHash
@@ -349,7 +349,7 @@ dummyAccountAddress = fst $ randomAccountAddress (mkStdGen 42)
 --  Note. that the signature is not correct either.
 dummyNormalTransaction :: Transaction
 dummyNormalTransaction =
-    addMetadata NormalTransaction 0 $
+    addMetadata 0 . TransactionV0 $
         makeAccountTransaction
             dummyTransactionSignature
             hdr
@@ -368,7 +368,7 @@ dummyNormalTransaction =
 -- | A dummy update instruction.
 dummyUpdateInstruction :: TransactionTime -> WithMetadata UpdateInstruction
 dummyUpdateInstruction effTime =
-    addMetadata ChainUpdate 0 $
+    addMetadata 0 $
         makeUpdateInstruction
             RawUpdateInstruction
                 { ruiSeqNumber = 1,
@@ -389,11 +389,11 @@ dummyUpdateInstruction effTime =
 
 -- | The block item for 'dummyNormalTransaction'.
 dummyNormalTransactionBI :: BlockItem
-dummyNormalTransactionBI = normalTransaction dummyNormalTransaction
+dummyNormalTransactionBI = toBlockItem dummyNormalTransaction
 
 -- | The block item for 'dummyUpdateInstruction'.
 dummyChainUpdateBI :: TransactionTime -> BlockItem
-dummyChainUpdateBI effTime = chainUpdate $ dummyUpdateInstruction effTime
+dummyChainUpdateBI effTime = toBlockItem $ dummyUpdateInstruction effTime
 
 -- | Test for transaction verification
 testTransactionVerification ::
@@ -455,7 +455,7 @@ testProcessBlockItem _ = describe "processBlockItem" $ do
         -- The credential deployment must be in the the transaction table at this point.
         assertEqual
             "The transaction table should yield the 'Received' credential deployment with a round 0 as commit point"
-            (HM.fromList [(dummyCredentialDeploymentHash, (credentialDeployment credentialDeploymentWM, Received (commitPoint $! Round 0) (TVer.Ok TVer.CredentialDeploymentSuccess)))])
+            (HM.fromList [(dummyCredentialDeploymentHash, (toBlockItem credentialDeploymentWM, Received (commitPoint $! Round 0) (TVer.Ok TVer.CredentialDeploymentSuccess)))])
             (sd' ^. transactionTable . ttHashMap)
         -- The purge counter must be incremented at this point.
         assertEqual
@@ -515,7 +515,7 @@ testProcessBlockItem _ = describe "processBlockItem" $ do
         -- The credential deployment that was not deemed duplicate must be in the the transaction table at this point.
         assertEqual
             "The transaction table should yield the 'Received' credential deployment with a round 0 as commit point"
-            (HM.fromList [(dummyCredentialDeploymentHash, (credentialDeployment credentialDeploymentWM, Received (commitPoint $! Round 0) (TVer.Ok TVer.CredentialDeploymentSuccess)))])
+            (HM.fromList [(dummyCredentialDeploymentHash, (toBlockItem credentialDeploymentWM, Received (commitPoint $! Round 0) (TVer.Ok TVer.CredentialDeploymentSuccess)))])
             (sd' ^. transactionTable . ttHashMap)
         -- The purge counter must be incremented only once at this point.
         assertEqual
@@ -582,7 +582,7 @@ testProcessBlockItems sProtocolVersion = describe "processBlockItems" $ do
             (sd' ^. transactionTablePurgeCounter)
         assertEqual
             "The transaction table should yield the 'Received' credential deployment with a round 1 as commit point"
-            (HM.fromList [(dummyCredentialDeploymentHash, (credentialDeployment credentialDeploymentWM, Received (commitPoint $! Round 1) (TVer.Ok TVer.CredentialDeploymentSuccess)))])
+            (HM.fromList [(dummyCredentialDeploymentHash, (toBlockItem credentialDeploymentWM, Received (commitPoint $! Round 1) (TVer.Ok TVer.CredentialDeploymentSuccess)))])
             (sd' ^. transactionTable . ttHashMap)
   where
     theTime :: UTCTime

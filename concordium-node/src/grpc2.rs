@@ -22,7 +22,10 @@ pub mod types {
     use crate::configuration::PROTOCOL_MAX_TRANSACTION_SIZE;
 
     use super::Require;
-    use concordium_base::{common::Versioned, transactions::PayloadLike};
+    use concordium_base::{
+        common::{Version, Versioned},
+        transactions::PayloadLike,
+    };
     use std::convert::{TryFrom, TryInto};
 
     /// Types generated from the protocol-level-tokens.proto file.
@@ -640,12 +643,255 @@ pub mod types {
                     )))
                 }
                 send_block_item_request::BlockItem::RawBlockItem(bytes) => {
-                    let mut data = concordium_base::common::to_bytes(&Versioned::new(0.into(), ()));
+                    let mut data = concordium_base::common::to_bytes(&Version::from(0));
                     // Add raw bytes in a separate step to avoid encoding the length
                     data.extend_from_slice(&bytes);
                     Ok(data)
                 }
             }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::collections::HashMap;
+        #[test]
+        fn test_send_block_item_request_get_v0_format_account_transaction() {
+            // Prepare minimal valid AccountTransaction fields.
+            let sender = Some(AccountAddress {
+                value: vec![37u8; 32],
+            });
+            let sequence_number = Some(SequenceNumber { value: 1 });
+            let energy_amount = Some(Energy { value: 1000 });
+            let expiry = Some(TransactionTime { value: 123456 });
+            let header = Some(AccountTransactionHeader {
+                sender,
+                sequence_number,
+                energy_amount,
+                expiry,
+            });
+
+            // Use a simple transfer payload.
+            let receiver = Some(AccountAddress {
+                value: vec![1u8; 32],
+            });
+            let amount = Some(Amount { value: 42 });
+            let payload = Some(AccountTransactionPayload {
+                payload: Some(account_transaction_payload::Payload::Transfer(
+                    TransferPayload { receiver, amount },
+                )),
+            });
+
+            let signature = Some(AccountTransactionSignature {
+                signatures: HashMap::from([(
+                    0,
+                    AccountSignatureMap {
+                        signatures: HashMap::from([(
+                            0,
+                            Signature {
+                                value: vec![2u8; 64],
+                            },
+                        )]),
+                    },
+                )]),
+            });
+
+            let at = AccountTransaction {
+                header,
+                payload,
+                signature,
+            };
+
+            let req = SendBlockItemRequest {
+                block_item: Some(send_block_item_request::BlockItem::AccountTransaction(at)),
+            };
+
+            // Call get_v0_format and check the result.
+            let result = req.get_v0_format();
+            assert!(result.is_ok());
+            let data = result.unwrap();
+
+            assert_eq!(
+                data,
+                [
+                    0, // Version (0)
+                    0, // Tag for AccountTransaction (0)
+                    1, // One account signature
+                    0, // Credential index 0
+                    1, // One credential signature
+                    0, // Key index 0
+                    0, 64, // Signature length (64)
+                    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+                    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, // Signature (64 bytes, all 2)
+                    37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37,
+                    37, 37, 37, 37, 37, 37, 37, 37, 37, 37, 37,
+                    37, // Sender (32 bytes, all 37)
+                    0, 0, 0, 0, 0, 0, 0, 1, // Sequence number (1)
+                    0, 0, 0, 0, 0, 0, 3, 232, // Energy amount (1000)
+                    0, 0, 0, 41, // Payload size (41 bytes)
+                    0, 0, 0, 0, 0, 1, 226, 64, // Expiry (123456)
+                    3,  // Transfer payload
+                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                    1, 1, 1, 1, 1, 1, // Receiver (32 bytes, all 1)
+                    0, 0, 0, 0, 0, 0, 0, 42 // Amount (42)
+                ]
+            );
+        }
+        #[test]
+        fn test_send_block_item_request_get_v0_format_account_transaction_v1() {
+            // Prepare minimal valid AccountTransactionV1 fields.
+            let sender = Some(AccountAddress {
+                value: vec![42u8; 32],
+            });
+            let sequence_number = Some(SequenceNumber { value: 2 });
+            let energy_amount = Some(Energy { value: 2000 });
+            let expiry = Some(TransactionTime { value: 654321 });
+            let sponsor = Some(AccountAddress {
+                value: vec![99u8; 32],
+            });
+            let header = Some(AccountTransactionHeaderV1 {
+                sender,
+                sequence_number,
+                energy_amount,
+                expiry,
+                sponsor,
+            });
+
+            // Use a simple transfer with memo payload.
+            let receiver = Some(AccountAddress {
+                value: vec![12u8; 32],
+            });
+            let amount = Some(Amount { value: 123 });
+            let memo = Some(Memo {
+                value: vec![7u8; 32],
+            });
+            let payload = Some(AccountTransactionPayload {
+                payload: Some(account_transaction_payload::Payload::TransferWithMemo(
+                    TransferWithMemoPayload {
+                        receiver,
+                        amount,
+                        memo,
+                    },
+                )),
+            });
+
+            let signature = Some(AccountTransactionSignature {
+                signatures: HashMap::from([(
+                    1,
+                    AccountSignatureMap {
+                        signatures: HashMap::from([(
+                            2,
+                            Signature {
+                                value: vec![5u8; 64],
+                            },
+                        )]),
+                    },
+                )]),
+            });
+
+            let sponsor_signatures = Some(AccountTransactionSignature {
+                signatures: HashMap::from([(
+                    0,
+                    AccountSignatureMap {
+                        signatures: HashMap::from([(
+                            0,
+                            Signature {
+                                value: vec![8u8; 64],
+                            },
+                        )]),
+                    },
+                )]),
+            });
+
+            let signatures = Some(AccountTransactionV1Signatures {
+                sender_signatures: signature,
+                sponsor_signatures,
+            });
+
+            let atv1 = AccountTransactionV1 {
+                header,
+                payload,
+                signatures,
+            };
+
+            let req = SendBlockItemRequest {
+                block_item: Some(send_block_item_request::BlockItem::AccountTransactionV1(
+                    atv1,
+                )),
+            };
+
+            // Call get_v0_format and check the result.
+            let result = req.get_v0_format();
+            assert!(result.is_ok());
+            let data = result.unwrap();
+
+            assert_eq!(
+                data,
+                [
+                    0, // Version (0)
+                    3, // Tag for AccountTransactionV1 (3)
+                    1, // Sender: One account signature
+                    1, // Credential index 1
+                    1, // One credential signature
+                    2, // Key index 2
+                    0, 64, // Signature length (64)
+                    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+                    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+                    5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, // Signature (64 bytes, all 5)
+                    1, // Sponsor: One account signature
+                    0, // Credential index 0
+                    1, // One credential signature
+                    0, // Key index 0
+                    0, 64, // Signature length (64)
+                    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+                    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8,
+                    8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, // Signature (64 bytes, all 8)
+                    0, 1, // Bitmap fields (indicating presence of sponsor address)
+                    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+                    42, 42, 42, 42, 42, 42, 42, 42, 42, 42, 42,
+                    42, // Sender (32 bytes, all 42)
+                    0, 0, 0, 0, 0, 0, 0, 2, // Sequence number (2)
+                    0, 0, 0, 0, 0, 0, 7, 208, // Energy amount (2000)
+                    0, 0, 0, 75, // Payload size (75 bytes)
+                    0, 0, 0, 0, 0, 9, 251, 241, // Expiry (123456)
+                    99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+                    99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99,
+                    99, // Sponsor (32 bytes, all 99)
+                    22, // Transfer with memo payload
+                    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+                    12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12,
+                    12, // Receiver (32 bytes, all 12)
+                    0, 32, // Memo length (32 bytes)
+                    7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+                    7, 7, 7, 7, 7, 7, // Receiver (32 bytes, all 7)
+                    0, 0, 0, 0, 0, 0, 0, 123 // Amount (123)
+                ]
+            );
+        }
+
+        #[test]
+        fn test_send_block_item_request_get_v0_format_raw_block_item() {
+            use super::*;
+            // Prepare a raw block item with some bytes.
+            let raw_bytes = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+            let req = SendBlockItemRequest {
+                block_item: Some(send_block_item_request::BlockItem::RawBlockItem(
+                    raw_bytes.clone(),
+                )),
+            };
+
+            // Call get_v0_format and check the result.
+            let result = req.get_v0_format();
+            assert!(result.is_ok());
+            let data = result.unwrap();
+
+            // The result should start with the version prefix (0u8 as Version).
+            // The rest should be the raw bytes.
+            // Version serialization is just 1 byte for 0.
+            assert_eq!(data[0], 0);
+            assert_eq!(&data[1..], &raw_bytes[..]);
         }
     }
 }
