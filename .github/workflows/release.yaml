@@ -242,7 +242,7 @@ jobs:
           path: ${{ env.ARTIFACT_NAME }}
 
   node-windows:
-    runs-on: windows-2022  
+    runs-on: windows-latest  
     environment: release # This step needs to use the release context to access credentials for code signing.
     needs: [validate-preconditions]
     if: contains(fromJSON('["rc", "alpha", "node-windows"]'), needs.validate-preconditions.outputs.release_type)
@@ -268,7 +268,7 @@ jobs:
 
       - name: Install DigiCert Client tools (Windows only)
         id: digicert_client
-        uses: digicert/ssm-code-signing@v1.0.0
+        uses: digicert/code-signing-software-trust-action@v1.0.0
 
       - name: Import Windows certificate (Windows only)
         id: windows_certificate
