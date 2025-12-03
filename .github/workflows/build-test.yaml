@@ -227,9 +227,14 @@ jobs:
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}
 
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
-    - name: Build consensus and run tests
+    - name: Build consensus and run tests (with code coverage)
       run: |
-        stack build concordium-consensus --test --bench --force-dirty --no-run-benchmarks --ghc-options "-Werror" --ghc-options -j
+        stack build concordium-consensus --test --bench --force-dirty --no-run-benchmarks --ghc-options "-Werror" --ghc-options -j --coverage
+
+    - name: Generate Haskell codecov report
+      run: |
+        stack install hpc-codecov
+        hpc-codecov stack:all -o codecov-haskell.json
 
     # RUST #
 
@@ -284,3 +289,4 @@ jobs:
         fail_ci_if_error: false
         token: ${{ secrets.CODECOV_TOKEN }}
         verbose: true
+        files: lcov.info,codecov-haskell.json
