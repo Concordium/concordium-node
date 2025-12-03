@@ -28,6 +28,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Word
 import Lens.Micro.Platform
+import System.IO.Temp
 import Test.HUnit
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -206,9 +207,10 @@ runTestBlockStateWithCacheSize :: Int -> PersistentBSM pv a -> IO a
 runTestBlockStateWithCacheSize cacheSize computation =
     runSilentLogger $
         Blob.runBlobStoreTemp "." $
-            BS.withNewAccountCacheAndLMDBAccountMap cacheSize "accountmap" $
-                BS.runPersistentBlockStateMonad $
-                    _runPersistentBSM computation
+            withTempDirectory "." "accountmap" $ \amPath ->
+                BS.withNewAccountCacheAndLMDBAccountMap cacheSize amPath $
+                    BS.runPersistentBlockStateMonad $
+                        _runPersistentBSM computation
 
 -- | Run test block state computation with a account cache size and module cache size of 100.
 --
