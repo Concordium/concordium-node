@@ -155,8 +155,8 @@ testExtendedTransactionP9 = do
                 [(0, [(0, keypair 3)])]
                 Nothing
 
--- | Test a sponsored transaction where the sender has insufficient balance to cover the transfer
---  amount is rejected (but added to the block) in P10.
+-- | Test that a sponsored transaction where the sender has insufficient balance to cover the
+--   transfer amount is rejected (but added to the block) in P10.
 testSponsoredTransferRejectP10 :: Expectation
 testSponsoredTransferRejectP10 = do
     expectation <- Helpers.runTestBlockState $ do
@@ -498,10 +498,12 @@ testVerifyChangeSponsorKeySponsoredTransferSuccessP10 = do
                                 ],
                           credThreshold = 1
                         }
+            -- Add a new key to credential 0 of the sponsor.
             mbs1 <- bsoSetAccountCredentialKeys mbs0 0 0 newKeys
             gc <- bsoGetCryptoParams mbs1
             let cred = dummyCredential gc (acc 0) (SigScheme.correspondingVerifyKey (keypair 200)) (YearMonth 3000 1) (YearMonth 2000 1)
             let addCreds = Map.singleton 1 cred
+            -- Add a new credential to the sponsor account.
             mbs2 <- bsoUpdateAccountCredentials mbs1 0 [] addCreds 1
             freezeBlockState mbs2
         (result, finalState) <- Helpers.runScheduler Helpers.defaultTestConfig keyChangeState transactions
@@ -579,6 +581,7 @@ testVerifyChangeSponsorKeySponsoredTransferFailureIncreaseThresholdP10 = do
                                 ],
                           credThreshold = 2
                         }
+            -- Add a new key to credential 0 of the sponsor, updating the threshold to 2.
             mbs1 <- bsoSetAccountCredentialKeys mbs0 0 0 newKeys
             freezeBlockState mbs1
         (result, finalState) <- Helpers.runScheduler Helpers.defaultTestConfig keyChangeState transactions
@@ -619,6 +622,7 @@ testVerifyChangeSponsorKeySponsoredTransferFailureIncreaseCredentialThresholdP10
             gc <- bsoGetCryptoParams mbs0
             let cred = dummyCredential gc (acc 0) (SigScheme.correspondingVerifyKey (keypair 200)) (YearMonth 3000 1) (YearMonth 2000 1)
             let addCreds = Map.singleton 1 cred
+            -- Add a new credential to the sponsor account, updating the threshold to 2.
             mbs1 <- bsoUpdateAccountCredentials mbs0 0 [] addCreds 2
             freezeBlockState mbs1
         (result, finalState) <- Helpers.runScheduler Helpers.defaultTestConfig keyChangeState transactions
@@ -665,10 +669,12 @@ testVerifyChangeSenderKeySponsoredTransferSuccessP10 = do
                                 ],
                           credThreshold = 1
                         }
+            -- Add a new key to credential 0 of the sender.
             mbs1 <- bsoSetAccountCredentialKeys mbs0 2 0 newKeys
             gc <- bsoGetCryptoParams mbs1
             let cred = dummyCredential gc (acc 0) (SigScheme.correspondingVerifyKey (keypair 200)) (YearMonth 3000 1) (YearMonth 2000 1)
             let addCreds = Map.singleton 1 cred
+            -- Add a new credential to the sender account.
             mbs2 <- bsoUpdateAccountCredentials mbs1 2 [] addCreds 1
             freezeBlockState mbs2
         (result, finalState) <- Helpers.runScheduler Helpers.defaultTestConfig keyChangeState transactions
@@ -746,6 +752,7 @@ testVerifyChangeSenderKeySponsoredTransferFailureIncreaseThresholdP10 = do
                                 ],
                           credThreshold = 2
                         }
+            -- Add a new key to credential 0 of the sender increasing the threshold to 2.
             mbs1 <- bsoSetAccountCredentialKeys mbs0 2 0 newKeys
             freezeBlockState mbs1
         (result, finalState) <- Helpers.runScheduler Helpers.defaultTestConfig keyChangeState transactions
@@ -784,8 +791,10 @@ testVerifyChangeSenderKeySponsoredTransferFailureIncreaseCredentialThresholdP10 
         keyChangeState <- do
             mbs0 <- thawBlockState initialState
             gc <- bsoGetCryptoParams mbs0
-            let cred = dummyCredential gc (acc 2) (SigScheme.correspondingVerifyKey (keypair 200)) (YearMonth 3000 1) (YearMonth 2000 1)
+            let dummyPubKey = SigScheme.correspondingVerifyKey (keypair 200)
+            let cred = dummyCredential gc (acc 2) dummyPubKey (YearMonth 3000 1) (YearMonth 2000 1)
             let addCreds = Map.singleton 1 cred
+            -- Add a new credential to the sender increasing the threshold to 2.
             mbs1 <- bsoUpdateAccountCredentials mbs0 2 [] addCreds 2
             freezeBlockState mbs1
         (result, finalState) <- Helpers.runScheduler Helpers.defaultTestConfig keyChangeState transactions
