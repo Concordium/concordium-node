@@ -1,4 +1,5 @@
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::id::types::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_deployment_unit::TokenRawAmount;
 
@@ -169,6 +170,49 @@ pub trait BlockStateOperations {
     fn set_token_state(&mut self, token_index: TokenIndex, mutable_token_state: MutableTokenState);
 }
 
+/// Operations on the scheduler state.
+pub trait SchedulerOperations {
+    /// The account initiating the transaction.
+    fn sender_account(&self) -> AccountIndex;
+
+    /// The address of the account initiating the transaction.
+    fn sender_account_address(&self) -> AccountAddress;
+
+    /// Get the amount of energy remaining for the execution.
+    fn get_energy(&self) -> Energy;
+
+    /// Reduce the available energy for the execution.
+    ///
+    /// # Arguments
+    ///
+    /// - `energy` The amount of energy to charge.
+    ///
+    /// # Errors
+    ///
+    /// - [`OutOfEnergyError`] If the available energy is smaller than the ticked amount.
+    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError>;
+}
+
+/// Transaction execution ran out of energy.
+#[derive(Debug)]
+pub struct OutOfEnergyError;
+
 /// The computation resulted in overflow.
 #[derive(Debug)]
 pub struct OverflowError;
+
+#[derive(Debug)]
+pub enum TransactionRejectReason {}
+
+pub type TransactionPayload = Vec<u8>;
+pub type Events = ();
+
+/// Execute a transaction payload modifying `scheduler` and `block_state` accordingly.
+/// Returns the events produce if successful otherwise a reject reason.
+pub fn execute_transaction(
+    _scheduler: &mut impl SchedulerOperations,
+    _block_state: &mut impl BlockStateOperations,
+    _payload: TransactionPayload,
+) -> Result<Events, TransactionRejectReason> {
+    todo!()
+}
