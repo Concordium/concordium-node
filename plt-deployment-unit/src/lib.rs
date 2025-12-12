@@ -132,6 +132,8 @@ pub trait HostOperations {
     fn log_token_event(&mut self, event_type: TokenEventType, event_details: TokenEventDetails);
 }
 
+/// Extension trait for `HostOperations` to provide convenience wrappers for
+/// module state access and updating.
 trait HostOperationsExt: HostOperations {
     /// Set or clear a value in the token module state at the corresponding key.
     fn set_module_state<'a>(
@@ -147,14 +149,14 @@ trait HostOperationsExt: HostOperations {
 impl<T: HostOperations> HostOperationsExt for T {}
 
 /// Little-endian prefix used to distinguish module state keys.
-const MODULE_STATE_PREFIX: u16 = 0;
+const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
 
 /// Construct a [`StateKey`] for a module key. This prefixes the key to
 /// distinguish it from other keys.
 fn module_state_key<'a>(key: impl IntoIterator<Item = &'a u8>) -> StateKey {
     let iter = key.into_iter();
-    let mut module_key = Vec::with_capacity(2 + iter.size_hint().0);
-    module_key.extend_from_slice(&MODULE_STATE_PREFIX.to_le_bytes());
+    let mut module_key = Vec::with_capacity(MODULE_STATE_PREFIX.len() + iter.size_hint().0);
+    module_key.extend_from_slice(&MODULE_STATE_PREFIX);
     module_key.extend(iter);
     module_key
 }
@@ -182,7 +184,7 @@ pub enum InitError {
     LockedStateKey(#[from] LockedStateKeyError),
     #[error("The given governance account does not exist: {0}")]
     GovernanceAccountDoesNotExist(AccountAddress),
-    #[error("Invalid mint amount: {0}")]
+    #[error("The initial mint amount was not valid: {0}")]
     InvalidMintAmount(anyhow::Error),
 }
 
@@ -195,8 +197,6 @@ impl From<CborSerializationError> for InitError {
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
-    #[error("")]
-    DeserializationFailure(anyhow::Error),
 }
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug)]

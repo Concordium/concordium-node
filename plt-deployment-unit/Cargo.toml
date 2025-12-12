@@ -13,3 +13,6 @@ getrandom = { version = "0.2", features = ["custom"]}
 thiserror = "2.0"
 anyhow = "1.0"
 itertools = "0.14.0"
+
+[dev-dependencies]
+assert_matches = "1.5"

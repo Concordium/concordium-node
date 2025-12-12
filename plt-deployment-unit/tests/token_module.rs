@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use assert_matches::assert_matches;
 use concordium_base::{
     common::cbor::{cbor_encode, value::Value},
     protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters},
@@ -17,13 +18,11 @@ fn test_initialize_token_parameters_decode_failiure() {
         (1.into(), TEST_ACCOUNT1, None),
     ]);
     let res = plt_deployment_unit::initialize_token(&mut host, vec![].into());
-    match res {
-        Err(InitError::DeserializationFailure(e)) => {
-            assert_eq!(e.to_string(), "IO error: failed to fill whole buffer");
-        }
-        Err(e) => panic!("Expected DeserializationFailure, but saw: {}", e),
-        Ok(()) => panic!("Expected DeserializationFailure, but saw success."),
-    }
+    assert_matches!(
+        res,
+        Err(InitError::DeserializationFailure(ref e))
+            if e.to_string() == "IO error: failed to fill whole buffer"
+    );
 }
 
 /// In this example, a parameter is missing from the required initialization parameters.
@@ -46,13 +45,10 @@ fn test_initialize_token_parameters_missing() {
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
     let res = plt_deployment_unit::initialize_token(&mut host, encoded_parameters);
-    match res {
-        Err(InitError::DeserializationFailure(e)) => {
-            assert_eq!(e.to_string(), "Token name is missing");
-        }
-        Err(e) => panic!("Expected DeserializationFailure, but saw: {}", e),
-        Ok(()) => panic!("Expected DeserializationFailure, but saw success."),
-    }
+    assert_matches!(res,
+        Err(InitError::DeserializationFailure(e))
+            if e.to_string() == "Token name is missing"
+    );
 }
 
 /// In this example, an unsupported additional parameter is present in the
@@ -78,13 +74,11 @@ fn test_initiailize_token_additional_parameter() {
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
     let res = plt_deployment_unit::initialize_token(&mut host, encoded_parameters);
-    match res {
-        Err(InitError::DeserializationFailure(e)) => {
-            assert_eq!(e.to_string(), "Unknown additional parameters: _param1");
-        }
-        Err(e) => panic!("Expected DeserializationFailure, but saw: {}", e),
-        Ok(()) => panic!("Expected DeserializationFailure, but saw success."),
-    }
+    assert_matches!(
+        res,
+        Err(InitError::DeserializationFailure(e))
+            if e.to_string() == "Unknown additional parameters: _param1"
+    );
 }
 
 /// In this example, minimal parameters are specified to check defaulting
@@ -214,16 +208,11 @@ fn test_initiailize_token_excessive_mint_decimals() {
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
     let res = plt_deployment_unit::initialize_token(&mut host, encoded_parameters);
-    match res {
-        Err(InitError::InvalidMintAmount(e)) => {
-            assert_eq!(
-                e.to_string(),
-                "Token amount decimals mismatch: expected 2, found 6"
-            );
-        }
-        Err(e) => panic!("Expected InvalidMintAmount, but saw: {}", e),
-        Ok(()) => panic!("Expected InvalidMintAmount, but saw success."),
-    }
+    assert_matches!(
+        res,
+        Err(InitError::InvalidMintAmount(e))
+            if e.to_string() == "Token amount decimals mismatch: expected 2, found 6"
+    );
 }
 
 /// In this example, the parameters specify an initial supply with less precision
@@ -249,14 +238,9 @@ fn test_initiailize_token_insufficient_mint_decimals() {
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
     let res = plt_deployment_unit::initialize_token(&mut host, encoded_parameters);
-    match res {
-        Err(InitError::InvalidMintAmount(e)) => {
-            assert_eq!(
-                e.to_string(),
-                "Token amount decimals mismatch: expected 6, found 2"
-            );
-        }
-        Err(e) => panic!("Expected InvalidMintAmount, but saw: {}", e),
-        Ok(()) => panic!("Expected InvalidMintAmount, but saw success."),
-    }
+    assert_matches!(
+        res,
+        Err(InitError::InvalidMintAmount(e))
+            if e.to_string() == "Token amount decimals mismatch: expected 6, found 2"
+    );
 }
