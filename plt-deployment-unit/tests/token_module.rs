@@ -6,7 +6,7 @@ use concordium_base::{
     protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters},
 };
 use host_stub::{HostStub, TEST_ACCOUNT0, TEST_ACCOUNT1};
-use plt_deployment_unit::{self, InitError};
+use plt_deployment_unit::token_module::{self, InitError};
 
 mod host_stub;
 
@@ -17,7 +17,7 @@ fn test_initialize_token_parameters_decode_failiure() {
         (0.into(), TEST_ACCOUNT0, None),
         (1.into(), TEST_ACCOUNT1, None),
     ]);
-    let res = plt_deployment_unit::initialize_token(&mut host, vec![].into());
+    let res = token_module::initialize_token(&mut host, vec![].into());
     assert_matches!(
         res,
         Err(InitError::DeserializationFailure(ref e))
@@ -44,7 +44,7 @@ fn test_initialize_token_parameters_missing() {
         additional: Default::default(),
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
-    let res = plt_deployment_unit::initialize_token(&mut host, encoded_parameters);
+    let res = token_module::initialize_token(&mut host, encoded_parameters);
     assert_matches!(res,
         Err(InitError::DeserializationFailure(e))
             if e.to_string() == "Token name is missing"
@@ -73,7 +73,7 @@ fn test_initiailize_token_additional_parameter() {
         additional,
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
-    let res = plt_deployment_unit::initialize_token(&mut host, encoded_parameters);
+    let res = token_module::initialize_token(&mut host, encoded_parameters);
     assert_matches!(
         res,
         Err(InitError::DeserializationFailure(e))
@@ -104,7 +104,7 @@ fn test_initiailize_token_default_values() {
         additional: Default::default(),
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
-    plt_deployment_unit::initialize_token(&mut host, encoded_parameters).unwrap();
+    token_module::initialize_token(&mut host, encoded_parameters).unwrap();
     assert_eq!(host.accounts, init_accounts);
     let mut expected_state = HashMap::with_capacity(3);
     expected_state.insert(b"\0\0name".into(), b"Protocol-level token".into());
@@ -135,7 +135,7 @@ fn test_initiailize_token_valid_1() {
         additional: Default::default(),
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
-    plt_deployment_unit::initialize_token(&mut host, encoded_parameters).unwrap();
+    token_module::initialize_token(&mut host, encoded_parameters).unwrap();
     assert_eq!(host.accounts, init_accounts);
     let mut expected_state = HashMap::with_capacity(3);
     expected_state.insert(b"\0\0name".into(), b"Protocol-level token".into());
@@ -170,7 +170,7 @@ fn test_initiailize_token_valid_2() {
         additional: Default::default(),
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
-    plt_deployment_unit::initialize_token(&mut host, encoded_parameters).unwrap();
+    token_module::initialize_token(&mut host, encoded_parameters).unwrap();
     for account in accounts.iter_mut() {
         if account.index == 1.into() {
             account.balance = Some(500000);
@@ -207,7 +207,7 @@ fn test_initiailize_token_excessive_mint_decimals() {
         additional: Default::default(),
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
-    let res = plt_deployment_unit::initialize_token(&mut host, encoded_parameters);
+    let res = token_module::initialize_token(&mut host, encoded_parameters);
     assert_matches!(
         res,
         Err(InitError::InvalidMintAmount(e))
@@ -237,7 +237,7 @@ fn test_initiailize_token_insufficient_mint_decimals() {
         additional: Default::default(),
     };
     let encoded_parameters = cbor_encode(&parameters).unwrap().into();
-    let res = plt_deployment_unit::initialize_token(&mut host, encoded_parameters);
+    let res = token_module::initialize_token(&mut host, encoded_parameters);
     assert_matches!(
         res,
         Err(InitError::InvalidMintAmount(e))
