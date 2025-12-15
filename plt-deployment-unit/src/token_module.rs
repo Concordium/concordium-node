@@ -2,13 +2,13 @@
 use crate::host_interface::*;
 use anyhow::anyhow;
 use concordium_base::base::{AccountIndex, Energy};
-use concordium_base::common::Serial;
 use concordium_base::common::cbor::value::Value;
 use concordium_base::common::cbor::{
-    CborSerializationError, SerializationOptions, UnknownMapKeys, cbor_decode_with_options,
-    cbor_encode,
+    cbor_decode_with_options, cbor_encode, CborSerializationError, SerializationOptions,
+    UnknownMapKeys,
 };
 use concordium_base::common::upward::{CborUpward, Upward};
+use concordium_base::common::Serial;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, RawCbor, TokenAmount,
@@ -461,11 +461,11 @@ where
                 let target_index = host.account_index(&target);
                 host.set_account_state(target_index, STATE_KEY_ALLOW_LIST, Some(Vec::new()));
             }
-            TokenOperation::RemoveAllowList(token_list_update_details) => todo!(),
-            TokenOperation::AddDenyList(token_list_update_details) => todo!(),
-            TokenOperation::RemoveDenyList(token_list_update_details) => todo!(),
-            TokenOperation::Pause(token_pause_details) => todo!(),
-            TokenOperation::Unpause(token_pause_details) => todo!(),
+            TokenOperation::RemoveAllowList(_token_list_update_details) => todo!(),
+            TokenOperation::AddDenyList(_token_list_update_details) => todo!(),
+            TokenOperation::RemoveDenyList(_token_list_update_details) => todo!(),
+            TokenOperation::Pause(_token_pause_details) => todo!(),
+            TokenOperation::Unpause(_token_pause_details) => todo!(),
         }
     }
     Ok(())
