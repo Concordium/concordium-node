@@ -1,7 +1,7 @@
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::id::types::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
-use plt_deployment_unit::TokenRawAmount;
+use plt_deployment_unit::host_interface::TokenRawAmount;
 
 // Placeholder types to be defined or replaced with types from other crates.
 
