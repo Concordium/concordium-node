@@ -1080,6 +1080,7 @@ version = "0.1.0"
 dependencies = [
  "concordium_base",
  "derive_more 2.1.0",
+ "libc",
  "plt-deployment-unit",
 ]
 
