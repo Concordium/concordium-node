@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Memo;
-use plt_deployment_unit::{
+use plt_deployment_unit::host_interface::{
     AmountNotRepresentableError, HostOperations, InsufficientBalanceError, LockedStateKeyError,
     StateKey, StateValue, TokenEventDetails, TokenEventType,
 };
@@ -11,18 +13,22 @@ use plt_deployment_unit::{
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct HostStub {
     /// List of accounts existing.
-    accounts: Vec<Account>,
+    pub accounts: Vec<Account>,
+    /// Token managed state.
+    pub state: HashMap<StateKey, StateValue>,
+    /// Decimal places in token representation.
+    pub decimals: u8,
 }
 
 /// Internal representation of an Account in [`HostStub`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Account {
+pub struct Account {
     /// The index of the account
-    index: AccountIndex,
+    pub index: AccountIndex,
     /// The canonical account address of the account.
-    address: AccountAddress,
+    pub address: AccountAddress,
     /// The token balance of the account.
-    balance: Option<u64>,
+    pub balance: Option<u64>,
 }
 
 impl HostStub {
@@ -48,7 +54,11 @@ impl HostStub {
             })
             .collect();
 
-        Self { accounts }
+        Self {
+            accounts,
+            state: HashMap::new(),
+            decimals: 0,
+        }
     }
 }
 
@@ -62,10 +72,10 @@ pub struct AccountStubIndex(usize);
 impl HostOperations for HostStub {
     type Account = AccountStubIndex;
 
-    fn account_by_address(&self, address: AccountAddress) -> Option<Self::Account> {
+    fn account_by_address(&self, address: &AccountAddress) -> Option<Self::Account> {
         self.accounts.iter().enumerate().find_map(|(i, account)| {
             // TODO resolve an account alias as well here.
-            if account.address == address {
+            if account.address == *address {
                 Some(AccountStubIndex(i))
             } else {
                 None
@@ -83,19 +93,19 @@ impl HostOperations for HostStub {
         })
     }
 
-    fn account_index(&self, account: Self::Account) -> AccountIndex {
+    fn account_index(&self, account: &Self::Account) -> AccountIndex {
         self.accounts[account.0].index
     }
 
-    fn account_canonical_address(&self, account: Self::Account) -> AccountAddress {
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
         self.accounts[account.0].address
     }
 
-    fn account_balance(&self, account: Self::Account) -> u64 {
+    fn account_balance(&self, account: &Self::Account) -> u64 {
         self.accounts[account.0].balance.unwrap_or(0)
     }
 
-    fn touch(&mut self, account: Self::Account) -> bool {
+    fn touch(&mut self, account: &Self::Account) -> bool {
         if self.accounts[account.0].balance.is_some() {
             false
         } else {
@@ -106,15 +116,25 @@ impl HostOperations for HostStub {
 
     fn mint(
         &mut self,
-        _account: Self::Account,
-        _amount: u64,
+        account: &Self::Account,
+        amount: u64,
     ) -> Result<(), AmountNotRepresentableError> {
-        todo!()
+        if let Some(balance) = self.accounts[account.0].balance {
+            if balance > u64::MAX - amount {
+                Err(AmountNotRepresentableError)
+            } else {
+                self.accounts[account.0].balance = Some(balance + amount);
+                Ok(())
+            }
+        } else {
+            self.accounts[account.0].balance = Some(amount);
+            Ok(())
+        }
     }
 
     fn burn(
         &mut self,
-        _account: Self::Account,
+        _account: &Self::Account,
         _amount: u64,
     ) -> Result<(), InsufficientBalanceError> {
         todo!()
@@ -122,8 +142,8 @@ impl HostOperations for HostStub {
 
     fn transfer(
         &mut self,
-        _from: Self::Account,
-        _to: Self::Account,
+        _from: &Self::Account,
+        _to: &Self::Account,
         _amount: u64,
         _memo: Option<Memo>,
     ) -> Result<(), InsufficientBalanceError> {
@@ -135,19 +155,23 @@ impl HostOperations for HostStub {
     }
 
     fn decimals(&self) -> u8 {
-        todo!()
+        self.decimals
     }
 
-    fn get_token_state(&self, _key: StateKey) -> Option<StateValue> {
-        todo!()
+    fn get_token_state(&self, key: StateKey) -> Option<StateValue> {
+        self.state.get(&key).cloned()
     }
 
     fn set_token_state(
         &mut self,
-        _key: StateKey,
-        _value: Option<StateValue>,
+        key: StateKey,
+        value: Option<StateValue>,
     ) -> Result<bool, LockedStateKeyError> {
-        todo!()
+        let res = match value {
+            None => self.state.remove(&key).is_some(),
+            Some(value) => self.state.insert(key, value).is_some(),
+        };
+        Ok(res)
     }
 
     fn tick_energy(&mut self, _energy: Energy) {
@@ -161,9 +185,9 @@ impl HostOperations for HostStub {
 
 // Tests for the HostStub
 
-const TEST_ACCOUNT0: AccountAddress = AccountAddress([0u8; 32]);
-const TEST_ACCOUNT1: AccountAddress = AccountAddress([1u8; 32]);
-const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
+pub const TEST_ACCOUNT0: AccountAddress = AccountAddress([0u8; 32]);
+pub const TEST_ACCOUNT1: AccountAddress = AccountAddress([1u8; 32]);
+pub const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
 
 #[test]
 fn test_account_lookup() {
@@ -173,13 +197,13 @@ fn test_account_lookup() {
     ]);
 
     let _ = host
-        .account_by_address(TEST_ACCOUNT0)
+        .account_by_address(&TEST_ACCOUNT0)
         .expect("Account is expected to exist");
     let _ = host
-        .account_by_address(TEST_ACCOUNT1)
+        .account_by_address(&TEST_ACCOUNT1)
         .expect("Account is expected to exist");
     assert!(
-        host.account_by_address(TEST_ACCOUNT2).is_none(),
+        host.account_by_address(&TEST_ACCOUNT2).is_none(),
         "Account is not expected to exist"
     );
     // TODO test lookup using alias.
@@ -204,16 +228,16 @@ fn test_account_balance() {
     ]);
     {
         let account = host
-            .account_by_address(TEST_ACCOUNT0)
+            .account_by_address(&TEST_ACCOUNT0)
             .expect("Account is expected to exist");
-        let balance = host.account_balance(account);
+        let balance = host.account_balance(&account);
         assert_eq!(balance, 245);
     }
     {
         let account = host
-            .account_by_address(TEST_ACCOUNT1)
+            .account_by_address(&TEST_ACCOUNT1)
             .expect("Account is expected to exist");
-        let balance = host.account_balance(account);
+        let balance = host.account_balance(&account);
         assert_eq!(balance, 0);
     }
 }
@@ -226,16 +250,16 @@ fn test_account_canonical_address() {
     ]);
     {
         let account = host
-            .account_by_address(TEST_ACCOUNT0)
+            .account_by_address(&TEST_ACCOUNT0)
             .expect("Account is expected to exist");
-        let balance = host.account_balance(account);
+        let balance = host.account_balance(&account);
         assert_eq!(balance, 245);
     }
     {
         let account = host
-            .account_by_address(TEST_ACCOUNT1)
+            .account_by_address(&TEST_ACCOUNT1)
             .expect("Account is expected to exist");
-        let balance = host.account_balance(account);
+        let balance = host.account_balance(&account);
         assert_eq!(balance, 0);
     }
 }
