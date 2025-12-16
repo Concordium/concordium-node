@@ -1,0 +1,42 @@
+name: Build ghc with statically linked libraries
+on:
+  workflow_dispatch:
+    inputs:
+      ghcVersion:
+        description: Specify the version of GHC to build
+        required: true
+jobs:
+  build-ghc:
+    name: Build ghc for linux x64
+    runs-on: ubuntu-latest
+    steps:
+     - name: Checkout Repository
+       uses: actions/checkout@v4
+     - name: Run the build script
+       run: ./scripts/build-static-ghc.sh ${{ github.event.inputs.ghcVersion }} ${{ runner.temp }}
+     - name: Upload artifacts
+       uses: actions/upload-artifact@v6
+       with:
+         name: ghc
+         if-no-files-found: error
+         compression-level: 0 # no compression since this is already compressed
+         path: |
+           ${{ runner.temp }}/ghc-${{ github.event.inputs.ghcVersion }}/_build/bindist/ghc-${{ github.event.inputs.ghcVersion }}-x86_64-unknown-linux.tar.xz
+  upload:
+    name: Upload to S3
+    runs-on: ubuntu-latest
+    environment: s3-push
+    steps:
+     - name: Setup AWS CLI
+       uses: aws-actions/configure-aws-credentials@v1
+       with:
+         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+         aws-region: us-east-1
+     - name: Download artifacts
+       uses: actions/download-artifact@v7
+       with:
+         name: ghc
+     - name: Upload to S3
+       run: |
+         aws s3 cp ghc/ghc-${{ github.event.inputs.ghcVersion }}-x86_64-unknown-linux.tar.xz s3://static-libraries.concordium.com/ --grants read=uri=http://acs.amazonaws.com/groups/global/AllUsers
