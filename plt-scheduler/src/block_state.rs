@@ -2,6 +2,13 @@ use crate::BlockStateOperations;
 
 pub struct BlockState {}
 
+impl BlockState {
+    /// Initialize a new block state.
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
 impl BlockStateOperations for BlockState {
     fn get_plt_list(
         &self,
