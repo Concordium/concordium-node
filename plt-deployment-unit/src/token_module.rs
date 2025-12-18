@@ -1,6 +1,5 @@
-//! Implementation of the protocol-level token module.car
+//! Implementation of the protocol-level token module.
 use crate::host_interface::*;
-use anyhow::anyhow;
 use concordium_base::common::cbor::{
     CborSerializationError, SerializationOptions, UnknownMapKeys, cbor_decode_with_options,
     cbor_encode,
@@ -9,7 +8,6 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenModuleInitializationParameters,
 };
-use itertools::Itertools;
 
 /// Extension trait for `HostOperations` to provide convenience wrappers for
 /// module state access and updating.
@@ -44,18 +42,18 @@ fn module_state_key<'a>(key: impl IntoIterator<Item = &'a u8>) -> StateKey {
 #[derive(Debug, thiserror::Error)]
 pub enum InitError {
     #[error("Token initialization parameters could not be deserialized: {0}")]
-    DeserializationFailure(anyhow::Error),
+    DeserializationFailure(String),
     #[error("{0}")]
     LockedStateKey(#[from] LockedStateKeyError),
     #[error("The given governance account does not exist: {0}")]
     GovernanceAccountDoesNotExist(AccountAddress),
     #[error("The initial mint amount was not valid: {0}")]
-    InvalidMintAmount(anyhow::Error),
+    InvalidMintAmount(String),
 }
 
 impl From<CborSerializationError> for InitError {
     fn from(value: CborSerializationError) -> Self {
-        Self::DeserializationFailure(value.into())
+        Self::DeserializationFailure(value.to_string())
     }
 }
 
@@ -115,25 +113,30 @@ pub fn initialize_token(
     let parameter: TokenModuleInitializationParameters =
         cbor_decode_with_options(token_parameter, decode_options)?;
     if !parameter.additional.is_empty() {
-        return Err(InitError::DeserializationFailure(anyhow!(
+        return Err(InitError::DeserializationFailure(format!(
             "Unknown additional parameters: {}",
-            parameter.additional.keys().join(", ")
+            parameter
+                .additional
+                .keys()
+                .map(|k| k.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )));
     }
     let Some(name) = parameter.name else {
-        return Err(InitError::DeserializationFailure(anyhow!(
-            "Token name is missing"
-        )));
+        return Err(InitError::DeserializationFailure(
+            "Token name is missing".to_string(),
+        ));
     };
     let Some(metadata) = parameter.metadata else {
-        return Err(InitError::DeserializationFailure(anyhow!(
-            "Token metadata is missing"
-        )));
+        return Err(InitError::DeserializationFailure(
+            "Token metadata is missing".to_string(),
+        ));
     };
     let Some(governance_account) = parameter.governance_account else {
-        return Err(InitError::DeserializationFailure(anyhow!(
-            "Token governance account is missing"
-        )));
+        return Err(InitError::DeserializationFailure(
+            "Token governance account is missing".to_string(),
+        ));
     };
     host.set_module_state(STATE_KEY_NAME, Some(name.into()))?;
     let encoded_metadata = cbor_encode(&metadata)?;
@@ -162,9 +165,9 @@ pub fn initialize_token(
     )?;
     if let Some(initial_supply) = parameter.initial_supply {
         let mint_amount = to_token_raw_amount(initial_supply, host.decimals())
-            .map_err(|e| InitError::InvalidMintAmount(e.into()))?;
+            .map_err(|e| InitError::InvalidMintAmount(e.to_string()))?;
         host.mint(&governance_account, mint_amount)
-            .map_err(|_| InitError::InvalidMintAmount(anyhow!("Kernel failed to mint")))?;
+            .map_err(|_| InitError::InvalidMintAmount("Kernel failed to mint".to_string()))?;
     }
     Ok(())
 }
