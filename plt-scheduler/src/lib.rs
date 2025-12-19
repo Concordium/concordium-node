@@ -11,7 +11,7 @@ mod ffi;
 
 pub type MutableTokenState = ();
 pub type PLTConfiguration = ();
-pub type TokenAmountDelta = ();
+pub type TokenAmountDelta = i128;
 
 /// Index of the protocol-level token in the block state map of tokens.
 #[derive(

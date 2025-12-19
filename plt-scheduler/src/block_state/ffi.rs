@@ -53,6 +53,7 @@ extern "C" fn ffi_empty_plt_block_state() -> *mut block_state::BlockStateSavepoi
 /// - Freeing is only ever done once.
 #[no_mangle]
 unsafe extern "C" fn ffi_free_plt_block_state(block_state: *mut block_state::BlockStateSavepoint) {
+    debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
     let state = Box::from_raw(block_state);
     drop(state);
 }
@@ -61,6 +62,7 @@ unsafe extern "C" fn ffi_free_plt_block_state(block_state: *mut block_state::Blo
 ///
 /// # Arguments
 ///
+/// - `load_callback` External function to call for loading bytes a reference from the blob store.
 /// - `block_state` Pointer to the PLT block state to compute a hash for.
 /// - `destination` Unique pointer with location to write the 32 bytes for the hash.
 ///
@@ -73,6 +75,7 @@ unsafe extern "C" fn ffi_hash_plt_block_state(
     destination: *mut u8,
     block_state: *const block_state::BlockStateSavepoint,
 ) {
+    debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
     let block_state = &*block_state;
     let hash = block_state.hash(load_callback);
     std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len());
@@ -115,6 +118,7 @@ unsafe extern "C" fn ffi_store_plt_block_state(
     mut store_callback: StoreCallback,
     block_state: *mut block_state::BlockStateSavepoint,
 ) -> blob_store::Reference {
+    debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
     let block_state = &mut *block_state;
     match block_state.store_update(&mut store_callback) {
         Ok(r) => r,
@@ -142,6 +146,7 @@ unsafe extern "C" fn ffi_migrate_plt_block_state(
     mut store_callback: StoreCallback,
     block_state: *mut block_state::BlockStateSavepoint,
 ) -> *mut block_state::BlockStateSavepoint {
+    debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
     let block_state = &mut *block_state;
     match block_state.migrate(&load_callback, &mut store_callback) {
         Ok(new_block_state) => Box::into_raw(Box::new(new_block_state)),
@@ -164,9 +169,27 @@ unsafe extern "C" fn ffi_cache_plt_block_state(
     load_callback: LoadCallback,
     block_state: *mut block_state::BlockStateSavepoint,
 ) {
+    debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
     let block_state = &mut *block_state;
     block_state.cache(&load_callback)
 }
+
+/// External function for updating the token balance for an account.
+///
+/// Returns non-zero if the balance overflows.
+///
+/// # Arguments
+///
+/// - `account_index` The index of the account to update a token balance for.
+/// - `token_index` The index of the token.
+/// - `add_amount` The amount to add to the balance.
+/// - `remove_amount` The amount to subtract from the balance.
+///
+/// # Safety
+///
+/// Argument `account_index` must be a valid account index of an existing account.
+pub type UpdateTokenAccountBalanceCallback =
+    extern "C" fn(account_index: u64, token_index: u64, add_amount: u64, remove_amount: u64) -> u8;
 
 /// Runtime/execution state relevant for providing an implementation of
 /// [`crate::BlockStateOperations`].
@@ -180,6 +203,8 @@ pub(crate) struct ExecutionTimeBlockState {
     #[expect(dead_code)]
     /// External function for reading from the blob store.
     pub(crate) load_callback: LoadCallback,
+    /// External function for updating the token balance for an account.
+    pub(crate) update_token_account_balance_callback: UpdateTokenAccountBalanceCallback,
 }
 
 impl crate::BlockStateOperations for ExecutionTimeBlockState {
@@ -227,11 +252,30 @@ impl crate::BlockStateOperations for ExecutionTimeBlockState {
 
     fn update_token_account_balance(
         &mut self,
-        _token_index: crate::TokenIndex,
-        _account_index: concordium_base::base::AccountIndex,
-        _amount_delta: crate::TokenAmountDelta,
+        token_index: crate::TokenIndex,
+        account_index: concordium_base::base::AccountIndex,
+        amount_delta: crate::TokenAmountDelta,
     ) -> Result<(), crate::OverflowError> {
-        todo!()
+        let (add_amount, remove_amount) = if amount_delta.is_negative() {
+            let remove_amount =
+                u64::try_from(amount_delta.abs()).map_err(|_| crate::OverflowError)?;
+            (0, remove_amount)
+        } else {
+            let add_amount = u64::try_from(amount_delta).map_err(|_| crate::OverflowError)?;
+            (add_amount, 0)
+        };
+
+        let overflow = (self.update_token_account_balance_callback)(
+            account_index.into(),
+            token_index.into(),
+            add_amount,
+            remove_amount,
+        );
+        if overflow != 0 {
+            Err(crate::OverflowError)
+        } else {
+            Ok(())
+        }
     }
 
     fn touch_token_account(

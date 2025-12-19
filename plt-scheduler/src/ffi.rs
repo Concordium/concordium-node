@@ -15,6 +15,7 @@ use libc::size_t;
 /// # Arguments
 ///
 /// - `load_callback` External function to call for loading bytes a reference from the blob store.
+/// - `update_token_account_balance_callback` External function to call updating the token balance of an account.
 /// - `block_state` Unique pointer to a block state to mutate during execution.
 /// - `payload` Pointer to transaction payload bytes.
 /// - `payload_len` Byte length of transaction payload.
@@ -32,6 +33,7 @@ use libc::size_t;
 #[no_mangle]
 unsafe extern "C" fn ffi_execute_transaction(
     load_callback: block_state::ffi::LoadCallback,
+    update_token_account_balance_callback: block_state::ffi::UpdateTokenAccountBalanceCallback,
     block_state: *const block_state::BlockStateSavepoint,
     payload: *const u8,
     payload_len: size_t,
@@ -65,6 +67,7 @@ unsafe extern "C" fn ffi_execute_transaction(
     let mut block_state = block_state::ffi::ExecutionTimeBlockState {
         inner_block_state: (*block_state).new_generation(),
         load_callback,
+        update_token_account_balance_callback,
     };
     let result = crate::execute_transaction(&mut scheduler_state, &mut block_state, payload);
     let block_state = block_state.inner_block_state;
