@@ -3,10 +3,9 @@ use concordium_base::id::types::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_deployment_unit::host_interface::TokenRawAmount;
 
-mod block_state;
+pub mod block_state;
 #[cfg(feature = "ffi")]
 mod ffi;
-
 
 // Placeholder types to be defined or replaced with types from other crates.
 

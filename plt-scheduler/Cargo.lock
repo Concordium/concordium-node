@@ -1080,6 +1080,7 @@ dependencies = [
  "derive_more 2.1.0",
  "libc",
  "plt-deployment-unit",
+ "thiserror 2.0.17",
 ]
 
 [[package]]

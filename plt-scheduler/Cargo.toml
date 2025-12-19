@@ -14,3 +14,4 @@ concordium_base = {path = "../concordium-base/rust-src/concordium_base"}
 plt-deployment-unit = {path = "../plt-deployment-unit"}
 derive_more = { version = "2.1.0", features = ["into", "from"] }
 libc = { version = "0.2", optional = true }
+thiserror = "2.0.17"
