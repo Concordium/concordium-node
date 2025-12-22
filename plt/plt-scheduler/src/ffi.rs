@@ -18,10 +18,10 @@ use libc::size_t;
 /// # Safety
 ///
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn ffi_execute_transaction(payload: *const u8, payload_len: size_t) -> u8 {
     debug_assert!(!payload.is_null(), "Payload is a null pointer.");
-    let payload = std::slice::from_raw_parts(payload, payload_len);
+    let payload = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     let mut scheduler_state = SchedulerState {};
     let mut block_state = crate::block_state::BlockState {};
     match crate::execute_transaction(&mut scheduler_state, &mut block_state, payload) {

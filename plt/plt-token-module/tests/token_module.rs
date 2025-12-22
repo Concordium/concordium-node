@@ -6,7 +6,7 @@ use concordium_base::{
     protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters},
 };
 use host_stub::{HostStub, TEST_ACCOUNT0, TEST_ACCOUNT1};
-use plt_deployment_unit::token_module::{self, InitError};
+use plt_token_module::token_module::{self, InitError};
 
 mod host_stub;
 
@@ -21,7 +21,7 @@ fn test_initialize_token_parameters_decode_failiure() {
     assert_matches!(
         res,
         Err(InitError::DeserializationFailure(ref e))
-            if e.to_string() == "IO error: failed to fill whole buffer"
+            if e == "IO error: failed to fill whole buffer"
     );
 }
 
@@ -47,7 +47,7 @@ fn test_initialize_token_parameters_missing() {
     let res = token_module::initialize_token(&mut host, encoded_parameters);
     assert_matches!(res,
         Err(InitError::DeserializationFailure(e))
-            if e.to_string() == "Token name is missing"
+            if e == "Token name is missing"
     );
 }
 
@@ -77,7 +77,7 @@ fn test_initiailize_token_additional_parameter() {
     assert_matches!(
         res,
         Err(InitError::DeserializationFailure(e))
-            if e.to_string() == "Unknown additional parameters: _param1"
+            if e == "Unknown additional parameters: _param1"
     );
 }
 
@@ -211,7 +211,7 @@ fn test_initiailize_token_excessive_mint_decimals() {
     assert_matches!(
         res,
         Err(InitError::InvalidMintAmount(e))
-            if e.to_string() == "Token amount decimals mismatch: expected 2, found 6"
+            if e == "Token amount decimals mismatch: expected 2, found 6"
     );
 }
 
@@ -241,6 +241,6 @@ fn test_initiailize_token_insufficient_mint_decimals() {
     assert_matches!(
         res,
         Err(InitError::InvalidMintAmount(e))
-            if e.to_string() == "Token amount decimals mismatch: expected 6, found 2"
+            if e == "Token amount decimals mismatch: expected 6, found 2"
     );
 }

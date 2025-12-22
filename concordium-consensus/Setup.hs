@@ -21,8 +21,8 @@ runCmd verbosity cmd = do
 -- | Path to Concordium Smart Contract Engine rust crate relative to this file.
 smartContractEngineCrateRelative = "../concordium-base/smart-contracts/wasm-chain-integration"
 
--- | Path to plt-scheduler rust crate relative to this file.
-pltSchedulerCrateRelative = "../plt-scheduler"
+-- | Path to plt rust workspace relative to this file.
+pltWorkspaceRelative = "../plt"
 
 preConfHook :: Args -> ConfigFlags -> IO HookedBuildInfo
 preConfHook args flags = do
@@ -47,17 +47,17 @@ preConfHook args flags = do
             runCmd verbosity $ "ln -s -f " ++ smartContractEngineCrate ++ "/target/release/libconcordium_smart_contract_engine.so " ++ libraryDestination
 
     -- Build and copy/symlink PLT scheduler project
-    pltSchedulerCrate <- canonicalizePath pltSchedulerCrateRelative
-    runCmd verbosity $ "cargo build --release --locked --features ffi --manifest-path=" ++ pltSchedulerCrate ++ "/Cargo.toml"
+    pltWorkspace <- canonicalizePath pltWorkspaceRelative
+    runCmd verbosity $ "cargo build --release --locked --features ffi -p plt-scheduler --manifest-path=" ++ pltWorkspace ++ "/Cargo.toml"
     case buildOS of
         Windows -> do
-            runCmd verbosity $ "cp -u " ++ pltSchedulerCrate ++ "/target/release/plt_scheduler.dll " ++ libraryDestination
+            runCmd verbosity $ "cp -u " ++ pltWorkspace ++ "/target/release/plt_scheduler.dll " ++ libraryDestination
         OSX -> do
-            runCmd verbosity $ "ln -s -f " ++ pltSchedulerCrate ++ "/target/release/libplt_scheduler.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ pltSchedulerCrate ++ "/target/release/libplt_scheduler.dylib " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.dylib " ++ libraryDestination
         _ -> do
-            runCmd verbosity $ "ln -s -f " ++ pltSchedulerCrate ++ "/target/release/libplt_scheduler.a " ++ libraryDestination
-            runCmd verbosity $ "ln -s -f " ++ pltSchedulerCrate ++ "/target/release/libplt_scheduler.so " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.so " ++ libraryDestination
     return emptyHookedBuildInfo
 
 -- | On Windows, copy the DLL files to the binary install directory. This is to ensure that they
@@ -70,8 +70,8 @@ postCopyHook _ flags pkgDescr lbi = case buildOS of
         smartContractEngineCrate <- canonicalizePath smartContractEngineCrateRelative
         runCmd verbosity $ "cp -u " ++ smartContractEngineCrate ++ "/target/release/concordium_smart_contract_engine.dll " ++ bindir installDirs
         -- Copy DLL for PLT scheduler
-        pltSchedulerCrate <- canonicalizePath pltSchedulerCrateRelative
-        runCmd verbosity $ "cp -u " ++ pltSchedulerCrate ++ "/target/release/plt_scheduler.dll " ++ bindir installDirs
+        pltWorkspace <- canonicalizePath pltWorkspaceRelative
+        runCmd verbosity $ "cp -u " ++ pltWorkspace ++ "/target/release/plt_scheduler.dll " ++ bindir installDirs
     _ -> return ()
   where
     distPref = fromFlag (copyDistPref flags)
