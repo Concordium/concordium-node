@@ -6,7 +6,7 @@ use concordium_base::{
     protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters},
 };
 use host_stub::{HostStub, TEST_ACCOUNT0, TEST_ACCOUNT1};
-use plt_deployment_unit::token_module::{self, InitError};
+use plt_token_module::token_module::{self, InitError};
 
 mod host_stub;
 
