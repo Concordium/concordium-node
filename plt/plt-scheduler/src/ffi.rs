@@ -30,7 +30,7 @@ use libc::size_t;
 /// - Argument `block_state` must be non-null point to well-formed [`crate::block_state::BlockState`].
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
 /// - Argument `sender_account_address` must be non-null and valid for reads for 32 bytes.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn ffi_execute_transaction(
     load_callback: block_state::ffi::LoadCallback,
     update_token_account_balance_callback: block_state::ffi::UpdateTokenAccountBalanceCallback,
@@ -49,14 +49,16 @@ unsafe extern "C" fn ffi_execute_transaction(
         !sender_account_address.is_null(),
         "Sender account address is a null pointer."
     );
-    let payload = std::slice::from_raw_parts(payload, payload_len);
+    let payload = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     let sender_account_address = {
         let mut bytes = [0u8; concordium_base::contracts_common::ACCOUNT_ADDRESS_SIZE];
-        std::ptr::copy_nonoverlapping(
-            sender_account_address,
-            bytes.as_mut_ptr(),
-            concordium_base::contracts_common::ACCOUNT_ADDRESS_SIZE,
-        );
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                sender_account_address,
+                bytes.as_mut_ptr(),
+                concordium_base::contracts_common::ACCOUNT_ADDRESS_SIZE,
+            )
+        };
         concordium_base::contracts_common::AccountAddress(bytes)
     };
     let mut scheduler_state = SchedulerState {
@@ -65,20 +67,20 @@ unsafe extern "C" fn ffi_execute_transaction(
         sender_account_address,
     };
     let mut block_state = block_state::ffi::ExecutionTimeBlockState {
-        inner_block_state: (*block_state).new_generation(),
+        inner_block_state: unsafe { (*block_state).new_generation() },
         load_callback,
         update_token_account_balance_callback,
     };
     let result = crate::execute_transaction(&mut scheduler_state, &mut block_state, payload);
     let block_state = block_state.inner_block_state;
-    *remaining_energy_out = scheduler_state.remaining_energy.into();
+    unsafe { *remaining_energy_out = scheduler_state.remaining_energy.into() };
     match result {
         Ok(()) => {
-            *block_state_out = Box::into_raw(Box::new(block_state.savepoint()));
+            unsafe { *block_state_out = Box::into_raw(Box::new(block_state.savepoint())) };
             0
         }
         Err(crate::TransactionRejectReason) => {
-            *block_state_out = std::ptr::null();
+            unsafe { *block_state_out = std::ptr::null() };
             1
         }
     }

@@ -33,7 +33,7 @@ impl blob_store::BackingStoreLoad for LoadCallback {
 /// Allocate a new empty PLT block state.
 ///
 /// It is up to the caller to free this memory using [`ffi_free_plt_block_state`].
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn ffi_empty_plt_block_state() -> *mut block_state::BlockStateSavepoint {
     let block_state = block_state::BlockStateSavepoint::empty();
     Box::into_raw(Box::new(block_state))
@@ -51,10 +51,10 @@ extern "C" fn ffi_empty_plt_block_state() -> *mut block_state::BlockStateSavepoi
 ///
 /// - Argument `block_state` cannot be referenced by anyone else.
 /// - Freeing is only ever done once.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn ffi_free_plt_block_state(block_state: *mut block_state::BlockStateSavepoint) {
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
-    let state = Box::from_raw(block_state);
+    let state = unsafe { Box::from_raw(block_state) };
     drop(state);
 }
 
@@ -69,16 +69,16 @@ unsafe extern "C" fn ffi_free_plt_block_state(block_state: *mut block_state::Blo
 /// # Safety
 ///
 /// Caller must ensure `destination` can hold 32 bytes for the hash.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn ffi_hash_plt_block_state(
     load_callback: LoadCallback,
     destination: *mut u8,
     block_state: *const block_state::BlockStateSavepoint,
 ) {
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
-    let block_state = &*block_state;
+    let block_state = unsafe { &*block_state };
     let hash = block_state.hash(load_callback);
-    std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len());
+    unsafe { std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len()) };
 }
 
 /// Load a PLT block state from the blob store.
@@ -91,7 +91,7 @@ unsafe extern "C" fn ffi_hash_plt_block_state(
 /// # Safety
 ///
 /// Caller must ensure `blob_ref` is a valid reference in the blob store.
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn ffi_load_plt_block_state(
     mut load_callback: LoadCallback,
     blob_ref: blob_store::Reference,
@@ -113,13 +113,13 @@ extern "C" fn ffi_load_plt_block_state(
 /// # Safety
 ///
 /// Caller must ensure `block_state` is non-null and points to a valid block state.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn ffi_store_plt_block_state(
     mut store_callback: StoreCallback,
     block_state: *mut block_state::BlockStateSavepoint,
 ) -> blob_store::Reference {
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
-    let block_state = &mut *block_state;
+    let block_state = unsafe {&mut *block_state};
     match block_state.store_update(&mut store_callback) {
         Ok(r) => r,
         Err(_) => unreachable!(
@@ -140,14 +140,14 @@ unsafe extern "C" fn ffi_store_plt_block_state(
 /// # Safety
 ///
 /// Caller must ensure `block_state` is non-null and points to a valid block state.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn ffi_migrate_plt_block_state(
     load_callback: LoadCallback,
     mut store_callback: StoreCallback,
     block_state: *mut block_state::BlockStateSavepoint,
 ) -> *mut block_state::BlockStateSavepoint {
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
-    let block_state = &mut *block_state;
+    let block_state = unsafe {&mut *block_state};
     match block_state.migrate(&load_callback, &mut store_callback) {
         Ok(new_block_state) => Box::into_raw(Box::new(new_block_state)),
         Err(_) => std::ptr::null_mut(),
@@ -164,13 +164,13 @@ unsafe extern "C" fn ffi_migrate_plt_block_state(
 /// # Safety
 ///
 /// Caller must ensure `block_state` is non-null and points to a valid block state.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn ffi_cache_plt_block_state(
     load_callback: LoadCallback,
     block_state: *mut block_state::BlockStateSavepoint,
 ) {
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
-    let block_state = &mut *block_state;
+    let block_state = unsafe {&mut *block_state};
     block_state.cache(&load_callback)
 }
 
@@ -234,14 +234,14 @@ impl crate::BlockStateOperations for ExecutionTimeBlockState {
     fn get_token_circulating_supply(
         &self,
         _token_index: crate::TokenIndex,
-    ) -> plt_deployment_unit::host_interface::TokenRawAmount {
+    ) -> plt_token_module::host_interface::TokenRawAmount {
         todo!()
     }
 
     fn set_token_circulating_supply(
         &mut self,
         _token_index: crate::TokenIndex,
-        _circulating_supply: plt_deployment_unit::host_interface::TokenRawAmount,
+        _circulating_supply: plt_token_module::host_interface::TokenRawAmount,
     ) {
         todo!()
     }

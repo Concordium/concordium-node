@@ -34,6 +34,7 @@ on:
     - 'concordium-consensus/smart-contracts'
     - 'concordium-consensus/haskell-lmdb'
     - 'concordium-node/rustfmt.toml'
+    - 'plt'
 
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -48,6 +49,7 @@ on:
     - 'concordium-consensus/smart-contracts'
     - 'concordium-consensus/haskell-lmdb'
     - 'concordium-node/rustfmt.toml'
+    - 'plt'
   workflow_dispatch: # allow manual trigger
 
 env:

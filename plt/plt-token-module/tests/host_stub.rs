@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Memo;
-use plt_deployment_unit::host_interface::{
+use plt_token_module::host_interface::{
     AmountNotRepresentableError, HostOperations, InsufficientBalanceError, LockedStateKeyError,
     StateKey, StateValue, TokenEventDetails, TokenEventType,
 };
