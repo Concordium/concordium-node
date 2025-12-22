@@ -3,7 +3,7 @@ use concordium_base::id::types::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_token_module::host_interface::TokenRawAmount;
 
-mod block_state;
+pub mod block_state;
 #[cfg(feature = "ffi")]
 mod ffi;
 
@@ -11,7 +11,7 @@ mod ffi;
 
 pub type MutableTokenState = ();
 pub type PLTConfiguration = ();
-pub type TokenAmountDelta = ();
+pub type TokenAmountDelta = i128;
 
 /// Index of the protocol-level token in the block state map of tokens.
 #[derive(

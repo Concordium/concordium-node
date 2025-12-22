@@ -1077,6 +1077,7 @@ dependencies = [
  "derive_more 2.1.0",
  "libc",
  "plt-token-module",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
