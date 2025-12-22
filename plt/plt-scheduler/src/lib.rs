@@ -1,7 +1,7 @@
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::id::types::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
-use plt_deployment_unit::host_interface::TokenRawAmount;
+use plt_token_module::host_interface::TokenRawAmount;
 
 mod block_state;
 #[cfg(feature = "ffi")]
