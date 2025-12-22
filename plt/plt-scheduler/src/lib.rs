@@ -7,7 +7,6 @@ mod block_state;
 #[cfg(feature = "ffi")]
 mod ffi;
 
-
 // Placeholder types to be defined or replaced with types from other crates.
 
 pub type MutableTokenState = ();
@@ -153,7 +152,7 @@ pub trait BlockStateOperations {
     /// - the account identified by `account_index` does not exist.
     #[must_use]
     fn touch_token_account(&mut self, token_index: TokenIndex, account_index: AccountIndex)
-        -> bool;
+    -> bool;
 
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
