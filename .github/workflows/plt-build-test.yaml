@@ -1,4 +1,4 @@
-name: PLT scheduler checks
+name: PLT scheduler build and run tests
 
 on:
   push:
