@@ -1,17 +1,17 @@
 //! Implementation of the protocol-level token module.
-use crate::host_interface::*;
-use concordium_base::common::cbor::{
-    CborSerializationError, SerializationOptions, UnknownMapKeys, cbor_decode_with_options,
-    cbor_encode,
-};
+//!
+
+use crate::token_kernel_interface::*;
+use concordium_base::common::cbor;
+use concordium_base::common::cbor::{SerializationOptions, UnknownMapKeys, cbor_encode};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenModuleInitializationParameters,
 };
 
-/// Extension trait for `HostOperations` to provide convenience wrappers for
+/// Extension trait for `TokenKernelOperations` to provide convenience wrappers for
 /// module state access and updating.
-trait HostOperationsExt: HostOperations {
+trait KernelOperationsExt: TokenKernelOperations {
     /// Set or clear a value in the token module state at the corresponding key.
     fn set_module_state<'a>(
         &mut self,
@@ -23,7 +23,7 @@ trait HostOperationsExt: HostOperations {
     }
 }
 
-impl<T: HostOperations> HostOperationsExt for T {}
+impl<T: TokenKernelOperations> KernelOperationsExt for T {}
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
@@ -40,29 +40,26 @@ fn module_state_key<'a>(key: impl IntoIterator<Item = &'a u8>) -> StateKey {
 
 /// Represents the reasons why [`initialize_token`] can fail.
 #[derive(Debug, thiserror::Error)]
-pub enum InitError {
-    #[error("Token initialization parameters could not be deserialized: {0}")]
-    DeserializationFailure(String),
+pub enum TokenInitializationError {
+    #[error("Invalid token initialization parameters: {0}")]
+    InvalidInitializationParameters(String),
     #[error("{0}")]
     LockedStateKey(#[from] LockedStateKeyError),
     #[error("The given governance account does not exist: {0}")]
     GovernanceAccountDoesNotExist(AccountAddress),
-    #[error("The initial mint amount was not valid: {0}")]
-    InvalidMintAmount(String),
-}
-
-impl From<CborSerializationError> for InitError {
-    fn from(value: CborSerializationError) -> Self {
-        Self::DeserializationFailure(value.to_string())
-    }
+    #[error("The initial mint amount has wrong number of decimals: {0}")]
+    MintAmountDecimalsMismatch(#[from] TokenAmountDecimalsMismatchError),
+    #[error("The initial mint amount is not representable: {0}")]
+    MintAmountNotRepresentable(#[from] AmountNotRepresentableError),
 }
 
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
 #[derive(Debug, thiserror::Error)]
-pub enum UpdateError {}
+pub enum TokenUpdateError {}
+
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug)]
-pub enum QueryError {}
+pub enum TokenQueryError {}
 
 /// The context for a token-holder or token-governance transaction.
 #[derive(Debug)]
@@ -74,23 +71,26 @@ pub struct TransactionContext<Account> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum TokenAmountError {
-    #[error("Token amount decimals mismatch: expected {expected}, found {found}")]
-    DecimalsMismatch { expected: u8, found: u8 },
+#[error("Token amount decimals mismatch: expected {expected}, found {found}")]
+pub struct TokenAmountDecimalsMismatchError {
+    pub expected: u8,
+    pub found: u8,
 }
 
+/// Asserts that token amount has the right number of decimals and converts it to a plain
+/// integer.
 fn to_token_raw_amount(
     amount: TokenAmount,
-    actual_decimals: u8,
-) -> Result<TokenRawAmount, TokenAmountError> {
+    expected_decimals: u8,
+) -> Result<RawTokenAmount, TokenAmountDecimalsMismatchError> {
     let decimals = amount.decimals();
-    if decimals != actual_decimals {
-        return Err(TokenAmountError::DecimalsMismatch {
-            expected: actual_decimals,
+    if decimals != expected_decimals {
+        return Err(TokenAmountDecimalsMismatchError {
+            expected: expected_decimals,
             found: decimals,
         });
     }
-    Ok(amount.value())
+    Ok(RawTokenAmount(amount.value()))
 }
 
 const STATE_KEY_NAME: &[u8] = b"name";
@@ -104,79 +104,91 @@ const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
 /// (if necessary) minting the initial supply to the token governance account.
 pub fn initialize_token(
-    host: &mut impl HostOperations,
-    token_parameter: Parameter,
-) -> Result<(), InitError> {
+    host: &mut impl TokenKernelOperations,
+    initialization_parameters_cbor: RawCbor,
+) -> Result<(), TokenInitializationError> {
     let decode_options = SerializationOptions {
         unknown_map_keys: UnknownMapKeys::Fail,
     };
-    let parameter: TokenModuleInitializationParameters =
-        cbor_decode_with_options(token_parameter, decode_options)?;
-    if !parameter.additional.is_empty() {
-        return Err(InitError::DeserializationFailure(format!(
-            "Unknown additional parameters: {}",
-            parameter
-                .additional
-                .keys()
-                .map(|k| k.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        )));
+    let init_params: TokenModuleInitializationParameters =
+        cbor::cbor_decode_with_options(initialization_parameters_cbor, decode_options).map_err(
+            |err| {
+                TokenInitializationError::InvalidInitializationParameters(format!(
+                    "Error decoding token initialization parameters: {}",
+                    err
+                ))
+            },
+        )?;
+    if !init_params.additional.is_empty() {
+        return Err(TokenInitializationError::InvalidInitializationParameters(
+            format!(
+                "Unknown additional parameters: {}",
+                init_params
+                    .additional
+                    .keys()
+                    .map(|k| k.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ));
     }
-    let Some(name) = parameter.name else {
-        return Err(InitError::DeserializationFailure(
+    let name = init_params.name.ok_or_else(|| {
+        TokenInitializationError::InvalidInitializationParameters(
             "Token name is missing".to_string(),
-        ));
-    };
-    let Some(metadata) = parameter.metadata else {
-        return Err(InitError::DeserializationFailure(
+        )
+    })?;
+    let metadata = init_params.metadata.ok_or_else(|| {
+        TokenInitializationError::InvalidInitializationParameters(
             "Token metadata is missing".to_string(),
-        ));
-    };
-    let Some(governance_account) = parameter.governance_account else {
-        return Err(InitError::DeserializationFailure(
+        )
+    })?;
+    let governance_account = init_params.governance_account.ok_or_else(|| {
+        TokenInitializationError::InvalidInitializationParameters(
             "Token governance account is missing".to_string(),
-        ));
-    };
+        )
+    })?;
     host.set_module_state(STATE_KEY_NAME, Some(name.into()))?;
-    let encoded_metadata = cbor_encode(&metadata)?;
+    let encoded_metadata = cbor_encode(&metadata).map_err(|err| {
+        TokenInitializationError::InvalidInitializationParameters(format!(
+            "Error encoding token metadata: {}",
+            err
+        ))
+    })?;
     host.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata))?;
-    if let Some(true) = parameter.allow_list {
+    if init_params.allow_list == Some(true) {
         host.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]))?;
     }
-    if let Some(true) = parameter.deny_list {
+    if init_params.deny_list == Some(true) {
         host.set_module_state(STATE_KEY_DENY_LIST, Some(vec![]))?;
     }
-    if let Some(true) = parameter.mintable {
+    if init_params.mintable == Some(true) {
         host.set_module_state(STATE_KEY_MINTABLE, Some(vec![]))?;
     }
-    if let Some(true) = parameter.burnable {
+    if init_params.burnable == Some(true) {
         host.set_module_state(STATE_KEY_BURNABLE, Some(vec![]))?;
     }
-    let Some(governance_account) = host.account_by_address(&governance_account.address) else {
-        return Err(InitError::GovernanceAccountDoesNotExist(
-            governance_account.address,
-        ));
-    };
+
+    let governance_account = host.account_by_address(&governance_account.address).ok_or(
+        TokenInitializationError::GovernanceAccountDoesNotExist(governance_account.address),
+    )?;
     let governance_account_index = host.account_index(&governance_account);
     host.set_module_state(
         STATE_KEY_GOVERNANCE_ACCOUNT,
         Some(governance_account_index.index.to_be_bytes().to_vec()),
     )?;
-    if let Some(initial_supply) = parameter.initial_supply {
-        let mint_amount = to_token_raw_amount(initial_supply, host.decimals())
-            .map_err(|e| InitError::InvalidMintAmount(e.to_string()))?;
+    if let Some(initial_supply) = init_params.initial_supply {
+        let mint_amount = to_token_raw_amount(initial_supply, host.decimals())?;
         host.mint(&governance_account, mint_amount)
-            .map_err(|_| InitError::InvalidMintAmount("Kernel failed to mint".to_string()))?;
+            .map_err(TokenInitializationError::MintAmountNotRepresentable)?;
     }
     Ok(())
 }
 
-/// Execute a token update transaction using the [`HostOperations`] implementation on `host` to
+/// Execute a token update transaction using the [`TokenKernelOperations`] implementation on `host` to
 /// update state and produce events.
 ///
 /// When resulting in an `Err` signals a rejected operation and all of the calls to
-/// [`HostOperations`] must be rolled back y the caller.
+/// [`TokenKernelOperations`] must be rolled back y the caller.
 ///
 /// The process is as follows:
 ///
@@ -217,29 +229,25 @@ pub fn initialize_token(
 /// # INVARIANTS:
 ///
 ///   - Token module state contains a correctly encoded governance account address.
-pub fn execute_token_update_transaction<Host>(
-    _host: &mut Host,
-    _context: TransactionContext<Host::Account>,
-    _token_parameter: Parameter,
-) -> Result<(), UpdateError>
-where
-    Host: HostOperations,
-{
+pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
+    _kernel: &mut Kernel,
+    _context: TransactionContext<Kernel::Account>,
+    _token_operations: RawCbor,
+) -> Result<(), TokenUpdateError> {
     todo!()
 }
 
 /// Get the CBOR-encoded representation of the token module state.
-pub fn query_token_module_state(_host: &impl HostOperations) -> Result<RawCbor, QueryError> {
+pub fn query_token_module_state<Kernel: TokenKernelQueries>(
+    _kernel: &impl TokenKernelQueries,
+) -> Result<RawCbor, TokenQueryError> {
     todo!()
 }
 
 /// Get the CBOR-encoded representation of the token module account state.
-pub fn query_account_state<Host>(
-    _host: &Host,
-    _account: Host::Account,
-) -> Result<Option<RawCbor>, QueryError>
-where
-    Host: HostOperations,
-{
+pub fn query_account_state<Kernel: TokenKernelQueries>(
+    _kernel: &impl TokenKernelQueries,
+    _account: Kernel::Account,
+) -> Result<Option<RawCbor>, TokenQueryError> {
     todo!()
 }

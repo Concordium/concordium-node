@@ -1,7 +1,7 @@
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::id::types::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
-use plt_token_module::host_interface::TokenRawAmount;
+use plt_token_module::token_kernel_interface::RawTokenAmount;
 
 mod block_state;
 #[cfg(feature = "ffi")]
@@ -73,7 +73,7 @@ pub trait BlockStateOperations {
     /// # Panics
     ///
     /// Panics if the token identified by `token_index` does not exist.
-    fn get_token_circulating_supply(&self, token_index: TokenIndex) -> TokenRawAmount;
+    fn get_token_circulating_supply(&self, token_index: TokenIndex) -> RawTokenAmount;
 
     /// Set the recorded total circulating supply for a protocol-level token.
     ///
@@ -90,7 +90,7 @@ pub trait BlockStateOperations {
     fn set_token_circulating_supply(
         &mut self,
         token_index: TokenIndex,
-        circulating_supply: TokenRawAmount,
+        circulating_supply: RawTokenAmount,
     );
 
     /// Create a new token with the given configuration. The initial state will be empty

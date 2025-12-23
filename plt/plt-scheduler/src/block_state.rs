@@ -29,14 +29,14 @@ impl BlockStateOperations for BlockState {
     fn get_token_circulating_supply(
         &self,
         _token_index: crate::TokenIndex,
-    ) -> plt_token_module::host_interface::TokenRawAmount {
+    ) -> plt_token_module::token_kernel_interface::RawTokenAmount {
         todo!()
     }
 
     fn set_token_circulating_supply(
         &mut self,
         _token_index: crate::TokenIndex,
-        _circulating_supply: plt_token_module::host_interface::TokenRawAmount,
+        _circulating_supply: plt_token_module::token_kernel_interface::RawTokenAmount,
     ) {
         todo!()
     }
