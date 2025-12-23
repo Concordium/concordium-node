@@ -5,8 +5,8 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenModuleEventType;
 use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
-    AmountNotRepresentableError, InsufficientBalanceError, LockedStateKeyError, RawTokenAmount,
-    StateKey, StateValue, TokenKernelOperations, TokenKernelQueries,
+    AmountNotRepresentableError, InsufficientBalanceError, LockedStateKeyError, OutOfEnergyError,
+    RawTokenAmount, StateKey, StateValue, TokenKernelOperations, TokenKernelQueries,
 };
 
 /// Token kernel stub providing an implementation of [`TokenKernelOperations`] and methods for
@@ -193,7 +193,7 @@ impl TokenKernelOperations for KernelStub {
         Ok(res)
     }
 
-    fn tick_energy(&mut self, _energy: Energy) {
+    fn tick_energy(&mut self, _energy: Energy) -> Result<(), OutOfEnergyError> {
         todo!()
     }
 
