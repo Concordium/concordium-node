@@ -1,15 +1,19 @@
-//! Host interface for protocol-level tokens.
+//! Token kernel interface for protocol-level tokens. The kernel handles all operations affecting token
+//! balance and supply and manages the state and events related to balances and supply.
+
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::RawCbor;
+use concordium_base::protocol_level_tokens::TokenModuleEventType;
 use concordium_base::transactions::Memo;
 
 pub type StateKey = Vec<u8>;
 pub type StateValue = Vec<u8>;
-pub type TokenEventType = String;
-pub type TokenEventDetails = RawCbor;
-pub type Parameter = RawCbor;
-pub type TokenRawAmount = u64;
+
+/// Token amount without decimals specified. The token amount represented by
+/// this type must always be represented with the number of decimals
+/// the token natively has.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
+pub struct RawTokenAmount(pub u64);
 
 /// The account has insufficient balance.
 #[derive(Debug)]
@@ -25,10 +29,13 @@ pub struct LockedStateKeyError;
 #[error("Amount not representable")]
 pub struct AmountNotRepresentableError;
 
-/// Operations provided by the deployment unit host.
-///
-/// This is abstracted in a trait to allow for a testing stub.
-pub trait HostOperations {
+/// Energy limit for execution reached.
+#[derive(Debug, thiserror::Error)]
+#[error("Out of energy")]
+pub struct OutOfEnergyError;
+
+/// Queries provided by the token kernel.
+pub trait TokenKernelQueries {
     /// The type for the account object.
     ///
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -48,8 +55,20 @@ pub trait HostOperations {
     fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress;
 
     /// Get the token balance of the account.
-    fn account_balance(&self, account: &Self::Account) -> TokenRawAmount;
+    fn account_balance(&self, account: &Self::Account) -> RawTokenAmount;
 
+    /// The current token circulation supply.
+    fn circulating_supply(&self) -> RawTokenAmount;
+
+    /// The number of decimals used in the presentation of the token amount.
+    fn decimals(&self) -> u8;
+
+    /// Lookup a key in the token state.
+    fn get_token_state(&self, key: StateKey) -> Option<StateValue>;
+}
+
+/// Operations provided by the token kernel.
+pub trait TokenKernelOperations: TokenKernelQueries {
     /// Update the balance of the given account to zero if it didn't have a balance before.
     ///
     /// Returns `true` if the balance wasn't present on the given account and `false` otherwise.
@@ -67,7 +86,7 @@ pub trait HostOperations {
     fn mint(
         &mut self,
         account: &Self::Account,
-        amount: TokenRawAmount,
+        amount: RawTokenAmount,
     ) -> Result<(), AmountNotRepresentableError>;
 
     /// Burn a specified amount from the account.
@@ -82,7 +101,7 @@ pub trait HostOperations {
     fn burn(
         &mut self,
         account: &Self::Account,
-        amount: TokenRawAmount,
+        amount: RawTokenAmount,
     ) -> Result<(), InsufficientBalanceError>;
 
     /// Transfer a token amount from one account to another, with an optional memo.
@@ -98,18 +117,9 @@ pub trait HostOperations {
         &mut self,
         from: &Self::Account,
         to: &Self::Account,
-        amount: TokenRawAmount,
+        amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<(), InsufficientBalanceError>;
-
-    /// The current token circulation supply.
-    fn circulating_supply(&self) -> TokenRawAmount;
-
-    /// The number of decimals used in the presentation of the token amount.
-    fn decimals(&self) -> u8;
-
-    /// Lookup a key in the token state.
-    fn get_token_state(&self, key: StateKey) -> Option<StateValue>;
 
     /// Set or clear a value in the token state at the corresponding key.
     ///
@@ -126,15 +136,16 @@ pub trait HostOperations {
 
     /// Reduce the available energy for the PLT module execution.
     ///
-    /// If the available energy is smaller than the given amount, the containing transaction will
-    /// abort and the effects of the transaction will be rolled back.
+    /// If the available energy is smaller than the given amount, an
+    /// "out of energy" error will be returned, in which case the caller
+    /// should stop execution and propagate the error upwards.
     /// The energy is charged in any case (also in case of failure).
-    fn tick_energy(&mut self, energy: Energy);
+    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError>;
 
     /// Log a token module event with the specified type and details.
     ///
     /// # Events
     ///
     /// This will produce a `TokenModuleEvent` in the logs.
-    fn log_token_event(&mut self, event_type: TokenEventType, event_details: TokenEventDetails);
+    fn log_token_event(&mut self, event: TokenModuleEventType);
 }
