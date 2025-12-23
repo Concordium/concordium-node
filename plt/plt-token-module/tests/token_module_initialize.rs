@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_tokens::{CborHolderAccount, MetadataUrl, TokenModuleState};
 use concordium_base::{
     common::cbor::value::Value,
     protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters},
@@ -87,12 +88,14 @@ fn test_initialize_token_additional_parameter() {
 fn test_initialize_token_default_values() {
     let mut stub = KernelStub::new(0);
     let gov_account = stub.create_account();
-    let metadata = "https://plt.token".to_owned().into();
+    let governance_holder_account =
+        CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata).unwrap();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
-        metadata: Some(metadata),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        metadata: Some(metadata.clone()),
+        governance_account: Some(governance_holder_account.clone()),
         allow_list: None,
         deny_list: None,
         initial_supply: None,
@@ -102,23 +105,38 @@ fn test_initialize_token_default_values() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
+
     let mut expected_state = HashMap::with_capacity(3);
     expected_state.insert(b"\0\0name".into(), b"Protocol-level token".into());
     expected_state.insert(b"\0\0metadata".into(), encoded_metadata);
-
     expected_state.insert(
         b"\0\0governanceAccount".into(),
         stub.account_index(&gov_account).index.to_be_bytes().into(),
     );
     assert_eq!(stub.state, expected_state);
+
+    let state: TokenModuleState =
+        cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
+    assert_eq!(state.name, Some("Protocol-level token".to_owned()));
+    assert_eq!(state.metadata, Some(metadata));
+    assert_eq!(state.governance_account, Some(governance_holder_account));
+    assert_eq!(state.allow_list, Some(false));
+    assert_eq!(state.deny_list, Some(false));
+    assert_eq!(state.mintable, Some(false));
+    assert_eq!(state.burnable, Some(false));
+    assert_eq!(state.paused, Some(false));
+    assert!(state.additional.is_empty());
 }
+
+// todo ar write rest of tests
+// todo ar trim down plt model in base
 
 /// In this example, the parameters are valid, no minting.
 #[test]
 fn test_initialize_token_no_minting() {
     let mut stub = KernelStub::new(0);
     let gov_account = stub.create_account();
-    let metadata = "https://plt.token".to_owned().into();
+    let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata).unwrap();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),

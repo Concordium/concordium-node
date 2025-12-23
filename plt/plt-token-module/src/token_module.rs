@@ -259,7 +259,7 @@ pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
 
 /// Get the CBOR-encoded representation of the token module state.
 pub fn query_token_module_state<Kernel: TokenKernelQueries>(
-    kernel: &impl TokenKernelQueries,
+    kernel: &Kernel,
 ) -> Result<RawCbor, TokenQueryError> {
     let name = kernel
         .get_module_state(STATE_KEY_NAME)
@@ -325,7 +325,7 @@ pub fn query_token_module_state<Kernel: TokenKernelQueries>(
 
 /// Get the CBOR-encoded representation of the token module account state.
 pub fn query_account_state<Kernel: TokenKernelQueries>(
-    _kernel: &impl TokenKernelQueries,
+    _kernel: &Kernel,
     _account: Kernel::Account,
 ) -> Result<Option<RawCbor>, TokenQueryError> {
     todo!()
