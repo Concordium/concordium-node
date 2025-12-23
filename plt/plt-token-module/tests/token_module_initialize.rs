@@ -128,7 +128,7 @@ fn test_initialize_token_default_values() {
     assert!(state.additional.is_empty());
 }
 
-// todo ar write rest of tests
+// todo ar write rest of testsf
 // todo ar trim down plt model in base
 
 /// In this example, the parameters are valid, no minting.
