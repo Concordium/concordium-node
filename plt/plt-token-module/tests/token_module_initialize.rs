@@ -25,8 +25,10 @@ fn test_initialize_token_parameters_decode_failure() {
     let res = token_module::initialize_token(&mut stub, vec![].into());
     assert_matches!(
         &res,
-        Err(TokenInitializationError::InvalidInitializationParameters(err))
-            if err.contains("Error decoding token initialization parameters")
+        Err(TokenInitializationError::CborSerialization(err)) => {
+            let msg = err.to_string();
+            assert!(msg.contains("IO error"), "msg: {}", msg);
+        }
     );
 }
 
@@ -88,14 +90,13 @@ fn test_initialize_token_additional_parameter() {
 fn test_initialize_token_default_values() {
     let mut stub = KernelStub::new(0);
     let gov_account = stub.create_account();
-    let governance_holder_account =
-        CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata).unwrap();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata.clone()),
-        governance_account: Some(governance_holder_account.clone()),
+        governance_account: Some(gov_holder_account.clone()),
         allow_list: None,
         deny_list: None,
         initial_supply: None,
@@ -115,11 +116,12 @@ fn test_initialize_token_default_values() {
     );
     assert_eq!(stub.state, expected_state);
 
+    assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(0));
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
     assert_eq!(state.metadata, Some(metadata));
-    assert_eq!(state.governance_account, Some(governance_holder_account));
+    assert_eq!(state.governance_account, Some(gov_holder_account));
     assert_eq!(state.allow_list, Some(false));
     assert_eq!(state.deny_list, Some(false));
     assert_eq!(state.mintable, Some(false));
@@ -128,20 +130,18 @@ fn test_initialize_token_default_values() {
     assert!(state.additional.is_empty());
 }
 
-// todo ar write rest of testsf
-// todo ar trim down plt model in base
-
 /// In this example, the parameters are valid, no minting.
 #[test]
 fn test_initialize_token_no_minting() {
     let mut stub = KernelStub::new(0);
     let gov_account = stub.create_account();
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata).unwrap();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
-        metadata: Some(metadata),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        metadata: Some(metadata.clone()),
+        governance_account: Some(gov_holder_account.clone()),
         allow_list: Some(true),
         deny_list: Some(false),
         initial_supply: None,
@@ -151,6 +151,7 @@ fn test_initialize_token_no_minting() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
+
     let mut expected_state = HashMap::with_capacity(3);
     expected_state.insert(b"\0\0name".into(), b"Protocol-level token".into());
     expected_state.insert(b"\0\0metadata".into(), encoded_metadata);
@@ -162,19 +163,33 @@ fn test_initialize_token_no_minting() {
     expected_state.insert(b"\0\0mintable".into(), vec![]);
     expected_state.insert(b"\0\0burnable".into(), vec![]);
     assert_eq!(stub.state, expected_state);
+
+    assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(0));
+    let state: TokenModuleState =
+        cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
+    assert_eq!(state.name, Some("Protocol-level token".to_owned()));
+    assert_eq!(state.metadata, Some(metadata));
+    assert_eq!(state.governance_account, Some(gov_holder_account));
+    assert_eq!(state.allow_list, Some(true));
+    assert_eq!(state.deny_list, Some(false));
+    assert_eq!(state.mintable, Some(true));
+    assert_eq!(state.burnable, Some(true));
+    assert_eq!(state.paused, Some(false));
+    assert!(state.additional.is_empty());
 }
 
 /// In this example, the parameters are valid, with minting.
 #[test]
-fn test_initialize_token_valid_2() {
+fn test_initialize_token_with_minting() {
     let mut stub = KernelStub::new(2);
     let gov_account = stub.create_account();
-    let metadata = "https://plt.token".to_owned().into();
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata).unwrap();
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
-        metadata: Some(metadata),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        metadata: Some(metadata.clone()),
+        governance_account: Some(gov_holder_account.clone()),
         allow_list: Some(false),
         deny_list: Some(true),
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),
@@ -184,7 +199,7 @@ fn test_initialize_token_valid_2() {
     };
     let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
-    assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(500000));
+
     let mut expected_state = HashMap::with_capacity(3);
     expected_state.insert(b"\0\0name".into(), b"Protocol-level token".into());
     expected_state.insert(b"\0\0metadata".into(), encoded_metadata);
@@ -194,6 +209,19 @@ fn test_initialize_token_valid_2() {
     );
     expected_state.insert(b"\0\0denyList".into(), vec![]);
     assert_eq!(stub.state, expected_state);
+
+    assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(500000));
+    let state: TokenModuleState =
+        cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
+    assert_eq!(state.name, Some("Protocol-level token".to_owned()));
+    assert_eq!(state.metadata, Some(metadata));
+    assert_eq!(state.governance_account, Some(gov_holder_account));
+    assert_eq!(state.allow_list, Some(false));
+    assert_eq!(state.deny_list, Some(true));
+    assert_eq!(state.mintable, Some(false));
+    assert_eq!(state.burnable, Some(false));
+    assert_eq!(state.paused, Some(false));
+    assert!(state.additional.is_empty());
 }
 
 /// In this example, the parameters specify an initial supply with higher precision
