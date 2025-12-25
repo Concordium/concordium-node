@@ -107,16 +107,27 @@ fn test_initialize_token_default_values() {
     let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
 
-    let mut expected_state = HashMap::with_capacity(3);
-    expected_state.insert(b"\0\0name".into(), b"Protocol-level token".into());
-    expected_state.insert(b"\0\0metadata".into(), encoded_metadata);
-    expected_state.insert(
-        b"\0\0governanceAccount".into(),
-        stub.account_index(&gov_account).index.to_be_bytes().into(),
+    // assertions directly on token state
+    assert_eq!(
+        stub.get_token_state(b"\0\0name".into()),
+        Some(b"Protocol-level token".into())
     );
-    assert_eq!(stub.state, expected_state);
-
+    assert_eq!(
+        stub.get_token_state(b"\0\0metadata".into()),
+        Some(encoded_metadata)
+    );
+    assert_eq!(
+        stub.get_token_state(b"\0\0governanceAccount".into()),
+        Some(stub.account_index(&gov_account).index.to_be_bytes().into())
+    );
+    assert_eq!(stub.get_token_state(b"\0\0allowList".into()), None);
+    assert_eq!(stub.get_token_state(b"\0\0denyList".into()), None);
+    assert_eq!(stub.get_token_state(b"\0\0mintable".into()), None);
+    assert_eq!(stub.get_token_state(b"\0\0burnable".into()), None);
+    assert_eq!(stub.get_token_state(b"\0\0paused".into()), None);
+    // assert governance account balance
     assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(0));
+    // assertions using token module state query
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
@@ -152,19 +163,27 @@ fn test_initialize_token_no_minting() {
     let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
 
-    let mut expected_state = HashMap::with_capacity(3);
-    expected_state.insert(b"\0\0name".into(), b"Protocol-level token".into());
-    expected_state.insert(b"\0\0metadata".into(), encoded_metadata);
-    expected_state.insert(
-        b"\0\0governanceAccount".into(),
-        stub.account_index(&gov_account).index.to_be_bytes().into(),
+    // assertions directly on token state
+    assert_eq!(
+        stub.get_token_state(b"\0\0name".into()),
+        Some(b"Protocol-level token".into())
     );
-    expected_state.insert(b"\0\0allowList".into(), vec![]);
-    expected_state.insert(b"\0\0mintable".into(), vec![]);
-    expected_state.insert(b"\0\0burnable".into(), vec![]);
-    assert_eq!(stub.state, expected_state);
-
+    assert_eq!(
+        stub.get_token_state(b"\0\0metadata".into()),
+        Some(encoded_metadata)
+    );
+    assert_eq!(
+        stub.get_token_state(b"\0\0governanceAccount".into()),
+        Some(stub.account_index(&gov_account).index.to_be_bytes().into())
+    );
+    assert_eq!(stub.get_token_state(b"\0\0allowList".into()), Some(vec![]));
+    assert_eq!(stub.get_token_state(b"\0\0denyList".into()), None);
+    assert_eq!(stub.get_token_state(b"\0\0mintable".into()), Some(vec![]));
+    assert_eq!(stub.get_token_state(b"\0\0burnable".into()), Some(vec![]));
+    assert_eq!(stub.get_token_state(b"\0\0paused".into()), None);
+    // assert governance account balance
     assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(0));
+    // assertions using token module state query
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
@@ -200,17 +219,27 @@ fn test_initialize_token_with_minting() {
     let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
 
-    let mut expected_state = HashMap::with_capacity(3);
-    expected_state.insert(b"\0\0name".into(), b"Protocol-level token".into());
-    expected_state.insert(b"\0\0metadata".into(), encoded_metadata);
-    expected_state.insert(
-        b"\0\0governanceAccount".into(),
-        stub.account_index(&gov_account).index.to_be_bytes().into(),
+    // assertions directly on token state
+    assert_eq!(
+        stub.get_token_state(b"\0\0name".into()),
+        Some(b"Protocol-level token".into())
     );
-    expected_state.insert(b"\0\0denyList".into(), vec![]);
-    assert_eq!(stub.state, expected_state);
-
+    assert_eq!(
+        stub.get_token_state(b"\0\0metadata".into()),
+        Some(encoded_metadata)
+    );
+    assert_eq!(
+        stub.get_token_state(b"\0\0governanceAccount".into()),
+        Some(stub.account_index(&gov_account).index.to_be_bytes().into())
+    );
+    assert_eq!(stub.get_token_state(b"\0\0allowList".into()), None);
+    assert_eq!(stub.get_token_state(b"\0\0denyList".into()), Some(vec![]));
+    assert_eq!(stub.get_token_state(b"\0\0mintable".into()), None);
+    assert_eq!(stub.get_token_state(b"\0\0burnable".into()), None);
+    assert_eq!(stub.get_token_state(b"\0\0paused".into()), None);
+    // assert governance account balance
     assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(500000));
+    // assertions using token module state query
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));

@@ -16,9 +16,10 @@ pub struct KernelStub {
     /// List of accounts existing.
     accounts: Vec<Account>,
     /// Token managed state.
-    pub state: HashMap<StateKey, StateValue>,
+    state: HashMap<StateKey, StateValue>,
     /// Decimal places in token representation.
     decimals: u8,
+    /// Counter for creating accounts in the stub
     next_account_index: AccountIndex,
 }
 
