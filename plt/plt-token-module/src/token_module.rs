@@ -11,8 +11,8 @@ use concordium_base::common::cbor::{
 };
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenModuleInitializationParameters,
-    TokenModuleState,
+    CborHolderAccount, DeserializationFailureRejectReason, MetadataUrl, RawCbor, TokenAmount,
+    TokenModuleInitializationParameters, TokenModuleRejectReasonType, TokenModuleState,
 };
 
 /// Extension trait for `TokenKernelOperations` to provide convenience wrappers for
@@ -75,8 +75,18 @@ pub enum TokenInitializationError {
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenUpdateError {
-    #[error("CBOR serialization error during token update: {0}")]
-    CborSerialization(#[from] CborSerializationError),
+    #[error("Token module rejection: {0:?}")]
+    TokenModuleReject(TokenModuleRejectReasonType),
+}
+
+impl From<CborSerializationError> for TokenUpdateError {
+    fn from(value: CborSerializationError) -> Self {
+        Self::TokenModuleReject(TokenModuleRejectReasonType::DeserializationFailure(
+            DeserializationFailureRejectReason {
+                cause: Some(value.to_string()),
+            },
+        ))
+    }
 }
 
 /// Represents the reasons why a query to the token module can fail.
@@ -257,30 +267,50 @@ pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
     todo!()
 }
 
-/// Get the CBOR-encoded representation of the token module state.
-pub fn query_token_module_state<Kernel: TokenKernelQueries>(
-    kernel: &Kernel,
-) -> Result<RawCbor, TokenQueryError> {
-    let name = kernel
+/// Get whether the balance-affecting operations on the token are currently
+/// paused.
+fn is_paused(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_PAUSED).is_some()
+}
+
+fn has_allow_list(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_ALLOW_LIST).is_some()
+}
+
+fn has_deny_list(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_DENY_LIST).is_some()
+}
+
+fn is_mintable(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_MINTABLE).is_some()
+}
+
+fn is_burnable(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_BURNABLE).is_some()
+}
+
+fn get_name(kernel: &impl TokenKernelQueries) -> Result<String, TokenQueryError> {
+    kernel
         .get_module_state(STATE_KEY_NAME)
         .ok_or_else(|| TokenQueryError::StateInvariantViolation("Name not present".to_string()))
         .and_then(|value| {
             String::from_utf8(value).map_err(|err| {
                 TokenQueryError::StateInvariantViolation(format!("Name invalid UTF8: {}", err))
             })
-        })?;
+        })
+}
 
+fn get_metadata(kernel: &impl TokenKernelQueries) -> Result<MetadataUrl, TokenQueryError> {
     let metadata_cbor = kernel.get_module_state(STATE_KEY_METADATA).ok_or_else(|| {
         TokenQueryError::StateInvariantViolation("Metadata not present".to_string())
     })?;
     let metadata: MetadataUrl = cbor_decode(metadata_cbor)?;
+    Ok(metadata)
+}
 
-    let allow_list = kernel.get_module_state(STATE_KEY_ALLOW_LIST).is_some();
-    let deny_list = kernel.get_module_state(STATE_KEY_DENY_LIST).is_some();
-    let mintable = kernel.get_module_state(STATE_KEY_MINTABLE).is_some();
-    let burnable = kernel.get_module_state(STATE_KEY_BURNABLE).is_some();
-    let paused = kernel.get_module_state(STATE_KEY_PAUSED).is_some();
-
+fn get_governance_account_index(
+    kernel: &impl TokenKernelQueries,
+) -> Result<AccountIndex, TokenQueryError> {
     let governance_account_index = AccountIndex::from(
         kernel
             .get_module_state(STATE_KEY_GOVERNANCE_ACCOUNT)
@@ -298,6 +328,22 @@ pub fn query_token_module_state<Kernel: TokenKernelQueries>(
                 })
             })?,
     );
+    Ok(governance_account_index)
+}
+
+/// Get the CBOR-encoded representation of the token module state.
+pub fn query_token_module_state<Kernel: TokenKernelQueries>(
+    kernel: &Kernel,
+) -> Result<RawCbor, TokenQueryError> {
+    let name = get_name(kernel)?;
+    let metadata = get_metadata(kernel)?;
+    let allow_list = has_allow_list(kernel);
+    let deny_list = has_deny_list(kernel);
+    let mintable = is_mintable(kernel);
+    let burnable = is_burnable(kernel);
+    let paused = is_paused(kernel);
+
+    let governance_account_index = get_governance_account_index(kernel)?;
     let governance_account = kernel
         .account_by_index(governance_account_index)
         .ok_or_else(|| {
