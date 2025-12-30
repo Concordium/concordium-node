@@ -1,14 +1,18 @@
 use std::collections::HashMap;
 
 use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::TokenModuleEvent;
+use concordium_base::protocol_level_tokens::{
+    CborHolderAccount, MetadataUrl, TokenModuleEvent, TokenModuleInitializationParameters,
+};
 use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, LockedStateKeyError, OutOfEnergyError, RawTokenAmount, StateKey,
     StateValue, TokenKernelOperations, TokenKernelQueries,
 };
+use plt_token_module::token_module;
 
 /// Token kernel stub providing an implementation of [`TokenKernelOperations`] and methods for
 /// configuring the state of the host.
@@ -78,6 +82,68 @@ impl KernelStub {
             .get_mut(account.0)
             .expect("account in stub")
             .balance = Some(balance);
+    }
+
+    /// Initialize token and return the governance account
+    pub fn init_token(&mut self, params: TokenInitTestParams) -> AccountStubIndex {
+        let gov_account = self.create_account();
+        let gov_holder_account =
+            CborHolderAccount::from(self.account_canonical_address(&gov_account));
+        let metadata = MetadataUrl::from("https://plt.token".to_string());
+        let parameters = TokenModuleInitializationParameters {
+            name: Some("Protocol-level token".to_owned()),
+            metadata: Some(metadata.clone()),
+            governance_account: Some(gov_holder_account.clone()),
+            allow_list: params.allow_list,
+            deny_list: params.deny_list,
+            initial_supply: None,
+            mintable: params.mintable,
+            burnable: params.burnable,
+            additional: Default::default(),
+        };
+        let encoded_parameters = cbor::cbor_encode(&parameters)
+            .expect("encode initialization parameters")
+            .into();
+        token_module::initialize_token(self, encoded_parameters).expect("initialize token");
+        gov_account
+    }
+}
+
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct TokenInitTestParams {
+    allow_list: Option<bool>,
+    deny_list: Option<bool>,
+    mintable: Option<bool>,
+    burnable: Option<bool>,
+}
+
+impl TokenInitTestParams {
+    pub fn allow_list(self) -> Self {
+        Self {
+            allow_list: Some(true),
+            ..self
+        }
+    }
+
+    pub fn deny_list(self) -> Self {
+        Self {
+            deny_list: Some(true),
+            ..self
+        }
+    }
+
+    pub fn mintable(self) -> Self {
+        Self {
+            mintable: Some(true),
+            ..self
+        }
+    }
+
+    pub fn burnable(self) -> Self {
+        Self {
+            burnable: Some(true),
+            ..self
+        }
     }
 }
 

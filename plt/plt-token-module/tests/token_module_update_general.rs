@@ -1,3 +1,4 @@
+use crate::kernel_stub::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -44,6 +45,7 @@ fn test_update_token_decode_failure() {
 #[test]
 fn test_multiple_operations() {
     let mut stub = KernelStub::new(2);
+    stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
@@ -80,6 +82,7 @@ fn test_multiple_operations() {
 #[test]
 fn test_single_failing_operation() {
     let mut stub = KernelStub::new(2);
+    stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));

@@ -1,3 +1,4 @@
+use crate::kernel_stub::TokenInitTestParams;
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -18,6 +19,7 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 #[test]
 fn test_transfer() {
     let mut stub = KernelStub::new(2);
+    stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
@@ -47,6 +49,7 @@ fn test_transfer() {
 #[test]
 fn test_transfer_self() {
     let mut stub = KernelStub::new(2);
+    stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
@@ -73,6 +76,7 @@ fn test_transfer_self() {
 #[test]
 fn test_transfer_insufficient_balance() {
     let mut stub = KernelStub::new(2);
+    stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
@@ -116,6 +120,7 @@ fn test_transfer_insufficient_balance() {
 #[test]
 fn test_transfer_decimals_mismatch() {
     let mut stub = KernelStub::new(2);
+    stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
@@ -155,6 +160,7 @@ fn test_transfer_decimals_mismatch() {
 #[test]
 fn test_transfer_to_non_existing_receiver() {
     let mut stub = KernelStub::new(2);
+    stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
