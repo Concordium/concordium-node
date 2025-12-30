@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::TokenModuleEventType;
+use concordium_base::protocol_level_tokens::TokenModuleEvent;
 use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
@@ -166,15 +166,11 @@ impl TokenKernelOperations for KernelStub {
         account: &Self::Account,
         amount: RawTokenAmount,
     ) -> Result<(), AmountNotRepresentableError> {
-        if let Some(balance) = self.accounts[account.0].balance {
-            if balance > RawTokenAmount(u64::MAX - amount.0) {
-                Err(AmountNotRepresentableError)
-            } else {
-                self.accounts[account.0].balance = Some(RawTokenAmount(balance.0 + amount.0));
-                Ok(())
-            }
+        let balance = self.accounts[account.0].balance.get_or_insert_default();
+        if *balance > RawTokenAmount(u64::MAX - amount.0) {
+            Err(AmountNotRepresentableError)
         } else {
-            self.accounts[account.0].balance = Some(amount);
+            *balance = RawTokenAmount(balance.0 + amount.0);
             Ok(())
         }
     }
@@ -189,12 +185,28 @@ impl TokenKernelOperations for KernelStub {
 
     fn transfer(
         &mut self,
-        _from: &Self::Account,
-        _to: &Self::Account,
-        _amount: RawTokenAmount,
+        from: &Self::Account,
+        to: &Self::Account,
+        amount: RawTokenAmount,
         _memo: Option<Memo>,
     ) -> Result<(), InsufficientBalanceError> {
-        todo!()
+        if self.account_balance(from).0 < amount.0 {
+            return Err(InsufficientBalanceError {
+                available: self.account_balance(from),
+                required: amount,
+            });
+        }
+
+        if from.0 == to.0 {
+            return Ok(());
+        }
+
+        let [from, to] = self.accounts.get_disjoint_mut([from.0, to.0]).unwrap();
+        let from_balance = from.balance.get_or_insert_default();
+        let to_balance = to.balance.get_or_insert_default();
+        *from_balance = RawTokenAmount(from_balance.0 - amount.0);
+        *to_balance = RawTokenAmount(to_balance.0 + amount.0);
+        Ok(())
     }
 
     fn set_token_state(
@@ -213,7 +225,7 @@ impl TokenKernelOperations for KernelStub {
         todo!()
     }
 
-    fn log_token_event(&mut self, _event: TokenModuleEventType) {
+    fn log_token_event(&mut self, _event: TokenModuleEvent) {
         todo!()
     }
 }

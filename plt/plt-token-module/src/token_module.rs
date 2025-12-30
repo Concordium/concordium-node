@@ -354,12 +354,6 @@ fn make_reject_reason(
     }
 }
 
-fn reject_deserialization_failure(cause: String) -> TokenModuleRejectReasonType {
-    TokenModuleRejectReasonType::DeserializationFailure(DeserializationFailureRejectReason {
-        cause: Some(cause),
-    })
-}
-
 /// Get whether the balance-affecting operations on the token are currently
 /// paused.
 fn is_paused(kernel: &impl TokenKernelQueries) -> bool {

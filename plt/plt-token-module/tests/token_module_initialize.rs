@@ -18,7 +18,7 @@ use plt_token_module::token_module::{
 
 mod kernel_stub;
 
-const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
+const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
 /// In this example, the parameters are not a valid encoding.
 #[test]
@@ -326,7 +326,7 @@ fn test_initialize_token_non_existing_governance_account() {
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata),
-        governance_account: Some(TEST_ACCOUNT2.into()),
+        governance_account: Some(NON_EXISTING_ACCOUNT.into()),
         allow_list: Some(false),
         deny_list: Some(false),
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),
@@ -339,7 +339,7 @@ fn test_initialize_token_non_existing_governance_account() {
     assert_matches!(
         res,
         Err(TokenInitializationError::GovernanceAccountDoesNotExist(
-            AccountNotFoundByAddressError(TEST_ACCOUNT2)
+            AccountNotFoundByAddressError(NON_EXISTING_ACCOUNT)
         ))
     );
 }

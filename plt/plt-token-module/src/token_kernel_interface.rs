@@ -3,7 +3,7 @@
 
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::TokenModuleEventType;
+use concordium_base::protocol_level_tokens::TokenModuleEvent;
 use concordium_base::transactions::Memo;
 
 pub type StateKey = Vec<u8>;
@@ -167,5 +167,5 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// # Events
     ///
     /// This will produce a `TokenModuleEvent` in the logs.
-    fn log_token_event(&mut self, event: TokenModuleEventType);
+    fn log_token_event(&mut self, event: TokenModuleEvent);
 }

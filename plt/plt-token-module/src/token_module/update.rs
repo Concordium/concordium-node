@@ -30,7 +30,7 @@ pub fn execute_token_update_operation<Kernel: TokenKernelOperations>(
     token_operation: TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     match token_operation {
-        TokenOperation::Transfer(transfer) => execute_token_transfer(kernel, &context, transfer),
+        TokenOperation::Transfer(transfer) => execute_token_transfer(kernel, context, transfer),
         _ => todo!(),
     }
 }
