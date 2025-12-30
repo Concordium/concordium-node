@@ -5,8 +5,9 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenModuleEventType;
 use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
-    AmountNotRepresentableError, InsufficientBalanceError, LockedStateKeyError, OutOfEnergyError,
-    RawTokenAmount, StateKey, StateValue, TokenKernelOperations, TokenKernelQueries,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
+    InsufficientBalanceError, LockedStateKeyError, OutOfEnergyError, RawTokenAmount, StateKey,
+    StateValue, TokenKernelOperations, TokenKernelQueries,
 };
 
 /// Token kernel stub providing an implementation of [`TokenKernelOperations`] and methods for
@@ -90,25 +91,39 @@ pub struct AccountStubIndex(usize);
 impl TokenKernelQueries for KernelStub {
     type Account = AccountStubIndex;
 
-    fn account_by_address(&self, address: &AccountAddress) -> Option<Self::Account> {
-        self.accounts.iter().enumerate().find_map(|(i, account)| {
-            // TODO resolve an account alias as well here.
-            if account.address == *address {
-                Some(AccountStubIndex(i))
-            } else {
-                None
-            }
-        })
+    fn account_by_address(
+        &self,
+        address: &AccountAddress,
+    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
+        self.accounts
+            .iter()
+            .enumerate()
+            .find_map(|(i, account)| {
+                // TODO resolve an account alias as well here.
+                if account.address == *address {
+                    Some(AccountStubIndex(i))
+                } else {
+                    None
+                }
+            })
+            .ok_or(AccountNotFoundByAddressError(*address))
     }
 
-    fn account_by_index(&self, index: AccountIndex) -> Option<Self::Account> {
-        self.accounts.iter().enumerate().find_map(|(i, account)| {
-            if account.index == index {
-                Some(AccountStubIndex(i))
-            } else {
-                None
-            }
-        })
+    fn account_by_index(
+        &self,
+        index: AccountIndex,
+    ) -> Result<Self::Account, AccountNotFoundByIndexError> {
+        self.accounts
+            .iter()
+            .enumerate()
+            .find_map(|(i, account)| {
+                if account.index == index {
+                    Some(AccountStubIndex(i))
+                } else {
+                    None
+                }
+            })
+            .ok_or(AccountNotFoundByIndexError(index))
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
@@ -217,7 +232,7 @@ fn test_account_lookup_address() {
     stub.account_by_address(&address)
         .expect("Account is expected to exist");
     assert!(
-        stub.account_by_address(&TEST_ACCOUNT2).is_none(),
+        stub.account_by_address(&TEST_ACCOUNT2).is_err(),
         "Account is not expected to exist"
     );
 }
@@ -232,7 +247,7 @@ fn test_account_lookup_index() {
     stub.account_by_index(index)
         .expect("Account is expected to exist");
     assert!(
-        stub.account_by_index(2.into()).is_none(),
+        stub.account_by_index(2.into()).is_err(),
         "Account is not expected to exist"
     );
 }

@@ -16,8 +16,12 @@ pub type StateValue = Vec<u8>;
 pub struct RawTokenAmount(pub u64);
 
 /// The account has insufficient balance.
-#[derive(Debug)]
-pub struct InsufficientBalanceError;
+#[derive(Debug, thiserror::Error)]
+#[error("Insufficient balance in account")]
+pub struct InsufficientBalanceError {
+    pub available: RawTokenAmount,
+    pub required: RawTokenAmount,
+}
 
 /// Update to state key failed because the key was locked by an iterator.
 #[derive(Debug, thiserror::Error)]
@@ -34,6 +38,16 @@ pub struct AmountNotRepresentableError;
 #[error("Out of energy")]
 pub struct OutOfEnergyError;
 
+/// Account with given address does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with address {0} does not exist")]
+pub struct AccountNotFoundByAddressError(pub AccountAddress);
+
+/// Account with given index does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with index {0} does not exist")]
+pub struct AccountNotFoundByIndexError(pub AccountIndex);
+
 /// Queries provided by the token kernel.
 pub trait TokenKernelQueries {
     /// The type for the account object.
@@ -42,10 +56,16 @@ pub trait TokenKernelQueries {
     type Account;
 
     /// Lookup the account using an account address.
-    fn account_by_address(&self, address: &AccountAddress) -> Option<Self::Account>;
+    fn account_by_address(
+        &self,
+        address: &AccountAddress,
+    ) -> Result<Self::Account, AccountNotFoundByAddressError>;
 
     /// Lookup the account using an account index.
-    fn account_by_index(&self, index: AccountIndex) -> Option<Self::Account>;
+    fn account_by_index(
+        &self,
+        index: AccountIndex,
+    ) -> Result<Self::Account, AccountNotFoundByIndexError>;
 
     /// Get the account index for the account.
     fn account_index(&self, account: &Self::Account) -> AccountIndex;

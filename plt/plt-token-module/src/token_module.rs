@@ -1,19 +1,24 @@
 //! Implementation of the protocol-level token module.
-//!
 
 use crate::token_kernel_interface::*;
+use crate::token_module::update::TokenUpdateErrorInternal;
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::common::cbor;
 use concordium_base::common::cbor::{
-    CborDeserialize, CborSerializationError, CborSerializationResult, SerializationOptions,
-    UnknownMapKeys,
+    CborDeserialize, CborMaybeKnown, CborSerializationError, CborSerializationResult,
+    CborSerialize, SerializationOptions, UnknownMapKeys,
 };
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, DeserializationFailureRejectReason, MetadataUrl, RawCbor, TokenAmount,
-    TokenModuleInitializationParameters, TokenModuleRejectReasonType, TokenModuleState,
+    ADDRESS_NOT_FOUND_REJECT_REASON_TYPE, AddressNotFoundRejectReason, CborHolderAccount,
+    DESERIALIZATION_FAILURE_REJECT_REASON_TYPE, DeserializationFailureRejectReason, MetadataUrl,
+    RawCbor, TOKEN_BALANCE_INSUFFICIENT_REJECT_REASON_TYPE, TokenAmount,
+    TokenBalanceInsufficientRejectReason, TokenModuleInitializationParameters,
+    TokenModuleRejectReason, TokenModuleRejectReasonType, TokenModuleState, TokenOperation,
 };
+
+mod update;
 
 /// Extension trait for `TokenKernelOperations` to provide convenience wrappers for
 /// module state updates.
@@ -65,7 +70,7 @@ pub enum TokenInitializationError {
     #[error("{0}")]
     LockedStateKey(#[from] LockedStateKeyError),
     #[error("The given governance account does not exist: {0}")]
-    GovernanceAccountDoesNotExist(AccountAddress),
+    GovernanceAccountDoesNotExist(#[from] AccountNotFoundByAddressError),
     #[error("The initial mint amount has wrong number of decimals: {0}")]
     MintAmountDecimalsMismatch(#[from] TokenAmountDecimalsMismatchError),
     #[error("The initial mint amount is not representable: {0}")]
@@ -75,18 +80,10 @@ pub enum TokenInitializationError {
 /// Represents the reasons why [`execute_token_update_transaction`] can fail.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenUpdateError {
-    #[error("Token module rejection: {0:?}")]
-    TokenModuleReject(TokenModuleRejectReasonType),
-}
-
-impl From<CborSerializationError> for TokenUpdateError {
-    fn from(value: CborSerializationError) -> Self {
-        Self::TokenModuleReject(TokenModuleRejectReasonType::DeserializationFailure(
-            DeserializationFailureRejectReason {
-                cause: Some(value.to_string()),
-            },
-        ))
-    }
+    #[error("Token module rejection")]
+    TokenModuleReject(TokenModuleRejectReason),
+    #[error("Execution out of energy")]
+    OutOfEnergy(#[from] OutOfEnergyError),
 }
 
 /// Represents the reasons why a query to the token module can fail.
@@ -116,18 +113,18 @@ pub struct TokenAmountDecimalsMismatchError {
 
 /// Asserts that token amount has the right number of decimals and converts it to a plain
 /// integer.
-fn to_token_raw_amount(
+fn to_raw_token_amount(
+    kernel: &impl TokenKernelQueries,
     amount: TokenAmount,
-    expected_decimals: u8,
 ) -> Result<RawTokenAmount, TokenAmountDecimalsMismatchError> {
-    let decimals = amount.decimals();
-    if decimals != expected_decimals {
-        return Err(TokenAmountDecimalsMismatchError {
-            expected: expected_decimals,
-            found: decimals,
-        });
+    if amount.decimals() != kernel.decimals() {
+        Err(TokenAmountDecimalsMismatchError {
+            expected: kernel.decimals(),
+            found: amount.decimals(),
+        })
+    } else {
+        Ok(RawTokenAmount(amount.value()))
     }
-    Ok(RawTokenAmount(amount.value()))
 }
 
 const STATE_KEY_NAME: &[u8] = b"name";
@@ -146,14 +143,25 @@ fn cbor_decode<T: CborDeserialize>(cbor: impl AsRef<[u8]>) -> CborSerializationR
     cbor::cbor_decode_with_options(cbor, decode_options)
 }
 
+fn cbor_encode(value: &impl CborSerialize) -> CborSerializationResult<RawCbor> {
+    cbor::cbor_encode(value).map(RawCbor::from)
+}
+
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
 /// (if necessary) minting the initial supply to the token governance account.
 pub fn initialize_token(
-    host: &mut impl TokenKernelOperations,
+    kernel: &mut impl TokenKernelOperations,
     initialization_parameters_cbor: RawCbor,
 ) -> Result<(), TokenInitializationError> {
     let init_params: TokenModuleInitializationParameters =
-        cbor_decode(initialization_parameters_cbor)?;
+        cbor_decode(&initialization_parameters_cbor)?;
+    initialize_token_impl(kernel, init_params)
+}
+
+pub fn initialize_token_impl(
+    kernel: &mut impl TokenKernelOperations,
+    init_params: TokenModuleInitializationParameters,
+) -> Result<(), TokenInitializationError> {
     if !init_params.additional.is_empty() {
         return Err(TokenInitializationError::InvalidInitializationParameters(
             format!(
@@ -182,34 +190,31 @@ pub fn initialize_token(
             "Token governance account is missing".to_string(),
         )
     })?;
-    host.set_module_state(STATE_KEY_NAME, Some(name.into()))?;
+    kernel.set_module_state(STATE_KEY_NAME, Some(name.into()))?;
     let encoded_metadata = cbor::cbor_encode(&metadata)?;
-    host.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata))?;
+    kernel.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata))?;
     if init_params.allow_list == Some(true) {
-        host.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]))?;
+        kernel.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]))?;
     }
     if init_params.deny_list == Some(true) {
-        host.set_module_state(STATE_KEY_DENY_LIST, Some(vec![]))?;
+        kernel.set_module_state(STATE_KEY_DENY_LIST, Some(vec![]))?;
     }
     if init_params.mintable == Some(true) {
-        host.set_module_state(STATE_KEY_MINTABLE, Some(vec![]))?;
+        kernel.set_module_state(STATE_KEY_MINTABLE, Some(vec![]))?;
     }
     if init_params.burnable == Some(true) {
-        host.set_module_state(STATE_KEY_BURNABLE, Some(vec![]))?;
+        kernel.set_module_state(STATE_KEY_BURNABLE, Some(vec![]))?;
     }
 
-    let governance_account = host.account_by_address(&governance_account.address).ok_or(
-        TokenInitializationError::GovernanceAccountDoesNotExist(governance_account.address),
-    )?;
-    let governance_account_index = host.account_index(&governance_account);
-    host.set_module_state(
+    let governance_account = kernel.account_by_address(&governance_account.address)?;
+    let governance_account_index = kernel.account_index(&governance_account);
+    kernel.set_module_state(
         STATE_KEY_GOVERNANCE_ACCOUNT,
         Some(common::to_bytes(&governance_account_index.index)),
     )?;
     if let Some(initial_supply) = init_params.initial_supply {
-        let mint_amount = to_token_raw_amount(initial_supply, host.decimals())?;
-        host.mint(&governance_account, mint_amount)
-            .map_err(TokenInitializationError::MintAmountNotRepresentable)?;
+        let mint_amount = to_raw_token_amount(kernel, initial_supply)?;
+        kernel.mint(&governance_account, mint_amount)?;
     }
     Ok(())
 }
@@ -260,11 +265,99 @@ pub fn initialize_token(
 ///
 ///   - Token module state contains a correctly encoded governance account address.
 pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
-    _kernel: &mut Kernel,
-    _context: TransactionContext<Kernel::Account>,
-    _token_operations: RawCbor,
+    kernel: &mut Kernel,
+    context: TransactionContext<Kernel::Account>,
+    token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {
-    todo!()
+    let operations: Vec<CborMaybeKnown<TokenOperation>> = cbor_decode(&token_operations).unwrap();
+    let operations: Vec<_> = operations
+        .into_iter()
+        .map(|op| match op {
+            CborMaybeKnown::Known(op) => op,
+            CborMaybeKnown::Unknown(value) => {
+                if let cbor::value::Value::Map(map) = value {
+                    if let Some((cbor::value::Value::Text(operation_type), _)) = map.first() {
+                        // return reject_deserialization_failure(Some(format!(
+                        //     "Invalid token operation: {operation_type}"
+                        // )));
+                        panic!()
+                    } else {
+                        // return reject_deserialization_failure(Some("Invalid token operation."));
+                        panic!()
+                    }
+                } else {
+                    // return reject_deserialization_failure(Some("Invalid token operation."));
+                    panic!()
+                }
+            }
+        })
+        .collect();
+
+    for (index, operation) in operations.into_iter().enumerate() {
+        update::execute_token_update_operation(kernel, &context, operation).map_err(
+            |err| match err {
+                TokenUpdateErrorInternal::CborSerialization(err) => {
+                    TokenUpdateError::TokenModuleReject(make_reject_reason(
+                        DESERIALIZATION_FAILURE_REJECT_REASON_TYPE,
+                        &DeserializationFailureRejectReason {
+                            cause: Some(err.to_string()),
+                        },
+                    ))
+                }
+                TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
+                    TokenUpdateError::TokenModuleReject(make_reject_reason(
+                        ADDRESS_NOT_FOUND_REJECT_REASON_TYPE,
+                        &AddressNotFoundRejectReason {
+                            index,
+                            address: CborHolderAccount::from(err.0),
+                        },
+                    ))
+                }
+                TokenUpdateErrorInternal::AmountDecimalsMismatch(err) => {
+                    TokenUpdateError::TokenModuleReject(make_reject_reason(
+                        DESERIALIZATION_FAILURE_REJECT_REASON_TYPE,
+                        &DeserializationFailureRejectReason {
+                            cause: Some(err.to_string()),
+                        },
+                    ))
+                }
+                TokenUpdateErrorInternal::InsufficientBalance(err) => {
+                    TokenUpdateError::TokenModuleReject(make_reject_reason(
+                        TOKEN_BALANCE_INSUFFICIENT_REJECT_REASON_TYPE,
+                        &TokenBalanceInsufficientRejectReason {
+                            index,
+                            available_balance: TokenAmount::from_raw(
+                                err.available.0,
+                                kernel.decimals(),
+                            ),
+                            required_balance: TokenAmount::from_raw(
+                                err.required.0,
+                                kernel.decimals(),
+                            ),
+                        },
+                    ))
+                }
+                TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
+            },
+        )?;
+    }
+    Ok(())
+}
+
+fn make_reject_reason(
+    reject_reason_type: &'static str,
+    reject_reason: &impl CborSerialize,
+) -> TokenModuleRejectReason {
+    TokenModuleRejectReason {
+        reason_type: reject_reason_type.to_string().try_into().unwrap(), // todo ar
+        details: Some(RawCbor::from(cbor::cbor_encode(reject_reason).unwrap())), // todo ar
+    }
+}
+
+fn reject_deserialization_failure(cause: String) -> TokenModuleRejectReasonType {
+    TokenModuleRejectReasonType::DeserializationFailure(DeserializationFailureRejectReason {
+        cause: Some(cause),
+    })
 }
 
 /// Get whether the balance-affecting operations on the token are currently
@@ -346,7 +439,7 @@ pub fn query_token_module_state<Kernel: TokenKernelQueries>(
     let governance_account_index = get_governance_account_index(kernel)?;
     let governance_account = kernel
         .account_by_index(governance_account_index)
-        .ok_or_else(|| {
+        .map_err(|_| {
             TokenQueryError::StateInvariantViolation(format!(
                 "Governance account with index {} does not exist",
                 governance_account_index

@@ -9,7 +9,9 @@ use concordium_base::{
     protocol_level_tokens::{TokenAmount, TokenModuleInitializationParameters},
 };
 use kernel_stub::KernelStub;
-use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
+use plt_token_module::token_kernel_interface::{
+    AccountNotFoundByAddressError, RawTokenAmount, TokenKernelQueries,
+};
 use plt_token_module::token_module::{
     self, TokenAmountDecimalsMismatchError, TokenInitializationError,
 };
@@ -337,7 +339,7 @@ fn test_initialize_token_non_existing_governance_account() {
     assert_matches!(
         res,
         Err(TokenInitializationError::GovernanceAccountDoesNotExist(
-            TEST_ACCOUNT2
+            AccountNotFoundByAddressError(TEST_ACCOUNT2)
         ))
     );
 }
