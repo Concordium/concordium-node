@@ -287,15 +287,6 @@ pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
     for (index, operation) in operations.into_iter().enumerate() {
         update::execute_token_update_operation(kernel, &context, operation).map_err(
             |err| match err {
-                TokenUpdateErrorInternal::CborSerialization(err) => {
-                    TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReasonEnum::DeserializationFailure(
-                            DeserializationFailureRejectReason {
-                                cause: Some(err.to_string()),
-                            },
-                        ),
-                    ))
-                }
                 TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
                         TokenModuleRejectReasonEnum::AddressNotFound(AddressNotFoundRejectReason {

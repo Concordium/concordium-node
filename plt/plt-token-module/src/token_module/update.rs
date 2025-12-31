@@ -4,7 +4,6 @@ use crate::token_kernel_interface::{
 };
 use crate::token_module;
 use crate::token_module::{TokenAmountDecimalsMismatchError, TransactionContext};
-use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{TokenOperation, TokenTransfer};
 use concordium_base::transactions::Memo;
 
@@ -12,8 +11,6 @@ use concordium_base::transactions::Memo;
 /// not encoded as CBOR
 #[derive(Debug, thiserror::Error)]
 pub enum TokenUpdateErrorInternal {
-    #[error("CBOR serialization error during token update: {0}")]
-    CborSerialization(#[from] CborSerializationError),
     #[error("The given account does not exist: {0}")]
     AccountDoesNotExist(#[from] AccountNotFoundByAddressError),
     #[error("The token amount has wrong number of decimals: {0}")]

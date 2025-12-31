@@ -3,10 +3,11 @@ use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason, RawCbor,
-    TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReasonEnum, TokenOperation,
-    TokenTransfer,
+    AddressNotFoundRejectReason, CborHolderAccount, CborMemo, DeserializationFailureRejectReason,
+    RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReasonEnum,
+    TokenOperation, TokenTransfer,
 };
+use concordium_base::transactions::Memo;
 use kernel_stub::KernelStub;
 use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
 use plt_token_module::token_module::{self, TokenUpdateError, TransactionContext};
@@ -46,6 +47,40 @@ fn test_transfer() {
 
     assert_eq!(stub.account_balance(&sender), RawTokenAmount(4000));
     assert_eq!(stub.account_balance(&receiver), RawTokenAmount(3000));
+    let transfer = stub.pop_transfer().expect("transfer");
+    assert_eq!(transfer.3, None);
+}
+
+/// Test successful transfer with memo.
+#[test]
+fn test_transfer_with_memo() {
+    let mut stub = KernelStub::new(2);
+    stub.init_token(TokenInitTestParams::default());
+    let sender = stub.create_account();
+    let receiver = stub.create_account();
+    stub.set_account_balance(sender, RawTokenAmount(5000));
+
+    let context = TransactionContext {
+        sender,
+        sender_address: stub.account_canonical_address(&sender),
+    };
+    let memo = Memo::try_from(cbor::cbor_encode("testvalue").unwrap()).unwrap();
+    let operations = vec![TokenOperation::Transfer(TokenTransfer {
+        amount: TokenAmount::from_raw(1000, 2),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        memo: Some(CborMemo::Cbor(memo.clone())),
+    })];
+    token_module::execute_token_update_transaction(
+        &mut stub,
+        context,
+        RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
+    )
+    .expect("execute");
+
+    assert_eq!(stub.account_balance(&sender), RawTokenAmount(4000));
+    assert_eq!(stub.account_balance(&receiver), RawTokenAmount(1000));
+    let transfer = stub.pop_transfer().expect("transfer");
+    assert_eq!(transfer.3, Some(memo));
 }
 
 /// Test transfer to sending account
