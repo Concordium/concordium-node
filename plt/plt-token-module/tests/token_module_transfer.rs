@@ -4,7 +4,7 @@ use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason, RawCbor,
-    TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReasonType, TokenOperation,
+    TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReasonEnum, TokenOperation,
     TokenTransfer,
 };
 use kernel_stub::KernelStub;
@@ -12,8 +12,11 @@ use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQuerie
 use plt_token_module::token_module::{self, TokenUpdateError, TransactionContext};
 
 mod kernel_stub;
+mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
+
+// todo ar test transfer with memo
 
 /// Test successful transfer.
 #[test]
@@ -96,24 +99,19 @@ fn test_transfer_insufficient_balance() {
         RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
     );
 
-    assert_matches!(
+    let reject_reason = assert_matches!(
         &res,
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-            let reject_reason = reject_reason.decode_reject_reason().unwrap();
-
-            assert_matches!(reject_reason, TokenModuleRejectReasonType::TokenBalanceInsufficient(
-                TokenBalanceInsufficientRejectReason {
-                    available_balance,
-                    required_balance,
-                    ..
-
-                }) => {
-                assert_eq!(available_balance, TokenAmount::from_raw(5000, 2));
-                assert_eq!(required_balance, TokenAmount::from_raw(10000, 2));
-            });
-
-        }
-    );
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => reject_reason);
+    let reject_reason = utils::decode_reject_reason(reject_reason);
+    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::TokenBalanceInsufficient(
+        TokenBalanceInsufficientRejectReason {
+            available_balance,
+            required_balance,
+            ..
+        }) => {
+        assert_eq!(available_balance, TokenAmount::from_raw(5000, 2));
+        assert_eq!(required_balance, TokenAmount::from_raw(10000, 2));
+    });
 }
 
 /// Test transfer with amount specified with wrong number of decimals
@@ -140,20 +138,16 @@ fn test_transfer_decimals_mismatch() {
         RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
     );
 
-    assert_matches!(
+    let reject_reason = assert_matches!(
         &res,
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-            let reject_reason = reject_reason.decode_reject_reason().unwrap();
-
-            assert_matches!(reject_reason, TokenModuleRejectReasonType::DeserializationFailure(
-                DeserializationFailureRejectReason {
-                    cause: Some(cause)
-                }) => {
-                assert!(cause.contains("decimals mismatch"), "cause: {}", cause);
-            });
-
-        }
-    );
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => reject_reason);
+    let reject_reason = utils::decode_reject_reason(reject_reason);
+    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::DeserializationFailure(
+        DeserializationFailureRejectReason {
+            cause: Some(cause)
+        }) => {
+        assert!(cause.contains("decimals mismatch"), "cause: {}", cause);
+    });
 }
 
 /// Test transfer where receiving account does not exist
@@ -179,19 +173,15 @@ fn test_transfer_to_non_existing_receiver() {
         RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
     );
 
-    assert_matches!(
+    let reject_reason = assert_matches!(
         &res,
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-            let reject_reason = reject_reason.decode_reject_reason().unwrap();
-
-            assert_matches!(reject_reason, TokenModuleRejectReasonType::AddressNotFound(
-                AddressNotFoundRejectReason {
-                    address,
-                    ..
-                }) => {
-                assert_eq!(address.address, NON_EXISTING_ACCOUNT);
-            });
-
-        }
-    );
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => reject_reason);
+    let reject_reason = utils::decode_reject_reason(reject_reason);
+    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::AddressNotFound(
+        AddressNotFoundRejectReason {
+            address,
+            ..
+        }) => {
+        assert_eq!(address.address, NON_EXISTING_ACCOUNT);
+    });
 }

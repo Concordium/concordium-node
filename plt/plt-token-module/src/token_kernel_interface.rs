@@ -3,11 +3,20 @@
 
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::TokenModuleEvent;
+use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
 
 pub type StateKey = Vec<u8>;
 pub type StateValue = Vec<u8>;
+
+/// Event produced from the effect of a token transaction.
+#[derive(Debug, Clone)]
+pub struct TokenModuleEvent {
+    /// The type of event produced.
+    pub event_type: TokenModuleCborTypeDiscriminator,
+    /// The details of the event produced, in the raw byte encoded form.
+    pub details: RawCbor,
+}
 
 /// Token amount without decimals specified. The token amount represented by
 /// this type must always be represented with the number of decimals
@@ -17,7 +26,7 @@ pub struct RawTokenAmount(pub u64);
 
 /// The account has insufficient balance.
 #[derive(Debug, thiserror::Error)]
-#[error("Insufficient balance in account")]
+#[error("Insufficient balance on account")]
 pub struct InsufficientBalanceError {
     pub available: RawTokenAmount,
     pub required: RawTokenAmount,

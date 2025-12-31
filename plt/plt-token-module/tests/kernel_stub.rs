@@ -1,16 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, TokenModuleEvent, TokenModuleInitializationParameters,
+    CborHolderAccount, MetadataUrl, TokenModuleInitializationParameters,
 };
 use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, LockedStateKeyError, OutOfEnergyError, RawTokenAmount, StateKey,
-    StateValue, TokenKernelOperations, TokenKernelQueries,
+    StateValue, TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
 };
 use plt_token_module::token_module;
 
@@ -26,6 +26,13 @@ pub struct KernelStub {
     decimals: u8,
     /// Counter for creating accounts in the stub
     next_account_index: AccountIndex,
+    /// Transfers
+    transfers: VecDeque<(
+        AccountStubIndex,
+        AccountStubIndex,
+        RawTokenAmount,
+        Option<Memo>,
+    )>,
 }
 
 /// Internal representation of an Account in [`KernelStub`].
@@ -47,6 +54,7 @@ impl KernelStub {
             state: Default::default(),
             decimals,
             next_account_index: AccountIndex { index: 0 },
+            transfers: Default::default(),
         }
     }
 
@@ -106,6 +114,17 @@ impl KernelStub {
             .into();
         token_module::initialize_token(self, encoded_parameters).expect("initialize token");
         gov_account
+    }
+
+    pub fn pop_transfer(
+        &mut self,
+    ) -> Option<(
+        AccountStubIndex,
+        AccountStubIndex,
+        RawTokenAmount,
+        Option<Memo>,
+    )> {
+        self.transfers.pop_front()
     }
 }
 
@@ -254,7 +273,7 @@ impl TokenKernelOperations for KernelStub {
         from: &Self::Account,
         to: &Self::Account,
         amount: RawTokenAmount,
-        _memo: Option<Memo>,
+        memo: Option<Memo>,
     ) -> Result<(), InsufficientBalanceError> {
         if self.account_balance(from).0 < amount.0 {
             return Err(InsufficientBalanceError {
@@ -262,6 +281,8 @@ impl TokenKernelOperations for KernelStub {
                 required: amount,
             });
         }
+
+        self.transfers.push_back((*from, *to, amount, memo));
 
         if from.0 == to.0 {
             return Ok(());

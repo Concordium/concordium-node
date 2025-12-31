@@ -4,13 +4,14 @@ use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason, RawCbor,
-    TokenAmount, TokenModuleRejectReasonType, TokenOperation, TokenTransfer,
+    TokenAmount, TokenModuleRejectReasonEnum, TokenOperation, TokenTransfer,
 };
 use kernel_stub::KernelStub;
 use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
 use plt_token_module::token_module::{self, TokenUpdateError, TransactionContext};
 
 mod kernel_stub;
+mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
@@ -25,20 +26,17 @@ fn test_update_token_decode_failure() {
     };
     let res =
         token_module::execute_token_update_transaction(&mut stub, context, RawCbor::from(vec![]));
-    assert_matches!(
+
+    let reject_reason = assert_matches!(
         &res,
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-            let reject_reason = reject_reason.decode_reject_reason().unwrap();
-
-            assert_matches!(reject_reason, TokenModuleRejectReasonType::DeserializationFailure(
-                DeserializationFailureRejectReason {
-                    cause: Some(cause)
-                }) => {
-                assert!(cause.contains("IO error"), "cause: {}", cause);
-            });
-
-        }
-    );
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => reject_reason);
+    let reject_reason = utils::decode_reject_reason(reject_reason);
+    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::DeserializationFailure(
+        DeserializationFailureRejectReason {
+            cause: Some(cause)
+        }) => {
+        assert!(cause.contains("IO error"), "cause: {}", cause);
+    });
 }
 
 /// Test transaction with multiple operations
@@ -109,20 +107,16 @@ fn test_single_failing_operation() {
         RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
     );
 
-    assert_matches!(
+    let reject_reason = assert_matches!(
         &res,
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-            let reject_reason = reject_reason.decode_reject_reason().unwrap();
-
-            assert_matches!(reject_reason, TokenModuleRejectReasonType::AddressNotFound(
-                AddressNotFoundRejectReason {
-                    index,
-                    address,
-                }) => {
-                assert_eq!(address.address, NON_EXISTING_ACCOUNT);
-                assert_eq!(index, 1);
-            });
-
-        }
-    );
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => reject_reason);
+    let reject_reason = utils::decode_reject_reason(reject_reason);
+    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::AddressNotFound(
+        AddressNotFoundRejectReason {
+            index,
+            address,
+        }) => {
+        assert_eq!(address.address, NON_EXISTING_ACCOUNT);
+        assert_eq!(index, 1);
+    });
 }

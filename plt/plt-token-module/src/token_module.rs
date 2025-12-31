@@ -6,19 +6,28 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::common::cbor;
 use concordium_base::common::cbor::{
-    CborDeserialize, CborMaybeKnown, CborSerializationError, CborSerializationResult,
-    CborSerialize, SerializationOptions, UnknownMapKeys,
+    CborDeserialize, CborSerializationError, CborSerializationResult, SerializationOptions,
+    UnknownMapKeys,
 };
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    ADDRESS_NOT_FOUND_REJECT_REASON_TYPE, AddressNotFoundRejectReason, CborHolderAccount,
-    DESERIALIZATION_FAILURE_REJECT_REASON_TYPE, DeserializationFailureRejectReason, MetadataUrl,
-    RawCbor, TOKEN_BALANCE_INSUFFICIENT_REJECT_REASON_TYPE, TokenAmount,
-    TokenBalanceInsufficientRejectReason, TokenModuleInitializationParameters,
-    TokenModuleRejectReason, TokenModuleRejectReasonType, TokenModuleState, TokenOperation,
+    AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
+    MetadataUrl, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
+    TokenModuleCborTypeDiscriminator, TokenModuleInitializationParameters,
+    TokenModuleRejectReasonEnum, TokenModuleState, TokenOperation,
 };
 
 mod update;
+
+/// Details provided by the token module in the event of rejecting a
+/// transaction.
+#[derive(Debug, Clone)]
+pub struct TokenModuleRejectReason {
+    /// The type of the reject reason.
+    pub reason_type: TokenModuleCborTypeDiscriminator,
+    /// (Optional) CBOR-encoded details.
+    pub details: Option<RawCbor>,
+}
 
 /// Extension trait for `TokenKernelOperations` to provide convenience wrappers for
 /// module state updates.
@@ -143,10 +152,6 @@ fn cbor_decode<T: CborDeserialize>(cbor: impl AsRef<[u8]>) -> CborSerializationR
     cbor::cbor_decode_with_options(cbor, decode_options)
 }
 
-fn cbor_encode(value: &impl CborSerialize) -> CborSerializationResult<RawCbor> {
-    cbor::cbor_encode(value).map(RawCbor::from)
-}
-
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
 /// (if necessary) minting the initial supply to the token governance account.
 pub fn initialize_token(
@@ -269,72 +274,60 @@ pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
     context: TransactionContext<Kernel::Account>,
     token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {
-    let operations: Vec<CborMaybeKnown<TokenOperation>> = cbor_decode(&token_operations).unwrap();
-    let operations: Vec<_> = operations
-        .into_iter()
-        .map(|op| match op {
-            CborMaybeKnown::Known(op) => op,
-            CborMaybeKnown::Unknown(value) => {
-                if let cbor::value::Value::Map(map) = value {
-                    if let Some((cbor::value::Value::Text(operation_type), _)) = map.first() {
-                        // return reject_deserialization_failure(Some(format!(
-                        //     "Invalid token operation: {operation_type}"
-                        // )));
-                        panic!()
-                    } else {
-                        // return reject_deserialization_failure(Some("Invalid token operation."));
-                        panic!()
-                    }
-                } else {
-                    // return reject_deserialization_failure(Some("Invalid token operation."));
-                    panic!()
-                }
-            }
-        })
-        .collect();
+    let operations: Vec<TokenOperation> = cbor_decode(&token_operations).map_err(|err| {
+        TokenUpdateError::TokenModuleReject(make_reject_reason(
+            TokenModuleRejectReasonEnum::DeserializationFailure(
+                DeserializationFailureRejectReason {
+                    cause: Some(err.to_string()),
+                },
+            ),
+        ))
+    })?;
 
     for (index, operation) in operations.into_iter().enumerate() {
         update::execute_token_update_operation(kernel, &context, operation).map_err(
             |err| match err {
                 TokenUpdateErrorInternal::CborSerialization(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        DESERIALIZATION_FAILURE_REJECT_REASON_TYPE,
-                        &DeserializationFailureRejectReason {
-                            cause: Some(err.to_string()),
-                        },
+                        TokenModuleRejectReasonEnum::DeserializationFailure(
+                            DeserializationFailureRejectReason {
+                                cause: Some(err.to_string()),
+                            },
+                        ),
                     ))
                 }
                 TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        ADDRESS_NOT_FOUND_REJECT_REASON_TYPE,
-                        &AddressNotFoundRejectReason {
+                        TokenModuleRejectReasonEnum::AddressNotFound(AddressNotFoundRejectReason {
                             index,
                             address: CborHolderAccount::from(err.0),
-                        },
+                        }),
                     ))
                 }
                 TokenUpdateErrorInternal::AmountDecimalsMismatch(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        DESERIALIZATION_FAILURE_REJECT_REASON_TYPE,
-                        &DeserializationFailureRejectReason {
-                            cause: Some(err.to_string()),
-                        },
+                        TokenModuleRejectReasonEnum::DeserializationFailure(
+                            DeserializationFailureRejectReason {
+                                cause: Some(err.to_string()),
+                            },
+                        ),
                     ))
                 }
                 TokenUpdateErrorInternal::InsufficientBalance(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TOKEN_BALANCE_INSUFFICIENT_REJECT_REASON_TYPE,
-                        &TokenBalanceInsufficientRejectReason {
-                            index,
-                            available_balance: TokenAmount::from_raw(
-                                err.available.0,
-                                kernel.decimals(),
-                            ),
-                            required_balance: TokenAmount::from_raw(
-                                err.required.0,
-                                kernel.decimals(),
-                            ),
-                        },
+                        TokenModuleRejectReasonEnum::TokenBalanceInsufficient(
+                            TokenBalanceInsufficientRejectReason {
+                                index,
+                                available_balance: TokenAmount::from_raw(
+                                    err.available.0,
+                                    kernel.decimals(),
+                                ),
+                                required_balance: TokenAmount::from_raw(
+                                    err.required.0,
+                                    kernel.decimals(),
+                                ),
+                            },
+                        ),
                     ))
                 }
                 TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
@@ -344,13 +337,11 @@ pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
     Ok(())
 }
 
-fn make_reject_reason(
-    reject_reason_type: &'static str,
-    reject_reason: &impl CborSerialize,
-) -> TokenModuleRejectReason {
+fn make_reject_reason(reject_reason: TokenModuleRejectReasonEnum) -> TokenModuleRejectReason {
+    let (reason_type, cbor) = reject_reason.encode_reject_reason();
     TokenModuleRejectReason {
-        reason_type: reject_reason_type.to_string().try_into().unwrap(), // todo ar
-        details: Some(RawCbor::from(cbor::cbor_encode(reject_reason).unwrap())), // todo ar
+        reason_type: reason_type.to_type_discriminator(),
+        details: Some(cbor),
     }
 }
 
