@@ -8,7 +8,7 @@ use concordium_base::protocol_level_tokens::{
 };
 use kernel_stub::KernelStub;
 use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
-use plt_token_module::token_module::{self, TokenUpdateError, TransactionContext};
+use plt_token_module::token_module::{self, TransactionContext};
 
 mod kernel_stub;
 mod utils;
@@ -27,10 +27,7 @@ fn test_update_token_decode_failure() {
     let res =
         token_module::execute_token_update_transaction(&mut stub, context, RawCbor::from(vec![]));
 
-    let reject_reason = assert_matches!(
-        &res,
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => reject_reason);
-    let reject_reason = utils::decode_reject_reason(reject_reason);
+    let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(reject_reason, TokenModuleRejectReasonEnum::DeserializationFailure(
         DeserializationFailureRejectReason {
             cause: Some(cause)
@@ -107,10 +104,7 @@ fn test_single_failing_operation() {
         RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
     );
 
-    let reject_reason = assert_matches!(
-        &res,
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => reject_reason);
-    let reject_reason = utils::decode_reject_reason(reject_reason);
+    let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(reject_reason, TokenModuleRejectReasonEnum::AddressNotFound(
         AddressNotFoundRejectReason {
             index,
