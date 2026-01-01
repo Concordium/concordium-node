@@ -196,7 +196,7 @@ pub fn initialize_token_impl(
         )
     })?;
     kernel.set_module_state(STATE_KEY_NAME, Some(name.into()))?;
-    let encoded_metadata = cbor::cbor_encode(&metadata)?;
+    let encoded_metadata = cbor::cbor_encode(&metadata);
     kernel.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata))?;
     if init_params.allow_list == Some(true) {
         kernel.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]))?;
@@ -290,7 +290,7 @@ pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
                 TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
                         TokenModuleRejectReasonEnum::AddressNotFound(AddressNotFoundRejectReason {
-                            index,
+                            index: index as u64,
                             address: CborHolderAccount::from(err.0),
                         }),
                     ))
@@ -308,7 +308,7 @@ pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
                         TokenModuleRejectReasonEnum::TokenBalanceInsufficient(
                             TokenBalanceInsufficientRejectReason {
-                                index,
+                                index: index as u64,
                                 available_balance: TokenAmount::from_raw(
                                     err.available.0,
                                     kernel.decimals(),
@@ -435,7 +435,7 @@ pub fn query_token_module_state<Kernel: TokenKernelQueries>(
         additional: Default::default(),
     };
 
-    Ok(RawCbor::from(cbor::cbor_encode(&state)?))
+    Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
 /// Get the CBOR-encoded representation of the token module account state.

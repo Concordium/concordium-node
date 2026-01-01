@@ -50,7 +50,7 @@ fn test_initialize_token_parameters_missing() {
         burnable: Some(true),
         additional: Default::default(),
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
+    let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
     assert_matches!(res,
         Err(TokenInitializationError::InvalidInitializationParameters(err))
@@ -77,7 +77,7 @@ fn test_initialize_token_additional_parameter() {
         burnable: Some(true),
         additional,
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
+    let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
     assert_matches!(
         res,
@@ -94,7 +94,7 @@ fn test_initialize_token_default_values() {
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
-    let encoded_metadata = cbor::cbor_encode(&metadata).unwrap();
+    let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata.clone()),
@@ -106,7 +106,7 @@ fn test_initialize_token_default_values() {
         burnable: None,
         additional: Default::default(),
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
+    let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
 
     // assertions directly on token state
@@ -150,7 +150,7 @@ fn test_initialize_token_no_minting() {
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
-    let encoded_metadata = cbor::cbor_encode(&metadata).unwrap();
+    let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata.clone()),
@@ -162,7 +162,7 @@ fn test_initialize_token_no_minting() {
         burnable: Some(true),
         additional: Default::default(),
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
+    let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
 
     // assertions directly on token state
@@ -206,7 +206,7 @@ fn test_initialize_token_with_minting() {
     let gov_account = stub.create_account();
     let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
-    let encoded_metadata = cbor::cbor_encode(&metadata).unwrap();
+    let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata.clone()),
@@ -218,7 +218,7 @@ fn test_initialize_token_with_minting() {
         burnable: Some(false),
         additional: Default::default(),
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
+    let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
 
     // assertions directly on token state
@@ -273,7 +273,7 @@ fn test_initialize_token_excessive_mint_decimals() {
         burnable: Some(false),
         additional: Default::default(),
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
+    let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
     assert_matches!(
         res,
@@ -304,7 +304,7 @@ fn test_initialize_token_insufficient_mint_decimals() {
         burnable: Some(false),
         additional: Default::default(),
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
+    let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
     assert_matches!(
         res,
@@ -334,7 +334,7 @@ fn test_initialize_token_non_existing_governance_account() {
         burnable: Some(false),
         additional: Default::default(),
     };
-    let encoded_parameters = cbor::cbor_encode(&parameters).unwrap().into();
+    let encoded_parameters = cbor::cbor_encode(&parameters).into();
     let res = token_module::initialize_token(&mut stub, encoded_parameters);
     assert_matches!(
         res,

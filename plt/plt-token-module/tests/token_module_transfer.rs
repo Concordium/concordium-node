@@ -17,7 +17,6 @@ mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
-// todo ar test transfer with memo
 
 /// Test successful transfer.
 #[test]
@@ -41,7 +40,7 @@ fn test_transfer() {
     token_module::execute_token_update_transaction(
         &mut stub,
         context,
-        RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
+        RawCbor::from(cbor::cbor_encode(&operations)),
     )
     .expect("execute");
 
@@ -64,7 +63,7 @@ fn test_transfer_with_memo() {
         sender,
         sender_address: stub.account_canonical_address(&sender),
     };
-    let memo = Memo::try_from(cbor::cbor_encode("testvalue").unwrap()).unwrap();
+    let memo = Memo::try_from(cbor::cbor_encode("testvalue")).unwrap();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
@@ -73,7 +72,7 @@ fn test_transfer_with_memo() {
     token_module::execute_token_update_transaction(
         &mut stub,
         context,
-        RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
+        RawCbor::from(cbor::cbor_encode(&operations)),
     )
     .expect("execute");
 
@@ -103,7 +102,7 @@ fn test_transfer_self() {
     token_module::execute_token_update_transaction(
         &mut stub,
         context,
-        RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
+        RawCbor::from(cbor::cbor_encode(&operations)),
     )
     .expect("execute");
 
@@ -131,7 +130,7 @@ fn test_transfer_insufficient_balance() {
     let res = token_module::execute_token_update_transaction(
         &mut stub,
         context,
-        RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
+        RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
@@ -167,7 +166,7 @@ fn test_transfer_decimals_mismatch() {
     let res = token_module::execute_token_update_transaction(
         &mut stub,
         context,
-        RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
+        RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
@@ -199,7 +198,7 @@ fn test_transfer_to_non_existing_receiver() {
     let res = token_module::execute_token_update_transaction(
         &mut stub,
         context,
-        RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
+        RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
     let reject_reason = utils::assert_reject_reason(&res);

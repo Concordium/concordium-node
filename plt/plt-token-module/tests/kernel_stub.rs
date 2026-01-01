@@ -110,7 +110,6 @@ impl KernelStub {
             additional: Default::default(),
         };
         let encoded_parameters = cbor::cbor_encode(&parameters)
-            .expect("encode initialization parameters")
             .into();
         token_module::initialize_token(self, encoded_parameters).expect("initialize token");
         gov_account

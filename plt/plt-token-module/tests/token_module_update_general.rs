@@ -65,7 +65,7 @@ fn test_multiple_operations() {
     token_module::execute_token_update_transaction(
         &mut stub,
         context,
-        RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
+        RawCbor::from(cbor::cbor_encode(&operations)),
     )
     .expect("execute");
 
@@ -101,7 +101,7 @@ fn test_single_failing_operation() {
     let res = token_module::execute_token_update_transaction(
         &mut stub,
         context,
-        RawCbor::from(cbor::cbor_encode(&operations).unwrap()),
+        RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
