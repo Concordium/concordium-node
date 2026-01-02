@@ -1,8 +1,8 @@
-use crate::BlockStateOperations;
+use crate::{BlockStateOperations, BlockStateQuery};
 
 pub struct BlockState {}
 
-impl BlockStateOperations for BlockState {
+impl BlockStateQuery for BlockState {
     fn get_plt_list(
         &self,
     ) -> impl std::iter::Iterator<Item = concordium_base::protocol_level_tokens::TokenId> {
@@ -32,7 +32,9 @@ impl BlockStateOperations for BlockState {
     ) -> plt_token_module::token_kernel_interface::RawTokenAmount {
         todo!()
     }
+}
 
+impl BlockStateOperations for BlockState {
     fn set_token_circulating_supply(
         &mut self,
         _token_index: crate::TokenIndex,

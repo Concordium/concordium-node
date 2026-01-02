@@ -21,10 +21,8 @@ pub struct TokenIndex {
     index: u64,
 }
 
-/// Operations on the state of a block in the chain.
-///
-/// This is abstracted in a trait to allow for a testing stub.
-pub trait BlockStateOperations {
+/// Queries on the state of a block in the chain.
+pub trait BlockStateQuery {
     // Protocol-level token state query interface.
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
@@ -74,7 +72,10 @@ pub trait BlockStateOperations {
     ///
     /// Panics if the token identified by `token_index` does not exist.
     fn get_token_circulating_supply(&self, token_index: TokenIndex) -> RawTokenAmount;
+}
 
+/// Operations on the state of a block in the chain.
+pub trait BlockStateOperations {
     /// Set the recorded total circulating supply for a protocol-level token.
     ///
     /// This should always be kept up-to-date with the total balance held in accounts.
