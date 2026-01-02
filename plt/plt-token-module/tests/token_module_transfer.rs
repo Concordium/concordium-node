@@ -17,7 +17,6 @@ mod utils;
 
 const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
-
 /// Test successful transfer.
 #[test]
 fn test_transfer() {

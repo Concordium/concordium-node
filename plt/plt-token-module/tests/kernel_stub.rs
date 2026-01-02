@@ -46,6 +46,7 @@ pub struct Account {
     pub balance: Option<RawTokenAmount>,
 }
 
+#[allow(unused)]
 impl KernelStub {
     /// Create
     pub fn new(decimals: u8) -> Self {
@@ -109,8 +110,7 @@ impl KernelStub {
             burnable: params.burnable,
             additional: Default::default(),
         };
-        let encoded_parameters = cbor::cbor_encode(&parameters)
-            .into();
+        let encoded_parameters = cbor::cbor_encode(&parameters).into();
         token_module::initialize_token(self, encoded_parameters).expect("initialize token");
         gov_account
     }
@@ -135,6 +135,7 @@ pub struct TokenInitTestParams {
     burnable: Option<bool>,
 }
 
+#[allow(unused)]
 impl TokenInitTestParams {
     pub fn allow_list(self) -> Self {
         Self {
