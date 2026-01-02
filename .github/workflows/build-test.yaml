@@ -169,7 +169,7 @@ jobs:
         components: clippy, llvm-tools
         target: x86_64-pc-windows-gnu
     # Install tool for code coverage reporting.
-    # Version 0.6.22 requries Rust 1.87
+    # Version cargo-llvm-cov 0.6.22 requries Rust 1.87, so we use 0.6.21 for now
     - name: Install cargo-llvm-cov
       run: |
         cargo install cargo-llvm-cov --version 0.6.21 --locked
