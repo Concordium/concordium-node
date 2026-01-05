@@ -626,3 +626,6 @@ tests = describe "KonsensusV1.TransactionProcessing" $ do
     describe "P9" $ do
         describe "Transaction verification" $
             testTransactionVerification SP9
+    describe "P10" $ do
+        describe "Transaction verification" $
+            testTransactionVerification SP10
