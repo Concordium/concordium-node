@@ -757,7 +757,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base"
-version = "8.0.0-alpha.3"
+version = "10.0.0-alpha.0"
 dependencies = [
  "aes",
  "anyhow",
@@ -780,6 +780,7 @@ dependencies = [
  "ed25519-dalek",
  "either",
  "ff",
+ "generic-array 0.14.7",
  "hex",
  "hmac",
  "itertools 0.14.0",
