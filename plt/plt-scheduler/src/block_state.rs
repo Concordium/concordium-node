@@ -1,6 +1,6 @@
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, MutableTokenModuleState, OverflowError,
-    PLTConfiguration, TokenAmountDelta,
+    TokenAmountDelta, TokenConfiguration,
 };
 use concordium_base::base::AccountIndex;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue};
@@ -32,7 +32,7 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn token_configuration(&self, _token_index: &TokenIndex) -> PLTConfiguration {
+    fn token_configuration(&self, _token_index: &TokenIndex) -> TokenConfiguration {
         todo!()
     }
 
@@ -70,7 +70,7 @@ impl BlockStateOperations for BlockState {
         todo!()
     }
 
-    fn create_token(&mut self, _configuration: PLTConfiguration) -> TokenIndex {
+    fn create_token(&mut self, _configuration: TokenConfiguration) -> TokenIndex {
         todo!()
     }
 

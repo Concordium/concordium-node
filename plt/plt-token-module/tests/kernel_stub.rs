@@ -20,7 +20,7 @@ use plt_token_module::token_module;
 pub struct KernelStub {
     /// List of accounts existing.
     accounts: Vec<Account>,
-    /// Token managed state.
+    /// Token module managed state.
     state: HashMap<ModuleStateKey, ModuleStateValue>,
     /// Decimal places in token representation.
     decimals: u8,
@@ -48,7 +48,7 @@ pub struct Account {
 
 #[allow(unused)]
 impl KernelStub {
-    /// Create
+    /// Create new kernel stub
     pub fn new(decimals: u8) -> Self {
         Self {
             accounts: vec![],
@@ -87,10 +87,7 @@ impl KernelStub {
 
     /// Set account balance in the stub
     pub fn set_account_balance(&mut self, account: AccountStubIndex, balance: RawTokenAmount) {
-        self.accounts
-            .get_mut(account.0)
-            .expect("account in stub")
-            .balance = Some(balance);
+        self.accounts[account.0].balance = Some(balance);
     }
 
     /// Initialize token and return the governance account

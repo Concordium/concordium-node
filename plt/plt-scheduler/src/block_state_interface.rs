@@ -4,12 +4,12 @@ use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
 // Placeholder types to be defined or replaced with types from other crates.
-pub type MutableTokenModuleState = ();
-
+pub struct MutableTokenModuleState;
 pub type TokenAmountDelta = ();
 
 /// Static configuration for a protocol-level token.
-pub struct PLTConfiguration {
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct TokenConfiguration {
     /// The token ID.
     pub token_id: TokenId,
     /// The token module reference.
@@ -17,6 +17,11 @@ pub struct PLTConfiguration {
     /// The number of decimal places used in the representation of the token.
     pub decimals: u8,
 }
+
+/// Account with given id does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Token with id {0} does not exist")]
+pub struct TokenNotFoundByIdError(pub TokenId);
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
@@ -39,7 +44,7 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `token_id` The token id to get the [`Self::Token`] of.
-    fn token_by_id(&self, token_id: &TokenId) -> Option<Self::Token>;
+    fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError>;
 
     /// Convert a persistent token module state to a mutable one that can be updated by the scheduler.
     ///
@@ -55,7 +60,7 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `token` The token to get the config for.
-    fn token_configuration(&self, token: &Self::Token) -> PLTConfiguration;
+    fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration;
 
     /// Get the circulating supply of a protocol-level token.
     ///
@@ -123,9 +128,9 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// - The `token` of the given configuration MUST NOT already be in use by a protocol-level
     ///   token, i.e. `assert_eq!(s.get_token_index(configuration.token_id), None)`.
-    /// - The [`PLTConfiguration`] MUST be valid and in particular the 'governance_account_index'
+    /// - The [`TokenConfiguration`] MUST be valid and in particular the 'governance_account_index'
     ///   MUST reference a valid account.
-    fn create_token(&mut self, configuration: PLTConfiguration) -> Self::Token;
+    fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token;
 
     /// Update the token balance of an account.
     ///
