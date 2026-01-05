@@ -38,7 +38,7 @@ pub enum QueryTokenStateError {
     TokenDoesNotExist(String), // todo ar implement Display on TokenId and replace String with TokenId
 }
 
-/// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
+/// Get the token state associated with the given token id.
 pub fn token_state(
     block_state: &impl BlockStateQuery,
     token_id: &TokenId,
@@ -70,6 +70,32 @@ pub fn token_state(
     };
 
     Ok(token_state)
+}
+
+/// State of a protocol level token associated with some account.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct TokenAccountState {
+    /// The token balance of the account.
+    pub balance: TokenAmount,
+    /// The token-module defined state of the account.
+    pub module_state: RawCbor,
+}
+
+/// Represents the reasons why a query of token state may fail
+#[derive(Debug, thiserror::Error)]
+pub enum QueryTokenAccountStateError {
+    #[error("Error returned when querying the token module: {0}")]
+    QueryTokenModule(#[from] QueryTokenModuleError),
+    // #[error("The token does not exist: {0}")]
+    // TokenDoesNotExist(String),
+}
+
+/// Get the token state associated with the given token id.
+pub fn token_account_states(
+    block_state: &impl BlockStateQuery,
+    account: AccountIndex,
+) -> Result<Vec<TokenAccountState>, QueryTokenAccountStateError> {
+    todo!()
 }
 
 struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
@@ -112,9 +138,7 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
     }
 
     fn decimals(&self) -> u8 {
-        self.block_state
-            .token_configuration(self.token)
-            .decimals
+        self.block_state.token_configuration(self.token).decimals
     }
 
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {

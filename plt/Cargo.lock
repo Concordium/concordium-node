@@ -1053,6 +1053,7 @@ dependencies = [
 name = "plt-scheduler"
 version = "0.1.0"
 dependencies = [
+ "assert_matches",
  "concordium_base",
  "libc",
  "plt-token-module",

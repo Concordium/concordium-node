@@ -49,7 +49,10 @@ impl<T: TokenKernelOperations> KernelOperationsExt for T {}
 /// module state access.
 trait KernelQueriesExt: TokenKernelQueries {
     /// Get value from the token module state at the given key.
-    fn get_module_state<'a>(&self, key: impl IntoIterator<Item = &'a u8>) -> Option<ModuleStateValue> {
+    fn get_module_state<'a>(
+        &self,
+        key: impl IntoIterator<Item = &'a u8>,
+    ) -> Option<ModuleStateValue> {
         self.lookup_token_module_state_value(module_state_key(key))
     }
 }
@@ -451,5 +454,5 @@ pub fn query_account_state<Kernel: TokenKernelQueries>(
     _kernel: &Kernel,
     _account: Kernel::Account,
 ) -> Result<Option<RawCbor>, QueryTokenModuleError> {
-    todo!()
+    Ok(None)
 }

@@ -1,8 +1,8 @@
-use concordium_base::base::AccountIndex;
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, MutableTokenModuleState, OverflowError,
     PLTConfiguration, TokenAmountDelta,
 };
+use concordium_base::base::AccountIndex;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue};
 
 pub struct BlockState {}
@@ -15,9 +15,7 @@ impl BlockStateQuery for BlockState {
     type Account = AccountIndex;
     type Token = TokenIndex;
 
-    fn plt_list(
-        &self,
-    ) -> impl Iterator<Item = concordium_base::protocol_level_tokens::TokenId> {
+    fn plt_list(&self) -> impl Iterator<Item = concordium_base::protocol_level_tokens::TokenId> {
         // TODO implement this. The implementation below is just to help the type checker infer
         // enough for this to compile
         Vec::new().into_iter()

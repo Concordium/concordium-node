@@ -14,10 +14,10 @@ use plt_token_module::token_kernel_interface::{
 };
 use plt_token_module::token_module;
 
-/// Token kernel stub providing an implementation of [`TokenKernelOperations`] and methods for
-/// configuring the state of the kernel.
+/// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
+/// configuring the state of the block state.
 #[derive(Debug)]
-pub struct KernelStub {
+pub struct BlockStateStub {
     /// List of accounts existing.
     accounts: Vec<Account>,
     /// Token managed state.
@@ -35,7 +35,7 @@ pub struct KernelStub {
     )>,
 }
 
-/// Internal representation of an Account in [`KernelStub`].
+/// Internal representation of an Account in [`BlockStateStub`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
     /// The index of the account
@@ -47,7 +47,7 @@ pub struct Account {
 }
 
 #[allow(unused)]
-impl KernelStub {
+impl BlockStateStub {
     /// Create
     pub fn new(decimals: u8) -> Self {
         Self {
@@ -173,7 +173,7 @@ impl TokenInitTestParams {
 #[derive(Debug, Clone, Copy)]
 pub struct AccountStubIndex(usize);
 
-impl TokenKernelQueries for KernelStub {
+impl TokenKernelQueries for BlockStateStub {
     type Account = AccountStubIndex;
 
     fn account_by_address(
@@ -236,7 +236,7 @@ impl TokenKernelQueries for KernelStub {
     }
 }
 
-impl TokenKernelOperations for KernelStub {
+impl TokenKernelOperations for BlockStateStub {
     fn touch(&mut self, account: &Self::Account) -> bool {
         if self.accounts[account.0].balance.is_some() {
             false
@@ -324,7 +324,7 @@ const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
 /// Test lookup account address and account from address
 #[test]
 fn test_account_lookup_address() {
-    let mut stub = KernelStub::new(0);
+    let mut stub = BlockStateStub::new(0);
     let account = stub.create_account();
 
     let address = stub.account_canonical_address(&account);
@@ -339,7 +339,7 @@ fn test_account_lookup_address() {
 /// Test lookup account index and account from index
 #[test]
 fn test_account_lookup_index() {
-    let mut stub = KernelStub::new(0);
+    let mut stub = BlockStateStub::new(0);
     let account = stub.create_account();
 
     let index = stub.account_index(&account);
@@ -354,7 +354,7 @@ fn test_account_lookup_index() {
 /// Test get account balance
 #[test]
 fn test_account_balance() {
-    let mut stub = KernelStub::new(0);
+    let mut stub = BlockStateStub::new(0);
     let account0 = stub.create_account();
     let account1 = stub.create_account();
     stub.set_account_balance(account0, RawTokenAmount(245));
