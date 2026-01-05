@@ -12,5 +12,5 @@ ffi = ["dep:libc"]
 [dependencies]
 concordium_base.workspace = true
 plt-token-module.workspace = true
-derive_more = { version = "2.1.0", features = ["into", "from"] }
+thiserror.workspace = true
 libc = { workspace = true, optional = true }

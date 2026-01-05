@@ -97,9 +97,7 @@ pub enum TokenUpdateError {
 
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]
-pub enum TokenQueryError {
-    #[error("CBOR serialization error during token query: {0}")]
-    CborSerialization(#[from] CborSerializationError),
+pub enum QueryTokenModuleError {
     #[error("Token module state invariant broken: {0}")]
     StateInvariantViolation(String),
 }
@@ -358,40 +356,50 @@ fn is_burnable(kernel: &impl TokenKernelQueries) -> bool {
     kernel.get_module_state(STATE_KEY_BURNABLE).is_some()
 }
 
-fn get_name(kernel: &impl TokenKernelQueries) -> Result<String, TokenQueryError> {
+fn get_name(kernel: &impl TokenKernelQueries) -> Result<String, QueryTokenModuleError> {
     kernel
         .get_module_state(STATE_KEY_NAME)
-        .ok_or_else(|| TokenQueryError::StateInvariantViolation("Name not present".to_string()))
+        .ok_or_else(|| {
+            QueryTokenModuleError::StateInvariantViolation("Name not present".to_string())
+        })
         .and_then(|value| {
             String::from_utf8(value).map_err(|err| {
-                TokenQueryError::StateInvariantViolation(format!("Name invalid UTF8: {}", err))
+                QueryTokenModuleError::StateInvariantViolation(format!(
+                    "Stored name is invalid UTF8: {}",
+                    err
+                ))
             })
         })
 }
 
-fn get_metadata(kernel: &impl TokenKernelQueries) -> Result<MetadataUrl, TokenQueryError> {
+fn get_metadata(kernel: &impl TokenKernelQueries) -> Result<MetadataUrl, QueryTokenModuleError> {
     let metadata_cbor = kernel.get_module_state(STATE_KEY_METADATA).ok_or_else(|| {
-        TokenQueryError::StateInvariantViolation("Metadata not present".to_string())
+        QueryTokenModuleError::StateInvariantViolation("Metadata not present".to_string())
     })?;
-    let metadata: MetadataUrl = cbor_decode(metadata_cbor)?;
+    let metadata: MetadataUrl = cbor_decode(metadata_cbor).map_err(|err| {
+        QueryTokenModuleError::StateInvariantViolation(format!(
+            "Stored metadata CBOR not decodable: {}",
+            err
+        ))
+    })?;
     Ok(metadata)
 }
 
 fn get_governance_account_index(
     kernel: &impl TokenKernelQueries,
-) -> Result<AccountIndex, TokenQueryError> {
+) -> Result<AccountIndex, QueryTokenModuleError> {
     let governance_account_index = AccountIndex::from(
         kernel
             .get_module_state(STATE_KEY_GOVERNANCE_ACCOUNT)
             .ok_or_else(|| {
-                TokenQueryError::StateInvariantViolation(
+                QueryTokenModuleError::StateInvariantViolation(
                     "Governance account not present".to_string(),
                 )
             })
             .and_then(|value| {
                 common::from_bytes::<u64, _>(&mut value.as_slice()).map_err(|err| {
-                    TokenQueryError::StateInvariantViolation(format!(
-                        "Governance account index cannot be decoded: {}",
+                    QueryTokenModuleError::StateInvariantViolation(format!(
+                        "Stored governance account index cannot be decoded: {}",
                         err
                     ))
                 })
@@ -403,7 +411,7 @@ fn get_governance_account_index(
 /// Get the CBOR-encoded representation of the token module state.
 pub fn query_token_module_state<Kernel: TokenKernelQueries>(
     kernel: &Kernel,
-) -> Result<RawCbor, TokenQueryError> {
+) -> Result<RawCbor, QueryTokenModuleError> {
     let name = get_name(kernel)?;
     let metadata = get_metadata(kernel)?;
     let allow_list = has_allow_list(kernel);
@@ -416,8 +424,8 @@ pub fn query_token_module_state<Kernel: TokenKernelQueries>(
     let governance_account = kernel
         .account_by_index(governance_account_index)
         .map_err(|_| {
-            TokenQueryError::StateInvariantViolation(format!(
-                "Governance account with index {} does not exist",
+            QueryTokenModuleError::StateInvariantViolation(format!(
+                "Stored governance account with index {} does not exist",
                 governance_account_index
             ))
         })?;
@@ -442,6 +450,6 @@ pub fn query_token_module_state<Kernel: TokenKernelQueries>(
 pub fn query_account_state<Kernel: TokenKernelQueries>(
     _kernel: &Kernel,
     _account: Kernel::Account,
-) -> Result<Option<RawCbor>, TokenQueryError> {
+) -> Result<Option<RawCbor>, QueryTokenModuleError> {
     todo!()
 }

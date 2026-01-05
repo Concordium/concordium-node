@@ -1,4 +1,7 @@
-use crate::{BlockStateOperations, BlockStateQuery};
+use crate::block_state_interface::{
+    BlockStateOperations, BlockStateQuery, MutableTokenState, OverflowError, PLTConfiguration,
+    TokenAmountDelta, TokenIndex,
+};
 
 pub struct BlockState {}
 
@@ -13,22 +16,22 @@ impl BlockStateQuery for BlockState {
 
     fn get_token_index(
         &self,
-        _token_id: concordium_base::protocol_level_tokens::TokenId,
-    ) -> Option<crate::TokenIndex> {
+        _token_id: &concordium_base::protocol_level_tokens::TokenId,
+    ) -> Option<TokenIndex> {
         todo!()
     }
 
-    fn get_mutable_token_state(&self, _token_index: crate::TokenIndex) -> crate::MutableTokenState {
+    fn get_mutable_token_state(&self, _token_index: TokenIndex) -> MutableTokenState {
         todo!()
     }
 
-    fn get_token_configuration(&self, _token_index: crate::TokenIndex) -> crate::PLTConfiguration {
+    fn get_token_configuration(&self, _token_index: TokenIndex) -> PLTConfiguration {
         todo!()
     }
 
     fn get_token_circulating_supply(
         &self,
-        _token_index: crate::TokenIndex,
+        _token_index: TokenIndex,
     ) -> plt_token_module::token_kernel_interface::RawTokenAmount {
         todo!()
     }
@@ -37,28 +40,28 @@ impl BlockStateQuery for BlockState {
 impl BlockStateOperations for BlockState {
     fn set_token_circulating_supply(
         &mut self,
-        _token_index: crate::TokenIndex,
+        _token_index: TokenIndex,
         _circulating_supply: plt_token_module::token_kernel_interface::RawTokenAmount,
     ) {
         todo!()
     }
 
-    fn create_token(&mut self, _configuration: crate::PLTConfiguration) -> crate::TokenIndex {
+    fn create_token(&mut self, _configuration: PLTConfiguration) -> TokenIndex {
         todo!()
     }
 
     fn update_token_account_balance(
         &mut self,
-        _token_index: crate::TokenIndex,
+        _token_index: TokenIndex,
         _account_index: concordium_base::base::AccountIndex,
-        _amount_delta: crate::TokenAmountDelta,
-    ) -> Result<(), crate::OverflowError> {
+        _amount_delta: TokenAmountDelta,
+    ) -> Result<(), OverflowError> {
         todo!()
     }
 
     fn touch_token_account(
         &mut self,
-        _token_index: crate::TokenIndex,
+        _token_index: TokenIndex,
         _account_index: concordium_base::base::AccountIndex,
     ) -> bool {
         todo!()
@@ -70,8 +73,8 @@ impl BlockStateOperations for BlockState {
 
     fn set_token_state(
         &mut self,
-        _token_index: crate::TokenIndex,
-        _mutable_token_state: crate::MutableTokenState,
+        _token_index: TokenIndex,
+        _mutable_token_state: MutableTokenState,
     ) {
         todo!()
     }
