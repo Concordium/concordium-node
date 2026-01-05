@@ -111,24 +111,24 @@ fn test_initialize_token_default_values() {
 
     // assertions directly on token state
     assert_eq!(
-        stub.get_token_state(b"\0\0name".into()),
+        stub.lookup_token_module_state_value(b"\0\0name".into()),
         Some(b"Protocol-level token".into())
     );
     assert_eq!(
-        stub.get_token_state(b"\0\0metadata".into()),
+        stub.lookup_token_module_state_value(b"\0\0metadata".into()),
         Some(encoded_metadata)
     );
     assert_eq!(
-        stub.get_token_state(b"\0\0governanceAccount".into()),
+        stub.lookup_token_module_state_value(b"\0\0governanceAccount".into()),
         Some(stub.account_index(&gov_account).index.to_be_bytes().into())
     );
-    assert_eq!(stub.get_token_state(b"\0\0allowList".into()), None);
-    assert_eq!(stub.get_token_state(b"\0\0denyList".into()), None);
-    assert_eq!(stub.get_token_state(b"\0\0mintable".into()), None);
-    assert_eq!(stub.get_token_state(b"\0\0burnable".into()), None);
-    assert_eq!(stub.get_token_state(b"\0\0paused".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0allowList".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0denyList".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0mintable".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0burnable".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0paused".into()), None);
     // assert governance account balance
-    assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(0));
+    assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
     // assertions using token module state query
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
@@ -167,24 +167,24 @@ fn test_initialize_token_no_minting() {
 
     // assertions directly on token state
     assert_eq!(
-        stub.get_token_state(b"\0\0name".into()),
+        stub.lookup_token_module_state_value(b"\0\0name".into()),
         Some(b"Protocol-level token".into())
     );
     assert_eq!(
-        stub.get_token_state(b"\0\0metadata".into()),
+        stub.lookup_token_module_state_value(b"\0\0metadata".into()),
         Some(encoded_metadata)
     );
     assert_eq!(
-        stub.get_token_state(b"\0\0governanceAccount".into()),
+        stub.lookup_token_module_state_value(b"\0\0governanceAccount".into()),
         Some(stub.account_index(&gov_account).index.to_be_bytes().into())
     );
-    assert_eq!(stub.get_token_state(b"\0\0allowList".into()), Some(vec![]));
-    assert_eq!(stub.get_token_state(b"\0\0denyList".into()), None);
-    assert_eq!(stub.get_token_state(b"\0\0mintable".into()), Some(vec![]));
-    assert_eq!(stub.get_token_state(b"\0\0burnable".into()), Some(vec![]));
-    assert_eq!(stub.get_token_state(b"\0\0paused".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0allowList".into()), Some(vec![]));
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0denyList".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0mintable".into()), Some(vec![]));
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0burnable".into()), Some(vec![]));
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0paused".into()), None);
     // assert governance account balance
-    assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(0));
+    assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
     // assertions using token module state query
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
@@ -223,24 +223,24 @@ fn test_initialize_token_with_minting() {
 
     // assertions directly on token state
     assert_eq!(
-        stub.get_token_state(b"\0\0name".into()),
+        stub.lookup_token_module_state_value(b"\0\0name".into()),
         Some(b"Protocol-level token".into())
     );
     assert_eq!(
-        stub.get_token_state(b"\0\0metadata".into()),
+        stub.lookup_token_module_state_value(b"\0\0metadata".into()),
         Some(encoded_metadata)
     );
     assert_eq!(
-        stub.get_token_state(b"\0\0governanceAccount".into()),
+        stub.lookup_token_module_state_value(b"\0\0governanceAccount".into()),
         Some(stub.account_index(&gov_account).index.to_be_bytes().into())
     );
-    assert_eq!(stub.get_token_state(b"\0\0allowList".into()), None);
-    assert_eq!(stub.get_token_state(b"\0\0denyList".into()), Some(vec![]));
-    assert_eq!(stub.get_token_state(b"\0\0mintable".into()), None);
-    assert_eq!(stub.get_token_state(b"\0\0burnable".into()), None);
-    assert_eq!(stub.get_token_state(b"\0\0paused".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0allowList".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0denyList".into()), Some(vec![]));
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0mintable".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0burnable".into()), None);
+    assert_eq!(stub.lookup_token_module_state_value(b"\0\0paused".into()), None);
     // assert governance account balance
-    assert_eq!(stub.account_balance(&gov_account), RawTokenAmount(500000));
+    assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(500000));
     // assertions using token module state query
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();

@@ -69,8 +69,8 @@ fn test_multiple_operations() {
     )
     .expect("execute");
 
-    assert_eq!(stub.account_balance(&sender), RawTokenAmount(2000));
-    assert_eq!(stub.account_balance(&receiver), RawTokenAmount(5000));
+    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(2000));
+    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(5000));
 }
 
 /// Test transaction with multiple operations where one of them fail.

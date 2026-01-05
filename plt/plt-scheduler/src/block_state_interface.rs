@@ -1,10 +1,10 @@
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
-use plt_token_module::token_kernel_interface::RawTokenAmount;
+use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
 // Placeholder types to be defined or replaced with types from other crates.
-pub type MutableTokenState = ();
+pub type MutableTokenModuleState = ();
 
 pub type TokenAmountDelta = ();
 
@@ -18,80 +18,94 @@ pub struct PLTConfiguration {
     pub decimals: u8,
 }
 
-/// Index of the protocol-level token in the block state map of tokens.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TokenIndex(pub u64);
-
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
-    // Protocol-level token state query interface.
+    /// Opaque type that identifies an account on chain.
+    /// The account is guaranteed to exist on chain, when holding an instance of this type.
+    type Account;
+
+    /// Opaque type that identifies a token on chain.
+    /// The token is guaranteed to exist on chain, when holding an instance of this type.
+    type Token;
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
     /// If the protocol version does not support protocol-level tokens, this will return the empty
     /// list.
-    fn get_plt_list(&self) -> impl std::iter::Iterator<Item = TokenId>;
+    fn plt_list(&self) -> impl Iterator<Item = TokenId>;
 
     /// Get the [`TokenIndex`] associated with a [`TokenId`] (if it exists).
     ///
     /// # Arguments
     ///
-    /// - `token_id` The token id to get the [`TokenIndex`] of.
-    fn get_token_index(&self, token_id: &TokenId) -> Option<TokenIndex>;
+    /// - `token_id` The token id to get the [`Self::Token`] of.
+    fn token_by_id(&self, token_id: &TokenId) -> Option<Self::Token>;
 
-    /// Convert a persistent state to a mutable one that can be updated by the scheduler.
+    /// Convert a persistent token module state to a mutable one that can be updated by the scheduler.
     ///
-    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_state`].
+    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_module_state`].
     ///
     /// # Arguments
     ///
-    /// - `token_index` The index of the token to get the state from.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the token identified by `token_index` does not exist.
-    fn get_mutable_token_state(&self, token_index: TokenIndex) -> MutableTokenState;
+    /// - `token` The token to get the module state from.
+    fn mutable_token_module_state(&self, token: &Self::Token) -> MutableTokenModuleState;
 
     /// Get the configuration of a protocol-level token.
     ///
     /// # Arguments
     ///
-    /// - `token_index` The index of the token to get the config for.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the token identified by `token_index` does not exist.
-    fn get_token_configuration(&self, token_index: TokenIndex) -> PLTConfiguration;
+    /// - `token` The token to get the config for.
+    fn token_configuration(&self, token: &Self::Token) -> PLTConfiguration;
 
     /// Get the circulating supply of a protocol-level token.
     ///
     /// # Arguments
     ///
-    /// - `token_index` The index of the token to get the circulating supply.
+    /// - `token` The token to get the circulating supply.
+    fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount;
+
+    /// Lookup the value for the given key in the given token module state. Returns `None` if
+    /// no value exists for the given key.
     ///
-    /// # Panics
+    /// # Arguments
     ///
-    /// Panics if the token identified by `token_index` does not exist.
-    fn get_token_circulating_supply(&self, token_index: TokenIndex) -> RawTokenAmount;
+    /// - `token_module_state` The token module state to look up the value in.
+    /// - `key` The token module state key.
+    fn lookup_token_module_state_value(
+        &self,
+        token_module_state: &MutableTokenModuleState,
+        key: &ModuleStateKey,
+    ) -> Option<ModuleStateValue>;
+
+    /// Update the value for the given key in the given token module state. If `None` is
+    /// specified as value, the entry is removed.
+    ///
+    /// # Arguments
+    ///
+    /// - `token_module_state` The token module state to update the value in.
+    /// - `key` The token module state key.
+    /// - `value` The value to set. If `None`, the entry with the given key is removed.
+    fn update_token_module_state_value(
+        &self,
+        token_module_state: &MutableTokenModuleState,
+        key: &ModuleStateKey,
+        value: Option<ModuleStateValue>,
+    );
 }
 
 /// Operations on the state of a block in the chain.
-pub trait BlockStateOperations {
+pub trait BlockStateOperations: BlockStateQuery {
     /// Set the recorded total circulating supply for a protocol-level token.
     ///
     /// This should always be kept up-to-date with the total balance held in accounts.
     ///
     /// # Arguments
     ///
-    /// - `token_index` The token index to update.
+    /// - `token` The token.
     /// - `circulation_supply` The new total circulating supply for the token.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the token identified by `token_index` does not exist.
     fn set_token_circulating_supply(
         &mut self,
-        token_index: TokenIndex,
+        token: &Self::Token,
         circulating_supply: RawTokenAmount,
     );
 
@@ -107,31 +121,27 @@ pub trait BlockStateOperations {
     /// The caller must ensure the following conditions are true, and failing to do so results in
     /// undefined behavior.
     ///
-    /// - The `token_id` of the given configuration MUST NOT already be in use by a protocol-level
+    /// - The `token` of the given configuration MUST NOT already be in use by a protocol-level
     ///   token, i.e. `assert_eq!(s.get_token_index(configuration.token_id), None)`.
     /// - The [`PLTConfiguration`] MUST be valid and in particular the 'governance_account_index'
     ///   MUST reference a valid account.
-    fn create_token(&mut self, configuration: PLTConfiguration) -> TokenIndex;
+    fn create_token(&mut self, configuration: PLTConfiguration) -> Self::Token;
 
     /// Update the token balance of an account.
     ///
     /// # Arguments
     ///
-    /// - `token_index` The token index to update.
-    /// - `account_index` The account to update.
+    /// - `token` The token to update.
+    /// - `account` The account to update.
     /// - `amount_delta` The token balance delta.
     ///
     /// # Errors
     ///
     /// - [`OverflowError`] The update would overflow or underflow the token balance on the account.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the token identified by `token_index` does not exist.
     fn update_token_account_balance(
         &mut self,
-        token_index: TokenIndex,
-        account_index: AccountIndex,
+        token: &Self::Token,
+        account: &Self::Account,
         amount_delta: TokenAmountDelta,
     ) -> Result<(), OverflowError>;
 
@@ -143,18 +153,10 @@ pub trait BlockStateOperations {
     ///
     /// # Arguments
     ///
-    /// - `token_index` The token index to update.
-    /// - `account_index` The account to update.
-    ///
-    /// # Panics
-    ///
-    /// Panics if:
-    ///
-    /// - the token identified by `token_index` does not exist.
-    /// - the account identified by `account_index` does not exist.
+    /// - `token` The token index to update.
+    /// - `account` The account to update.
     #[must_use]
-    fn touch_token_account(&mut self, token_index: TokenIndex, account_index: AccountIndex)
-    -> bool;
+    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) -> bool;
 
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
@@ -167,13 +169,13 @@ pub trait BlockStateOperations {
     ///
     /// # Arguments
     ///
-    /// - `token_index` The token index to update.
-    /// - `mutable_token_state` The mutated state to set as the current token state.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the token identified by `token_index` does not exist.
-    fn set_token_state(&mut self, token_index: TokenIndex, mutable_token_state: MutableTokenState);
+    /// - `token` The token index to update.
+    /// - `mutable_token_module_state` The mutated state to set as the current token state.
+    fn set_token_module_state(
+        &mut self,
+        token: &Self::Token,
+        mutable_token_module_state: MutableTokenModuleState,
+    );
 }
 
 /// Operations on the scheduler state.

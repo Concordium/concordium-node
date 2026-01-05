@@ -43,8 +43,8 @@ fn test_transfer() {
     )
     .expect("execute");
 
-    assert_eq!(stub.account_balance(&sender), RawTokenAmount(4000));
-    assert_eq!(stub.account_balance(&receiver), RawTokenAmount(3000));
+    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(4000));
+    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(3000));
     let transfer = stub.pop_transfer().expect("transfer");
     assert_eq!(transfer.3, None);
 }
@@ -75,8 +75,8 @@ fn test_transfer_with_memo() {
     )
     .expect("execute");
 
-    assert_eq!(stub.account_balance(&sender), RawTokenAmount(4000));
-    assert_eq!(stub.account_balance(&receiver), RawTokenAmount(1000));
+    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(4000));
+    assert_eq!(stub.account_token_balance(&receiver), RawTokenAmount(1000));
     let transfer = stub.pop_transfer().expect("transfer");
     assert_eq!(transfer.3, Some(memo));
 }
@@ -105,7 +105,7 @@ fn test_transfer_self() {
     )
     .expect("execute");
 
-    assert_eq!(stub.account_balance(&sender), RawTokenAmount(5000));
+    assert_eq!(stub.account_token_balance(&sender), RawTokenAmount(5000));
 }
 
 /// Test transfer with unsufficient funds

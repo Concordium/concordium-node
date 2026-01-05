@@ -36,9 +36,9 @@ trait KernelOperationsExt: TokenKernelOperations {
     fn set_module_state<'a>(
         &mut self,
         key: impl IntoIterator<Item = &'a u8>,
-        value: Option<StateValue>,
+        value: Option<ModuleStateValue>,
     ) -> Result<(), LockedStateKeyError> {
-        self.set_token_state(module_state_key(key), value)?;
+        self.set_token_module_state_value(module_state_key(key), value)?;
         Ok(())
     }
 }
@@ -49,8 +49,8 @@ impl<T: TokenKernelOperations> KernelOperationsExt for T {}
 /// module state access.
 trait KernelQueriesExt: TokenKernelQueries {
     /// Get value from the token module state at the given key.
-    fn get_module_state<'a>(&self, key: impl IntoIterator<Item = &'a u8>) -> Option<StateValue> {
-        self.get_token_state(module_state_key(key))
+    fn get_module_state<'a>(&self, key: impl IntoIterator<Item = &'a u8>) -> Option<ModuleStateValue> {
+        self.lookup_token_module_state_value(module_state_key(key))
     }
 }
 
@@ -59,9 +59,9 @@ impl<T: TokenKernelQueries> KernelQueriesExt for T {}
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
 
-/// Construct a [`StateKey`] for a module key. This prefixes the key to
+/// Construct a [`ModuleStateKey`] for a module key. This prefixes the key to
 /// distinguish it from other keys.
-fn module_state_key<'a>(key: impl IntoIterator<Item = &'a u8>) -> StateKey {
+fn module_state_key<'a>(key: impl IntoIterator<Item = &'a u8>) -> ModuleStateKey {
     let iter = key.into_iter();
     let mut module_key = Vec::with_capacity(MODULE_STATE_PREFIX.len() + iter.size_hint().0);
     module_key.extend_from_slice(&MODULE_STATE_PREFIX);

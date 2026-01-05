@@ -9,8 +9,8 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, LockedStateKeyError, OutOfEnergyError, RawTokenAmount, StateKey,
-    StateValue, TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
+    InsufficientBalanceError, LockedStateKeyError, OutOfEnergyError, RawTokenAmount, ModuleStateKey,
+    ModuleStateValue, TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
 };
 use plt_token_module::token_module;
 
@@ -21,7 +21,7 @@ pub struct KernelStub {
     /// List of accounts existing.
     accounts: Vec<Account>,
     /// Token managed state.
-    state: HashMap<StateKey, StateValue>,
+    state: HashMap<ModuleStateKey, ModuleStateValue>,
     /// Decimal places in token representation.
     decimals: u8,
     /// Counter for creating accounts in the stub
@@ -219,7 +219,7 @@ impl TokenKernelQueries for KernelStub {
         self.accounts[account.0].address
     }
 
-    fn account_balance(&self, account: &Self::Account) -> RawTokenAmount {
+    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
         self.accounts[account.0].balance.unwrap_or_default()
     }
 
@@ -231,7 +231,7 @@ impl TokenKernelQueries for KernelStub {
         self.decimals
     }
 
-    fn get_token_state(&self, key: StateKey) -> Option<StateValue> {
+    fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
         self.state.get(&key).cloned()
     }
 }
@@ -275,9 +275,9 @@ impl TokenKernelOperations for KernelStub {
         amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<(), InsufficientBalanceError> {
-        if self.account_balance(from).0 < amount.0 {
+        if self.account_token_balance(from).0 < amount.0 {
             return Err(InsufficientBalanceError {
-                available: self.account_balance(from),
+                available: self.account_token_balance(from),
                 required: amount,
             });
         }
@@ -296,10 +296,10 @@ impl TokenKernelOperations for KernelStub {
         Ok(())
     }
 
-    fn set_token_state(
+    fn set_token_module_state_value(
         &mut self,
-        key: StateKey,
-        value: Option<StateValue>,
+        key: ModuleStateKey,
+        value: Option<ModuleStateValue>,
     ) -> Result<bool, LockedStateKeyError> {
         let res = match value {
             None => self.state.remove(&key).is_some(),
@@ -359,10 +359,10 @@ fn test_account_balance() {
     let account1 = stub.create_account();
     stub.set_account_balance(account0, RawTokenAmount(245));
 
-    let balance = stub.account_balance(&account0);
+    let balance = stub.account_token_balance(&account0);
     assert_eq!(balance, RawTokenAmount(245));
 
-    let balance = stub.account_balance(&account1);
+    let balance = stub.account_token_balance(&account1);
     assert_eq!(balance, RawTokenAmount(0));
 }
 

@@ -6,8 +6,8 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
 
-pub type StateKey = Vec<u8>;
-pub type StateValue = Vec<u8>;
+pub type ModuleStateKey = Vec<u8>;
+pub type ModuleStateValue = Vec<u8>;
 
 /// Event produced from the effect of a token transaction.
 #[derive(Debug, Clone)]
@@ -59,8 +59,7 @@ pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Queries provided by the token kernel.
 pub trait TokenKernelQueries {
-    /// The type for the account object.
-    ///
+    /// Opaque type that identifies an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
     type Account;
 
@@ -84,7 +83,7 @@ pub trait TokenKernelQueries {
     fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress;
 
     /// Get the token balance of the account.
-    fn account_balance(&self, account: &Self::Account) -> RawTokenAmount;
+    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount;
 
     /// The current token circulation supply.
     fn circulating_supply(&self) -> RawTokenAmount;
@@ -93,7 +92,7 @@ pub trait TokenKernelQueries {
     fn decimals(&self) -> u8;
 
     /// Lookup a key in the token state.
-    fn get_token_state(&self, key: StateKey) -> Option<StateValue>;
+    fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue>;
 }
 
 /// Operations provided by the token kernel.
@@ -157,10 +156,10 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// # Errors
     ///
     /// - [`LockedStateKeyError`] if the update failed because the key was locked by an iterator.
-    fn set_token_state(
+    fn set_token_module_state_value(
         &mut self,
-        key: StateKey,
-        value: Option<StateValue>,
+        key: ModuleStateKey,
+        value: Option<ModuleStateValue>,
     ) -> Result<bool, LockedStateKeyError>;
 
     /// Reduce the available energy for the PLT module execution.
