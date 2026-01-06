@@ -215,11 +215,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     );
 }
 
-
-
 /// The computation resulted in overflow.
 #[derive(Debug, thiserror::Error)]
 #[error("Token amount overflow")]
 pub struct OverflowError;
-
-

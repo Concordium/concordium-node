@@ -28,7 +28,7 @@ unsafe extern "C" fn ffi_execute_transaction(payload: *const u8, payload_len: si
     let payload = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     let mut block_state = crate::block_state::BlockState {};
     let account = AccountIndex::from(0);
-    let payload:Payload = common::from_bytes(&mut &*payload).unwrap();
+    let payload: Payload = common::from_bytes(&mut &*payload).unwrap();
 
     match scheduler::execute_transaction(account, &mut block_state, payload) {
         Ok(_) => 0,

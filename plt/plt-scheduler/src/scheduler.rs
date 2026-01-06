@@ -64,7 +64,7 @@ pub enum TransactionExecutionError {
     #[error("Unexpected transaction payload that cannot be handled")]
     UnexpectedPayload,
     #[error("Could not decode payload")]
-     DecodePayload,
+    DecodePayload,
 }
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.

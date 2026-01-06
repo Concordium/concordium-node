@@ -27,9 +27,7 @@ fn test_transfer() {
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let context = TransactionContext {
-        sender,
-    };
+    let context = TransactionContext { sender };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
@@ -57,9 +55,7 @@ fn test_transfer_with_memo() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext {
-        sender,
-    };
+    let context = TransactionContext { sender };
     let memo = Memo::try_from(cbor::cbor_encode("testvalue")).unwrap();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
@@ -87,9 +83,7 @@ fn test_transfer_self() {
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext {
-        sender,
-    };
+    let context = TransactionContext { sender };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&sender)),
@@ -114,9 +108,7 @@ fn test_transfer_insufficient_balance() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext {
-        sender,
-    };
+    let context = TransactionContext { sender };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
@@ -149,9 +141,7 @@ fn test_transfer_decimals_mismatch() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext {
-        sender,
-    };
+    let context = TransactionContext { sender };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
@@ -180,9 +170,7 @@ fn test_transfer_to_non_existing_receiver() {
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext {
-        sender,
-    };
+    let context = TransactionContext { sender };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(NON_EXISTING_ACCOUNT),

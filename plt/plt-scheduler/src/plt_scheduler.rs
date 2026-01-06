@@ -45,7 +45,10 @@ pub struct TokenSupplyUpdateEvent {
 /// Returns the events produce if successful otherwise a reject reason.
 ///
 /// The caller must ensure to rollback state changes in case of the transaction being rejected.
-pub fn execute_plt_transaction<BSO:BlockStateOperations, TE: TransactionExecution<Account = BSO::Account>>(
+pub fn execute_plt_transaction<
+    BSO: BlockStateOperations,
+    TE: TransactionExecution<Account = BSO::Account>,
+>(
     transaction_execution: &mut TE,
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
