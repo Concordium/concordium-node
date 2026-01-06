@@ -1,5 +1,7 @@
+use crate::block_state_interface::{
+    BlockStateQuery, TokenNotFoundByIdError,
+};
 use crate::TOKEN_MODULE_REF;
-use crate::block_state_interface::{BlockStateQuery, MutableTokenModuleState};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenAmount, TokenId, TokenModuleRef};
@@ -9,6 +11,7 @@ use plt_token_module::token_kernel_interface::{
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
+use std::fmt::Display;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
@@ -35,7 +38,7 @@ pub enum QueryTokenStateError {
     #[error("Error returned when querying the token module: {0}")]
     QueryTokenModule(#[from] QueryTokenModuleError),
     #[error("The token does not exist: {0}")]
-    TokenDoesNotExist(String), // todo ar implement Display on TokenId and replace String with TokenId
+    TokenDoesNotExist(#[from] TokenNotFoundByIdError),
 }
 
 /// Get the token state associated with the given token id.
@@ -43,9 +46,7 @@ pub fn token_state(
     block_state: &impl BlockStateQuery,
     token_id: &TokenId,
 ) -> Result<TokenState, QueryTokenStateError> {
-    let token = block_state
-        .token_by_id(token_id)
-        .ok_or_else(|| QueryTokenStateError::TokenDoesNotExist(token_id.as_ref().to_string()))?;
+    let token = block_state.token_by_id(token_id)?;
 
     let token_configuration = block_state.token_configuration(&token);
     let circulating_supply = block_state.token_circulating_supply(&token);
@@ -101,7 +102,7 @@ pub fn token_account_states(
 struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     block_state: &'a BSQ,
     token: &'a BSQ::Token,
-    token_module_state: &'a MutableTokenModuleState,
+    token_module_state: &'a BSQ::MutableTokenModuleState,
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {

@@ -1,7 +1,4 @@
-use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, MutableTokenModuleState, OverflowError,
-    TokenAmountDelta, TokenConfiguration,
-};
+use crate::block_state_interface::{BlockStateOperations, BlockStateQuery,  OverflowError, TokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError};
 use concordium_base::base::AccountIndex;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue};
 
@@ -9,9 +6,10 @@ pub struct BlockState {}
 
 /// Index of the protocol-level token in the block state map of tokens.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TokenIndex(pub u64);
+pub struct TokenIndex(u64);
 
 impl BlockStateQuery for BlockState {
+    type MutableTokenModuleState = ();
     type Account = AccountIndex;
     type Token = TokenIndex;
 
@@ -24,11 +22,11 @@ impl BlockStateQuery for BlockState {
     fn token_by_id(
         &self,
         _token_id: &concordium_base::protocol_level_tokens::TokenId,
-    ) -> Option<TokenIndex> {
+    ) -> Result<TokenIndex, TokenNotFoundByIdError> {
         todo!()
     }
 
-    fn mutable_token_module_state(&self, _token_index: &TokenIndex) -> MutableTokenModuleState {
+    fn mutable_token_module_state(&self, _token_index: &TokenIndex) -> Self::MutableTokenModuleState {
         todo!()
     }
 
@@ -45,7 +43,7 @@ impl BlockStateQuery for BlockState {
 
     fn lookup_token_module_state_value(
         &self,
-        _token_state: &MutableTokenModuleState,
+        _token_state: &Self::MutableTokenModuleState,
         _key: &ModuleStateKey,
     ) -> Option<ModuleStateValue> {
         todo!()
@@ -53,7 +51,7 @@ impl BlockStateQuery for BlockState {
 
     fn update_token_module_state_value(
         &self,
-        _token_state: &MutableTokenModuleState,
+        _token_state: &mut Self::MutableTokenModuleState,
         _key: &ModuleStateKey,
         _value: Option<ModuleStateValue>,
     ) {
@@ -98,7 +96,7 @@ impl BlockStateOperations for BlockState {
     fn set_token_module_state(
         &mut self,
         _token_index: &TokenIndex,
-        _mutable_token_state: MutableTokenModuleState,
+        _mutable_token_state: Self::MutableTokenModuleState,
     ) {
         todo!()
     }

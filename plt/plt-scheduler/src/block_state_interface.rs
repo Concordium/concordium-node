@@ -4,7 +4,6 @@ use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
 // Placeholder types to be defined or replaced with types from other crates.
-pub struct MutableTokenModuleState;
 pub type TokenAmountDelta = ();
 
 /// Static configuration for a protocol-level token.
@@ -25,11 +24,14 @@ pub struct TokenNotFoundByIdError(pub TokenId);
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
-    /// Opaque type that identifies an account on chain.
+    /// Opaque type that represents the token module state.
+    type MutableTokenModuleState;
+
+    /// Opaque type that represents an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
     type Account;
 
-    /// Opaque type that identifies a token on chain.
+    /// Opaque type that represents a token on chain.
     /// The token is guaranteed to exist on chain, when holding an instance of this type.
     type Token;
 
@@ -53,7 +55,7 @@ pub trait BlockStateQuery {
     /// # Arguments
     ///
     /// - `token` The token to get the module state from.
-    fn mutable_token_module_state(&self, token: &Self::Token) -> MutableTokenModuleState;
+    fn mutable_token_module_state(&self, token: &Self::Token) -> Self::MutableTokenModuleState;
 
     /// Get the configuration of a protocol-level token.
     ///
@@ -78,7 +80,7 @@ pub trait BlockStateQuery {
     /// - `key` The token module state key.
     fn lookup_token_module_state_value(
         &self,
-        token_module_state: &MutableTokenModuleState,
+        token_module_state: &Self::MutableTokenModuleState,
         key: &ModuleStateKey,
     ) -> Option<ModuleStateValue>;
 
@@ -92,7 +94,7 @@ pub trait BlockStateQuery {
     /// - `value` The value to set. If `None`, the entry with the given key is removed.
     fn update_token_module_state_value(
         &self,
-        token_module_state: &MutableTokenModuleState,
+        token_module_state: &mut Self::MutableTokenModuleState,
         key: &ModuleStateKey,
         value: Option<ModuleStateValue>,
     );
@@ -179,7 +181,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     fn set_token_module_state(
         &mut self,
         token: &Self::Token,
-        mutable_token_module_state: MutableTokenModuleState,
+        mutable_token_module_state: Self::MutableTokenModuleState,
     );
 }
 

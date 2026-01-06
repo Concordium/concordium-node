@@ -1,19 +1,15 @@
-use std::collections::{HashMap, VecDeque};
-
-use concordium_base::base::{AccountIndex, Energy};
+use std::collections::HashMap;
+use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, TokenId, TokenModuleInitializationParameters,
-};
-use concordium_base::transactions::Memo;
+use concordium_base::protocol_level_tokens::{CborHolderAccount, MetadataUrl, TokenId, TokenModuleInitializationParameters};
 use plt_scheduler::block_state_interface::{
-    BlockStateQuery, MutableTokenModuleState, TokenConfiguration, TokenNotFoundByIdError,
+    BlockStateQuery,  TokenConfiguration, TokenNotFoundByIdError,
 };
+use plt_scheduler::TOKEN_MODULE_REF;
 use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, LockedStateKeyError, ModuleStateKey, ModuleStateValue,
-    OutOfEnergyError, RawTokenAmount, TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
+    ModuleStateKey, ModuleStateValue
+    , RawTokenAmount,
 };
 use plt_token_module::token_module;
 
@@ -21,21 +17,37 @@ use plt_token_module::token_module;
 /// configuring the state of the block state.
 #[derive(Debug)]
 pub struct BlockStateStub {
+    /// List of tokens in the stub
     tokens: Vec<Token>,
-    // /// Decimal places in token representation.
-    // decimals: u8,
+    /// List of accounts in the stub.
+    accounts: Vec<Account>,
 }
 
-/// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
-/// configuring the state of the block state.
+/// Internal representation of a token in [`BlockStateStub`].
 #[derive(Debug)]
 struct Token {
-    /// Token module managed state.
-    module_state: HashMap<ModuleStateKey, ModuleStateValue>,
+    module_state: StubTokenModuleState,
     /// Token configuration
     configuration: TokenConfiguration,
     /// Circulating supply
     circulating_supply: RawTokenAmount,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StubTokenModuleState {
+    /// Token module managed state.
+    module_state: HashMap<ModuleStateKey, ModuleStateValue>,
+}
+
+/// Internal representation of an account in [`BlockStateStub`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Account {
+    /// The index of the account
+    pub index: AccountIndex,
+    /// The canonical account address of the account.
+    pub address: AccountAddress,
+    // // The token balance of the account.
+    // pub balance: Option<RawTokenAmount>,
 }
 
 #[allow(unused)]
@@ -44,30 +56,65 @@ impl BlockStateStub {
     pub fn new() -> Self {
         Self {
             tokens: Default::default(),
+            accounts: Default::default(),
         }
     }
 
-    // /// Initialize token and return the governance account
-    // pub fn init_token(&mut self, params: TokenInitTestParams) -> AccountStubIndex {
-    //     let gov_account = self.create_account();
-    //     let gov_holder_account =
-    //         CborHolderAccount::from(self.account_canonical_address(&gov_account));
-    //     let metadata = MetadataUrl::from("https://plt.token".to_string());
-    //     let parameters = TokenModuleInitializationParameters {
-    //         name: Some("Protocol-level token".to_owned()),
-    //         metadata: Some(metadata.clone()),
-    //         governance_account: Some(gov_holder_account.clone()),
-    //         allow_list: params.allow_list,
-    //         deny_list: params.deny_list,
-    //         initial_supply: None,
-    //         mintable: params.mintable,
-    //         burnable: params.burnable,
-    //         additional: Default::default(),
-    //     };
-    //     let encoded_parameters = cbor::cbor_encode(&parameters).into();
-    //     token_module::initialize_token(self, encoded_parameters).expect("initialize token");
-    //     gov_account
-    // }
+    /// Create account in the stub and return stub representation of the account.
+    pub fn create_account(&mut self) -> AccountStubIndex {
+        let index = self.accounts.len();
+        let mut address = AccountAddress([0u8; 32]);
+        address.0[..8].copy_from_slice(&index.to_be_bytes());
+        let account_index = AccountIndex::from(index as u64);
+        let account = Account {
+            index:account_index,
+            address,
+        };
+        let stub_index = AccountStubIndex(index);
+        self.accounts.push(account);
+
+        stub_index
+    }
+
+    /// Initialize token in the stub and return stub representation of the token.
+    pub fn init_token(&mut self, params: TokenInitTestParams, decimals: u8) -> TokenStubIndex {
+        // Add the token to the stub
+        let stub_index = TokenStubIndex(self.tokens.len());
+        let token_id = format!("tokenid{}", stub_index.0).parse().unwrap();
+        let token = Token {
+            module_state: Default::default(),
+            configuration: TokenConfiguration {
+                token_id,
+                module_ref: TOKEN_MODULE_REF,
+                decimals,
+            },
+            circulating_supply: Default::default(),
+        };
+        self.tokens.push(token);
+
+        // Initialize the token in the token module
+        let gov_account = self.create_account();
+        let gov_holder_account =
+            CborHolderAccount::from(self.accounts[gov_account.0].address);
+        let metadata = MetadataUrl::from("https://plt.token".to_string());
+        let parameters = TokenModuleInitializationParameters {
+            name: Some("Protocol-level token".to_owned()),
+            metadata: Some(metadata.clone()),
+            governance_account: Some(gov_holder_account.clone()),
+            allow_list: params.allow_list,
+            deny_list: params.deny_list,
+            initial_supply: None,
+            mintable: params.mintable,
+            burnable: params.burnable,
+            additional: Default::default(),
+        };
+
+        // todo initialize token in module
+        // let encoded_parameters = cbor::cbor_encode(&parameters).into();
+        // token_module::initialize_token(self, encoded_parameters).expect("initialize token");
+
+        stub_index
+    }
 }
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
@@ -119,7 +166,9 @@ pub struct AccountStubIndex(usize);
 #[derive(Debug, Clone, Copy)]
 pub struct TokenStubIndex(usize);
 
+
 impl BlockStateQuery for BlockStateStub {
+    type MutableTokenModuleState = StubTokenModuleState;
     type Account = AccountStubIndex;
     type Token = TokenStubIndex;
 
@@ -143,8 +192,8 @@ impl BlockStateQuery for BlockStateStub {
             .ok_or(TokenNotFoundByIdError(token_id.clone()))
     }
 
-    fn mutable_token_module_state(&self, token: &Self::Token) -> MutableTokenModuleState {
-        todo!()
+    fn mutable_token_module_state(&self, token: &Self::Token) -> StubTokenModuleState {
+        self.tokens[token.0].module_state.clone()
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
@@ -157,23 +206,23 @@ impl BlockStateQuery for BlockStateStub {
 
     fn lookup_token_module_state_value(
         &self,
-        token_module_state: &MutableTokenModuleState,
+        token_module_state: &StubTokenModuleState,
         key: &ModuleStateKey,
     ) -> Option<ModuleStateValue> {
-        // todo are token module state associated type?
-        todo!()
+        token_module_state.module_state.get(key).cloned()
     }
 
     fn update_token_module_state_value(
         &self,
-        token_module_state: &MutableTokenModuleState,
+        token_module_state: &mut StubTokenModuleState,
         key: &ModuleStateKey,
         value: Option<ModuleStateValue>,
     ) {
-        todo!()
+        if let Some(value) = value {
+            token_module_state.module_state.insert(key.clone(), value);
+        } else {
+            token_module_state.module_state.remove(key);
+        }
     }
 }
 
-// Tests for the kernel stub
-
-const TEST_ACCOUNT2: AccountAddress = AccountAddress([2u8; 32]);
