@@ -23,6 +23,7 @@ pub struct BlockStateStub {
 /// Internal representation of a token in [`BlockStateStub`].
 #[derive(Debug)]
 struct Token {
+    /// Module state
     module_state: StubTokenModuleState,
     /// Token configuration
     configuration: TokenConfiguration,
@@ -30,10 +31,11 @@ struct Token {
     circulating_supply: RawTokenAmount,
 }
 
+/// Representation of module state in the stub
 #[derive(Debug, Clone, Default)]
 pub struct StubTokenModuleState {
     /// Token module managed state.
-    module_state: HashMap<ModuleStateKey, ModuleStateValue>,
+    state: HashMap<ModuleStateKey, ModuleStateValue>,
 }
 
 /// Internal representation of an account in [`BlockStateStub`].
@@ -43,8 +45,6 @@ pub struct Account {
     pub index: AccountIndex,
     /// The canonical account address of the account.
     pub address: AccountAddress,
-    // // The token balance of the account.
-    // pub balance: Option<RawTokenAmount>,
 }
 
 #[allow(unused)]
@@ -105,7 +105,7 @@ impl BlockStateStub {
             additional: Default::default(),
         };
 
-        // todo initialize token in module
+        // todo initialize token in module and enable the test test_query_token_state
         // let encoded_parameters = cbor::cbor_encode(&parameters).into();
         // token_module::initialize_token(self, encoded_parameters).expect("initialize token");
 
@@ -204,7 +204,7 @@ impl BlockStateQuery for BlockStateStub {
         token_module_state: &StubTokenModuleState,
         key: &ModuleStateKey,
     ) -> Option<ModuleStateValue> {
-        token_module_state.module_state.get(key).cloned()
+        token_module_state.state.get(key).cloned()
     }
 
     fn update_token_module_state_value(
@@ -214,9 +214,9 @@ impl BlockStateQuery for BlockStateStub {
         value: Option<ModuleStateValue>,
     ) {
         if let Some(value) = value {
-            token_module_state.module_state.insert(key.clone(), value);
+            token_module_state.state.insert(key.clone(), value);
         } else {
-            token_module_state.module_state.remove(key);
+            token_module_state.state.remove(key);
         }
     }
 }

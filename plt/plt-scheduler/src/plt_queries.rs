@@ -84,11 +84,9 @@ pub struct TokenAccountState {
 pub enum QueryTokenAccountStateError {
     #[error("Error returned when querying the token module: {0}")]
     QueryTokenModule(#[from] QueryTokenModuleError),
-    // #[error("The token does not exist: {0}")]
-    // TokenDoesNotExist(String),
 }
 
-/// Get the token state associated with the given token id.
+/// Get the list of tokens on an account
 pub fn token_account_states(
     _block_state: &impl BlockStateQuery,
     _account: AccountIndex,
@@ -144,5 +142,3 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
             .lookup_token_module_state_value(self.token_module_state, &key)
     }
 }
-
-// todo ar test + query account token
