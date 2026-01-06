@@ -1,16 +1,12 @@
 //! Test of protocol-level token queries
 
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenAmount;
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::plt_queries;
-use plt_token_module::token_kernel_interface::TokenKernelQueries;
 
 mod block_state_stub;
 mod utils;
-
-const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 
 /// Test query token state
 #[test]
@@ -25,7 +21,6 @@ fn test_query_plt_list() {
     let plts = plt_queries::plt_list(&stub);
     assert_eq!(plts, vec![token_id1, token_id2]);
 }
-
 
 /// Test query token state
 #[test]

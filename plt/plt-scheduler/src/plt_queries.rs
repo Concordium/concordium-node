@@ -1,7 +1,5 @@
-use crate::block_state_interface::{
-    BlockStateQuery, TokenNotFoundByIdError,
-};
 use crate::TOKEN_MODULE_REF;
+use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenAmount, TokenId, TokenModuleRef};
@@ -11,7 +9,6 @@ use plt_token_module::token_kernel_interface::{
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
-use std::fmt::Display;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
@@ -93,8 +90,8 @@ pub enum QueryTokenAccountStateError {
 
 /// Get the token state associated with the given token id.
 pub fn token_account_states(
-    block_state: &impl BlockStateQuery,
-    account: AccountIndex,
+    _block_state: &impl BlockStateQuery,
+    _account: AccountIndex,
 ) -> Result<Vec<TokenAccountState>, QueryTokenAccountStateError> {
     todo!()
 }

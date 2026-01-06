@@ -1,21 +1,18 @@
-use std::collections::HashMap;
 use concordium_base::base::AccountIndex;
-use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{CborHolderAccount, MetadataUrl, TokenId, TokenModuleInitializationParameters};
-use plt_scheduler::block_state_interface::{
-    BlockStateQuery,  TokenConfiguration, TokenNotFoundByIdError,
+use concordium_base::protocol_level_tokens::{
+    CborHolderAccount, MetadataUrl, TokenId, TokenModuleInitializationParameters,
 };
 use plt_scheduler::TOKEN_MODULE_REF;
-use plt_token_module::token_kernel_interface::{
-    ModuleStateKey, ModuleStateValue
-    , RawTokenAmount,
+use plt_scheduler::block_state_interface::{
+    BlockStateQuery, TokenConfiguration, TokenNotFoundByIdError,
 };
-use plt_token_module::token_module;
+use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
+use std::collections::HashMap;
 
 /// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
 /// configuring the state of the block state.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BlockStateStub {
     /// List of tokens in the stub
     tokens: Vec<Token>,
@@ -67,7 +64,7 @@ impl BlockStateStub {
         address.0[..8].copy_from_slice(&index.to_be_bytes());
         let account_index = AccountIndex::from(index as u64);
         let account = Account {
-            index:account_index,
+            index: account_index,
             address,
         };
         let stub_index = AccountStubIndex(index);
@@ -94,8 +91,7 @@ impl BlockStateStub {
 
         // Initialize the token in the token module
         let gov_account = self.create_account();
-        let gov_holder_account =
-            CborHolderAccount::from(self.accounts[gov_account.0].address);
+        let gov_holder_account = CborHolderAccount::from(self.accounts[gov_account.0].address);
         let metadata = MetadataUrl::from("https://plt.token".to_string());
         let parameters = TokenModuleInitializationParameters {
             name: Some("Protocol-level token".to_owned()),
@@ -166,7 +162,6 @@ pub struct AccountStubIndex(usize);
 #[derive(Debug, Clone, Copy)]
 pub struct TokenStubIndex(usize);
 
-
 impl BlockStateQuery for BlockStateStub {
     type MutableTokenModuleState = StubTokenModuleState;
     type Account = AccountStubIndex;
@@ -225,4 +220,3 @@ impl BlockStateQuery for BlockStateStub {
         }
     }
 }
-
