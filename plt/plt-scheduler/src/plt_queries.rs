@@ -1,5 +1,7 @@
+//! Implementation of queries related to protocol-level tokens.
+
 use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
-use crate::{block_state_interface, TOKEN_MODULE_REF};
+use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenAmount, TokenId, TokenModuleRef};
@@ -7,8 +9,8 @@ use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, ModuleStateKey, ModuleStateValue,
     RawTokenAmount, TokenKernelQueries,
 };
-use plt_token_module::token_module::QueryTokenModuleError;
 use plt_token_module::token_module;
+use plt_token_module::token_module::QueryTokenModuleError;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {

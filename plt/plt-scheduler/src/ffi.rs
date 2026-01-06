@@ -1,8 +1,10 @@
 //! This module provides a C ABI for this library.
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state_interface::{OutOfEnergyError, TransactionExecution};
-use crate::plt_scheduler;
+use crate::scheduler;
+use concordium_base::base::AccountIndex;
+use concordium_base::common;
+use concordium_base::transactions::Payload;
 use libc::size_t;
 
 /// C-binding for calling [`crate::execute_transaction`].
@@ -24,33 +26,12 @@ use libc::size_t;
 unsafe extern "C" fn ffi_execute_transaction(payload: *const u8, payload_len: size_t) -> u8 {
     debug_assert!(!payload.is_null(), "Payload is a null pointer.");
     let payload = unsafe { std::slice::from_raw_parts(payload, payload_len) };
-    let mut scheduler_state = SchedulerState {};
     let mut block_state = crate::block_state::BlockState {};
-    match plt_scheduler::execute_transaction(&mut scheduler_state, &mut block_state, payload) {
+    let account = AccountIndex::from(0);
+    let payload:Payload = common::from_bytes(&mut &*payload).unwrap();
+
+    match scheduler::execute_transaction(account, &mut block_state, payload) {
         Ok(_) => 0,
         Err(_) => 1,
-    }
-}
-
-/// Trackes the energy remaining and some context during the execution.
-struct SchedulerState {}
-impl TransactionExecution for SchedulerState {
-    fn sender_account(&self) -> concordium_base::base::AccountIndex {
-        todo!()
-    }
-
-    fn sender_account_address(&self) -> concordium_base::contracts_common::AccountAddress {
-        todo!()
-    }
-
-    fn get_energy(&self) -> concordium_base::base::Energy {
-        todo!()
-    }
-
-    fn tick_energy(
-        &mut self,
-        _energy: concordium_base::base::Energy,
-    ) -> Result<(), OutOfEnergyError> {
-        todo!()
     }
 }

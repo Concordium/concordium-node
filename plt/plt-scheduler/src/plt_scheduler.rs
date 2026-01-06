@@ -1,27 +1,21 @@
-use crate::block_state_interface;
-use crate::block_state_interface::{BlockStateOperations, BlockStateQuery, TransactionExecution};
+//! Scheduler implementation for protocol-level token updates. This module implements execution
+//! of transactions related to protocol-level tokens.
+
+use crate::block_state_interface::{BlockStateOperations, BlockStateQuery, TokenNotFoundByIdError};
+use crate::scheduler::{TransactionEvent, TransactionRejectReason};
+use crate::scheduler_interface::TransactionExecution;
+use crate::{block_state_interface, scheduler_interface};
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::TokenAmount;
+use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
 use concordium_base::transactions::Memo;
-use plt_token_module::token_kernel_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError, InsufficientBalanceError,  ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount, TokenKernelOperations, TokenKernelQueries, TokenModuleEvent};
-
-pub struct TransactionRejectReason;
-
-/// Token event
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum TokenEvent {
-    /// An event emitted by the token module.
-    Module(TokenModuleEvent),
-    /// An event emitted when a transfer of tokens is performed.
-    Transfer(TokenTransferEvent),
-    /// An event emitted when the token supply is updated by minting tokens to a
-    /// token holder.
-    Mint(TokenSupplyUpdateEvent),
-    /// An event emitted when the token supply is updated by burning tokens from
-    /// the balance of a token holder.
-    Burn(TokenSupplyUpdateEvent),
-}
+use plt_token_module::token_kernel_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
+    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
+    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
+};
+use plt_token_module::token_module;
+use plt_token_module::token_module::{TokenUpdateError, TransactionContext};
 
 /// An event emitted when a transfer of tokens from `from` to `to` is performed.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -47,26 +41,59 @@ pub struct TokenSupplyUpdateEvent {
     pub amount: TokenAmount,
 }
 
-/// Execute a transaction payload modifying `scheduler` and `block_state` accordingly.
+/// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
 /// Returns the events produce if successful otherwise a reject reason.
 ///
 /// The caller must ensure to rollback state changes in case of the transaction being rejected.
-pub fn execute_transaction(
-    _scheduler: &mut impl TransactionExecution,
-    _block_state: &mut impl BlockStateOperations,
-    _payload: &[u8],
-) -> Result<Vec<TokenEvent>, TransactionRejectReason> {
-    todo!()
+pub fn execute_plt_transaction<BSO:BlockStateOperations, TE: TransactionExecution<Account = BSO::Account>>(
+    transaction_execution: &mut TE,
+    block_state: &mut BSO,
+    payload: TokenOperationsPayload,
+) -> Result<Vec<TransactionEvent>, TransactionRejectReason> {
+    let token =
+        block_state
+            .token_by_id(&payload.token_id)
+            .map_err(|err: TokenNotFoundByIdError| {
+                TransactionRejectReason::NonExistentTokenId(payload.token_id)
+            })?;
+    let mut token_module_state = block_state.mutable_token_module_state(&token);
+
+    let mut kernel = TokenKernelExecutionImpl {
+        block_state,
+        transaction_execution,
+        token: &token,
+        token_module_state: &mut token_module_state,
+        events: Default::default(),
+    };
+
+    let transaction_context = TransactionContext {
+        sender: transaction_execution.sender_account(),
+    };
+
+    match token_module::execute_token_update_transaction(
+        &mut kernel,
+        transaction_context,
+        payload.operations,
+    ) {
+        Ok(()) => Ok(kernel.events),
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => Err(
+            TransactionRejectReason::TokenUpdateTransactionFailed(reject_reason),
+        ),
+        Err(TokenUpdateError::OutOfEnergy(_)) => Err(TransactionRejectReason::OutOfEnergy),
+    }
 }
 
-struct TokenKernelExecutionImpl<'a, BSQ: BlockStateQuery, TE:TransactionExecution> {
-    block_state: &'a BSQ,
-    transaction_execution: &'a TE,
+struct TokenKernelExecutionImpl<'a, BSQ: BlockStateQuery, TE: TransactionExecution> {
+    block_state: &'a mut BSQ,
+    transaction_execution: &'a mut TE,
     token: &'a BSQ::Token,
     token_module_state: &'a mut BSQ::MutableTokenModuleState,
+    events: Vec<TransactionEvent>,
 }
 
-impl<BSQ: BlockStateQuery, TE: TransactionExecution> TokenKernelQueries for TokenKernelExecutionImpl<'_, BSQ, TE> {
+impl<BSQ: BlockStateQuery, TE: TransactionExecution> TokenKernelQueries
+    for TokenKernelExecutionImpl<'_, BSQ, TE>
+{
     type Account = BSQ::Account;
 
     fn account_by_address(
@@ -117,33 +144,56 @@ impl<BSQ: BlockStateQuery, TE: TransactionExecution> TokenKernelQueries for Toke
     }
 }
 
-impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations for TokenKernelExecutionImpl<'_, BSO, TE> {
-    fn touch(&mut self, account: &Self::Account) -> bool {
+impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
+    for TokenKernelExecutionImpl<'_, BSO, TE>
+{
+    fn touch(&mut self, account: &Self::Account) {
+        self.block_state.touch_token_account(self.token, account);
+    }
+
+    fn mint(
+        &mut self,
+        _account: &Self::Account,
+        _amount: RawTokenAmount,
+    ) -> Result<(), AmountNotRepresentableError> {
         todo!()
     }
 
-    fn mint(&mut self, account: &Self::Account, amount: RawTokenAmount) -> Result<(), AmountNotRepresentableError> {
+    fn burn(
+        &mut self,
+        _account: &Self::Account,
+        _amount: RawTokenAmount,
+    ) -> Result<(), InsufficientBalanceError> {
         todo!()
     }
 
-    fn burn(&mut self, account: &Self::Account, amount: RawTokenAmount) -> Result<(), InsufficientBalanceError> {
+    fn transfer(
+        &mut self,
+        from: &Self::Account,
+        to: &Self::Account,
+        amount: RawTokenAmount,
+        memo: Option<Memo>,
+    ) -> Result<(), InsufficientBalanceError> {
         todo!()
     }
 
-    fn transfer(&mut self, from: &Self::Account, to: &Self::Account, amount: RawTokenAmount, memo: Option<Memo>) -> Result<(), InsufficientBalanceError> {
-        todo!()
-    }
-
-    fn set_token_module_state_value(&mut self, key: ModuleStateKey, value: Option<ModuleStateValue>) {
+    fn set_token_module_state_value(
+        &mut self,
+        key: ModuleStateKey,
+        value: Option<ModuleStateValue>,
+    ) {
         self.block_state
             .update_token_module_state_value(self.token_module_state, &key, value);
     }
 
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
-        todo!()
+        self.transaction_execution
+            .tick_energy(energy)
+            .map_err(|err: scheduler_interface::OutOfEnergyError| OutOfEnergyError)
     }
 
-    fn log_token_event(&mut self, event: TokenModuleEvent) {
-        todo!()
+    fn log_token_event(&mut self, module_event: TokenModuleEvent) {
+        self.events
+            .push(TransactionEvent::TokenModule(module_event))
     }
 }

@@ -1,4 +1,4 @@
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
@@ -129,7 +129,8 @@ pub trait BlockStateQuery {
     fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress;
 
     /// Get the token balance of the account.
-    fn account_token_balance(&self, account: &Self::Account, token: &Self::Token) -> RawTokenAmount;
+    fn account_token_balance(&self, account: &Self::Account, token: &Self::Token)
+    -> RawTokenAmount;
 }
 
 /// Operations on the state of a block in the chain.
@@ -188,14 +189,11 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// balance of zero. This only affects an account if its state for the token
     /// is empty.
     ///
-    /// Returns `false`, if the account already contained a token account state.
-    ///
     /// # Arguments
     ///
-    /// - `token` The token index to update.
     /// - `account` The account to update.
-    #[must_use]
-    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) -> bool;
+    /// - `token` The token to update.
+    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account);
 
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
@@ -217,33 +215,11 @@ pub trait BlockStateOperations: BlockStateQuery {
     );
 }
 
-/// Operations and context related to transaction execution.
-pub trait TransactionExecution {
-    /// The account initiating the transaction.
-    fn sender_account(&self) -> AccountIndex;
 
-    /// The address of the account initiating the transaction.
-    fn sender_account_address(&self) -> AccountAddress;
-
-    /// Get the amount of energy remaining for the execution.
-    fn get_energy(&self) -> Energy;
-
-    /// Reduce the available energy for the execution.
-    ///
-    /// # Arguments
-    ///
-    /// - `energy` The amount of energy to charge.
-    ///
-    /// # Errors
-    ///
-    /// - [`OutOfEnergyError`] If the available energy is smaller than the ticked amount.
-    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError>;
-}
-
-/// Transaction execution ran out of energy.
-#[derive(Debug)]
-pub struct OutOfEnergyError;
 
 /// The computation resulted in overflow.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("Token amount overflow")]
 pub struct OverflowError;
+
+

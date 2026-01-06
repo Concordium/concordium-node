@@ -1,4 +1,7 @@
-use crate::block_state_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations, BlockStateQuery, OverflowError, TokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError};
+use crate::block_state_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, TokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
+};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
@@ -38,10 +41,7 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn token_circulating_supply(
-        &self,
-        _token_index: &TokenIndex,
-    ) -> RawTokenAmount {
+    fn token_circulating_supply(&self, _token_index: &TokenIndex) -> RawTokenAmount {
         todo!()
     }
 
@@ -62,11 +62,17 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn account_by_address(&self, _address: &AccountAddress) -> Result<Self::Account, AccountNotFoundByAddressError> {
+    fn account_by_address(
+        &self,
+        _address: &AccountAddress,
+    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
         todo!()
     }
 
-    fn account_by_index(&self, _index: AccountIndex) -> Result<Self::Account, AccountNotFoundByIndexError> {
+    fn account_by_index(
+        &self,
+        _index: AccountIndex,
+    ) -> Result<Self::Account, AccountNotFoundByIndexError> {
         todo!()
     }
 
@@ -78,7 +84,11 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn account_token_balance(&self, _account: &Self::Account,  _token: &Self::Token) -> RawTokenAmount {
+    fn account_token_balance(
+        &self,
+        _account: &Self::Account,
+        _token: &Self::Token,
+    ) -> RawTokenAmount {
         todo!()
     }
 }
@@ -105,11 +115,7 @@ impl BlockStateOperations for BlockState {
         todo!()
     }
 
-    fn touch_token_account(
-        &mut self,
-        _token_index: &TokenIndex,
-        _account_index: &AccountIndex,
-    ) -> bool {
+    fn touch_token_account(&mut self, _token_index: &TokenIndex, _account_index: &AccountIndex) {
         todo!()
     }
 

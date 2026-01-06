@@ -9,8 +9,8 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError,  ModuleStateKey, ModuleStateValue,
-    OutOfEnergyError, RawTokenAmount, TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
+    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
+    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
 };
 use plt_token_module::token_module;
 
@@ -233,13 +233,8 @@ impl TokenKernelQueries for KernelStub {
 }
 
 impl TokenKernelOperations for KernelStub {
-    fn touch(&mut self, account: &Self::Account) -> bool {
-        if self.accounts[account.0].balance.is_some() {
-            false
-        } else {
-            self.accounts[account.0].balance = Some(RawTokenAmount::default());
-            true
-        }
+    fn touch(&mut self, account: &Self::Account) {
+        self.accounts[account.0].balance.get_or_insert_default();
     }
 
     fn mint(
@@ -296,7 +291,7 @@ impl TokenKernelOperations for KernelStub {
         &mut self,
         key: ModuleStateKey,
         value: Option<ModuleStateValue>,
-    )  {
+    ) {
         match value {
             None => self.state.remove(&key).is_some(),
             Some(value) => self.state.insert(key, value).is_some(),
@@ -360,4 +355,3 @@ fn test_account_balance() {
     let balance = stub.account_token_balance(&account1);
     assert_eq!(balance, RawTokenAmount(0));
 }
-

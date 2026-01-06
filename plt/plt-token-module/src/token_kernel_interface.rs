@@ -93,9 +93,7 @@ pub trait TokenKernelQueries {
 /// Operations provided by the token kernel.
 pub trait TokenKernelOperations: TokenKernelQueries {
     /// Update the balance of the given account to zero if it didn't have a balance before.
-    ///
-    /// Returns `true` if the balance wasn't present on the given account and `false` otherwise.
-    fn touch(&mut self, account: &Self::Account) -> bool;
+    fn touch(&mut self, account: &Self::Account);
 
     /// Mint a specified amount and deposit it in the account.
     ///

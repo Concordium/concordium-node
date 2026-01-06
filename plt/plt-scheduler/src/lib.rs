@@ -5,7 +5,9 @@ pub mod block_state_interface;
 #[cfg(feature = "ffi")]
 mod ffi;
 pub mod plt_queries;
-pub mod plt_scheduler;
+mod plt_scheduler;
+pub mod scheduler;
+pub mod scheduler_interface;
 
 /// Module ref for the currently implemented token module. It is the SHA-256 of "TokenModuleV0"
 pub const TOKEN_MODULE_REF: TokenModuleRef = TokenModuleRef::new([

@@ -22,7 +22,6 @@ fn test_update_token_decode_failure() {
     let sender = stub.create_account();
     let context = TransactionContext {
         sender,
-        sender_address: stub.account_canonical_address(&sender),
     };
     let res =
         token_module::execute_token_update_transaction(&mut stub, context, RawCbor::from(vec![]));
@@ -48,7 +47,6 @@ fn test_multiple_operations() {
 
     let context = TransactionContext {
         sender,
-        sender_address: stub.account_canonical_address(&sender),
     };
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
@@ -84,7 +82,6 @@ fn test_single_failing_operation() {
 
     let context = TransactionContext {
         sender,
-        sender_address: stub.account_canonical_address(&sender),
     };
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {

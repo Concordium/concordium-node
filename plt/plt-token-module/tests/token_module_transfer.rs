@@ -29,7 +29,6 @@ fn test_transfer() {
 
     let context = TransactionContext {
         sender,
-        sender_address: stub.account_canonical_address(&sender),
     };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
@@ -60,7 +59,6 @@ fn test_transfer_with_memo() {
 
     let context = TransactionContext {
         sender,
-        sender_address: stub.account_canonical_address(&sender),
     };
     let memo = Memo::try_from(cbor::cbor_encode("testvalue")).unwrap();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
@@ -91,7 +89,6 @@ fn test_transfer_self() {
 
     let context = TransactionContext {
         sender,
-        sender_address: stub.account_canonical_address(&sender),
     };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
@@ -119,7 +116,6 @@ fn test_transfer_insufficient_balance() {
 
     let context = TransactionContext {
         sender,
-        sender_address: stub.account_canonical_address(&sender),
     };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 2),
@@ -155,7 +151,6 @@ fn test_transfer_decimals_mismatch() {
 
     let context = TransactionContext {
         sender,
-        sender_address: stub.account_canonical_address(&sender),
     };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
@@ -187,7 +182,6 @@ fn test_transfer_to_non_existing_receiver() {
 
     let context = TransactionContext {
         sender,
-        sender_address: stub.account_canonical_address(&sender),
     };
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),

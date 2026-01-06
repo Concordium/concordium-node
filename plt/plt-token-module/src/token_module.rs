@@ -9,7 +9,6 @@ use concordium_base::common::cbor::{
     CborDeserialize, CborSerializationError, CborSerializationResult, SerializationOptions,
     UnknownMapKeys,
 };
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MetadataUrl, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
@@ -21,7 +20,7 @@ mod update;
 
 /// Details provided by the token module in the event of rejecting a
 /// transaction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TokenModuleRejectReason {
     /// The type of the reject reason.
     pub reason_type: TokenModuleCborTypeDiscriminator,
@@ -37,7 +36,7 @@ trait KernelOperationsExt: TokenKernelOperations {
         &mut self,
         key: impl IntoIterator<Item = &'a u8>,
         value: Option<ModuleStateValue>,
-    )  {
+    ) {
         self.set_token_module_state_value(module_state_key(key), value);
     }
 }
@@ -107,8 +106,6 @@ pub enum QueryTokenModuleError {
 pub struct TransactionContext<Account> {
     /// The sender account object.
     pub sender: Account,
-    /// The sender account address. This is the account alias that is used by the transaction itself.
-    pub sender_address: AccountAddress,
 }
 
 #[derive(Debug, thiserror::Error)]
