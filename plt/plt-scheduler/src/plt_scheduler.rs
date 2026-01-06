@@ -56,10 +56,14 @@ pub fn execute_plt_transaction<
     let token =
         block_state
             .token_by_id(&payload.token_id)
-            .map_err(|err: TokenNotFoundByIdError| {
+            .map_err(|_err: TokenNotFoundByIdError| {
                 TransactionRejectReason::NonExistentTokenId(payload.token_id)
             })?;
     let mut token_module_state = block_state.mutable_token_module_state(&token);
+
+    let transaction_context = TransactionContext {
+        sender: transaction_execution.sender_account(),
+    };
 
     let mut kernel = TokenKernelExecutionImpl {
         block_state,
@@ -67,10 +71,6 @@ pub fn execute_plt_transaction<
         token: &token,
         token_module_state: &mut token_module_state,
         events: Default::default(),
-    };
-
-    let transaction_context = TransactionContext {
-        sender: transaction_execution.sender_account(),
     };
 
     match token_module::execute_token_update_transaction(

@@ -45,11 +45,11 @@ struct TransactionExecutionImpl<Account> {
     sender_account: Account,
 }
 
-impl<Account: Copy> TransactionExecution for TransactionExecutionImpl<Account> {
+impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> {
     type Account = Account;
 
     fn sender_account(&self) -> Account {
-        self.sender_account
+        self.sender_account.clone()
     }
 
     fn tick_energy(&mut self, _energy: Energy) -> Result<(), OutOfEnergyError> {
@@ -75,7 +75,10 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
     sender_account: BSO::Account,
     block_state: &mut BSO,
     payload: Payload,
-) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError> {
+) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError>
+where
+    BSO::Account: Clone,
+{
     let mut execution = TransactionExecutionImpl { sender_account };
 
     match payload {
