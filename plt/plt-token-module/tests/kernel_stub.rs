@@ -9,7 +9,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, LockedStateKeyError, ModuleStateKey, ModuleStateValue,
+    InsufficientBalanceError,  ModuleStateKey, ModuleStateValue,
     OutOfEnergyError, RawTokenAmount, TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
 };
 use plt_token_module::token_module;
@@ -181,7 +181,6 @@ impl TokenKernelQueries for KernelStub {
             .iter()
             .enumerate()
             .find_map(|(i, account)| {
-                // TODO resolve an account alias as well here.
                 if account.address == *address {
                     Some(AccountStubIndex(i))
                 } else {
@@ -297,12 +296,11 @@ impl TokenKernelOperations for KernelStub {
         &mut self,
         key: ModuleStateKey,
         value: Option<ModuleStateValue>,
-    ) -> Result<bool, LockedStateKeyError> {
-        let res = match value {
+    )  {
+        match value {
             None => self.state.remove(&key).is_some(),
             Some(value) => self.state.insert(key, value).is_some(),
         };
-        Ok(res)
     }
 
     fn tick_energy(&mut self, _energy: Energy) -> Result<(), OutOfEnergyError> {
@@ -363,7 +361,3 @@ fn test_account_balance() {
     assert_eq!(balance, RawTokenAmount(0));
 }
 
-#[test]
-fn test_account_lookup_canonical_address() {
-    // TODO test lookup using alias.
-}

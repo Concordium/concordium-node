@@ -1,9 +1,7 @@
-use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, TokenAmountDelta, TokenConfiguration,
-    TokenNotFoundByIdError,
-};
+use crate::block_state_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations, BlockStateQuery, OverflowError, TokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError};
 use concordium_base::base::AccountIndex;
-use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue};
+use concordium_base::contracts_common::AccountAddress;
+use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
 pub struct BlockState {}
 
@@ -43,7 +41,7 @@ impl BlockStateQuery for BlockState {
     fn token_circulating_supply(
         &self,
         _token_index: &TokenIndex,
-    ) -> plt_token_module::token_kernel_interface::RawTokenAmount {
+    ) -> RawTokenAmount {
         todo!()
     }
 
@@ -63,13 +61,33 @@ impl BlockStateQuery for BlockState {
     ) {
         todo!()
     }
+
+    fn account_by_address(&self, _address: &AccountAddress) -> Result<Self::Account, AccountNotFoundByAddressError> {
+        todo!()
+    }
+
+    fn account_by_index(&self, _index: AccountIndex) -> Result<Self::Account, AccountNotFoundByIndexError> {
+        todo!()
+    }
+
+    fn account_index(&self, _account: &Self::Account) -> AccountIndex {
+        todo!()
+    }
+
+    fn account_canonical_address(&self, _account: &Self::Account) -> AccountAddress {
+        todo!()
+    }
+
+    fn account_token_balance(&self, _account: &Self::Account,  _token: &Self::Token) -> RawTokenAmount {
+        todo!()
+    }
 }
 
 impl BlockStateOperations for BlockState {
     fn set_token_circulating_supply(
         &mut self,
         _token_index: &TokenIndex,
-        _circulating_supply: plt_token_module::token_kernel_interface::RawTokenAmount,
+        _circulating_supply: RawTokenAmount,
     ) {
         todo!()
     }

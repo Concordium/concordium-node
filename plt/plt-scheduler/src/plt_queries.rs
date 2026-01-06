@@ -1,5 +1,5 @@
-use crate::TOKEN_MODULE_REF;
 use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
+use crate::{block_state_interface, TOKEN_MODULE_REF};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenAmount, TokenId, TokenModuleRef};
@@ -7,8 +7,8 @@ use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, ModuleStateKey, ModuleStateValue,
     RawTokenAmount, TokenKernelQueries,
 };
-use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
+use plt_token_module::token_module;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
@@ -101,32 +101,40 @@ struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
-    type Account = ();
+    type Account = BSQ::Account;
 
     fn account_by_address(
         &self,
-        _address: &AccountAddress,
+        address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        todo!()
+        self.block_state.account_by_address(address).map_err(
+            |block_state_interface::AccountNotFoundByAddressError(account_address)| {
+                AccountNotFoundByAddressError(account_address)
+            },
+        )
     }
 
     fn account_by_index(
         &self,
-        _index: AccountIndex,
+        index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        todo!()
+        self.block_state.account_by_index(index).map_err(
+            |block_state_interface::AccountNotFoundByIndexError(index)| {
+                AccountNotFoundByIndexError(index)
+            },
+        )
     }
 
-    fn account_index(&self, _account: &Self::Account) -> AccountIndex {
-        todo!()
+    fn account_index(&self, account: &Self::Account) -> AccountIndex {
+        self.block_state.account_index(account)
     }
 
-    fn account_canonical_address(&self, _account: &Self::Account) -> AccountAddress {
-        todo!()
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
+        self.block_state.account_canonical_address(account)
     }
 
-    fn account_token_balance(&self, _account: &Self::Account) -> RawTokenAmount {
-        todo!()
+    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
+        self.block_state.account_token_balance(account, self.token)
     }
 
     fn circulating_supply(&self) -> RawTokenAmount {

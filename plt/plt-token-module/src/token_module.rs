@@ -37,9 +37,8 @@ trait KernelOperationsExt: TokenKernelOperations {
         &mut self,
         key: impl IntoIterator<Item = &'a u8>,
         value: Option<ModuleStateValue>,
-    ) -> Result<(), LockedStateKeyError> {
-        self.set_token_module_state_value(module_state_key(key), value)?;
-        Ok(())
+    )  {
+        self.set_token_module_state_value(module_state_key(key), value);
     }
 }
 
@@ -79,8 +78,6 @@ pub enum TokenInitializationError {
     InvalidInitializationParameters(String),
     #[error("CBOR serialization error during token initialization: {0}")]
     CborSerialization(#[from] CborSerializationError),
-    #[error("{0}")]
-    LockedStateKey(#[from] LockedStateKeyError),
     #[error("The given governance account does not exist: {0}")]
     GovernanceAccountDoesNotExist(#[from] AccountNotFoundByAddressError),
     #[error("The initial mint amount has wrong number of decimals: {0}")]
@@ -196,20 +193,20 @@ pub fn initialize_token_impl(
             "Token governance account is missing".to_string(),
         )
     })?;
-    kernel.set_module_state(STATE_KEY_NAME, Some(name.into()))?;
+    kernel.set_module_state(STATE_KEY_NAME, Some(name.into()));
     let encoded_metadata = cbor::cbor_encode(&metadata);
-    kernel.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata))?;
+    kernel.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata));
     if init_params.allow_list == Some(true) {
-        kernel.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]))?;
+        kernel.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]));
     }
     if init_params.deny_list == Some(true) {
-        kernel.set_module_state(STATE_KEY_DENY_LIST, Some(vec![]))?;
+        kernel.set_module_state(STATE_KEY_DENY_LIST, Some(vec![]));
     }
     if init_params.mintable == Some(true) {
-        kernel.set_module_state(STATE_KEY_MINTABLE, Some(vec![]))?;
+        kernel.set_module_state(STATE_KEY_MINTABLE, Some(vec![]));
     }
     if init_params.burnable == Some(true) {
-        kernel.set_module_state(STATE_KEY_BURNABLE, Some(vec![]))?;
+        kernel.set_module_state(STATE_KEY_BURNABLE, Some(vec![]));
     }
 
     let governance_account = kernel.account_by_address(&governance_account.address)?;
@@ -217,7 +214,7 @@ pub fn initialize_token_impl(
     kernel.set_module_state(
         STATE_KEY_GOVERNANCE_ACCOUNT,
         Some(common::to_bytes(&governance_account_index.index)),
-    )?;
+    );
     if let Some(initial_supply) = init_params.initial_supply {
         let mint_amount = to_raw_token_amount(kernel, initial_supply)?;
         kernel.mint(&governance_account, mint_amount)?;

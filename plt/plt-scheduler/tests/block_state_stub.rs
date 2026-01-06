@@ -5,7 +5,8 @@ use concordium_base::protocol_level_tokens::{
 };
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler::block_state_interface::{
-    BlockStateQuery, TokenConfiguration, TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateQuery,
+    TokenConfiguration, TokenNotFoundByIdError,
 };
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 use std::collections::HashMap;
@@ -39,12 +40,21 @@ pub struct StubTokenModuleState {
 }
 
 /// Internal representation of an account in [`BlockStateStub`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub struct Account {
     /// The index of the account
-    pub index: AccountIndex,
+    index: AccountIndex,
     /// The canonical account address of the account.
-    pub address: AccountAddress,
+    address: AccountAddress,
+    /// Tokens the account is holding
+    tokens: HashMap<TokenStubIndex, AccountToken>,
+}
+
+/// Internal representation of a token in an account.
+#[derive(Debug)]
+struct AccountToken {
+    /// Account balance
+    balance: RawTokenAmount,
 }
 
 #[allow(unused)]
@@ -66,6 +76,7 @@ impl BlockStateStub {
         let account = Account {
             index: account_index,
             address,
+            tokens: Default::default(),
         };
         let stub_index = AccountStubIndex(index);
         self.accounts.push(account);
@@ -159,7 +170,7 @@ pub struct AccountStubIndex(usize);
 
 /// Block state stub token object.
 /// When testing it is the index into the list of accounts tracked by the `KernelStub`.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct TokenStubIndex(usize);
 
 impl BlockStateQuery for BlockStateStub {
@@ -218,5 +229,53 @@ impl BlockStateQuery for BlockStateStub {
         } else {
             token_module_state.state.remove(key);
         }
+    }
+
+    fn account_by_address(
+        &self,
+        address: &AccountAddress,
+    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
+        self.accounts
+            .iter()
+            .enumerate()
+            .find_map(|(i, account)| {
+                if account.address == *address {
+                    Some(AccountStubIndex(i))
+                } else {
+                    None
+                }
+            })
+            .ok_or(AccountNotFoundByAddressError(*address))
+    }
+
+    fn account_by_index(
+        &self,
+        index: AccountIndex,
+    ) -> Result<Self::Account, AccountNotFoundByIndexError> {
+        if self.accounts.get(index.index as usize).is_some() {
+            Ok(AccountStubIndex(index.index as usize))
+        } else {
+            Err(AccountNotFoundByIndexError(index))
+        }
+    }
+
+    fn account_index(&self, account: &Self::Account) -> AccountIndex {
+        self.accounts[account.0].index
+    }
+
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
+        self.accounts[account.0].address
+    }
+
+    fn account_token_balance(
+        &self,
+        account: &Self::Account,
+        token: &Self::Token,
+    ) -> RawTokenAmount {
+        self.accounts[account.0]
+            .tokens
+            .get(token)
+            .map(|token| token.balance)
+            .unwrap_or_default()
     }
 }

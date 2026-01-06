@@ -10,7 +10,7 @@ pub type ModuleStateKey = Vec<u8>;
 pub type ModuleStateValue = Vec<u8>;
 
 /// Event produced from the effect of a token transaction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TokenModuleEvent {
     /// The type of event produced.
     pub event_type: TokenModuleCborTypeDiscriminator,
@@ -31,11 +31,6 @@ pub struct InsufficientBalanceError {
     pub available: RawTokenAmount,
     pub required: RawTokenAmount,
 }
-
-/// Update to state key failed because the key was locked by an iterator.
-#[derive(Debug, thiserror::Error)]
-#[error("State key is locked")]
-pub struct LockedStateKeyError;
 
 /// Mint exceed the representable amount.
 #[derive(Debug, thiserror::Error)]
@@ -150,17 +145,11 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     ) -> Result<(), InsufficientBalanceError>;
 
     /// Set or clear a value in the token state at the corresponding key.
-    ///
-    /// Returns whether there was an existing entry.
-    ///
-    /// # Errors
-    ///
-    /// - [`LockedStateKeyError`] if the update failed because the key was locked by an iterator.
     fn set_token_module_state_value(
         &mut self,
         key: ModuleStateKey,
         value: Option<ModuleStateValue>,
-    ) -> Result<bool, LockedStateKeyError>;
+    );
 
     /// Reduce the available energy for the PLT module execution.
     ///

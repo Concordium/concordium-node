@@ -1,7 +1,7 @@
 //! This module provides a C ABI for this library.
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state_interface::{OutOfEnergyError, SchedulerOperations};
+use crate::block_state_interface::{OutOfEnergyError, TransactionExecution};
 use crate::plt_scheduler;
 use libc::size_t;
 
@@ -27,14 +27,14 @@ unsafe extern "C" fn ffi_execute_transaction(payload: *const u8, payload_len: si
     let mut scheduler_state = SchedulerState {};
     let mut block_state = crate::block_state::BlockState {};
     match plt_scheduler::execute_transaction(&mut scheduler_state, &mut block_state, payload) {
-        Ok(()) => 0,
+        Ok(_) => 0,
         Err(_) => 1,
     }
 }
 
 /// Trackes the energy remaining and some context during the execution.
 struct SchedulerState {}
-impl SchedulerOperations for SchedulerState {
+impl TransactionExecution for SchedulerState {
     fn sender_account(&self) -> concordium_base::base::AccountIndex {
         todo!()
     }

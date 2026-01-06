@@ -22,6 +22,16 @@ pub struct TokenConfiguration {
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
 
+/// Account with given address does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with address {0} does not exist")]
+pub struct AccountNotFoundByAddressError(pub AccountAddress);
+
+/// Account with given index does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with index {0} does not exist")]
+pub struct AccountNotFoundByIndexError(pub AccountIndex);
+
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
     /// Opaque type that represents the token module state.
@@ -98,6 +108,28 @@ pub trait BlockStateQuery {
         key: &ModuleStateKey,
         value: Option<ModuleStateValue>,
     );
+
+    /// Lookup the account using an account address.
+    fn account_by_address(
+        &self,
+        address: &AccountAddress,
+    ) -> Result<Self::Account, AccountNotFoundByAddressError>;
+
+    /// Lookup the account using an account index.
+    fn account_by_index(
+        &self,
+        index: AccountIndex,
+    ) -> Result<Self::Account, AccountNotFoundByIndexError>;
+
+    /// Get the account index for the account.
+    fn account_index(&self, account: &Self::Account) -> AccountIndex;
+
+    /// Get the canonical account address of the account, i.e. the address used as part of the
+    /// credential deployment and not an alias.
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress;
+
+    /// Get the token balance of the account.
+    fn account_token_balance(&self, account: &Self::Account, token: &Self::Token) -> RawTokenAmount;
 }
 
 /// Operations on the state of a block in the chain.
@@ -185,8 +217,8 @@ pub trait BlockStateOperations: BlockStateQuery {
     );
 }
 
-/// Operations on the scheduler state.
-pub trait SchedulerOperations {
+/// Operations and context related to transaction execution.
+pub trait TransactionExecution {
     /// The account initiating the transaction.
     fn sender_account(&self) -> AccountIndex;
 
