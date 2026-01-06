@@ -28,6 +28,7 @@ import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Word
 import Lens.Micro.Platform
+import System.IO.Temp
 import Test.HUnit
 
 import qualified Concordium.Crypto.SHA256 as Hash
@@ -61,7 +62,7 @@ import qualified Concordium.Scheduler.Types as Types
 import Concordium.TimeMonad
 import Concordium.Types (SProtocolVersion)
 
-getResults :: [(a, Types.TransactionSummary)] -> [(a, Types.ValidResult)]
+getResults :: [(a, Types.TransactionSummary tov)] -> [(a, Types.ValidResult)]
 getResults = map (\(x, r) -> (x, Types.tsResult r))
 
 -- | The cost for processing a simple transfer (account to account)
@@ -206,9 +207,10 @@ runTestBlockStateWithCacheSize :: Int -> PersistentBSM pv a -> IO a
 runTestBlockStateWithCacheSize cacheSize computation =
     runSilentLogger $
         Blob.runBlobStoreTemp "." $
-            BS.withNewAccountCacheAndLMDBAccountMap cacheSize "accountmap" $
-                BS.runPersistentBlockStateMonad $
-                    _runPersistentBSM computation
+            withTempDirectory "." "accountmap" $ \amPath ->
+                BS.withNewAccountCacheAndLMDBAccountMap cacheSize amPath $
+                    BS.runPersistentBlockStateMonad $
+                        _runPersistentBSM computation
 
 -- | Run test block state computation with a account cache size and module cache size of 100.
 --
@@ -247,9 +249,9 @@ defaultContextState =
         }
 
 -- | Result from running the scheduler in a test environment.
-data SchedulerResult = SchedulerResult
+data SchedulerResult (tov :: Types.TransactionOutcomesVersion) = SchedulerResult
     { -- | The outcome for constructing a block.
-      srTransactions :: FilteredTransactions,
+      srTransactions :: FilteredTransactions tov,
       -- | The total execution cost of the block.
       srExecutionCosts :: Types.Amount,
       -- | The total execution energy of the block.
@@ -264,7 +266,7 @@ runScheduler ::
     TestConfig ->
     BS.HashedPersistentBlockState pv ->
     Types.GroupedTransactions ->
-    PersistentBSM pv (SchedulerResult, BS.PersistentBlockState pv)
+    PersistentBSM pv (SchedulerResult (Types.TransactionOutcomesVersionFor pv), BS.PersistentBlockState pv)
 runScheduler TestConfig{..} stateBefore transactions = do
     blockStateBefore <- BS.thawBlockState stateBefore
     let txs = filterTransactions tcBlockSize (Time.timestampToUTCTime tcBlockTimeout) transactions
@@ -290,12 +292,12 @@ runSchedulerTest ::
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult (Types.TransactionOutcomesVersionFor pv) -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     Types.GroupedTransactions ->
-    IO (SchedulerResult, a)
+    IO (SchedulerResult (Types.TransactionOutcomesVersionFor pv), a)
 runSchedulerTest config constructState extractor transactions = runTestBlockState computation
   where
-    computation :: PersistentBSM pv (SchedulerResult, a)
+    computation :: PersistentBSM pv (SchedulerResult (Types.TransactionOutcomesVersionFor pv), a)
     computation = do
         blockStateBefore <- constructState
         (result, blockStateAfter) <- runScheduler config blockStateBefore transactions
@@ -311,9 +313,9 @@ runSchedulerTestTransactionJson ::
     (Types.IsProtocolVersion pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult (Types.TransactionOutcomesVersionFor pv) -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     [SchedTest.TransactionJSON] ->
-    IO (SchedulerResult, a)
+    IO (SchedulerResult (Types.TransactionOutcomesVersionFor pv), a)
 runSchedulerTestTransactionJson config constructState extractor transactionJsonList = do
     transactions <- SchedTest.processUngroupedTransactions transactionJsonList
     runSchedulerTest config constructState extractor transactions
@@ -321,7 +323,7 @@ runSchedulerTestTransactionJson config constructState extractor transactionJsonL
 -- | Check assertions on the result of running a transaction in the scheduler and the resulting
 -- block state.
 type TransactionAssertion pv =
-    SchedulerResult ->
+    SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
     BS.PersistentBlockState pv ->
     PersistentBSM pv Assertion
 
@@ -374,26 +376,26 @@ runSchedulerTestAssertIntermediateStates config constructState transactionsAndAs
         return (nextAssertedSoFar, nextState, nextCostsSoFar)
 
 -- | Intermediate results collected while running a number of transactions.
-type IntermediateResults a = [(SchedulerResult, a)]
+type IntermediateResults (tov :: Types.TransactionOutcomesVersion) a = [(SchedulerResult tov, a)]
 
 -- | Run the scheduler on transactions in a test environment, while collecting all of the
 --  intermediate results and extracted values.
 runSchedulerTestWithIntermediateStates ::
-    forall pv a.
-    (Types.IsProtocolVersion pv) =>
+    forall tov pv a.
+    (Types.IsProtocolVersion pv, tov ~ Types.TransactionOutcomesVersionFor pv) =>
     TestConfig ->
     PersistentBSM pv (BS.HashedPersistentBlockState pv) ->
-    (SchedulerResult -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
+    (SchedulerResult tov -> BS.PersistentBlockState pv -> PersistentBSM pv a) ->
     Types.GroupedTransactions ->
-    PersistentBSM pv (IntermediateResults a, BS.HashedPersistentBlockState pv)
+    PersistentBSM pv (IntermediateResults tov a, BS.HashedPersistentBlockState pv)
 runSchedulerTestWithIntermediateStates config constructState extractor transactions = do
     blockStateBefore <- constructState
     foldM transactionRunner ([], blockStateBefore) transactions
   where
     transactionRunner ::
-        (IntermediateResults a, BS.HashedPersistentBlockState pv) ->
+        (IntermediateResults tov a, BS.HashedPersistentBlockState pv) ->
         Types.TransactionGroup ->
-        PersistentBSM pv (IntermediateResults a, BS.HashedPersistentBlockState pv)
+        PersistentBSM pv (IntermediateResults tov a, BS.HashedPersistentBlockState pv)
     transactionRunner (acc, currentState) tx = do
         (result, updatedState) <- runScheduler config currentState [tx]
         extracted <- extractor result updatedState
@@ -752,11 +754,11 @@ readV1ModuleFile filePath = do
     return $ Wasm.WasmModuleV1 $ Wasm.WasmModuleV Wasm.ModuleSource{..}
 
 -- | Assert the scheduler result have added one successful transaction.
-assertSuccess :: SchedulerResult -> Assertion
+assertSuccess :: SchedulerResult tov -> Assertion
 assertSuccess = assertSuccessWhere (const (return ()))
 
 -- | Assert the scheduler result have added one successful transaction and check the events.
-assertSuccessWhere :: ([Types.Event] -> Assertion) -> SchedulerResult -> Assertion
+assertSuccessWhere :: ([Types.Event] -> Assertion) -> SchedulerResult tov -> Assertion
 assertSuccessWhere assertEvents result =
     case getResults $ ftAdded (srTransactions result) of
         [(_, Types.TxSuccess events)] ->
@@ -767,7 +769,7 @@ assertSuccessWhere assertEvents result =
 
 -- | Assert the scheduler result have added one successful transaction and check the events are
 -- equal to the provided events.
-assertSuccessWithEvents :: [Types.Event] -> SchedulerResult -> Assertion
+assertSuccessWithEvents :: [Types.Event] -> SchedulerResult tov -> Assertion
 assertSuccessWithEvents expectedEvents =
     assertSuccessWhere (assertEqual "The correct event is produced" expectedEvents)
 
@@ -777,7 +779,7 @@ assertNumberOfEvents expectedLength events =
     assertEqual "Correct number of events produced" expectedLength (length events)
 
 -- | Assert the scheduler result have added one rejected transaction and check the reason.
-assertRejectWhere :: (Types.RejectReason -> Assertion) -> SchedulerResult -> Assertion
+assertRejectWhere :: (Types.RejectReason -> Assertion) -> SchedulerResult tov -> Assertion
 assertRejectWhere assertReason result =
     case getResults $ ftAdded (srTransactions result) of
         [(_, Types.TxReject reason)] ->
@@ -787,13 +789,13 @@ assertRejectWhere assertReason result =
         other -> assertFailure $ "Multiple transactions were added " ++ show other
 
 -- | Assert the scheduler result have added one rejected transaction and check the reason.
-assertRejectWithReason :: Types.RejectReason -> SchedulerResult -> Assertion
+assertRejectWithReason :: Types.RejectReason -> SchedulerResult tov -> Assertion
 assertRejectWithReason expectedReason =
     assertRejectWhere $
         assertEqual "The correct reject reason is produced" expectedReason
 
 -- | Assert the scheduler result have failed one transaction and check the reason.
-assertFailureWithReason :: Types.FailureKind -> SchedulerResult -> Assertion
+assertFailureWithReason :: Types.FailureKind -> SchedulerResult tov -> Assertion
 assertFailureWithReason expectedReason result =
     case ftFailed $ srTransactions result of
         [(_, reason)] ->
@@ -805,7 +807,7 @@ assertFailureWithReason expectedReason result =
         other -> assertFailure $ "Multiple transactions failed: " ++ show other
 
 -- | Assert the scheduler result has failed one chain update and check the reason.
-assertUpdateFailureWithReason :: Types.FailureKind -> SchedulerResult -> Assertion
+assertUpdateFailureWithReason :: Types.FailureKind -> SchedulerResult tov -> Assertion
 assertUpdateFailureWithReason expectedReason result =
     case ftFailedUpdates $ srTransactions result of
         [(_, reason)] ->
@@ -819,7 +821,7 @@ assertUpdateFailureWithReason expectedReason result =
 -- | Assert the scheduler have used energy the exact energy needed to deploy a provided V0 smart
 --  contract module. Assuming the transaction was signed with a single signature.
 --  The provided module should be a WASM module and without the smart contract version prefix.
-assertUsedEnergyDeploymentV0 :: FilePath -> SchedulerResult -> Assertion
+assertUsedEnergyDeploymentV0 :: FilePath -> SchedulerResult tov -> Assertion
 assertUsedEnergyDeploymentV0 sourceFile result = do
     contractModule <- readV0ModuleFile sourceFile
     let len = fromIntegral $ ByteString.length $ Wasm.wasmSource contractModule
@@ -839,7 +841,7 @@ assertUsedEnergyDeploymentV0 sourceFile result = do
 -- | Assert the scheduler have used energy the exact energy needed to deploy a provided V1 smart
 --  contract module. Assuming the transaction was signed with a single signature.
 --  The provided module should be a WASM module and without the smart contract version prefix.
-assertUsedEnergyDeploymentV1 :: FilePath -> SchedulerResult -> Assertion
+assertUsedEnergyDeploymentV1 :: FilePath -> SchedulerResult tov -> Assertion
 assertUsedEnergyDeploymentV1 sourceFile result = do
     contractModule <- readV0ModuleFile sourceFile
     let len = fromIntegral $ ByteString.length $ Wasm.wasmSource contractModule
@@ -866,7 +868,7 @@ assertUsedEnergyInitialization ::
     Wasm.InitName ->
     Wasm.Parameter ->
     Maybe Wasm.ByteSize ->
-    SchedulerResult ->
+    SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
     Assertion
 assertUsedEnergyInitialization spv sourceFile initName parameter initialStateSize result = do
     moduleSource <- ByteString.readFile sourceFile

@@ -300,7 +300,7 @@ testDelegatorToBakerOk spv pvString =
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 438 1
     checkState ::
         BakerKeysWithProofs ->
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState keysWithProofs result blockState = do
@@ -404,7 +404,7 @@ testDelegatorToBakerDuplicateKey spv pvString =
     -- Transaction length is 438 bytes (378 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 438 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -465,7 +465,7 @@ testDelegatorToBakerMissingParam spv pvString =
     -- Transaction length is 437 bytes (378 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 437 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -566,7 +566,7 @@ testAddBakerOk spv pvString =
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 439 1
     checkState ::
         BakerKeysWithProofs ->
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState keysWithProofs result blockState = do
@@ -660,7 +660,7 @@ testAddBakerInsufficientBalance _spv pvString =
     -- Transaction length is 438 bytes (379 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 439 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -719,7 +719,7 @@ testAddBakerMissingParam _spv pvString =
     -- Transaction length is 437 bytes (377 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 437 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -778,7 +778,7 @@ testAddBakerInvalidProofs _spv pvString =
     -- Transaction length is 438 bytes (379 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 439 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -862,7 +862,7 @@ testUpdateBakerOk _spv pvString =
     -- Transaction length is 79 bytes (19 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 79 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -932,7 +932,7 @@ testUpdateBakerInsufficientBalance _spv pvString =
     -- Transaction length is 79 bytes (19 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 79 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -989,7 +989,7 @@ testUpdateBakerLowStake _spv pvString =
     -- Transaction length is 79 bytes (19 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 79 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -1047,7 +1047,7 @@ testUpdateBakerInvalidProofs _spv pvString =
     -- Transaction length is 415 bytes (355 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 415 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -1108,7 +1108,7 @@ testUpdateBakerRemoveOk spv pvString =
     -- Transaction length is 71 bytes (11 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 71 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -1200,7 +1200,7 @@ testUpdateBakerReduceStakeOk spv pvString =
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 431 1
     checkState ::
         BakerKeysWithProofs ->
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState keysWithProofs result blockState = do
@@ -1281,7 +1281,7 @@ testUpdateBakerSuspendResumeOk spv pvString suspendOrResume accM =
     -- Transaction length is 64 bytes (4 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 64 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do

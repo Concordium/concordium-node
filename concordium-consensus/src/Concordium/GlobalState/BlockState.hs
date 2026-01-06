@@ -441,7 +441,9 @@ class (Monad m, BlockStateTypes m) => ModuleQuery m where
 -- | We create a wrapper here so we can
 --  derive another 'HashableTo' instance which omits
 --  the exact 'RejectReason' in the resulting hash.
-newtype TransactionSummaryV1 = TransactionSummaryV1 {_transactionSummaryV1 :: TransactionSummary' ValidResult}
+newtype TransactionSummaryV1 (tov :: TransactionOutcomesVersion) = TransactionSummaryV1
+    { _transactionSummaryV1 :: TransactionSummary' tov ValidResult
+    }
     deriving (Eq, Show)
 
 -- | A 'HashableTo' instance for a 'TransactionSummary'' which omits the exact
@@ -452,12 +454,13 @@ newtype TransactionSummaryV1 = TransactionSummaryV1 {_transactionSummaryV1 :: Tr
 --  bytestring. The downside is more foreign calls to the hashing function, so
 --  there might be opportunities for small-scale optimizations here, but this
 --  needs careful benchmarks.
-instance HashableTo H.Hash TransactionSummaryV1 where
+instance HashableTo H.Hash (TransactionSummaryV1 tov) where
     getHash (TransactionSummaryV1 summary) =
         H.hashLazy $!
             S.runPutLazy $!
                 S.putShortByteString "TransactionOutcomeHashV1"
                     <> encodeSender (tsSender summary)
+                    <> mapM_ (putMaybe S.put) (tsSponsorDetails summary)
                     <> S.put (tsHash summary)
                     <> S.put (tsCost summary)
                     <> S.put (tsEnergyCost summary)
@@ -485,14 +488,14 @@ instance HashableTo H.Hash TransactionSummaryV1 where
             S.putWord8 1
             S.put sender
 
-instance (MonadBlobStore m, MonadProtocolVersion m) => BlobStorable m TransactionSummaryV1 where
+instance (MonadBlobStore m, MonadProtocolVersion m, tov ~ TransactionOutcomesVersionFor (MPV m)) => BlobStorable m (TransactionSummaryV1 tov) where
     storeUpdate s@(TransactionSummaryV1 ts) = return (putTransactionSummary ts, s)
     load = do
         s <- getTransactionSummary (protocolVersion @(MPV m))
         return . return $! TransactionSummaryV1 s
 
 -- Generic instance based on the HashableTo instance
-instance (Monad m) => MHashableTo m H.Hash TransactionSummaryV1
+instance (Monad m) => MHashableTo m H.Hash (TransactionSummaryV1 tov)
 
 -- | Operations on mutable token state.
 --  Note that 'updateTokenState' can only fail if a key is locked by an iterator.
@@ -655,7 +658,7 @@ class
     getRewardStatus :: BlockState m -> m (RewardStatus' Epoch)
 
     -- | Get the outcome of a transaction in the given block.
-    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
+    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 
     -- | Get the transactionOutcomesHash of a given block.
     getTransactionOutcomesHash :: BlockState m -> m TransactionOutcomesHash
@@ -664,7 +667,7 @@ class
     getStateHash :: BlockState m -> m StateHash
 
     -- | Get all transaction outcomes for this block.
-    getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
+    getOutcomes :: BlockState m -> m (Vec.Vector (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 
     -- | Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     --  They should be returned in the order that they were emitted.
@@ -1518,7 +1521,7 @@ class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m)
     bsoSetPaydayMintRate :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> MintRate -> m (UpdatableBlockState m)
 
     -- | Set the transaction outcomes for the block.
-    bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
+    bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary (TransactionOutcomesVersionFor (MPV m))] -> m (UpdatableBlockState m)
 
     -- | Add a special transaction outcome.
     bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
