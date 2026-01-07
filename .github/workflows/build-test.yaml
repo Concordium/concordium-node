@@ -34,7 +34,7 @@ on:
     - 'concordium-consensus/smart-contracts'
     - 'concordium-consensus/haskell-lmdb'
     - 'concordium-node/rustfmt.toml'
-    - 'plt'
+    # - 'plt' disable for now, until the PLT scheduler is actually embedded in the node
 
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -49,7 +49,7 @@ on:
     - 'concordium-consensus/smart-contracts'
     - 'concordium-consensus/haskell-lmdb'
     - 'concordium-node/rustfmt.toml'
-    - 'plt'
+    # - 'plt' disable for now, until the PLT scheduler is actually embedded in the node
   workflow_dispatch: # allow manual trigger
 
 env:
