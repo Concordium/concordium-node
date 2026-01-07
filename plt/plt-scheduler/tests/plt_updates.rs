@@ -12,6 +12,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Payload;
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler;
+use plt_scheduler::scheduler::TransactionEvent;
 use plt_token_module::token_kernel_interface::RawTokenAmount;
 
 mod block_state_stub;
@@ -40,7 +41,7 @@ fn test_plt_transfer() {
         scheduler::execute_transaction(account1, &mut stub, Payload::TokenUpdate { payload })
             .expect("transfer internal error")
             .expect("transfer");
-    // todo ar events
+
     assert_eq!(
         stub.account_token_balance(&account1, &token),
         RawTokenAmount(4000)
@@ -49,6 +50,14 @@ fn test_plt_transfer() {
         stub.account_token_balance(&account2, &token),
         RawTokenAmount(1000)
     );
+
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], TransactionEvent::TokenTransfer(transfer) => {
+        assert_eq!(transfer.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(transfer.from, stub.account_canonical_address(&account1));
+        assert_eq!(transfer.to, stub.account_canonical_address(&account2));
+        assert_eq!(transfer.memo, None);
+    });
 }
 
 /// Test protocol-level token transfer that is rejected.

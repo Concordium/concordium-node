@@ -2,8 +2,8 @@
 //! of transactions related to protocol-level tokens.
 
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, UnderOrOverflowError, RawTokenAmountDelta,
-    TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenNotFoundByIdError,
+    UnderOrOverflowError,
 };
 use crate::scheduler::{TransactionEvent, TransactionRejectReason};
 use crate::scheduler_interface::TransactionExecution;
@@ -93,9 +93,9 @@ pub fn execute_plt_transaction<
             }
             Ok(events)
         }
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => Err(
-            TransactionRejectReason::TokenModule(reject_reason),
-        ),
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
+            Err(TransactionRejectReason::TokenModule(reject_reason))
+        }
         Err(TokenUpdateError::OutOfEnergy(_)) => Err(TransactionRejectReason::OutOfEnergy),
         Err(TokenUpdateError::StateInvariantViolation(err)) => {
             todo!("Handle state invariant error: {}", err)
@@ -212,7 +212,17 @@ impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
                 )
             })?;
 
-        // todo ar transfer event
+        self.events
+            .push(TransactionEvent::TokenTransfer(TokenTransferEvent {
+                from: self.account_canonical_address(from),
+                to: self.account_canonical_address(to),
+                amount: TokenAmount::from_raw(
+                    amount.0,
+                    self.block_state.token_configuration(self.token).decimals,
+                ),
+                memo,
+            }));
+
         Ok(())
     }
 
