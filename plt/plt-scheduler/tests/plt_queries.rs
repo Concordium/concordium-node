@@ -1,9 +1,10 @@
 //! Test of protocol-level token queries
 
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
-use concordium_base::protocol_level_tokens::TokenAmount;
+use concordium_base::common::cbor;
+use concordium_base::protocol_level_tokens::{TokenAmount, TokenModuleState};
 use plt_scheduler::block_state_interface::BlockStateQuery;
-use plt_scheduler::plt_queries;
+use plt_scheduler::{TOKEN_MODULE_REF, plt_queries};
 
 mod block_state_stub;
 mod utils;
@@ -33,4 +34,7 @@ fn test_query_token_state() {
     let token_state = plt_queries::token_state(&stub, &token_id).unwrap();
     assert_eq!(token_state.decimals, 4);
     assert_eq!(token_state.total_supply, TokenAmount::from_raw(0, 4));
+    assert_eq!(token_state.token_module_ref, TOKEN_MODULE_REF);
+    let _token_module_state: TokenModuleState =
+        cbor::cbor_decode(&token_state.module_state).unwrap();
 }
