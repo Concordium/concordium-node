@@ -175,18 +175,53 @@ impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
 
     fn mint(
         &mut self,
-        _account: &Self::Account,
-        _amount: RawTokenAmount,
+        account: &Self::Account,
+        amount: RawTokenAmount,
     ) -> Result<(), AmountNotRepresentableError> {
-        todo!()
+        // todo cover by automatic tests as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn
+        self.block_state
+            .update_token_account_balance(self.token, account, RawTokenAmountDelta::Add(amount))
+            .map_err(|_err: UnderOrOverflowError| AmountNotRepresentableError)?;
+
+        self.events
+            .push(TransactionEvent::TokenMint(TokenSupplyUpdateEvent {
+                target: self.account_canonical_address(account),
+                amount: TokenAmount::from_raw(
+                    amount.0,
+                    self.block_state.token_configuration(self.token).decimals,
+                ),
+            }));
+
+        Ok(())
     }
 
     fn burn(
         &mut self,
-        _account: &Self::Account,
-        _amount: RawTokenAmount,
+        account: &Self::Account,
+        amount: RawTokenAmount,
     ) -> Result<(), InsufficientBalanceError> {
-        todo!()
+        // todo cover by automatic tests as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn
+        self.block_state
+            .update_token_account_balance(
+                self.token,
+                account,
+                RawTokenAmountDelta::Subtract(amount),
+            )
+            .map_err(|_err: UnderOrOverflowError| InsufficientBalanceError {
+                available: self.account_token_balance(account),
+                required: amount,
+            })?;
+
+        self.events
+            .push(TransactionEvent::TokenBurn(TokenSupplyUpdateEvent {
+                target: self.account_canonical_address(account),
+                amount: TokenAmount::from_raw(
+                    amount.0,
+                    self.block_state.token_configuration(self.token).decimals,
+                ),
+            }));
+
+        Ok(())
     }
 
     fn transfer(
