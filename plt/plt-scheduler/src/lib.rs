@@ -5,7 +5,7 @@ pub mod block_state_interface;
 #[cfg(feature = "ffi")]
 mod ffi;
 pub mod plt_queries;
-mod plt_scheduler;
+pub mod plt_scheduler;
 pub mod scheduler;
 pub mod scheduler_interface;
 

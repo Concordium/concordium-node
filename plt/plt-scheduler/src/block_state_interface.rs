@@ -3,8 +3,16 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
-// Placeholder types to be defined or replaced with types from other crates.
-pub type TokenAmountDelta = ();
+/// Change in [`RawTokenAmount`].
+///
+/// Represented as either add and subtract instead of a signed value, in order
+/// to be able to represent the full range of possible deltas.
+pub enum RawTokenAmountDelta {
+    /// Add the token amount
+    Add(RawTokenAmount),
+    /// Subtract the token amount
+    Subtract(RawTokenAmount),
+}
 
 /// Static configuration for a protocol-level token.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -182,7 +190,7 @@ pub trait BlockStateOperations: BlockStateQuery {
         &mut self,
         token: &Self::Token,
         account: &Self::Account,
-        amount_delta: TokenAmountDelta,
+        amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError>;
 
     /// Touch the token account. This initializes a token account state with a

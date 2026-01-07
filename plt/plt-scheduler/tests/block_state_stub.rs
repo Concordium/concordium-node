@@ -1,14 +1,19 @@
 use concordium_base::base::AccountIndex;
+use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, TokenId, TokenModuleInitializationParameters,
 };
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateQuery,
-    TokenConfiguration, TokenNotFoundByIdError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
+    TokenNotFoundByIdError,
 };
+use plt_scheduler::plt_scheduler::TokenKernelExecutionImpl;
+use plt_scheduler::scheduler::TransactionExecutionImpl;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
+use plt_token_module::token_module;
 use std::collections::HashMap;
 
 /// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
@@ -51,7 +56,7 @@ pub struct Account {
 }
 
 /// Internal representation of a token in an account.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct AccountToken {
     /// Account balance
     balance: RawTokenAmount,
@@ -98,6 +103,7 @@ impl BlockStateStub {
             },
             circulating_supply: Default::default(),
         };
+        let mut token_module_state = token.module_state.clone();
         self.tokens.push(token);
 
         // Initialize the token in the token module
@@ -115,10 +121,22 @@ impl BlockStateStub {
             burnable: params.burnable,
             additional: Default::default(),
         };
+        let encoded_parameters = cbor::cbor_encode(&parameters).into();
 
-        // todo initialize token in module and enable the test test_query_token_state
-        // let encoded_parameters = cbor::cbor_encode(&parameters).into();
-        // token_module::initialize_token(self, encoded_parameters).expect("initialize token");
+        let mut execution = TransactionExecutionImpl {
+            sender_account: gov_account,
+        };
+
+        let mut kernel = TokenKernelExecutionImpl {
+            block_state: self,
+            transaction_execution: &mut execution,
+            token: &stub_index,
+            token_module_state: &mut token_module_state,
+            token_module_state_dirty: false,
+            events: Default::default(),
+        };
+
+        token_module::initialize_token(&mut kernel, encoded_parameters).expect("initialize token");
 
         stub_index
     }
@@ -277,5 +295,57 @@ impl BlockStateQuery for BlockStateStub {
             .get(token)
             .map(|token| token.balance)
             .unwrap_or_default()
+    }
+}
+
+impl BlockStateOperations for BlockStateStub {
+    fn set_token_circulating_supply(
+        &mut self,
+        token: &Self::Token,
+        circulating_supply: RawTokenAmount,
+    ) {
+        self.tokens[token.0].circulating_supply = circulating_supply;
+    }
+
+    fn create_token(&mut self, _configuration: TokenConfiguration) -> Self::Token {
+        todo!()
+    }
+
+    fn update_token_account_balance(
+        &mut self,
+        token: &Self::Token,
+        account: &Self::Account,
+        amount_delta: RawTokenAmountDelta,
+    ) -> Result<(), OverflowError> {
+        let balance = &mut self.accounts[account.0]
+            .tokens
+            .entry(*token)
+            .or_default()
+            .balance;
+        match amount_delta {
+            RawTokenAmountDelta::Add(add) => {
+                balance.0 = balance.0.checked_add(add.0).ok_or(OverflowError)?;
+            }
+            RawTokenAmountDelta::Subtract(subtract) => {
+                balance.0 = balance.0.checked_sub(subtract.0).ok_or(OverflowError)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
+        self.accounts[account.0].tokens.entry(*token).or_default();
+    }
+
+    fn increment_plt_update_sequence_number(&mut self) {
+        todo!()
+    }
+
+    fn set_token_module_state(
+        &mut self,
+        token: &Self::Token,
+        mutable_token_module_state: Self::MutableTokenModuleState,
+    ) {
+        self.tokens[token.0].module_state = mutable_token_module_state;
     }
 }

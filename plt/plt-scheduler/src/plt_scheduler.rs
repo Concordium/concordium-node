@@ -16,6 +16,7 @@ use plt_token_module::token_kernel_interface::{
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::{TokenUpdateError, TransactionContext};
+use std::mem;
 
 /// An event emitted when a transfer of tokens from `from` to `to` is performed.
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -70,6 +71,7 @@ pub fn execute_plt_transaction<
         transaction_execution,
         token: &token,
         token_module_state: &mut token_module_state,
+        token_module_state_dirty: false,
         events: Default::default(),
     };
 
@@ -78,7 +80,15 @@ pub fn execute_plt_transaction<
         transaction_context,
         payload.operations,
     ) {
-        Ok(()) => Ok(kernel.events),
+        Ok(()) => {
+            let events = mem::take(&mut kernel.events);
+            let token_module_state_dirty = kernel.token_module_state_dirty;
+            drop(kernel);
+            if token_module_state_dirty {
+                block_state.set_token_module_state(&token, token_module_state);
+            }
+            Ok(events)
+        }
         Err(TokenUpdateError::TokenModuleReject(reject_reason)) => Err(
             TransactionRejectReason::TokenUpdateTransactionFailed(reject_reason),
         ),
@@ -86,12 +96,14 @@ pub fn execute_plt_transaction<
     }
 }
 
-struct TokenKernelExecutionImpl<'a, BSQ: BlockStateQuery, TE: TransactionExecution> {
-    block_state: &'a mut BSQ,
-    transaction_execution: &'a mut TE,
-    token: &'a BSQ::Token,
-    token_module_state: &'a mut BSQ::MutableTokenModuleState,
-    events: Vec<TransactionEvent>,
+// todo remove pub as part of https://linear.app/concordium/issue/PSR-34/token-initialization when this type is no longer needed as part of tests
+pub struct TokenKernelExecutionImpl<'a, BSQ: BlockStateQuery, TE: TransactionExecution> {
+    pub block_state: &'a mut BSQ,
+    pub transaction_execution: &'a mut TE,
+    pub token: &'a BSQ::Token,
+    pub token_module_state: &'a mut BSQ::MutableTokenModuleState,
+    pub events: Vec<TransactionEvent>,
+    pub token_module_state_dirty: bool,
 }
 
 impl<BSQ: BlockStateQuery, TE: TransactionExecution> TokenKernelQueries
@@ -185,6 +197,7 @@ impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
         key: ModuleStateKey,
         value: Option<ModuleStateValue>,
     ) {
+        self.token_module_state_dirty = true;
         self.block_state
             .update_token_module_state_value(self.token_module_state, &key, value);
     }

@@ -38,11 +38,12 @@ pub enum TransactionEvent {
 }
 
 /// Tracks the energy remaining and some context during the execution.
-struct TransactionExecutionImpl<Account> {
+// todo remove pub as part of https://linear.app/concordium/issue/PSR-34/token-initialization when this type is no longer needed as part of tests
+pub struct TransactionExecutionImpl<Account> {
     // /// The remaining energy tracked spent during the execution.
     // remaining_energy: Energy,
     /// The account which signed as the sender of the transaction.
-    sender_account: Account,
+    pub sender_account: Account,
 }
 
 impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> {
@@ -63,8 +64,6 @@ impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> 
 pub enum TransactionExecutionError {
     #[error("Unexpected transaction payload that cannot be handled")]
     UnexpectedPayload,
-    #[error("Could not decode payload")]
-    DecodePayload,
 }
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
@@ -80,6 +79,8 @@ where
     BSO::Account: Clone,
 {
     let mut execution = TransactionExecutionImpl { sender_account };
+
+    // handle energy as part of https://linear.app/concordium/issue/PSR-37/energy-charge
 
     match payload {
         Payload::TokenUpdate { payload } => Ok(execute_plt_transaction(

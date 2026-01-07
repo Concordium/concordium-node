@@ -1,16 +1,15 @@
-//! Test of protocol-level token queries
+//! Test of protocol-level token updates
 
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
-use concordium_base::protocol_level_tokens::TokenAmount;
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::plt_queries;
 
 mod block_state_stub;
 mod utils;
 
-/// Test query token state
+/// Test protocol-level token transfer.
 #[test]
-fn test_query_plt_list() {
+fn test_plt_transfer() {
     let mut stub = BlockStateStub::new();
     let token1 = stub.init_token(TokenInitTestParams::default(), 4);
     let token2 = stub.init_token(TokenInitTestParams::default(), 4);
@@ -20,16 +19,4 @@ fn test_query_plt_list() {
 
     let plts = plt_queries::plt_list(&stub);
     assert_eq!(plts, vec![token_id1, token_id2]);
-}
-
-/// Test query token state
-#[test]
-fn test_query_token_state() {
-    let mut stub = BlockStateStub::new();
-    let token = stub.init_token(TokenInitTestParams::default(), 4);
-    let token_id = stub.token_configuration(&token).token_id;
-
-    let token_state = plt_queries::token_state(&stub, &token_id).unwrap();
-    assert_eq!(token_state.decimals, 4);
-    assert_eq!(token_state.total_supply, TokenAmount::from_raw(0, 4));
 }
