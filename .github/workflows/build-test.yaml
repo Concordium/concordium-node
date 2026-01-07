@@ -157,9 +157,10 @@ jobs:
         components: clippy, llvm-tools
         target: x86_64-pc-windows-gnu
     # Install tool for code coverage reporting.
+    # Version cargo-llvm-cov 0.6.22 requries Rust 1.87, so we use 0.6.21 for now
     - name: Install cargo-llvm-cov
       run: |
-        cargo install cargo-llvm-cov --locked
+        cargo install cargo-llvm-cov --version 0.6.21 --locked
     - name: Cache cargo dependencies and targets
       uses: actions/cache@v4
       with:
@@ -215,9 +216,14 @@ jobs:
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ env.GHC_VERSION }}
 
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
-    - name: Build consensus and run tests
+    - name: Build consensus and run tests (with code coverage)
       run: |
-        stack build concordium-consensus --test --bench --force-dirty --no-run-benchmarks --ghc-options "-Werror" --ghc-options -j
+        stack build concordium-consensus --test --bench --force-dirty --no-run-benchmarks --ghc-options "-Werror" --ghc-options -j --coverage
+
+    - name: Generate Haskell codecov report
+      run: |
+        stack install hpc-codecov
+        hpc-codecov stack:all -o codecov-haskell.json
 
     # RUST #
 
@@ -272,3 +278,4 @@ jobs:
         fail_ci_if_error: false
         token: ${{ secrets.CODECOV_TOKEN }}
         verbose: true
+        files: lcov.info,codecov-haskell.json

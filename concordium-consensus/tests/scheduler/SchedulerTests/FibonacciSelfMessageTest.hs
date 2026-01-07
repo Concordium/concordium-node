@@ -111,7 +111,7 @@ testCase1 _ pvString =
             }
         ]
     ensureAllUpdates ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     ensureAllUpdates Helpers.SchedulerResult{..} bs = do

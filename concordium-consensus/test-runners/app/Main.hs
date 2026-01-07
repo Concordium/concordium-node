@@ -86,7 +86,7 @@ protocolUpdateTransactions :: Timestamp -> [BlockItem]
 protocolUpdateTransactions (Timestamp ts) = [ui]
   where
     ui =
-        addMetadata id 0 $
+        addMetadata 0 $
             ChainUpdate $
                 makeUpdateInstruction
                     RawUpdateInstruction
