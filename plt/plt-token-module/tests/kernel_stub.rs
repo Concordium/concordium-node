@@ -10,7 +10,8 @@ use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
+    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
+    TransferError,
 };
 use plt_token_module::token_module;
 
@@ -265,25 +266,23 @@ impl TokenKernelOperations for KernelStub {
         to: &Self::Account,
         amount: RawTokenAmount,
         memo: Option<Memo>,
-    ) -> Result<(), InsufficientBalanceError> {
-        if self.account_token_balance(from).0 < amount.0 {
-            return Err(InsufficientBalanceError {
-                available: self.account_token_balance(from),
+    ) -> Result<(), TransferError> {
+        let mut from_balance = self.accounts[from.0].balance.get_or_insert_default();
+        from_balance.0 = from_balance
+            .0
+            .checked_sub(amount.0)
+            .ok_or_else(|| InsufficientBalanceError {
+                available: *from_balance,
                 required: amount,
-            });
-        }
+            })?;
+        let mut to_balance = self.accounts[to.0].balance.get_or_insert_default();
+        to_balance.0 = to_balance
+            .0
+            .checked_add(amount.0)
+            .ok_or_else(|| TokenStateInvariantError("Overflow".to_string()))?;
 
         self.transfers.push_back((*from, *to, amount, memo));
 
-        if from.0 == to.0 {
-            return Ok(());
-        }
-
-        let [from, to] = self.accounts.get_disjoint_mut([from.0, to.0]).unwrap();
-        let from_balance = from.balance.get_or_insert_default();
-        let to_balance = to.balance.get_or_insert_default();
-        *from_balance = RawTokenAmount(from_balance.0 - amount.0);
-        *to_balance = RawTokenAmount(to_balance.0 + amount.0);
         Ok(())
     }
 

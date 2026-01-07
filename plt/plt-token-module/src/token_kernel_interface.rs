@@ -52,6 +52,21 @@ pub struct AccountNotFoundByAddressError(pub AccountAddress);
 #[error("Account with index {0} does not exist")]
 pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
+/// An invariant in the token state that should be enforced
+/// is broken. This is generally an error that should never happen and is unrecoverable.
+#[derive(Debug, thiserror::Error)]
+#[error("Token module state invariant broken: {0}")]
+pub struct TokenStateInvariantError(pub String);
+
+/// Represents the reasons why a query to the token module can fail.
+#[derive(Debug, thiserror::Error)]
+pub enum TransferError {
+    #[error("{0}")]
+    StateInvariantViolation(#[from] TokenStateInvariantError),
+    #[error("Insufficient balance for transfer: {0}")]
+    InsufficientBalance(#[from] InsufficientBalanceError),
+}
+
 /// Queries provided by the token kernel.
 pub trait TokenKernelQueries {
     /// Opaque type that identifies an account on chain.
@@ -134,13 +149,14 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// # Errors
     ///
     /// - [`InsufficientBalanceError`] The sender has insufficient balance.
+    /// - [`TokenStateInvariantError`] If an internal token state invariant is broken.
     fn transfer(
         &mut self,
         from: &Self::Account,
         to: &Self::Account,
         amount: RawTokenAmount,
         memo: Option<Memo>,
-    ) -> Result<(), InsufficientBalanceError>;
+    ) -> Result<(), TransferError>;
 
     /// Set or clear a value in the token state at the corresponding key.
     fn set_token_module_state_value(

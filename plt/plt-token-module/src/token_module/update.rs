@@ -1,6 +1,6 @@
 use crate::token_kernel_interface::{
     AccountNotFoundByAddressError, InsufficientBalanceError, OutOfEnergyError,
-    TokenKernelOperations,
+    TokenKernelOperations, TokenStateInvariantError, TransferError,
 };
 use crate::token_module;
 use crate::token_module::{TokenAmountDecimalsMismatchError, TransactionContext};
@@ -19,6 +19,17 @@ pub enum TokenUpdateErrorInternal {
     InsufficientBalance(#[from] InsufficientBalanceError),
     #[error("Execution out of energy")]
     OutOfEnergy(#[from] OutOfEnergyError),
+    #[error("{0}")]
+    StateInvariantViolation(#[from] TokenStateInvariantError),
+}
+
+impl From<TransferError> for TokenUpdateErrorInternal {
+    fn from(err: TransferError) -> Self {
+        match err {
+            TransferError::StateInvariantViolation(err) => Self::StateInvariantViolation(err),
+            TransferError::InsufficientBalance(err) => Self::InsufficientBalance(err),
+        }
+    }
 }
 
 pub fn execute_token_update_operation<Kernel: TokenKernelOperations>(

@@ -1,7 +1,10 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
-use crate::block_state_interface::{BlockStateOperations, BlockStateQuery, TokenNotFoundByIdError};
+use crate::block_state_interface::{
+    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+    TokenNotFoundByIdError,
+};
 use crate::scheduler::{TransactionEvent, TransactionRejectReason};
 use crate::scheduler_interface::TransactionExecution;
 use crate::{block_state_interface, scheduler_interface};
@@ -12,7 +15,8 @@ use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
+    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
+    TransferError,
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::{TokenUpdateError, TransactionContext};
@@ -93,6 +97,9 @@ pub fn execute_plt_transaction<
             TransactionRejectReason::TokenUpdateTransactionFailed(reject_reason),
         ),
         Err(TokenUpdateError::OutOfEnergy(_)) => Err(TransactionRejectReason::OutOfEnergy),
+        Err(TokenUpdateError::StateInvariantViolation(err)) => {
+            todo!("Handle state invariant error: {}", err)
+        }
     }
 }
 
@@ -188,8 +195,25 @@ impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
         to: &Self::Account,
         amount: RawTokenAmount,
         memo: Option<Memo>,
-    ) -> Result<(), InsufficientBalanceError> {
-        todo!()
+    ) -> Result<(), TransferError> {
+        self.block_state
+            .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
+            .map_err(|_err: OverflowError| InsufficientBalanceError {
+                available: self.account_token_balance(from),
+                required: amount,
+            })?;
+        self.block_state
+            .update_token_account_balance(self.token, from, RawTokenAmountDelta::Add(amount))
+            .map_err(|_err: OverflowError| {
+                // We should never overflow at transfer, since the total circulating supply of the token
+                // is always less that what is representable as a token amount.
+                TokenStateInvariantError(
+                    "Token amount overflow in transfer destination account".to_string(),
+                )
+            })?;
+
+        // todo ar transfer event
+        Ok(())
     }
 
     fn set_token_module_state_value(

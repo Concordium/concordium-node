@@ -92,6 +92,8 @@ pub enum TokenUpdateError {
     TokenModuleReject(TokenModuleRejectReason),
     #[error("Execution out of energy")]
     OutOfEnergy(#[from] OutOfEnergyError),
+    #[error("{0}")]
+    StateInvariantViolation(#[from] TokenStateInvariantError),
 }
 
 /// Represents the reasons why a query to the token module can fail.
@@ -323,6 +325,9 @@ pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
                     ))
                 }
                 TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
+                TokenUpdateErrorInternal::StateInvariantViolation(err) => {
+                    TokenUpdateError::StateInvariantViolation(err)
+                }
             },
         )?;
     }
