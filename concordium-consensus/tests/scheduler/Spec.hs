@@ -19,6 +19,7 @@ import qualified SchedulerTests.RejectReasons (tests)
 import qualified SchedulerTests.RejectReasonsRustContract (tests)
 import qualified SchedulerTests.SimpleTransferSpec (tests)
 import qualified SchedulerTests.SimpleTransfersTest (tests)
+import qualified SchedulerTests.SponsoredTransactions (tests)
 import qualified SchedulerTests.StakedAmountLocked (tests)
 import qualified SchedulerTests.TokenCreation (tests)
 import qualified SchedulerTests.TokenHolderTransactions (tests)
@@ -86,6 +87,7 @@ main = hspec $ do
     SchedulerTests.StakedAmountLocked.tests
     SchedulerTests.RejectReasons.tests
     SchedulerTests.RejectReasonsRustContract.tests
+    SchedulerTests.SponsoredTransactions.tests
     SchedulerTests.SmartContracts.V0.SmartContractTests.tests
     SchedulerTests.SmartContracts.V0.RelaxedRestrictions.tests
     SchedulerTests.SmartContracts.V1.Counter.tests

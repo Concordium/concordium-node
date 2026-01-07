@@ -1,3 +1,5 @@
+{-# LANGUAGE DataKinds #-}
+
 module Concordium.Scheduler.Types (
     module Concordium.Scheduler.Types,
     module Concordium.Types,
@@ -28,9 +30,9 @@ import Concordium.ID.Types (IdentityProviderIdentity)
 import qualified Concordium.TransactionVerification as TVer
 
 -- | Result of constructing a block from 'GroupedTransactions'.
-data FilteredTransactions = FilteredTransactions
+data FilteredTransactions (tov :: TransactionOutcomesVersion) = FilteredTransactions
     { -- | Transactions which have been added to the block, in the order added, with results.
-      ftAdded :: [(TVer.BlockItemWithStatus, TransactionSummary)],
+      ftAdded :: [(TVer.BlockItemWithStatus, TransactionSummary tov)],
       -- | Transactions which failed. No order is guaranteed.
       ftFailed :: [(TVer.TransactionWithStatus, FailureKind)],
       -- | Credential deployments which failed. No order is guaranteed.
@@ -46,7 +48,7 @@ data FilteredTransactions = FilteredTransactions
     }
     deriving (Show)
 
-emptyFilteredTransactions :: FilteredTransactions
+emptyFilteredTransactions :: FilteredTransactions tov
 emptyFilteredTransactions = FilteredTransactions [] [] [] [] [] [] []
 
 type GroupedTransactions = [TransactionGroup]

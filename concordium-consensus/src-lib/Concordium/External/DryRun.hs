@@ -755,12 +755,12 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                                               dreAvailableAmount = accBalance
                                             }
                                         shiQuotaRem
-
-                            lift (Scheduler.dispatchTransactionBody transaction src cost) >>= \case
+                            let checkHeaderResult = Scheduler.CheckHeaderResult src src cost
+                            lift (Scheduler.dispatchTransactionBody transaction checkHeaderResult) >>= \case
                                 Nothing -> do
                                     lift . lift . liftIO $ writeIORef shiQuotaRef 0
                                     return $ Left OutOfEnergyQuota
-                                Just (res :: TransactionSummary' ValidResultWithReturn) -> do
+                                Just (res :: TransactionSummary' tov ValidResultWithReturn) -> do
                                     let newQuotaRem = shiQuotaRem - tsEnergyCost res
                                     lift . lift . liftIO $
                                         writeIORef shiQuotaRef newQuotaRem
