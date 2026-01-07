@@ -7,7 +7,7 @@ use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenAmount, TokenModuleRejectReasonEnum, TokenOperation,
-    TokenOperationsPayload, TokenTransfer,
+    TokenOperationsPayload, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Payload;
 use plt_scheduler::block_state_interface::BlockStateQuery;
@@ -22,7 +22,7 @@ mod utils;
 #[test]
 fn test_plt_transfer() {
     let mut stub = BlockStateStub::new();
-    let token = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, _) = stub.init_token(TokenInitTestParams::default(), 4);
     let account1 = stub.create_account();
     let account2 = stub.create_account();
     stub.set_account_balance(account1, token, RawTokenAmount(5000));
@@ -64,7 +64,7 @@ fn test_plt_transfer() {
 #[test]
 fn test_plt_transfer_reject() {
     let mut stub = BlockStateStub::new();
-    let token = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, _) = stub.init_token(TokenInitTestParams::default(), 4);
     let account1 = stub.create_account();
     let account2 = stub.create_account();
     stub.set_account_balance(account1, token, RawTokenAmount(5000));
@@ -98,4 +98,39 @@ fn test_plt_transfer_reject() {
         reject_reason,
         TokenModuleRejectReasonEnum::TokenBalanceInsufficient(_)
     );
+}
+
+/// Test protocol-level token mint.
+#[test]
+fn test_plt_mint() {
+    let mut stub = BlockStateStub::new();
+    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4);
+    assert_eq!(
+        stub.account_token_balance(&gov_account, &token),
+        RawTokenAmount(0)
+    );
+
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(1000, 4),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: stub.token_configuration(&token).token_id,
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+
+    let events =
+        scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
+            .expect("transfer internal error")
+            .expect("transfer");
+
+    assert_eq!(
+        stub.account_token_balance(&gov_account, &token),
+        RawTokenAmount(1000)
+    );
+
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
+        assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
+    });
 }

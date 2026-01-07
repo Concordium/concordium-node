@@ -178,7 +178,6 @@ impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
         account: &Self::Account,
         amount: RawTokenAmount,
     ) -> Result<(), AmountNotRepresentableError> {
-        // todo cover by automatic tests as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn
         self.block_state
             .update_token_account_balance(self.token, account, RawTokenAmountDelta::Add(amount))
             .map_err(|_err: UnderOrOverflowError| AmountNotRepresentableError)?;
@@ -200,7 +199,6 @@ impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
         account: &Self::Account,
         amount: RawTokenAmount,
     ) -> Result<(), InsufficientBalanceError> {
-        // todo cover by automatic tests as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn
         self.block_state
             .update_token_account_balance(
                 self.token,

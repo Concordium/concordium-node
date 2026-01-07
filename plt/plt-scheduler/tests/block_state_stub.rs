@@ -89,8 +89,13 @@ impl BlockStateStub {
         stub_index
     }
 
-    /// Initialize token in the stub and return stub representation of the token.
-    pub fn init_token(&mut self, params: TokenInitTestParams, decimals: u8) -> TokenStubIndex {
+    /// Initialize token in the stub and return stub representation of the token, together with
+    /// the governance account.
+    pub fn init_token(
+        &mut self,
+        params: TokenInitTestParams,
+        decimals: u8,
+    ) -> (TokenStubIndex, AccountStubIndex) {
         // Add the token to the stub
         let stub_index = TokenStubIndex(self.tokens.len());
         let token_id = format!("tokenid{}", stub_index.0).parse().unwrap();
@@ -144,7 +149,7 @@ impl BlockStateStub {
             self.set_token_module_state(&stub_index, token_module_state);
         }
 
-        stub_index
+        (stub_index, gov_account)
     }
 
     /// Set account balance in the stub
