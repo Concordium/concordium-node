@@ -138,6 +138,12 @@ impl BlockStateStub {
 
         token_module::initialize_token(&mut kernel, encoded_parameters).expect("initialize token");
 
+        let token_module_state_dirty = kernel.token_module_state_dirty;
+        drop(kernel);
+        if token_module_state_dirty {
+            self.set_token_module_state(&stub_index, token_module_state);
+        }
+
         stub_index
     }
 }

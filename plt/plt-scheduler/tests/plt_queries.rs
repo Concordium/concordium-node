@@ -1,9 +1,10 @@
 //! Test of protocol-level token queries
 
+use concordium_base::common::cbor;
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
-use concordium_base::protocol_level_tokens::TokenAmount;
+use concordium_base::protocol_level_tokens::{TokenAmount, TokenModuleState};
 use plt_scheduler::block_state_interface::BlockStateQuery;
-use plt_scheduler::plt_queries;
+use plt_scheduler::{plt_queries, TOKEN_MODULE_REF};
 
 mod block_state_stub;
 mod utils;
