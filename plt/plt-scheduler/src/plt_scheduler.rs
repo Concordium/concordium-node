@@ -47,7 +47,7 @@ pub struct TokenSupplyUpdateEvent {
 }
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
-/// Returns the events produce if successful otherwise a reject reason.
+/// Returns the events produced if successful otherwise a reject reason.
 ///
 /// The caller must ensure to rollback state changes in case of the transaction being rejected.
 pub fn execute_plt_transaction<
@@ -98,6 +98,7 @@ pub fn execute_plt_transaction<
         }
         Err(TokenUpdateError::OutOfEnergy(_)) => Err(TransactionRejectReason::OutOfEnergy),
         Err(TokenUpdateError::StateInvariantViolation(err)) => {
+            // todo handle as part of https://linear.app/concordium/issue/PSR-38/handle-broken-state-invariant
             todo!("Handle state invariant error: {}", err)
         }
     }

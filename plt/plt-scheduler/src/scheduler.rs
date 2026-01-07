@@ -67,7 +67,7 @@ pub enum TransactionExecutionError {
 }
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
-/// Returns the events produce if successful otherwise a reject reason.
+/// Returns the events produced if successful otherwise a reject reason.
 ///
 /// The caller must ensure to rollback state changes in case of the transaction being rejected.
 pub fn execute_transaction<BSO: BlockStateOperations>(
