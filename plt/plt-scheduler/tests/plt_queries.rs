@@ -12,8 +12,8 @@ mod block_state_stub;
 #[test]
 fn test_query_plt_list() {
     let mut stub = BlockStateStub::new();
-    let (token1, _) = stub.init_token(TokenInitTestParams::default(), 4);
-    let (token2, _) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token1, _) = stub.create_and_init_token(TokenInitTestParams::default(), 4);
+    let (token2, _) = stub.create_and_init_token(TokenInitTestParams::default(), 4);
 
     let token_id1 = stub.token_configuration(&token1).token_id;
     let token_id2 = stub.token_configuration(&token2).token_id;
@@ -26,7 +26,7 @@ fn test_query_plt_list() {
 #[test]
 fn test_query_token_state() {
     let mut stub = BlockStateStub::new();
-    let (token, _) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, _) = stub.create_and_init_token(TokenInitTestParams::default(), 4);
     let token_id = stub.token_configuration(&token).token_id;
 
     let token_state = plt_queries::token_state(&stub, &token_id).unwrap();

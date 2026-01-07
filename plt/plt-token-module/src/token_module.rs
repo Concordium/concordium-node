@@ -159,7 +159,7 @@ pub fn initialize_token(
     initialize_token_impl(kernel, init_params)
 }
 
-pub fn initialize_token_impl(
+fn initialize_token_impl(
     kernel: &mut impl TokenKernelOperations,
     init_params: TokenModuleInitializationParameters,
 ) -> Result<(), TokenInitializationError> {
@@ -267,9 +267,9 @@ pub fn initialize_token_impl(
 ///   - Token module state contains a correctly encoded governance account address.
 pub fn execute_token_update_transaction<
     TK: TokenKernelOperations,
-    TKTE: TokenKernelTransactionExecution<Account = TK::Account>,
+    TE: TokenKernelTransactionExecution<Account = TK::Account>,
 >(
-    transaction_execution: &mut TKTE,
+    transaction_execution: &mut TE,
     kernel: &mut TK,
     token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {

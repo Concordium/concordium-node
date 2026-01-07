@@ -22,7 +22,7 @@ mod utils;
 #[test]
 fn test_plt_transfer() {
     let mut stub = BlockStateStub::new();
-    let (token, _) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, _) = stub.create_and_init_token(TokenInitTestParams::default(), 4);
     let account1 = stub.create_account();
     let account2 = stub.create_account();
     stub.set_account_balance(account1, token, RawTokenAmount(5000));
@@ -64,7 +64,7 @@ fn test_plt_transfer() {
 #[test]
 fn test_plt_transfer_reject() {
     let mut stub = BlockStateStub::new();
-    let (token, _) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, _) = stub.create_and_init_token(TokenInitTestParams::default(), 4);
     let account1 = stub.create_account();
     let account2 = stub.create_account();
     stub.set_account_balance(account1, token, RawTokenAmount(5000));
@@ -105,7 +105,7 @@ fn test_plt_transfer_reject() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_mint() {
     let mut stub = BlockStateStub::new();
-    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, gov_account) = stub.create_and_init_token(TokenInitTestParams::default(), 4);
     stub.set_account_balance(gov_account, token, RawTokenAmount(5000));
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
@@ -138,7 +138,7 @@ fn test_plt_mint() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_mint_reject() {
     let mut stub = BlockStateStub::new();
-    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, gov_account) = stub.create_and_init_token(TokenInitTestParams::default(), 4);
     stub.set_account_balance(gov_account, token, RawTokenAmount(5000));
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
@@ -171,7 +171,7 @@ fn test_plt_mint_reject() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_burn() {
     let mut stub = BlockStateStub::new();
-    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, gov_account) = stub.create_and_init_token(TokenInitTestParams::default(), 4);
     stub.set_account_balance(gov_account, token, RawTokenAmount(5000));
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
@@ -204,7 +204,7 @@ fn test_plt_burn() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_burn_reject() {
     let mut stub = BlockStateStub::new();
-    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, gov_account) = stub.create_and_init_token(TokenInitTestParams::default(), 4);
     stub.set_account_balance(gov_account, token, RawTokenAmount(5000));
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {

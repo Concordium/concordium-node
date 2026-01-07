@@ -40,12 +40,11 @@ pub enum TransactionEvent {
 }
 
 /// Tracks the energy remaining and some context during the execution.
-// todo remove pub as part of https://linear.app/concordium/issue/PSR-34/token-initialization when this type is no longer needed as part of tests
-pub struct TransactionExecutionImpl<Account> {
+struct TransactionExecutionImpl<Account> {
     // /// The remaining energy tracked spent during the execution.
     // remaining_energy: Energy,
     /// The account which signed as the sender of the transaction.
-    pub sender_account: Account,
+    sender_account: Account,
 }
 
 impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> {

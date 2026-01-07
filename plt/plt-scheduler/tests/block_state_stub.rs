@@ -9,13 +9,13 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, TokenId, TokenModuleInitializationParameters,
 };
-use plt_scheduler::TOKEN_MODULE_REF;
+use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
     UnderOrOverflowError,
 };
-use plt_scheduler::scheduler::TransactionExecutionImpl;
+use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 use plt_token_module::token_module;
 use std::collections::HashMap;
@@ -92,29 +92,15 @@ impl BlockStateStub {
         stub_index
     }
 
-    /// Initialize token in the stub and return stub representation of the token, together with
+    /// Create and initialize token in the stub and return stub representation of the token, together with
     /// the governance account.
-    pub fn init_token(
+    pub fn create_and_init_token(
         &mut self,
         params: TokenInitTestParams,
         decimals: u8,
     ) -> (TokenStubIndex, AccountStubIndex) {
-        // Add the token to the stub
-        let stub_index = TokenStubIndex(self.tokens.len());
-        let token_id = format!("tokenid{}", stub_index.0).parse().unwrap();
-        let token = Token {
-            module_state: Default::default(),
-            configuration: TokenConfiguration {
-                token_id,
-                module_ref: TOKEN_MODULE_REF,
-                decimals,
-            },
-            circulating_supply: Default::default(),
-        };
-        let mut token_module_state = token.module_state.clone();
-        self.tokens.push(token);
+        let token_id: TokenId = format!("tokenid{}", self.tokens.len()).parse().unwrap();
 
-        // Initialize the token in the token module
         let gov_account = self.create_account();
         let gov_holder_account = CborHolderAccount::from(self.accounts[gov_account.0].address);
         let metadata = MetadataUrl::from("https://plt.token".to_string());
@@ -129,30 +115,19 @@ impl BlockStateStub {
             burnable: params.burnable,
             additional: Default::default(),
         };
-        let encoded_parameters = cbor::cbor_encode(&parameters).into();
+        let initialization_parameters = cbor::cbor_encode(&parameters).into();
 
-        let mut execution = TransactionExecutionImpl {
-            sender_account: gov_account,
-        };
+        let payload = UpdatePayload::CreatePlt(CreatePlt {
+            token_id: token_id.clone(),
+            token_module: TOKEN_MODULE_REF,
+            decimals,
+            initialization_parameters,
+        });
+        scheduler::execute_update_instruction(self, payload).expect("create and initialize token");
 
-        let mut kernel = TokenKernelExecutionImpl {
-            block_state: self,
-            transaction_execution: &mut execution,
-            token: &stub_index,
-            token_module_state: &mut token_module_state,
-            token_module_state_dirty: false,
-            events: Default::default(),
-        };
+        let token = self.token_by_id(&token_id).expect("created token");
 
-        token_module::initialize_token(&mut kernel, encoded_parameters).expect("initialize token");
-
-        let token_module_state_dirty = kernel.token_module_state_dirty;
-        drop(kernel);
-        if token_module_state_dirty {
-            self.set_token_module_state(&stub_index, token_module_state);
-        }
-
-        (stub_index, gov_account)
+        (token, gov_account)
     }
 
     /// Set account balance in the stub
@@ -334,8 +309,15 @@ impl BlockStateOperations for BlockStateStub {
         self.tokens[token.0].circulating_supply = circulating_supply;
     }
 
-    fn create_token(&mut self, _configuration: TokenConfiguration) -> Self::Token {
-        todo!()
+    fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
+        let stub_index = TokenStubIndex(self.tokens.len());
+        let token = Token {
+            module_state: Default::default(),
+            configuration,
+            circulating_supply: Default::default(),
+        };
+        self.tokens.push(token);
+        stub_index
     }
 
     fn update_token_account_balance(
@@ -365,10 +347,6 @@ impl BlockStateOperations for BlockStateStub {
 
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
         self.accounts[account.0].tokens.entry(*token).or_default();
-    }
-
-    fn increment_plt_update_sequence_number(&mut self) {
-        todo!()
     }
 
     fn set_token_module_state(

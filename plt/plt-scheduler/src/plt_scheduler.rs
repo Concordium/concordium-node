@@ -2,10 +2,12 @@
 //! of transactions related to protocol-level tokens.
 
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenNotFoundByIdError,
-    UnderOrOverflowError,
+    BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenConfiguration,
+    TokenNotFoundByIdError, UnderOrOverflowError,
 };
-use crate::scheduler::{TransactionEvent, TransactionRejectReason};
+use crate::scheduler::{
+    TransactionEvent, TransactionRejectReason, UpdateInstructionExecutionError,
+};
 use crate::scheduler_interface::TransactionExecution;
 use crate::{block_state_interface, scheduler_interface};
 use concordium_base::base::{AccountIndex, Energy};
@@ -16,11 +18,11 @@ use concordium_base::updates::CreatePlt;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
-    TransferError,
+    TokenKernelOperations, TokenKernelQueries, TokenKernelTransactionExecution, TokenModuleEvent,
+    TokenStateInvariantError, TransferError,
 };
 use plt_token_module::token_module;
-use plt_token_module::token_module::{TokenUpdateError, TransactionContext};
+use plt_token_module::token_module::TokenUpdateError;
 use std::mem;
 
 /// An event emitted when a transfer of tokens from `from` to `to` is performed.
@@ -67,13 +69,12 @@ pub fn execute_plt_transaction<
             })?;
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
-    let transaction_context = TransactionContext {
-        sender: transaction_execution.sender_account(),
+    let mut kernel_transaction_execution = TokenKernelTransactionExecutionImpl {
+        transaction_execution,
     };
 
-    let mut kernel = TokenKernelExecutionImpl {
+    let mut kernel = TokenKernelOperationsImpl {
         block_state,
-        transaction_execution,
         token: &token,
         token_module_state: &mut token_module_state,
         token_module_state_dirty: false,
@@ -81,8 +82,8 @@ pub fn execute_plt_transaction<
     };
 
     match token_module::execute_token_update_transaction(
+        &mut kernel_transaction_execution,
         &mut kernel,
-        transaction_context,
         payload.operations,
     ) {
         Ok(()) => {
@@ -110,33 +111,27 @@ pub fn execute_plt_transaction<
 pub fn execute_plt_update_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: CreatePlt,
-) -> Result<Vec<TransactionEvent>, TransactionRejectReason> {
-    let token =
-        block_state
-            .token_by_id(&payload.token_id)
-            .map_err(|_err: TokenNotFoundByIdError| {
-                TransactionRejectReason::NonExistentTokenId(payload.token_id)
-            })?;
-    let mut token_module_state = block_state.mutable_token_module_state(&token);
-
-    let transaction_context = TransactionContext {
-        sender: transaction_execution.sender_account(),
+) -> Result<Vec<TransactionEvent>, UpdateInstructionExecutionError> {
+    let token_configuration = TokenConfiguration {
+        token_id: payload.token_id,
+        module_ref: payload.token_module,
+        decimals: payload.decimals,
     };
 
-    let mut kernel = TokenKernelExecutionImpl {
+    // todo ar token id, sequence and uniqueness
+
+    let token = block_state.create_token(token_configuration);
+    let mut token_module_state = block_state.mutable_token_module_state(&token);
+
+    let mut kernel = TokenKernelOperationsImpl {
         block_state,
-        transaction_execution,
         token: &token,
         token_module_state: &mut token_module_state,
         token_module_state_dirty: false,
         events: Default::default(),
     };
 
-    match token_module::execute_token_update_transaction(
-        &mut kernel,
-        transaction_context,
-        payload.operations,
-    ) {
+    match token_module::initialize_token(&mut kernel, payload.initialization_parameters) {
         Ok(()) => {
             let events = mem::take(&mut kernel.events);
             let token_module_state_dirty = kernel.token_module_state_dirty;
@@ -146,29 +141,22 @@ pub fn execute_plt_update_instruction<BSO: BlockStateOperations>(
             }
             Ok(events)
         }
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-            Err(TransactionRejectReason::TokenModule(reject_reason))
-        }
-        Err(TokenUpdateError::OutOfEnergy(_)) => Err(TransactionRejectReason::OutOfEnergy),
-        Err(TokenUpdateError::StateInvariantViolation(err)) => {
-            // todo handle as part of https://linear.app/concordium/issue/PSR-38/handle-broken-state-invariant
-            todo!("Handle state invariant error: {}", err)
+        Err(_err) => {
+            // todo ar error handling
+            todo!()
         }
     }
 }
 
-struct TokenKernelExecutionImpl<'a, BSQ: BlockStateQuery, TE: TransactionExecution> {
+struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     block_state: &'a mut BSQ,
-    transaction_execution: &'a mut TE,
     token: &'a BSQ::Token,
     token_module_state: &'a mut BSQ::MutableTokenModuleState,
     events: Vec<TransactionEvent>,
     token_module_state_dirty: bool,
 }
 
-impl<BSQ: BlockStateQuery, TE: TransactionExecution> TokenKernelQueries
-    for TokenKernelExecutionImpl<'_, BSQ, TE>
-{
+impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'_, BSQ> {
     type Account = BSQ::Account;
 
     fn account_by_address(
@@ -219,9 +207,7 @@ impl<BSQ: BlockStateQuery, TE: TransactionExecution> TokenKernelQueries
     }
 }
 
-impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
-    for TokenKernelExecutionImpl<'_, BSO, TE>
-{
+impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
     fn touch(&mut self, account: &Self::Account) {
         self.block_state.touch_token_account(self.token, account);
     }
@@ -322,14 +308,28 @@ impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
             .update_token_module_state_value(self.token_module_state, &key, value);
     }
 
+    fn log_token_event(&mut self, module_event: TokenModuleEvent) {
+        self.events
+            .push(TransactionEvent::TokenModule(module_event))
+    }
+}
+
+struct TokenKernelTransactionExecutionImpl<'a, TE: TransactionExecution> {
+    transaction_execution: &'a mut TE,
+}
+
+impl<TE: TransactionExecution> TokenKernelTransactionExecution
+    for TokenKernelTransactionExecutionImpl<'_, TE>
+{
+    type Account = TE::Account;
+
+    fn sender_account(&self) -> Self::Account {
+        self.transaction_execution.sender_account()
+    }
+
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
         self.transaction_execution
             .tick_energy(energy)
             .map_err(|_err: scheduler_interface::OutOfEnergyError| OutOfEnergyError)
-    }
-
-    fn log_token_event(&mut self, module_event: TokenModuleEvent) {
-        self.events
-            .push(TransactionEvent::TokenModule(module_event))
     }
 }

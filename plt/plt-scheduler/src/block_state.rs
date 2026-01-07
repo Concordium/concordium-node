@@ -120,10 +120,6 @@ impl BlockStateOperations for BlockState {
         todo!()
     }
 
-    fn increment_plt_update_sequence_number(&mut self) {
-        todo!()
-    }
-
     fn set_token_module_state(
         &mut self,
         _token_index: &TokenIndex,

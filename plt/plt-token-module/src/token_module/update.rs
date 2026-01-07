@@ -35,9 +35,9 @@ impl From<TransferError> for TokenUpdateErrorInternal {
 
 pub fn execute_token_update_operation<
     TK: TokenKernelOperations,
-    TKTE: TokenKernelTransactionExecution<Account = TK::Account>,
+    TE: TokenKernelTransactionExecution<Account = TK::Account>,
 >(
-    transaction_execution: &mut TKTE,
+    transaction_execution: &mut TE,
     kernel: &mut TK,
     token_operation: TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
@@ -51,9 +51,9 @@ pub fn execute_token_update_operation<
 
 fn execute_token_transfer<
     TK: TokenKernelOperations,
-    TKTE: TokenKernelTransactionExecution<Account = TK::Account>,
+    TE: TokenKernelTransactionExecution<Account = TK::Account>,
 >(
-    transaction_execution: &mut TKTE,
+    transaction_execution: &mut TE,
     kernel: &mut TK,
     transfer_operation: TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {

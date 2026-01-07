@@ -159,7 +159,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     );
 
     /// Create a new token with the given configuration. The initial state will be empty
-    /// and the initial supply will be 0. Returns the token index and the updated state.
+    /// and the initial supply will be 0. Returns representation of the created token.
     ///
     /// # Arguments
     ///
@@ -186,7 +186,8 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// # Errors
     ///
-    /// - [`UnderOrOverflowError`] The update would overflow or underflow the token balance on the account.
+    /// - [`UnderOrOverflowError`] The update would overflow or underflow (result in negative balance)
+    ///   the token balance on the account.
     fn update_token_account_balance(
         &mut self,
         token: &Self::Token,
@@ -203,11 +204,6 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// - `account` The account to update.
     /// - `token` The token to update.
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account);
-
-    /// Increment the update sequence number for Protocol Level Tokens (PLT).
-    ///
-    /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
-    fn increment_plt_update_sequence_number(&mut self);
 
     /// Convert a mutable state to a persistent one and store it in the block state.
     ///
