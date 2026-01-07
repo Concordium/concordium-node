@@ -101,9 +101,15 @@ pub enum TokenUpdateError {
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]
 pub enum QueryTokenModuleError {
-    #[error("Token module state invariant broken: {0}")]
-    StateInvariantViolation(String),
+    #[error("Token module state invariant: {0}")]
+    StateInvariantViolation(#[from] TokenModuleStateInvariantError),
 }
+
+/// An invariant in the token module state that should be enforced
+/// is broken.
+#[derive(Debug, thiserror::Error)]
+#[error("Token module state invariant broken: {0}")]
+pub struct TokenModuleStateInvariantError(String);
 
 /// The context for a token-holder or token-governance transaction.
 #[derive(Debug)]
@@ -359,49 +365,41 @@ fn is_burnable(kernel: &impl TokenKernelQueries) -> bool {
     kernel.get_module_state(STATE_KEY_BURNABLE).is_some()
 }
 
-fn get_name(kernel: &impl TokenKernelQueries) -> Result<String, QueryTokenModuleError> {
+fn get_name(kernel: &impl TokenKernelQueries) -> Result<String, TokenModuleStateInvariantError> {
     kernel
         .get_module_state(STATE_KEY_NAME)
-        .ok_or_else(|| {
-            QueryTokenModuleError::StateInvariantViolation("Name not present".to_string())
-        })
+        .ok_or_else(|| TokenModuleStateInvariantError("Name not present".to_string()))
         .and_then(|value| {
             String::from_utf8(value).map_err(|err| {
-                QueryTokenModuleError::StateInvariantViolation(format!(
-                    "Stored name is invalid UTF8: {}",
-                    err
-                ))
+                TokenModuleStateInvariantError(format!("Stored name is invalid UTF8: {}", err))
             })
         })
 }
 
-fn get_metadata(kernel: &impl TokenKernelQueries) -> Result<MetadataUrl, QueryTokenModuleError> {
-    let metadata_cbor = kernel.get_module_state(STATE_KEY_METADATA).ok_or_else(|| {
-        QueryTokenModuleError::StateInvariantViolation("Metadata not present".to_string())
-    })?;
+fn get_metadata(
+    kernel: &impl TokenKernelQueries,
+) -> Result<MetadataUrl, TokenModuleStateInvariantError> {
+    let metadata_cbor = kernel
+        .get_module_state(STATE_KEY_METADATA)
+        .ok_or_else(|| TokenModuleStateInvariantError("Metadata not present".to_string()))?;
     let metadata: MetadataUrl = cbor_decode(metadata_cbor).map_err(|err| {
-        QueryTokenModuleError::StateInvariantViolation(format!(
-            "Stored metadata CBOR not decodable: {}",
-            err
-        ))
+        TokenModuleStateInvariantError(format!("Stored metadata CBOR not decodable: {}", err))
     })?;
     Ok(metadata)
 }
 
 fn get_governance_account_index(
     kernel: &impl TokenKernelQueries,
-) -> Result<AccountIndex, QueryTokenModuleError> {
+) -> Result<AccountIndex, TokenModuleStateInvariantError> {
     let governance_account_index = AccountIndex::from(
         kernel
             .get_module_state(STATE_KEY_GOVERNANCE_ACCOUNT)
             .ok_or_else(|| {
-                QueryTokenModuleError::StateInvariantViolation(
-                    "Governance account not present".to_string(),
-                )
+                TokenModuleStateInvariantError("Governance account not present".to_string())
             })
             .and_then(|value| {
                 common::from_bytes::<u64, _>(&mut value.as_slice()).map_err(|err| {
-                    QueryTokenModuleError::StateInvariantViolation(format!(
+                    TokenModuleStateInvariantError(format!(
                         "Stored governance account index cannot be decoded: {}",
                         err
                     ))
@@ -427,7 +425,7 @@ pub fn query_token_module_state<Kernel: TokenKernelQueries>(
     let governance_account = kernel
         .account_by_index(governance_account_index)
         .map_err(|_| {
-            QueryTokenModuleError::StateInvariantViolation(format!(
+            TokenModuleStateInvariantError(format!(
                 "Stored governance account with index {} does not exist",
                 governance_account_index
             ))
