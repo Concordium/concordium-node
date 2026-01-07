@@ -2,7 +2,7 @@
 //! of transactions related to protocol-level tokens.
 
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+    BlockStateOperations, BlockStateQuery, UnderOrOverflowError, RawTokenAmountDelta,
     TokenNotFoundByIdError,
 };
 use crate::scheduler::{TransactionEvent, TransactionRejectReason};
@@ -94,7 +94,7 @@ pub fn execute_plt_transaction<
             Ok(events)
         }
         Err(TokenUpdateError::TokenModuleReject(reject_reason)) => Err(
-            TransactionRejectReason::TokenUpdateTransactionFailed(reject_reason),
+            TransactionRejectReason::TokenModule(reject_reason),
         ),
         Err(TokenUpdateError::OutOfEnergy(_)) => Err(TransactionRejectReason::OutOfEnergy),
         Err(TokenUpdateError::StateInvariantViolation(err)) => {
@@ -198,13 +198,13 @@ impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
     ) -> Result<(), TransferError> {
         self.block_state
             .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
-            .map_err(|_err: OverflowError| InsufficientBalanceError {
+            .map_err(|_err: UnderOrOverflowError| InsufficientBalanceError {
                 available: self.account_token_balance(from),
                 required: amount,
             })?;
         self.block_state
-            .update_token_account_balance(self.token, from, RawTokenAmountDelta::Add(amount))
-            .map_err(|_err: OverflowError| {
+            .update_token_account_balance(self.token, to, RawTokenAmountDelta::Add(amount))
+            .map_err(|_err: UnderOrOverflowError| {
                 // We should never overflow at transfer, since the total circulating supply of the token
                 // is always less that what is representable as a token amount.
                 TokenStateInvariantError(
@@ -229,7 +229,7 @@ impl<BSO: BlockStateOperations, TE: TransactionExecution> TokenKernelOperations
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
         self.transaction_execution
             .tick_energy(energy)
-            .map_err(|err: scheduler_interface::OutOfEnergyError| OutOfEnergyError)
+            .map_err(|_err: scheduler_interface::OutOfEnergyError| OutOfEnergyError)
     }
 
     fn log_token_event(&mut self, module_event: TokenModuleEvent) {

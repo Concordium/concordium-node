@@ -267,15 +267,15 @@ impl TokenKernelOperations for KernelStub {
         amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<(), TransferError> {
-        let mut from_balance = self.accounts[from.0].balance.get_or_insert_default();
+        let from_balance = self.accounts[from.0].balance.get_or_insert_default();
         from_balance.0 = from_balance
             .0
             .checked_sub(amount.0)
-            .ok_or_else(|| InsufficientBalanceError {
+            .ok_or(InsufficientBalanceError {
                 available: *from_balance,
                 required: amount,
             })?;
-        let mut to_balance = self.accounts[to.0].balance.get_or_insert_default();
+        let to_balance = self.accounts[to.0].balance.get_or_insert_default();
         to_balance.0 = to_balance
             .0
             .checked_add(amount.0)

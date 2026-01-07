@@ -18,8 +18,8 @@ pub enum TransactionRejectReason {
     OutOfEnergy,
     /// The provided identifier does not match a token currently on chain.
     NonExistentTokenId(TokenId),
-    /// The token update transaction failed.
-    TokenUpdateTransactionFailed(TokenModuleRejectReason),
+    /// The token module rejected the transaction.
+    TokenModule(TokenModuleRejectReason),
 }
 
 /// Token event. This is an observable effect on the token state.

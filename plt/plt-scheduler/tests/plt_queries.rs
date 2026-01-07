@@ -7,7 +7,6 @@ use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::{TOKEN_MODULE_REF, plt_queries};
 
 mod block_state_stub;
-mod utils;
 
 /// Test query token state
 #[test]

@@ -7,8 +7,8 @@ use concordium_base::protocol_level_tokens::{
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
-    TokenNotFoundByIdError,
+    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
+    UnderOrOverflowError,
 };
 use plt_scheduler::plt_scheduler::TokenKernelExecutionImpl;
 use plt_scheduler::scheduler::TransactionExecutionImpl;
@@ -145,6 +145,20 @@ impl BlockStateStub {
         }
 
         stub_index
+    }
+
+    /// Set account balance in the stub
+    pub fn set_account_balance(
+        &mut self,
+        account: AccountStubIndex,
+        token: TokenStubIndex,
+        balance: RawTokenAmount,
+    ) {
+        self.accounts[account.0]
+            .tokens
+            .entry(token)
+            .or_default()
+            .balance = balance;
     }
 }
 
@@ -322,7 +336,7 @@ impl BlockStateOperations for BlockStateStub {
         token: &Self::Token,
         account: &Self::Account,
         amount_delta: RawTokenAmountDelta,
-    ) -> Result<(), OverflowError> {
+    ) -> Result<(), UnderOrOverflowError> {
         let balance = &mut self.accounts[account.0]
             .tokens
             .entry(*token)
@@ -330,10 +344,13 @@ impl BlockStateOperations for BlockStateStub {
             .balance;
         match amount_delta {
             RawTokenAmountDelta::Add(add) => {
-                balance.0 = balance.0.checked_add(add.0).ok_or(OverflowError)?;
+                balance.0 = balance.0.checked_add(add.0).ok_or(UnderOrOverflowError)?;
             }
             RawTokenAmountDelta::Subtract(subtract) => {
-                balance.0 = balance.0.checked_sub(subtract.0).ok_or(OverflowError)?;
+                balance.0 = balance
+                    .0
+                    .checked_sub(subtract.0)
+                    .ok_or(UnderOrOverflowError)?;
             }
         }
         Ok(())

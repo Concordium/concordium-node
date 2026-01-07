@@ -7,6 +7,7 @@ use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue,
 ///
 /// Represented as either add and subtract instead of a signed value, in order
 /// to be able to represent the full range of possible deltas.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RawTokenAmountDelta {
     /// Add the token amount
     Add(RawTokenAmount),
@@ -185,13 +186,13 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// # Errors
     ///
-    /// - [`OverflowError`] The update would overflow or underflow the token balance on the account.
+    /// - [`UnderOrOverflowError`] The update would overflow or underflow the token balance on the account.
     fn update_token_account_balance(
         &mut self,
         token: &Self::Token,
         account: &Self::Account,
         amount_delta: RawTokenAmountDelta,
-    ) -> Result<(), OverflowError>;
+    ) -> Result<(), UnderOrOverflowError>;
 
     /// Touch the token account. This initializes a token account state with a
     /// balance of zero. This only affects an account if its state for the token
@@ -223,7 +224,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     );
 }
 
-/// The computation resulted in overflow.
+/// The computation resulted in underflow or overflow.
 #[derive(Debug, thiserror::Error)]
-#[error("Token amount overflow")]
-pub struct OverflowError;
+#[error("Token amount underflow or overflow")]
+pub struct UnderOrOverflowError;

@@ -1,8 +1,18 @@
-//! Test of protocol-level token updates
+//! Test of protocol-level token updates. Detailed tests should generally be implemented in
+//! the tests of the token module in the `plt-token-module` crate. In the present file,
+//! higher level tests are implemented.
 
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
+use assert_matches::assert_matches;
+use concordium_base::common::cbor;
+use concordium_base::protocol_level_tokens::{
+    CborHolderAccount, RawCbor, TokenAmount, TokenModuleRejectReasonEnum, TokenOperation,
+    TokenOperationsPayload, TokenTransfer,
+};
+use concordium_base::transactions::Payload;
 use plt_scheduler::block_state_interface::BlockStateQuery;
-use plt_scheduler::plt_queries;
+use plt_scheduler::scheduler;
+use plt_token_module::token_kernel_interface::RawTokenAmount;
 
 mod block_state_stub;
 mod utils;
@@ -11,12 +21,72 @@ mod utils;
 #[test]
 fn test_plt_transfer() {
     let mut stub = BlockStateStub::new();
-    let token1 = stub.init_token(TokenInitTestParams::default(), 4);
-    let token2 = stub.init_token(TokenInitTestParams::default(), 4);
+    let token = stub.init_token(TokenInitTestParams::default(), 4);
+    let account1 = stub.create_account();
+    let account2 = stub.create_account();
+    stub.set_account_balance(account1, token, RawTokenAmount(5000));
 
-    let token_id1 = stub.token_configuration(&token1).token_id;
-    let token_id2 = stub.token_configuration(&token2).token_id;
+    let operations = vec![TokenOperation::Transfer(TokenTransfer {
+        amount: TokenAmount::from_raw(1000, 4),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        memo: None,
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: stub.token_configuration(&token).token_id,
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
 
-    let plts = plt_queries::plt_list(&stub);
-    assert_eq!(plts, vec![token_id1, token_id2]);
+    let events =
+        scheduler::execute_transaction(account1, &mut stub, Payload::TokenUpdate { payload })
+            .expect("transfer internal error")
+            .expect("transfer");
+    // todo ar events
+    assert_eq!(
+        stub.account_token_balance(&account1, &token),
+        RawTokenAmount(4000)
+    );
+    assert_eq!(
+        stub.account_token_balance(&account2, &token),
+        RawTokenAmount(1000)
+    );
+}
+
+/// Test protocol-level token transfer that is rejected.
+#[test]
+fn test_plt_transfer_reject() {
+    let mut stub = BlockStateStub::new();
+    let token = stub.init_token(TokenInitTestParams::default(), 4);
+    let account1 = stub.create_account();
+    let account2 = stub.create_account();
+    stub.set_account_balance(account1, token, RawTokenAmount(5000));
+
+    let operations = vec![TokenOperation::Transfer(TokenTransfer {
+        amount: TokenAmount::from_raw(10000, 4),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
+        memo: None,
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: stub.token_configuration(&token).token_id,
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+
+    let reject_reason =
+        scheduler::execute_transaction(account1, &mut stub, Payload::TokenUpdate { payload })
+            .expect("transfer internal error")
+            .expect_err("transfer reject");
+
+    assert_eq!(
+        stub.account_token_balance(&account1, &token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.account_token_balance(&account2, &token),
+        RawTokenAmount(0)
+    );
+
+    let reject_reason = utils::assert_token_module_reject_reason(reject_reason);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReasonEnum::TokenBalanceInsufficient(_)
+    );
 }
