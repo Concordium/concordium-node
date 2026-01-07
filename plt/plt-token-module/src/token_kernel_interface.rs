@@ -105,7 +105,9 @@ pub trait TokenKernelQueries {
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue>;
 }
 
-/// Operations provided by the token kernel.
+/// Operations provided by the token kernel. The operations do not only allow modifying
+/// token module state, but also indirectly affect the token state maintained by the token
+/// kernel.
 pub trait TokenKernelOperations: TokenKernelQueries {
     /// Update the balance of the given account to zero if it didn't have a balance before.
     fn touch(&mut self, account: &Self::Account);
@@ -165,6 +167,23 @@ pub trait TokenKernelOperations: TokenKernelQueries {
         value: Option<ModuleStateValue>,
     );
 
+    /// Log a token module event with the specified type and details.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenModuleEvent` in the logs.
+    fn log_token_event(&mut self, event: TokenModuleEvent);
+}
+
+/// Operations and context related to transaction execution.
+pub trait TokenKernelTransactionExecution {
+    /// Opaque type that represents an account on chain.
+    /// The account is guaranteed to exist on chain, when holding an instance of this type.
+    type Account;
+
+    /// The account initiating the transaction.
+    fn sender_account(&self) -> Self::Account;
+
     /// Reduce the available energy for the PLT module execution.
     ///
     /// If the available energy is smaller than the given amount, an
@@ -172,11 +191,4 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// should stop execution and propagate the error upwards.
     /// The energy is charged in any case (also in case of failure).
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError>;
-
-    /// Log a token module event with the specified type and details.
-    ///
-    /// # Events
-    ///
-    /// This will produce a `TokenModuleEvent` in the logs.
-    fn log_token_event(&mut self, event: TokenModuleEvent);
 }

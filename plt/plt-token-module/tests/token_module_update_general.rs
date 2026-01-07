@@ -1,4 +1,4 @@
-use crate::kernel_stub::TokenInitTestParams;
+use crate::kernel_stub::{KernelTransactionExecutionTestImpl, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -8,7 +8,7 @@ use concordium_base::protocol_level_tokens::{
 };
 use kernel_stub::KernelStub;
 use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
-use plt_token_module::token_module::{self, TransactionContext};
+use plt_token_module::token_module::{self};
 
 mod kernel_stub;
 mod utils;
@@ -20,9 +20,12 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 fn test_update_token_decode_failure() {
     let mut stub = KernelStub::new(0);
     let sender = stub.create_account();
-    let context = TransactionContext { sender };
-    let res =
-        token_module::execute_token_update_transaction(&mut stub, context, RawCbor::from(vec![]));
+    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(vec![]),
+    );
 
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(reject_reason, TokenModuleRejectReasonEnum::DeserializationFailure(
@@ -43,7 +46,7 @@ fn test_multiple_operations() {
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let context = TransactionContext { sender };
+    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),
@@ -57,8 +60,8 @@ fn test_multiple_operations() {
         }),
     ];
     token_module::execute_token_update_transaction(
+        &mut execution,
         &mut stub,
-        context,
         RawCbor::from(cbor::cbor_encode(&operations)),
     )
     .expect("execute");
@@ -76,7 +79,7 @@ fn test_single_failing_operation() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext { sender };
+    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),
@@ -90,8 +93,8 @@ fn test_single_failing_operation() {
         }),
     ];
     let res = token_module::execute_token_update_transaction(
+        &mut execution,
         &mut stub,
-        context,
         RawCbor::from(cbor::cbor_encode(&operations)),
     );
 

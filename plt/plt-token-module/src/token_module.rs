@@ -109,13 +109,6 @@ pub enum QueryTokenModuleError {
 #[error("Token module state invariant broken: {0}")]
 pub struct TokenModuleStateInvariantError(String);
 
-/// The context for a token-holder or token-governance transaction.
-#[derive(Debug)]
-pub struct TransactionContext<Account> {
-    /// The sender account object.
-    pub sender: Account,
-}
-
 #[derive(Debug, thiserror::Error)]
 #[error("Token amount decimals mismatch: expected {expected}, found {found}")]
 pub struct TokenAmountDecimalsMismatchError {
@@ -272,9 +265,12 @@ pub fn initialize_token_impl(
 /// # INVARIANTS:
 ///
 ///   - Token module state contains a correctly encoded governance account address.
-pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
-    kernel: &mut Kernel,
-    context: TransactionContext<Kernel::Account>,
+pub fn execute_token_update_transaction<
+    TK: TokenKernelOperations,
+    TKTE: TokenKernelTransactionExecution<Account = TK::Account>,
+>(
+    transaction_execution: &mut TKTE,
+    kernel: &mut TK,
     token_operations: RawCbor,
 ) -> Result<(), TokenUpdateError> {
     let operations: Vec<TokenOperation> = cbor_decode(&token_operations).map_err(|err| {
@@ -288,7 +284,7 @@ pub fn execute_token_update_transaction<Kernel: TokenKernelOperations>(
     })?;
 
     for (index, operation) in operations.into_iter().enumerate() {
-        update::execute_token_update_operation(kernel, &context, operation).map_err(
+        update::execute_token_update_operation(transaction_execution, kernel, operation).map_err(
             |err| match err {
                 TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
@@ -409,8 +405,8 @@ fn get_governance_account_index(
 }
 
 /// Get the CBOR-encoded representation of the token module state.
-pub fn query_token_module_state<Kernel: TokenKernelQueries>(
-    kernel: &Kernel,
+pub fn query_token_module_state<TK: TokenKernelQueries>(
+    kernel: &TK,
 ) -> Result<RawCbor, QueryTokenModuleError> {
     let name = get_name(kernel)?;
     let metadata = get_metadata(kernel)?;
@@ -447,9 +443,9 @@ pub fn query_token_module_state<Kernel: TokenKernelQueries>(
 }
 
 /// Get the CBOR-encoded representation of the token module account state.
-pub fn query_account_state<Kernel: TokenKernelQueries>(
-    _kernel: &Kernel,
-    _account: Kernel::Account,
+pub fn query_account_state<TK: TokenKernelQueries>(
+    _kernel: &TK,
+    _account: TK::Account,
 ) -> Result<Option<RawCbor>, QueryTokenModuleError> {
     Ok(None)
 }

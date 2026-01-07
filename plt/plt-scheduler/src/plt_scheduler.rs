@@ -12,6 +12,7 @@ use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
 use concordium_base::transactions::Memo;
+use concordium_base::updates::CreatePlt;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
@@ -104,14 +105,65 @@ pub fn execute_plt_transaction<
     }
 }
 
-// todo remove pub as part of https://linear.app/concordium/issue/PSR-34/token-initialization when this type is no longer needed as part of tests
-pub struct TokenKernelExecutionImpl<'a, BSQ: BlockStateQuery, TE: TransactionExecution> {
-    pub block_state: &'a mut BSQ,
-    pub transaction_execution: &'a mut TE,
-    pub token: &'a BSQ::Token,
-    pub token_module_state: &'a mut BSQ::MutableTokenModuleState,
-    pub events: Vec<TransactionEvent>,
-    pub token_module_state_dirty: bool,
+/// Execute an update instruction payload modifying `block_state` accordingly.
+/// Returns the events produced if successful.
+pub fn execute_plt_update_instruction<BSO: BlockStateOperations>(
+    block_state: &mut BSO,
+    payload: CreatePlt,
+) -> Result<Vec<TransactionEvent>, TransactionRejectReason> {
+    let token =
+        block_state
+            .token_by_id(&payload.token_id)
+            .map_err(|_err: TokenNotFoundByIdError| {
+                TransactionRejectReason::NonExistentTokenId(payload.token_id)
+            })?;
+    let mut token_module_state = block_state.mutable_token_module_state(&token);
+
+    let transaction_context = TransactionContext {
+        sender: transaction_execution.sender_account(),
+    };
+
+    let mut kernel = TokenKernelExecutionImpl {
+        block_state,
+        transaction_execution,
+        token: &token,
+        token_module_state: &mut token_module_state,
+        token_module_state_dirty: false,
+        events: Default::default(),
+    };
+
+    match token_module::execute_token_update_transaction(
+        &mut kernel,
+        transaction_context,
+        payload.operations,
+    ) {
+        Ok(()) => {
+            let events = mem::take(&mut kernel.events);
+            let token_module_state_dirty = kernel.token_module_state_dirty;
+            drop(kernel);
+            if token_module_state_dirty {
+                block_state.set_token_module_state(&token, token_module_state);
+            }
+            Ok(events)
+        }
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
+            Err(TransactionRejectReason::TokenModule(reject_reason))
+        }
+        Err(TokenUpdateError::OutOfEnergy(_)) => Err(TransactionRejectReason::OutOfEnergy),
+        Err(TokenUpdateError::StateInvariantViolation(err)) => {
+            // todo handle as part of https://linear.app/concordium/issue/PSR-38/handle-broken-state-invariant
+            todo!("Handle state invariant error: {}", err)
+        }
+    }
+}
+
+struct TokenKernelExecutionImpl<'a, BSQ: BlockStateQuery, TE: TransactionExecution> {
+    block_state: &'a mut BSQ,
+    transaction_execution: &'a mut TE,
+    token: &'a BSQ::Token,
+    token_module_state: &'a mut BSQ::MutableTokenModuleState,
+    events: Vec<TransactionEvent>,
+    token_module_state_dirty: bool,
 }
 
 impl<BSQ: BlockStateQuery, TE: TransactionExecution> TokenKernelQueries

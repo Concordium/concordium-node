@@ -1,3 +1,8 @@
+// Allow items in this file to be unused. This is needed because it is imported from multiple
+// compile targets (each of the integration tests), and some of the targets may not use all
+// items in the file.
+#![allow(unused)]
+
 use std::collections::{HashMap, VecDeque};
 
 use concordium_base::base::{AccountIndex, Energy};
@@ -10,8 +15,8 @@ use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
-    TransferError,
+    TokenKernelOperations, TokenKernelQueries, TokenKernelTransactionExecution, TokenModuleEvent,
+    TokenStateInvariantError, TransferError,
 };
 use plt_token_module::token_module;
 
@@ -47,7 +52,6 @@ pub struct Account {
     pub balance: Option<RawTokenAmount>,
 }
 
-#[allow(unused)]
 impl KernelStub {
     /// Create new kernel stub
     pub fn new(decimals: u8) -> Self {
@@ -133,7 +137,6 @@ pub struct TokenInitTestParams {
     burnable: Option<bool>,
 }
 
-#[allow(unused)]
 impl TokenInitTestParams {
     pub fn allow_list(self) -> Self {
         Self {
@@ -244,12 +247,11 @@ impl TokenKernelOperations for KernelStub {
         amount: RawTokenAmount,
     ) -> Result<(), AmountNotRepresentableError> {
         let balance = self.accounts[account.0].balance.get_or_insert_default();
-        if *balance > RawTokenAmount(u64::MAX - amount.0) {
-            Err(AmountNotRepresentableError)
-        } else {
-            *balance = RawTokenAmount(balance.0 + amount.0);
-            Ok(())
-        }
+        balance.0 = balance
+            .0
+            .checked_add(amount.0)
+            .ok_or(AmountNotRepresentableError)?;
+        Ok(())
     }
 
     fn burn(
@@ -297,11 +299,31 @@ impl TokenKernelOperations for KernelStub {
         };
     }
 
-    fn tick_energy(&mut self, _energy: Energy) -> Result<(), OutOfEnergyError> {
+    fn log_token_event(&mut self, _event: TokenModuleEvent) {
         todo!()
     }
+}
 
-    fn log_token_event(&mut self, _event: TokenModuleEvent) {
+/// Token kernel transaction execution context for test.
+#[derive(Debug)]
+pub struct KernelTransactionExecutionTestImpl {
+    sender: AccountStubIndex,
+}
+
+impl KernelTransactionExecutionTestImpl {
+    pub fn with_sender(sender: AccountStubIndex) -> Self {
+        Self { sender }
+    }
+}
+
+impl TokenKernelTransactionExecution for KernelTransactionExecutionTestImpl {
+    type Account = AccountStubIndex;
+
+    fn sender_account(&self) -> Self::Account {
+        self.sender
+    }
+
+    fn tick_energy(&mut self, _energy: Energy) -> Result<(), OutOfEnergyError> {
         todo!()
     }
 }

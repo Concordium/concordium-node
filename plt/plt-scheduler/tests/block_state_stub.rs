@@ -1,3 +1,8 @@
+// Allow items in this file to be unused. This is needed because it is imported from multiple
+// compile targets (each of the integration tests), and some of the targets may not use all
+// items in the file.
+#![allow(unused)]
+
 use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -10,7 +15,6 @@ use plt_scheduler::block_state_interface::{
     BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
     UnderOrOverflowError,
 };
-use plt_scheduler::plt_scheduler::TokenKernelExecutionImpl;
 use plt_scheduler::scheduler::TransactionExecutionImpl;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 use plt_token_module::token_module;
@@ -62,7 +66,6 @@ struct AccountToken {
     balance: RawTokenAmount,
 }
 
-#[allow(unused)]
 impl BlockStateStub {
     /// Create block state stub
     pub fn new() -> Self {
@@ -175,7 +178,6 @@ pub struct TokenInitTestParams {
     burnable: Option<bool>,
 }
 
-#[allow(unused)]
 impl TokenInitTestParams {
     pub fn allow_list(self) -> Self {
         Self {

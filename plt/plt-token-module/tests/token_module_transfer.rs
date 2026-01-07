@@ -1,4 +1,4 @@
-use crate::kernel_stub::TokenInitTestParams;
+use crate::kernel_stub::{KernelTransactionExecutionTestImpl, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -10,7 +10,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Memo;
 use kernel_stub::KernelStub;
 use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
-use plt_token_module::token_module::{self, TransactionContext};
+use plt_token_module::token_module::{self};
 
 mod kernel_stub;
 mod utils;
@@ -27,15 +27,15 @@ fn test_transfer() {
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let context = TransactionContext { sender };
+    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
+        &mut execution,
         &mut stub,
-        context,
         RawCbor::from(cbor::cbor_encode(&operations)),
     )
     .expect("execute");
@@ -55,7 +55,7 @@ fn test_transfer_with_memo() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext { sender };
+    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
     let memo = Memo::try_from(cbor::cbor_encode("testvalue")).unwrap();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
@@ -63,8 +63,8 @@ fn test_transfer_with_memo() {
         memo: Some(CborMemo::Cbor(memo.clone())),
     })];
     token_module::execute_token_update_transaction(
+        &mut execution,
         &mut stub,
-        context,
         RawCbor::from(cbor::cbor_encode(&operations)),
     )
     .expect("execute");
@@ -83,15 +83,15 @@ fn test_transfer_self() {
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext { sender };
+    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&sender)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
+        &mut execution,
         &mut stub,
-        context,
         RawCbor::from(cbor::cbor_encode(&operations)),
     )
     .expect("execute");
@@ -108,15 +108,15 @@ fn test_transfer_insufficient_balance() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext { sender };
+    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
     let res = token_module::execute_token_update_transaction(
+        &mut execution,
         &mut stub,
-        context,
         RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
@@ -141,15 +141,15 @@ fn test_transfer_decimals_mismatch() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext { sender };
+    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
         memo: None,
     })];
     let res = token_module::execute_token_update_transaction(
+        &mut execution,
         &mut stub,
-        context,
         RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
@@ -170,15 +170,15 @@ fn test_transfer_to_non_existing_receiver() {
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let context = TransactionContext { sender };
+    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(NON_EXISTING_ACCOUNT),
         memo: None,
     })];
     let res = token_module::execute_token_update_transaction(
+        &mut execution,
         &mut stub,
-        context,
         RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
