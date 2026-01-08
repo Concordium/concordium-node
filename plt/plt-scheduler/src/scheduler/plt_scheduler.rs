@@ -118,6 +118,7 @@ pub fn execute_plt_update_instruction<BSO: BlockStateOperations>(
             let events = mem::take(&mut kernel.events);
             let token_module_state_dirty = kernel.token_module_state_dirty;
             drop(kernel);
+            block_state.increment_plt_update_sequence_number();
             if token_module_state_dirty {
                 block_state.set_token_module_state(&token, token_module_state);
             }

@@ -28,6 +28,8 @@ pub struct BlockStateStub {
     tokens: Vec<Token>,
     /// List of accounts in the stub.
     accounts: Vec<Account>,
+    /// PLT update instruction sequence number
+    plt_update_sequence_number: u64,
 }
 
 /// Internal representation of a token in [`BlockStateStub`].
@@ -72,6 +74,7 @@ impl BlockStateStub {
         Self {
             tokens: Default::default(),
             accounts: Default::default(),
+            plt_update_sequence_number: 0,
         }
     }
 
@@ -145,6 +148,10 @@ impl BlockStateStub {
             .or_default()
             .balance
             .0 += balance.0;
+    }
+
+    pub fn plt_update_sequence_number(&self) -> u64 {
+        self.plt_update_sequence_number
     }
 }
 
@@ -350,6 +357,10 @@ impl BlockStateOperations for BlockStateStub {
 
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
         self.accounts[account.0].tokens.entry(*token).or_default();
+    }
+
+    fn increment_plt_update_sequence_number(&mut self) {
+        self.plt_update_sequence_number += 1;
     }
 
     fn set_token_module_state(

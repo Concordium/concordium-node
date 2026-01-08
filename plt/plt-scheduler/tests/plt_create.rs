@@ -18,6 +18,7 @@ mod block_state_stub;
 #[test]
 fn test_plt_create() {
     let mut stub = BlockStateStub::new();
+    assert_eq!(stub.plt_update_sequence_number(), 0);
 
     let token_id: TokenId = "testtokenid".parse().unwrap();
 
@@ -45,6 +46,7 @@ fn test_plt_create() {
     });
     scheduler::execute_update_instruction(&mut stub, payload).expect("create and initialize token");
 
+    assert_eq!(stub.plt_update_sequence_number(), 1);
     let token = stub.token_by_id(&token_id).expect("created token");
     assert_eq!(stub.token_configuration(&token).token_id, token_id);
     assert_eq!(stub.token_configuration(&token).decimals, 4);
@@ -64,6 +66,7 @@ fn test_plt_create() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_create_with_minting() {
     let mut stub = BlockStateStub::new();
+    assert_eq!(stub.plt_update_sequence_number(), 0);
 
     let token_id: TokenId = "testtokenid".parse().unwrap();
 
@@ -91,6 +94,7 @@ fn test_plt_create_with_minting() {
     });
     scheduler::execute_update_instruction(&mut stub, payload).expect("create and initialize token");
 
+    assert_eq!(stub.plt_update_sequence_number(), 1);
     let token = stub.token_by_id(&token_id).expect("created token");
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(

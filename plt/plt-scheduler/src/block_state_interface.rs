@@ -205,6 +205,11 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// - `token` The token to update.
     fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account);
 
+    /// Increment the update sequence number for Protocol Level Tokens (PLT).
+    ///
+    /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
+    fn increment_plt_update_sequence_number(&mut self);
+
     /// Convert a mutable state to a persistent one and store it in the block state.
     ///
     /// To ensure this is future-proof, the mutable state should not be used after this call.
