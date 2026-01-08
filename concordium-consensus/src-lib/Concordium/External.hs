@@ -751,7 +751,7 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    29 | ResultEnergyExceeded                        | The stated energy of the transaction exceeds the maximum allowed                              | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    30 | ResultInsufficientFunds                     | The sender did not have enough funds to cover the costs.                                      | No       |
+-- |    30 | ResultInsufficientFunds                     | The sender/sponsor did not have enough funds to cover the costs.                              | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    31 | ResultDoubleSign                            | The consensus message is a result of malignant double signing.                                | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
