@@ -1,4 +1,5 @@
-//! Implementation of the protocol-level token module.
+//! Implementation of the protocol-level token module. The capabilities of the token module
+//! is defined by the token kernel, see [`TokenKernelOperations`].
 
 use crate::token_kernel_interface::*;
 use crate::token_module::update::TokenUpdateErrorInternal;
