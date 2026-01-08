@@ -87,7 +87,7 @@ where
 {
     match payload {
         UpdatePayload::CreatePlt(create_plt) => {
-            plt_scheduler::execute_plt_update_instruction(block_state, create_plt)
+            plt_scheduler::execute_plt_create_instruction(block_state, create_plt)
         }
         _ => Err(UpdateInstructionExecutionError::UnexpectedPayload),
     }

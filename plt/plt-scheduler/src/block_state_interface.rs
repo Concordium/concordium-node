@@ -61,6 +61,8 @@ pub trait BlockStateQuery {
     fn plt_list(&self) -> impl Iterator<Item = TokenId>;
 
     /// Get the [`TokenIndex`] associated with a [`TokenId`] (if it exists).
+    /// The token id will be normalized in the lookup process. This means that
+    /// the token id is case-insensitive.
     ///
     /// # Arguments
     ///

@@ -90,7 +90,7 @@ pub fn execute_plt_transaction<
 
 /// Execute an update instruction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful.
-pub fn execute_plt_update_instruction<BSO: BlockStateOperations>(
+pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: CreatePlt,
 ) -> Result<Vec<TransactionEvent>, UpdateInstructionExecutionError> {
@@ -100,7 +100,7 @@ pub fn execute_plt_update_instruction<BSO: BlockStateOperations>(
         decimals: payload.decimals,
     };
 
-    // todo ar token id, sequence and uniqueness
+    // todo ar token id,  uniqueness
 
     let token = block_state.create_token(token_configuration);
     let mut token_module_state = block_state.mutable_token_module_state(&token);
