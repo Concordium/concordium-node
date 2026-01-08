@@ -174,8 +174,6 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// - The `token` of the given configuration MUST NOT already be in use by a protocol-level
     ///   token, i.e. `assert_eq!(s.get_token_index(configuration.token_id), None)`.
-    /// - The [`TokenConfiguration`] MUST be valid and in particular the 'governance_account_index'
-    ///   MUST reference a valid account.
     fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token;
 
     /// Update the token balance of an account.
