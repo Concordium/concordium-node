@@ -6,7 +6,8 @@ use crate::block_state_interface::{
     TokenNotFoundByIdError, UnderOrOverflowError,
 };
 use crate::scheduler::{
-    TransactionEvent, TransactionRejectReason, UpdateInstructionExecutionError,
+    TransactionEvent, TransactionExecutionError, TransactionRejectReason,
+    UpdateInstructionExecutionError,
 };
 use crate::scheduler_interface::TransactionExecution;
 use crate::{block_state_interface, scheduler_interface};
@@ -60,13 +61,17 @@ pub fn execute_plt_transaction<
     transaction_execution: &mut TE,
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
-) -> Result<Vec<TransactionEvent>, TransactionRejectReason> {
-    let token =
-        block_state
-            .token_by_id(&payload.token_id)
-            .map_err(|_err: TokenNotFoundByIdError| {
-                TransactionRejectReason::NonExistentTokenId(payload.token_id)
-            })?;
+) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError> {
+    let token = match block_state.token_by_id(&payload.token_id) {
+        Ok(token) => token,
+        Err(err) => {
+            let _err: TokenNotFoundByIdError = err; // assert type of error
+            return Ok(Err(TransactionRejectReason::NonExistentTokenId(
+                payload.token_id,
+            )));
+        }
+    };
+
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
     let mut kernel_transaction_execution = TokenKernelTransactionExecutionImpl {
@@ -93,16 +98,15 @@ pub fn execute_plt_transaction<
             if token_module_state_dirty {
                 block_state.set_token_module_state(&token, token_module_state);
             }
-            Ok(events)
+            Ok(Ok(events))
         }
         Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-            Err(TransactionRejectReason::TokenModule(reject_reason))
+            Ok(Err(TransactionRejectReason::TokenModule(reject_reason)))
         }
-        Err(TokenUpdateError::OutOfEnergy(_)) => Err(TransactionRejectReason::OutOfEnergy),
-        Err(TokenUpdateError::StateInvariantViolation(err)) => {
-            // todo handle as part of https://linear.app/concordium/issue/PSR-38/handle-broken-state-invariant
-            todo!("Handle state invariant error: {}", err)
-        }
+        Err(TokenUpdateError::OutOfEnergy(_)) => Ok(Err(TransactionRejectReason::OutOfEnergy)),
+        Err(TokenUpdateError::StateInvariantViolation(err)) => Err(
+            TransactionExecutionError::TokenStateInvariantBroken(err.to_string()),
+        ),
     }
 }
 

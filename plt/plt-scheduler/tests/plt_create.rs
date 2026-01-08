@@ -57,8 +57,6 @@ fn test_plt_create() {
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(0)
     );
-
-    // todo ar query token info
 }
 
 /// Test create protocol-level token.

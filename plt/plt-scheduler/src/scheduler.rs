@@ -66,6 +66,8 @@ impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> 
 pub enum TransactionExecutionError {
     #[error("Unexpected transaction payload that cannot be handled")]
     UnexpectedPayload,
+    #[error("State invariant broken: {0}")]
+    TokenStateInvariantBroken(String),
 }
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
@@ -85,11 +87,9 @@ where
     // handle energy as part of https://linear.app/concordium/issue/PSR-37/energy-charge
 
     match payload {
-        Payload::TokenUpdate { payload } => Ok(plt_scheduler::execute_plt_transaction(
-            &mut execution,
-            block_state,
-            payload,
-        )),
+        Payload::TokenUpdate { payload } => {
+            plt_scheduler::execute_plt_transaction(&mut execution, block_state, payload)
+        }
         _ => Err(TransactionExecutionError::UnexpectedPayload),
     }
 }
