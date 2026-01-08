@@ -42,8 +42,7 @@ pub fn execute_plt_transaction<
 ) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError> {
     let token = match block_state.token_by_id(&payload.token_id) {
         Ok(token) => token,
-        Err(err) => {
-            let _err: TokenNotFoundByIdError = err; // assert type of error
+        Err(TokenNotFoundByIdError(_)) => {
             return Ok(Err(TransactionRejectReason::NonExistentTokenId(
                 payload.token_id,
             )));
