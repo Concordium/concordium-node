@@ -18,7 +18,9 @@ pub enum RawTokenAmountDelta {
 /// Static configuration for a protocol-level token.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TokenConfiguration {
-    /// The token ID.
+    /// The token ID in its canonical form. Token IDs are case-insensitive when compared,
+    /// but the canonical token ID preserves the original casing specified when
+    /// the token was created.
     pub token_id: TokenId,
     /// The token module reference.
     pub module_ref: TokenModuleRef,
@@ -60,9 +62,8 @@ pub trait BlockStateQuery {
     /// list.
     fn plt_list(&self) -> impl Iterator<Item = TokenId>;
 
-    /// Get the [`TokenIndex`] associated with a [`TokenId`] (if it exists).
-    /// The token id will be normalized in the lookup process. This means that
-    /// the token id is case-insensitive.
+    /// Get the token associated with a [`TokenId`] (if it exists).
+    /// The token ID is case-insensitive when looking up tokens by token ID.
     ///
     /// # Arguments
     ///
