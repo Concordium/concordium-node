@@ -22,10 +22,11 @@ mod utils;
 #[test]
 fn test_plt_transfer() {
     let mut stub = BlockStateStub::new();
-    let (token, _) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, _) = stub.init_token(TokenInitTestParams::default(), 4, None);
     let account1 = stub.create_account();
     let account2 = stub.create_account();
-    stub.set_account_balance(account1, token, RawTokenAmount(5000));
+    stub.increment_account_balance(account1, token, RawTokenAmount(5000));
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
@@ -42,6 +43,7 @@ fn test_plt_transfer() {
             .expect("transaction internal error")
             .expect("transfer");
 
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
         stub.account_token_balance(&account1, &token),
         RawTokenAmount(4000)
@@ -64,10 +66,11 @@ fn test_plt_transfer() {
 #[test]
 fn test_plt_transfer_reject() {
     let mut stub = BlockStateStub::new();
-    let (token, _) = stub.init_token(TokenInitTestParams::default(), 4);
+    let (token, _) = stub.init_token(TokenInitTestParams::default(), 4, None);
     let account1 = stub.create_account();
     let account2 = stub.create_account();
-    stub.set_account_balance(account1, token, RawTokenAmount(5000));
+    stub.increment_account_balance(account1, token, RawTokenAmount(5000));
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
 
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 4),
@@ -84,6 +87,7 @@ fn test_plt_transfer_reject() {
             .expect("transaction internal error")
             .expect_err("transfer reject");
 
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
         stub.account_token_balance(&account1, &token),
         RawTokenAmount(5000)
@@ -105,8 +109,7 @@ fn test_plt_transfer_reject() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_mint() {
     let mut stub = BlockStateStub::new();
-    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4);
-    stub.set_account_balance(gov_account, token, RawTokenAmount(5000));
+    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4, None);
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 4),
@@ -121,9 +124,10 @@ fn test_plt_mint() {
             .expect("transaction internal error")
             .expect("mint");
 
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(1000));
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
-        RawTokenAmount(6000)
+        RawTokenAmount(1000)
     );
 
     assert_eq!(events.len(), 1);
@@ -138,8 +142,11 @@ fn test_plt_mint() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_mint_reject() {
     let mut stub = BlockStateStub::new();
-    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4);
-    stub.set_account_balance(gov_account, token, RawTokenAmount(5000));
+    let (token, gov_account) = stub.init_token(
+        TokenInitTestParams::default(),
+        4,
+        Some(RawTokenAmount(5000)),
+    );
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(u64::MAX, 4),
@@ -154,6 +161,7 @@ fn test_plt_mint_reject() {
             .expect("transaction internal error")
             .expect_err("mint reject");
 
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(5000)
@@ -171,8 +179,11 @@ fn test_plt_mint_reject() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_burn() {
     let mut stub = BlockStateStub::new();
-    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4);
-    stub.set_account_balance(gov_account, token, RawTokenAmount(5000));
+    let (token, gov_account) = stub.init_token(
+        TokenInitTestParams::default(),
+        4,
+        Some(RawTokenAmount(5000)),
+    );
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 4),
@@ -187,6 +198,7 @@ fn test_plt_burn() {
             .expect("transaction internal error")
             .expect("burn");
 
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(4000));
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(4000)
@@ -204,8 +216,11 @@ fn test_plt_burn() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_burn_reject() {
     let mut stub = BlockStateStub::new();
-    let (token, gov_account) = stub.init_token(TokenInitTestParams::default(), 4);
-    stub.set_account_balance(gov_account, token, RawTokenAmount(5000));
+    let (token, gov_account) = stub.init_token(
+        TokenInitTestParams::default(),
+        4,
+        Some(RawTokenAmount(5000)),
+    );
 
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(10000, 4),
@@ -220,6 +235,7 @@ fn test_plt_burn_reject() {
             .expect("transaction internal error")
             .expect_err("burn reject");
 
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(5000)

@@ -2,7 +2,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, TokenId, TokenModuleInitializationParameters,
+    CborHolderAccount, MetadataUrl, TokenAmount, TokenId, TokenModuleInitializationParameters,
 };
 use plt_scheduler::TOKEN_MODULE_REF;
 use plt_scheduler::block_state_interface::{
@@ -95,6 +95,7 @@ impl BlockStateStub {
         &mut self,
         params: TokenInitTestParams,
         decimals: u8,
+        initial_supply: Option<RawTokenAmount>,
     ) -> (TokenStubIndex, AccountStubIndex) {
         // Add the token to the stub
         let stub_index = TokenStubIndex(self.tokens.len());
@@ -121,7 +122,7 @@ impl BlockStateStub {
             governance_account: Some(gov_holder_account.clone()),
             allow_list: params.allow_list,
             deny_list: params.deny_list,
-            initial_supply: None,
+            initial_supply: initial_supply.map(|raw| TokenAmount::from_raw(raw.0, decimals)),
             mintable: params.mintable,
             burnable: params.burnable,
             additional: Default::default(),
@@ -152,18 +153,20 @@ impl BlockStateStub {
         (stub_index, gov_account)
     }
 
-    /// Set account balance in the stub
-    pub fn set_account_balance(
+    /// Add amount to account balance in the stub
+    pub fn increment_account_balance(
         &mut self,
         account: AccountStubIndex,
         token: TokenStubIndex,
         balance: RawTokenAmount,
     ) {
+        let diff = self.tokens[token.0].circulating_supply.0 += balance.0;
         self.accounts[account.0]
             .tokens
             .entry(token)
             .or_default()
-            .balance = balance;
+            .balance
+            .0 += balance.0;
     }
 }
 
