@@ -1,43 +1,15 @@
 //! General scheduler logic that is not specific to protocol-level tokens
 
 use crate::block_state_interface::BlockStateOperations;
-use crate::plt_scheduler;
-use crate::plt_scheduler::{TokenSupplyUpdateEvent, TokenTransferEvent};
-use crate::scheduler_interface::{OutOfEnergyError, TransactionExecution};
+use crate::events::TransactionEvent;
+use crate::reject_reasons::TransactionRejectReason;
+use crate::scheduler::scheduler_interface::{OutOfEnergyError, TransactionExecution};
 use concordium_base::base::Energy;
-use concordium_base::protocol_level_tokens::TokenId;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
-use plt_token_module::token_kernel_interface::TokenModuleEvent;
-use plt_token_module::token_module::TokenModuleRejectReason;
 
-/// A reason for why a transaction was rejected. Rejected means included in a
-/// block, but the desired action was not achieved. The only effect of a
-/// rejected transaction is paying for the energy used.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub enum TransactionRejectReason {
-    /// We ran of out energy to process this transaction.
-    OutOfEnergy,
-    /// The provided identifier does not match a token currently on chain.
-    NonExistentTokenId(TokenId),
-    /// The token module rejected the transaction.
-    TokenModule(TokenModuleRejectReason),
-}
-
-/// Token event. This is an observable effect on the token state.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum TransactionEvent {
-    /// An event emitted by the token module.
-    TokenModule(TokenModuleEvent),
-    /// An event emitted when a transfer of tokens is performed.
-    TokenTransfer(TokenTransferEvent),
-    /// An event emitted when the token supply is updated by minting tokens to a
-    /// token holder.
-    TokenMint(TokenSupplyUpdateEvent),
-    /// An event emitted when the token supply is updated by burning tokens from
-    /// the balance of a token holder.
-    TokenBurn(TokenSupplyUpdateEvent),
-}
+mod plt_scheduler;
+mod scheduler_interface;
 
 /// Tracks the energy remaining and some context during the execution.
 struct TransactionExecutionImpl<Account> {
@@ -99,6 +71,8 @@ where
 pub enum UpdateInstructionExecutionError {
     #[error("Unexpected update instruction payload that cannot be handled")]
     UnexpectedPayload,
+    #[error("Update instruction failed: {0}")]
+    UpdateInstructionFailed(String),
 }
 
 /// Execute an update instruction payload modifying `block_state` accordingly.

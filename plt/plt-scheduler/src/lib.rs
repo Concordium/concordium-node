@@ -2,12 +2,12 @@ use concordium_base::protocol_level_tokens::TokenModuleRef;
 
 mod block_state;
 pub mod block_state_interface;
+pub mod events;
 #[cfg(feature = "ffi")]
 mod ffi;
 pub mod plt_queries;
-pub mod plt_scheduler;
+pub mod reject_reasons;
 pub mod scheduler;
-pub mod scheduler_interface;
 
 /// Module ref for the currently implemented token module. It is the SHA-256 of "TokenModuleV0"
 pub const TOKEN_MODULE_REF: TokenModuleRef = TokenModuleRef::new([

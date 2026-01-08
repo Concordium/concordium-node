@@ -1,4 +1,5 @@
-//! Token kernel interface for protocol-level tokens. The kernel handles all operations affecting token
+//! Token kernel interface for protocol-level tokens. This is the interface seen
+//! by the token module. The kernel handles all operations affecting token
 //! balance and supply and manages the state and events related to balances and supply.
 
 use concordium_base::base::{AccountIndex, Energy};

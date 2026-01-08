@@ -13,9 +13,11 @@ use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MetadataUrl, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
     TokenModuleCborTypeDiscriminator, TokenModuleInitializationParameters,
-    TokenModuleRejectReasonEnum, TokenModuleState, TokenOperation,
+    TokenModuleRejectReasonEnum, TokenOperation,
 };
 
+mod initialize;
+mod queries;
 mod update;
 
 /// Details provided by the token module in the event of rejecting a
@@ -156,68 +158,7 @@ pub fn initialize_token(
 ) -> Result<(), TokenInitializationError> {
     let init_params: TokenModuleInitializationParameters =
         cbor_decode(&initialization_parameters_cbor)?;
-    initialize_token_impl(kernel, init_params)
-}
-
-fn initialize_token_impl(
-    kernel: &mut impl TokenKernelOperations,
-    init_params: TokenModuleInitializationParameters,
-) -> Result<(), TokenInitializationError> {
-    if !init_params.additional.is_empty() {
-        return Err(TokenInitializationError::InvalidInitializationParameters(
-            format!(
-                "Unknown additional parameters: {}",
-                init_params
-                    .additional
-                    .keys()
-                    .map(|k| k.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        ));
-    }
-    let name = init_params.name.ok_or_else(|| {
-        TokenInitializationError::InvalidInitializationParameters(
-            "Token name is missing".to_string(),
-        )
-    })?;
-    let metadata = init_params.metadata.ok_or_else(|| {
-        TokenInitializationError::InvalidInitializationParameters(
-            "Token metadata is missing".to_string(),
-        )
-    })?;
-    let governance_account = init_params.governance_account.ok_or_else(|| {
-        TokenInitializationError::InvalidInitializationParameters(
-            "Token governance account is missing".to_string(),
-        )
-    })?;
-    kernel.set_module_state(STATE_KEY_NAME, Some(name.into()));
-    let encoded_metadata = cbor::cbor_encode(&metadata);
-    kernel.set_module_state(STATE_KEY_METADATA, Some(encoded_metadata));
-    if init_params.allow_list == Some(true) {
-        kernel.set_module_state(STATE_KEY_ALLOW_LIST, Some(vec![]));
-    }
-    if init_params.deny_list == Some(true) {
-        kernel.set_module_state(STATE_KEY_DENY_LIST, Some(vec![]));
-    }
-    if init_params.mintable == Some(true) {
-        kernel.set_module_state(STATE_KEY_MINTABLE, Some(vec![]));
-    }
-    if init_params.burnable == Some(true) {
-        kernel.set_module_state(STATE_KEY_BURNABLE, Some(vec![]));
-    }
-
-    let governance_account = kernel.account_by_address(&governance_account.address)?;
-    let governance_account_index = kernel.account_index(&governance_account);
-    kernel.set_module_state(
-        STATE_KEY_GOVERNANCE_ACCOUNT,
-        Some(common::to_bytes(&governance_account_index.index)),
-    );
-    if let Some(initial_supply) = init_params.initial_supply {
-        let mint_amount = to_raw_token_amount(kernel, initial_supply)?;
-        kernel.mint(&governance_account, mint_amount)?;
-    }
-    Ok(())
+    initialize::initialize_token(kernel, init_params)
 }
 
 /// Execute a token update transaction using the [`TokenKernelOperations`] implementation on `host` to
@@ -408,36 +349,7 @@ fn get_governance_account_index(
 pub fn query_token_module_state<TK: TokenKernelQueries>(
     kernel: &TK,
 ) -> Result<RawCbor, QueryTokenModuleError> {
-    let name = get_name(kernel)?;
-    let metadata = get_metadata(kernel)?;
-    let allow_list = has_allow_list(kernel);
-    let deny_list = has_deny_list(kernel);
-    let mintable = is_mintable(kernel);
-    let burnable = is_burnable(kernel);
-    let paused = is_paused(kernel);
-
-    let governance_account_index = get_governance_account_index(kernel)?;
-    let governance_account = kernel
-        .account_by_index(governance_account_index)
-        .map_err(|_| {
-            TokenModuleStateInvariantError(format!(
-                "Stored governance account with index {} does not exist",
-                governance_account_index
-            ))
-        })?;
-    let governance_account_address = kernel.account_canonical_address(&governance_account);
-
-    let state = TokenModuleState {
-        name: Some(name),
-        metadata: Some(metadata),
-        governance_account: Some(CborHolderAccount::from(governance_account_address)),
-        allow_list: Some(allow_list),
-        deny_list: Some(deny_list),
-        mintable: Some(mintable),
-        burnable: Some(burnable),
-        paused: Some(paused),
-        additional: Default::default(),
-    };
+    let state = queries::query_token_module_state(kernel)?;
 
     Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }

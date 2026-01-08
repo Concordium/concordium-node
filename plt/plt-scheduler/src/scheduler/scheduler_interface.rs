@@ -1,3 +1,5 @@
+//! Interface to the scheduler seen by lower level module, like the protocol-level tokens scheduler.
+
 use concordium_base::base::Energy;
 
 /// Operations and context related to transaction execution.

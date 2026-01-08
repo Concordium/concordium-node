@@ -11,8 +11,8 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
+use plt_scheduler::events::TransactionEvent;
 use plt_scheduler::scheduler;
-use plt_scheduler::scheduler::TransactionEvent;
 use plt_token_module::token_kernel_interface::RawTokenAmount;
 
 mod block_state_stub;

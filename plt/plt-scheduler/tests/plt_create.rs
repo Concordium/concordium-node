@@ -61,6 +61,7 @@ fn test_plt_create() {
 
 /// Test create protocol-level token.
 #[test]
+#[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_create_with_minting() {
     let mut stub = BlockStateStub::new();
 

@@ -6,11 +6,13 @@ use crate::block_state_interface::{
     TokenNotFoundByIdError, UnderOrOverflowError,
 };
 use crate::scheduler::{
-    TransactionEvent, TransactionExecutionError, TransactionRejectReason,
-    UpdateInstructionExecutionError,
+    TransactionExecutionError, TransactionRejectReason, UpdateInstructionExecutionError,
+    scheduler_interface,
 };
-use crate::scheduler_interface::TransactionExecution;
-use crate::{block_state_interface, scheduler_interface};
+
+use crate::block_state_interface;
+use crate::events::{TokenSupplyUpdateEvent, TokenTransferEvent, TransactionEvent};
+use crate::scheduler::scheduler_interface::TransactionExecution;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
@@ -25,30 +27,6 @@ use plt_token_module::token_kernel_interface::{
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
 use std::mem;
-
-/// An event emitted when a transfer of tokens from `from` to `to` is performed.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct TokenTransferEvent {
-    /// The token holder from which the tokens are transferred.
-    pub from: AccountAddress,
-    /// The token holder to which the tokens are transferred.
-    pub to: AccountAddress,
-    /// The amount of tokens transferred.
-    pub amount: TokenAmount,
-    /// An optional memo field that can be used to attach a message to the token
-    /// transfer.
-    pub memo: Option<Memo>,
-}
-
-/// An event emitted when the token supply is updated, i.e. by minting/burning
-/// tokens to/from the balance of the `target`.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TokenSupplyUpdateEvent {
-    /// The token holder the balance update is performed on.
-    pub target: AccountAddress,
-    /// The balance difference to be applied to the target.
-    pub amount: TokenAmount,
-}
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
 /// Returns the events produced if successful otherwise a reject reason.
@@ -145,10 +123,9 @@ pub fn execute_plt_update_instruction<BSO: BlockStateOperations>(
             }
             Ok(events)
         }
-        Err(_err) => {
-            // todo ar error handling
-            todo!()
-        }
+        Err(err) => Err(UpdateInstructionExecutionError::UpdateInstructionFailed(
+            err.to_string(),
+        )),
     }
 }
 
