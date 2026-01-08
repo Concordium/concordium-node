@@ -4,10 +4,12 @@
 
 use crate::block_state_stub::BlockStateStub;
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::{CborHolderAccount, MetadataUrl, TokenAmount, TokenId, TokenModuleInitializationParameters};
+use concordium_base::protocol_level_tokens::{
+    CborHolderAccount, MetadataUrl, TokenAmount, TokenId, TokenModuleInitializationParameters,
+};
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
-use plt_scheduler::{scheduler, TOKEN_MODULE_REF};
+use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_token_module::token_kernel_interface::RawTokenAmount;
 
 mod block_state_stub;
@@ -46,9 +48,15 @@ fn test_plt_create() {
     let token = stub.token_by_id(&token_id).expect("created token");
     assert_eq!(stub.token_configuration(&token).token_id, token_id);
     assert_eq!(stub.token_configuration(&token).decimals, 4);
-    assert_eq!(stub.token_configuration(&token).module_ref, TOKEN_MODULE_REF);
+    assert_eq!(
+        stub.token_configuration(&token).module_ref,
+        TOKEN_MODULE_REF
+    );
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(0));
-    assert_eq!(stub.account_token_balance(&gov_account, &token), RawTokenAmount(0));
+    assert_eq!(
+        stub.account_token_balance(&gov_account, &token),
+        RawTokenAmount(0)
+    );
 
     // todo ar query token info
 }
@@ -86,7 +94,10 @@ fn test_plt_create_with_minting() {
 
     let token = stub.token_by_id(&token_id).expect("created token");
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
-    assert_eq!(stub.account_token_balance(&gov_account, &token), RawTokenAmount(5000));
+    assert_eq!(
+        stub.account_token_balance(&gov_account, &token),
+        RawTokenAmount(5000)
+    );
 }
 
 // todo ar test duplicate token id and other errors?
