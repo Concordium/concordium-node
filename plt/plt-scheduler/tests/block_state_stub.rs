@@ -160,7 +160,7 @@ impl BlockStateStub {
         token: TokenStubIndex,
         balance: RawTokenAmount,
     ) {
-        let diff = self.tokens[token.0].circulating_supply.0 += balance.0;
+        self.tokens[token.0].circulating_supply.0 += balance.0;
         self.accounts[account.0]
             .tokens
             .entry(token)
