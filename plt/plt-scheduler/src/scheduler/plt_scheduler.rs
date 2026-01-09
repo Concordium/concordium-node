@@ -1,6 +1,7 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
+use crate::block_state_interface;
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenConfiguration,
     TokenNotFoundByIdError, UnderOrOverflowError,
@@ -10,7 +11,6 @@ use crate::scheduler::{
 };
 use crate::types::events::{TokenBurnEvent, TokenMintEvent, TokenTransferEvent, TransactionEvent};
 use crate::types::reject_reasons::TokenModuleRejectReason;
-use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
@@ -23,8 +23,8 @@ use plt_token_module::token_kernel_interface::{
     TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
     TokenTransferError,
 };
-use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
+use plt_token_module::{TOKEN_MODULE_REF, token_module};
 use std::mem;
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
