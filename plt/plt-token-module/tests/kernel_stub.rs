@@ -234,7 +234,7 @@ impl TokenKernelQueries for KernelStub {
 }
 
 impl TokenKernelOperations for KernelStub {
-    fn touch(&mut self, account: &Self::Account) {
+    fn touch_account(&mut self, account: &Self::Account) {
         self.accounts[account.0].balance.get_or_insert_default();
     }
 

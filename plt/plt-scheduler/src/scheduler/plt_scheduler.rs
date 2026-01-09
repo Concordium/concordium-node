@@ -223,7 +223,7 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'_, 
 }
 
 impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
-    fn touch(&mut self, account: &Self::Account) {
+    fn touch_account(&mut self, account: &Self::Account) {
         self.block_state.touch_token_account(self.token, account);
     }
 

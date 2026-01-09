@@ -1,17 +1,44 @@
-use crate::token_kernel_interface::TokenKernelOperations;
-use crate::token_module;
-use crate::token_module::{
+use crate::module_state::{
     KernelOperationsExt, STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST,
     STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME,
-    TokenInitializationError,
 };
+use crate::token_kernel_interface::{
+    AccountNotFoundByAddressError, AmountNotRepresentableError, TokenKernelOperations,
+};
+use crate::token_module::TokenAmountDecimalsMismatchError;
+use crate::util;
 use concordium_base::common;
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::TokenModuleInitializationParameters;
+use concordium_base::common::cbor::CborSerializationError;
+use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleInitializationParameters};
+
+/// Represents the reasons why [`initialize_token`] can fail.
+#[derive(Debug, thiserror::Error)]
+pub enum TokenInitializationError {
+    #[error("Invalid token initialization parameters: {0}")]
+    InvalidInitializationParameters(String),
+    #[error("CBOR serialization error during token initialization: {0}")]
+    CborSerialization(#[from] CborSerializationError),
+    #[error("The given governance account does not exist: {0}")]
+    GovernanceAccountDoesNotExist(#[from] AccountNotFoundByAddressError),
+    #[error("The initial mint amount has wrong number of decimals: {0}")]
+    MintAmountDecimalsMismatch(#[from] TokenAmountDecimalsMismatchError),
+    #[error("The initial mint amount is not representable: {0}")]
+    MintAmountNotRepresentable(#[from] AmountNotRepresentableError),
+}
 
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
 /// (if necessary) minting the initial supply to the token governance account.
 pub fn initialize_token(
+    kernel: &mut impl TokenKernelOperations,
+    initialization_parameters_cbor: RawCbor,
+) -> Result<(), TokenInitializationError> {
+    let init_params: TokenModuleInitializationParameters =
+        util::cbor_decode(&initialization_parameters_cbor)?;
+    initialize_token_impl(kernel, init_params)
+}
+
+fn initialize_token_impl(
     kernel: &mut impl TokenKernelOperations,
     init_params: TokenModuleInitializationParameters,
 ) -> Result<(), TokenInitializationError> {
@@ -66,7 +93,7 @@ pub fn initialize_token(
         Some(common::to_bytes(&governance_account_index.index)),
     );
     if let Some(initial_supply) = init_params.initial_supply {
-        let mint_amount = token_module::to_raw_token_amount(kernel, initial_supply)?;
+        let mint_amount = util::to_raw_token_amount(kernel, initial_supply)?;
         kernel.mint(&governance_account, mint_amount)?;
     }
     Ok(())

@@ -31,7 +31,9 @@ pub struct RawTokenAmount(pub u64);
 #[derive(Debug, thiserror::Error)]
 #[error("Insufficient balance on account")]
 pub struct InsufficientBalanceError {
+    /// Balance available on account
     pub available: RawTokenAmount,
+    /// Balance required on account
     pub required: RawTokenAmount,
 }
 
@@ -114,7 +116,7 @@ pub trait TokenKernelQueries {
 /// kernel.
 pub trait TokenKernelOperations: TokenKernelQueries {
     /// Update the balance of the given account to zero if it didn't have a balance before.
-    fn touch(&mut self, account: &Self::Account);
+    fn touch_account(&mut self, account: &Self::Account);
 
     /// Mint a specified amount and deposit it in the account.
     ///
