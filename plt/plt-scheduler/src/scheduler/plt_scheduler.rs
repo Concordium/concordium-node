@@ -1,7 +1,6 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
-use crate::block_state_interface;
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenConfiguration,
     TokenNotFoundByIdError, UnderOrOverflowError,
@@ -10,6 +9,7 @@ use crate::scheduler::{
     TransactionExecutionError, TransactionRejectReason, UpdateInstructionExecutionError,
 };
 use crate::types::events::{TokenSupplyUpdateEvent, TokenTransferEvent, TransactionEvent};
+use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
@@ -103,7 +103,12 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
         ));
     }
 
-    // todo ar token module ref
+    // Check token module ref matches the implemented token module
+    if payload.token_module != TOKEN_MODULE_REF {
+        return Err(UpdateInstructionExecutionError::UnknownTokenModuleRef(
+            payload.token_module,
+        ));
+    }
 
     let token_configuration = TokenConfiguration {
         token_id: payload.token_id,
