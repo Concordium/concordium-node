@@ -58,6 +58,7 @@ pub fn execute_plt_transaction<
         events: Default::default(),
     };
 
+    // Call token module to execute operations
     let token_update_result = token_module::execute_token_update_transaction(
         transaction_execution,
         &mut kernel,
@@ -96,9 +97,9 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
         decimals: payload.decimals,
     };
 
-    // todo ar token id,  uniqueness
-
+    // Create token in block state
     let token = block_state.create_token(token_configuration);
+
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
     let mut kernel = TokenKernelOperationsImpl {
@@ -109,6 +110,7 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
         events: Default::default(),
     };
 
+    // Initialize token in token module
     let token_initialize_result =
         token_module::initialize_token(&mut kernel, payload.initialization_parameters);
 
@@ -123,7 +125,7 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
             }
             Ok(events)
         }
-        Err(err) => Err(UpdateInstructionExecutionError::UpdateInstructionFailed(
+        Err(err) => Err(UpdateInstructionExecutionError::ModuleTokenInitializationFailed(
             err.to_string(),
         )),
     }

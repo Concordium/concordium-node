@@ -5,6 +5,7 @@ use crate::block_state_interface::BlockStateOperations;
 use crate::types::events::TransactionEvent;
 use crate::types::reject_reasons::TransactionRejectReason;
 use concordium_base::base::Energy;
+use concordium_base::protocol_level_tokens::TokenId;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
@@ -73,8 +74,10 @@ where
 pub enum UpdateInstructionExecutionError {
     #[error("Unexpected update instruction payload that cannot be handled")]
     UnexpectedPayload,
-    #[error("Update instruction failed: {0}")]
-    UpdateInstructionFailed(String),
+    #[error("Initialization of token in token module failed: {0}")]
+    ModuleTokenInitializationFailed(String),
+    #[error("Token with specified id already exists: {0}")]
+    TokenIdAlreadyUsed(TokenId),
 }
 
 /// Execute an update instruction payload modifying `block_state` accordingly.
