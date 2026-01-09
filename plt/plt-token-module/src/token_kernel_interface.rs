@@ -1,0 +1,151 @@
+//! Token kernel interface for protocol-level tokens. The kernel handles all operations affecting token
+//! balance and supply and manages the state and events related to balances and supply.
+
+use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_tokens::TokenModuleEventType;
+use concordium_base::transactions::Memo;
+
+pub type StateKey = Vec<u8>;
+pub type StateValue = Vec<u8>;
+
+/// Token amount without decimals specified. The token amount represented by
+/// this type must always be represented with the number of decimals
+/// the token natively has.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
+pub struct RawTokenAmount(pub u64);
+
+/// The account has insufficient balance.
+#[derive(Debug)]
+pub struct InsufficientBalanceError;
+
+/// Update to state key failed because the key was locked by an iterator.
+#[derive(Debug, thiserror::Error)]
+#[error("State key is locked")]
+pub struct LockedStateKeyError;
+
+/// Mint exceed the representable amount.
+#[derive(Debug, thiserror::Error)]
+#[error("Amount not representable")]
+pub struct AmountNotRepresentableError;
+
+/// Energy limit for execution reached.
+#[derive(Debug, thiserror::Error)]
+#[error("Out of energy")]
+pub struct OutOfEnergyError;
+
+/// Queries provided by the token kernel.
+pub trait TokenKernelQueries {
+    /// The type for the account object.
+    ///
+    /// The account is guaranteed to exist on chain, when holding an instance of this type.
+    type Account;
+
+    /// Lookup the account using an account address.
+    fn account_by_address(&self, address: &AccountAddress) -> Option<Self::Account>;
+
+    /// Lookup the account using an account index.
+    fn account_by_index(&self, index: AccountIndex) -> Option<Self::Account>;
+
+    /// Get the account index for the account.
+    fn account_index(&self, account: &Self::Account) -> AccountIndex;
+
+    /// Get the canonical account address of the account, i.e. the address used as part of the
+    /// credential deployment and not an alias.
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress;
+
+    /// Get the token balance of the account.
+    fn account_balance(&self, account: &Self::Account) -> RawTokenAmount;
+
+    /// The current token circulation supply.
+    fn circulating_supply(&self) -> RawTokenAmount;
+
+    /// The number of decimals used in the presentation of the token amount.
+    fn decimals(&self) -> u8;
+
+    /// Lookup a key in the token state.
+    fn get_token_state(&self, key: StateKey) -> Option<StateValue>;
+}
+
+/// Operations provided by the token kernel.
+pub trait TokenKernelOperations: TokenKernelQueries {
+    /// Update the balance of the given account to zero if it didn't have a balance before.
+    ///
+    /// Returns `true` if the balance wasn't present on the given account and `false` otherwise.
+    fn touch(&mut self, account: &Self::Account) -> bool;
+
+    /// Mint a specified amount and deposit it in the account.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenMintEvent` in the logs.
+    ///
+    /// # Errors
+    ///
+    /// - [`AmountNotRepresentableError`] The total supply would exceed the representable amount.
+    fn mint(
+        &mut self,
+        account: &Self::Account,
+        amount: RawTokenAmount,
+    ) -> Result<(), AmountNotRepresentableError>;
+
+    /// Burn a specified amount from the account.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenBurnEvent` in the logs.
+    ///
+    /// # Errors
+    ///
+    /// - [`InsufficientBalanceError`] The sender has insufficient balance.
+    fn burn(
+        &mut self,
+        account: &Self::Account,
+        amount: RawTokenAmount,
+    ) -> Result<(), InsufficientBalanceError>;
+
+    /// Transfer a token amount from one account to another, with an optional memo.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenTransferEvent` in the logs.
+    ///
+    /// # Errors
+    ///
+    /// - [`InsufficientBalanceError`] The sender has insufficient balance.
+    fn transfer(
+        &mut self,
+        from: &Self::Account,
+        to: &Self::Account,
+        amount: RawTokenAmount,
+        memo: Option<Memo>,
+    ) -> Result<(), InsufficientBalanceError>;
+
+    /// Set or clear a value in the token state at the corresponding key.
+    ///
+    /// Returns whether there was an existing entry.
+    ///
+    /// # Errors
+    ///
+    /// - [`LockedStateKeyError`] if the update failed because the key was locked by an iterator.
+    fn set_token_state(
+        &mut self,
+        key: StateKey,
+        value: Option<StateValue>,
+    ) -> Result<bool, LockedStateKeyError>;
+
+    /// Reduce the available energy for the PLT module execution.
+    ///
+    /// If the available energy is smaller than the given amount, an
+    /// "out of energy" error will be returned, in which case the caller
+    /// should stop execution and propagate the error upwards.
+    /// The energy is charged in any case (also in case of failure).
+    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError>;
+
+    /// Log a token module event with the specified type and details.
+    ///
+    /// # Events
+    ///
+    /// This will produce a `TokenModuleEvent` in the logs.
+    fn log_token_event(&mut self, event: TokenModuleEventType);
+}

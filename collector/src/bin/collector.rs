@@ -11,7 +11,11 @@ use tonic::transport::{channel::Channel, ClientTlsConfig};
 #[macro_use]
 extern crate log;
 
-#[allow(clippy::large_enum_variant, clippy::enum_variant_names)]
+#[allow(
+    clippy::large_enum_variant,
+    clippy::enum_variant_names,
+    clippy::doc_overindented_list_items
+)]
 mod grpc {
     mod plt {
         tonic::include_proto!("concordium.v2.plt");
@@ -208,7 +212,7 @@ async fn main() {
 }
 
 #[allow(clippy::cognitive_complexity)]
-async fn collect_data<'a>(
+async fn collect_data(
     node_name: NodeName,
     grpc_host: String,
     conf: &ConfigCli,

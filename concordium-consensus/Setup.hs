@@ -4,52 +4,74 @@ import Distribution.Simple.LocalBuildInfo
 import Distribution.Simple.Setup
 import Distribution.Simple.Utils
 import Distribution.System
+import Distribution.Verbosity
 
 import System.Directory
 import System.Environment
 
 import Data.Maybe
 
-smartContractRoot = "../concordium-base/smart-contracts"
+-- | Notify and execute a command, if fails exit with the same exit code.
+runCmd :: Verbosity -> String -> IO ()
+runCmd verbosity cmd = do
+    notice verbosity $ "Running '" ++ cmd ++ "'"
+    let command : args = words cmd
+    rawSystemExit verbosity command $ args
 
-makeRust :: Args -> ConfigFlags -> IO HookedBuildInfo
-makeRust args flags = do
+-- | Path to Concordium Smart Contract Engine rust crate relative to this file.
+smartContractEngineCrateRelative = "../concordium-base/smart-contracts/wasm-chain-integration"
+
+-- | Path to plt rust workspace relative to this file.
+pltWorkspaceRelative = "../plt"
+
+preConfHook :: Args -> ConfigFlags -> IO HookedBuildInfo
+preConfHook args flags = do
     let verbosity = fromFlag $ configVerbosity flags
-    rawSystemExit verbosity "mkdir" ["-p", smartContractRoot ++ "/lib"]
 
-    -- This way of determining the platform is not ideal.
-    notice verbosity "Calling 'cargo build'"
-    rawSystemExit
-        verbosity
-        "cargo"
-        ["build", "--release", "--manifest-path", smartContractRoot ++ "/wasm-chain-integration/Cargo.toml", "--features=enable-ffi"]
+    -- Convert relative paths into absolute paths.
+    libraryDestination <- canonicalizePath "./lib"
+    -- Ensure destination directory exists.
+    runCmd verbosity $ "mkdir -p " ++ libraryDestination
+
+    -- Build and copy/symlink Concordium Smart contract Engine library.
+    smartContractEngineCrate <- canonicalizePath smartContractEngineCrateRelative
+    runCmd verbosity $ "cargo build --release --locked --features=enable-ffi --manifest-path=" ++ smartContractEngineCrate ++ "/Cargo.toml"
     case buildOS of
         Windows -> do
-            notice verbosity "Copying concordium_smart_contract_engine library"
-            rawSystemExit verbosity "cp" ["-u", smartContractRoot ++ "/wasm-chain-integration/target/release/concordium_smart_contract_engine.dll", smartContractRoot ++ "/lib/"]
-            -- We remove the static library if it exists. Previously, it would have been copied
-            -- over, but now we want to just link with the dynamic library, so we ensure it is
-            -- removed.
-            rawSystemExit verbosity "rm" ["-f", smartContractRoot ++ "/lib/libconcordium_smart_contract_engine.a"]
+            runCmd verbosity $ "cp -u " ++ smartContractEngineCrate ++ "/target/release/concordium_smart_contract_engine.dll " ++ libraryDestination
+        OSX -> do
+            runCmd verbosity $ "ln -s -f " ++ smartContractEngineCrate ++ "/target/release/libconcordium_smart_contract_engine.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ smartContractEngineCrate ++ "/target/release/libconcordium_smart_contract_engine.dylib " ++ libraryDestination
         _ -> do
-            rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libconcordium_smart_contract_engine.a", smartContractRoot ++ "/lib/"]
-            case buildOS of
-                OSX ->
-                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libconcordium_smart_contract_engine.dylib", smartContractRoot ++ "/lib/libconcordium_smart_contract_engine.dylib"]
-                _ ->
-                    rawSystemExit verbosity "ln" ["-s", "-f", "../wasm-chain-integration/target/release/libconcordium_smart_contract_engine.so", smartContractRoot ++ "/lib/libconcordium_smart_contract_engine.so"]
+            runCmd verbosity $ "ln -s -f " ++ smartContractEngineCrate ++ "/target/release/libconcordium_smart_contract_engine.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ smartContractEngineCrate ++ "/target/release/libconcordium_smart_contract_engine.so " ++ libraryDestination
+
+    -- Build and copy/symlink PLT scheduler project
+    pltWorkspace <- canonicalizePath pltWorkspaceRelative
+    runCmd verbosity $ "cargo build --release --locked --features ffi -p plt-scheduler --manifest-path=" ++ pltWorkspace ++ "/Cargo.toml"
+    case buildOS of
+        Windows -> do
+            runCmd verbosity $ "cp -u " ++ pltWorkspace ++ "/target/release/plt_scheduler.dll " ++ libraryDestination
+        OSX -> do
+            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.dylib " ++ libraryDestination
+        _ -> do
+            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.a " ++ libraryDestination
+            runCmd verbosity $ "ln -s -f " ++ pltWorkspace ++ "/target/release/libplt_scheduler.so " ++ libraryDestination
     return emptyHookedBuildInfo
 
 -- | On Windows, copy the DLL files to the binary install directory. This is to ensure that they
 -- are accessible when running the binaries, tests and benchmarks.
-copyDlls :: Args -> CopyFlags -> PackageDescription -> LocalBuildInfo -> IO ()
-copyDlls _ flags pkgDescr lbi = case buildOS of
+postCopyHook :: Args -> CopyFlags -> PackageDescription -> LocalBuildInfo -> IO ()
+postCopyHook _ flags pkgDescr lbi = case buildOS of
     Windows -> do
         let installDirs = absoluteComponentInstallDirs pkgDescr lbi (localUnitId lbi) copydest
-        let copyLib lib = do
-                rawSystemExit verbosity "cp" ["-u", smartContractRoot ++ "/lib/" ++ lib ++ ".dll", bindir installDirs]
-                notice verbosity $ "Copy " ++ lib ++ " to " ++ bindir installDirs
-        copyLib "concordium_smart_contract_engine"
+        -- Copy DLL for Concordium Smart Contract Engine
+        smartContractEngineCrate <- canonicalizePath smartContractEngineCrateRelative
+        runCmd verbosity $ "cp -u " ++ smartContractEngineCrate ++ "/target/release/concordium_smart_contract_engine.dll " ++ bindir installDirs
+        -- Copy DLL for PLT scheduler
+        pltWorkspace <- canonicalizePath pltWorkspaceRelative
+        runCmd verbosity $ "cp -u " ++ pltWorkspace ++ "/target/release/plt_scheduler.dll " ++ bindir installDirs
     _ -> return ()
   where
     distPref = fromFlag (copyDistPref flags)
@@ -59,6 +81,6 @@ copyDlls _ flags pkgDescr lbi = case buildOS of
 main =
     defaultMainWithHooks $
         simpleUserHooks
-            { preConf = makeRust,
-              postCopy = copyDlls
+            { preConf = preConfHook,
+              postCopy = postCopyHook
             }
