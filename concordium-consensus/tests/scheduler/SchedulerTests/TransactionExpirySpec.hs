@@ -169,7 +169,7 @@ testExpiryTime expiry transactions _ =
     isExpired _ = False
 
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockstate =

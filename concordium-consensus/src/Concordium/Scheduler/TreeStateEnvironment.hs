@@ -1183,6 +1183,7 @@ putBakerCommissionsInRange ranges bs (BakerId ai) = case protocolVersion @(MPV m
     SP7 -> bsoConstrainBakerCommission bs ai ranges
     SP8 -> bsoConstrainBakerCommission bs ai ranges
     SP9 -> bsoConstrainBakerCommission bs ai ranges
+    SP10 -> bsoConstrainBakerCommission bs ai ranges
 
 -- | The result of executing the block prologue.
 data PrologueResult m = PrologueResult
@@ -1343,7 +1344,7 @@ constructBlock ::
     Maybe FinalizerInfo ->
     -- | New seed state
     SeedState (SeedStateVersionFor (MPV m)) ->
-    m (Sch.FilteredTransactions, ExecutionResult m)
+    m (Sch.FilteredTransactions (TransactionOutcomesVersionFor (MPV m)), ExecutionResult m)
 constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState =
     let cm = ChainMetadata{..}
     in  do

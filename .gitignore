@@ -65,3 +65,6 @@ xcuserdata/
 /scripts/distribution/macOS-package/NodeConfigurationInstallerPlugin/*.gcno
 # Code coverage report
 lcov.info
+# Test artefacts
+.stack-work-coverage*
+*.blob

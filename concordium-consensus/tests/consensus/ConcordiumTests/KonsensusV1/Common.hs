@@ -151,7 +151,8 @@ forEveryProtocolVersion check =
           check SP6 "P6",
           check SP7 "P7"
           -- check SP8 "P8",
-          -- check SP9 "P9"
+          -- check SP9 "P9",
+          -- check SP10 "P10"
         ]
 
 -- | Run tests for each protocol version using consensus v1 (P6 and onwards).

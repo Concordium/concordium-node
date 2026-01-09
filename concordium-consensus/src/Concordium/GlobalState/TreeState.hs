@@ -428,7 +428,7 @@ class
         -- | Hash of the block being constructed.
         BlockHash ->
         -- | Filtered transactions as a result of constructing the block.
-        FilteredTransactions ->
+        FilteredTransactions (TransactionOutcomesVersionFor (MPV m)) ->
         m ()
 
     -- | Mark a transaction as no longer on a given block. This is used when a block is

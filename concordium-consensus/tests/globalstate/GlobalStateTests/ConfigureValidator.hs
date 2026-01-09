@@ -594,3 +594,11 @@ tests lvl = parallel $ describe "Validator" $ do
         testAddValidatorAllCases SP8
         testUpdateValidator SP8 (lvl > 1)
         testUpdateValidatorOverlappingCommissions SP8
+    describe "P9" $ do
+        testAddValidatorAllCases SP9
+        testUpdateValidator SP9 (lvl > 1)
+        testUpdateValidatorOverlappingCommissions SP9
+    describe "P10" $ do
+        testAddValidatorAllCases SP10
+        testUpdateValidator SP10 (lvl > 1)
+        testUpdateValidatorOverlappingCommissions SP10

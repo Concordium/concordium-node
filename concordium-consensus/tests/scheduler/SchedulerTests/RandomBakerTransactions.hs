@@ -278,7 +278,7 @@ testTransactions spv = forAll makeTransactions (ioProperty . tt)
             Left f -> return $ counterexample f False
             Right _ -> return $ property True
     constructStateChecks ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv (Either String ())
     constructStateChecks result state = do

@@ -108,21 +108,21 @@ defaultHash = Block.generateBlockHash slot parent bakerid bakerSVK blockP nonce 
 --  (Note that this test does not perform any of such actions,
 --  hence it's ok to simply have the instance functions be
 --  defined as undefined.)
-newtype DummyHashMonad a = DummyHashMonad {runDummyHashMonad :: a}
+newtype DummyHashMonad (pv :: ProtocolVersion) a = DummyHashMonad {runDummyHashMonad :: a}
     deriving (Functor, Applicative, Monad) via Identity
 
-instance MonadIO DummyHashMonad where
+instance MonadIO (DummyHashMonad (pv :: ProtocolVersion)) where
     liftIO = undefined
 
-instance MonadBlobStore DummyHashMonad where
+instance MonadBlobStore (DummyHashMonad (pv :: ProtocolVersion)) where
     storeRaw = undefined
     loadRaw = undefined
     flushStore = undefined
     getCallbacks = undefined
     loadBlobPtr = undefined
 
-instance MonadProtocolVersion DummyHashMonad where
-    type MPV DummyHashMonad = 'P6
+instance (IsProtocolVersion pv, IsCompatibleAuthorizationsVersion (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ~ 'True) => MonadProtocolVersion (DummyHashMonad (pv :: ProtocolVersion)) where
+    type MPV (DummyHashMonad pv) = pv
 
 tests :: Spec
 tests = do
@@ -197,13 +197,18 @@ tests = do
                 defaultHash `shouldNotBe` hash'
 
             specify "Hash of emptyPersistentTransactionOutcomes (TOV0) is hash of emptyTransactionOutcomesV0" $
-                runDummyHashMonad (getHashM (emptyPersistentTransactionOutcomes @'TOV0))
-                    `shouldBe` getHash @(TransactionOutcomesHashV 'TOV0) emptyTransactionOutcomesV0
+                runDummyHashMonad @'P4 (getHashM (emptyPersistentTransactionOutcomes @'TOV0))
+                    `shouldBe` emptyTransactionOutcomesHashV0
 
             specify "Hash of emptyPersistentTransactionOutcomes (TOV1) is emptyTransactionOutcomesHashV1" $
-                runDummyHashMonad (getHashM (emptyPersistentTransactionOutcomes @'TOV1))
+                runDummyHashMonad @'P6 (getHashM (emptyPersistentTransactionOutcomes @'TOV1))
                     `shouldBe` emptyTransactionOutcomesHashV1
 
             specify "Hash of emptyPersistentTransactionOutcomes (TOV2) is emptyTransactionOutcomesHashV2" $
-                runDummyHashMonad (getHashM (emptyPersistentTransactionOutcomes @'TOV2))
+                runDummyHashMonad @'P9 (getHashM (emptyPersistentTransactionOutcomes @'TOV2))
                     `shouldBe` emptyTransactionOutcomesHashV2
+
+-- TODO (RUN-18): Turn on tests for P10.
+-- specify "Hash of emptyPersistentTransactionOutcomes (TOV3) is emptyTransactionOutcomesHashV3" $
+--     runDummyHashMonad @'P10 (getHashM (emptyPersistentTransactionOutcomes @'TOV3))
+--         `shouldBe` emptyTransactionOutcomesHashV3

@@ -76,7 +76,7 @@ import Concordium.Types.ProtocolVersion
 updateHash :: SHA256.Hash
 updateHash = SHA256.hash "P9.Reboot"
 
--- | Construct the genesis data for a P8.Reboot update.
+-- | Construct the genesis data for a P9.Reboot update.
 --  This takes the terminal block of the old chain which is used as the basis for constructing
 --  the new genesis block.
 updateRegenesis ::

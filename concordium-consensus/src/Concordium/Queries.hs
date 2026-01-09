@@ -39,7 +39,6 @@ import Concordium.Types.Conditionally
 import Concordium.Types.Execution (
     Payload (..),
     SupplementEvents (..),
-    SupplementedTransactionSummary,
     TransactionIndex,
     TransactionSummary,
     addInitializeParameter,
@@ -834,7 +833,7 @@ getBlockTransactionSummaries =
         return $! supplementOutcomes (protocolVersion @pv) outcomes transactions
     supplementOutcomes ::
         SProtocolVersion pv ->
-        Vec.Vector TransactionSummary ->
+        Vec.Vector (TransactionSummary (TransactionOutcomesVersionFor pv)) ->
         [BlockItem] ->
         Either String (Vec.Vector SupplementedTransactionSummary)
     supplementOutcomes spv outcomes transactions =
@@ -844,7 +843,7 @@ getBlockTransactionSummaries =
             Right (_, _) -> Left "Block has more transactions than outcomes"
     supplement ::
         SProtocolVersion pv ->
-        TransactionSummary ->
+        TransactionSummary (TransactionOutcomesVersionFor pv) ->
         State.StateT [BlockItem] (Either String) SupplementedTransactionSummary
     supplement spv ts = do
         items <- State.get
@@ -853,14 +852,15 @@ getBlockTransactionSummaries =
             (item : items') -> do
                 State.put items'
                 let mInitParam = do
-                        accTransaction <- case wmdData item of
-                            NormalTransaction t -> return t
+                        payload <- case wmdData item of
+                            NormalTransaction t -> return (transactionPayload t)
+                            ExtendedTransaction t -> return (transactionPayload t)
                             _ -> Left "Initialization event is not for an account transaction"
-                        decoded <- decodePayload spv (atrPayload accTransaction)
+                        decoded <- decodePayload spv payload
                         case decoded of
                             InitContract{..} -> return icParam
                             _ -> Left "Initialization event is not for a contract initialization"
-                lift $ supplementEvents (addInitializeParameter mInitParam) ts
+                lift $ toSupplementedTransactionSummary <$> supplementEvents (addInitializeParameter mInitParam) ts
 
 -- | Get the transaction outcomes in the block.
 getBlockSpecialEvents :: forall finconf. BlockHashInput -> MVR finconf (BHIQueryResponse (Seq.Seq SpecialTransactionOutcome))
@@ -1646,14 +1646,17 @@ getTransactionStatus trHash =
     -- Helper to convert a 'TransactionSummary' to a 'SupplementedTransactionSummary' given the
     -- 'BlockItem' corresponding to the originating transaction.
     supplementTransactionSummary ::
-        SProtocolVersion pv -> Maybe BlockItem -> Maybe TransactionSummary -> Maybe SupplementedTransactionSummary
+        SProtocolVersion pv ->
+        Maybe BlockItem ->
+        Maybe (TransactionSummary (TransactionOutcomesVersionFor pv)) ->
+        Maybe SupplementedTransactionSummary
     supplementTransactionSummary spv mbi mts = do
         ts <- mts
         let mip = do
                 (NormalTransaction acctTransaction) <- wmdData <$> mbi
                 (InitContract{..}) <- decodePayload spv (atrPayload acctTransaction) ^? _Right
                 return icParam
-        supplementEvents (addInitializeParameter mip) ts
+        toSupplementedTransactionSummary <$> supplementEvents (addInitializeParameter mip) ts
 
 -- * Smart contract invocations
 invokeContract :: BlockHashInput -> InvokeContract.ContractContext -> MVR finconf (BHIQueryResponse InvokeContract.InvokeContractResult)

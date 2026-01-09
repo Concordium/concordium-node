@@ -120,13 +120,8 @@ addPendingTransaction ::
     m ()
 addPendingTransaction bi = do
     case wmdData bi of
-        NormalTransaction tx -> do
-            fbState <- bpState <$> (Impl._focusBlock <$> gets' Impl._skovPendingTransactions)
-            macct <- getAccount fbState $! transactionSender tx
-            nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
-            when (nextNonce <= transactionNonce tx) $ do
-                Impl.pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
-                Impl.purgeTransactionTable False =<< currentTime
+        NormalTransaction tx -> addPendingAccountTransaction (TransactionV0 tx)
+        ExtendedTransaction tx -> addPendingAccountTransaction (TransactionV1 tx)
         CredentialDeployment _ -> do
             Impl.pendingTransactionTable %=! TT.addPendingDeployCredential txHash
             Impl.purgeTransactionTable False =<< currentTime
@@ -138,6 +133,13 @@ addPendingTransaction bi = do
                 Impl.purgeTransactionTable False =<< currentTime
   where
     txHash = getHash bi
+    addPendingAccountTransaction tx = do
+        fbState <- bpState <$> (Impl._focusBlock <$> gets' Impl._skovPendingTransactions)
+        macct <- getAccount fbState $! transactionSender tx
+        nextNonce <- fromMaybe minNonce <$> mapM (getAccountNonce . snd) macct
+        when (nextNonce <= transactionNonce tx) $ do
+            Impl.pendingTransactionTable %=! TT.addPendingTransaction nextNonce tx
+            Impl.purgeTransactionTable False =<< currentTime
 
 -- | Attempt to put the 'BlockItem' into the tree state.
 --  If the the 'BlockItem' was successfully added then it will be

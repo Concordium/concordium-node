@@ -73,7 +73,7 @@ transferWithMemoRejectTestP1 = specify
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor Types.P1) ->
         BS.PersistentBlockState PV1 ->
         Helpers.PersistentBSM PV1 Assertion
     checkState result state = do
@@ -167,7 +167,7 @@ simpleTransferTest _ pvString = specify
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result state = do
@@ -297,7 +297,7 @@ simpleTransferWithMemoTest _ pvString = specify
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result state = do
@@ -409,7 +409,7 @@ simpleTransferUsingAccountAliasesTest _ pvString = specify
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result state = do

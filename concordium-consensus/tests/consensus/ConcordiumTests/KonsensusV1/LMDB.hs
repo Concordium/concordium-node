@@ -140,14 +140,13 @@ dummyTransactionHeader =
 --  data.
 dummyBlockItem :: BlockItem
 dummyBlockItem =
-    addMetadata id dummyTransactionTime $
-        NormalTransaction $
-            AccountTransaction
-                { atrSignature = TransactionSignature $ Map.fromList [(1, Map.fromList [(1, Signature "bla")])],
-                  atrHeader = dummyTransactionHeader,
-                  atrPayload = EncodedPayload "bla",
-                  atrSignHash = TransactionSignHashV0 dummyHash
-                }
+    makeBlockItem dummyTransactionTime $
+        AccountTransaction
+            { atrSignature = TransactionSignature $ Map.fromList [(1, Map.fromList [(1, Signature "bla")])],
+              atrHeader = dummyTransactionHeader,
+              atrPayload = EncodedPayload "bla",
+              atrSignHash = TransactionSignHashV0 dummyHash
+            }
 
 -- | A helper function for creating a block with the given round and block items.
 --  Blocks with different hashes can then be constructed by calling this function with different rounds.

@@ -28,8 +28,8 @@ import qualified ConcordiumTests.KonsensusV1.Common as Common
 import ConcordiumTests.KonsensusV1.Consensus.Blocks hiding (testBB1, testBB2, testBB2', testBB3, testBB3', tests)
 
 -- | Make a raw transfer transaction with the provided nonce.
-mkTransferTransaction :: Nonce -> BareBlockItem
-mkTransferTransaction nonce = NormalTransaction{biTransaction = signTransactionSingle foundationKeyPair mkHeader payload}
+mkTransferTransaction :: Nonce -> AccountTransaction
+mkTransferTransaction nonce = signTransactionSingle foundationKeyPair mkHeader payload
   where
     mkHeader =
         TransactionHeader
@@ -43,11 +43,11 @@ mkTransferTransaction nonce = NormalTransaction{biTransaction = signTransactionS
 
 -- | A transfer with nonce 1 for testBB1
 transfer1 :: BlockItem
-transfer1 = normalTransaction $ addMetadata (\x -> NormalTransaction{biTransaction = x}) 1000 (biTransaction $ mkTransferTransaction 1)
+transfer1 = makeBlockItem 1000 (mkTransferTransaction 1)
 
 -- | A transfer with nonce 2 for testBB4
 transfer2 :: BlockItem
-transfer2 = normalTransaction $ addMetadata (\x -> NormalTransaction{biTransaction = x}) 1001 (biTransaction $ mkTransferTransaction 2)
+transfer2 = makeBlockItem 1000 (mkTransferTransaction 2)
 
 -- | Valid block for round 1 with 1 normal transfer
 testBB1 :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv

@@ -54,7 +54,7 @@ runInitTestsFromFile ::
     Types.SProtocolVersion pv ->
     String ->
     FilePath ->
-    [(Text, BSS.ShortByteString, Helpers.SchedulerResult -> Assertion)] ->
+    [(Text, BSS.ShortByteString, Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) -> Assertion)] ->
     Spec
 runInitTestsFromFile _ testCaseDescription testFile testCases =
     describe testCaseDescription $
@@ -110,7 +110,7 @@ runReceiveTestsFromFile ::
     Types.SProtocolVersion pv ->
     String ->
     FilePath ->
-    [(Text, BSS.ShortByteString, Helpers.SchedulerResult -> Assertion)] ->
+    [(Text, BSS.ShortByteString, Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) -> Assertion)] ->
     Spec
 runReceiveTestsFromFile _ testCaseDescription testFile testCases =
     describe testCaseDescription $

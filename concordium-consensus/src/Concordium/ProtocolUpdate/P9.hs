@@ -22,15 +22,18 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
+import qualified Concordium.ProtocolUpdate.P9.ProtocolP10 as ProtocolP10
 import qualified Concordium.ProtocolUpdate.P9.Reboot as Reboot
 
 -- | Updates that are supported from protocol version P9.
-data Update = Reboot
+data Update
+    = Reboot
+    | ProtocolP10
     deriving (Show)
 
 -- | Hash map for resolving updates from their specification hash.
 updates :: HM.HashMap SHA256.Hash (Get Update)
-updates = HM.fromList [(Reboot.updateHash, return Reboot)]
+updates = HM.fromList [(Reboot.updateHash, return Reboot), (ProtocolP10.updateHash, return ProtocolP10)]
 
 -- | Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: ProtocolUpdate -> Either String Update
@@ -53,9 +56,11 @@ updateRegenesis ::
     BlockPointer (MPV m) ->
     m (PVInit m)
 updateRegenesis Reboot = Reboot.updateRegenesis
+updateRegenesis ProtocolP10 = ProtocolP10.updateRegenesis
 
 -- | Determine the protocol version the update will update to.
 updateNextProtocolVersion ::
     Update ->
     SomeProtocolVersion
 updateNextProtocolVersion Reboot{} = SomeProtocolVersion SP9
+updateNextProtocolVersion ProtocolP10{} = SomeProtocolVersion SP10

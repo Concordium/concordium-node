@@ -57,7 +57,7 @@ processTransactions ::
     BlockPointerType m ->
     Maybe FinalizerInfo ->
     BakerId ->
-    m (FilteredTransactions, ExecutionResult m)
+    m (FilteredTransactions (TransactionOutcomesVersionFor (MPV m)), ExecutionResult m)
 processTransactions slot ss bh mfinInfo bid = do
     -- update the focus block to the parent block (establish invariant needed by constructBlock)
     updateFocusBlockTo bh
