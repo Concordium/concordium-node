@@ -14,8 +14,11 @@ mod plt_scheduler;
 
 /// Tracks the energy remaining and some context during the execution.
 struct TransactionExecutionImpl<Account> {
-    // /// The remaining energy tracked spent during the execution.
-    // remaining_energy: Energy,
+    /// Limit for how much energy the execution can use. An [`OutOfEnergy`] error is
+    /// returned if the limit is reached.
+    energy_limit: Energy,
+    /// Energy used so far by execution. Energy is always charged in advance for each step executed.
+    energy_used: Energy,
     /// The account which signed as the sender of the transaction.
     sender_account: Account,
 }
@@ -28,7 +31,6 @@ impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> 
     }
 
     fn tick_energy(&mut self, _energy: Energy) -> Result<(), OutOfEnergyError> {
-        // implement as part of https://linear.app/concordium/issue/PSR-37/energy-charge
         Ok(())
     }
 }
@@ -45,25 +47,60 @@ pub enum TransactionExecutionError {
     TokenStateInvariantBroken(String),
 }
 
-/// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
-/// Returns the events produced if successful otherwise a reject reason.
+/// Result of execution a transaction, unless [`TransactionExecutionError`] is returned.
+pub struct TransactionExecutionResult {
+    /// Result of executing the transaction.
+    /// If transaction was successful, this is a list of events that represents
+    /// the changes that were applied to the chain state by the transaction. The same changes
+    /// have been applied via the `block_state` argument to [`execute_transaction`]. If the transaction was
+    /// rejected, the only change to the chain state is the charge of energy. If the transaction is rejected,
+    /// the caller of [`execute_transaction`] must make sure that changes to the given `block_state` are rolled back.
+    pub result: Result<Vec<TransactionEvent>, TransactionRejectReason>,
+    /// Energy used by the execution. This is always less than the `energy_limit` argument given to [`execute_transaction`].
+    pub energy_used: Energy,
+}
+
+/// Execute a transaction payload modifying `block_state` accordingly.
+/// Returns the events produced if successful, otherwise a reject reason. Additionally, the
+/// amount of energy used by the execution is returned. The returned values are represented
+/// via the type [`TransactionExecutionResult`].
 ///
-/// The caller must ensure to rollback state changes in case of the transaction being rejected.
+/// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
+///
+/// # Arguments
+///
+/// - `sender_account` The account initiating the transaction (signer of the transaction)
+/// - `block_state` Block state that can be queried and updated during execution.
+/// - `payload` The transaction payload to execute
+/// - `energy_limit` The payload to execute
+///
+/// # Errors
+///
+/// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 pub fn execute_transaction<BSO: BlockStateOperations>(
     sender_account: BSO::Account,
     block_state: &mut BSO,
     payload: Payload,
-) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError>
+    energy_limit: Energy,
+) -> Result<TransactionExecutionResult, TransactionExecutionError>
 where
     BSO::Account: Clone,
 {
-    let mut execution = TransactionExecutionImpl { sender_account };
-
-    // handle energy as part of https://linear.app/concordium/issue/PSR-37/energy-charge
+    let mut execution = TransactionExecutionImpl {
+        energy_limit,
+        energy_used: Energy::default(),
+        sender_account,
+    };
 
     match payload {
         Payload::TokenUpdate { payload } => {
-            plt_scheduler::execute_plt_transaction(&mut execution, block_state, payload)
+            let result =
+                plt_scheduler::execute_plt_transaction(&mut execution, block_state, payload)?;
+
+            Ok(TransactionExecutionResult {
+                result,
+                energy_used: execution.energy_used,
+            })
         }
         _ => Err(TransactionExecutionError::UnexpectedPayload),
     }
@@ -82,8 +119,19 @@ pub enum UpdateInstructionExecutionError {
     UnknownTokenModuleRef(TokenModuleRef),
 }
 
-/// Execute an update instruction payload modifying `block_state` accordingly.
+/// Execute an update instruction modifying `block_state` accordingly.
 /// Returns the events produced if successful.
+///
+/// NOTICE: The caller must ensure to rollback state changes in case an error is returned.
+///
+/// # Arguments
+///
+/// - `block_state` Block state that can be queried and updated during execution.
+/// - `payload` The update instruction payload to execute
+///
+/// # Errors
+///
+/// - [`UpdateInstructionExecutionError`] If executing the update instruction failed.
 pub fn execute_update_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: UpdatePayload,

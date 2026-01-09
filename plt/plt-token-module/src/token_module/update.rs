@@ -35,11 +35,11 @@ pub enum TokenUpdateError {
     StateInvariantViolation(#[from] TokenStateInvariantError),
 }
 
-/// Execute a token update transaction using the [`TokenKernelOperations`] implementation on `host` to
+/// Execute a token update transaction using the [`TokenKernelOperations`] implementation on `kernel` to
 /// update state and produce events.
 ///
 /// When resulting in an `Err` signals a rejected operation and all of the calls to
-/// [`TokenKernelOperations`] must be rolled back y the caller.
+/// [`TokenKernelOperations`] must be rolled back by the caller.
 ///
 /// The process is as follows:
 ///
