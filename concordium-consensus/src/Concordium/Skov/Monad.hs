@@ -107,7 +107,7 @@ data UpdateResult
       ResultChainUpdateInvalidSignatures
     | -- | The stated energy of the 'Transaction' exceeds the maximum allowed.
       ResultEnergyExceeded
-    | -- | The sender did not have enough funds to cover the costs.
+    | -- | The sender/sponsor did not have enough funds to cover the costs.
       ResultInsufficientFunds
     | -- | The consensus message is a result of double signing, indicating malicious behaviour.
       ResultDoubleSign
