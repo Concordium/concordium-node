@@ -8,7 +8,8 @@ use crate::block_state_interface::{
 use crate::scheduler::{
     TransactionExecutionError, TransactionRejectReason, UpdateInstructionExecutionError,
 };
-use crate::types::events::{TokenSupplyUpdateEvent, TokenTransferEvent, TransactionEvent};
+use crate::types::events::{TokenBurnEvent, TokenMintEvent, TokenTransferEvent, TransactionEvent};
+use crate::types::reject_reasons::TokenModuleRejectReason;
 use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
@@ -48,11 +49,14 @@ pub fn execute_plt_transaction<
         }
     };
 
+    let token_configuration = block_state.token_configuration(&token);
+
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
         token: &token,
+        token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
         token_module_state_dirty: false,
         events: Default::default(),
@@ -79,9 +83,14 @@ pub fn execute_plt_transaction<
             // Return events
             Ok(Ok(events))
         }
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
-            Ok(Err(TransactionRejectReason::TokenModule(reject_reason)))
-        }
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => Ok(Err(
+            TransactionRejectReason::TokenModule(TokenModuleRejectReason {
+                // Use the canonical token id from the token configuration
+                token_id: token_configuration.token_id.clone(),
+                reason_type: reject_reason.reason_type,
+                details: reject_reason.details,
+            }),
+        )),
         Err(TokenUpdateError::OutOfEnergy(_)) => Ok(Err(TransactionRejectReason::OutOfEnergy)),
         Err(TokenUpdateError::StateInvariantViolation(err)) => Err(
             TransactionExecutionError::TokenStateInvariantBroken(err.to_string()),
@@ -117,13 +126,14 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
     };
 
     // Create token in block state
-    let token = block_state.create_token(token_configuration);
+    let token = block_state.create_token(token_configuration.clone());
 
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
         token: &token,
+        token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
         token_module_state_dirty: false,
         events: Default::default(),
@@ -159,6 +169,7 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
 struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     block_state: &'a mut BSQ,
     token: &'a BSQ::Token,
+    token_configuration: &'a TokenConfiguration,
     token_module_state: &'a mut BSQ::MutableTokenModuleState,
     events: Vec<TransactionEvent>,
     token_module_state_dirty: bool,
@@ -236,7 +247,8 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
             .set_token_circulating_supply(self.token, circulating_supply);
 
         // Issue event
-        let event = TransactionEvent::TokenMint(TokenSupplyUpdateEvent {
+        let event = TransactionEvent::TokenMint(TokenMintEvent {
+            token_id: self.token_configuration.token_id.clone(),
             target: self.account_canonical_address(account),
             amount: TokenAmount::from_raw(
                 amount.0,
@@ -278,7 +290,8 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
             .set_token_circulating_supply(self.token, circulating_supply);
 
         // Issue event
-        let event = TransactionEvent::TokenBurn(TokenSupplyUpdateEvent {
+        let event = TransactionEvent::TokenBurn(TokenBurnEvent {
+            token_id: self.token_configuration.token_id.clone(),
             target: self.account_canonical_address(account),
             amount: TokenAmount::from_raw(
                 amount.0,
@@ -317,6 +330,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 
         // Issue event
         let event = TransactionEvent::TokenTransfer(TokenTransferEvent {
+            token_id: self.token_configuration.token_id.clone(),
             from: self.account_canonical_address(from),
             to: self.account_canonical_address(to),
             amount: TokenAmount::from_raw(

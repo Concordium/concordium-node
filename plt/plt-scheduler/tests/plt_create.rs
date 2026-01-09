@@ -168,8 +168,7 @@ fn test_plt_create_duplicate_id() {
     );
 }
 
-/// Test create protocol-level token where the token id is already used. Two token
-/// ids which only differ in casing are considered equal.
+/// Test create protocol-level token where the token module reference is to an unknown token module.
 #[test]
 fn test_plt_create_unknown_token_module_reference() {
     let mut stub = BlockStateStub::new();
@@ -205,6 +204,46 @@ fn test_plt_create_unknown_token_module_reference() {
         res,
         Err(UpdateInstructionExecutionError::UnknownTokenModuleRef(module_ref)) => {
             assert_eq!(module_ref, unknown_module_ref);
+        }
+    );
+}
+
+/// Test create protocol-level token where the token module returns an error.
+#[test]
+fn test_plt_create_token_module_initialization_error() {
+    let mut stub = BlockStateStub::new();
+
+    let gov_account = stub.create_account();
+    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let metadata = MetadataUrl::from("https://plt.token".to_string());
+    let parameters = TokenModuleInitializationParameters {
+        // No name specified
+        name: None,
+        metadata: Some(metadata.clone()),
+        governance_account: Some(gov_holder_account.clone()),
+        allow_list: None,
+        deny_list: None,
+        initial_supply: None,
+        mintable: None,
+        burnable: None,
+        additional: Default::default(),
+    };
+    let initialization_parameters: RawCbor = cbor::cbor_encode(&parameters).into();
+
+    let token_id: TokenId = "testtokenid".parse().unwrap();
+    let payload = UpdatePayload::CreatePlt(CreatePlt {
+        token_id: token_id.clone(),
+        token_module: TOKEN_MODULE_REF,
+        decimals: 4,
+        initialization_parameters: initialization_parameters.clone(),
+    });
+
+    let res = scheduler::execute_update_instruction(&mut stub, payload);
+
+    assert_matches!(
+        res,
+        Err(UpdateInstructionExecutionError::ModuleTokenInitializationFailed(err)) => {
+            assert!(err.contains("Token name is missing"), "err: {}", err);
         }
     );
 }

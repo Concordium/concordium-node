@@ -41,9 +41,12 @@ fn test_query_token_info() {
     // Assert that the token id returned is in the canonical casing
     assert_eq!(token_info.token_id, token_id);
     assert_eq!(token_info.state.decimals, 4);
-    assert_eq!(token_info.state.decimals, 4);
     assert_eq!(token_info.state.total_supply, TokenAmount::from_raw(0, 4));
     assert_eq!(token_info.state.token_module_ref, TOKEN_MODULE_REF);
-    let _token_module_state: TokenModuleState =
+    let token_module_state: TokenModuleState =
         cbor::cbor_decode(&token_info.state.module_state).unwrap();
+    assert_eq!(
+        token_module_state.name.as_deref(),
+        Some("Protocol-level token")
+    );
 }

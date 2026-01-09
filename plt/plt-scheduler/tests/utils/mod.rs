@@ -1,9 +1,8 @@
 use assert_matches::assert_matches;
 use concordium_base::protocol_level_tokens::{
-    TokenModuleRejectReasonEnum, TokenModuleRejectReasonType,
+    TokenId, TokenModuleRejectReasonEnum, TokenModuleRejectReasonType,
 };
-use plt_scheduler::types::reject_reasons::TransactionRejectReason;
-use plt_token_module::token_module::TokenModuleRejectReason;
+use plt_scheduler::types::reject_reasons::{TokenModuleRejectReason, TransactionRejectReason};
 
 fn decode_token_module_reject_reason(
     reject_reason: &TokenModuleRejectReason,
@@ -19,10 +18,12 @@ fn decode_token_module_reject_reason(
 }
 
 pub fn assert_token_module_reject_reason(
+    token_id: &TokenId,
     reject_reason: TransactionRejectReason,
 ) -> TokenModuleRejectReasonEnum {
     let reject_reason = assert_matches!(
         &reject_reason,
         TransactionRejectReason::TokenModule(reject_reason) => reject_reason);
+    assert_eq!(reject_reason.token_id, *token_id);
     decode_token_module_reject_reason(reject_reason)
 }

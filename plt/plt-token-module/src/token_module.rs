@@ -25,7 +25,7 @@ mod update;
 /// Details provided by the token module in the event of rejecting a
 /// transaction.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TokenModuleRejectReason {
+pub struct RejectReason {
     /// The type of the reject reason.
     pub reason_type: TokenModuleCborTypeDiscriminator,
     /// (Optional) CBOR-encoded details.
@@ -93,7 +93,7 @@ pub enum TokenInitializationError {
 #[derive(Debug, thiserror::Error)]
 pub enum TokenUpdateError {
     #[error("Token module rejection")]
-    TokenModuleReject(TokenModuleRejectReason),
+    TokenModuleReject(RejectReason),
     #[error("{0}")]
     OutOfEnergy(#[from] OutOfEnergyError),
     #[error("{0}")]
@@ -273,9 +273,9 @@ pub fn execute_token_update_transaction<
     Ok(())
 }
 
-fn make_reject_reason(reject_reason: TokenModuleRejectReasonEnum) -> TokenModuleRejectReason {
+fn make_reject_reason(reject_reason: TokenModuleRejectReasonEnum) -> RejectReason {
     let (reason_type, cbor) = reject_reason.encode_reject_reason();
-    TokenModuleRejectReason {
+    RejectReason {
         reason_type: reason_type.to_type_discriminator(),
         details: Some(cbor),
     }

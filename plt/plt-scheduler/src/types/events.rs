@@ -2,7 +2,7 @@
 //! Events generally represents observable changes to the chain state.
 
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::TokenAmount;
+use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::TokenModuleEvent;
 
@@ -15,15 +15,17 @@ pub enum TransactionEvent {
     TokenTransfer(TokenTransferEvent),
     /// An event emitted when the token supply is updated by minting tokens to a
     /// token holder.
-    TokenMint(TokenSupplyUpdateEvent),
+    TokenMint(TokenMintEvent),
     /// An event emitted when the token supply is updated by burning tokens from
     /// the balance of a token holder.
-    TokenBurn(TokenSupplyUpdateEvent),
+    TokenBurn(TokenBurnEvent),
 }
 
 /// An event emitted when a transfer of tokens from `from` to `to` is performed.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct TokenTransferEvent {
+    /// The canonical token id.
+    pub token_id: TokenId,
     /// The token holder from which the tokens are transferred.
     pub from: AccountAddress,
     /// The token holder to which the tokens are transferred.
@@ -35,12 +37,26 @@ pub struct TokenTransferEvent {
     pub memo: Option<Memo>,
 }
 
-/// An event emitted when the token supply is updated, i.e. by minting/burning
-/// tokens to/from the balance of the `target`.
+/// An event emitted when the token supply is updated by minting tokens to a
+/// token holder.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TokenSupplyUpdateEvent {
-    /// The token holder the balance update is performed on.
+pub struct TokenMintEvent {
+    /// The canonical token id.
+    pub token_id: TokenId,
+    /// The account whose balance the amount is minted to.
     pub target: AccountAddress,
-    /// The balance difference to be applied to the target.
+    /// The minted amount
+    pub amount: TokenAmount,
+}
+
+/// An event emitted when the token supply is updated by burning tokens from
+/// the balance of a token holder.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct TokenBurnEvent {
+    /// The canonical token id.
+    pub token_id: TokenId,
+    /// The account whose balance the amount is burned from.
+    pub target: AccountAddress,
+    /// The burned amount
     pub amount: TokenAmount,
 }

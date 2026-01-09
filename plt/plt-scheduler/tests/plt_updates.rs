@@ -6,8 +6,8 @@ use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, CborMemo, RawCbor, TokenAmount, TokenModuleRejectReasonEnum, TokenOperation,
-    TokenOperationsPayload, TokenSupplyUpdateDetails, TokenTransfer,
+    CborHolderAccount, CborMemo, RawCbor, TokenAmount, TokenId, TokenModuleRejectReasonEnum,
+    TokenOperation, TokenOperationsPayload, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
@@ -23,9 +23,9 @@ mod utils;
 #[test]
 fn test_plt_transfer() {
     let mut stub = BlockStateStub::new();
-    let token_id = "tokenid1".parse().unwrap();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) =
-        stub.create_and_init_token(token_id, TokenInitTestParams::default(), 4, None);
+        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
     let account2 = stub.create_account();
     let account3 = stub.create_account();
     stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
@@ -39,7 +39,7 @@ fn test_plt_transfer() {
         memo: None,
     })];
     let payload = TokenOperationsPayload {
-        token_id: stub.token_configuration(&token).token_id,
+        token_id: "tokenid1".parse().unwrap(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -64,6 +64,7 @@ fn test_plt_transfer() {
     // Assert transfer event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], TransactionEvent::TokenTransfer(transfer) => {
+        assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount, TokenAmount::from_raw(3000, 4));
         assert_eq!(transfer.from, stub.account_canonical_address(&gov_account));
         assert_eq!(transfer.to, stub.account_canonical_address(&account2));
@@ -79,7 +80,7 @@ fn test_plt_transfer() {
         memo: Some(CborMemo::Cbor(memo.clone())),
     })];
     let payload = TokenOperationsPayload {
-        token_id: stub.token_configuration(&token).token_id,
+        token_id: "tokenid1".parse().unwrap(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -104,6 +105,7 @@ fn test_plt_transfer() {
     // Assert transfer event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], TransactionEvent::TokenTransfer(transfer) => {
+        assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount, TokenAmount::from_raw(1000, 4));
         assert_eq!(transfer.from, stub.account_canonical_address(&account2));
         assert_eq!(transfer.to, stub.account_canonical_address(&account3));
@@ -115,9 +117,9 @@ fn test_plt_transfer() {
 #[test]
 fn test_plt_transfer_reject() {
     let mut stub = BlockStateStub::new();
-    let token_id = "tokenid1".parse().unwrap();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) =
-        stub.create_and_init_token(token_id, TokenInitTestParams::default(), 4, None);
+        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
     let account2 = stub.create_account();
     stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -128,7 +130,7 @@ fn test_plt_transfer_reject() {
         memo: None,
     })];
     let payload = TokenOperationsPayload {
-        token_id: stub.token_configuration(&token).token_id,
+        token_id: "tokenid1".parse().unwrap(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -148,7 +150,7 @@ fn test_plt_transfer_reject() {
         RawTokenAmount(0)
     );
 
-    let reject_reason = utils::assert_token_module_reject_reason(reject_reason);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
         TokenModuleRejectReasonEnum::TokenBalanceInsufficient(_)
@@ -160,15 +162,15 @@ fn test_plt_transfer_reject() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_mint() {
     let mut stub = BlockStateStub::new();
-    let token_id = "tokenid1".parse().unwrap();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) =
-        stub.create_and_init_token(token_id, TokenInitTestParams::default(), 4, None);
+        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 4),
     })];
     let payload = TokenOperationsPayload {
-        token_id: stub.token_configuration(&token).token_id,
+        token_id: "tokenid1".parse().unwrap(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -189,6 +191,7 @@ fn test_plt_mint() {
     // Assert mint event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
+        assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
     });
@@ -199,9 +202,9 @@ fn test_plt_mint() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_mint_reject() {
     let mut stub = BlockStateStub::new();
-    let token_id = "tokenid1".parse().unwrap();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
-        token_id,
+        token_id.clone(),
         TokenInitTestParams::default(),
         4,
         Some(RawTokenAmount(5000)),
@@ -211,7 +214,7 @@ fn test_plt_mint_reject() {
         amount: TokenAmount::from_raw(u64::MAX, 4),
     })];
     let payload = TokenOperationsPayload {
-        token_id: stub.token_configuration(&token).token_id,
+        token_id: "tokenid1".parse().unwrap(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -227,7 +230,7 @@ fn test_plt_mint_reject() {
         RawTokenAmount(5000)
     );
 
-    let reject_reason = utils::assert_token_module_reject_reason(reject_reason);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
         TokenModuleRejectReasonEnum::MintWouldOverflow(_)
@@ -239,9 +242,9 @@ fn test_plt_mint_reject() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_burn() {
     let mut stub = BlockStateStub::new();
-    let token_id = "tokenid1".parse().unwrap();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
-        token_id,
+        token_id.clone(),
         TokenInitTestParams::default(),
         4,
         Some(RawTokenAmount(5000)),
@@ -251,7 +254,7 @@ fn test_plt_burn() {
         amount: TokenAmount::from_raw(1000, 4),
     })];
     let payload = TokenOperationsPayload {
-        token_id: stub.token_configuration(&token).token_id,
+        token_id: "tokenid1".parse().unwrap(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -272,6 +275,7 @@ fn test_plt_burn() {
     // Assert burn event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], TransactionEvent::TokenBurn(burn) => {
+        assert_eq!(burn.token_id, token_id);
         assert_eq!(burn.amount, TokenAmount::from_raw(1000, 4));
         assert_eq!(burn.target, stub.account_canonical_address(&gov_account));
     });
@@ -282,9 +286,9 @@ fn test_plt_burn() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_burn_reject() {
     let mut stub = BlockStateStub::new();
-    let token_id = "tokenid1".parse().unwrap();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
-        token_id,
+        token_id.clone(),
         TokenInitTestParams::default(),
         4,
         Some(RawTokenAmount(5000)),
@@ -294,7 +298,7 @@ fn test_plt_burn_reject() {
         amount: TokenAmount::from_raw(10000, 4),
     })];
     let payload = TokenOperationsPayload {
-        token_id: stub.token_configuration(&token).token_id,
+        token_id: "tokenid1".parse().unwrap(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -310,7 +314,7 @@ fn test_plt_burn_reject() {
         RawTokenAmount(5000)
     );
 
-    let reject_reason = utils::assert_token_module_reject_reason(reject_reason);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
         TokenModuleRejectReasonEnum::TokenBalanceInsufficient(_)
@@ -322,9 +326,9 @@ fn test_plt_burn_reject() {
 #[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_multiple_operations() {
     let mut stub = BlockStateStub::new();
-    let token_id = "tokenid1".parse().unwrap();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) =
-        stub.create_and_init_token(token_id, TokenInitTestParams::default(), 4, None);
+        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
     let account2 = stub.create_account();
 
     // Compose two operations: Mint and then transfer
@@ -340,7 +344,7 @@ fn test_plt_multiple_operations() {
         }),
     ];
     let payload = TokenOperationsPayload {
-        token_id: stub.token_configuration(&token).token_id,
+        token_id: token_id.clone(),
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
@@ -363,10 +367,12 @@ fn test_plt_multiple_operations() {
     // Assert two event in right order
     assert_eq!(events.len(), 2);
     assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
+        assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
     });
     assert_matches!(&events[1], TransactionEvent::TokenTransfer(transfer) => {
+        assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount, TokenAmount::from_raw(1000, 4));
         assert_eq!(transfer.from, stub.account_canonical_address(&gov_account));
         assert_eq!(transfer.to, stub.account_canonical_address(&account2));

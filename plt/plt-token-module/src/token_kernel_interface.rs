@@ -4,7 +4,7 @@
 
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
+use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
 
 pub type ModuleStateKey = Vec<u8>;
@@ -13,6 +13,8 @@ pub type ModuleStateValue = Vec<u8>;
 /// Event produced from the effect of a token transaction.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct TokenModuleEvent {
+    /// The canonical token id.
+    pub token_id: TokenId,
     /// The type of event produced.
     pub event_type: TokenModuleCborTypeDiscriminator,
     /// The details of the event produced, in the raw byte encoded form.

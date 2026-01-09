@@ -4,8 +4,7 @@
 //! failed for some reason. The only effect of a rejected transaction is
 //! the charge of energy.
 
-use concordium_base::protocol_level_tokens::TokenId;
-use plt_token_module::token_module::TokenModuleRejectReason;
+use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 
 /// A reason for why a transaction was rejected.
 ///
@@ -20,4 +19,16 @@ pub enum TransactionRejectReason {
     NonExistentTokenId(TokenId),
     /// The token module rejected the transaction.
     TokenModule(TokenModuleRejectReason),
+}
+
+/// Details provided by the token module in the event of rejecting a
+/// transaction.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct TokenModuleRejectReason {
+    /// The canonical token id.
+    pub token_id: TokenId,
+    /// The type of the reject reason.
+    pub reason_type: TokenModuleCborTypeDiscriminator,
+    /// (Optional) CBOR-encoded details.
+    pub details: Option<RawCbor>,
 }

@@ -2,9 +2,9 @@ use assert_matches::assert_matches;
 use concordium_base::protocol_level_tokens::{
     TokenModuleRejectReasonEnum, TokenModuleRejectReasonType,
 };
-use plt_token_module::token_module::{TokenModuleRejectReason, TokenUpdateError};
+use plt_token_module::token_module::{RejectReason, TokenUpdateError};
 
-fn decode_reject_reason(reject_reason: &TokenModuleRejectReason) -> TokenModuleRejectReasonEnum {
+fn decode_reject_reason(reject_reason: &RejectReason) -> TokenModuleRejectReasonEnum {
     let reject_reason_type =
         TokenModuleRejectReasonType::try_from_type_discriminator(&reject_reason.reason_type)
             .unwrap();
