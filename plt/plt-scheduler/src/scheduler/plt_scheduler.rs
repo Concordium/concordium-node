@@ -38,7 +38,7 @@ use std::mem;
 /// # Arguments
 ///
 /// - `transaction_execution` Context of transaction execution that allows accessing sending account
-///    and charging energy.
+///   and charging energy.
 /// - `block_state` Block state that can be queried and updated during execution.
 /// - `payload` The token update transaction payload to execute.
 ///

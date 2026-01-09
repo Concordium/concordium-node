@@ -4,6 +4,7 @@
 
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
 use assert_matches::assert_matches;
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, CborMemo, RawCbor, TokenAmount, TokenId, TokenModuleRejectReasonEnum,
@@ -43,10 +44,15 @@ fn test_plt_transfer() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
-        scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("transfer");
+    let events = scheduler::execute_transaction(
+        gov_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error")
+    .result
+    .expect("transfer");
 
     // Assert circulating supply unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -84,10 +90,15 @@ fn test_plt_transfer() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
-        scheduler::execute_transaction(account2, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("transfer");
+    let events = scheduler::execute_transaction(
+        account2,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error")
+    .result
+    .expect("transfer");
 
     // Assert circulating supply unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -134,10 +145,15 @@ fn test_plt_transfer_reject() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let reject_reason =
-        scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect_err("transfer reject");
+    let reject_reason = scheduler::execute_transaction(
+        gov_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error")
+    .result
+    .expect_err("transfer reject");
 
     // Assert circulating supply and account balances unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -174,10 +190,15 @@ fn test_plt_mint() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
-        scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("mint");
+    let events = scheduler::execute_transaction(
+        gov_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error")
+    .result
+    .expect("mint");
 
     // Assert circulating supply increased
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(1000));
@@ -218,10 +239,15 @@ fn test_plt_mint_reject() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let reject_reason =
-        scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect_err("mint reject");
+    let reject_reason = scheduler::execute_transaction(
+        gov_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error")
+    .result
+    .expect_err("mint reject");
 
     // Assert circulating supply and account balance unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -258,10 +284,15 @@ fn test_plt_burn() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
-        scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("burn");
+    let events = scheduler::execute_transaction(
+        gov_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error")
+    .result
+    .expect("burn");
 
     // Assert circulating supply decreased
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(4000));
@@ -302,10 +333,15 @@ fn test_plt_burn_reject() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let reject_reason =
-        scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect_err("burn reject");
+    let reject_reason = scheduler::execute_transaction(
+        gov_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error")
+    .result
+    .expect_err("burn reject");
 
     // Assert circulating supply and account balance unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -348,10 +384,15 @@ fn test_plt_multiple_operations() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
-        scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("mint");
+    let events = scheduler::execute_transaction(
+        gov_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error")
+    .result
+    .expect("mint");
 
     // Assert circulating supply and accout balances
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(3000));

@@ -15,9 +15,9 @@ use plt_scheduler::block_state_interface::{
     BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
     UnderOrOverflowError,
 };
-use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
+use plt_scheduler::scheduler;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
-use plt_token_module::token_module;
+use plt_token_module::{TOKEN_MODULE_REF, token_module};
 use std::collections::HashMap;
 
 /// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
