@@ -334,13 +334,22 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
             -- exists on the account with 'checkHeader'.
             payment <- energyToGtu chrCheckHeaderCost
             chargeExecutionCost chrPayerAccount payment
+            let (tsCost, sponsorDetails) = case transactionSponsor msg of
+                    Just sponsorAddress ->
+                        ( 0,
+                          Just $
+                            SponsorDetails
+                                { sdSponsor = sponsorAddress,
+                                  sdCost = payment
+                                }
+                        )
+                    Nothing -> (payment, Nothing)
             return $
                 Just $
                     TransactionSummary
                         { tsEnergyCost = chrCheckHeaderCost,
-                          tsCost = payment,
                           tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
-                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
+                          tsSponsorDetails = conditionally cHasSponsorDetails sponsorDetails,
                           tsResult = transactionReject SerializationFailure,
                           tsHash = transactionHash msg,
                           tsType = TSTAccountTransaction Nothing,

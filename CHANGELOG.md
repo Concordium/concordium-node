@@ -5,6 +5,9 @@
 ## 10.0.1
 
 - Add P9 -> P10 protocol update.
+- Fix a bug where the transaction summary for a sponsored transaction with an
+  invalid payload incorrectly attributed the transaction fees to the sender and
+  omitted the sponsor.
 
 ## 10.0.0 (DevNet)
 
