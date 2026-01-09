@@ -37,7 +37,8 @@ module Concordium.Scheduler (
     filterTransactions,
     runTransactions,
     execTransactions,
-    CheckHeaderResult (..),
+    CheckHeaderResult,
+    CheckHeaderResult' (..),
     dispatchTransactionBody,
     handleContractUpdateV1,
     handleContractUpdateV0,
@@ -113,15 +114,19 @@ import Data.Either (isLeft)
 import Data.Proxy
 import Prelude hiding (exp, mod)
 
-data CheckHeaderResult m = CheckHeaderResult
+-- | The result type of 'checkHeader', parametrised by the account type.
+data CheckHeaderResult' acct = CheckHeaderResult
     { -- | The sender account for the transaction.
-      chrSenderAccount :: !(IndexedAccount m),
+      chrSenderAccount :: !acct,
       -- | The account that is paying the transaction fees for the transaction.
       --  For a sponsored transaction, this is the sponsor. Otherwise, it is the sender.
-      chrPayerAccount :: !(IndexedAccount m),
+      chrPayerAccount :: !acct,
       -- | The energy cost to charge for checking the header.
       chrCheckHeaderCost :: !Energy
     }
+
+-- | The result type of 'checkHeader', parameterised by the monad.
+type CheckHeaderResult m = CheckHeaderResult' (IndexedAccount m)
 
 -- | The function asserts the following
 --   * if the transaction is an 'AccountTransactionV1', then the protocol version supports sponsored transactions.
