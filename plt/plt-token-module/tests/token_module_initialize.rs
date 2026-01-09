@@ -109,7 +109,7 @@ fn test_initialize_token_default_values() {
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
 
-    // assertions directly on token state
+    // Assertions directly on token state
     assert_eq!(
         stub.lookup_token_module_state_value(b"\0\0name".into()),
         Some(b"Protocol-level token".into())
@@ -144,7 +144,8 @@ fn test_initialize_token_default_values() {
     );
     // assert governance account balance
     assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
-    // assertions using token module state query
+
+    // Assertions using token module state query
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
@@ -180,7 +181,7 @@ fn test_initialize_token_no_minting() {
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
 
-    // assertions directly on token state
+    // Assertions directly on token state
     assert_eq!(
         stub.lookup_token_module_state_value(b"\0\0name".into()),
         Some(b"Protocol-level token".into())
@@ -215,7 +216,8 @@ fn test_initialize_token_no_minting() {
     );
     // assert governance account balance
     assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
-    // assertions using token module state query
+
+    // Assertions using token module state query
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
@@ -251,7 +253,7 @@ fn test_initialize_token_with_minting() {
     let encoded_parameters = cbor::cbor_encode(&parameters).into();
     token_module::initialize_token(&mut stub, encoded_parameters).unwrap();
 
-    // assertions directly on token state
+    // Assertions directly on token state
     assert_eq!(
         stub.lookup_token_module_state_value(b"\0\0name".into()),
         Some(b"Protocol-level token".into())
@@ -289,7 +291,8 @@ fn test_initialize_token_with_minting() {
         stub.account_token_balance(&gov_account),
         RawTokenAmount(500000)
     );
-    // assertions using token module state query
+
+    // Assertions using token module state query
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.name, Some("Protocol-level token".to_owned()));
