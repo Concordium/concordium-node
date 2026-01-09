@@ -11,8 +11,8 @@ use crate::scheduler::{
 };
 
 use crate::block_state_interface;
-use crate::events::{TokenSupplyUpdateEvent, TokenTransferEvent, TransactionEvent};
 use crate::scheduler::scheduler_interface::TransactionExecution;
+use crate::types::events::{TokenSupplyUpdateEvent, TokenTransferEvent, TransactionEvent};
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
@@ -21,8 +21,8 @@ use concordium_base::updates::CreatePlt;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
-    TokenKernelOperations, TokenKernelQueries, TokenKernelTransactionExecution, TokenModuleEvent,
-    TokenStateInvariantError, TransferError,
+    TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenKernelTransactionExecution,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
@@ -64,11 +64,13 @@ pub fn execute_plt_transaction<
         events: Default::default(),
     };
 
-    match token_module::execute_token_update_transaction(
+    let token_update_result = token_module::execute_token_update_transaction(
         &mut kernel_transaction_execution,
         &mut kernel,
         payload.operations,
-    ) {
+    );
+
+    match token_update_result {
         Ok(()) => {
             let events = mem::take(&mut kernel.events);
             let token_module_state_dirty = kernel.token_module_state_dirty;
@@ -113,7 +115,10 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
         events: Default::default(),
     };
 
-    match token_module::initialize_token(&mut kernel, payload.initialization_parameters) {
+    let token_initialize_result =
+        token_module::initialize_token(&mut kernel, payload.initialization_parameters);
+
+    match token_initialize_result {
         Ok(()) => {
             let events = mem::take(&mut kernel.events);
             let token_module_state_dirty = kernel.token_module_state_dirty;
@@ -175,10 +180,6 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'_, 
         self.block_state.account_token_balance(account, self.token)
     }
 
-    fn circulating_supply(&self) -> RawTokenAmount {
-        self.block_state.token_circulating_supply(self.token)
-    }
-
     fn decimals(&self) -> u8 {
         self.block_state.token_configuration(self.token).decimals
     }
@@ -199,18 +200,30 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         account: &Self::Account,
         amount: RawTokenAmount,
     ) -> Result<(), AmountNotRepresentableError> {
+        // Update balance of the account
         self.block_state
             .update_token_account_balance(self.token, account, RawTokenAmountDelta::Add(amount))
             .map_err(|_err: UnderOrOverflowError| AmountNotRepresentableError)?;
 
-        self.events
-            .push(TransactionEvent::TokenMint(TokenSupplyUpdateEvent {
-                target: self.account_canonical_address(account),
-                amount: TokenAmount::from_raw(
-                    amount.0,
-                    self.block_state.token_configuration(self.token).decimals,
-                ),
-            }));
+        // Update total supply
+        let mut circulating_supply = self.block_state.token_circulating_supply(self.token);
+        circulating_supply.0 = circulating_supply
+            .0
+            .checked_add(amount.0)
+            .ok_or(AmountNotRepresentableError)?;
+        self.block_state
+            .set_token_circulating_supply(self.token, circulating_supply);
+
+        // Issue event
+        let event = TransactionEvent::TokenMint(TokenSupplyUpdateEvent {
+            target: self.account_canonical_address(account),
+            amount: TokenAmount::from_raw(
+                amount.0,
+                self.block_state.token_configuration(self.token).decimals,
+            ),
+        });
+
+        self.events.push(event);
 
         Ok(())
     }
@@ -219,7 +232,8 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         &mut self,
         account: &Self::Account,
         amount: RawTokenAmount,
-    ) -> Result<(), InsufficientBalanceError> {
+    ) -> Result<(), TokenBurnError> {
+        // Update balance of the account
         self.block_state
             .update_token_account_balance(
                 self.token,
@@ -231,14 +245,27 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
                 required: amount,
             })?;
 
-        self.events
-            .push(TransactionEvent::TokenBurn(TokenSupplyUpdateEvent {
-                target: self.account_canonical_address(account),
-                amount: TokenAmount::from_raw(
-                    amount.0,
-                    self.block_state.token_configuration(self.token).decimals,
-                ),
-            }));
+        // Update total supply
+        let mut circulating_supply = self.block_state.token_circulating_supply(self.token);
+        circulating_supply.0 = circulating_supply.0.checked_sub(amount.0).ok_or_else(||
+            // We should never underflow total supply at transfer, since the total circulating supply of the token
+            // is always more than any account balance.
+            TokenStateInvariantError(
+                "Circulating supply token amount underflow at burn".to_string(),
+            ))?;
+        self.block_state
+            .set_token_circulating_supply(self.token, circulating_supply);
+
+        // Issue event
+        let event = TransactionEvent::TokenBurn(TokenSupplyUpdateEvent {
+            target: self.account_canonical_address(account),
+            amount: TokenAmount::from_raw(
+                amount.0,
+                self.block_state.token_configuration(self.token).decimals,
+            ),
+        });
+
+        self.events.push(event);
 
         Ok(())
     }
@@ -249,33 +276,36 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         to: &Self::Account,
         amount: RawTokenAmount,
         memo: Option<Memo>,
-    ) -> Result<(), TransferError> {
+    ) -> Result<(), TokenTransferError> {
+        // Update sender balance
         self.block_state
             .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
             .map_err(|_err: UnderOrOverflowError| InsufficientBalanceError {
                 available: self.account_token_balance(from),
                 required: amount,
             })?;
+
+        // Update receiver balance
         self.block_state
             .update_token_account_balance(self.token, to, RawTokenAmountDelta::Add(amount))
             .map_err(|_err: UnderOrOverflowError| {
                 // We should never overflow at transfer, since the total circulating supply of the token
                 // is always less that what is representable as a token amount.
-                TokenStateInvariantError(
-                    "Token amount overflow in transfer destination account".to_string(),
-                )
+                TokenStateInvariantError("Transfer destination token amount overflow".to_string())
             })?;
 
-        self.events
-            .push(TransactionEvent::TokenTransfer(TokenTransferEvent {
-                from: self.account_canonical_address(from),
-                to: self.account_canonical_address(to),
-                amount: TokenAmount::from_raw(
-                    amount.0,
-                    self.block_state.token_configuration(self.token).decimals,
-                ),
-                memo,
-            }));
+        // Issue event
+        let event = TransactionEvent::TokenTransfer(TokenTransferEvent {
+            from: self.account_canonical_address(from),
+            to: self.account_canonical_address(to),
+            amount: TokenAmount::from_raw(
+                amount.0,
+                self.block_state.token_configuration(self.token).decimals,
+            ),
+            memo,
+        });
+
+        self.events.push(event);
 
         Ok(())
     }

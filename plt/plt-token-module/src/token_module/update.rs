@@ -1,7 +1,7 @@
 use crate::token_kernel_interface::{
     AccountNotFoundByAddressError, InsufficientBalanceError, OutOfEnergyError,
     TokenKernelOperations, TokenKernelTransactionExecution, TokenStateInvariantError,
-    TransferError,
+    TokenTransferError,
 };
 use crate::token_module;
 use crate::token_module::TokenAmountDecimalsMismatchError;
@@ -24,11 +24,11 @@ pub enum TokenUpdateErrorInternal {
     StateInvariantViolation(#[from] TokenStateInvariantError),
 }
 
-impl From<TransferError> for TokenUpdateErrorInternal {
-    fn from(err: TransferError) -> Self {
+impl From<TokenTransferError> for TokenUpdateErrorInternal {
+    fn from(err: TokenTransferError) -> Self {
         match err {
-            TransferError::StateInvariantViolation(err) => Self::StateInvariantViolation(err),
-            TransferError::InsufficientBalance(err) => Self::InsufficientBalance(err),
+            TokenTransferError::StateInvariantViolation(err) => Self::StateInvariantViolation(err),
+            TokenTransferError::InsufficientBalance(err) => Self::InsufficientBalance(err),
         }
     }
 }

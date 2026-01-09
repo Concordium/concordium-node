@@ -219,7 +219,12 @@ impl BlockStateQuery for BlockStateStub {
             .iter()
             .enumerate()
             .find_map(|(i, token)| {
-                if token.configuration.token_id.as_ref().eq_ignore_ascii_case(token_id.as_ref()) {
+                if token
+                    .configuration
+                    .token_id
+                    .as_ref()
+                    .eq_ignore_ascii_case(token_id.as_ref())
+                {
                     Some(TokenStubIndex(i))
                 } else {
                     None

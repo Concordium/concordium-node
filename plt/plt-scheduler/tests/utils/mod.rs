@@ -2,7 +2,7 @@ use assert_matches::assert_matches;
 use concordium_base::protocol_level_tokens::{
     TokenModuleRejectReasonEnum, TokenModuleRejectReasonType,
 };
-use plt_scheduler::reject_reasons::TransactionRejectReason;
+use plt_scheduler::types::reject_reasons::TransactionRejectReason;
 use plt_token_module::token_module::TokenModuleRejectReason;
 
 fn decode_token_module_reject_reason(

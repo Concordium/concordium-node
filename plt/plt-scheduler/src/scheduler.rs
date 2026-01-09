@@ -2,9 +2,9 @@
 //! transaction and update instruction payloads.
 
 use crate::block_state_interface::BlockStateOperations;
-use crate::events::TransactionEvent;
-use crate::reject_reasons::TransactionRejectReason;
 use crate::scheduler::scheduler_interface::{OutOfEnergyError, TransactionExecution};
+use crate::types::events::TransactionEvent;
+use crate::types::reject_reasons::TransactionRejectReason;
 use concordium_base::base::Energy;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
@@ -39,6 +39,8 @@ impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> 
 pub enum TransactionExecutionError {
     #[error("Unexpected transaction payload that cannot be handled")]
     UnexpectedPayload,
+    /// An invariant in the state that should be enforced
+    /// is broken. This is generally an error that should never happen and is unrecoverable.
     #[error("State invariant broken: {0}")]
     TokenStateInvariantBroken(String),
 }

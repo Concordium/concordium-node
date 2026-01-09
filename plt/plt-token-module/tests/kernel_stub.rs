@@ -15,8 +15,8 @@ use concordium_base::transactions::Memo;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
-    TokenKernelOperations, TokenKernelQueries, TokenKernelTransactionExecution, TokenModuleEvent,
-    TokenStateInvariantError, TransferError,
+    TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenKernelTransactionExecution,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
 use plt_token_module::token_module;
 
@@ -223,10 +223,6 @@ impl TokenKernelQueries for KernelStub {
         self.accounts[account.0].balance.unwrap_or_default()
     }
 
-    fn circulating_supply(&self) -> RawTokenAmount {
-        todo!()
-    }
-
     fn decimals(&self) -> u8 {
         self.decimals
     }
@@ -258,7 +254,7 @@ impl TokenKernelOperations for KernelStub {
         &mut self,
         _account: &Self::Account,
         _amount: RawTokenAmount,
-    ) -> Result<(), InsufficientBalanceError> {
+    ) -> Result<(), TokenBurnError> {
         todo!()
     }
 
@@ -268,7 +264,7 @@ impl TokenKernelOperations for KernelStub {
         to: &Self::Account,
         amount: RawTokenAmount,
         memo: Option<Memo>,
-    ) -> Result<(), TransferError> {
+    ) -> Result<(), TokenTransferError> {
         let from_balance = self.accounts[from.0].balance.get_or_insert_default();
         from_balance.0 = from_balance
             .0

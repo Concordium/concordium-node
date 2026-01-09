@@ -59,9 +59,18 @@ pub struct AccountNotFoundByIndexError(pub AccountIndex);
 #[error("Token module state invariant broken: {0}")]
 pub struct TokenStateInvariantError(pub String);
 
-/// Represents the reasons why a query to the token module can fail.
+/// Represents the reasons why a token transfer may fail.
 #[derive(Debug, thiserror::Error)]
-pub enum TransferError {
+pub enum TokenTransferError {
+    #[error("{0}")]
+    StateInvariantViolation(#[from] TokenStateInvariantError),
+    #[error("Insufficient balance for transfer: {0}")]
+    InsufficientBalance(#[from] InsufficientBalanceError),
+}
+
+/// Represents the reasons why a token burn may fail.
+#[derive(Debug, thiserror::Error)]
+pub enum TokenBurnError {
     #[error("{0}")]
     StateInvariantViolation(#[from] TokenStateInvariantError),
     #[error("Insufficient balance for transfer: {0}")]
@@ -95,9 +104,6 @@ pub trait TokenKernelQueries {
 
     /// Get the token balance of the account.
     fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount;
-
-    /// The current token circulation supply.
-    fn circulating_supply(&self) -> RawTokenAmount;
 
     /// The number of decimals used in the presentation of the token amount.
     fn decimals(&self) -> u8;
@@ -136,12 +142,13 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     ///
     /// # Errors
     ///
-    /// - [`InsufficientBalanceError`] The sender has insufficient balance.
+    /// - [`TokenBurnError::InsufficientBalance`] The sender has insufficient balance.
+    /// - [`TokenBurnError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn burn(
         &mut self,
         account: &Self::Account,
         amount: RawTokenAmount,
-    ) -> Result<(), InsufficientBalanceError>;
+    ) -> Result<(), TokenBurnError>;
 
     /// Transfer a token amount from one account to another, with an optional memo.
     ///
@@ -151,15 +158,15 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     ///
     /// # Errors
     ///
-    /// - [`InsufficientBalanceError`] The sender has insufficient balance.
-    /// - [`TokenStateInvariantError`] If an internal token state invariant is broken.
+    /// - [`TokenTransferError::InsufficientBalance`] The sender has insufficient balance.
+    /// - [`TokenTransferError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn transfer(
         &mut self,
         from: &Self::Account,
         to: &Self::Account,
         amount: RawTokenAmount,
         memo: Option<Memo>,
-    ) -> Result<(), TransferError>;
+    ) -> Result<(), TokenTransferError>;
 
     /// Set or clear a value in the token state at the corresponding key.
     fn set_token_module_state_value(

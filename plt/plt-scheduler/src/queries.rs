@@ -1,10 +1,11 @@
 //! Implementation of queries related to protocol-level tokens.
 
 use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
+use crate::types::state::{TokenAccountState, TokenState};
 use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenAmount, TokenId, TokenModuleRef};
+use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, ModuleStateKey, ModuleStateValue,
     RawTokenAmount, TokenKernelQueries,
@@ -17,23 +18,18 @@ pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
     block_state.plt_list().collect()
 }
 
-/// Token state at the block level
+/// The token state at the block level.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TokenState {
-    /// The reference of the module implementing this token.
-    pub token_module_ref: TokenModuleRef,
-    /// Number of decimals in the decimal number representation of amounts.
-    pub decimals: u8,
-    /// The total available token supply.
-    pub total_supply: TokenAmount,
-    /// Token module specific state, such as token name, feature flags, meta
-    /// data.
-    pub module_state: RawCbor,
+pub struct TokenInfo {
+    /// The canonical identifier/symbol for the protocol level token.
+    pub token_id: TokenId,
+    /// The associated block level state.
+    pub state: TokenState,
 }
 
 /// Represents the reasons why a query of token state may fail
 #[derive(Debug, thiserror::Error)]
-pub enum QueryTokenStateError {
+pub enum QueryTokenInfoError {
     #[error("Error returned when querying the token module: {0}")]
     QueryTokenModule(#[from] QueryTokenModuleError),
     #[error("The token does not exist: {0}")]
@@ -41,10 +37,10 @@ pub enum QueryTokenStateError {
 }
 
 /// Get the token state associated with the given token id.
-pub fn token_state(
+pub fn token_info(
     block_state: &impl BlockStateQuery,
     token_id: &TokenId,
-) -> Result<TokenState, QueryTokenStateError> {
+) -> Result<TokenInfo, QueryTokenInfoError> {
     let token = block_state.token_by_id(token_id)?;
 
     let token_configuration = block_state.token_configuration(&token);
@@ -69,16 +65,22 @@ pub fn token_state(
         module_state,
     };
 
-    Ok(token_state)
+    let token_info = TokenInfo {
+        // The token configuration contains the canonical token id specified in the original casing
+        token_id: token_configuration.token_id,
+        state: token_state,
+    };
+
+    Ok(token_info)
 }
 
 /// State of a protocol level token associated with some account.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TokenAccountState {
-    /// The token balance of the account.
-    pub balance: TokenAmount,
-    /// The token-module defined state of the account.
-    pub module_state: RawCbor,
+pub struct TokenAccountInfo {
+    /// The canonical identifier/symbol for the protocol level token.
+    pub token_id: TokenId,
+    /// The state of the token associated with the account.
+    pub account_state: TokenAccountState,
 }
 
 /// Represents the reasons why a query of token state may fail
@@ -89,10 +91,10 @@ pub enum QueryTokenAccountStateError {
 }
 
 /// Get the list of tokens on an account
-pub fn token_account_states(
+pub fn token_account_infos(
     _block_state: &impl BlockStateQuery,
     _account: AccountIndex,
-) -> Result<Vec<TokenAccountState>, QueryTokenAccountStateError> {
+) -> Result<Vec<TokenAccountInfo>, QueryTokenAccountStateError> {
     todo!()
 }
 
@@ -137,10 +139,6 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
 
     fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
         self.block_state.account_token_balance(account, self.token)
-    }
-
-    fn circulating_supply(&self) -> RawTokenAmount {
-        self.block_state.token_circulating_supply(self.token)
     }
 
     fn decimals(&self) -> u8 {
