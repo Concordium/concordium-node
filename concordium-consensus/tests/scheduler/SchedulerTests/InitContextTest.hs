@@ -79,7 +79,7 @@ testInit spv pvString = specify
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result state = do
