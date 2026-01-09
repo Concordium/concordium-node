@@ -31,7 +31,13 @@ impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> 
     }
 
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
-        if self.energy_limit - self.energy_used >= energy {
+        // self.energy_limit - self.energy_used should never underflow, but we safeguard with checked_sub
+        if self
+            .energy_limit
+            .checked_sub(self.energy_used)
+            .ok_or(OutOfEnergyError)?
+            >= energy
+        {
             self.energy_used = self.energy_used + energy;
             Ok(())
         } else {
