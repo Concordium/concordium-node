@@ -1,6 +1,7 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
+use crate::block_state_interface;
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenConfiguration,
     TokenNotFoundByIdError, UnderOrOverflowError,
@@ -10,27 +11,41 @@ use crate::scheduler::{
 };
 use crate::types::events::{TokenBurnEvent, TokenMintEvent, TokenTransferEvent, TransactionEvent};
 use crate::types::reject_reasons::TokenModuleRejectReason;
-use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
+use concordium_base::transactions;
 use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
-use plt_scheduler_interface::TransactionExecution;
+use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
     TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
     TokenTransferError,
 };
-use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
+use plt_token_module::{TOKEN_MODULE_REF, token_module};
 use std::mem;
 
-/// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
-/// Returns the events produced if successful otherwise a reject reason.
+/// Execute a token update transaction payload modifying `block_state` accordingly.
+/// Returns the events produced if successful, otherwise a reject reason.
+/// Energy must be charged during execution by calling [`TransactionExecution::tick_energy`]. If
+/// execution is out of energy, this function returns an error which means execution must be stopped,
+/// and the [`OutOfEnergyError`](plt_scheduler_interface::OutOfEnergyError) error must be returned by `execute_plt_transaction`.
 ///
-/// The caller must ensure to rollback state changes in case of the transaction being rejected.
+/// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
+///
+/// # Arguments
+///
+/// - `transaction_execution` Context of transaction execution that allows accessing sending account
+///   and charging energy.
+/// - `block_state` Block state that can be queried and updated during execution.
+/// - `payload` The token update transaction payload to execute.
+///
+/// # Errors
+///
+/// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
 pub fn execute_plt_transaction<
     BSO: BlockStateOperations,
     TE: TransactionExecution<Account = BSO::Account>,
@@ -39,6 +54,13 @@ pub fn execute_plt_transaction<
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
 ) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError> {
+    if let Err(err) =
+        transaction_execution.tick_energy(transactions::cost::PLT_OPERATIONS_TRANSACTIONS)
+    {
+        let _err: OutOfEnergyError = err; // assert type of error
+        return Ok(Err(TransactionRejectReason::OutOfEnergy));
+    }
+
     // Lookup token
     let token = match block_state.token_by_id(&payload.token_id) {
         Ok(token) => token,
@@ -98,8 +120,19 @@ pub fn execute_plt_transaction<
     }
 }
 
-/// Execute an update instruction payload modifying `block_state` accordingly.
+/// Execute a protocol-level token create update instruction modifying `block_state` accordingly.
 /// Returns the events produced if successful.
+///
+/// NOTICE: The caller must ensure to rollback state changes in case an error is returned.
+///
+/// # Arguments
+///
+/// - `block_state` Block state that can be queried and updated during execution.
+/// - `payload` The PLT create update instruction
+///
+/// # Errors
+///
+/// - [`UpdateInstructionExecutionError`] If executing the update instruction failed.
 pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: CreatePlt,

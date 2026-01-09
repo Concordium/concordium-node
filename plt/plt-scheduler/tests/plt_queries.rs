@@ -5,7 +5,8 @@ use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenModuleState};
 use plt_scheduler::block_state_interface::BlockStateQuery;
-use plt_scheduler::{TOKEN_MODULE_REF, queries};
+use plt_scheduler::queries;
+use plt_token_module::TOKEN_MODULE_REF;
 
 mod block_state_stub;
 
