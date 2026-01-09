@@ -107,12 +107,18 @@ data UpdateResult
       ResultChainUpdateInvalidSignatures
     | -- | The stated energy of the 'Transaction' exceeds the maximum allowed.
       ResultEnergyExceeded
-    | -- | The sender did not have enough funds to cover the costs.
+    | -- | The sender/sponsor did not have enough funds to cover the costs.
       ResultInsufficientFunds
     | -- | The consensus message is a result of double signing, indicating malicious behaviour.
       ResultDoubleSign
     | -- | The consensus has thrown an exception and entered an unrecoverable state.
       ResultConsensusFailure
+    | -- | No account corresponding to the transaction's sponsor exists.
+      ResultNonexistingSponsorAccount
+    | -- | The transaction includes a sponsor signature but no sponsor account.
+      ResultMissingSponsorAccount
+    | -- | The transaction includes a sponsor account but no sponsor signature.
+      ResultMissingSponsorSignature
     deriving (Eq, Show)
 
 -- | Maps a 'TV.VerificationResult' to the corresponding 'UpdateResult' type.
@@ -130,6 +136,7 @@ transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInv
 transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionInvalidSignatures) = ResultVerificationFailed
 transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.NormalTransactionInvalidNonce _)) = ResultNonceTooLarge
 transactionVerificationResultToUpdateResult (TV.MaybeOk TV.NormalTransactionEnergyExceeded) = ResultEnergyExceeded
+transactionVerificationResultToUpdateResult (TV.MaybeOk (TV.ExtendedTransactionInvalidSponsor _)) = ResultNonexistingSponsorAccount
 -- 'NotOk' mappings
 transactionVerificationResultToUpdateResult (TV.NotOk (TV.CredentialDeploymentDuplicateAccountRegistrationID _)) = ResultDuplicateAccountRegistrationID
 transactionVerificationResultToUpdateResult (TV.NotOk TV.CredentialDeploymentInvalidSignatures) = ResultCredentialDeploymentInvalidSignatures
@@ -141,6 +148,8 @@ transactionVerificationResultToUpdateResult (TV.NotOk (TV.NormalTransactionDupli
 transactionVerificationResultToUpdateResult (TV.NotOk TV.Expired) = ResultStale
 transactionVerificationResultToUpdateResult (TV.NotOk TV.InvalidPayloadSize) = ResultSerializationFail
 transactionVerificationResultToUpdateResult (TV.NotOk TV.ChainUpdateEffectiveTimeNonZeroForCreatePLT) = ResultChainUpdateInvalidEffectiveTime
+transactionVerificationResultToUpdateResult (TV.NotOk TV.SponsoredTransactionMissingSponsor) = ResultSerializationFail
+transactionVerificationResultToUpdateResult (TV.NotOk TV.SponsoredTransactionMissingSponsorSignature) = ResultVerificationFailed
 
 class
     ( Monad m,

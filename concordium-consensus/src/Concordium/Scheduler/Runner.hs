@@ -172,8 +172,9 @@ processUngroupedBlockItems inpt = do
     return (map txMap txs)
   where
     txMap (Types.NormalTransaction x) = Types.TGAccountTransactions [(Types.fromAccountTransaction 0 x, Nothing)]
-    txMap (Types.CredentialDeployment x) = Types.TGCredentialDeployment (Types.addMetadata Types.CredentialDeployment 0 x, Nothing)
-    txMap (Types.ChainUpdate x) = Types.TGUpdateInstructions [(Types.addMetadata Types.ChainUpdate 0 x, Nothing)]
+    txMap (Types.CredentialDeployment x) = Types.TGCredentialDeployment (Types.addMetadata 0 x, Nothing)
+    txMap (Types.ChainUpdate x) = Types.TGUpdateInstructions [(Types.addMetadata 0 x, Nothing)]
+    txMap (Types.ExtendedTransaction x) = Types.TGAccountTransactions [(Types.fromAccountTransactionV1 0 x, Nothing)]
 
 -- | For testing purposes: process transactions in the groups in which they came
 --  The arrival time of all transactions is taken to be 0.

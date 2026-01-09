@@ -1598,7 +1598,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
             }
         ]
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor P9) ->
         BS.PersistentBlockState 'P9 ->
         Helpers.PersistentBSM 'P9 Assertion
     checkState result state = do
@@ -1610,7 +1610,7 @@ testTokenOutOfEnergy = describe "tokenOutOfEnergy" $ do
             doAssertReloadedState
 
     blockStateAssertions ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor P9) ->
         BS.PersistentBlockState 'P9 ->
         Helpers.PersistentBSM 'P9 Assertion
     blockStateAssertions result state = do

@@ -27,25 +27,25 @@ import Concordium.Utils.Serialization
 
 -- | Outcomes of transactions. The vector of outcomes must have the same size as the
 --  number of transactions in the block, and ordered in the same way.
-data TransactionOutcomes = TransactionOutcomes
-    { outcomeValues :: !(Vec.Vector TransactionSummary),
+data TransactionOutcomes (tov :: TransactionOutcomesVersion) = TransactionOutcomes
+    { outcomeValues :: !(Vec.Vector (TransactionSummary tov)),
       _outcomeSpecial :: !(Seq.Seq SpecialTransactionOutcome)
     }
 
 makeLenses ''TransactionOutcomes
 
-instance Show TransactionOutcomes where
+instance Show (TransactionOutcomes tov) where
     show (TransactionOutcomes v s) = "Normal transactions: " ++ show (Vec.toList v) ++ ", special transactions: " ++ show s
 
-putTransactionOutcomes :: S.Putter TransactionOutcomes
+putTransactionOutcomes :: S.Putter (TransactionOutcomes tov)
 putTransactionOutcomes TransactionOutcomes{..} = do
     putListOf putTransactionSummary (Vec.toList outcomeValues)
     S.put _outcomeSpecial
 
-getTransactionOutcomes :: SProtocolVersion pv -> S.Get TransactionOutcomes
+getTransactionOutcomes :: SProtocolVersion pv -> S.Get (TransactionOutcomes (TransactionOutcomesVersionFor pv))
 getTransactionOutcomes spv = TransactionOutcomes <$> (Vec.fromList <$> getListOf (getTransactionSummary spv)) <*> S.get
 
-instance HashableTo (TransactionOutcomesHashV 'TOV0) TransactionOutcomes where
+instance HashableTo (TransactionOutcomesHashV 'TOV0) (TransactionOutcomes 'TOV0) where
     getHash transactionoutcomes =
         TransactionOutcomesHashV . H.hash . S.runPut $
             putTransactionOutcomes transactionoutcomes
@@ -92,7 +92,7 @@ newtype TransactionOutcomesHashV (tov :: TransactionOutcomesVersion) = Transacti
 toTransactionOutcomesHash :: TransactionOutcomesHashV tov -> TransactionOutcomesHash
 toTransactionOutcomesHash = TransactionOutcomesHash . theTransactionOutcomesHashV
 
-emptyTransactionOutcomesV0 :: TransactionOutcomes
+emptyTransactionOutcomesV0 :: TransactionOutcomes 'TOV0
 emptyTransactionOutcomesV0 = TransactionOutcomes Vec.empty Seq.empty
 
 -- | Hash of the empty V0 transaction outcomes structure. This transaction outcomes
@@ -123,22 +123,34 @@ emptyTransactionOutcomesHashV2 =
         S.putWord64be 0
         S.put (H.hash "EmptyLFMBTree")
 
+-- | Hash of the empty V3 transaction outcomes structure. This transaction outcomes
+--  structure is used starting in protocol version 10.
+emptyTransactionOutcomesHashV3 :: TransactionOutcomesHashV 'TOV3
+{-# NOINLINE emptyTransactionOutcomesHashV3 #-}
+emptyTransactionOutcomesHashV3 =
+    TransactionOutcomesHashV $ H.hashOfHashes emptyHash emptyHash
+  where
+    emptyHash = H.hash $ S.runPut $ do
+        S.putWord64be 0
+        S.put (H.hash "EmptyLFMBTree")
+
 emptyTransactionOutcomesHashV :: STransactionOutcomesVersion tov -> TransactionOutcomesHashV tov
 emptyTransactionOutcomesHashV stov = case stov of
     STOV0 -> emptyTransactionOutcomesHashV0
     STOV1 -> emptyTransactionOutcomesHashV1
     STOV2 -> emptyTransactionOutcomesHashV2
+    STOV3 -> emptyTransactionOutcomesHashV3
 
-transactionOutcomesV0FromList :: [TransactionSummary] -> TransactionOutcomes
+transactionOutcomesV0FromList :: [TransactionSummary tov] -> TransactionOutcomes tov
 transactionOutcomesV0FromList l =
     let outcomeValues = Vec.fromList l
         _outcomeSpecial = Seq.empty
     in  TransactionOutcomes{..}
 
-type instance Index TransactionOutcomes = TransactionIndex
-type instance IxValue TransactionOutcomes = TransactionSummary
+type instance Index (TransactionOutcomes tov) = TransactionIndex
+type instance IxValue (TransactionOutcomes tov) = TransactionSummary tov
 
-instance Ixed TransactionOutcomes where
+instance Ixed (TransactionOutcomes tov) where
     ix idx f outcomes@TransactionOutcomes{..} =
         let x = fromIntegral idx
         in  if x >= length outcomeValues
