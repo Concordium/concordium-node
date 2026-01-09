@@ -76,9 +76,7 @@ import Concordium.Types.ProtocolVersion
 
 -- | The hash that identifies a update from P9 to P10 protocol.
 updateHash :: SHA256.Hash
--- FIXME: this MUST match the hash of the specification document when available at
--- https://proposals.concordium.com/updates/P10.html
-updateHash = read "0000000000000000000000000000000000000000000000000000000000000010"
+updateHash = read "6d84de01ccda394638459daa6b9e374094236d3e2e8fd19a51e7136abe77b06d"
 
 -- | Construct the genesis data for a P9.ProtocolP10 update.
 --  This takes the terminal block of the old chain which is used as the basis for constructing
