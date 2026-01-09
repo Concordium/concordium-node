@@ -2,7 +2,7 @@
 //! by the token module. The kernel handles all operations affecting token
 //! balance and supply and manages the state and events related to balances and supply.
 
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
@@ -37,11 +37,6 @@ pub struct InsufficientBalanceError {
 #[derive(Debug, thiserror::Error)]
 #[error("Amount not representable")]
 pub struct AmountNotRepresentableError;
-
-/// Energy limit for execution reached.
-#[derive(Debug, thiserror::Error)]
-#[error("Out of energy")]
-pub struct OutOfEnergyError;
 
 /// Account with given address does not exist
 #[derive(Debug, thiserror::Error)]
@@ -181,22 +176,4 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     ///
     /// This will produce a `TokenModuleEvent` in the logs.
     fn log_token_event(&mut self, event: TokenModuleEvent);
-}
-
-/// Operations and context related to transaction execution.
-pub trait TokenKernelTransactionExecution {
-    /// Opaque type that represents an account on chain.
-    /// The account is guaranteed to exist on chain, when holding an instance of this type.
-    type Account;
-
-    /// The account initiating the transaction.
-    fn sender_account(&self) -> Self::Account;
-
-    /// Reduce the available energy for the PLT module execution.
-    ///
-    /// If the available energy is smaller than the given amount, an
-    /// "out of energy" error will be returned, in which case the caller
-    /// should stop execution and propagate the error upwards.
-    /// The energy is charged in any case (also in case of failure).
-    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError>;
 }

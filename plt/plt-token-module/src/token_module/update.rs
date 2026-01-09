@@ -1,12 +1,12 @@
 use crate::token_kernel_interface::{
-    AccountNotFoundByAddressError, InsufficientBalanceError, OutOfEnergyError,
-    TokenKernelOperations, TokenKernelTransactionExecution, TokenStateInvariantError,
-    TokenTransferError,
+    AccountNotFoundByAddressError, InsufficientBalanceError, TokenKernelOperations,
+    TokenStateInvariantError, TokenTransferError,
 };
 use crate::token_module;
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use concordium_base::protocol_level_tokens::{TokenOperation, TokenTransfer};
 use concordium_base::transactions::Memo;
+use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 
 /// Internal variant of `TokenUpdateError` where the reject reason is
 /// not encoded as CBOR
@@ -35,7 +35,7 @@ impl From<TokenTransferError> for TokenUpdateErrorInternal {
 
 pub fn execute_token_update_operation<
     TK: TokenKernelOperations,
-    TE: TokenKernelTransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -51,7 +51,7 @@ pub fn execute_token_update_operation<
 
 fn execute_token_transfer<
     TK: TokenKernelOperations,
-    TE: TokenKernelTransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,

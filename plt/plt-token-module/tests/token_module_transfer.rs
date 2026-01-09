@@ -1,4 +1,4 @@
-use crate::kernel_stub::{KernelTransactionExecutionTestImpl, TokenInitTestParams};
+use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -27,7 +27,7 @@ fn test_transfer() {
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
@@ -55,7 +55,7 @@ fn test_transfer_with_memo() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let memo = Memo::try_from(cbor::cbor_encode("testvalue")).unwrap();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
@@ -83,7 +83,7 @@ fn test_transfer_self() {
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&sender)),
@@ -108,7 +108,7 @@ fn test_transfer_insufficient_balance() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 2),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
@@ -141,7 +141,7 @@ fn test_transfer_decimals_mismatch() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
@@ -170,7 +170,7 @@ fn test_transfer_to_non_existing_receiver() {
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
         recipient: CborHolderAccount::from(NON_EXISTING_ACCOUNT),

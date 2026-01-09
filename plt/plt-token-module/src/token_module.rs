@@ -16,6 +16,7 @@ use concordium_base::protocol_level_tokens::{
     TokenModuleCborTypeDiscriminator, TokenModuleInitializationParameters,
     TokenModuleRejectReasonEnum, TokenOperation,
 };
+use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 
 mod initialize;
 mod queries;
@@ -93,7 +94,7 @@ pub enum TokenInitializationError {
 pub enum TokenUpdateError {
     #[error("Token module rejection")]
     TokenModuleReject(TokenModuleRejectReason),
-    #[error("Execution out of energy")]
+    #[error("{0}")]
     OutOfEnergy(#[from] OutOfEnergyError),
     #[error("{0}")]
     StateInvariantViolation(#[from] TokenStateInvariantError),
@@ -209,7 +210,7 @@ pub fn initialize_token(
 ///   - Token module state contains a correctly encoded governance account address.
 pub fn execute_token_update_transaction<
     TK: TokenKernelOperations,
-    TE: TokenKernelTransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,

@@ -10,8 +10,10 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 ffi = ["dep:libc"]
 
 [dependencies]
-concordium_base.workspace = true
+plt-scheduler-interface.workspace = true
 plt-token-module.workspace = true
+
+concordium_base.workspace = true
 thiserror.workspace = true
 libc = { workspace = true, optional = true }
 

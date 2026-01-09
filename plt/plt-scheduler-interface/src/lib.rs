@@ -24,7 +24,6 @@ pub trait TransactionExecution {
 }
 
 /// Transaction execution ran out of energy.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
+#[error("Execution out of energy")]
 pub struct OutOfEnergyError;
-
-// todo ar move to crate

@@ -1,4 +1,4 @@
-use crate::kernel_stub::{KernelTransactionExecutionTestImpl, TokenInitTestParams};
+use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
@@ -20,7 +20,7 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 fn test_update_token_decode_failure() {
     let mut stub = KernelStub::new(0);
     let sender = stub.create_account();
-    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let res = token_module::execute_token_update_transaction(
         &mut execution,
         &mut stub,
@@ -46,7 +46,7 @@ fn test_multiple_operations() {
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),
@@ -79,7 +79,7 @@ fn test_single_failing_operation() {
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
 
-    let mut execution = KernelTransactionExecutionTestImpl::with_sender(sender);
+    let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),

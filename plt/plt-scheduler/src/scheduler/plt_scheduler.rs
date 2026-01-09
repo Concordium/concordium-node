@@ -1,28 +1,26 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
+use crate::block_state_interface;
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenConfiguration,
     TokenNotFoundByIdError, UnderOrOverflowError,
 };
 use crate::scheduler::{
     TransactionExecutionError, TransactionRejectReason, UpdateInstructionExecutionError,
-    scheduler_interface,
 };
-
-use crate::block_state_interface;
-use crate::scheduler::scheduler_interface::TransactionExecution;
 use crate::types::events::{TokenSupplyUpdateEvent, TokenTransferEvent, TransactionEvent};
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
 use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
+use plt_scheduler_interface::TransactionExecution;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
-    TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenKernelTransactionExecution,
-    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
+    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
+    TokenTransferError,
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
@@ -52,10 +50,6 @@ pub fn execute_plt_transaction<
 
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
-    let mut kernel_transaction_execution = TokenKernelTransactionExecutionImpl {
-        transaction_execution,
-    };
-
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
         token: &token,
@@ -65,7 +59,7 @@ pub fn execute_plt_transaction<
     };
 
     let token_update_result = token_module::execute_token_update_transaction(
-        &mut kernel_transaction_execution,
+        transaction_execution,
         &mut kernel,
         payload.operations,
     );
@@ -323,25 +317,5 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
     fn log_token_event(&mut self, module_event: TokenModuleEvent) {
         self.events
             .push(TransactionEvent::TokenModule(module_event))
-    }
-}
-
-struct TokenKernelTransactionExecutionImpl<'a, TE: TransactionExecution> {
-    transaction_execution: &'a mut TE,
-}
-
-impl<TE: TransactionExecution> TokenKernelTransactionExecution
-    for TokenKernelTransactionExecutionImpl<'_, TE>
-{
-    type Account = TE::Account;
-
-    fn sender_account(&self) -> Self::Account {
-        self.transaction_execution.sender_account()
-    }
-
-    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
-        self.transaction_execution
-            .tick_energy(energy)
-            .map_err(|_err: scheduler_interface::OutOfEnergyError| OutOfEnergyError)
     }
 }

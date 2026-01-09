@@ -12,11 +12,12 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, TokenModuleInitializationParameters,
 };
 use concordium_base::transactions::Memo;
+use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, OutOfEnergyError, RawTokenAmount,
-    TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenKernelTransactionExecution,
-    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
+    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
+    TokenTransferError,
 };
 use plt_token_module::token_module;
 
@@ -302,24 +303,24 @@ impl TokenKernelOperations for KernelStub {
 
 /// Token kernel transaction execution context for test.
 #[derive(Debug)]
-pub struct KernelTransactionExecutionTestImpl {
+pub struct TransactionExecutionTestImpl {
     sender: AccountStubIndex,
 }
 
-impl KernelTransactionExecutionTestImpl {
+impl TransactionExecutionTestImpl {
     pub fn with_sender(sender: AccountStubIndex) -> Self {
         Self { sender }
     }
 }
 
-impl TokenKernelTransactionExecution for KernelTransactionExecutionTestImpl {
+impl TransactionExecution for TransactionExecutionTestImpl {
     type Account = AccountStubIndex;
 
     fn sender_account(&self) -> Self::Account {
         self.sender
     }
 
-    fn tick_energy(&mut self, _energy: Energy) -> Result<(), OutOfEnergyError> {
+    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
         todo!()
     }
 }

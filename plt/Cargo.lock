@@ -1056,7 +1056,16 @@ dependencies = [
  "assert_matches",
  "concordium_base",
  "libc",
+ "plt-scheduler-interface",
  "plt-token-module",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "plt-scheduler-interface"
+version = "0.1.0"
+dependencies = [
+ "concordium_base",
  "thiserror 2.0.17",
 ]
 
@@ -1066,6 +1075,7 @@ version = "0.1.0"
 dependencies = [
  "assert_matches",
  "concordium_base",
+ "plt-scheduler-interface",
  "thiserror 2.0.17",
 ]
 

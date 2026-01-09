@@ -2,15 +2,14 @@
 //! transaction and update instruction payloads.
 
 use crate::block_state_interface::BlockStateOperations;
-use crate::scheduler::scheduler_interface::{OutOfEnergyError, TransactionExecution};
 use crate::types::events::TransactionEvent;
 use crate::types::reject_reasons::TransactionRejectReason;
 use concordium_base::base::Energy;
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
+use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 
 mod plt_scheduler;
-mod scheduler_interface;
 
 /// Tracks the energy remaining and some context during the execution.
 struct TransactionExecutionImpl<Account> {
