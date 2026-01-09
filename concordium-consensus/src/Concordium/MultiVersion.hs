@@ -2115,7 +2115,6 @@ receiveTransaction transactionBS = handleMVRExceptionsWith (Nothing, Skov.Result
                         _ -> return $! Skov.transactionVerificationResultToUpdateResult verRes
         (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) ->
             withDeserializedTransaction (protocolVersion @pv) now $ \transaction -> do
-                logEvent Runner LLDebug $ "Transaction: " ++ show transaction
                 st <- liftIO $ readIORef $ vc1State vc
                 (known, verRes) <-
                     SkovV1.evalSkovT (SkovV1.preverifyTransaction transaction) (vc1Context vc) st
@@ -2133,9 +2132,7 @@ receiveTransaction transactionBS = handleMVRExceptionsWith (Nothing, Skov.Result
                                 else do
                                     -- A protocol update has occurred.
                                     receiveUnverified (Vec.last vvec') transaction
-                        _ -> do
-                            logEvent Runner LLWarning $ "Transaction received: " ++ show transaction ++ " gave result " ++ show verRes
-                            return $! Skov.transactionVerificationResultToUpdateResult verRes
+                        _ -> return $! Skov.transactionVerificationResultToUpdateResult verRes
   where
     withDeserializedTransaction ::
         SProtocolVersion spv ->

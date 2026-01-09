@@ -134,7 +134,7 @@ migratePersistentBakerInfoEx StateMigrationParametersP7ToP8{} = migrateReference
         m' (BakerInfoEx av2)
     migrateBakerInfoExV1 BakerInfoExV1{..} = return BakerInfoExV1{_bieIsSuspended = CTrue False, ..}
 migratePersistentBakerInfoEx StateMigrationParametersP8ToP9{} = migrateReference (return . coerceBakerInfoExV1)
-migratePersistentBakerInfoEx StateMigrationParametersP9ToP10{} = migrateReference (return . coerceBakerInfoExV1)
+migratePersistentBakerInfoEx StateMigrationParametersP9ToP10{} = migrateReference return
 
 -- | Migrate a 'V0.PersistentBakerInfoEx' to a 'PersistentBakerInfoEx'.
 --  See documentation of @migratePersistentBlockState@.
