@@ -209,7 +209,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// Increment the update sequence number for Protocol Level Tokens (PLT).
     ///
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
-    fn increment_plt_update_sequence_number(&mut self);
+    fn increment_plt_update_instruction_sequence_number(&mut self);
 
     /// Convert a mutable state to a persistent one and store it in the block state.
     ///

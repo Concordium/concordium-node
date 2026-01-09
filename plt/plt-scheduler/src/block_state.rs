@@ -120,7 +120,7 @@ impl BlockStateOperations for BlockState {
         todo!()
     }
 
-    fn increment_plt_update_sequence_number(&mut self) {
+    fn increment_plt_update_instruction_sequence_number(&mut self) {
         todo!()
     }
 

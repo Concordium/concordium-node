@@ -29,7 +29,7 @@ pub struct BlockStateStub {
     /// List of accounts in the stub.
     accounts: Vec<Account>,
     /// PLT update instruction sequence number
-    plt_update_sequence_number: u64,
+    plt_update_instruction_sequence_number: u64,
 }
 
 /// Internal representation of a token in [`BlockStateStub`].
@@ -74,7 +74,7 @@ impl BlockStateStub {
         Self {
             tokens: Default::default(),
             accounts: Default::default(),
-            plt_update_sequence_number: 0,
+            plt_update_instruction_sequence_number: 0,
         }
     }
 
@@ -149,8 +149,9 @@ impl BlockStateStub {
             .0 += balance.0;
     }
 
-    pub fn plt_update_sequence_number(&self) -> u64 {
-        self.plt_update_sequence_number
+    /// Return protocol-level token update instruction sequence number
+    pub fn plt_update_instruction_sequence_number(&self) -> u64 {
+        self.plt_update_instruction_sequence_number
     }
 }
 
@@ -192,12 +193,12 @@ impl TokenInitTestParams {
     }
 }
 
-/// Block state stub account object.
+/// Stub account object.
 /// When testing it is the index into the list of accounts tracked by the `KernelStub`.
 #[derive(Debug, Clone, Copy)]
 pub struct AccountStubIndex(usize);
 
-/// Block state stub token object.
+/// Stub token object.
 /// When testing it is the index into the list of accounts tracked by the `KernelStub`.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct TokenStubIndex(usize);
@@ -363,8 +364,8 @@ impl BlockStateOperations for BlockStateStub {
         self.accounts[account.0].tokens.entry(*token).or_default();
     }
 
-    fn increment_plt_update_sequence_number(&mut self) {
-        self.plt_update_sequence_number += 1;
+    fn increment_plt_update_instruction_sequence_number(&mut self) {
+        self.plt_update_instruction_sequence_number += 1;
     }
 
     fn set_token_module_state(

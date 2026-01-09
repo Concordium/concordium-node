@@ -38,10 +38,10 @@ pub fn execute_plt_transaction<
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
 ) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError> {
+    // Lookup token
     let token = match block_state.token_by_id(&payload.token_id) {
         Ok(token) => token,
-        Err(err) => {
-            let _err: TokenNotFoundByIdError = err; // assert type of error
+        Err(TokenNotFoundByIdError(_)) => {
             return Ok(Err(TransactionRejectReason::NonExistentTokenId(
                 payload.token_id,
             )));
@@ -70,9 +70,13 @@ pub fn execute_plt_transaction<
             let events = mem::take(&mut kernel.events);
             let token_module_state_dirty = kernel.token_module_state_dirty;
             drop(kernel);
+
+            // Update token module state if dirty
             if token_module_state_dirty {
                 block_state.set_token_module_state(&token, token_module_state);
             }
+
+            // Return events
             Ok(Ok(events))
         }
         Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
@@ -91,6 +95,16 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: CreatePlt,
 ) -> Result<Vec<TransactionEvent>, UpdateInstructionExecutionError> {
+    // Check that token id is not already used (notice that token_by_id lookup is case-insensitive
+    // as the check should be)
+    if let Ok(existing_token) = block_state.token_by_id(&payload.token_id) {
+        return Err(UpdateInstructionExecutionError::TokenIdAlreadyUsed(
+            block_state.token_configuration(&existing_token).token_id,
+        ));
+    }
+
+    // todo ar token module ref
+
     let token_configuration = TokenConfiguration {
         token_id: payload.token_id,
         module_ref: payload.token_module,
@@ -119,15 +133,21 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
             let events = mem::take(&mut kernel.events);
             let token_module_state_dirty = kernel.token_module_state_dirty;
             drop(kernel);
-            block_state.increment_plt_update_sequence_number();
+
+            // Increment protocol-level token update sequence number
+            block_state.increment_plt_update_instruction_sequence_number();
+
+            // Update token module state if dirty
             if token_module_state_dirty {
                 block_state.set_token_module_state(&token, token_module_state);
             }
+
+            // Return events
             Ok(events)
         }
-        Err(err) => Err(UpdateInstructionExecutionError::ModuleTokenInitializationFailed(
-            err.to_string(),
-        )),
+        Err(err) => {
+            Err(UpdateInstructionExecutionError::ModuleTokenInitializationFailed(err.to_string()))
+        }
     }
 }
 
