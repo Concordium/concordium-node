@@ -29,7 +29,7 @@ initialBlockState = Helpers.createTestBlockStateWithAccountsM []
 transactionsInput :: [CredentialDeploymentWithStatus]
 transactionsInput =
     map
-        ((\x -> (x, Nothing)) . Types.addMetadata Types.CredentialDeployment 0)
+        ((\x -> (x, Nothing)) . Types.addMetadata 0)
         [ icdi1,
           icdi2,
           icdi3 -- should fail because reuse of prf key
@@ -54,7 +54,7 @@ testAccountCreation _ pvString = specify
         doAssertions
   where
     makeAssertions ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     makeAssertions result state = do
