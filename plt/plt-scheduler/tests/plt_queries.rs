@@ -12,8 +12,12 @@ mod block_state_stub;
 #[test]
 fn test_query_plt_list() {
     let mut stub = BlockStateStub::new();
-    let (token1, _) = stub.create_and_init_token(TokenInitTestParams::default(), 4, None);
-    let (token2, _) = stub.create_and_init_token(TokenInitTestParams::default(), 4, None);
+    let token_id1 = "TokenId1".parse().unwrap();
+    let (token1, _) =
+        stub.create_and_init_token(token_id1, TokenInitTestParams::default(), 4, None);
+    let token_id2 = "TokenId2".parse().unwrap();
+    let (token2, _) =
+        stub.create_and_init_token(token_id2, TokenInitTestParams::default(), 4, None);
 
     let token_id1 = stub.token_configuration(&token1).token_id;
     let token_id2 = stub.token_configuration(&token2).token_id;
@@ -22,14 +26,20 @@ fn test_query_plt_list() {
     assert_eq!(plts, vec![token_id1, token_id2]);
 }
 
-/// Test query token state
+/// Test query token info
 #[test]
-fn test_query_token_state() {
+fn test_query_token_info() {
     let mut stub = BlockStateStub::new();
-    let (token, _) = stub.create_and_init_token(TokenInitTestParams::default(), 4, None);
+    let token_id = "TokenId1".parse().unwrap();
+    let (token, _) = stub.create_and_init_token(token_id, TokenInitTestParams::default(), 4, None);
     let token_id = stub.token_configuration(&token).token_id;
 
-    let token_info = queries::token_info(&stub, &token_id).unwrap();
+    let non_canonical_token_id = "toKeniD1".parse().unwrap();
+    // Lookup by token id that is not in canonical casing
+    let token_info = queries::token_info(&stub, &non_canonical_token_id).unwrap();
+    // Assert that the token id returned is in the canonical casing
+    assert_eq!(token_info.token_id, token_id);
+    assert_eq!(token_info.state.decimals, 4);
     assert_eq!(token_info.state.decimals, 4);
     assert_eq!(token_info.state.total_supply, TokenAmount::from_raw(0, 4));
     assert_eq!(token_info.state.token_module_ref, TOKEN_MODULE_REF);

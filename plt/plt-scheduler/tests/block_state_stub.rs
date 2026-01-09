@@ -99,12 +99,11 @@ impl BlockStateStub {
     /// the governance account.
     pub fn create_and_init_token(
         &mut self,
+        token_id: TokenId,
         params: TokenInitTestParams,
         decimals: u8,
         initial_supply: Option<RawTokenAmount>,
     ) -> (TokenStubIndex, AccountStubIndex) {
-        let token_id: TokenId = format!("tokenid{}", self.tokens.len()).parse().unwrap();
-
         let gov_account = self.create_account();
         let gov_holder_account = CborHolderAccount::from(self.accounts[gov_account.0].address);
         let metadata = MetadataUrl::from("https://plt.token".to_string());
