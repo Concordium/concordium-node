@@ -11,11 +11,11 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
-    UnderOrOverflowError,
+    BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenAccountBlockState,
+    TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError,
 };
 use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 use plt_token_module::token_module;
 use std::collections::HashMap;
@@ -312,6 +312,22 @@ impl BlockStateQuery for BlockStateStub {
             .get(token)
             .map(|token| token.balance)
             .unwrap_or_default()
+    }
+
+    fn token_account_states(
+        &self,
+        account: &Self::Account,
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountBlockState)> {
+        self.accounts[account.0]
+            .tokens
+            .iter()
+            .map(|(token, state)| {
+                let token_account_state = TokenAccountBlockState {
+                    balance: state.balance,
+                };
+
+                (*token, token_account_state)
+            })
     }
 }
 

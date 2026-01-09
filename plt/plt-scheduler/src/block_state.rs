@@ -1,10 +1,10 @@
 use crate::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
-    UnderOrOverflowError,
+    BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenAccountBlockState,
+    TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError,
 };
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
 pub struct BlockState {}
@@ -91,6 +91,15 @@ impl BlockStateQuery for BlockState {
         _token: &Self::Token,
     ) -> RawTokenAmount {
         todo!()
+    }
+
+    fn token_account_states(
+        &self,
+        _account: &Self::Account,
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountBlockState)> {
+        // TODO implement this. The implementation below is just to help the type checker infer
+        // enough for this to compile
+        Vec::new().into_iter()
     }
 }
 

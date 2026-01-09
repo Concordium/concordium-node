@@ -2,7 +2,9 @@ use crate::module_state;
 use crate::token_kernel_interface::TokenKernelQueries;
 use crate::token_module::TokenModuleStateInvariantError;
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenModuleState};
+use concordium_base::protocol_level_tokens::{
+    CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
+};
 
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]
@@ -20,15 +22,6 @@ pub fn query_token_module_state<TK: TokenKernelQueries>(
     Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
-/// Get the CBOR-encoded representation of the token module account state.
-pub fn query_account_state<TK: TokenKernelQueries>(
-    _kernel: &TK,
-    _account: TK::Account,
-) -> Result<Option<RawCbor>, QueryTokenModuleError> {
-    Ok(None)
-}
-
-/// Get the CBOR-encoded representation of the token module state.
 fn query_token_module_state_impl<TK: TokenKernelQueries>(
     kernel: &TK,
 ) -> Result<TokenModuleState, QueryTokenModuleError> {
@@ -64,4 +57,21 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
     };
 
     Ok(state)
+}
+
+/// Get the CBOR-encoded representation of the token module account state.
+pub fn query_account_token_module_state<TK: TokenKernelQueries>(
+    kernel: &TK,
+    account: &TK::Account,
+) -> Result<Option<RawCbor>, QueryTokenModuleError> {
+    let state_option = query_account_token_module_state_impl(kernel, account)?;
+
+    Ok(state_option.map(|state| RawCbor::from(cbor::cbor_encode(&state))))
+}
+
+fn query_account_token_module_state_impl<TK: TokenKernelQueries>(
+    _kernel: &TK,
+    _account: &TK::Account,
+) -> Result<Option<TokenModuleAccountState>, QueryTokenModuleError> {
+    Ok(None)
 }
