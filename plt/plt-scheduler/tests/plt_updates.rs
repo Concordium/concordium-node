@@ -20,7 +20,6 @@ mod utils;
 
 /// Test protocol-level token transfer. First transfer from governance account. And then perform
 /// a second transfer from the destination of the first transfer.
-/// the
 #[test]
 fn test_plt_transfer() {
     let mut stub = BlockStateStub::new();
@@ -49,7 +48,10 @@ fn test_plt_transfer() {
             .expect("transaction internal error")
             .expect("transfer");
 
+    // Assert circulating supply unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
+
+    // Assert balance of sender and receiver
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(2000)
@@ -59,6 +61,7 @@ fn test_plt_transfer() {
         RawTokenAmount(3000)
     );
 
+    // Assert transfer event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], TransactionEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.amount, TokenAmount::from_raw(3000, 4));
@@ -85,11 +88,10 @@ fn test_plt_transfer() {
             .expect("transaction internal error")
             .expect("transfer");
 
+    // Assert circulating supply unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
-    assert_eq!(
-        stub.account_token_balance(&gov_account, &token),
-        RawTokenAmount(2000)
-    );
+
+    // Assert balance of sender and receiver
     assert_eq!(
         stub.account_token_balance(&account2, &token),
         RawTokenAmount(2000)
@@ -99,6 +101,7 @@ fn test_plt_transfer() {
         RawTokenAmount(1000)
     );
 
+    // Assert transfer event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], TransactionEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.amount, TokenAmount::from_raw(1000, 4));
@@ -134,6 +137,7 @@ fn test_plt_transfer_reject() {
             .expect("transaction internal error")
             .expect_err("transfer reject");
 
+    // Assert circulating supply and account balances unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
@@ -173,12 +177,16 @@ fn test_plt_mint() {
             .expect("transaction internal error")
             .expect("mint");
 
+    // Assert circulating supply increased
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(1000));
+
+    // Assert account balance increased
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(1000)
     );
 
+    // Assert mint event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
         assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));
@@ -212,6 +220,7 @@ fn test_plt_mint_reject() {
             .expect("transaction internal error")
             .expect_err("mint reject");
 
+    // Assert circulating supply and account balance unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
@@ -251,12 +260,16 @@ fn test_plt_burn() {
             .expect("transaction internal error")
             .expect("burn");
 
+    // Assert circulating supply decreased
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(4000));
+
+    // Assert account balance decreased
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(4000)
     );
 
+    // Assert burn event
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], TransactionEvent::TokenBurn(burn) => {
         assert_eq!(burn.amount, TokenAmount::from_raw(1000, 4));
@@ -290,6 +303,7 @@ fn test_plt_burn_reject() {
             .expect("transaction internal error")
             .expect_err("burn reject");
 
+    // Assert circulating supply and account balance unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
@@ -335,6 +349,7 @@ fn test_plt_multiple_operations() {
             .expect("transaction internal error")
             .expect("mint");
 
+    // Assert circulating supply and accout balances
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(3000));
     assert_eq!(
         stub.account_token_balance(&gov_account, &token),
@@ -345,6 +360,7 @@ fn test_plt_multiple_operations() {
         RawTokenAmount(1000)
     );
 
+    // Assert two event in right order
     assert_eq!(events.len(), 2);
     assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
         assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));

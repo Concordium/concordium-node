@@ -1,4 +1,5 @@
-//! Test of protocol-level token queries
+//! Test of protocol-level token queries. Notice that detailed test of the token module queries are
+//! implemented in the `plt-token-module` crate.
 
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
 use concordium_base::common::cbor;
