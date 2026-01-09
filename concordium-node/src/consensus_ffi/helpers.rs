@@ -186,7 +186,7 @@ pub enum ConsensusFfiResponse {
     ChainUpdateInvalidSignatures,
     #[error("The stated energy of the transaction exceeds the maximum allowed")]
     MaxBlockEnergyExceeded,
-    #[error("The sender did not have enough funds to cover the costs")]
+    #[error("The sender/sponsor did not have enough funds to cover the costs")]
     InsufficientFunds,
     #[error("The consensus message is a result of double signing")]
     DoubleSign,
