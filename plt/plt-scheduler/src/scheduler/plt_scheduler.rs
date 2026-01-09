@@ -14,9 +14,10 @@ use crate::types::reject_reasons::TokenModuleRejectReason;
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
+use concordium_base::transactions;
 use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
-use plt_scheduler_interface::TransactionExecution;
+use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
@@ -53,6 +54,13 @@ pub fn execute_plt_transaction<
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
 ) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError> {
+    if let Err(err) =
+        transaction_execution.tick_energy(transactions::cost::PLT_OPERATIONS_TRANSACTIONS)
+    {
+        let _err: OutOfEnergyError = err; // assert type of error
+        return Ok(Err(TransactionRejectReason::OutOfEnergy));
+    }
+
     // Lookup token
     let token = match block_state.token_by_id(&payload.token_id) {
         Ok(token) => token,

@@ -30,8 +30,15 @@ impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> 
         self.sender_account.clone()
     }
 
-    fn tick_energy(&mut self, _energy: Energy) -> Result<(), OutOfEnergyError> {
-        Ok(())
+    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
+        if self.energy_limit - self.energy_used >= energy {
+            self.energy_used = self.energy_used + energy;
+            Ok(())
+        } else {
+            // Charge available energy in case of limit is reached
+            self.energy_used = self.energy_limit;
+            Err(OutOfEnergyError)
+        }
     }
 }
 
