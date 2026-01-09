@@ -2,11 +2,15 @@
 
 ## Unreleased changes
 
+## 10.0.1
+
+- Add P9 -> P10 protocol update.
+
 ## 10.0.0 (DevNet)
 
 - Updated the token module interface in accordance with adjustments to the PLT specification
   <https://proposals.concordium.com/CIS/cis-7.html>
-  where token name, metadata and governance account are now optional in the token module initialization parameterts and
+  where token name, metadata and governance account are now optional in the token module initialization parameters and
   the token module state. They are still required by the current token module implementation, and initialization
   without the parameters set will be rejected, so there are no observable changes to PLT behaviour.
 - Fixed the `build_catchup_url` in the Ubuntu build release pipeline.
