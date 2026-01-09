@@ -6,6 +6,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 
 pub type ModuleStateKey = Vec<u8>;
 pub type ModuleStateValue = Vec<u8>;
@@ -41,16 +42,6 @@ pub struct InsufficientBalanceError {
 #[derive(Debug, thiserror::Error)]
 #[error("Amount not representable")]
 pub struct AmountNotRepresentableError;
-
-/// Account with given address does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with address {0} does not exist")]
-pub struct AccountNotFoundByAddressError(pub AccountAddress);
-
-/// Account with given index does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with index {0} does not exist")]
-pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// An invariant in the token state that should be enforced
 /// is broken. This is generally an error that should never happen and is unrecoverable.

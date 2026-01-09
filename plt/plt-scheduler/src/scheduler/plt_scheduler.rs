@@ -1,6 +1,7 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
+use crate::TOKEN_MODULE_REF;
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenConfiguration,
     TokenNotFoundByIdError, UnderOrOverflowError,
@@ -10,18 +11,18 @@ use crate::scheduler::{
 };
 use crate::types::events::{TokenBurnEvent, TokenMintEvent, TokenTransferEvent, TransactionEvent};
 use crate::types::reject_reasons::TokenModuleRejectReason;
-use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
 use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
-use plt_scheduler_interface::TransactionExecution;
+use plt_scheduler_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, TransactionExecution,
+};
 use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
-    TokenTransferError,
+    AmountNotRepresentableError, InsufficientBalanceError, ModuleStateKey, ModuleStateValue,
+    RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenModuleEvent,
+    TokenStateInvariantError, TokenTransferError,
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
@@ -182,22 +183,14 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'_, 
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address).map_err(
-            |block_state_interface::AccountNotFoundByAddressError(account_address)| {
-                AccountNotFoundByAddressError(account_address)
-            },
-        )
+        self.block_state.account_by_address(address)
     }
 
     fn account_by_index(
         &self,
         index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index).map_err(
-            |block_state_interface::AccountNotFoundByIndexError(index)| {
-                AccountNotFoundByIndexError(index)
-            },
-        )
+        self.block_state.account_by_index(index)
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {

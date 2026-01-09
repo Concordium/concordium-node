@@ -1,14 +1,14 @@
 //! Implementation of queries related to protocol-level tokens.
 
+use crate::TOKEN_MODULE_REF;
 use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use crate::types::state::{TokenAccountState, TokenState};
-use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, ModuleStateKey, ModuleStateValue,
-    RawTokenAmount, TokenKernelQueries,
+    ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenKernelQueries,
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
@@ -88,14 +88,47 @@ pub struct TokenAccountInfo {
 pub enum QueryTokenAccountStateError {
     #[error("Error returned when querying the token module: {0}")]
     QueryTokenModule(#[from] QueryTokenModuleError),
+    #[error("{0}")]
+    AccountNotFoundByIndex(#[from] AccountNotFoundByIndexError),
 }
 
 /// Get the list of tokens on an account
 pub fn token_account_infos(
-    _block_state: &impl BlockStateQuery,
-    _account: AccountIndex,
+    block_state: &impl BlockStateQuery,
+    account_index: AccountIndex,
 ) -> Result<Vec<TokenAccountInfo>, QueryTokenAccountStateError> {
-    todo!()
+    let account = block_state.account_by_index(account_index)?;
+
+    block_state
+        .token_account_states(&account)
+        .map(|(token, state)| {
+            let token_configuration = block_state.token_configuration(&token);
+
+            let token_module_state = block_state.mutable_token_module_state(&token);
+
+            let kernel = TokenKernelQueriesImpl {
+                block_state,
+                token: &token,
+                token_module_state: &token_module_state,
+            };
+
+            let module_state = token_module::query_account_token_module_state(&kernel, &account)?;
+
+            let balance = TokenAmount::from_raw(state.balance.0, token_configuration.decimals);
+
+            let account_state = TokenAccountState {
+                balance,
+                module_state,
+            };
+
+            let token_account_info = TokenAccountInfo {
+                token_id: token_configuration.token_id,
+                account_state,
+            };
+
+            Ok(token_account_info)
+        })
+        .collect()
 }
 
 struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
@@ -111,22 +144,14 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address).map_err(
-            |block_state_interface::AccountNotFoundByAddressError(account_address)| {
-                AccountNotFoundByAddressError(account_address)
-            },
-        )
+        self.block_state.account_by_address(address)
     }
 
     fn account_by_index(
         &self,
         index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index).map_err(
-            |block_state_interface::AccountNotFoundByIndexError(index)| {
-                AccountNotFoundByIndexError(index)
-            },
-        )
+        self.block_state.account_by_index(index)
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
