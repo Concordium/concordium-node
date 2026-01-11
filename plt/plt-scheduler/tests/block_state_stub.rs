@@ -3,7 +3,7 @@
 // items in the file.
 #![allow(unused)]
 
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -12,18 +12,18 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
-    UnderOrOverflowError,
+    BlockStateOperationsP11, BlockStateQuery, BlockStateQueryP11, RawTokenAmountDelta,
+    TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError,
 };
 use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
-use plt_token_module::token_module;
 use std::collections::HashMap;
 
 /// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
 /// configuring the state of the block state.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct BlockStateStub {
+    protocol_version: ProtocolVersion,
     /// List of tokens in the stub
     tokens: Vec<Token>,
     /// List of accounts in the stub.
@@ -71,7 +71,12 @@ struct AccountToken {
 impl BlockStateStub {
     /// Create block state stub
     pub fn new() -> Self {
+        Self::with_protocol_version(ProtocolVersion::P11)
+    }
+
+    pub fn with_protocol_version(protocol_version: ProtocolVersion) -> Self {
         Self {
+            protocol_version,
             tokens: Default::default(),
             accounts: Default::default(),
             plt_update_instruction_sequence_number: 0,
@@ -204,6 +209,8 @@ pub struct AccountStubIndex(usize);
 pub struct TokenStubIndex(usize);
 
 impl BlockStateQuery for BlockStateStub {
+    type BlockStateQueryP11 = Self;
+
     type MutableTokenModuleState = StubTokenModuleState;
     type Account = AccountStubIndex;
     type Token = TokenStubIndex;
@@ -313,9 +320,29 @@ impl BlockStateQuery for BlockStateStub {
             .map(|token| token.balance)
             .unwrap_or_default()
     }
+
+    fn switch_by_p11(
+        &self,
+        below_p11: impl FnOnce(&Self),
+        p11_and_above: impl FnOnce(&Self::BlockStateQueryP11),
+    ) {
+        if self.protocol_version >= ProtocolVersion::P11 {
+            p11_and_above(self);
+        } else {
+            below_p11(self);
+        }
+    }
+}
+
+impl BlockStateQueryP11 for BlockStateStub {
+    fn query_p11(&self) {
+        todo!()
+    }
 }
 
 impl BlockStateOperations for BlockStateStub {
+    type BlockStateOperationsP11 = Self;
+
     fn set_token_circulating_supply(
         &mut self,
         token: &Self::Token,
@@ -374,5 +401,23 @@ impl BlockStateOperations for BlockStateStub {
         mutable_token_module_state: Self::MutableTokenModuleState,
     ) {
         self.tokens[token.0].module_state = mutable_token_module_state;
+    }
+
+    fn mut_switch_by_p11(
+        &mut self,
+        below_p11: impl FnOnce(&mut Self),
+        p11_and_above: impl FnOnce(&mut Self::BlockStateOperationsP11),
+    ) {
+        if self.protocol_version >= ProtocolVersion::P11 {
+            p11_and_above(self);
+        } else {
+            below_p11(self);
+        }
+    }
+}
+
+impl BlockStateOperationsP11 for BlockStateStub {
+    fn operation_p11(&mut self) {
+        todo!()
     }
 }

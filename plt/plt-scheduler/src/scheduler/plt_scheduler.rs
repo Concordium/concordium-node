@@ -2,8 +2,8 @@
 //! of transactions related to protocol-level tokens.
 
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenConfiguration,
-    TokenNotFoundByIdError, UnderOrOverflowError,
+    BlockStateOperations, BlockStateOperationsP11, BlockStateQuery, RawTokenAmountDelta,
+    TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError,
 };
 use crate::scheduler::{
     TransactionExecutionError, TransactionRejectReason, UpdateInstructionExecutionError,
@@ -48,6 +48,15 @@ pub fn execute_plt_transaction<
             )));
         }
     };
+
+    block_state.mut_switch_by_p11(
+        |bs| {
+            //
+        },
+        |bs| {
+            bs.operation_p11();
+        },
+    );
 
     let token_configuration = block_state.token_configuration(&token);
 

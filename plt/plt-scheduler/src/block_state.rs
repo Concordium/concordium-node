@@ -1,19 +1,29 @@
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
-    UnderOrOverflowError,
+    BlockStateOperationsP11, BlockStateQuery, BlockStateQueryP11, RawTokenAmountDelta,
+    TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError,
 };
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
-pub struct BlockState {}
+pub struct BlockState {
+    protocol_version: ProtocolVersion,
+}
+
+impl BlockState {
+    pub fn new(protocol_version: ProtocolVersion) -> Self {
+        Self { protocol_version }
+    }
+}
 
 /// Index of the protocol-level token in the block state map of tokens.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TokenIndex(u64);
 
 impl BlockStateQuery for BlockState {
+    type BlockStateQueryP11 = Self;
+
     type MutableTokenModuleState = ();
     type Account = AccountIndex;
     type Token = TokenIndex;
@@ -92,9 +102,29 @@ impl BlockStateQuery for BlockState {
     ) -> RawTokenAmount {
         todo!()
     }
+
+    fn switch_by_p11(
+        &self,
+        below_p11: impl FnOnce(&Self),
+        p11_and_above: impl FnOnce(&Self::BlockStateQueryP11),
+    ) {
+        if self.protocol_version >= ProtocolVersion::P11 {
+            p11_and_above(self);
+        } else {
+            below_p11(self);
+        }
+    }
+}
+
+impl BlockStateQueryP11 for BlockState {
+    fn query_p11(&self) {
+        todo!()
+    }
 }
 
 impl BlockStateOperations for BlockState {
+    type BlockStateOperationsP11 = Self;
+
     fn set_token_circulating_supply(
         &mut self,
         _token_index: &TokenIndex,
@@ -129,6 +159,24 @@ impl BlockStateOperations for BlockState {
         _token_index: &TokenIndex,
         _mutable_token_state: Self::MutableTokenModuleState,
     ) {
+        todo!()
+    }
+
+    fn mut_switch_by_p11(
+        &mut self,
+        below_p11: impl FnOnce(&mut Self),
+        p11_and_above: impl FnOnce(&mut Self::BlockStateOperationsP11),
+    ) {
+        if self.protocol_version >= ProtocolVersion::P11 {
+            p11_and_above(self);
+        } else {
+            below_p11(self);
+        }
+    }
+}
+
+impl BlockStateOperationsP11 for BlockState {
+    fn operation_p11(&mut self) {
         todo!()
     }
 }

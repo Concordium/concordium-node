@@ -45,6 +45,8 @@ pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
+    type BlockStateQueryP11: BlockStateQueryP11;
+
     /// Opaque type that represents the token module state.
     type MutableTokenModuleState;
 
@@ -143,10 +145,22 @@ pub trait BlockStateQuery {
     /// Get the token balance of the account.
     fn account_token_balance(&self, account: &Self::Account, token: &Self::Token)
     -> RawTokenAmount;
+
+    fn switch_by_p11(
+        &self,
+        below_p11: impl FnOnce(&Self),
+        p11_and_above: impl FnOnce(&Self::BlockStateQueryP11),
+    );
+}
+
+pub trait BlockStateQueryP11: BlockStateQuery {
+    fn query_p11(&self);
 }
 
 /// Operations on the state of a block in the chain.
 pub trait BlockStateOperations: BlockStateQuery {
+    type BlockStateOperationsP11: BlockStateOperationsP11;
+
     /// Set the recorded total circulating supply for a protocol-level token.
     ///
     /// This should always be kept up-to-date with the total balance held in accounts.
@@ -224,6 +238,16 @@ pub trait BlockStateOperations: BlockStateQuery {
         token: &Self::Token,
         mutable_token_module_state: Self::MutableTokenModuleState,
     );
+
+    fn mut_switch_by_p11(
+        &mut self,
+        below_p11: impl FnOnce(&mut Self),
+        p11_and_above: impl FnOnce(&mut Self::BlockStateOperationsP11),
+    );
+}
+
+pub trait BlockStateOperationsP11: BlockStateOperations {
+    fn operation_p11(&mut self);
 }
 
 /// The computation resulted in underflow or overflow.

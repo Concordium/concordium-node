@@ -1,6 +1,6 @@
 //! Implementation of queries related to protocol-level tokens.
 
-use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
+use crate::block_state_interface::{BlockStateQuery, BlockStateQueryP11, TokenNotFoundByIdError};
 use crate::types::state::{TokenAccountState, TokenState};
 use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
@@ -45,6 +45,15 @@ pub fn token_info(
 
     let token_configuration = block_state.token_configuration(&token);
     let circulating_supply = block_state.token_circulating_supply(&token);
+
+    block_state.switch_by_p11(
+        |bs| {
+            //
+        },
+        |bs| {
+            bs.query_p11();
+        },
+    );
 
     let total_supply = TokenAmount::from_raw(circulating_supply.0, token_configuration.decimals);
 
