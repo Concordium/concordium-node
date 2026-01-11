@@ -1,5 +1,5 @@
 use crate::module_state;
-use crate::token_kernel_interface::TokenKernelQueries;
+use crate::token_kernel_interface::{TokenKernelQueries, TokenKernelQueriesP11};
 use crate::token_module::TokenModuleStateInvariantError;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenModuleState};
@@ -39,6 +39,15 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
     let mintable = module_state::is_mintable(kernel);
     let burnable = module_state::is_burnable(kernel);
     let paused = module_state::is_paused(kernel);
+
+    kernel.switch_by_p11(
+        |k| {
+            //
+        },
+        |k| {
+            k.kernel_query_p11();
+        },
+    );
 
     let governance_account_index = module_state::get_governance_account_index(kernel)?;
     let governance_account = kernel

@@ -8,7 +8,7 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, ModuleStateKey, ModuleStateValue,
-    RawTokenAmount, TokenKernelQueries,
+    RawTokenAmount, TokenKernelQueries, TokenKernelQueriesP11,
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
@@ -107,13 +107,16 @@ pub fn token_account_infos(
     todo!()
 }
 
-struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
-    block_state: &'a BSQ,
-    token: &'a BSQ::Token,
-    token_module_state: &'a BSQ::MutableTokenModuleState,
+// todo are pub
+pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
+    pub block_state: &'a BSQ,
+    pub token: &'a BSQ::Token,
+    pub token_module_state: &'a BSQ::MutableTokenModuleState,
 }
 
-impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
+impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'a, BSQ> {
+    type TokenKernelQueriesP11 = TokenKernelQueriesImpl<'a, BSQ::BlockStateQueryP11>;
+
     type Account = BSQ::Account;
 
     fn account_by_address(
@@ -157,5 +160,29 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
         self.block_state
             .lookup_token_module_state_value(self.token_module_state, &key)
+    }
+
+    fn switch_by_p11(
+        &self,
+        below_p11: impl FnOnce(&Self),
+        p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11),
+    ) {
+        self.block_state.switch_by_p11(
+            |bs| below_p11(self),
+            |bs| {
+                let kernel = TokenKernelQueriesImpl {
+                    block_state: bs,
+                    token: self.token,
+                    token_module_state: self.token_module_state,
+                };
+                p11_and_above(&kernel)
+            },
+        )
+    }
+}
+
+impl<BSQ: BlockStateQueryP11> TokenKernelQueriesP11 for TokenKernelQueriesImpl<'_, BSQ> {
+    fn kernel_query_p11(&self) {
+        self.block_state.query_p11();
     }
 }

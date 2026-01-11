@@ -1,10 +1,7 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
-use crate::block_state_interface::{
-    BlockStateOperations, BlockStateOperationsP11, BlockStateQuery, RawTokenAmountDelta,
-    TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError,
-};
+use crate::block_state_interface::{BlockStateOperations, BlockStateOperationsP11, BlockStateQuery, BlockStateQueryP11, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError};
 use crate::scheduler::{
     TransactionExecutionError, TransactionRejectReason, UpdateInstructionExecutionError,
 };
@@ -17,15 +14,11 @@ use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload
 use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
 use plt_scheduler_interface::TransactionExecution;
-use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
-    TokenTransferError,
-};
+use plt_token_module::token_kernel_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError, InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelOperationsP11, TokenKernelQueries, TokenKernelQueriesP11, TokenModuleEvent, TokenStateInvariantError, TokenTransferError};
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
 use std::mem;
+use crate::queries::TokenKernelQueriesImpl;
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
 /// Returns the events produced if successful otherwise a reject reason.
@@ -62,13 +55,15 @@ pub fn execute_plt_transaction<
 
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
+    let mut events = Vec::new();
+    let mut token_module_state_dirty = false;
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
         token: &token,
         token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
-        token_module_state_dirty: false,
-        events: Default::default(),
+        token_module_state_dirty: &mut token_module_state_dirty,
+        events: &mut events,
     };
 
     // Call token module to execute operations
@@ -80,8 +75,6 @@ pub fn execute_plt_transaction<
 
     match token_update_result {
         Ok(()) => {
-            let events = mem::take(&mut kernel.events);
-            let token_module_state_dirty = kernel.token_module_state_dirty;
             drop(kernel);
 
             // Update token module state if dirty
@@ -139,13 +132,15 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
 
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
+    let mut events = Vec::new();
+    let mut token_module_state_dirty = false;
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
         token: &token,
         token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
-        token_module_state_dirty: false,
-        events: Default::default(),
+        token_module_state_dirty: &mut token_module_state_dirty,
+        events: &mut events,
     };
 
     // Initialize token in token module
@@ -153,9 +148,7 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
         token_module::initialize_token(&mut kernel, payload.initialization_parameters);
 
     match token_initialize_result {
-        Ok(()) => {
-            let events = mem::take(&mut kernel.events);
-            let token_module_state_dirty = kernel.token_module_state_dirty;
+        Ok(()) => { ;
             drop(kernel);
 
             // Increment protocol-level token update sequence number
@@ -180,11 +173,13 @@ struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     token: &'a BSQ::Token,
     token_configuration: &'a TokenConfiguration,
     token_module_state: &'a mut BSQ::MutableTokenModuleState,
-    events: Vec<TransactionEvent>,
-    token_module_state_dirty: bool,
+    events: &'a mut Vec<TransactionEvent>,
+    token_module_state_dirty: &'a mut bool,
 }
 
-impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'_, BSQ> {
+impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'a, BSQ> {
+    type TokenKernelQueriesP11 = TokenKernelQueriesImpl<'a, BSQ::BlockStateQueryP11>;
+
     type Account = BSQ::Account;
 
     fn account_by_address(
@@ -229,9 +224,32 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'_, 
         self.block_state
             .lookup_token_module_state_value(self.token_module_state, &key)
     }
+
+    fn switch_by_p11(&self, below_p11: impl FnOnce(&Self), p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11)) {
+        self.block_state.switch_by_p11(
+            |bs| below_p11(self),
+            |bs| {
+                let kernel = TokenKernelQueriesImpl {
+                    block_state: bs,
+                    token: self.token,
+                    token_module_state: self.token_module_state,
+                };
+                p11_and_above(&kernel)
+            },
+        )
+    }
 }
 
-impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
+impl<BSO: BlockStateQueryP11> TokenKernelQueriesP11 for TokenKernelOperationsImpl<'_, BSO> {
+    fn kernel_query_p11(&self) {
+        self.block_state.query_p11();
+    }
+}
+
+
+impl<'a, BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'a, BSO> {
+    type TokenKernelOperationsP11 = TokenKernelOperationsImpl<'a, BSO::BlockStateOperationsP11>;
+
     fn touch_account(&mut self, account: &Self::Account) {
         self.block_state.touch_token_account(self.token, account);
     }
@@ -359,7 +377,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         key: ModuleStateKey,
         value: Option<ModuleStateValue>,
     ) {
-        self.token_module_state_dirty = true;
+        *self.token_module_state_dirty = true;
         self.block_state
             .update_token_module_state_value(self.token_module_state, &key, value);
     }
@@ -367,5 +385,28 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
     fn log_token_event(&mut self, module_event: TokenModuleEvent) {
         self.events
             .push(TransactionEvent::TokenModule(module_event))
+    }
+
+    fn mut_switch_by_p11(&mut self, below_p11: impl FnOnce(&mut Self), p11_and_above: impl FnOnce(&mut Self::TokenKernelOperationsP11)) {
+        self.block_state.mut_switch_by_p11(
+            |bs| below_p11(self),
+            |bs| {
+                let mut kernel = TokenKernelOperationsImpl {
+                    block_state: bs,
+                    token: self.token,
+                    token_configuration: self.token_configuration,
+                    token_module_state: self.token_module_state,
+                    events: self.events,
+                    token_module_state_dirty: self.token_module_state_dirty,
+                };
+                p11_and_above(&mut kernel)
+            },
+        )
+    }
+}
+
+impl<BSO: BlockStateOperationsP11> TokenKernelOperationsP11 for TokenKernelOperationsImpl<'_, BSO> {
+    fn kernel_operation_p11(&mut self) {
+        self.block_state.operation_p11();
     }
 }

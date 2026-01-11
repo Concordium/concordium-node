@@ -45,7 +45,11 @@ pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
-    type BlockStateQueryP11: BlockStateQueryP11;
+    type BlockStateQueryP11: BlockStateQueryP11<
+            MutableTokenModuleState = Self::MutableTokenModuleState,
+            Account = Self::Account,
+            Token = Self::Token,
+        >;
 
     /// Opaque type that represents the token module state.
     type MutableTokenModuleState;
@@ -159,7 +163,11 @@ pub trait BlockStateQueryP11: BlockStateQuery {
 
 /// Operations on the state of a block in the chain.
 pub trait BlockStateOperations: BlockStateQuery {
-    type BlockStateOperationsP11: BlockStateOperationsP11;
+    type BlockStateOperationsP11: BlockStateOperationsP11<
+        MutableTokenModuleState = Self::MutableTokenModuleState,
+        Account = Self::Account,
+        Token = Self::Token,
+    >;
 
     /// Set the recorded total circulating supply for a protocol-level token.
     ///
