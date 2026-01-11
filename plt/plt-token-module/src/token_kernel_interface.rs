@@ -78,7 +78,7 @@ pub enum TokenBurnError {
 
 /// Queries provided by the token kernel.
 pub trait TokenKernelQueries {
-    type TokenKernelQueriesP11: TokenKernelQueriesP11;
+    // type TokenKernelQueriesP11<'b>: TokenKernelQueriesP11;
 
     /// Opaque type that identifies an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -112,12 +112,32 @@ pub trait TokenKernelQueries {
     /// Lookup a key in the token state.
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue>;
 
-    fn switch_by_p11(
+    fn switch_by_p11<F>(
         &self,
         below_p11: impl FnOnce(&Self),
-        p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11),
+        p11_and_above: impl FnOnce(&dyn TokenKernelQueriesP11),
     );
 }
+
+// pub trait RunTokenKernelQueries {
+//     fn run(kernel: &impl TokenKernelQueries);
+// }
+
+// pub trait RunTokenKernelQueriesP11 {
+//     fn run(self, kernel: &impl TokenKernelQueriesP11);
+// }
+//
+// impl<TKP11: TokenKernelQueriesP11, F: FnOnce(&TKP11)> RunTokenKernelQueriesP11 for F {
+//     fn run(self, kernel: &impl TokenKernelQueriesP11) {
+//         self(kernel)
+//     }
+// }
+
+// impl RunTokenKernelQueriesP11 for fn(&impl TokenKernelQueriesP11) {
+//     fn run(self, kernel: &impl TokenKernelQueriesP11) {
+//         self(kernel)
+//     }
+// }
 
 pub trait TokenKernelQueriesP11 {
     fn kernel_query_p11(&self);
@@ -127,7 +147,6 @@ pub trait TokenKernelQueriesP11 {
 /// token module state, but also indirectly affect the token state maintained by the token
 /// kernel.
 pub trait TokenKernelOperations: TokenKernelQueries {
-    type TokenKernelOperationsP11: TokenKernelOperationsP11;
 
     /// Update the balance of the given account to zero if it didn't have a balance before.
     fn touch_account(&mut self, account: &Self::Account);
@@ -195,11 +214,11 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// This will produce a `TokenModuleEvent` in the logs.
     fn log_token_event(&mut self, event: TokenModuleEvent);
 
-    fn mut_switch_by_p11(
-        &mut self,
-        below_p11: impl FnOnce(&mut Self),
-        p11_and_above: impl FnOnce(&mut Self::TokenKernelOperationsP11),
-    );
+    // fn mut_switch_by_p11(
+    //     &mut self,
+    //     below_p11: impl FnOnce(&mut Self),
+    //     p11_and_above: impl FnOnce(&mut Self::TokenKernelOperationsP11),
+    // );
 }
 
 pub trait TokenKernelOperationsP11 {

@@ -3,7 +3,7 @@ use concordium_base::protocol_level_tokens::TokenModuleRef;
 mod block_state;
 pub mod block_state_interface;
 pub mod queries;
-pub mod scheduler;
+// pub mod scheduler;
 pub mod types;
 
 #[cfg(feature = "ffi")]

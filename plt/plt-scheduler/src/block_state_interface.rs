@@ -52,15 +52,15 @@ pub trait BlockStateQuery {
         >;
 
     /// Opaque type that represents the token module state.
-    type MutableTokenModuleState;
+    type MutableTokenModuleState: 'static;
 
     /// Opaque type that represents an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
-    type Account;
+    type Account: 'static;
 
     /// Opaque type that represents a token on chain.
     /// The token is guaranteed to exist on chain, when holding an instance of this type.
-    type Token;
+    type Token: 'static;
 
     /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
     ///
