@@ -47,7 +47,7 @@ pub fn token_info(
     let circulating_supply = block_state.token_circulating_supply(&token);
 
     block_state.switch_by_p11(
-        |bs| {
+        |_bs| {
             //
         },
         |bs| {
@@ -115,8 +115,6 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
 }
 
 impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'a, BSQ> {
-    type TokenKernelQueriesP11 = TokenKernelQueriesImpl<'a, BSQ::BlockStateQueryP11>;
-
     type Account = BSQ::Account;
 
     fn account_by_address(
@@ -165,10 +163,10 @@ impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'a,
     fn switch_by_p11(
         &self,
         below_p11: impl FnOnce(&Self),
-        p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11),
+        p11_and_above: impl FnOnce(&dyn TokenKernelQueriesP11),
     ) {
         self.block_state.switch_by_p11(
-            |bs| below_p11(self),
+            |_bs| below_p11(self),
             |bs| {
                 let kernel = TokenKernelQueriesImpl {
                     block_state: bs,

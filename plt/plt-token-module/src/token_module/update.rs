@@ -1,6 +1,6 @@
 use crate::token_kernel_interface::{
     AccountNotFoundByAddressError, InsufficientBalanceError, TokenKernelOperations,
-    TokenKernelOperationsP11, TokenStateInvariantError, TokenTransferError,
+     TokenStateInvariantError, TokenTransferError,
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
@@ -204,7 +204,7 @@ fn execute_token_transfer<
     let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
 
     kernel.mut_switch_by_p11(
-        |k| {
+        |_k| {
             //
         },
         |kernel| {

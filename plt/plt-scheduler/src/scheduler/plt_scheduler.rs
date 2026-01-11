@@ -26,7 +26,6 @@ use plt_token_module::token_kernel_interface::{
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
-use std::mem;
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
 /// Returns the events produced if successful otherwise a reject reason.
@@ -51,7 +50,7 @@ pub fn execute_plt_transaction<
     };
 
     block_state.mut_switch_by_p11(
-        |bs| {
+        |_bs| {
             //
         },
         |bs| {
@@ -186,8 +185,6 @@ struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
 }
 
 impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'a, BSQ> {
-    type TokenKernelQueriesP11 = TokenKernelQueriesImpl<'a, BSQ::BlockStateQueryP11>;
-
     type Account = BSQ::Account;
 
     fn account_by_address(
@@ -236,10 +233,10 @@ impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<
     fn switch_by_p11(
         &self,
         below_p11: impl FnOnce(&Self),
-        p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11),
+        p11_and_above: impl FnOnce(&dyn TokenKernelQueriesP11),
     ) {
         self.block_state.switch_by_p11(
-            |bs| below_p11(self),
+            |_bs| below_p11(self),
             |bs| {
                 let kernel = TokenKernelQueriesImpl {
                     block_state: bs,
@@ -259,8 +256,6 @@ impl<BSO: BlockStateQueryP11> TokenKernelQueriesP11 for TokenKernelOperationsImp
 }
 
 impl<'a, BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'a, BSO> {
-    type TokenKernelOperationsP11 = TokenKernelOperationsImpl<'a, BSO::BlockStateOperationsP11>;
-
     fn touch_account(&mut self, account: &Self::Account) {
         self.block_state.touch_token_account(self.token, account);
     }
@@ -400,11 +395,21 @@ impl<'a, BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperati
 
     fn mut_switch_by_p11(
         &mut self,
-        below_p11: impl FnOnce(&mut Self),
-        p11_and_above: impl FnOnce(&mut Self::TokenKernelOperationsP11),
+        below_p11: impl FnOnce(&mut dyn TokenKernelOperations<Account= Self::Account>),
+        p11_and_above: impl FnOnce(&mut dyn TokenKernelOperationsP11<Account= Self::Account>),
     ) {
         self.block_state.mut_switch_by_p11(
-            |bs| below_p11(self),
+            |bs| {
+                let mut kernel = TokenKernelOperationsImpl {
+                    block_state: bs,
+                    token: self.token,
+                    token_configuration: self.token_configuration,
+                    token_module_state: self.token_module_state,
+                    events: self.events,
+                    token_module_state_dirty: self.token_module_state_dirty,
+                };
+                below_p11(&mut kernel)
+            },
             |bs| {
                 let mut kernel = TokenKernelOperationsImpl {
                     block_state: bs,
