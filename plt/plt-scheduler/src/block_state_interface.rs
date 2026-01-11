@@ -164,10 +164,10 @@ pub trait BlockStateQueryP11: BlockStateQuery {
 /// Operations on the state of a block in the chain.
 pub trait BlockStateOperations: BlockStateQuery {
     type BlockStateOperationsP11: BlockStateOperationsP11<
-        MutableTokenModuleState = Self::MutableTokenModuleState,
-        Account = Self::Account,
-        Token = Self::Token,
-    >;
+            MutableTokenModuleState = Self::MutableTokenModuleState,
+            Account = Self::Account,
+            Token = Self::Token,
+        >;
 
     /// Set the recorded total circulating supply for a protocol-level token.
     ///

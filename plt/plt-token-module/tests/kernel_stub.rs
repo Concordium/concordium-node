@@ -13,7 +13,12 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
-use plt_token_module::token_kernel_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError, InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelOperationsP11, TokenKernelQueries, TokenKernelQueriesP11, TokenModuleEvent, TokenStateInvariantError, TokenTransferError};
+use plt_token_module::token_kernel_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
+    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
+    TokenKernelOperations, TokenKernelOperationsP11, TokenKernelQueries, TokenKernelQueriesP11,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
+};
 use plt_token_module::token_module;
 
 /// Token kernel stub providing an implementation of [`TokenKernelOperations`] and methods for
@@ -229,7 +234,11 @@ impl TokenKernelQueries for KernelStub {
         self.state.get(&key).cloned()
     }
 
-    fn switch_by_p11(&self, below_p11: impl FnOnce(&Self), p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11)) {
+    fn switch_by_p11(
+        &self,
+        below_p11: impl FnOnce(&Self),
+        p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11),
+    ) {
         todo!()
     }
 }
@@ -309,7 +318,11 @@ impl TokenKernelOperations for KernelStub {
         todo!()
     }
 
-    fn mut_switch_by_p11(&mut self, below_p11: impl FnOnce(&mut Self), p11_and_above: impl FnOnce(&mut Self::TokenKernelOperationsP11)) {
+    fn mut_switch_by_p11(
+        &mut self,
+        below_p11: impl FnOnce(&mut Self),
+        p11_and_above: impl FnOnce(&mut Self::TokenKernelOperationsP11),
+    ) {
         todo!()
     }
 }

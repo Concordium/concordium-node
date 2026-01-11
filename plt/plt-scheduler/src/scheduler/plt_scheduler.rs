@@ -1,7 +1,11 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
-use crate::block_state_interface::{BlockStateOperations, BlockStateOperationsP11, BlockStateQuery, BlockStateQueryP11, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError};
+use crate::block_state_interface::{
+    BlockStateOperations, BlockStateOperationsP11, BlockStateQuery, BlockStateQueryP11,
+    RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError,
+};
+use crate::queries::TokenKernelQueriesImpl;
 use crate::scheduler::{
     TransactionExecutionError, TransactionRejectReason, UpdateInstructionExecutionError,
 };
@@ -14,11 +18,15 @@ use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload
 use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
 use plt_scheduler_interface::TransactionExecution;
-use plt_token_module::token_kernel_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError, InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelOperationsP11, TokenKernelQueries, TokenKernelQueriesP11, TokenModuleEvent, TokenStateInvariantError, TokenTransferError};
+use plt_token_module::token_kernel_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
+    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
+    TokenKernelOperations, TokenKernelOperationsP11, TokenKernelQueries, TokenKernelQueriesP11,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
+};
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
 use std::mem;
-use crate::queries::TokenKernelQueriesImpl;
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
 /// Returns the events produced if successful otherwise a reject reason.
@@ -148,7 +156,7 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
         token_module::initialize_token(&mut kernel, payload.initialization_parameters);
 
     match token_initialize_result {
-        Ok(()) => { ;
+        Ok(()) => {
             drop(kernel);
 
             // Increment protocol-level token update sequence number
@@ -225,7 +233,11 @@ impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<
             .lookup_token_module_state_value(self.token_module_state, &key)
     }
 
-    fn switch_by_p11(&self, below_p11: impl FnOnce(&Self), p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11)) {
+    fn switch_by_p11(
+        &self,
+        below_p11: impl FnOnce(&Self),
+        p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11),
+    ) {
         self.block_state.switch_by_p11(
             |bs| below_p11(self),
             |bs| {
@@ -245,7 +257,6 @@ impl<BSO: BlockStateQueryP11> TokenKernelQueriesP11 for TokenKernelOperationsImp
         self.block_state.query_p11();
     }
 }
-
 
 impl<'a, BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'a, BSO> {
     type TokenKernelOperationsP11 = TokenKernelOperationsImpl<'a, BSO::BlockStateOperationsP11>;
@@ -387,7 +398,11 @@ impl<'a, BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperati
             .push(TransactionEvent::TokenModule(module_event))
     }
 
-    fn mut_switch_by_p11(&mut self, below_p11: impl FnOnce(&mut Self), p11_and_above: impl FnOnce(&mut Self::TokenKernelOperationsP11)) {
+    fn mut_switch_by_p11(
+        &mut self,
+        below_p11: impl FnOnce(&mut Self),
+        p11_and_above: impl FnOnce(&mut Self::TokenKernelOperationsP11),
+    ) {
         self.block_state.mut_switch_by_p11(
             |bs| below_p11(self),
             |bs| {
