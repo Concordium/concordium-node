@@ -247,7 +247,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
             .map_err(|_err: UnderOrOverflowError| {
                 // We should never overflow account balance at mint, since the total circulating supply of the token
                 // is always less that what is representable as a token amount.
-                TokenStateInvariantError("Mint destination token amount overflow".to_string())
+                TokenStateInvariantError("Mint destination account amount overflow".to_string())
             })?;
 
         // Issue event
@@ -288,7 +288,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
             // We should never underflow total supply at transfer, since the total circulating supply of the token
             // is always more than any account balance.
             TokenStateInvariantError(
-                "Circulating supply token amount underflow at burn".to_string(),
+                "Circulating supply amount underflow at burn".to_string(),
             ))?;
         self.block_state
             .set_token_circulating_supply(self.token, circulating_supply);
