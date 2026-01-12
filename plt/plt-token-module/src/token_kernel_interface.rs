@@ -46,8 +46,11 @@ pub struct InsufficientBalanceError {
 #[derive(Debug, thiserror::Error)]
 #[error("Minting the requested amount would overflow the circulating supply amount")]
 pub struct MintWouldOverflowError {
+    /// Amount requested to be minted
     pub requested_amount: RawTokenAmount,
-    pub circulating_supply: RawTokenAmount,
+    /// Current circulating supply of the token
+    pub current_supply: RawTokenAmount,
+    /// Maximum representable token amount
     pub max_representable_amount: RawTokenAmount,
 }
 
@@ -144,7 +147,8 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     ///
     /// # Errors
     ///
-    /// - [`MintWouldOverflowError`] The total supply would exceed the representable amount.
+    /// - [`TokenMintError::MintWouldOverflow`] The total supply would exceed the representable amount.
+    /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn mint(
         &mut self,
         account: &Self::Account,

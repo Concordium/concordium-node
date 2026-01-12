@@ -265,7 +265,7 @@ impl TokenKernelOperations for KernelStub {
                 .checked_add(amount.0)
                 .ok_or(MintWouldOverflowError {
                     requested_amount: amount,
-                    circulating_supply: self.circulating_supply,
+                    current_supply: self.circulating_supply,
                     max_representable_amount: RawTokenAmount::MAX,
                 })?;
 

@@ -235,7 +235,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
                 .checked_add(amount.0)
                 .ok_or(MintWouldOverflowError {
                     requested_amount: amount,
-                    circulating_supply: self.block_state.token_circulating_supply(self.token),
+                    current_supply: self.block_state.token_circulating_supply(self.token),
                     max_representable_amount: RawTokenAmount::MAX,
                 })?;
         self.block_state

@@ -138,10 +138,7 @@ pub fn execute_token_update_transaction<
                                     kernel,
                                     err.requested_amount,
                                 ),
-                                current_supply: util::to_token_amount(
-                                    kernel,
-                                    err.circulating_supply,
-                                ),
+                                current_supply: util::to_token_amount(kernel, err.current_supply),
                                 max_representable_amount: util::to_token_amount(
                                     kernel,
                                     err.max_representable_amount,

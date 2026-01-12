@@ -12,7 +12,7 @@ use plt_token_module::token_module::{self};
 mod kernel_stub;
 mod utils;
 
-/// Test successful bruns.
+/// Test successful burns.
 #[test]
 fn test_burn() {
     let mut stub = KernelStub::new(2);
@@ -85,7 +85,7 @@ fn test_burn_insufficient_balance() {
 
 /// Test burn with amount specified with wrong number of decimals
 #[test]
-fn test_brun_decimals_mismatch() {
+fn test_burn_decimals_mismatch() {
     let mut stub = KernelStub::new(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
