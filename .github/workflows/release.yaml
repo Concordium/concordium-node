@@ -271,11 +271,14 @@ jobs:
         uses: digicert/code-signing-software-trust-action@v1.0.0
 
       - name: Add signtool to PATH
-        shell: bash
+        shell: pwsh
         run: |
-          SIGNTOOL_EXE=$(find "/c/Program Files (x86)/Windows Kits/10/bin" -type f -name "signtool.exe" -path "*/x64/*" | head -n 1)
-          SIGNTOOL_PATH=$(dirname "$SIGNTOOL_EXE")
-          echo "$SIGNTOOL_PATH" >> $GITHUB_PATH
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" | 
+                      Where-Object { $_.DirectoryName -like "*\x64" } | 
+                      Select-Object -First 1
+          $signtoolPath = $signtool.DirectoryName
+          Add-Content -Path $env:GITHUB_PATH -Value $signtool.DirectoryName
+          $env:PATH = "$($signtool.DirectoryName);$env:PATH"
 
       - name: Import Windows certificate (Windows only)
         id: windows_certificate
