@@ -226,6 +226,7 @@ fn execute_token_update_operation<
             execute_token_transfer(transaction_execution, kernel, transfer)
         }
         TokenOperation::Mint(mint) => execute_token_mint(transaction_execution, kernel, mint),
+        TokenOperation::Burn(burn) => execute_token_burn(transaction_execution, kernel, burn),
         _ => todo!(),
     }
 }
@@ -256,10 +257,24 @@ fn execute_token_mint<
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
-    transfer_operation: TokenSupplyUpdateDetails,
+    mint_operation: TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let raw_amount = util::to_raw_token_amount(kernel, transfer_operation.amount)?;
+    let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
+    Ok(())
+}
+
+fn execute_token_burn<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::Account>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    burn_operation: TokenSupplyUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
+
+    kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
 }

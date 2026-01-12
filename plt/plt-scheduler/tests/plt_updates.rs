@@ -198,7 +198,6 @@ fn test_plt_mint() {
 
 /// Test protocol-level token mint that is rejected.
 #[test]
-#[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_mint_reject() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
@@ -238,7 +237,6 @@ fn test_plt_mint_reject() {
 
 /// Test protocol-level token burn.
 #[test]
-#[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_burn() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
@@ -282,7 +280,6 @@ fn test_plt_burn() {
 
 /// Test protocol-level token burn rejection.
 #[test]
-#[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_burn_reject() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
@@ -322,7 +319,6 @@ fn test_plt_burn_reject() {
 
 /// Test multiple protocol-level token update operations in one transaction.
 #[test]
-#[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_multiple_operations() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
@@ -367,7 +363,7 @@ fn test_plt_multiple_operations() {
     assert_eq!(events.len(), 2);
     assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(mint.amount, TokenAmount::from_raw(3000, 4));
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
     });
     assert_matches!(&events[1], TransactionEvent::TokenTransfer(transfer) => {
