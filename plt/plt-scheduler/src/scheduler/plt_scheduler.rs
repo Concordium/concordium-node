@@ -25,7 +25,6 @@ use plt_token_module::token_kernel_interface::{
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
-use std::mem;
 
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
 /// Returns the events produced if successful otherwise a reject reason.
@@ -53,13 +52,15 @@ pub fn execute_plt_transaction<
 
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
+    let mut token_module_state_dirty = false;
+    let mut events = Vec::new();
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
         token: &token,
         token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
-        token_module_state_dirty: false,
-        events: Default::default(),
+        token_module_state_dirty: &mut token_module_state_dirty,
+        events: &mut events,
     };
 
     // Call token module to execute operations
@@ -71,10 +72,6 @@ pub fn execute_plt_transaction<
 
     match token_update_result {
         Ok(()) => {
-            let events = mem::take(&mut kernel.events);
-            let token_module_state_dirty = kernel.token_module_state_dirty;
-            drop(kernel);
-
             // Update token module state if dirty
             if token_module_state_dirty {
                 block_state.set_token_module_state(&token, token_module_state);
@@ -130,13 +127,15 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
 
     let mut token_module_state = block_state.mutable_token_module_state(&token);
 
+    let mut token_module_state_dirty = false;
+    let mut events = Vec::new();
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
         token: &token,
         token_configuration: &token_configuration,
         token_module_state: &mut token_module_state,
-        token_module_state_dirty: false,
-        events: Default::default(),
+        token_module_state_dirty: &mut token_module_state_dirty,
+        events: &mut events,
     };
 
     // Initialize token in token module
@@ -145,10 +144,6 @@ pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
 
     match token_initialize_result {
         Ok(()) => {
-            let events = mem::take(&mut kernel.events);
-            let token_module_state_dirty = kernel.token_module_state_dirty;
-            drop(kernel);
-
             // Increment protocol-level token update sequence number
             block_state.increment_plt_update_instruction_sequence_number();
 
@@ -171,8 +166,8 @@ struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     token: &'a BSQ::Token,
     token_configuration: &'a TokenConfiguration,
     token_module_state: &'a mut BSQ::MutableTokenModuleState,
-    events: Vec<TransactionEvent>,
-    token_module_state_dirty: bool,
+    events: &'a mut Vec<TransactionEvent>,
+    token_module_state_dirty: &'a mut bool,
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'_, BSQ> {
@@ -359,7 +354,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         key: ModuleStateKey,
         value: Option<ModuleStateValue>,
     ) {
-        self.token_module_state_dirty = true;
+        *self.token_module_state_dirty = true;
         self.block_state
             .update_token_module_state_value(self.token_module_state, &key, value);
     }
