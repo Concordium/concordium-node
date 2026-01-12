@@ -41,7 +41,7 @@ impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> 
             self.energy_used = self.energy_used + energy;
             Ok(())
         } else {
-            // Charge available energy in case of limit is reached
+            // Charge all available energy in case of limit is reached
             self.energy_used = self.energy_limit;
             Err(OutOfEnergyError)
         }
@@ -90,6 +90,7 @@ pub struct TransactionExecutionResult {
 /// # Errors
 ///
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
+///   Returning this error will terminate the scheduler.
 pub fn execute_transaction<BSO: BlockStateOperations>(
     sender_account: BSO::Account,
     block_state: &mut BSO,

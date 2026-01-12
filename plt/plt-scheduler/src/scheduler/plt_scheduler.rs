@@ -31,7 +31,7 @@ use std::mem;
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.
 /// Energy must be charged during execution by calling [`TransactionExecution::tick_energy`]. If
-/// execution is out of energy, this function returns an error which means execution must be stopped,
+/// execution is out of energy, the function `tick_energy` returns an error which means execution must be stopped,
 /// and the [`OutOfEnergyError`](plt_scheduler_interface::OutOfEnergyError) error must be returned by `execute_plt_transaction`.
 ///
 /// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
@@ -121,7 +121,7 @@ pub fn execute_plt_transaction<
     }
 }
 
-/// Execute a protocol-level token create update instruction modifying `block_state` accordingly.
+/// Execute a protocol-level token create instruction modifying `block_state` accordingly.
 /// Returns the events produced if successful.
 ///
 /// NOTICE: The caller must ensure to rollback state changes in case an error is returned.
@@ -134,6 +134,7 @@ pub fn execute_plt_transaction<
 /// # Errors
 ///
 /// - [`UpdateInstructionExecutionError`] If executing the update instruction failed.
+///   Returning this error will terminate the scheduler.
 pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: CreatePlt,
