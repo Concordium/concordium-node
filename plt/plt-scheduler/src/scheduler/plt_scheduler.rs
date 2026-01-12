@@ -54,6 +54,7 @@ pub fn execute_plt_transaction<
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
 ) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError> {
+    // Charge energy
     if let Err(err) =
         transaction_execution.tick_energy(transactions::cost::PLT_OPERATIONS_TRANSACTIONS)
     {
