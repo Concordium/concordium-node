@@ -209,7 +209,7 @@ fn test_plt_mint_reject() {
     );
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
-        amount: TokenAmount::from_raw(RawTokenAmount::MAX.0, 4),
+        amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 1000, 4),
     })];
     let payload = TokenOperationsPayload {
         token_id: "tokenid1".parse().unwrap(),
@@ -346,7 +346,7 @@ fn test_plt_multiple_operations() {
     let events =
         scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
             .expect("transaction internal error")
-            .expect("mint");
+            .expect("mint and transfer");
 
     // Assert circulating supply and accout balances
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(3000));

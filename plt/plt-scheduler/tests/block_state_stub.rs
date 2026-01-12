@@ -7,15 +7,18 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, TokenAmount, TokenId, TokenModuleInitializationParameters,
+    CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
+    TokenModuleInitializationParameters, TokenModuleState, TokenOperation, TokenOperationsPayload,
+    TokenSupplyUpdateDetails, TokenTransfer,
 };
+use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
     UnderOrOverflowError,
 };
-use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
+use plt_scheduler::{TOKEN_MODULE_REF, queries, scheduler};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 use plt_token_module::token_module;
 use std::collections::HashMap;
@@ -133,20 +136,40 @@ impl BlockStateStub {
         (token, gov_account)
     }
 
-    /// Add amount to account balance in the stub
+    /// Add amount to account balance in the stub. This is done by minting
+    /// and transferring the given amount
     pub fn increment_account_balance(
         &mut self,
         account: AccountStubIndex,
         token: TokenStubIndex,
         balance: RawTokenAmount,
     ) {
-        self.tokens[token.0].circulating_supply.0 += balance.0;
-        self.accounts[account.0]
-            .tokens
-            .entry(token)
-            .or_default()
-            .balance
-            .0 += balance.0;
+        let token_configuration = self.token_configuration(&token);
+        let operations = vec![
+            TokenOperation::Mint(TokenSupplyUpdateDetails {
+                amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
+            }),
+            TokenOperation::Transfer(TokenTransfer {
+                amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
+                recipient: CborHolderAccount::from(self.account_canonical_address(&account)),
+                memo: None,
+            }),
+        ];
+        let payload = TokenOperationsPayload {
+            token_id: token_configuration.token_id.clone(),
+            operations: RawCbor::from(cbor::cbor_encode(&operations)),
+        };
+
+        let token_info = queries::token_info(self, &token_configuration.token_id).unwrap();
+        let token_module_state: TokenModuleState =
+            cbor::cbor_decode(&token_info.state.module_state).unwrap();
+        let gov_account = self
+            .account_by_address(&token_module_state.governance_account.unwrap().address)
+            .unwrap();
+
+        scheduler::execute_transaction(gov_account, self, Payload::TokenUpdate { payload })
+            .expect("transaction internal error")
+            .expect("mint and transfer");
     }
 
     /// Return protocol-level token update instruction sequence number
