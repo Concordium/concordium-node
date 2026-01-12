@@ -277,7 +277,8 @@ jobs:
                       Where-Object { $_.DirectoryName -like "*\x64" } | 
                       Select-Object -First 1
           $signtoolPath = $signtool.DirectoryName
-          Add-Content -Path $env:GITHUB_PATH -Value $signtoolPath
+          Add-Content -Path $env:GITHUB_PATH -Value $signtool.DirectoryName
+          $env:PATH = "$($signtool.DirectoryName);$env:PATH"
 
       - name: Import Windows certificate (Windows only)
         id: windows_certificate
