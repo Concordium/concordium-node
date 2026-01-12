@@ -18,10 +18,10 @@ use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
 use plt_scheduler_interface::TransactionExecution;
 use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
-    TokenTransferError,
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, InsufficientBalanceError,
+    MintWouldOverflowError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
+    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
+    TokenStateInvariantError, TokenTransferError,
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
@@ -231,20 +231,29 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         &mut self,
         account: &Self::Account,
         amount: RawTokenAmount,
-    ) -> Result<(), AmountNotRepresentableError> {
+    ) -> Result<(), TokenMintError> {
+        // Update total supply
+        let mut circulating_supply = self.block_state.token_circulating_supply(self.token);
+        circulating_supply.0 =
+            circulating_supply
+                .0
+                .checked_add(amount.0)
+                .ok_or(MintWouldOverflowError {
+                    requested_amount: amount,
+                    circulating_supply: self.block_state.token_circulating_supply(self.token),
+                    max_representable_amount: RawTokenAmount::MAX,
+                })?;
+        self.block_state
+            .set_token_circulating_supply(self.token, circulating_supply);
+
         // Update balance of the account
         self.block_state
             .update_token_account_balance(self.token, account, RawTokenAmountDelta::Add(amount))
-            .map_err(|_err: UnderOrOverflowError| AmountNotRepresentableError)?;
-
-        // Update total supply
-        let mut circulating_supply = self.block_state.token_circulating_supply(self.token);
-        circulating_supply.0 = circulating_supply
-            .0
-            .checked_add(amount.0)
-            .ok_or(AmountNotRepresentableError)?;
-        self.block_state
-            .set_token_circulating_supply(self.token, circulating_supply);
+            .map_err(|_err: UnderOrOverflowError| {
+                // We should never overflow account balance at mint, since the total circulating supply of the token
+                // is always less that what is representable as a token amount.
+                TokenStateInvariantError("Mint destination token amount overflow".to_string())
+            })?;
 
         // Issue event
         let event = TransactionEvent::TokenMint(TokenMintEvent {

@@ -1,13 +1,15 @@
 use crate::token_kernel_interface::{
-    AccountNotFoundByAddressError, InsufficientBalanceError, TokenKernelOperations,
-    TokenStateInvariantError, TokenTransferError,
+    AccountNotFoundByAddressError, InsufficientBalanceError, MintWouldOverflowError,
+    TokenBurnError, TokenKernelOperations, TokenMintError, TokenStateInvariantError,
+    TokenTransferError,
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::protocol_level_tokens::{
-    AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason, RawCbor,
-    TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator,
-    TokenModuleRejectReasonEnum, TokenOperation, TokenTransfer,
+    AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
+    MintWouldOverflowRejectReason, RawCbor, TokenBalanceInsufficientRejectReason,
+    TokenModuleCborTypeDiscriminator, TokenModuleRejectReasonEnum, TokenOperation,
+    TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
@@ -29,7 +31,7 @@ pub enum TokenUpdateError {
     TokenModuleReject(RejectReason),
     #[error("{0}")]
     OutOfEnergy(#[from] OutOfEnergyError),
-    #[error("{0}")]
+    #[error("State invariant violation at token update: {0}")]
     StateInvariantViolation(#[from] TokenStateInvariantError),
 }
 
@@ -121,13 +123,28 @@ pub fn execute_token_update_transaction<
                         TokenModuleRejectReasonEnum::TokenBalanceInsufficient(
                             TokenBalanceInsufficientRejectReason {
                                 index: index as u64,
-                                available_balance: TokenAmount::from_raw(
-                                    err.available.0,
-                                    kernel.decimals(),
+                                available_balance: util::to_token_amount(kernel, err.available),
+                                required_balance: util::to_token_amount(kernel, err.required),
+                            },
+                        ),
+                    ))
+                }
+                TokenUpdateErrorInternal::MintWouldOverflow(err) => {
+                    TokenUpdateError::TokenModuleReject(make_reject_reason(
+                        TokenModuleRejectReasonEnum::MintWouldOverflow(
+                            MintWouldOverflowRejectReason {
+                                index: index as u64,
+                                requested_amount: util::to_token_amount(
+                                    kernel,
+                                    err.requested_amount,
                                 ),
-                                required_balance: TokenAmount::from_raw(
-                                    err.required.0,
-                                    kernel.decimals(),
+                                current_supply: util::to_token_amount(
+                                    kernel,
+                                    err.circulating_supply,
+                                ),
+                                max_representable_amount: util::to_token_amount(
+                                    kernel,
+                                    err.max_representable_amount,
                                 ),
                             },
                         ),
@@ -165,6 +182,8 @@ enum TokenUpdateErrorInternal {
     OutOfEnergy(#[from] OutOfEnergyError),
     #[error("{0}")]
     StateInvariantViolation(#[from] TokenStateInvariantError),
+    #[error("{0}")]
+    MintWouldOverflow(#[from] MintWouldOverflowError),
 }
 
 impl From<TokenTransferError> for TokenUpdateErrorInternal {
@@ -172,6 +191,24 @@ impl From<TokenTransferError> for TokenUpdateErrorInternal {
         match err {
             TokenTransferError::StateInvariantViolation(err) => Self::StateInvariantViolation(err),
             TokenTransferError::InsufficientBalance(err) => Self::InsufficientBalance(err),
+        }
+    }
+}
+
+impl From<TokenMintError> for TokenUpdateErrorInternal {
+    fn from(err: TokenMintError) -> Self {
+        match err {
+            TokenMintError::StateInvariantViolation(err) => Self::StateInvariantViolation(err),
+            TokenMintError::MintWouldOverflow(err) => Self::MintWouldOverflow(err),
+        }
+    }
+}
+
+impl From<TokenBurnError> for TokenUpdateErrorInternal {
+    fn from(err: TokenBurnError) -> Self {
+        match err {
+            TokenBurnError::StateInvariantViolation(err) => Self::StateInvariantViolation(err),
+            TokenBurnError::InsufficientBalance(err) => Self::InsufficientBalance(err),
         }
     }
 }
@@ -188,6 +225,7 @@ fn execute_token_update_operation<
         TokenOperation::Transfer(transfer) => {
             execute_token_transfer(transaction_execution, kernel, transfer)
         }
+        TokenOperation::Mint(mint) => execute_token_mint(transaction_execution, kernel, mint),
         _ => todo!(),
     }
 }
@@ -209,5 +247,19 @@ fn execute_token_transfer<
         raw_amount,
         transfer_operation.memo.map(Memo::from),
     )?;
+    Ok(())
+}
+
+fn execute_token_mint<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::Account>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    transfer_operation: TokenSupplyUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    let raw_amount = util::to_raw_token_amount(kernel, transfer_operation.amount)?;
+
+    kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
 }

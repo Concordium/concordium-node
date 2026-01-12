@@ -159,7 +159,6 @@ fn test_plt_transfer_reject() {
 
 /// Test protocol-level token mint.
 #[test]
-#[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_mint() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();

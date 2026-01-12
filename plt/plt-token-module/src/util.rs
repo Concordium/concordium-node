@@ -24,6 +24,10 @@ pub fn to_raw_token_amount(
     }
 }
 
+pub fn to_token_amount(kernel: &impl TokenKernelQueries, amount: RawTokenAmount) -> TokenAmount {
+    TokenAmount::from_raw(amount.0, kernel.decimals())
+}
+
 /// Decode given CBOR using decode options set to suit the token module. The decode options
 /// will generally be strict.
 pub fn cbor_decode<T: CborDeserialize>(cbor: impl AsRef<[u8]>) -> CborSerializationResult<T> {

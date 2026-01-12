@@ -12,6 +12,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler::UpdateInstructionExecutionError;
+use plt_scheduler::types::events::TransactionEvent;
 use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_token_module::token_kernel_interface::RawTokenAmount;
 
@@ -47,7 +48,8 @@ fn test_plt_create() {
         decimals: 4,
         initialization_parameters,
     });
-    scheduler::execute_update_instruction(&mut stub, payload).expect("create and initialize token");
+    let events = scheduler::execute_update_instruction(&mut stub, payload)
+        .expect("create and initialize token");
 
     // Assert update instruction sequence number incremented
     assert_eq!(stub.plt_update_instruction_sequence_number(), 1);
@@ -67,11 +69,13 @@ fn test_plt_create() {
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(0)
     );
+
+    // Assert no events
+    assert_eq!(events.len(), 0);
 }
 
 /// Test create protocol-level token.
 #[test]
-#[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_create_with_minting() {
     let mut stub = BlockStateStub::new();
     assert_eq!(stub.plt_update_instruction_sequence_number(), 0);
@@ -100,7 +104,8 @@ fn test_plt_create_with_minting() {
         decimals: 4,
         initialization_parameters,
     });
-    scheduler::execute_update_instruction(&mut stub, payload).expect("create and initialize token");
+    let events = scheduler::execute_update_instruction(&mut stub, payload)
+        .expect("create and initialize token");
 
     // Assert update instruction sequence number incremented
     assert_eq!(stub.plt_update_instruction_sequence_number(), 1);
@@ -112,6 +117,14 @@ fn test_plt_create_with_minting() {
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(5000)
     );
+
+    // Assert mint event
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
+        assert_eq!(mint.token_id, token_id);
+        assert_eq!(mint.amount, TokenAmount::from_raw(5000, 4));
+        assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
+    });
 }
 
 /// Test create protocol-level token where the token id is already used. Two token
