@@ -209,7 +209,7 @@ fn test_plt_mint_reject() {
     );
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
-        amount: TokenAmount::from_raw(u64::MAX, 4),
+        amount: TokenAmount::from_raw(RawTokenAmount::MAX.0, 4),
     })];
     let payload = TokenOperationsPayload {
         token_id: "tokenid1".parse().unwrap(),
