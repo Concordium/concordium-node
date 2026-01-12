@@ -17,7 +17,7 @@ use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload
 use concordium_base::transactions;
 use concordium_base::transactions::Memo;
 use concordium_base::updates::CreatePlt;
-use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
+use plt_scheduler_interface::TransactionExecution;
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
@@ -58,8 +58,7 @@ pub fn execute_plt_transaction<
     if let Err(err) =
         transaction_execution.tick_energy(transactions::cost::PLT_OPERATIONS_TRANSACTIONS)
     {
-        let _err: OutOfEnergyError = err; // assert type of error
-        return Ok(Err(TransactionRejectReason::OutOfEnergy));
+        return Ok(Err(TransactionRejectReason::from(err)));
     }
 
     // Lookup token
