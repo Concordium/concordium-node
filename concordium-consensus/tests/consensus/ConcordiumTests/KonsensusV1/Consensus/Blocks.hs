@@ -38,6 +38,7 @@ import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
 import Concordium.Types.Transactions
 import qualified Concordium.Types.Transactions as Transactions
 
+import qualified Concordium.Genesis.Data.P10 as P10
 import qualified Concordium.Genesis.Data.P6 as P6
 import qualified Concordium.Genesis.Data.P7 as P7
 import qualified Concordium.Genesis.Data.P8 as P8
@@ -128,6 +129,7 @@ genesisLEN sProtocolVersion = case sProtocolVersion of
     SP7 -> genesisLeadershipElectionNonce $ P7.genesisInitialState $ unGDP7 $ genesisData sProtocolVersion
     SP8 -> genesisLeadershipElectionNonce $ P8.genesisInitialState $ unGDP8 $ genesisData sProtocolVersion
     SP9 -> genesisLeadershipElectionNonce $ P9.genesisInitialState $ unGDP9 $ genesisData sProtocolVersion
+    SP10 -> genesisLeadershipElectionNonce $ P10.genesisInitialState $ unGDP10 $ genesisData sProtocolVersion
 
 -- | Full bakers at genesis
 genesisFullBakers :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> FullBakers
@@ -275,7 +277,7 @@ firstTimeoutMessageFor sProtocolVersion qc curRound curEpoch =
 -- | Helper to compute the transaction outcomes hash for a given set of transaction outcomes and
 --  special transaction outcomes.
 transactionOutcomesHashV1 ::
-    [TransactionSummaryV1] ->
+    [TransactionSummaryV1 tov] ->
     [Transactions.SpecialTransactionOutcome] ->
     TransactionOutcomes.TransactionOutcomesHash
 transactionOutcomesHashV1 outcomes specialOutcomes =

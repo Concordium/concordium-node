@@ -315,7 +315,7 @@ testGroups _ groups = do
     return (Helpers.getResults ftAdded, ftFailed, ftUnprocessed, concat (Types.perAccountTransactions ts))
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockstate =
@@ -343,7 +343,7 @@ tests =
                                 mkExpected [] ev ei eu = (reverse ev, reverse ei, reverse eu)
                                 mkExpected ((t, expectedRes) : rest) ev ei eu =
                                     case expectedRes of
-                                        Added -> mkExpected rest ((Types.normalTransaction t) : ev) ei eu
+                                        Added -> mkExpected rest ((Types.toBlockItem t) : ev) ei eu
                                         Failed fk -> mkExpected rest ev ((t, fk) : ei) eu
                                         Unprocessed -> mkExpected rest ev ei (t : eu)
 
@@ -366,7 +366,7 @@ tests =
                                             case expectedRes of
                                                 -- NOTE: With a custom expectation could print list of
                                                 -- invalid/unproc in case of failure.
-                                                Added -> (Types.normalTransaction t) `elem` map fst validTs
+                                                Added -> (Types.toBlockItem t) `elem` map fst validTs
                                                 Failed fk -> (t, fk) `elem` map (\(x, y) -> (fst x, y)) invalid
                                                 Unprocessed -> t `elem` map fst unproc
                                 )
