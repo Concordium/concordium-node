@@ -270,6 +270,13 @@ jobs:
         id: digicert_client
         uses: digicert/code-signing-software-trust-action@v1.0.0
 
+      - name: Add signtool to PATH
+        shell: bash
+        run: |
+          SIGNTOOL_EXE=$(find "/c/Program Files (x86)/Windows Kits/10/bin" -type f -name "signtool.exe" -path "*/x64/*" | head -n 1)
+          SIGNTOOL_PATH=$(dirname "$SIGNTOOL_EXE")
+          echo "$SIGNTOOL_PATH" >> $GITHUB_PATH
+
       - name: Import Windows certificate (Windows only)
         id: windows_certificate
         env:
