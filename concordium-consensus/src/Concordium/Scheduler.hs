@@ -37,7 +37,8 @@ module Concordium.Scheduler (
     filterTransactions,
     runTransactions,
     execTransactions,
-    CheckHeaderResult (..),
+    CheckHeaderResult,
+    CheckHeaderResult' (..),
     dispatchTransactionBody,
     handleContractUpdateV1,
     handleContractUpdateV0,
@@ -113,23 +114,27 @@ import Data.Either (isLeft)
 import Data.Proxy
 import Prelude hiding (exp, mod)
 
-data CheckHeaderResult m = CheckHeaderResult
+-- | The result type of 'checkHeader', parametrised by the account type.
+data CheckHeaderResult' acct = CheckHeaderResult
     { -- | The sender account for the transaction.
-      chrSenderAccount :: !(IndexedAccount m),
+      chrSenderAccount :: !acct,
       -- | The account that is paying the transaction fees for the transaction.
       --  For a sponsored transaction, this is the sponsor. Otherwise, it is the sender.
-      chrPayerAccount :: !(IndexedAccount m),
+      chrPayerAccount :: !acct,
       -- | The energy cost to charge for checking the header.
       chrCheckHeaderCost :: !Energy
     }
 
+-- | The result type of 'checkHeader', parameterised by the monad.
+type CheckHeaderResult m = CheckHeaderResult' (IndexedAccount m)
+
 -- | The function asserts the following
 --   * if the transaction is an 'AccountTransactionV1', then the protocol version supports sponsored transactions.
 --   * the transaction has a valid sender,
---   * the amount corresponding to the deposited energy is on the sender account,
+--   * the amount corresponding to the deposited energy is on the sender/sponsor account,
 --   * the transaction is not expired,
---   * the transaction nonce is the account's next nonce,
---   * the transaction is signed with the account's verification keys.
+--   * the transaction nonce is the sender account's next nonce,
+--   * the transaction is signed with the sender and optionally sponsor account's verification keys.
 --  "Valid sender" means that the sender account exists and has at least one valid credential,
 --  where currently valid means non-expired.
 --
@@ -329,13 +334,22 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
             -- exists on the account with 'checkHeader'.
             payment <- energyToGtu chrCheckHeaderCost
             chargeExecutionCost chrPayerAccount payment
+            let (tsCost, sponsorDetails) = case transactionSponsor msg of
+                    Just sponsorAddress ->
+                        ( 0,
+                          Just $
+                            SponsorDetails
+                                { sdSponsor = sponsorAddress,
+                                  sdCost = payment
+                                }
+                        )
+                    Nothing -> (payment, Nothing)
             return $
                 Just $
                     TransactionSummary
                         { tsEnergyCost = chrCheckHeaderCost,
-                          tsCost = payment,
                           tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
-                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
+                          tsSponsorDetails = conditionally cHasSponsorDetails sponsorDetails,
                           tsResult = transactionReject SerializationFailure,
                           tsHash = transactionHash msg,
                           tsType = TSTAccountTransaction Nothing,

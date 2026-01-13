@@ -155,6 +155,100 @@ testExtendedTransactionP9 = do
                 [(0, [(0, keypair 3)])]
                 Nothing
 
+-- | Test that a non-sponsored transaction with an invalid payload (not deserializable) is rejected
+--  with the cost correctly charged to the sender and recorded as such.
+testNonSponsoredSerializationFailP10 :: Expectation
+testNonSponsoredSerializationFailP10 = do
+    expectation <- Helpers.runTestBlockState $ do
+        initialState <- constructInitialBlockState @'P10
+        (result, finalState) <- Helpers.runScheduler Helpers.defaultTestConfig initialState transactions
+        expAccBalances <-
+            assertAccountBalances
+                finalState
+                (initialAmounts & ix 1 -~ 16200)
+        return $ do
+            let resultTransactions = Helpers.srTransactions result
+            assertEqual "Failed transactions" [] (ftFailed resultTransactions)
+            assertEqual
+                "Added transactions"
+                [((toBlockItem testTransaction, Nothing), summary)]
+                (ftAdded resultTransactions)
+            expAccBalances
+    expectation
+  where
+    transactions = [TGAccountTransactions [(testTransaction, Nothing)]]
+    acc = Helpers.accountAddressFromSeed
+    keypair = Helpers.keyPairFromSeed
+    testTransaction =
+        fromAccountTransactionV1 0 $
+            signAccountTransactionV1
+                (makeHeaderV1 (acc 1) Nothing 1 1000)
+                (EncodedPayload mempty)
+                [(0, [(0, keypair 1)])]
+                Nothing
+    summary =
+        TransactionSummary
+            { tsSender = Just (acc 1),
+              tsHash = getHash testTransaction,
+              tsCost = 16200,
+              tsEnergyCost = 162,
+              tsType = TSTAccountTransaction Nothing,
+              tsResult = TxReject{vrRejectReason = SerializationFailure},
+              tsIndex = 0,
+              tsSponsorDetails = CTrue Nothing
+            }
+
+-- | Test that a sponsored transaction with an invalid payload (not deserializable) is rejected
+--  with the cost correctly charged to the sponsor and recorded as such.
+testSponsoredSerializationFailP10 :: Expectation
+testSponsoredSerializationFailP10 = do
+    expectation <- Helpers.runTestBlockState $ do
+        initialState <- constructInitialBlockState @'P10
+        (result, finalState) <- Helpers.runScheduler Helpers.defaultTestConfig initialState transactions
+        expAccBalances <-
+            assertAccountBalances
+                finalState
+                (initialAmounts & ix 0 -~ 29400)
+        return $ do
+            let resultTransactions = Helpers.srTransactions result
+            assertEqual "Failed transactions" [] (ftFailed resultTransactions)
+            assertEqual
+                "Added transactions"
+                [((toBlockItem testTransaction, Nothing), summary)]
+                (ftAdded resultTransactions)
+            expAccBalances
+    expectation
+  where
+    transactions = [TGAccountTransactions [(testTransaction, Nothing)]]
+    acc = Helpers.accountAddressFromSeed
+    keypair = Helpers.keyPairFromSeed
+    testTransaction =
+        fromAccountTransactionV1 0 $
+            signAccountTransactionV1
+                (makeHeaderV1 (acc 3) (Just (acc 0)) 1 1000)
+                (EncodedPayload mempty)
+                [(0, [(0, keypair 3)])]
+                (Just [(0, [(0, keypair 0)])])
+    summary =
+        TransactionSummary
+            { tsSender = Just (acc 3),
+              tsHash = getHash testTransaction,
+              tsCost = 0,
+              tsEnergyCost = 294,
+              tsType = TSTAccountTransaction Nothing,
+              tsResult = TxReject{vrRejectReason = SerializationFailure},
+              tsIndex = 0,
+              tsSponsorDetails =
+                CTrue
+                    ( Just
+                        ( SponsorDetails
+                            { sdSponsor = acc 0,
+                              sdCost = 29400
+                            }
+                        )
+                    )
+            }
+
 -- | Test that a sponsored transaction where the sender has insufficient balance to cover the
 --   transfer amount is rejected (but added to the block) in P10.
 testSponsoredTransferRejectP10 :: Expectation
@@ -824,6 +918,8 @@ tests = parallel $ do
     it "Sponsored transfer @P9" testSponsoredTransferP9
     it "Extended transaction (transfer, no sponsor) @P9" testExtendedTransactionP9
 
+    it "Non-sponsored transaction, garbage payload (reject) @P10" testNonSponsoredSerializationFailP10
+    it "Sponsored transaction, garbage payload (reject) @P10" testSponsoredSerializationFailP10
     it "Sponsored transfer (reject) @P10" testSponsoredTransferRejectP10
     it "Sponsored transfer (success) @P10" testSponsoredTransferSuccessP10
     it "Extended transaction (transfer, no sponsor, success) @P10" testExtendedTransactionSuccessP10
