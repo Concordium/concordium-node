@@ -50,14 +50,16 @@ jobs:
         if: failure()
         id: get_url
         run: |
-          # 1. Use the built-in run URL as a base
-          BASE_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+         # 1. Fetch the specific Job ID for this run
+          # Note: select(.name == "Run cargo-deny") must match the 'name:' field above
+          JOB_ID=$(gh run view ${{ github.run_id }} --repo ${{ github.repository }} --json jobs --jq '.jobs[] | select(.name == "Run cargo-deny") | .id')
           
-          # 2. Try to find an open PR for this branch using the GitHub CLI
-          # We use || true so the script doesn't crash if no PR is found
+          # 2. Try to find an open PR for this branch
           PR_NUMBER=$(gh pr list --head "${{ github.ref_name }}" --json number --jq '.[0].number' || echo "")
           
-          # 3. Build the final link
+          # 3. Construct the deep link
+          BASE_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${JOB_ID}"
+          
           if [ -n "$PR_NUMBER" ]; then
             echo "FINAL_URL=${BASE_URL}?pr=${PR_NUMBER}" >> $GITHUB_OUTPUT
           else
