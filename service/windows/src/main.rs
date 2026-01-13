@@ -51,7 +51,6 @@ fn runner_service_main(arguments: Vec<OsString>) {
 
 /// Macro for constructing a simple status message given the new state and
 /// enabled controls (if any).
-/// 
 /// Construct a simple status message with no enabled controls.
 fn simple_status(state: ServiceState) -> ServiceStatus {
     simple_status_with_controls(state, ServiceControlAccept::empty())
