@@ -50,20 +50,19 @@ jobs:
         if: failure()
         id: get_url
         run: |
-          # 1. Get the direct Job URL
-          JOB_URL=$(gh run view ${{ github.run_id }} --repo ${{ github.repository }} --json jobs --jq '.jobs[] | select(.name == "${{ github.job }}") | .url')
+          # 1. Use the built-in run URL as a base
+          BASE_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           
-          # 2. Try to find an open PR for this branch
-          PR_NUMBER=$(gh pr list --head "${{ github.ref_name }}" --json number --jq '.[0].number')
+          # 2. Try to find an open PR for this branch using the GitHub CLI
+          # We use || true so the script doesn't crash if no PR is found
+          PR_NUMBER=$(gh pr list --head "${{ github.ref_name }}" --json number --jq '.[0].number' || echo "")
           
-          # 3. If a PR exists, append it to the URL
+          # 3. Build the final link
           if [ -n "$PR_NUMBER" ]; then
-            FINAL_URL="${JOB_URL}?pr=${PR_NUMBER}"
+            echo "FINAL_URL=${BASE_URL}?pr=${PR_NUMBER}" >> $GITHUB_OUTPUT
           else
-            FINAL_URL="$JOB_URL"
+            echo "FINAL_URL=${BASE_URL}" >> $GITHUB_OUTPUT
           fi
-          
-          echo "DIRECT_URL=$FINAL_URL" >> $GITHUB_OUTPUT
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -77,5 +76,5 @@ jobs:
           SLACK_MESSAGE: |
             The license or security audit for *concordium-node* has failed. 
             Please check the GitHub Actions logs.
-            *View Logs:* *Link:* <${{ steps.get_url.outputs.DIRECT_URL }}|Open GitHub Action Logs>
+            *View Logs:* *Link:* <${{ steps.get_url.outputs.FINAL_URL }}|Open GitHub Action Logs>
           SLACK_USERNAME: CargoDenyBot
