@@ -2,12 +2,15 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::{self, blob_store};
+use crate::block_state::{self, TokenIndex, UpdateTokenAccountBalanceInBlockState, blob_store};
+use crate::block_state_interface::{RawTokenAmountDelta, UnderOrOverflowError};
+use concordium_base::base::AccountIndex;
 use libc::size_t;
 
 /// A [loader](BackingStoreLoad) implemented by an external function.
 /// This is the dual to [`StoreCallback`]
 pub type LoadCallback = extern "C" fn(blob_store::Reference) -> *mut Vec<u8>;
+
 /// A [storer](BackingStoreStore) implemented by an external function.
 /// The function is passed a pointer to data to store, and the size of data. It
 /// should return the location where the data can be loaded via a
@@ -119,7 +122,7 @@ unsafe extern "C" fn ffi_store_plt_block_state(
     block_state: *mut block_state::BlockStateSavepoint,
 ) -> blob_store::Reference {
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
-    let block_state = unsafe {&mut *block_state};
+    let block_state = unsafe { &mut *block_state };
     match block_state.store_update(&mut store_callback) {
         Ok(r) => r,
         Err(_) => unreachable!(
@@ -147,7 +150,7 @@ unsafe extern "C" fn ffi_migrate_plt_block_state(
     block_state: *mut block_state::BlockStateSavepoint,
 ) -> *mut block_state::BlockStateSavepoint {
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
-    let block_state = unsafe {&mut *block_state};
+    let block_state = unsafe { &mut *block_state };
     match block_state.migrate(&load_callback, &mut store_callback) {
         Ok(new_block_state) => Box::into_raw(Box::new(new_block_state)),
         Err(_) => std::ptr::null_mut(),
@@ -170,7 +173,7 @@ unsafe extern "C" fn ffi_cache_plt_block_state(
     block_state: *mut block_state::BlockStateSavepoint,
 ) {
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
-    let block_state = unsafe {&mut *block_state};
+    let block_state = unsafe { &mut *block_state };
     block_state.cache(&load_callback)
 }
 
@@ -189,112 +192,32 @@ unsafe extern "C" fn ffi_cache_plt_block_state(
 ///
 /// Argument `account_index` must be a valid account index of an existing account.
 pub type UpdateTokenAccountBalanceCallback =
-    extern "C" fn(account_index: u64, token_index: u64, add_amount: u64, remove_amount: u64) -> u8;
+    extern "C" fn(account_index: u64, token_index: u64, amount: u64, add_amount: u8) -> u8;
 
-/// Runtime/execution state relevant for providing an implementation of
-/// [`crate::BlockStateOperations`].
-///
-/// This is needed since callbacks are only available during the execution time.
-#[derive(Debug)]
-pub(crate) struct ExecutionTimeBlockState {
-    /// The library block state implementation.
-    pub(crate) inner_block_state: block_state::BlockState,
-    // Temporary disable warning until we have the implementation below started.
-    #[expect(dead_code)]
-    /// External function for reading from the blob store.
-    pub(crate) load_callback: LoadCallback,
-    /// External function for updating the token balance for an account.
-    pub(crate) update_token_account_balance_callback: UpdateTokenAccountBalanceCallback,
-}
-
-impl crate::BlockStateOperations for ExecutionTimeBlockState {
-    fn get_plt_list(
-        &self,
-    ) -> impl std::iter::Iterator<Item = concordium_base::protocol_level_tokens::TokenId> {
-        // TODO implement this. The implementation below is just to help the type checker infer
-        // enough for this to compile.
-        Vec::new().into_iter()
-    }
-
-    fn get_token_index(
-        &self,
-        _token_id: concordium_base::protocol_level_tokens::TokenId,
-    ) -> Option<crate::TokenIndex> {
-        todo!()
-    }
-
-    fn get_mutable_token_state(&self, _token_index: crate::TokenIndex) -> crate::MutableTokenState {
-        todo!()
-    }
-
-    fn get_token_configuration(&self, _token_index: crate::TokenIndex) -> crate::PLTConfiguration {
-        todo!()
-    }
-
-    fn get_token_circulating_supply(
-        &self,
-        _token_index: crate::TokenIndex,
-    ) -> plt_token_module::host_interface::TokenRawAmount {
-        todo!()
-    }
-
-    fn set_token_circulating_supply(
-        &mut self,
-        _token_index: crate::TokenIndex,
-        _circulating_supply: plt_token_module::host_interface::TokenRawAmount,
-    ) {
-        todo!()
-    }
-
-    fn create_token(&mut self, _configuration: crate::PLTConfiguration) -> crate::TokenIndex {
-        todo!()
-    }
-
+impl UpdateTokenAccountBalanceInBlockState for UpdateTokenAccountBalanceCallback {
     fn update_token_account_balance(
         &mut self,
-        token_index: crate::TokenIndex,
-        account_index: concordium_base::base::AccountIndex,
-        amount_delta: crate::TokenAmountDelta,
-    ) -> Result<(), crate::OverflowError> {
-        let (add_amount, remove_amount) = if amount_delta.is_negative() {
-            let remove_amount =
-                u64::try_from(amount_delta.abs()).map_err(|_| crate::OverflowError)?;
-            (0, remove_amount)
-        } else {
-            let add_amount = u64::try_from(amount_delta).map_err(|_| crate::OverflowError)?;
-            (add_amount, 0)
-        };
-
-        let overflow = (self.update_token_account_balance_callback)(
-            account_index.into(),
-            token_index.into(),
-            add_amount,
-            remove_amount,
+        token: TokenIndex,
+        account: AccountIndex,
+        amount_delta: RawTokenAmountDelta,
+    ) -> Result<(), UnderOrOverflowError> {
+        let result = self(
+            account.index,
+            token.0,
+            match amount_delta {
+                RawTokenAmountDelta::Add(amount) => amount.0,
+                RawTokenAmountDelta::Subtract(amount) => amount.0,
+            },
+            match amount_delta {
+                RawTokenAmountDelta::Add(_) => 1,
+                RawTokenAmountDelta::Subtract(_) => 0,
+            },
         );
-        if overflow != 0 {
-            Err(crate::OverflowError)
-        } else {
+
+        if result == 0 {
             Ok(())
+        } else {
+            Err(UnderOrOverflowError)
         }
-    }
-
-    fn touch_token_account(
-        &mut self,
-        _token_index: crate::TokenIndex,
-        _account_index: concordium_base::base::AccountIndex,
-    ) -> bool {
-        todo!()
-    }
-
-    fn increment_plt_update_sequence_number(&mut self) {
-        todo!()
-    }
-
-    fn set_token_state(
-        &mut self,
-        _token_index: crate::TokenIndex,
-        _mutable_token_state: crate::MutableTokenState,
-    ) {
-        todo!()
     }
 }

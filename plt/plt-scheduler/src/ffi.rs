@@ -2,7 +2,10 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state;
+use crate::{block_state, scheduler};
+use concordium_base::base::AccountIndex;
+use concordium_base::common;
+use concordium_base::transactions::Payload;
 use libc::size_t;
 
 /// C-binding for calling [`crate::execute_transaction`].
@@ -20,16 +23,14 @@ use libc::size_t;
 /// - `payload` Pointer to transaction payload bytes.
 /// - `payload_len` Byte length of transaction payload.
 /// - `sender_account_index` The account index of the account which signed as the sender of the transaction.
-/// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
-/// - `remaining_energy_out` Location for writing the remaining energy after the execution.
+/// - `used_energy_out` Location for writing the energy used by the execution.
 ///
 /// # Safety
 ///
 /// - Argument `block_state` must be non-null point to well-formed [`crate::block_state::BlockState`].
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
-/// - Argument `sender_account_address` must be non-null and valid for reads for 32 bytes.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn ffi_execute_transaction(
     load_callback: block_state::ffi::LoadCallback,
@@ -38,86 +39,38 @@ unsafe extern "C" fn ffi_execute_transaction(
     payload: *const u8,
     payload_len: size_t,
     sender_account_index: u64,
-    sender_account_address: *const u8,
-    remaining_energy: u64,
+    _remaining_energy: u64,
     block_state_out: *mut *const block_state::BlockStateSavepoint,
-    remaining_energy_out: *mut u64,
+    _used_energy_out: *mut u64,
 ) -> u8 {
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
     debug_assert!(!payload.is_null(), "Payload is a null pointer.");
-    debug_assert!(
-        !sender_account_address.is_null(),
-        "Sender account address is a null pointer."
-    );
-    let payload = unsafe { std::slice::from_raw_parts(payload, payload_len) };
-    let sender_account_address = {
-        let mut bytes = [0u8; concordium_base::contracts_common::ACCOUNT_ADDRESS_SIZE];
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                sender_account_address,
-                bytes.as_mut_ptr(),
-                concordium_base::contracts_common::ACCOUNT_ADDRESS_SIZE,
-            )
-        };
-        concordium_base::contracts_common::AccountAddress(bytes)
-    };
-    let mut scheduler_state = SchedulerState {
-        remaining_energy: remaining_energy.into(),
-        sender_account_index: sender_account_index.into(),
-        sender_account_address,
-    };
+
     let mut block_state = block_state::ffi::ExecutionTimeBlockState {
         inner_block_state: unsafe { (*block_state).new_generation() },
         load_callback,
         update_token_account_balance_callback,
     };
-    let result = crate::execute_transaction(&mut scheduler_state, &mut block_state, payload);
+
+    let sender = AccountIndex::from(sender_account_index);
+    let mut payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
+    // todo finish error handling as part of https://linear.app/concordium/issue/PSR-21/use-the-rust-scheduler-in-the-haskell-scheduler
+    let payload: Payload = common::from_bytes(&mut payload_bytes).unwrap();
+    let result = scheduler::execute_transaction(sender, &mut block_state, payload).unwrap();
+
     let block_state = block_state.inner_block_state;
-    unsafe { *remaining_energy_out = scheduler_state.remaining_energy.into() };
+
+    // todo set remaining energy as part of https://linear.app/concordium/issue/PSR-21/use-the-rust-scheduler-in-the-haskell-scheduler
+    // todo map reject reasons and
+
     match result {
         Ok(()) => {
             unsafe { *block_state_out = Box::into_raw(Box::new(block_state.savepoint())) };
             0
         }
-        Err(crate::TransactionRejectReason) => {
+        Err(_) => {
             unsafe { *block_state_out = std::ptr::null() };
             1
-        }
-    }
-}
-
-/// Tracks the energy remaining and some context during the execution.
-struct SchedulerState {
-    /// The remaining energy tracked spent during the execution.
-    remaining_energy: concordium_base::base::Energy,
-    /// The account index of the account which signed as the sender of the transaction.
-    sender_account_index: concordium_base::base::AccountIndex,
-    /// The account address of the account which signed as the sender of the transaction.
-    sender_account_address: concordium_base::contracts_common::AccountAddress,
-}
-impl crate::SchedulerOperations for SchedulerState {
-    fn sender_account(&self) -> concordium_base::base::AccountIndex {
-        self.sender_account_index
-    }
-
-    fn sender_account_address(&self) -> concordium_base::contracts_common::AccountAddress {
-        self.sender_account_address
-    }
-
-    fn get_energy(&self) -> concordium_base::base::Energy {
-        self.remaining_energy
-    }
-
-    fn tick_energy(
-        &mut self,
-        energy: concordium_base::base::Energy,
-    ) -> Result<(), crate::OutOfEnergyError> {
-        if let Some(remaining_energy) = self.remaining_energy.checked_sub(energy) {
-            self.remaining_energy = remaining_energy;
-            Ok(())
-        } else {
-            self.remaining_energy = 0.into();
-            Err(crate::OutOfEnergyError)
         }
     }
 }

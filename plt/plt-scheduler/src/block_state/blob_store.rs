@@ -2,11 +2,9 @@
 #![allow(dead_code)]
 
 /// Reference to a storage location where an item may be retrieved.
-#[derive(Default, Debug, Clone, Copy, Eq, PartialEq, derive_more::From, derive_more::Into)]
+#[derive(Default, Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(transparent)]
-pub struct Reference {
-    pub(crate) reference: u64,
-}
+pub struct Reference(pub u64);
 
 /// Trait implemented by types that can be used to store binary data, and return
 /// a handle for loading data. Dual to [`BackingStoreLoad`].
@@ -69,9 +67,9 @@ pub enum LoadError {
 /// Result of loading data from persistent storage.
 pub type LoadResult<A> = Result<A, LoadError>;
 
-#[derive(Debug, thiserror::Error)]
-/// An error that may occur when storing or loading data from persistent
+/// An error that may occur when storing or loadi ng data from persistent
 /// storage.
+#[derive(Debug, thiserror::Error)]
 pub enum LoadWriteError {
     #[error("Write error: {0}")]
     Write(#[from] WriteError),
