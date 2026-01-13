@@ -132,7 +132,7 @@ jobs:
     strategy:
       matrix:
         plan:
-        - rust: 1.82
+        - rust: 1.85
           ghc: 9.10.2
 
     steps:
