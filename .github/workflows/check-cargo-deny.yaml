@@ -39,5 +39,8 @@ jobs:
       - name: Install cargo-deny
         run: cargo install --locked cargo-deny
 
+      - name: List files for debugging
+              run: ls -R
+
       - name: Run cargo-deny
         run: cargo deny check
