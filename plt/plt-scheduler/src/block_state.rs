@@ -2,8 +2,15 @@
 //!
 
 use crate::block_state::blob_store::BackingStoreLoad;
-use crate::block_state_interface::{RawTokenAmountDelta, UnderOrOverflowError};
+use crate::block_state_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
+    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
+    UnderOrOverflowError,
+};
 use concordium_base::base::AccountIndex;
+use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_tokens::TokenId;
+use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
 pub mod blob_store;
 #[cfg(feature = "ffi")]
@@ -98,14 +105,25 @@ impl BlockState {
     }
 }
 
+/// Trait allowing reading the account token balance from the block state.
+/// The account token balance block state is currently managed in Haskell.
+pub trait ReadTokenAccountBalanceFromBlockState {
+    /// Change the account.
+    fn read_token_account_balance(
+        &self,
+        account: AccountIndex,
+        token: TokenIndex,
+    ) -> RawTokenAmount;
+}
+
 /// Trait allowing updating the account token balance in the block state.
 /// The account token balance block state is currently managed in Haskell.
 pub trait UpdateTokenAccountBalanceInBlockState {
     /// Change the account.
     fn update_token_account_balance(
         &mut self,
-        token: TokenIndex,
         account: AccountIndex,
+        token: TokenIndex,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), UnderOrOverflowError>;
 }
@@ -115,105 +133,141 @@ pub trait UpdateTokenAccountBalanceInBlockState {
 ///
 /// This is needed since callbacks are only available during the execution time.
 #[derive(Debug)]
-pub struct ExecutionTimeBlockState<L: BackingStoreLoad, A: UpdateTokenAccountBalanceInBlockState> {
+pub struct ExecutionTimeBlockState<L, R, U> {
     /// The library block state implementation.
     pub inner_block_state: BlockState,
     // Temporary disable warning until we have the implementation below started.
     #[expect(dead_code)]
     /// External function for reading from the blob store.
     pub load_callback: L,
+    /// External function for reading the token balance for an account.
+    pub read_token_account_balance_callback: R,
     /// External function for updating the token balance for an account.
-    pub update_token_account_balance_callback: A,
+    pub update_token_account_balance_callback: U,
 }
 
-// impl BlockStateOperations for ExecutionTimeBlockState {
-//     fn get_plt_list(
-//         &self,
-//     ) -> impl std::iter::Iterator<Item = concordium_base::protocol_level_tokens::TokenId> {
-//         // TODO implement this. The implementation below is just to help the type checker infer
-//         // enough for this to compile.
-//         Vec::new().into_iter()
-//     }
-//
-//     fn get_token_index(
-//         &self,
-//         _token_id: concordium_base::protocol_level_tokens::TokenId,
-//     ) -> Option<crate::TokenIndex> {
-//         todo!()
-//     }
-//
-//     fn get_mutable_token_state(&self, _token_index: crate::TokenIndex) -> crate::MutableTokenState {
-//         todo!()
-//     }
-//
-//     fn get_token_configuration(&self, _token_index: crate::TokenIndex) -> crate::PLTConfiguration {
-//         todo!()
-//     }
-//
-//     fn get_token_circulating_supply(
-//         &self,
-//         _token_index: crate::TokenIndex,
-//     ) -> plt_token_module::host_interface::TokenRawAmount {
-//         todo!()
-//     }
-//
-//     fn set_token_circulating_supply(
-//         &mut self,
-//         _token_index: crate::TokenIndex,
-//         _circulating_supply: plt_token_module::host_interface::TokenRawAmount,
-//     ) {
-//         todo!()
-//     }
-//
-//     fn create_token(&mut self, _configuration: crate::PLTConfiguration) -> crate::TokenIndex {
-//         todo!()
-//     }
-//
-//     fn update_token_account_balance(
-//         &mut self,
-//         token_index: crate::TokenIndex,
-//         account_index: concordium_base::base::AccountIndex,
-//         amount_delta: crate::TokenAmountDelta,
-//     ) -> Result<(), crate::OverflowError> {
-//         let (add_amount, remove_amount) = if amount_delta.is_negative() {
-//             let remove_amount =
-//                 u64::try_from(amount_delta.abs()).map_err(|_| crate::OverflowError)?;
-//             (0, remove_amount)
-//         } else {
-//             let add_amount = u64::try_from(amount_delta).map_err(|_| crate::OverflowError)?;
-//             (add_amount, 0)
-//         };
-//
-//         let overflow = (self.update_token_account_balance_callback)(
-//             account_index.into(),
-//             token_index.into(),
-//             add_amount,
-//             remove_amount,
-//         );
-//         if overflow != 0 {
-//             Err(crate::OverflowError)
-//         } else {
-//             Ok(())
-//         }
-//     }
-//
-//     fn touch_token_account(
-//         &mut self,
-//         _token_index: crate::TokenIndex,
-//         _account_index: concordium_base::base::AccountIndex,
-//     ) -> bool {
-//         todo!()
-//     }
-//
-//     fn increment_plt_update_sequence_number(&mut self) {
-//         todo!()
-//     }
-//
-//     fn set_token_state(
-//         &mut self,
-//         _token_index: crate::TokenIndex,
-//         _mutable_token_state: crate::MutableTokenState,
-//     ) {
-//         todo!()
-//     }
-// }
+impl<
+    L: BackingStoreLoad,
+    R: ReadTokenAccountBalanceFromBlockState,
+    U: UpdateTokenAccountBalanceInBlockState,
+> BlockStateQuery for ExecutionTimeBlockState<L, R, U>
+{
+    type MutableTokenModuleState = ();
+    type Account = AccountIndex;
+    type Token = TokenIndex;
+
+    fn plt_list(&self) -> impl Iterator<Item = TokenId> {
+        // TODO implement this. The implementation below is just to help the type checker infer
+        // enough for this to compile.
+        Vec::new().into_iter()
+    }
+
+    fn token_by_id(&self, _token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
+        todo!()
+    }
+
+    fn mutable_token_module_state(&self, _token: &Self::Token) -> Self::MutableTokenModuleState {
+        todo!()
+    }
+
+    fn token_configuration(&self, _token: &Self::Token) -> TokenConfiguration {
+        todo!()
+    }
+
+    fn token_circulating_supply(&self, _token: &Self::Token) -> RawTokenAmount {
+        todo!()
+    }
+
+    fn lookup_token_module_state_value(
+        &self,
+        _token_module_state: &Self::MutableTokenModuleState,
+        _key: &ModuleStateKey,
+    ) -> Option<ModuleStateValue> {
+        todo!()
+    }
+
+    fn update_token_module_state_value(
+        &self,
+        _token_module_state: &mut Self::MutableTokenModuleState,
+        _key: &ModuleStateKey,
+        _value: Option<ModuleStateValue>,
+    ) {
+        todo!()
+    }
+
+    fn account_by_address(
+        &self,
+        _address: &AccountAddress,
+    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
+        todo!()
+    }
+
+    fn account_by_index(
+        &self,
+        _index: AccountIndex,
+    ) -> Result<Self::Account, AccountNotFoundByIndexError> {
+        todo!()
+    }
+
+    fn account_index(&self, _account: &Self::Account) -> AccountIndex {
+        todo!()
+    }
+
+    fn account_canonical_address(&self, _account: &Self::Account) -> AccountAddress {
+        todo!()
+    }
+
+    fn account_token_balance(
+        &self,
+        account: &Self::Account,
+        token: &Self::Token,
+    ) -> RawTokenAmount {
+        self.read_token_account_balance_callback
+            .read_token_account_balance(*account, *token)
+    }
+}
+
+impl<
+    L: BackingStoreLoad,
+    R: ReadTokenAccountBalanceFromBlockState,
+    U: UpdateTokenAccountBalanceInBlockState,
+> BlockStateOperations for ExecutionTimeBlockState<L, R, U>
+{
+    fn set_token_circulating_supply(
+        &mut self,
+        _token: &Self::Token,
+        _circulating_supply: RawTokenAmount,
+    ) {
+        todo!()
+    }
+
+    fn create_token(&mut self, _configuration: TokenConfiguration) -> Self::Token {
+        todo!()
+    }
+
+    fn update_token_account_balance(
+        &mut self,
+        token: &Self::Token,
+        account: &Self::Account,
+        amount_delta: RawTokenAmountDelta,
+    ) -> Result<(), UnderOrOverflowError> {
+        self.update_token_account_balance_callback
+            .update_token_account_balance(*account, *token, amount_delta)
+    }
+
+    fn touch_token_account(&mut self, _token: &Self::Token, _account: &Self::Account) {
+        todo!()
+    }
+
+    fn increment_plt_update_instruction_sequence_number(&mut self) {
+        todo!()
+    }
+
+    fn set_token_module_state(
+        &mut self,
+        _token: &Self::Token,
+        _mutable_token_module_state: Self::MutableTokenModuleState,
+    ) {
+        todo!()
+    }
+}

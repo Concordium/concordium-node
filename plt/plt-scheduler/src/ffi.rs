@@ -2,6 +2,7 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
+use crate::block_state::ExecutionTimeBlockState;
 use crate::{block_state, scheduler};
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
@@ -34,6 +35,7 @@ use libc::size_t;
 #[unsafe(no_mangle)]
 unsafe extern "C" fn ffi_execute_transaction(
     load_callback: block_state::ffi::LoadCallback,
+    read_token_account_balance_callback: block_state::ffi::ReadTokenAccountBalanceCallback,
     update_token_account_balance_callback: block_state::ffi::UpdateTokenAccountBalanceCallback,
     block_state: *const block_state::BlockStateSavepoint,
     payload: *const u8,
@@ -46,9 +48,10 @@ unsafe extern "C" fn ffi_execute_transaction(
     debug_assert!(!block_state.is_null(), "Block state is a null pointer.");
     debug_assert!(!payload.is_null(), "Payload is a null pointer.");
 
-    let mut block_state = block_state::ffi::ExecutionTimeBlockState {
+    let mut block_state = ExecutionTimeBlockState {
         inner_block_state: unsafe { (*block_state).new_generation() },
         load_callback,
+        read_token_account_balance_callback,
         update_token_account_balance_callback,
     };
 
@@ -61,10 +64,10 @@ unsafe extern "C" fn ffi_execute_transaction(
     let block_state = block_state.inner_block_state;
 
     // todo set remaining energy as part of https://linear.app/concordium/issue/PSR-21/use-the-rust-scheduler-in-the-haskell-scheduler
-    // todo map reject reasons and
 
     match result {
-        Ok(()) => {
+        // todo map reject reasons and events as part of https://linear.app/concordium/issue/PSR-21/use-the-rust-scheduler-in-the-haskell-scheduler
+        Ok(_) => {
             unsafe { *block_state_out = Box::into_raw(Box::new(block_state.savepoint())) };
             0
         }

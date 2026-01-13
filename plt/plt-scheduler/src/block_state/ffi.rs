@@ -2,10 +2,14 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::{self, TokenIndex, UpdateTokenAccountBalanceInBlockState, blob_store};
+use crate::block_state::{
+    self, ReadTokenAccountBalanceFromBlockState, TokenIndex, UpdateTokenAccountBalanceInBlockState,
+    blob_store,
+};
 use crate::block_state_interface::{RawTokenAmountDelta, UnderOrOverflowError};
 use concordium_base::base::AccountIndex;
 use libc::size_t;
+use plt_token_module::token_kernel_interface::RawTokenAmount;
 
 /// A [loader](BackingStoreLoad) implemented by an external function.
 /// This is the dual to [`StoreCallback`]
@@ -185,8 +189,8 @@ unsafe extern "C" fn ffi_cache_plt_block_state(
 ///
 /// - `account_index` The index of the account to update a token balance for.
 /// - `token_index` The index of the token.
-/// - `add_amount` The amount to add to the balance.
-/// - `remove_amount` The amount to subtract from the balance.
+/// - `amount` The amount to add to or subtract from the balance.
+/// - `add_amount` If `1`, the amount will be added to the balance. If `0`, it will be subtracted.
 ///
 /// # Safety
 ///
@@ -197,8 +201,8 @@ pub type UpdateTokenAccountBalanceCallback =
 impl UpdateTokenAccountBalanceInBlockState for UpdateTokenAccountBalanceCallback {
     fn update_token_account_balance(
         &mut self,
-        token: TokenIndex,
         account: AccountIndex,
+        token: TokenIndex,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), UnderOrOverflowError> {
         let result = self(
@@ -219,5 +223,30 @@ impl UpdateTokenAccountBalanceInBlockState for UpdateTokenAccountBalanceCallback
         } else {
             Err(UnderOrOverflowError)
         }
+    }
+}
+
+/// External function for reading the token balance for an account.
+///
+/// # Arguments
+///
+/// - `account_index` The index of the account to update a token balance for.
+/// - `token_index` The index of the token.
+///
+/// # Safety
+///
+/// Argument `account_index` must be a valid account index of an existing account.
+pub type ReadTokenAccountBalanceCallback =
+    extern "C" fn(account_index: u64, token_index: u64) -> u64;
+
+impl ReadTokenAccountBalanceFromBlockState for ReadTokenAccountBalanceCallback {
+    fn read_token_account_balance(
+        &self,
+        account: AccountIndex,
+        token: TokenIndex,
+    ) -> RawTokenAmount {
+        let value = self(account.index, token.0);
+
+        RawTokenAmount(value)
     }
 }
