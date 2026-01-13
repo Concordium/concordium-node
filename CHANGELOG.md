@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug where a protocol update can be executed twice, resulting in a corrupted database.
+
 ## 10.0.1
 
 - Add P9 -> P10 protocol update.
