@@ -56,5 +56,5 @@ jobs:
           SLACK_MESSAGE: |
             The license or security audit for *concordium-node* has failed. 
             Please check the GitHub Actions logs.
-            *View Logs:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Open GitHub Action Run>
+            *View Logs:* *Link:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ github.event.pull_request.number && format('?pr={0}', github.event.pull_request.number) || '' }}|Go Straight to Logs>
           SLACK_USERNAME: CargoDenyBot
