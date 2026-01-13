@@ -39,34 +39,9 @@ jobs:
       - name: Install cargo-deny
         run: cargo install --locked cargo-deny
 
-      - name: List files for debugging
-        run: ls -R
-
       - name: Run cargo-deny
         run: cargo deny check advisories
         working-directory: ./concordium-node
-
-      - name: Get Job URL
-        if: failure()
-        id: get_url
-        run: |
-         # 1. Fetch the specific Job ID for this run
-          # Note: select(.name == "Run cargo-deny") must match the 'name:' field above
-          JOB_ID=$(gh run view ${{ github.run_id }} --repo ${{ github.repository }} --json jobs --jq '.jobs[] | select(.name == "Run cargo-deny") | .id')
-          
-          # 2. Try to find an open PR for this branch
-          PR_NUMBER=$(gh pr list --head "${{ github.ref_name }}" --json number --jq '.[0].number' || echo "")
-          
-          # 3. Construct the deep link
-          BASE_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/job/${JOB_ID}"
-          
-          if [ -n "$PR_NUMBER" ]; then
-            echo "FINAL_URL=${BASE_URL}?pr=${PR_NUMBER}" >> $GITHUB_OUTPUT
-          else
-            echo "FINAL_URL=${BASE_URL}" >> $GITHUB_OUTPUT
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Report Status to Slack    # This step only runs if a previous step failed
         if: failure()
@@ -78,5 +53,5 @@ jobs:
           SLACK_MESSAGE: |
             The license or security audit for *concordium-node* has failed. 
             Please check the GitHub Actions logs.
-            *View Logs:* *Link:* <${{ steps.get_url.outputs.FINAL_URL }}|Open GitHub Action Logs>
+            *View Logs:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Click here to open the Summary page>
           SLACK_USERNAME: CargoDenyBot
