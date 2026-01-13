@@ -1,0 +1,62 @@
+# Cargo deny configuration for the repo.
+# Currently, we only check advisories - with the command `cargo deny check advisories`
+
+# The graph table configures how the dependency graph is constructed and thus
+# which crates the checks are performed against
+[graph]
+all-features = true
+
+# This section is considered when running `cargo deny check advisories`
+# More documentation for the advisories section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/advisories/cfg.html
+[advisories]
+unmaintained = "workspace"
+ignore = [
+    #{ id = "RUSTSEC-0000-0000", reason = "you can specify a reason the advisory is ignored" },
+]
+
+# This section is considered when running `cargo deny check bans`.
+# More documentation about the 'bans' section can be found here:
+# https://embarkstudios.github.io/cargo-deny/checks/bans/cfg.html
+[bans]
+multiple-versions = "allow"
+
+
+[licenses]
+# Add every license found in project here
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "AGPL-3.0-or-later",
+    "BSD-2-Clause",
+    "CC0-1.0",
+    "BSD-3-Clause",
+    "ISC",
+    "MIT",
+    "MPL-2.0",
+    "OpenSSL",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[[licenses.clarify]]
+crate = "macos_logger_wrapper"
+expression = "Apache-2.0"
+license-files = [
+    { path = "Cargo.toml", hash = 0x0dc9325f }
+]
+
+[[licenses.clarify]]
+crate = "noiseexplorer_xx"
+expression = "MIT"
+license-files = [
+    { path = "Cargo.toml", hash = 0x82e8f778 }
+]
+
+[[licenses.clarify]]
+crate = "ring"
+expression = "ISC AND MIT AND OpenSSL"
+license-files = [
+    { path = "Cargo.toml", hash = 0x64b010ba }
+]
