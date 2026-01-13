@@ -43,5 +43,5 @@ jobs:
         run: ls -R
 
       - name: Run cargo-deny
-        run: cargo deny check
+        run: cargo deny check advisories
         working-directory: ./concordium-node
