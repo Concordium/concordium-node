@@ -53,5 +53,8 @@ jobs:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_COLOR: ${{ job.status }}
           SLACK_TITLE: "Cargo Deny Audit Failed!"
-          SLACK_MESSAGE: "The license or security audit for *concordium-node* has failed. Please check the GitHub Actions logs."
+          SLACK_MESSAGE: |
+            The license or security audit for *concordium-node* has failed. 
+            Please check the GitHub Actions logs.
+            *View Logs:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|Open GitHub Action Run>
           SLACK_USERNAME: CargoDenyBot
