@@ -46,6 +46,27 @@ jobs:
         run: cargo deny check advisories
         working-directory: ./concordium-node
 
+      - name: Get Job URL
+        if: failure()
+        id: get_url
+        run: |
+          # 1. Get the direct Job URL
+          JOB_URL=$(gh run view ${{ github.run_id }} --repo ${{ github.repository }} --json jobs --jq '.jobs[] | select(.name == "${{ github.job }}") | .url')
+          
+          # 2. Try to find an open PR for this branch
+          PR_NUMBER=$(gh pr list --head "${{ github.ref_name }}" --json number --jq '.[0].number')
+          
+          # 3. If a PR exists, append it to the URL
+          if [ -n "$PR_NUMBER" ]; then
+            FINAL_URL="${JOB_URL}?pr=${PR_NUMBER}"
+          else
+            FINAL_URL="$JOB_URL"
+          fi
+          
+          echo "DIRECT_URL=$FINAL_URL" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Report Status to Slack    # This step only runs if a previous step failed
         if: failure()
         uses: rtCamp/action-slack-notify@v2
@@ -56,5 +77,5 @@ jobs:
           SLACK_MESSAGE: |
             The license or security audit for *concordium-node* has failed. 
             Please check the GitHub Actions logs.
-            *View Logs:* *Link:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}${{ github.event.pull_request.number && format('?pr={0}', github.event.pull_request.number) || '' }}|Go Straight to Logs>
+            *View Logs:* *Link:* <${{ steps.get_url.outputs.DIRECT_URL }}|Open GitHub Action Logs>
           SLACK_USERNAME: CargoDenyBot
