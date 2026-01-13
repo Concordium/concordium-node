@@ -371,7 +371,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base"
-version = "8.0.0-alpha.3"
+version = "10.0.0"
 dependencies = [
  "anyhow",
  "ark-bls12-381",
@@ -387,10 +387,11 @@ dependencies = [
  "concordium-contracts-common",
  "concordium_base_derive",
  "curve25519-dalek",
- "derive_more 0.99.20",
+ "derive_more",
  "ed25519-dalek",
  "either",
  "ff",
+ "generic-array",
  "hex",
  "itertools 0.14.0",
  "leb128",
@@ -414,7 +415,7 @@ dependencies = [
 
 [[package]]
 name = "concordium_base_derive"
-version = "1.1.0-alpha.3"
+version = "1.2.0"
 dependencies = [
  "convert_case 0.8.0",
  "darling 0.20.11",
@@ -638,27 +639,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6edb4b64a43d977b8e99788fe3a04d483834fba1215a7e02caa415b626497f7f"
 dependencies = [
  "convert_case 0.4.0",
- "proc-macro2",
- "quote",
- "rustc_version",
- "syn 2.0.111",
-]
-
-[[package]]
-name = "derive_more"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10b768e943bed7bf2cab53df09f4bc34bfd217cdb57d971e769874c9a6710618"
-dependencies = [
- "derive_more-impl",
-]
-
-[[package]]
-name = "derive_more-impl"
-version = "2.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d286bfdaf75e988b4a78e013ecd79c581e06399ab53fbacd2d916c2f904f30b"
-dependencies = [
  "proc-macro2",
  "quote",
  "rustc_version",
@@ -1073,10 +1053,19 @@ dependencies = [
 name = "plt-scheduler"
 version = "0.1.0"
 dependencies = [
+ "assert_matches",
  "concordium_base",
- "derive_more 2.1.0",
  "libc",
+ "plt-scheduler-interface",
  "plt-token-module",
+ "thiserror 2.0.17",
+]
+
+[[package]]
+name = "plt-scheduler-interface"
+version = "0.1.0"
+dependencies = [
+ "concordium_base",
  "thiserror 2.0.17",
 ]
 
@@ -1086,6 +1075,7 @@ version = "0.1.0"
 dependencies = [
  "assert_matches",
  "concordium_base",
+ "plt-scheduler-interface",
  "thiserror 2.0.17",
 ]
 

@@ -73,7 +73,7 @@ scheduledTransferWithMemoRejectsP1 =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor Types.P1) ->
         BS.PersistentBlockState PV1 ->
         Helpers.PersistentBSM PV1 Assertion
     checkState result state =
@@ -336,7 +336,7 @@ scheduledTransferRejectsSelfTransferUsingAliases _ pvString =
             doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result state =

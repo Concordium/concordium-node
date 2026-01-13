@@ -515,7 +515,7 @@ dummyAccountAddress = dummyAccountAddressN 0
 --  does no transaction processing i.e. verification of the transaction.
 dummyTransaction' :: AccountAddress -> Nonce -> Transaction
 dummyTransaction' accAddr n =
-    addMetadata NormalTransaction 0 $
+    addMetadata 0 . TransactionV0 $
         makeAccountTransaction
             dummyTransactionSignature
             hdr
@@ -535,13 +535,13 @@ dummyTransactionFromSender :: AccountAddress -> Nonce -> Transaction
 dummyTransactionFromSender = dummyTransaction'
 
 dummyTransactionBIFromSender :: AccountAddress -> Nonce -> BlockItem
-dummyTransactionBIFromSender accAddr = normalTransaction . (dummyTransactionFromSender accAddr)
+dummyTransactionBIFromSender accAddr = toBlockItem . (dummyTransactionFromSender accAddr)
 
 dummyTransaction :: Nonce -> Transaction
 dummyTransaction = dummyTransaction' dummyAccountAddress
 
 dummyTransactionBI :: Nonce -> BlockItem
-dummyTransactionBI = normalTransaction . dummyTransaction
+dummyTransactionBI = toBlockItem . dummyTransaction
 
 dummySuccessTransactionResult :: Nonce -> TVer.VerificationResult
 dummySuccessTransactionResult n =
@@ -571,20 +571,20 @@ dummyUpdateInstruction usn =
 
 dummyUpdateInstructionWM :: UpdateSequenceNumber -> WithMetadata UpdateInstruction
 dummyUpdateInstructionWM usn =
-    addMetadata ChainUpdate 0 $ dummyUpdateInstruction usn
+    addMetadata 0 $ dummyUpdateInstruction usn
 
 dummyChainUpdate :: UpdateSequenceNumber -> BlockItem
-dummyChainUpdate usn = chainUpdate $ dummyUpdateInstructionWM usn
+dummyChainUpdate usn = toBlockItem $ dummyUpdateInstructionWM usn
 
 -- | A valid 'AccountCreation' with expiry 1596409020
 dummyAccountCreation :: AccountCreation
 dummyAccountCreation = readAccountCreation . BSL.fromStrict $ $(makeRelativeToProject "testdata/transactionverification/verifiable-credential.json" >>= embedFile)
 
 credentialDeploymentWM :: WithMetadata AccountCreation
-credentialDeploymentWM = addMetadata CredentialDeployment 0 dummyAccountCreation
+credentialDeploymentWM = addMetadata 0 dummyAccountCreation
 
 dummyCredentialDeployment :: BlockItem
-dummyCredentialDeployment = credentialDeployment credentialDeploymentWM
+dummyCredentialDeployment = toBlockItem credentialDeploymentWM
 
 -- | Testing 'lookupLiveTransaction'
 --  This test ensures that live transactions can be
@@ -810,17 +810,17 @@ testRemoveTransactions ::
     Spec
 testRemoveTransactions _ = describe "finalizeTransactions" $ do
     it "normal transactions" $ do
-        sd' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd
+        sd' <- execStateT (finalizeTransactions [toBlockItem tr0]) sd
         assertEqual
             "Account non-finalized transactions"
             (Just TT.AccountNonFinalizedTransactions{_anftMap = Map.singleton 2 (Map.singleton tr1 (dummySuccessTransactionResult 2))})
             (sd' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr1, (normalTransaction tr1, TT.Received 0 (dummySuccessTransactionResult 2)))])
+            (HM.fromList [(getHash tr1, (toBlockItem tr1, TT.Received 0 (dummySuccessTransactionResult 2)))])
             (sd' ^. transactionTable . TT.ttHashMap)
     it "chain updates" $ do
-        sd' <- execStateT (finalizeTransactions [chainUpdate cu0]) sd1
+        sd' <- execStateT (finalizeTransactions [toBlockItem cu0]) sd1
         assertEqual
             "Chain update non-finalized transactions"
             (Just TT.NonFinalizedChainUpdates{_nfcuNextSequenceNumber = 2, _nfcuMap = Map.singleton 2 (Map.singleton cu1 (dummySuccessTransactionResult 2))})
@@ -828,20 +828,20 @@ testRemoveTransactions _ = describe "finalizeTransactions" $ do
         assertEqual
             "transaction hash map"
             ( HM.fromList
-                [ (getHash cu1, (chainUpdate cu1, TT.Received 0 (dummySuccessTransactionResult 2))),
-                  (getHash tr1, (normalTransaction tr1, TT.Received 0 (dummySuccessTransactionResult 2)))
+                [ (getHash cu1, (toBlockItem cu1, TT.Received 0 (dummySuccessTransactionResult 2))),
+                  (getHash tr1, (toBlockItem tr1, TT.Received 0 (dummySuccessTransactionResult 2)))
                 ]
             )
             (sd' ^. transactionTable . TT.ttHashMap)
     it "credential deployments" $ do
-        sd' <- execStateT (finalizeTransactions [credentialDeployment cred0]) sd2
+        sd' <- execStateT (finalizeTransactions [toBlockItem cred0]) sd2
         assertEqual
             "Non-finalized credential deployments"
             (sd' ^. transactionTable . TT.ttHashMap . at credDeploymentHash)
             Nothing
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr1, (normalTransaction tr1, TT.Received 0 (dummySuccessTransactionResult 2)))])
+            (HM.fromList [(getHash tr1, (toBlockItem tr1, TT.Received 0 (dummySuccessTransactionResult 2)))])
             (sd' ^. transactionTable . TT.ttHashMap)
   where
     sender = accountAddressEmbed dummyAccountAddress
@@ -851,8 +851,8 @@ testRemoveTransactions _ = describe "finalizeTransactions" $ do
     cu0 = dummyUpdateInstructionWM 1
     cu1 = dummyUpdateInstructionWM 2
     cred0 = credentialDeploymentWM
-    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
-    addChainUpdate u = snd . TT.addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
+    addTrans t = snd . TT.addTransaction (toBlockItem t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addChainUpdate u = snd . TT.addTransaction (toBlockItem u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
     addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     credDeploymentHash = getHash dummyCredentialDeployment
     sd =
@@ -885,21 +885,21 @@ testAddTransaction ::
     Spec
 testAddTransaction _ = describe "addTransaction" $ do
     it "add transaction" $ do
-        sd' <- execStateT (addTransaction tr0Round (normalTransaction tr0) (dummySuccessTransactionResult 1)) (dummyInitialSkovData @pv)
+        sd' <- execStateT (addTransaction tr0Round (toBlockItem tr0) (dummySuccessTransactionResult 1)) (dummyInitialSkovData @pv)
         assertEqual
             "Account non-finalized transactions"
             (Just TT.AccountNonFinalizedTransactions{_anftMap = Map.singleton 1 (Map.singleton tr0 (dummySuccessTransactionResult 1))})
             (sd' ^. transactionTable . TT.ttNonFinalizedTransactions . at sender)
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received (TT.commitPoint tr0Round) (dummySuccessTransactionResult 1)))])
+            (HM.fromList [(getHash tr0, (toBlockItem tr0, TT.Received (TT.commitPoint tr0Round) (dummySuccessTransactionResult 1)))])
             (sd' ^. transactionTable . TT.ttHashMap)
         assertEqual
             "transaction table purge counter is incremented"
             (1 + (dummyInitialSkovData @pv) ^. transactionTablePurgeCounter)
             (sd' ^. transactionTablePurgeCounter)
-        sd'' <- execStateT (finalizeTransactions [normalTransaction tr0]) sd'
-        added <- evalStateT (addTransaction tr0Round (normalTransaction tr1) (dummySuccessTransactionResult 1)) sd''
+        sd'' <- execStateT (finalizeTransactions [toBlockItem tr0]) sd'
+        added <- evalStateT (addTransaction tr0Round (toBlockItem tr1) (dummySuccessTransactionResult 1)) sd''
         assertEqual "tx should be added" True added
   where
     tr0Round = 1
@@ -917,14 +917,14 @@ testCommitTransaction ::
     Spec
 testCommitTransaction _ = describe "commitTransaction" $ do
     it "commit transaction" $ do
-        sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
+        sd' <- execStateT (commitTransaction 1 bh 0 (toBlockItem tr0)) sd
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Committed 1 (dummySuccessTransactionResult (transactionNonce tr0)) $ HM.fromList [(bh, TransactionIndex 0)]))])
+            (HM.fromList [(getHash tr0, (toBlockItem tr0, TT.Committed 1 (dummySuccessTransactionResult (transactionNonce tr0)) $ HM.fromList [(bh, TransactionIndex 0)]))])
             (sd' ^. transactionTable . TT.ttHashMap)
   where
     tr0 = dummyTransaction 1
-    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addTrans t = snd . TT.addTransaction (toBlockItem t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
         dummyInitialSkovData @pv
             & transactionTable
@@ -945,21 +945,21 @@ testMarkTransactionDead ::
     Spec
 testMarkTransactionDead _ = describe "markTransactionDead" $ do
     it "mark committed transaction dead" $ do
-        sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
-        sd'' <- execStateT (markTransactionDead bh (normalTransaction tr0)) sd'
+        sd' <- execStateT (commitTransaction 1 bh 0 (toBlockItem tr0)) sd
+        sd'' <- execStateT (markTransactionDead bh (toBlockItem tr0)) sd'
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 1 (dummySuccessTransactionResult (transactionNonce tr0))))])
+            (HM.fromList [(getHash tr0, (toBlockItem tr0, TT.Received 1 (dummySuccessTransactionResult (transactionNonce tr0))))])
             (sd'' ^. transactionTable . TT.ttHashMap)
     it "mark received transaction dead" $ do
-        sd' <- execStateT (markTransactionDead bh (normalTransaction tr0)) sd
+        sd' <- execStateT (markTransactionDead bh (toBlockItem tr0)) sd
         assertEqual
             "transaction hash map"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 0 (dummySuccessTransactionResult (transactionNonce tr0))))])
+            (HM.fromList [(getHash tr0, (toBlockItem tr0, TT.Received 0 (dummySuccessTransactionResult (transactionNonce tr0))))])
             (sd' ^. transactionTable . TT.ttHashMap)
   where
     tr0 = dummyTransaction 1
-    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addTrans t = snd . TT.addTransaction (toBlockItem t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
         dummyInitialSkovData @pv
             & transactionTable
@@ -979,7 +979,7 @@ testPurgeTransactionTable ::
 testPurgeTransactionTable _ = describe "purgeTransactionTable" $ do
     it "force purge the transaction table" $ do
         -- increment the purge counter.
-        sd' <- execStateT (addTransaction 0 (normalTransaction tr0) (dummySuccessTransactionResult 1)) sd
+        sd' <- execStateT (addTransaction 0 (toBlockItem tr0) (dummySuccessTransactionResult 1)) sd
         sd'' <- execStateT (purgeTransactionTable True theTime) sd'
         assertEqual
             "purge counter should be reset"
@@ -998,7 +998,7 @@ testPurgeTransactionTable _ = describe "purgeTransactionTable" $ do
             Nothing
             (sd'' ^. transactionTable . TT.ttHashMap . at credDeploymentHash)
   where
-    addChainUpdate u = snd . TT.addTransaction (chainUpdate u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
+    addChainUpdate u = snd . TT.addTransaction (toBlockItem u) 0 (dummySuccessTransactionResult (updateSeqNumber $ uiHeader $ wmdData u))
     addCredential = snd . TT.addTransaction dummyCredentialDeployment 0 dummySuccessCredentialDeployment
     tr0 = dummyTransaction 1
     cu0 = dummyUpdateInstructionWM 1
@@ -1028,7 +1028,7 @@ testClearOnProtocolUpdate ::
     Spec
 testClearOnProtocolUpdate _ = describe "clearOnProtocolUpdate" $
     it "clears on protocol update" $ do
-        sd' <- execStateT (commitTransaction 1 bh 0 (normalTransaction tr0)) sd
+        sd' <- execStateT (commitTransaction 1 bh 0 (toBlockItem tr0)) sd
         sd'' <- execStateT clearOnProtocolUpdate sd'
         assertEqual
             "block table should be empty"
@@ -1040,12 +1040,12 @@ testClearOnProtocolUpdate _ = describe "clearOnProtocolUpdate" $
             (sd'' ^. branches)
         assertEqual
             "committed transactions should be received with commit point 0"
-            (HM.fromList [(getHash tr0, (normalTransaction tr0, TT.Received 0 (dummySuccessTransactionResult 1)))])
+            (HM.fromList [(getHash tr0, (toBlockItem tr0, TT.Received 0 (dummySuccessTransactionResult 1)))])
             (sd'' ^. transactionTable . TT.ttHashMap)
   where
     tr0 = dummyTransaction 1
     bh = BlockHash minBound
-    addTrans t = snd . TT.addTransaction (normalTransaction t) 0 (dummySuccessTransactionResult (transactionNonce t))
+    addTrans t = snd . TT.addTransaction (toBlockItem t) 0 (dummySuccessTransactionResult (transactionNonce t))
     sd =
         skovDataWithTestBlocks @pv
             & transactionTable
