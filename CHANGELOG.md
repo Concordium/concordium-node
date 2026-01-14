@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug in protocol update state migration that incorrectly migrated PLT state.
+
 ## 10.0.1
 
 - Add P9 -> P10 protocol update.

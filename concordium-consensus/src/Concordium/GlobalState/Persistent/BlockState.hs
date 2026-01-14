@@ -4958,6 +4958,7 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     logEvent GlobalState LLTrace "Migrating reward details"
     newRewardDetails <-
         migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails
+    logEvent GlobalState LLTrace "Migrating protocol-level tokens"
     newProtocolLevelTokens <- PLT.migrateProtocolLevelTokensForPV migration bspProtocolLevelTokens
     return $!
         BlockStatePointers
