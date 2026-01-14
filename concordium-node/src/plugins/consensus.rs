@@ -1,5 +1,5 @@
 //! Consensus layer handling.
-use anyhow::{bail, ensure, Context};
+use anyhow::{bail, Context};
 use crossbeam_channel::TrySendError;
 
 use crate::{
