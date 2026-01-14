@@ -1,5 +1,5 @@
 //! Consensus layer handling.
-use anyhow::{bail, ensure};
+use anyhow::{bail, ensure, Context};
 use crossbeam_channel::TrySendError;
 
 use crate::{
@@ -109,8 +109,12 @@ pub fn handle_pkt_out(
     msg: Vec<u8>,
     is_broadcast: bool,
 ) -> anyhow::Result<()> {
-    ensure!(!msg.is_empty(), "Packet payload can't be empty");
-    let consensus_type = u8::deserial(&mut Cursor::new(&msg[..1]))?;
+    ensure!(!msg.is_empty(),);
+    let (consensus_type_bytes, payload) = msg
+        .split_at_checked(1)
+        .context("Packet payload can't be empty")?;
+
+    let consensus_type = u8::deserial(&mut Cursor::new(consensus_type_bytes))?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
     let distribution_mode = if is_broadcast {
@@ -119,7 +123,7 @@ pub fn handle_pkt_out(
         DistributionMode::Direct
     };
     // length of the actual payload. The message has a 1-byte tag prepended to it.
-    let payload_len = msg[1..].len();
+    let payload_len = payload.len();
 
     let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id, distribution_mode),
@@ -269,33 +273,48 @@ fn send_msg_to_consensus(
     consensus: &ConsensusContainer,
     message: &ConsensusMessage,
 ) -> anyhow::Result<(ConsensusFfiResponse, Option<ExecuteBlockCallback>)> {
-    let payload = &message.payload[1..]; // non-empty, already checked
+    let payload = message
+        .payload
+        .get(1..)
+        .context("Expected message payload of length at least 1")?;
 
     let consensus_response = match message.variant {
         Block => {
-            let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
-            consensus.receive_block(genesis_index, &payload[4..])
+            let (genesis_index_bytes, payload_rest) = payload
+                .split_at_checked(4)
+                .context("Expected message payload of length at least 4")?;
+            let genesis_index = u32::deserial(&mut Cursor::new(genesis_index_bytes))?;
+            consensus.receive_block(genesis_index, payload_rest)
         }
         FinalizationMessage => {
-            let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
+            let (genesis_index_bytes, payload_rest) = payload
+                .split_at_checked(4)
+                .context("Expected message payload of length at least 4")?;
+            let genesis_index = u32::deserial(&mut Cursor::new(genesis_index_bytes))?;
             (
-                consensus.send_finalization(genesis_index, &payload[4..]),
+                consensus.send_finalization(genesis_index, payload_rest),
                 Option::None,
             )
         }
         FinalizationRecord => {
-            let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
+            let (genesis_index_bytes, payload_rest) = payload
+                .split_at_checked(4)
+                .context("Expected message payload of length at least 4")?;
+            let genesis_index = u32::deserial(&mut Cursor::new(genesis_index_bytes))?;
             (
-                consensus.send_finalization_record(genesis_index, &payload[4..]),
+                consensus.send_finalization_record(genesis_index, payload_rest),
                 Option::None,
             )
         }
         CatchUpStatus => {
-            let genesis_index = u32::deserial(&mut Cursor::new(&payload[..4]))?;
+            let (genesis_index_bytes, payload_rest) = payload
+                .split_at_checked(4)
+                .context("Expected message payload of length at least 4")?;
+            let genesis_index = u32::deserial(&mut Cursor::new(genesis_index_bytes))?;
             (
                 consensus.receive_catch_up_status(
                     genesis_index,
-                    &payload[4..],
+                    payload_rest,
                     source_id,
                     node.config.catch_up_batch_limit,
                 ),
