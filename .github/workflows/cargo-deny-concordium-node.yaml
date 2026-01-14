@@ -26,16 +26,6 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache Cargo
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: ${{ runner.os }}-cargo-deny-${{ hashFiles('**/Cargo.lock') }}
-
       - name: Install cargo-deny
         run: cargo install --locked cargo-deny
 
@@ -47,7 +37,7 @@ jobs:
         if: failure()
         uses: rtCamp/action-slack-notify@v2
         env:
-          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK: ${{ secrets.SECURITY_ADVISORIES_SLACK_WEBHOOK_URL }}
           SLACK_COLOR: ${{ job.status }}
           SLACK_TITLE: "Cargo Deny Audit Failed!"
           SLACK_MESSAGE: |
