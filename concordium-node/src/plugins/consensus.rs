@@ -109,8 +109,12 @@ pub fn handle_pkt_out(
     msg: Vec<u8>,
     is_broadcast: bool,
 ) -> anyhow::Result<()> {
-    ensure!(!msg.is_empty(), "Packet payload can't be empty");
-    let consensus_type = u8::deserial(&mut Cursor::new(&msg[..1]))?;
+    ensure!(!msg.is_empty(),);
+    let (consensus_type_bytes, payload) = msg
+        .split_at_checked(1)
+        .context("Packet payload can't be empty")?;
+
+    let consensus_type = u8::deserial(&mut Cursor::new(consensus_type_bytes))?;
     let packet_type = PacketType::try_from(consensus_type)?;
 
     let distribution_mode = if is_broadcast {
@@ -119,7 +123,7 @@ pub fn handle_pkt_out(
         DistributionMode::Direct
     };
     // length of the actual payload. The message has a 1-byte tag prepended to it.
-    let payload_len = msg[1..].len();
+    let payload_len = payload.len();
 
     let request = ConsensusMessage::new(
         MessageType::Inbound(peer_id, distribution_mode),
