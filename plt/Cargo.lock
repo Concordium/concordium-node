@@ -1058,6 +1058,7 @@ dependencies = [
  "libc",
  "plt-scheduler-interface",
  "plt-token-module",
+ "sha2",
  "thiserror 2.0.17",
 ]
 

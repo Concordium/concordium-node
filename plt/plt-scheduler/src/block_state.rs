@@ -1,16 +1,21 @@
 //! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
 //!
 
-use crate::block_state::blob_store::BackingStoreLoad;
+use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, LoadError};
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
     UnderOrOverflowError,
 };
 use concordium_base::base::AccountIndex;
+use concordium_base::common;
+use concordium_base::common::__serialize_private::anyhow::Context;
+use concordium_base::common::{Buffer, Deserial, ParseResult, ReadBytesExt, Serial, Serialize};
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::TokenId;
+use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
+use sha2::Digest;
+use std::collections::{BTreeMap, HashMap};
 
 pub mod blob_store;
 #[cfg(feature = "ffi")]
@@ -42,16 +47,20 @@ impl BlockStateSavepoint {
     }
 
     /// Compute the hash.
-    pub fn hash(&self, _loader: impl blob_store::BackingStoreLoad) -> PltBlockStateHash {
-        todo!()
+    pub fn hash(&self, _loader: impl BackingStoreLoad) -> PltBlockStateHash {
+        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        let block_state_bytes = common::to_bytes(&self.block_state.state);
+        PltBlockStateHash::from(sha2::Sha256::digest(&block_state_bytes).into())
     }
 
     /// Store a PLT block state in a blob store.
     pub fn store_update(
         &mut self,
-        _storer: &mut impl blob_store::BackingStoreStore,
+        storer: &mut impl BackingStoreStore,
     ) -> blob_store::StoreResult<blob_store::Reference> {
-        todo!()
+        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        let block_state_bytes = common::to_bytes(&self.block_state.state);
+        Ok(storer.store_raw(&block_state_bytes)?)
     }
 
     /// Migrate the PLT block state from one blob store to another.
@@ -60,12 +69,13 @@ impl BlockStateSavepoint {
         _loader: &impl blob_store::BackingStoreLoad,
         _storer: &mut impl blob_store::BackingStoreStore,
     ) -> blob_store::LoadStoreResult<Self> {
+        // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         todo!()
     }
 
     /// Cache the block state in memory.
-    pub fn cache(&mut self, _loader: &impl blob_store::BackingStoreLoad) {
-        todo!()
+    pub fn cache(&mut self, _loader: &impl BackingStoreLoad) {
+        // todo implement as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
     }
 
     /// Construct a new generation block state which can be mutated without affecting this
@@ -78,11 +88,20 @@ impl BlockStateSavepoint {
 }
 
 impl blob_store::Loadable for BlockStateSavepoint {
-    fn load<S: std::io::Read, F: blob_store::BackingStoreLoad>(
+    fn load<S: std::io::Read, F: BackingStoreLoad>(
         _loader: &mut F,
-        _source: &mut S,
+        mut source: &mut S,
     ) -> blob_store::LoadResult<Self> {
-        todo!()
+        // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
+        let state: SimplisticBlockState =
+            common::from_bytes(&mut source).map_err(|err| LoadError::Decode(err.to_string()))?;
+
+        Ok(Self {
+            block_state: BlockState {
+                generation: 0,
+                state,
+            },
+        })
     }
 }
 
@@ -91,12 +110,17 @@ impl blob_store::Loadable for BlockStateSavepoint {
 pub struct BlockState {
     /// The generation counter for the block state.
     generation: u64,
+    /// Simplistic state that is used as a temporary implementation of the block state
+    state: SimplisticBlockState,
 }
 
 impl BlockState {
     /// Construct an empty block state.
     fn empty() -> Self {
-        BlockState { generation: 0 }
+        BlockState {
+            generation: 0,
+            state: Default::default(),
+        }
     }
 
     /// Consume the mutable block state and create an immutable save-point.
@@ -152,47 +176,74 @@ impl<
     U: UpdateTokenAccountBalanceInBlockState,
 > BlockStateQuery for ExecutionTimeBlockState<L, R, U>
 {
-    type MutableTokenModuleState = ();
+    type MutableTokenModuleState = SimplisticTokenModuleState;
     type Account = AccountIndex;
     type Token = TokenIndex;
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
-        // TODO implement this. The implementation below is just to help the type checker infer
-        // enough for this to compile.
-        Vec::new().into_iter()
+        self.inner_block_state
+            .state
+            .tokens
+            .iter()
+            .map(|token| token.configuration.token_id.clone())
     }
 
-    fn token_by_id(&self, _token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
-        todo!()
+    fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
+        self.inner_block_state
+            .state
+            .tokens
+            .iter()
+            .enumerate()
+            .find_map(|(i, token)| {
+                if token
+                    .configuration
+                    .token_id
+                    .as_ref()
+                    .eq_ignore_ascii_case(token_id.as_ref())
+                {
+                    Some(TokenIndex(i))
+                } else {
+                    None
+                }
+            })
+            .ok_or(TokenNotFoundByIdError(token_id.clone()))
     }
 
-    fn mutable_token_module_state(&self, _token: &Self::Token) -> Self::MutableTokenModuleState {
-        todo!()
+    fn mutable_token_module_state(&self, token: &Self::Token) -> Self::MutableTokenModuleState {
+        self.inner_block_state.state.tokens[token.0]
+            .module_state
+            .clone()
     }
 
-    fn token_configuration(&self, _token: &Self::Token) -> TokenConfiguration {
-        todo!()
+    fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
+        self.inner_block_state.state.tokens[token.0]
+            .configuration
+            .clone()
     }
 
-    fn token_circulating_supply(&self, _token: &Self::Token) -> RawTokenAmount {
-        todo!()
+    fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
+        self.inner_block_state.state.tokens[token.0].circulating_supply
     }
 
     fn lookup_token_module_state_value(
         &self,
-        _token_module_state: &Self::MutableTokenModuleState,
-        _key: &ModuleStateKey,
+        token_module_state: &Self::MutableTokenModuleState,
+        key: &ModuleStateKey,
     ) -> Option<ModuleStateValue> {
-        todo!()
+        token_module_state.state.get(key).cloned()
     }
 
     fn update_token_module_state_value(
         &self,
-        _token_module_state: &mut Self::MutableTokenModuleState,
-        _key: &ModuleStateKey,
-        _value: Option<ModuleStateValue>,
+        token_module_state: &mut Self::MutableTokenModuleState,
+        key: &ModuleStateKey,
+        value: Option<ModuleStateValue>,
     ) {
-        todo!()
+        if let Some(value) = value {
+            token_module_state.state.insert(key.clone(), value);
+        } else {
+            token_module_state.state.remove(key);
+        }
     }
 
     fn account_by_address(
@@ -235,14 +286,21 @@ impl<
 {
     fn set_token_circulating_supply(
         &mut self,
-        _token: &Self::Token,
-        _circulating_supply: RawTokenAmount,
+        token: &Self::Token,
+        circulating_supply: RawTokenAmount,
     ) {
-        todo!()
+        self.inner_block_state.state.tokens[token.0].circulating_supply = circulating_supply;
     }
 
     fn create_token(&mut self, _configuration: TokenConfiguration) -> Self::Token {
-        todo!()
+        let token_index = TokenIndex(self.inner_block_state.state.tokens.len() as u64);
+        let token = Token {
+            module_state: Default::default(),
+            configuration,
+            circulating_supply: Default::default(),
+        };
+        self.inner_block_state.state.tokens.push(token);
+        token_index
     }
 
     fn update_token_account_balance(
@@ -265,9 +323,65 @@ impl<
 
     fn set_token_module_state(
         &mut self,
-        _token: &Self::Token,
-        _mutable_token_module_state: Self::MutableTokenModuleState,
+        token: &Self::Token,
+        mutable_token_module_state: Self::MutableTokenModuleState,
     ) {
-        todo!()
+        self.inner_block_state.state.tokens[token.0].module_state = mutable_token_module_state;
     }
+}
+
+#[derive(Debug, Default, Clone, Serialize)]
+struct SimplisticBlockState {
+    tokens: Vec<Token>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct Token {
+    module_state: SimplisticTokenModuleState,
+    configuration: TokenConfigurationSerialize,
+    circulating_supply: RawTokenAmountSerialize,
+}
+
+#[derive(Debug, Clone)]
+struct RawTokenAmountSerialize(RawTokenAmount);
+
+impl Serial for RawTokenAmountSerialize {
+    fn serial<B: Buffer>(&self, out: &mut B) {
+        self.0.0.serial(out)
+    }
+}
+
+impl Deserial for RawTokenAmountSerialize {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
+        Ok(Self(RawTokenAmount(u64::deserial(source)?)))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct TokenIdSerialize(TokenId);
+
+impl Serial for TokenIdSerialize {
+    fn serial<B: Buffer>(&self, out: &mut B) {
+        self.0.as_ref().serial(out)
+    }
+}
+
+impl Deserial for TokenIdSerialize {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
+        Ok(Self(
+            TokenId::try_from(String::deserial(source)?).context("string not valid token id")?,
+        ))
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TokenConfigurationSerialize {
+    pub token_id: TokenIdSerialize,
+    pub module_ref: TokenModuleRef,
+    pub decimals: u8,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+struct SimplisticTokenModuleState {
+    state: BTreeMap<ModuleStateKey, ModuleStateValue>,
 }
