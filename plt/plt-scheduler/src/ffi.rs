@@ -55,7 +55,11 @@ unsafe extern "C" fn ffi_execute_transaction(
         update_token_account_balance_callback,
     };
 
-    let sender = AccountIndex::from(sender_account_index);
+    let sender_account_address = todo!();
+    let sender = (
+        AccountIndex::from(sender_account_index),
+        sender_account_address,
+    );
     let mut payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     // todo finish error handling as part of https://linear.app/concordium/issue/PSR-21/use-the-rust-scheduler-in-the-haskell-scheduler
     let payload: Payload = common::from_bytes(&mut payload_bytes).unwrap();

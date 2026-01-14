@@ -11,11 +11,12 @@ use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::common::__serialize_private::anyhow::Context;
 use concordium_base::common::{Buffer, Deserial, ParseResult, ReadBytesExt, Serial, Serialize};
+use concordium_base::constants::SHA256;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 use sha2::Digest;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 pub mod blob_store;
 #[cfg(feature = "ffi")]
@@ -50,7 +51,9 @@ impl BlockStateSavepoint {
     pub fn hash(&self, _loader: impl BackingStoreLoad) -> PltBlockStateHash {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         let block_state_bytes = common::to_bytes(&self.block_state.state);
-        PltBlockStateHash::from(sha2::Sha256::digest(&block_state_bytes).into())
+        PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(
+            &block_state_bytes,
+        )))
     }
 
     /// Store a PLT block state in a blob store.
@@ -60,7 +63,7 @@ impl BlockStateSavepoint {
     ) -> blob_store::StoreResult<blob_store::Reference> {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         let block_state_bytes = common::to_bytes(&self.block_state.state);
-        Ok(storer.store_raw(&block_state_bytes)?)
+        storer.store_raw(&block_state_bytes)
     }
 
     /// Migrate the PLT block state from one blob store to another.
@@ -177,7 +180,7 @@ impl<
 > BlockStateQuery for ExecutionTimeBlockState<L, R, U>
 {
     type MutableTokenModuleState = SimplisticTokenModuleState;
-    type Account = AccountIndex;
+    type Account = (AccountIndex, AccountAddress);
     type Token = TokenIndex;
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
@@ -185,7 +188,7 @@ impl<
             .state
             .tokens
             .iter()
-            .map(|token| token.configuration.token_id.clone())
+            .map(|token| token.configuration.token_id.0.clone())
     }
 
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
@@ -198,10 +201,11 @@ impl<
                 if token
                     .configuration
                     .token_id
+                    .0
                     .as_ref()
                     .eq_ignore_ascii_case(token_id.as_ref())
                 {
-                    Some(TokenIndex(i))
+                    Some(TokenIndex(i as u64))
                 } else {
                     None
                 }
@@ -210,19 +214,27 @@ impl<
     }
 
     fn mutable_token_module_state(&self, token: &Self::Token) -> Self::MutableTokenModuleState {
-        self.inner_block_state.state.tokens[token.0]
+        self.inner_block_state.state.tokens[token.0 as usize]
             .module_state
             .clone()
     }
 
     fn token_configuration(&self, token: &Self::Token) -> TokenConfiguration {
-        self.inner_block_state.state.tokens[token.0]
+        let configuration = self.inner_block_state.state.tokens[token.0 as usize]
             .configuration
-            .clone()
+            .clone();
+
+        TokenConfiguration {
+            token_id: configuration.token_id.0,
+            module_ref: configuration.module_ref,
+            decimals: configuration.decimals,
+        }
     }
 
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount {
-        self.inner_block_state.state.tokens[token.0].circulating_supply
+        self.inner_block_state.state.tokens[token.0 as usize]
+            .circulating_supply
+            .0
     }
 
     fn lookup_token_module_state_value(
@@ -260,12 +272,12 @@ impl<
         todo!()
     }
 
-    fn account_index(&self, _account: &Self::Account) -> AccountIndex {
-        todo!()
+    fn account_index(&self, account: &Self::Account) -> AccountIndex {
+        account.0
     }
 
-    fn account_canonical_address(&self, _account: &Self::Account) -> AccountAddress {
-        todo!()
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
+        account.1
     }
 
     fn account_token_balance(
@@ -274,7 +286,7 @@ impl<
         token: &Self::Token,
     ) -> RawTokenAmount {
         self.read_token_account_balance_callback
-            .read_token_account_balance(*account, *token)
+            .read_token_account_balance(account.0, *token)
     }
 }
 
@@ -289,11 +301,18 @@ impl<
         token: &Self::Token,
         circulating_supply: RawTokenAmount,
     ) {
-        self.inner_block_state.state.tokens[token.0].circulating_supply = circulating_supply;
+        self.inner_block_state.state.tokens[token.0 as usize]
+            .circulating_supply
+            .0 = circulating_supply;
     }
 
-    fn create_token(&mut self, _configuration: TokenConfiguration) -> Self::Token {
+    fn create_token(&mut self, configuration: TokenConfiguration) -> Self::Token {
         let token_index = TokenIndex(self.inner_block_state.state.tokens.len() as u64);
+        let configuration = TokenConfigurationSerialize {
+            token_id: TokenIdSerialize(configuration.token_id),
+            module_ref: configuration.module_ref,
+            decimals: configuration.decimals,
+        };
         let token = Token {
             module_state: Default::default(),
             configuration,
@@ -310,7 +329,7 @@ impl<
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), UnderOrOverflowError> {
         self.update_token_account_balance_callback
-            .update_token_account_balance(*account, *token, amount_delta)
+            .update_token_account_balance(account.0, *token, amount_delta)
     }
 
     fn touch_token_account(&mut self, _token: &Self::Token, _account: &Self::Account) {
@@ -326,7 +345,8 @@ impl<
         token: &Self::Token,
         mutable_token_module_state: Self::MutableTokenModuleState,
     ) {
-        self.inner_block_state.state.tokens[token.0].module_state = mutable_token_module_state;
+        self.inner_block_state.state.tokens[token.0 as usize].module_state =
+            mutable_token_module_state;
     }
 }
 
@@ -342,7 +362,7 @@ struct Token {
     circulating_supply: RawTokenAmountSerialize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 struct RawTokenAmountSerialize(RawTokenAmount);
 
 impl Serial for RawTokenAmountSerialize {
@@ -362,7 +382,7 @@ struct TokenIdSerialize(TokenId);
 
 impl Serial for TokenIdSerialize {
     fn serial<B: Buffer>(&self, out: &mut B) {
-        self.0.as_ref().serial(out)
+        self.0.as_ref().to_string().serial(out)
     }
 }
 
@@ -375,13 +395,13 @@ impl Deserial for TokenIdSerialize {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct TokenConfigurationSerialize {
+struct TokenConfigurationSerialize {
     pub token_id: TokenIdSerialize,
     pub module_ref: TokenModuleRef,
     pub decimals: u8,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
-struct SimplisticTokenModuleState {
+pub struct SimplisticTokenModuleState {
     state: BTreeMap<ModuleStateKey, ModuleStateValue>,
 }
