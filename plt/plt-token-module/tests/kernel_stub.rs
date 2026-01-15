@@ -16,8 +16,8 @@ use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
     InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
-    TokenTransferError,
+    TokenKernelOperations, TokenKernelOperationsP11, TokenKernelQueries, TokenKernelQueriesP11,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
 use plt_token_module::token_module;
 
@@ -176,6 +176,8 @@ impl TokenInitTestParams {
 pub struct AccountStubIndex(usize);
 
 impl TokenKernelQueries for KernelStub {
+    type TokenKernelQueriesP11 = Self;
+
     type Account = AccountStubIndex;
 
     fn account_by_address(
@@ -231,9 +233,25 @@ impl TokenKernelQueries for KernelStub {
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
         self.state.get(&key).cloned()
     }
+
+    fn switch_by_p11(
+        &self,
+        below_p11: impl FnOnce(&Self),
+        p11_and_above: impl FnOnce(&Self::TokenKernelQueriesP11),
+    ) {
+        todo!()
+    }
+}
+
+impl TokenKernelQueriesP11 for KernelStub {
+    fn example_kernel_query_p11(&self) {
+        todo!()
+    }
 }
 
 impl TokenKernelOperations for KernelStub {
+    type TokenKernelOperationsP11 = Self;
+
     fn touch_account(&mut self, account: &Self::Account) {
         self.accounts[account.0].balance.get_or_insert_default();
     }
@@ -297,6 +315,20 @@ impl TokenKernelOperations for KernelStub {
     }
 
     fn log_token_event(&mut self, _event: TokenModuleEvent) {
+        todo!()
+    }
+
+    fn mut_switch_by_p11(
+        &mut self,
+        below_p11: impl FnOnce(&mut Self),
+        p11_and_above: impl FnOnce(&mut Self::TokenKernelOperationsP11),
+    ) {
+        todo!()
+    }
+}
+
+impl TokenKernelOperationsP11 for KernelStub {
+    fn kernel_operation_p11(&mut self) {
         todo!()
     }
 }

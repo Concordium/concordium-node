@@ -2,7 +2,7 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use crate::scheduler;
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::common;
 use concordium_base::transactions::Payload;
 use libc::size_t;
@@ -26,7 +26,7 @@ use libc::size_t;
 unsafe extern "C" fn ffi_execute_transaction(payload: *const u8, payload_len: size_t) -> u8 {
     debug_assert!(!payload.is_null(), "Payload is a null pointer.");
     let payload = unsafe { std::slice::from_raw_parts(payload, payload_len) };
-    let mut block_state = crate::block_state::BlockState {};
+    let mut block_state = crate::block_state::BlockState::new(ProtocolVersion::P11);
     let account = AccountIndex::from(0);
     let payload: Payload = common::from_bytes(&mut &*payload).unwrap();
 

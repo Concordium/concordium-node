@@ -1,6 +1,6 @@
 //! Implementation of queries related to protocol-level tokens.
 
-use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
+use crate::block_state_interface::{BlockStateQuery, BlockStateQueryP11, TokenNotFoundByIdError};
 use crate::types::state::{TokenAccountState, TokenState};
 use crate::{TOKEN_MODULE_REF, block_state_interface};
 use concordium_base::base::AccountIndex;
@@ -8,7 +8,7 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use plt_token_module::token_kernel_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, ModuleStateKey, ModuleStateValue,
-    RawTokenAmount, TokenKernelQueries,
+    RawTokenAmount, TokenKernelQueries, TokenKernelQueriesP11,
 };
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
@@ -98,13 +98,13 @@ pub fn token_account_infos(
     todo!()
 }
 
-struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
-    block_state: &'a BSQ,
-    token: &'a BSQ::Token,
-    token_module_state: &'a BSQ::MutableTokenModuleState,
+pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
+    pub block_state: &'a BSQ,
+    pub token: &'a BSQ::Token,
+    pub token_module_state: &'a BSQ::MutableTokenModuleState,
 }
 
-impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
+impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'a, BSQ> {
     type Account = BSQ::Account;
 
     fn account_by_address(
@@ -148,5 +148,21 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
         self.block_state
             .lookup_token_module_state_value(self.token_module_state, &key)
+    }
+
+    fn kernel_queries_p11(&self) -> Option<impl TokenKernelQueriesP11<Account = Self::Account>> {
+        self.block_state
+            .queries_p11()
+            .map(|block_state| TokenKernelQueriesImpl {
+                block_state,
+                token: self.token,
+                token_module_state: self.token_module_state,
+            })
+    }
+}
+
+impl<BSQ: BlockStateQueryP11> TokenKernelQueriesP11 for TokenKernelQueriesImpl<'_, BSQ> {
+    fn example_kernel_query_p11(&self) -> Self::Account {
+        self.block_state.example_query_p11()
     }
 }

@@ -1,13 +1,21 @@
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
-    UnderOrOverflowError,
+    BlockStateOperationsP11, BlockStateQuery, BlockStateQueryP11, RawTokenAmountDelta,
+    TokenConfiguration, TokenNotFoundByIdError, UnderOrOverflowError,
 };
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, ProtocolVersion};
 use concordium_base::contracts_common::AccountAddress;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
-pub struct BlockState {}
+pub struct BlockState {
+    protocol_version: ProtocolVersion,
+}
+
+impl BlockState {
+    pub fn new(protocol_version: ProtocolVersion) -> Self {
+        Self { protocol_version }
+    }
+}
 
 /// Index of the protocol-level token in the block state map of tokens.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -92,6 +100,24 @@ impl BlockStateQuery for BlockState {
     ) -> RawTokenAmount {
         todo!()
     }
+
+    fn queries_p11(
+        &self,
+    ) -> Option<
+        &impl BlockStateQueryP11<
+            MutableTokenModuleState = Self::MutableTokenModuleState,
+            Account = Self::Account,
+            Token = Self::Token,
+        >,
+    > {
+        (self.protocol_version >= ProtocolVersion::P11).then_some(self)
+    }
+}
+
+impl BlockStateQueryP11 for BlockState {
+    fn example_query_p11(&self) -> Self::Account {
+        todo!()
+    }
 }
 
 impl BlockStateOperations for BlockState {
@@ -129,6 +155,24 @@ impl BlockStateOperations for BlockState {
         _token_index: &TokenIndex,
         _mutable_token_state: Self::MutableTokenModuleState,
     ) {
+        todo!()
+    }
+
+    fn operations_p11(
+        &mut self,
+    ) -> Option<
+        &mut impl BlockStateOperationsP11<
+            MutableTokenModuleState = Self::MutableTokenModuleState,
+            Account = Self::Account,
+            Token = Self::Token,
+        >,
+    > {
+        (self.protocol_version >= ProtocolVersion::P11).then_some(self)
+    }
+}
+
+impl BlockStateOperationsP11 for BlockState {
+    fn example_operation_p11(&mut self, _account: &Self::Account, _token: &Self::Token) {
         todo!()
     }
 }

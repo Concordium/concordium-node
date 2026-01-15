@@ -109,6 +109,12 @@ pub trait TokenKernelQueries {
 
     /// Lookup a key in the token state.
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue>;
+
+    fn kernel_queries_p11(&self) -> Option<impl TokenKernelQueriesP11<Account = Self::Account>>;
+}
+
+pub trait TokenKernelQueriesP11: TokenKernelQueries {
+    fn example_kernel_query_p11(&self) -> Self::Account;
 }
 
 /// Operations provided by the token kernel. The operations do not only allow modifying
@@ -180,4 +186,12 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     ///
     /// This will produce a `TokenModuleEvent` in the logs.
     fn log_token_event(&mut self, event: TokenModuleEvent);
+
+    fn kernel_operations_p11(
+        &mut self,
+    ) -> Option<impl TokenKernelOperationsP11<Account = Self::Account>>;
+}
+
+pub trait TokenKernelOperationsP11: TokenKernelOperations + TokenKernelQueriesP11 {
+    fn kernel_operation_p11(&mut self, account: &Self::Account);
 }
