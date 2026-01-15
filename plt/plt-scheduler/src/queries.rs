@@ -98,7 +98,6 @@ pub fn token_account_infos(
     todo!()
 }
 
-// todo are pub
 pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     pub block_state: &'a BSQ,
     pub token: &'a BSQ::Token,
