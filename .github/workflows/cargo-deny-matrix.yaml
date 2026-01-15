@@ -18,9 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        directory:
-          - concordium-node
-          - collector-backend
+        directory: ["concordium-node", "collector-backend"]
 
     steps:
       - name: Checkout code
