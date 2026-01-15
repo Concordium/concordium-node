@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug where transactions are not reported as committed when they appear in live blocks.
+
 ## 10.0.1
 
 - Add P9 -> P10 protocol update.
