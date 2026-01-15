@@ -513,6 +513,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 -- This implies that the block is in the epoch after the last
                                 -- finalized block.
                                 newBlock <- addBlock @m pendingBlock blockState parent energyUsed
+                                -- Record the transactions in the block as committed.
+                                commitTransactions
+                                    (blockRound pendingBlock)
+                                    (getHash pendingBlock)
+                                    (blockTransactions pendingBlock)
                                 let certifiedParent =
                                         CertifiedBlock
                                             { cbQuorumCertificate = blockQuorumCertificate pendingBlock,
