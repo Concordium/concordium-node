@@ -49,14 +49,10 @@ pub fn execute_plt_transaction<
         }
     };
 
-    block_state.mut_switch_by_p11(
-        |_bs| {
-            //
-        },
-        |bs| {
-            bs.operation_p11();
-        },
-    );
+    if let Some(block_state_p11) = block_state.operations_p11() {
+        let account = block_state_p11.query_p11();
+        block_state_p11.operation_p11(&account, &token);
+    }
 
     let token_configuration = block_state.token_configuration(&token);
 
@@ -230,28 +226,20 @@ impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<
             .lookup_token_module_state_value(self.token_module_state, &key)
     }
 
-    fn switch_by_p11(
-        &self,
-        below_p11: impl FnOnce(&Self),
-        p11_and_above: impl FnOnce(&dyn TokenKernelQueriesP11),
-    ) {
-        self.block_state.switch_by_p11(
-            |_bs| below_p11(self),
-            |bs| {
-                let kernel = TokenKernelQueriesImpl {
-                    block_state: bs,
-                    token: self.token,
-                    token_module_state: self.token_module_state,
-                };
-                p11_and_above(&kernel)
-            },
-        )
+    fn queries_p11(&self) -> Option<impl TokenKernelQueriesP11> {
+        self.block_state
+            .queries_p11()
+            .map(|block_state| TokenKernelQueriesImpl {
+                block_state,
+                token: self.token,
+                token_module_state: self.token_module_state,
+            })
     }
 }
 
 impl<BSO: BlockStateQueryP11> TokenKernelQueriesP11 for TokenKernelOperationsImpl<'_, BSO> {
-    fn kernel_query_p11(&self) {
-        self.block_state.query_p11();
+    fn kernel_query_p11(&self) -> Self::Account {
+        self.block_state.query_p11()
     }
 }
 
@@ -393,40 +381,22 @@ impl<'a, BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperati
             .push(TransactionEvent::TokenModule(module_event))
     }
 
-    fn mut_switch_by_p11(
-        &mut self,
-        below_p11: impl FnOnce(&mut dyn TokenKernelOperations<Account= Self::Account>),
-        p11_and_above: impl FnOnce(&mut dyn TokenKernelOperationsP11<Account= Self::Account>),
-    ) {
-        self.block_state.mut_switch_by_p11(
-            |bs| {
-                let mut kernel = TokenKernelOperationsImpl {
-                    block_state: bs,
-                    token: self.token,
-                    token_configuration: self.token_configuration,
-                    token_module_state: self.token_module_state,
-                    events: self.events,
-                    token_module_state_dirty: self.token_module_state_dirty,
-                };
-                below_p11(&mut kernel)
-            },
-            |bs| {
-                let mut kernel = TokenKernelOperationsImpl {
-                    block_state: bs,
-                    token: self.token,
-                    token_configuration: self.token_configuration,
-                    token_module_state: self.token_module_state,
-                    events: self.events,
-                    token_module_state_dirty: self.token_module_state_dirty,
-                };
-                p11_and_above(&mut kernel)
-            },
-        )
+    fn operations_p11(&self) -> Option<impl TokenKernelOperationsP11> {
+        self.block_state
+            .operations_p11()
+            .map(|block_state| TokenKernelOperationsImpl {
+                block_state,
+                token: self.token,
+                token_configuration: self.token_configuration,
+                token_module_state: self.token_module_state,
+                events: self.events,
+                token_module_state_dirty: self.token_module_state_dirty,
+            })
     }
 }
 
 impl<BSO: BlockStateOperationsP11> TokenKernelOperationsP11 for TokenKernelOperationsImpl<'_, BSO> {
-    fn kernel_operation_p11(&mut self) {
-        self.block_state.operation_p11();
+    fn kernel_operation_p11(&mut self, account: &Self::Account) {
+        self.block_state.operation_p11(account, self.token);
     }
 }

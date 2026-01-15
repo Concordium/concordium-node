@@ -45,12 +45,6 @@ pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
-    type BlockStateQueryP11: BlockStateQueryP11<
-            MutableTokenModuleState = Self::MutableTokenModuleState,
-            Account = Self::Account,
-            Token = Self::Token,
-        >;
-
     /// Opaque type that represents the token module state.
     type MutableTokenModuleState;
 
@@ -150,25 +144,17 @@ pub trait BlockStateQuery {
     fn account_token_balance(&self, account: &Self::Account, token: &Self::Token)
     -> RawTokenAmount;
 
-    fn switch_by_p11(
+    fn queries_p11(
         &self,
-        below_p11: impl FnOnce(&Self),
-        p11_and_above: impl FnOnce(&Self::BlockStateQueryP11),
-    );
+    ) -> Option<&impl BlockStateQueryP11<Account = Self::Account, Token = Self::Token>>;
 }
 
 pub trait BlockStateQueryP11: BlockStateQuery {
-    fn query_p11(&self);
+    fn query_p11(&self) -> Self::Account;
 }
 
 /// Operations on the state of a block in the chain.
 pub trait BlockStateOperations: BlockStateQuery {
-    type BlockStateOperationsP11: BlockStateOperationsP11<
-            MutableTokenModuleState = Self::MutableTokenModuleState,
-            Account = Self::Account,
-            Token = Self::Token,
-        >;
-
     /// Set the recorded total circulating supply for a protocol-level token.
     ///
     /// This should always be kept up-to-date with the total balance held in accounts.
@@ -247,15 +233,13 @@ pub trait BlockStateOperations: BlockStateQuery {
         mutable_token_module_state: Self::MutableTokenModuleState,
     );
 
-    fn mut_switch_by_p11(
+    fn operations_p11(
         &mut self,
-        below_p11: impl FnOnce(&mut Self),
-        p11_and_above: impl FnOnce(&mut Self::BlockStateOperationsP11),
-    );
+    ) -> Option<&mut impl BlockStateOperationsP11<Account = Self::Account, Token = Self::Token>>;
 }
 
-pub trait BlockStateOperationsP11: BlockStateOperations {
-    fn operation_p11(&mut self);
+pub trait BlockStateOperationsP11: BlockStateOperations + BlockStateQueryP11 {
+    fn operation_p11(&mut self, account: &Self::Account, token: &Self::Token);
 }
 
 /// The computation resulted in underflow or overflow.

@@ -110,22 +110,17 @@ pub trait TokenKernelQueries {
     /// Lookup a key in the token state.
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue>;
 
-    fn ¥switch_by_p11(
-        &self,
-        below_p11: impl FnOnce(&dyn TokenKernelQueries<Account= Self::Account>),
-        p11_and_above: impl FnOnce(&dyn TokenKernelQueriesP11<Account= Self::Account>),
-    );
+    fn queries_p11(&self) -> Option<&impl TokenKernelQueriesP11>;
 }
 
-pub trait TokenKernelQueriesP11 : TokenKernelQueries {
-    fn kernel_query_p11(&self);
+pub trait TokenKernelQueriesP11: TokenKernelQueries {
+    fn kernel_query_p11(&self) -> Self::Account;
 }
 
 /// Operations provided by the token kernel. The operations do not only allow modifying
 /// token module state, but also indirectly affect the token state maintained by the token
 /// kernel.
 pub trait TokenKernelOperations: TokenKernelQueries {
-
     /// Update the balance of the given account to zero if it didn't have a balance before.
     fn touch_account(&mut self, account: &Self::Account);
 
@@ -192,13 +187,9 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// This will produce a `TokenModuleEvent` in the logs.
     fn log_token_event(&mut self, event: TokenModuleEvent);
 
-    fn mut_switch_by_p11(
-        &mut self,
-        below_p11: impl FnOnce(&mut dyn TokenKernelOperations<Account= Self::Account>),
-        p11_and_above: impl FnOnce(&mut dyn TokenKernelOperationsP11<Account= Self::Account>),
-    );
+    fn operations_p11(&mut self) -> Option<&mut impl TokenKernelOperationsP11>;
 }
 
-pub trait TokenKernelOperationsP11: TokenKernelOperations {
-    fn kernel_operation_p11(&mut self);
+pub trait TokenKernelOperationsP11: TokenKernelOperations + TokenKernelQueriesP11 {
+    fn kernel_operation_p11(&mut self, account: &Self::Account);
 }

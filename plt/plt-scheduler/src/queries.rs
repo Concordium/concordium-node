@@ -160,27 +160,19 @@ impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'a,
             .lookup_token_module_state_value(self.token_module_state, &key)
     }
 
-    fn switch_by_p11(
-        &self,
-        below_p11: impl FnOnce(&Self),
-        p11_and_above: impl FnOnce(&dyn TokenKernelQueriesP11),
-    ) {
-        self.block_state.switch_by_p11(
-            |_bs| below_p11(self),
-            |bs| {
-                let kernel = TokenKernelQueriesImpl {
-                    block_state: bs,
-                    token: self.token,
-                    token_module_state: self.token_module_state,
-                };
-                p11_and_above(&kernel)
-            },
-        )
+    fn queries_p11(&self) -> Option<impl TokenKernelQueriesP11<Account = Self::Account>> {
+        self.block_state
+            .queries_p11()
+            .map(|block_state| TokenKernelQueriesImpl {
+                block_state,
+                token: self.token,
+                token_module_state: self.token_module_state,
+            })
     }
 }
 
 impl<BSQ: BlockStateQueryP11> TokenKernelQueriesP11 for TokenKernelQueriesImpl<'_, BSQ> {
-    fn kernel_query_p11(&self) {
-        self.block_state.query_p11();
+    fn kernel_query_p11(&self) -> Self::Account {
+        self.block_state.query_p11()
     }
 }

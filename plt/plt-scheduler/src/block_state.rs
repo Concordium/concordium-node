@@ -22,8 +22,6 @@ impl BlockState {
 pub struct TokenIndex(u64);
 
 impl BlockStateQuery for BlockState {
-    type BlockStateQueryP11 = Self;
-
     type MutableTokenModuleState = ();
     type Account = AccountIndex;
     type Token = TokenIndex;
@@ -103,16 +101,8 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn switch_by_p11(
-        &self,
-        below_p11: impl FnOnce(&Self),
-        p11_and_above: impl FnOnce(&Self::BlockStateQueryP11),
-    ) {
-        if self.protocol_version >= ProtocolVersion::P11 {
-            p11_and_above(self);
-        } else {
-            below_p11(self);
-        }
+    fn queries_p11(&self) -> Option<&impl BlockStateQueryP11> {
+        (self.protocol_version >= ProtocolVersion::P11).then_some(self)
     }
 }
 
@@ -123,8 +113,6 @@ impl BlockStateQueryP11 for BlockState {
 }
 
 impl BlockStateOperations for BlockState {
-    type BlockStateOperationsP11 = Self;
-
     fn set_token_circulating_supply(
         &mut self,
         _token_index: &TokenIndex,
@@ -162,16 +150,8 @@ impl BlockStateOperations for BlockState {
         todo!()
     }
 
-    fn mut_switch_by_p11(
-        &mut self,
-        below_p11: impl FnOnce(&mut Self),
-        p11_and_above: impl FnOnce(&mut Self::BlockStateOperationsP11),
-    ) {
-        if self.protocol_version >= ProtocolVersion::P11 {
-            p11_and_above(self);
-        } else {
-            below_p11(self);
-        }
+    fn operations_p11(&mut self) -> Option<&mut impl BlockStateOperationsP11> {
+        (self.protocol_version >= ProtocolVersion::P11).then_some(self)
     }
 }
 
