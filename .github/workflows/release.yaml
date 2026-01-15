@@ -742,7 +742,7 @@ jobs:
 
       - name: Upload artifact
         run: |
-          aws s3api put-object --bucket=${{ env.S3_BUCKET }} --key=${{ env.S3_DIR }}/${{ env.S3_FILENAME }} --body=/tmp/${{ env.S3_FILENAME }} --if-none-match='*'
+          aws s3api put-object --acl public-read --bucket=${{ env.S3_BUCKET }} --key=${{ env.S3_DIR }}/${{ env.S3_FILENAME }} --body=/tmp/${{ env.S3_FILENAME }} --if-none-match='*'
 
   docker_publish:
     runs-on: ubuntu-latest
