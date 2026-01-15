@@ -901,29 +901,24 @@ finalizeTransactions = mapM_ removeTrans
             . at' uty
             ?=! (nfcu & (TT.nfcuMap . at' sn .~ Nothing) & (TT.nfcuNextSequenceNumber .~ sn + 1))
 
--- | Mark a live transaction as committed in a particular block.
---  This does nothing if the transaction is not live.
---  A committed transaction cannot be purged while it is committed for a round after the round of
---  the last finalized block.
-commitTransaction ::
+-- | Mark the (live) transactions for a particular block as committed.
+--  This does nothing for transactions that are not live.
+commitTransactions ::
     (MonadState (SkovData pv) m) =>
     -- | Round of the block
     Round ->
     -- | The 'BlockHash' that the transaction should
     --  be committed to.
     BlockHash ->
-    -- | The 'TransactionIndex' in the block.
-    TransactionIndex ->
-    -- | The transaction to commit.
-    BlockItem ->
+    -- | The transactions to commit. This should consist of all transactions in the block
+    --  in order (starting from transaction index 0).
+    [BlockItem] ->
     m ()
-commitTransaction rnd bh ti transaction =
-    transactionTable
-        . TT.ttHashMap
-        . at' (getHash transaction)
-        . traversed
-        . _2
-        %=! TT.addResult bh rnd ti
+commitTransactions rnd bh transactions = transactionTable . TT.ttHashMap %=! doCommit 0 transactions
+  where
+    doCommit _ [] hm = hm
+    doCommit !ti (tx : txs) hm =
+        doCommit (ti + 1) txs $! (hm & at' (getHash tx) . traversed . _2 %~ TT.addResult bh rnd ti)
 
 -- | Add a transaction to the transaction table.
 --  For chain updates it is checked that the sequence number is at least the next
