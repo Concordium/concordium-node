@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- Fix a bug where a protocol update can be executed twice, resulting in a corrupted database.
+- Fix a bug in protocol update state migration that incorrectly migrated PLT state.
 - Fix a bug where transactions are not reported as committed when they appear in live blocks.
 
 ## 10.0.1

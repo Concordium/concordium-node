@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
     let regenesis_arc: Arc<Regenesis> = Arc::new(Regenesis::from_blocks(regenesis_blocks));
 
     ensure!(
-        regenesis_arc.blocks.read().unwrap().len() > 0,
+        !regenesis_arc.blocks.read().unwrap().is_empty(),
         "Bootstrapper can't run without specifying genesis hashes."
     );
 

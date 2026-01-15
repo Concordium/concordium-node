@@ -2383,7 +2383,7 @@ impl ConsensusContainer {
         use crate::grpc2::Require;
         let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
         let (block_id_type, block_hash) = bhi.to_ptr();
-        let token_id_len = token_id.value.as_bytes().len();
+        let token_id_len = token_id.value.len();
         if token_id_len > 255 {
             return Err(tonic::Status::invalid_argument(
                 "TokenId: length must be at most 255 bytes",

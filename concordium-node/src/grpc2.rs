@@ -107,7 +107,7 @@ pub mod types {
     /// Construct a representation of a [`BlockHashInput`] which can be passed
     /// through FFI. Returns `None` if failing due to missing or invalids fields
     /// in the input.
-    pub(crate) fn block_hash_input_to_ffi(bhi: &BlockHashInput) -> Option<BlockHashInputFFI> {
+    pub(crate) fn block_hash_input_to_ffi(bhi: &BlockHashInput) -> Option<BlockHashInputFFI<'_>> {
         use block_hash_input::BlockHashInput::*;
         match bhi.block_hash_input.as_ref()? {
             Best(_) => Some(BlockHashInputFFI::Best),
@@ -150,7 +150,7 @@ pub mod types {
     /// Construct a representation of an [`EpochRequest`] which can be passed
     /// through FFI. Returns `None` if failing due to missing or invalids fields
     /// in the input.
-    pub(crate) fn epoch_request_to_ffi(epoch_req: &EpochRequest) -> Option<EpochRequestFFI> {
+    pub(crate) fn epoch_request_to_ffi(epoch_req: &EpochRequest) -> Option<EpochRequestFFI<'_>> {
         use epoch_request::EpochRequestInput::*;
         match epoch_req.epoch_request_input.as_ref()? {
             RelativeEpoch(epoch) => {
