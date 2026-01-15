@@ -46,7 +46,6 @@ import Concordium.GRPC2 (ToProto (..))
 import qualified Concordium.Genesis.Data.BaseV1 as Base
 import Concordium.Types
 import qualified Concordium.Types.Conditionally as Cond
-import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.Transactions
