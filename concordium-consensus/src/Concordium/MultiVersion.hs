@@ -310,11 +310,11 @@ skovV1BlockHandler genHeight block = do
                             == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData block)
             liftIO (notifyCallback (getHash block) height isHomeBaked)
 
--- | Handler for block finalization. This first notifies the network layer, ultimately calling
+-- | Handler for block finalization. This notifies the network layer, ultimately calling
 --  @notify_callback@, which is used to notify any gRPC clients listening for block finalizations,
---  and to update metrics. It then checks for protocol updates.
+--  and to update metrics.
+--  It does not check for protocol updates, which should be handled subsequently.
 skovV1FinalizeHandler ::
-    (IsProtocolVersion pv, IsConsensusV1 pv) =>
     -- | Height of the genesis block
     AbsoluteBlockHeight ->
     KonsensusV1.FinalizationEntry pv ->
@@ -334,7 +334,6 @@ skovV1FinalizeHandler genHeight _ finalizedBlocks = do
                                 Present nodeBakerId
                                     == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
                     liftIO (notifyCallback (getHash bp) height isHomeBaked)
-    checkForProtocolUpdateV1
 
 -- | Baker identity and baking thread 'MVar'.
 data Baker = Baker
@@ -1572,14 +1571,23 @@ liftSkovV1Update vc a = MVR $ \mvr -> do
     (res, newState, evs) <- runMVR (SkovV1.runSkovT a (vc1Context vc) oldState) mvr
     writeIORef (vc1State vc) $! newState
     let
-        handleEvent st (SkovV1.OnBlock bp) = do
+        handleEvent (st, didFinalize) (SkovV1.OnBlock bp) = do
             runMVR (skovV1BlockHandler genHeight bp) mvr
-            return st
-        handleEvent st (SkovV1.OnFinalize finEntry bp) = do
+            return (st, didFinalize)
+        handleEvent (st, _didFinalize) (SkovV1.OnFinalize finEntry bp) = do
             (_, st', _) <- runMVR (SkovV1.runSkovT (skovV1FinalizeHandler genHeight finEntry bp) (vc1Context vc) st) mvr
             writeIORef (vc1State vc) $! st'
-            return st'
-    foldM_ handleEvent newState evs
+            return (st', True)
+    (updState, didFinalize) <- foldM handleEvent (newState, False) evs
+    -- If a finalization occurred, check for a protocol update.
+    -- This is done here to ensure that it only occurs once. Otherwise, it can be the case that
+    -- multiple finalization events would result in the protocol update happening more than once
+    -- (which is bad and results in a corrupted state).
+    -- Note that this should be sufficient to ensure that the protocol update does not occur twice,
+    -- since after the terminal block is finalized, no further finalizations can occur.
+    when didFinalize $ do
+        (_, st', _) <- runMVR (SkovV1.runSkovT checkForProtocolUpdateV1 (vc1Context vc) updState) mvr
+        writeIORef (vc1State vc) $! st'
     return $! res
   where
     genHeight = vc1GenesisHeight vc
