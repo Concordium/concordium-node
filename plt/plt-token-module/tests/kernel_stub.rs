@@ -244,7 +244,7 @@ impl TokenKernelQueries for KernelStub {
 }
 
 impl TokenKernelQueriesP11 for KernelStub {
-    fn kernel_query_p11(&self) {
+    fn example_kernel_query_p11(&self) {
         todo!()
     }
 }

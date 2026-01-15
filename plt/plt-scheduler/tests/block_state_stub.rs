@@ -335,7 +335,7 @@ impl BlockStateQuery for BlockStateStub {
 }
 
 impl BlockStateQueryP11 for BlockStateStub {
-    fn query_p11(&self) {
+    fn example_query_p11(&self) {
         todo!()
     }
 }
@@ -417,7 +417,7 @@ impl BlockStateOperations for BlockStateStub {
 }
 
 impl BlockStateOperationsP11 for BlockStateStub {
-    fn operation_p11(&mut self) {
+    fn example_operation_p11(&mut self) {
         todo!()
     }
 }

@@ -46,15 +46,6 @@ pub fn token_info(
     let token_configuration = block_state.token_configuration(&token);
     let circulating_supply = block_state.token_circulating_supply(&token);
 
-    block_state.switch_by_p11(
-        |_bs| {
-            //
-        },
-        |bs| {
-            bs.query_p11();
-        },
-    );
-
     let total_supply = TokenAmount::from_raw(circulating_supply.0, token_configuration.decimals);
 
     let token_module_state = block_state.mutable_token_module_state(&token);
@@ -160,7 +151,7 @@ impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'a,
             .lookup_token_module_state_value(self.token_module_state, &key)
     }
 
-    fn queries_p11(&self) -> Option<impl TokenKernelQueriesP11<Account = Self::Account>> {
+    fn kernel_queries_p11(&self) -> Option<impl TokenKernelQueriesP11<Account = Self::Account>> {
         self.block_state
             .queries_p11()
             .map(|block_state| TokenKernelQueriesImpl {
@@ -172,7 +163,7 @@ impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'a,
 }
 
 impl<BSQ: BlockStateQueryP11> TokenKernelQueriesP11 for TokenKernelQueriesImpl<'_, BSQ> {
-    fn kernel_query_p11(&self) -> Self::Account {
-        self.block_state.query_p11()
+    fn example_kernel_query_p11(&self) -> Self::Account {
+        self.block_state.example_query_p11()
     }
 }

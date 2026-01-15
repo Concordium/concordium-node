@@ -50,8 +50,8 @@ pub fn execute_plt_transaction<
     };
 
     if let Some(block_state_p11) = block_state.operations_p11() {
-        let account = block_state_p11.query_p11();
-        block_state_p11.operation_p11(&account, &token);
+        let account = block_state_p11.example_query_p11();
+        block_state_p11.example_operation_p11(&account, &token);
     }
 
     let token_configuration = block_state.token_configuration(&token);
@@ -226,7 +226,7 @@ impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<
             .lookup_token_module_state_value(self.token_module_state, &key)
     }
 
-    fn queries_p11(&self) -> Option<impl TokenKernelQueriesP11> {
+    fn kernel_queries_p11(&self) -> Option<impl TokenKernelQueriesP11<Account = Self::Account>> {
         self.block_state
             .queries_p11()
             .map(|block_state| TokenKernelQueriesImpl {
@@ -238,8 +238,8 @@ impl<'a, BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<
 }
 
 impl<BSO: BlockStateQueryP11> TokenKernelQueriesP11 for TokenKernelOperationsImpl<'_, BSO> {
-    fn kernel_query_p11(&self) -> Self::Account {
-        self.block_state.query_p11()
+    fn example_kernel_query_p11(&self) -> Self::Account {
+        self.block_state.example_query_p11()
     }
 }
 
@@ -381,7 +381,9 @@ impl<'a, BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperati
             .push(TransactionEvent::TokenModule(module_event))
     }
 
-    fn operations_p11(&self) -> Option<impl TokenKernelOperationsP11> {
+    fn kernel_operations_p11(
+        &mut self,
+    ) -> Option<impl TokenKernelOperationsP11<Account = Self::Account>> {
         self.block_state
             .operations_p11()
             .map(|block_state| TokenKernelOperationsImpl {
@@ -397,6 +399,6 @@ impl<'a, BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperati
 
 impl<BSO: BlockStateOperationsP11> TokenKernelOperationsP11 for TokenKernelOperationsImpl<'_, BSO> {
     fn kernel_operation_p11(&mut self, account: &Self::Account) {
-        self.block_state.operation_p11(account, self.token);
+        self.block_state.example_operation_p11(account, self.token);
     }
 }

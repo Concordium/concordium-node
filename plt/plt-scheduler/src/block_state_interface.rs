@@ -146,11 +146,18 @@ pub trait BlockStateQuery {
 
     fn queries_p11(
         &self,
-    ) -> Option<&impl BlockStateQueryP11<Account = Self::Account, Token = Self::Token>>;
+    ) -> Option<
+        &impl BlockStateQueryP11<
+            MutableTokenModuleState = Self::MutableTokenModuleState,
+            Account = Self::Account,
+            Token = Self::Token,
+        >,
+    >;
 }
 
 pub trait BlockStateQueryP11: BlockStateQuery {
-    fn query_p11(&self) -> Self::Account;
+    /// Some example query
+    fn example_query_p11(&self) -> Self::Account;
 }
 
 /// Operations on the state of a block in the chain.
@@ -235,11 +242,17 @@ pub trait BlockStateOperations: BlockStateQuery {
 
     fn operations_p11(
         &mut self,
-    ) -> Option<&mut impl BlockStateOperationsP11<Account = Self::Account, Token = Self::Token>>;
+    ) -> Option<
+        &mut impl BlockStateOperationsP11<
+            MutableTokenModuleState = Self::MutableTokenModuleState,
+            Account = Self::Account,
+            Token = Self::Token,
+        >,
+    >;
 }
 
 pub trait BlockStateOperationsP11: BlockStateOperations + BlockStateQueryP11 {
-    fn operation_p11(&mut self, account: &Self::Account, token: &Self::Token);
+    fn example_operation_p11(&mut self, account: &Self::Account, token: &Self::Token);
 }
 
 /// The computation resulted in underflow or overflow.

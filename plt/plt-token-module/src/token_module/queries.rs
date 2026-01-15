@@ -40,8 +40,8 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
     let burnable = module_state::is_burnable(kernel);
     let paused = module_state::is_paused(kernel);
 
-    if let Some(kernel_p11) = kernel.queries_p11() {
-        kernel_p11.kernel_query_p11();
+    if let Some(kernel_p11) = kernel.kernel_queries_p11() {
+        kernel_p11.example_kernel_query_p11();
     }
 
     let governance_account_index = module_state::get_governance_account_index(kernel)?;

@@ -101,13 +101,21 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn queries_p11(&self) -> Option<&impl BlockStateQueryP11> {
+    fn queries_p11(
+        &self,
+    ) -> Option<
+        &impl BlockStateQueryP11<
+            MutableTokenModuleState = Self::MutableTokenModuleState,
+            Account = Self::Account,
+            Token = Self::Token,
+        >,
+    > {
         (self.protocol_version >= ProtocolVersion::P11).then_some(self)
     }
 }
 
 impl BlockStateQueryP11 for BlockState {
-    fn query_p11(&self) {
+    fn example_query_p11(&self) -> Self::Account {
         todo!()
     }
 }
@@ -150,13 +158,21 @@ impl BlockStateOperations for BlockState {
         todo!()
     }
 
-    fn operations_p11(&mut self) -> Option<&mut impl BlockStateOperationsP11> {
+    fn operations_p11(
+        &mut self,
+    ) -> Option<
+        &mut impl BlockStateOperationsP11<
+            MutableTokenModuleState = Self::MutableTokenModuleState,
+            Account = Self::Account,
+            Token = Self::Token,
+        >,
+    > {
         (self.protocol_version >= ProtocolVersion::P11).then_some(self)
     }
 }
 
 impl BlockStateOperationsP11 for BlockState {
-    fn operation_p11(&mut self) {
+    fn example_operation_p11(&mut self, _account: &Self::Account, _token: &Self::Token) {
         todo!()
     }
 }

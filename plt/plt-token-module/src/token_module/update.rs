@@ -203,8 +203,8 @@ fn execute_token_transfer<
     let raw_amount = util::to_raw_token_amount(kernel, transfer_operation.amount)?;
     let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
 
-    if let Some(kernel_p11) = kernel.operations_p11() {
-        let account = kernel_p11.kernel_query_p11();
+    if let Some(mut kernel_p11) = kernel.kernel_operations_p11() {
+        let account = kernel_p11.example_kernel_query_p11();
         kernel_p11.kernel_operation_p11(&account);
     }
 
