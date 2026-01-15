@@ -50,7 +50,7 @@ import Concordium.GlobalState.BlockState (TransactionSummaryV1)
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Blocks
-import Concordium.KonsensusV1.Consensus.Timeout
+import Concordium.KonsensusV1.Consensus.Timeout hiding (Received)
 import Concordium.KonsensusV1.LeaderElection
 import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -877,6 +877,9 @@ testTrans3' = Dummy.makeTransferTransaction (foundationKeyPair, foundationAccoun
 testTrans4 :: BlockItem
 testTrans4 = Dummy.makeTransferTransaction (foundationKeyPair, foundationAccountAddress) foundationAccountAddress 400 4
 
+testTrans5 :: BlockItem
+testTrans5 = Dummy.makeTransferTransaction (foundationKeyPair, foundationAccountAddress) foundationAccountAddress 500 5
+
 -- | Valid block for round 1 with transactions.
 testBB1T :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
 testBB1T =
@@ -918,16 +921,16 @@ testBB2T =
           bbTimeoutCertificate = Absent,
           bbEpochFinalizationEntry = Absent,
           bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 2 (bakerVRFKey sProtocolVersion bakerId),
-          bbTransactions = Vec.fromList [testTrans3, testTrans4],
+          bbTransactions = Vec.fromList [testTrans3, testTrans4, testTrans5],
           bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
             SBlockHashVersion0 ->
                 DerivableBlockHashesV0
-                    { dbhv0TransactionOutcomesHash = read "15b4c811acb40125a9f9e4665077511d2508ead488b552a1b4d3a50ca238b6e1",
-                      dbhv0BlockStateHash = read "fb7fa65e46960630c592ac79b82202184e456ee53fe41ab5c718ff2b6800ba97"
+                    { dbhv0TransactionOutcomesHash = read "da9360655107d529218ed9586783200ceca9c965396e340d55cc3e3ec5787255",
+                      dbhv0BlockStateHash = read "552c1a805700e33f7ca62906a71f9c99a072cb10cc167571ba4c16143e79e936"
                     }
             SBlockHashVersion1 ->
                 DerivableBlockHashesV1
-                    { dbhv1BlockResultHash = read "4c2070cca49a389f320497445ff549594c51838837867dd123edd4a8103823ce"
+                    { dbhv1BlockResultHash = read "a8a6f224567aaac2ef40a7ddc2b186c47485acd3bb685d6216af25fdddd9b580"
                     }
         }
   where
@@ -2088,6 +2091,17 @@ checkTxCommitted tx committedTo = do
             assertEqual "Transaction committed blocks" (HM.fromList committedTo) res
         _ -> assertFailure $ "Expected transaction committed in blocks " ++ show committedTo ++ " but saw: " ++ show ts
 
+-- | Check that a given transaction is committed in the specified blocks.
+checkTxReceived ::
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    BlockItem -> TestMonad pv ()
+checkTxReceived tx = do
+    ts <- lookupTransaction (getHash tx) =<< get
+    liftIO $ case ts of
+        Just (Live (Received{})) ->
+            return ()
+        _ -> assertFailure $ "Expected transaction received, but saw: " ++ show ts
+
 -- | Check that a given transaction is finalized in the specified block.
 checkTxFinalized ::
     (IsConsensusV1 pv, IsProtocolVersion pv) =>
@@ -2100,6 +2114,7 @@ checkTxFinalized tx bheight ti = do
             (Just (Finalized (FinalizedTransactionStatus{ftsBlockHeight = bheight, ftsIndex = ti})))
             ts
 
+-- | Check that a given transaction is absent from the transaction table.
 checkTxAbsent :: (IsConsensusV1 pv, IsProtocolVersion pv) => BlockItem -> TestMonad pv ()
 checkTxAbsent tx = do
     ts <- lookupTransaction (getHash tx) =<< get
@@ -2120,18 +2135,21 @@ testReceiveWithTransactions sProtocolVersion =
             checkTxCommitted testTrans2 [(getHash (testBB1T @pv), 1)]
             checkTxCommitted testTrans3 [(getHash (testBB2T @pv), 0)]
             checkTxCommitted testTrans4 [(getHash (testBB2T @pv), 1)]
+            checkTxCommitted testTrans5 [(getHash (testBB2T @pv), 2)]
             succeedReceiveBlock (signedPB testBB3T)
             checkTxCommitted testTrans1 [(getHash (testBB1T @pv), 0)]
             checkTxCommitted testTrans2 [(getHash (testBB1T @pv), 1)]
             checkTxCommitted testTrans3 [(getHash (testBB2T @pv), 0)]
             checkTxCommitted testTrans3' [(getHash (testBB3T @pv), 0)]
             checkTxCommitted testTrans4 [(getHash (testBB2T @pv), 1), (getHash (testBB3T @pv), 1)]
+            checkTxCommitted testTrans5 [(getHash (testBB2T @pv), 2)]
             succeedReceiveBlock (signedPB testBB4T)
             checkTxCommitted testTrans1 [(getHash (testBB1T @pv), 0)]
             checkTxCommitted testTrans2 [(getHash (testBB1T @pv), 1)]
             checkTxCommitted testTrans3 [(getHash (testBB2T @pv), 0)]
             checkTxCommitted testTrans3' [(getHash (testBB3T @pv), 0)]
             checkTxCommitted testTrans4 [(getHash (testBB2T @pv), 1), (getHash (testBB3T @pv), 1)]
+            checkTxCommitted testTrans5 [(getHash (testBB2T @pv), 2)]
             succeedReceiveBlock (signedPB testBB5T)
             -- These are finalized in testBB1T
             checkTxFinalized testTrans1 1 0
@@ -2141,6 +2159,8 @@ testReceiveWithTransactions sProtocolVersion =
             -- These are finalized in testBB3T
             checkTxFinalized testTrans3' 2 0
             checkTxFinalized testTrans4 2 1
+            -- Since testBB2T is pruned, testTrans5 is no longer in any live blocks
+            checkTxReceived testTrans5
 
 tests :: Spec
 tests = describe "KonsensusV1.Consensus.Blocks" $ do
