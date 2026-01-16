@@ -2,7 +2,7 @@
 
 ## Unreleased changes
 
-- advisory update: tokio 1.41.1 - RUSTSEC-2025-0023
+- advisory update: collector-backend, tokio 1.41.1 - RUSTSEC-2025-0023
 
 # 10.0.2
 
