@@ -1,4 +1,4 @@
-# Rust PLT Scheduler System Architecture
+# Rust PLT Scheduler Component View
 
 The diagram below depicts how the Rust PLT scheduler and the token module is embedded within the node and how it interacts with other components in the node.
 
@@ -12,7 +12,7 @@ not depicted in the diagram. It may change in the future, such that the Rust PLT
 
 ```mermaid
 C4Container
-      title Rust PLT scheduler system diagram
+      title Rust PLT scheduler component diagram
       Container_Boundary(node, "Node (Haskell)") {
         Component(consensus, "Consensus",, "Achieves consensus on blocks in the Concordium chain.")
         Component(scheduler, "Scheduler",, "Executes block items. Checks block items headers (signature, fee charge) <br> and executes the block item payload. Is responsible for producing events, <br> reject reasons and updating block state.")
