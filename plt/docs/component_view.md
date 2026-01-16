@@ -18,7 +18,7 @@ C4Container
         Component(scheduler, "Scheduler",, "Executes block items. Checks block items headers (signature, fee charge) <br> and executes the block item payload. Is responsible for producing events, <br> reject reasons and updating block state.")
         Component(queries, "Queries",, "Queries on block state.")
 
-        Boundary(plt_scheduler_boundary, "PLT scheduler (Rust)", "boundary") {
+        Boundary(plt_scheduler_boundary, "PLT scheduler (Rust) (FFI)", "boundary") {
           Component(plt_scheduler, "PLT Scheduler",, "Executes PLT block item bodies.<br> Maintains circulating supply and balances state.")
           Component(plt_kernel, "PLT Kernel",, "Executes PLT block item bodies.<br> Maintains circulating supply and balances state.")
           Component(plt_queries, "PLT Queries",, "Implements PLT queries on block state.")   
