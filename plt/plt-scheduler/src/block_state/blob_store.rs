@@ -1,6 +1,3 @@
-// Temporarily allow dead_code until we have block state implemented.
-#![allow(dead_code)]
-
 /// Reference to a storage location where an item may be retrieved.
 #[derive(Default, Debug, Clone, Copy, Eq, PartialEq)]
 #[repr(transparent)]
@@ -17,24 +14,23 @@ pub trait BackingStoreStore {
 /// Trait implemented by types that can load data from given locations.
 /// Dual to [`BackingStoreStore`].
 pub trait BackingStoreLoad {
-    type R: AsRef<[u8]>;
     /// Load the provided value from the given location. The implementation of
     /// this should match [BackingStoreStore::store_raw].
-    fn load_raw(&mut self, location: Reference) -> LoadResult<Self::R>;
+    fn load_raw(&mut self, location: Reference) -> Result<Vec<u8>, LoadError>;
 }
 
 /// A trait implemented by types that can be loaded from a [BackingStoreLoad]
 /// storage.
 pub trait Loadable: Sized {
-    fn load<S: std::io::Read, F: BackingStoreLoad>(
-        loader: &mut F,
-        source: &mut S,
-    ) -> LoadResult<Self>;
+    fn load(
+        loader: &mut impl BackingStoreLoad,
+        source: &mut impl std::io::Read,
+    ) -> Result<Self, LoadError>;
 
-    fn load_from_location<F: BackingStoreLoad>(
-        loader: &mut F,
+    fn load_from_location(
+        loader: &mut impl BackingStoreLoad,
         location: Reference,
-    ) -> LoadResult<Self> {
+    ) -> Result<Self, LoadError> {
         let mut source = std::io::Cursor::new(loader.load_raw(location)?);
         Self::load(loader, &mut source)
     }
@@ -47,25 +43,12 @@ pub enum WriteError {
     IOError(#[from] std::io::Error),
 }
 
-/// Result of storing data in persistent storage.
-pub type StoreResult<A> = Result<A, WriteError>;
-
 /// An error that may occur when loading data from persistent storage.
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
     #[error("{0}")]
     IOError(#[from] std::io::Error),
-    // #[error("Incorrect tag")]
-    // IncorrectTag {
-    //     // The tag that was provided.
-    //     tag: u8,
-    // },
-    // #[error("Out of bounds read.")]
-    // OutOfBoundsRead,
 }
-
-/// Result of loading data from persistent storage.
-pub type LoadResult<A> = Result<A, LoadError>;
 
 /// An error that may occur when storing or loadi ng data from persistent
 /// storage.
@@ -76,15 +59,3 @@ pub enum LoadWriteError {
     #[error("Load error: {0}")]
     Load(#[from] LoadError),
 }
-
-/// In the context where the LoadWriteError is used we want to propagate
-/// write errors out. So this implementation is the more useful one as opposed
-/// to the implementation which maps io errors through the [`LoadError`].
-impl From<std::io::Error> for LoadWriteError {
-    fn from(err: std::io::Error) -> Self {
-        Self::Write(err.into())
-    }
-}
-
-/// Result of loading or storing data from or to persistent storage.
-pub type LoadStoreResult<A> = Result<A, LoadWriteError>;

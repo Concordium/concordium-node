@@ -1,7 +1,9 @@
 //! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
 //!
 
-use crate::block_state::blob_store::BackingStoreLoad;
+use crate::block_state::blob_store::{
+    BackingStoreLoad, BackingStoreStore, LoadError, LoadWriteError, WriteError,
+};
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
@@ -13,12 +15,10 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
 pub mod blob_store;
-#[cfg(feature = "ffi")]
-pub mod ffi;
 
 /// Index of the protocol-level token in the block state map of tokens.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TokenIndex(u64);
+pub struct TokenIndex(pub u64);
 
 pub enum PltBlockStateHashMarker {}
 pub type PltBlockStateHash = concordium_base::hashes::HashBytes<PltBlockStateHashMarker>;
@@ -42,29 +42,30 @@ impl BlockStateSavepoint {
     }
 
     /// Compute the hash.
-    pub fn hash(&self, _loader: impl blob_store::BackingStoreLoad) -> PltBlockStateHash {
+    pub fn hash(&self, _loader: &mut impl BackingStoreLoad) -> PltBlockStateHash {
         todo!()
     }
 
     /// Store a PLT block state in a blob store.
     pub fn store_update(
         &mut self,
-        _storer: &mut impl blob_store::BackingStoreStore,
-    ) -> blob_store::StoreResult<blob_store::Reference> {
-        todo!()
+        storer: &mut impl BackingStoreStore,
+    ) -> Result<blob_store::Reference, WriteError> {
+        // todo
+        storer.store_raw(&[])
     }
 
     /// Migrate the PLT block state from one blob store to another.
     pub fn migrate(
         &mut self,
-        _loader: &impl blob_store::BackingStoreLoad,
-        _storer: &mut impl blob_store::BackingStoreStore,
-    ) -> blob_store::LoadStoreResult<Self> {
+        _loader: &mut impl BackingStoreLoad,
+        _storer: &mut impl BackingStoreStore,
+    ) -> Result<Self, LoadWriteError> {
         todo!()
     }
 
     /// Cache the block state in memory.
-    pub fn cache(&mut self, _loader: &impl blob_store::BackingStoreLoad) {
+    pub fn cache(&mut self, _loader: &mut impl BackingStoreLoad) {
         todo!()
     }
 
@@ -78,10 +79,10 @@ impl BlockStateSavepoint {
 }
 
 impl blob_store::Loadable for BlockStateSavepoint {
-    fn load<S: std::io::Read, F: blob_store::BackingStoreLoad>(
-        _loader: &mut F,
-        _source: &mut S,
-    ) -> blob_store::LoadResult<Self> {
+    fn load(
+        _loader: &mut impl BackingStoreLoad,
+        _source: &mut impl std::io::Read,
+    ) -> Result<Self, LoadError> {
         todo!()
     }
 }
