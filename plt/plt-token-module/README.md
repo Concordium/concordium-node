@@ -5,3 +5,4 @@
 
 This project implements the token module implementing protocol-level tokens (PLT).
 
+Documentation may be found in [`docs`](../docs).

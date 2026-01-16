@@ -3,14 +3,11 @@
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.0-4baaaa.svg)](https://github.com/Concordium/.github/blob/main/.github/CODE_OF_CONDUCT.md)
 ![Build and test](https://github.com/Concordium/concordium-node/actions/workflows/plt-scheduler-build-test.yaml/badge.svg)
 
-This crate provides a scheduler (transaction execution) implementation for concordium-node, and currently only supports transactions related to protocol-level tokens.
+This crate provides a scheduler (transaction execution) implementation for concordium-node, and currently only supports 
+transactions related to protocol-level tokens.
 It also implemented queries related to protocol-level tokens and manages the block state of protocol level tokens.
 
-It is compiled as a native library and is used within the Haskell implemented scheduler found as part of [`concordium-consensus`](../../concordium-consensus/README.md).
+It is compiled as a native library and is used within the Haskell implemented scheduler found as 
+part of [`concordium-consensus`](../../concordium-consensus/README.md).
 
-
-
-
-
-
-
+Documentation may be found in [`docs`](../docs).
