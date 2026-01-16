@@ -54,7 +54,9 @@ pub type StoreResult<A> = Result<A, WriteError>;
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
     #[error("{0}")]
-    IOError(#[from] std::io::Error),
+    IO(#[from] std::io::Error),
+    #[error("Error decoding: {0}")]
+    Decode(String),
     // #[error("Incorrect tag")]
     // IncorrectTag {
     //     // The tag that was provided.

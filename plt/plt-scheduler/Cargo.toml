@@ -14,8 +14,10 @@ plt-scheduler-interface.workspace = true
 plt-token-module.workspace = true
 
 concordium_base.workspace = true
-thiserror.workspace = true
 libc = { workspace = true, optional = true }
+sha2.workspace = true
+thiserror.workspace = true
+
 
 [dev-dependencies]
 assert_matches.workspace = true
