@@ -2,6 +2,10 @@
 
 ## Unreleased changes
 
+# 10.0.3
+
+- Fix another bug in protocol update state migration that incorrectly migrated PLT state.
+
 # 10.0.2
 
 - Fix a bug where a protocol update can be executed twice, resulting in a corrupted database.

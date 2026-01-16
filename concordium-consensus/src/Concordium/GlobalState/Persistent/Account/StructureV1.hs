@@ -2429,12 +2429,15 @@ migrateV5ToV5 ::
     t m (PersistentAccount 'AccountV5)
 migrateV5ToV5 acc = do
     accountEnduringData <- migrateEagerBufferedRef migrateEnduringDataV5toV5 (accountEnduringData acc)
+    accountTokenStateTable <-
+        mapM
+            (mapM (migrateEagerlyHashedBufferedRefKeepHash migrateTokenAccountStateTable))
+            (accountTokenStateTable acc)
     return $!
         PersistentAccount
             { accountNonce = accountNonce acc,
               accountAmount = accountAmount acc,
               accountStakedAmount = accountStakedAmount acc,
-              accountTokenStateTable = accountTokenStateTable acc,
               ..
             }
 
