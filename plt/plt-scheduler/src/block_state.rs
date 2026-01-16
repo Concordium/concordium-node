@@ -1,9 +1,7 @@
 //! This module contains the [`BlockState`] which provides an implementation of [`BlockStateOperations`].
 //!
 
-use crate::block_state::blob_store::{
-    BackingStoreLoad, BackingStoreStore, LoadError, LoadWriteError, WriteError,
-};
+use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
@@ -47,10 +45,7 @@ impl BlockStateSavepoint {
     }
 
     /// Store a PLT block state in a blob store.
-    pub fn store_update(
-        &mut self,
-        storer: &mut impl BackingStoreStore,
-    ) -> Result<blob_store::Reference, WriteError> {
+    pub fn store_update(&mut self, storer: &mut impl BackingStoreStore) -> blob_store::Reference {
         // todo
         storer.store_raw(&[])
     }
@@ -60,7 +55,7 @@ impl BlockStateSavepoint {
         &mut self,
         _loader: &mut impl BackingStoreLoad,
         _storer: &mut impl BackingStoreStore,
-    ) -> Result<Self, LoadWriteError> {
+    ) -> Self {
         todo!()
     }
 
@@ -82,7 +77,7 @@ impl blob_store::Loadable for BlockStateSavepoint {
     fn load(
         _loader: &mut impl BackingStoreLoad,
         _source: &mut impl std::io::Read,
-    ) -> Result<Self, LoadError> {
+    ) -> Result<Self, DecodeError> {
         todo!()
     }
 }

@@ -8,7 +8,7 @@ pub struct Reference(pub u64);
 pub trait BackingStoreStore {
     /// Store the provided value and return a reference that can be used
     /// to load it.
-    fn store_raw(&mut self, data: &[u8]) -> Result<Reference, WriteError>;
+    fn store_raw(&mut self, data: &[u8]) -> Reference;
 }
 
 /// Trait implemented by types that can load data from given locations.
@@ -16,7 +16,7 @@ pub trait BackingStoreStore {
 pub trait BackingStoreLoad {
     /// Load the provided value from the given location. The implementation of
     /// this should match [BackingStoreStore::store_raw].
-    fn load_raw(&mut self, location: Reference) -> Result<Vec<u8>, LoadError>;
+    fn load_raw(&mut self, location: Reference) -> Vec<u8>;
 }
 
 /// A trait implemented by types that can be loaded from a [BackingStoreLoad]
@@ -25,37 +25,19 @@ pub trait Loadable: Sized {
     fn load(
         loader: &mut impl BackingStoreLoad,
         source: &mut impl std::io::Read,
-    ) -> Result<Self, LoadError>;
+    ) -> Result<Self, DecodeError>;
 
     fn load_from_location(
         loader: &mut impl BackingStoreLoad,
         location: Reference,
-    ) -> Result<Self, LoadError> {
-        let mut source = std::io::Cursor::new(loader.load_raw(location)?);
+    ) -> Result<Self, DecodeError> {
+        let mut source = std::io::Cursor::new(loader.load_raw(location));
         Self::load(loader, &mut source)
     }
 }
 
-/// An error that may occur when writing data to persistent storage.
-#[derive(Debug, thiserror::Error)]
-pub enum WriteError {
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
-}
-
 /// An error that may occur when loading data from persistent storage.
 #[derive(Debug, thiserror::Error)]
-pub enum LoadError {
-    #[error("{0}")]
-    IOError(#[from] std::io::Error),
-}
-
-/// An error that may occur when storing or loadi ng data from persistent
-/// storage.
-#[derive(Debug, thiserror::Error)]
-pub enum LoadWriteError {
-    #[error("Write error: {0}")]
-    Write(#[from] WriteError),
-    #[error("Load error: {0}")]
-    Load(#[from] LoadError),
+pub enum DecodeError {
+    // add parsing errors here
 }

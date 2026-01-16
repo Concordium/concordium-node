@@ -2,7 +2,7 @@
 //!
 //! It is only available if the `ffi` feature is enabled.
 
-use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, LoadError, WriteError};
+use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore};
 use crate::block_state::{
     BlockStateSavepoint, ExecutionTimeBlockState, ReadTokenAccountBalanceFromBlockState,
     TokenIndex, UpdateTokenAccountBalanceInBlockState, blob_store,
@@ -174,12 +174,7 @@ extern "C" fn ffi_store_plt_block_state(
 ) -> blob_store::Reference {
     assert!(!block_state.is_null(), "Block state is a null pointer.");
     let block_state = unsafe { &mut *block_state };
-    match block_state.store_update(&mut store_callback) {
-        Ok(r) => r,
-        Err(_) => unreachable!(
-            "Storing the block state can only fail if the writer fails. This is assumed not to happen."
-        ),
-    }
+    block_state.store_update(&mut store_callback)
 }
 
 /// Migrate the PLT block state from one blob store to another.
@@ -202,10 +197,8 @@ extern "C" fn ffi_migrate_plt_block_state(
 ) -> *mut BlockStateSavepoint {
     assert!(!block_state.is_null(), "Block state is a null pointer.");
     let block_state = unsafe { &mut *block_state };
-    match block_state.migrate(&mut load_callback, &mut store_callback) {
-        Ok(new_block_state) => Box::into_raw(Box::new(new_block_state)),
-        Err(_) => std::ptr::null_mut(),
-    }
+    let new_block_state = block_state.migrate(&mut load_callback, &mut store_callback);
+    Box::into_raw(Box::new(new_block_state))
 }
 
 /// Cache the PLT block state into memory.
@@ -239,14 +232,14 @@ type LoadCallback = extern "C" fn(blob_store::Reference) -> *mut Vec<u8>;
 type StoreCallback = extern "C" fn(data: *const u8, len: size_t) -> blob_store::Reference;
 
 impl BackingStoreStore for StoreCallback {
-    fn store_raw(&mut self, data: &[u8]) -> Result<blob_store::Reference, WriteError> {
-        Ok(self(data.as_ptr(), data.len()))
+    fn store_raw(&mut self, data: &[u8]) -> blob_store::Reference {
+        self(data.as_ptr(), data.len())
     }
 }
 
 impl BackingStoreLoad for LoadCallback {
-    fn load_raw(&mut self, location: blob_store::Reference) -> Result<Vec<u8>, LoadError> {
-        Ok(*unsafe { Box::from_raw(self(location)) })
+    fn load_raw(&mut self, location: blob_store::Reference) -> Vec<u8> {
+        *unsafe { Box::from_raw(self(location)) }
     }
 }
 
