@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+- advisory update: tokio 1.41.1 - RUSTSEC-2025-0023
+
 # 10.0.2
 
 - Fix a bug where a protocol update can be executed twice, resulting in a corrupted database.
