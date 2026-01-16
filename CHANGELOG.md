@@ -7,12 +7,12 @@
 - Fix a bug where a protocol update can be executed twice, resulting in a corrupted database.
 - Fix a bug in protocol update state migration that incorrectly migrated PLT state.
 - Fix a bug where transactions are not reported as committed when they appear in live blocks.
-- advisory update: concordium-node, crossbeam-channel 0.5.13 - ID: RUSTSEC-2025-0024
-- advisory update: concordium-node, openssl 0.10.68 - ID: RUSTSEC-2025-0004
-- advisory update: concordium-node, openssl 0.10.68 - ID: RUSTSEC-2025-0022
-- advisory update: concordium-node, protobuf 2.28.0 - ID: RUSTSEC-2024-0437
-- advisory update: concordium-node, ring 0.17.8 - ID: RUSTSEC-2025-0009
-- advisory update: concordium-node, tokio 1.41.1. - ID: RUSTSEC-2025-0023
+- Advisory update: concordium-node, crossbeam-channel 0.5.13 - ID: RUSTSEC-2025-0024
+- Advisory update: concordium-node, openssl 0.10.68 - ID: RUSTSEC-2025-0004
+- Advisory update: concordium-node, openssl 0.10.68 - ID: RUSTSEC-2025-0022
+- Advisory update: concordium-node, protobuf 2.28.0 - ID: RUSTSEC-2024-0437
+- Advisory update: concordium-node, ring 0.17.8 - ID: RUSTSEC-2025-0009
+- Advisory update: concordium-node, tokio 1.41.1. - ID: RUSTSEC-2025-0023
 
 ## 10.0.1
 
