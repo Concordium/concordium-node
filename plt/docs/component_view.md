@@ -17,11 +17,16 @@ C4Container
         Component(consensus, "Consensus",, "Achieves consensus on blocks in the Concordium chain.")
         Component(scheduler, "Scheduler",, "Executes block items. Checks block items headers (signature, fee charge) <br> and executes the block item payload. Is responsible for producing events, <br> reject reasons and updating block state.")
         Component(queries, "Queries",, "Queries on block state.")
+        Component(block_state_comp, "BlockStateQuery/Operations (Haskell)",, "Queries on block state.")
 
+        ComponentDb(tree_state, "Tree state (LMDB)",, "Block indexes.")
+        
         Boundary(plt_scheduler_boundary, "PLT scheduler (Rust) (FFI)", "boundary") {
           Component(plt_scheduler, "PLT Scheduler",, "Executes PLT block item bodies.<br> Maintains circulating supply and balances state.")
-          Component(plt_kernel, "PLT Kernel",, "Executes PLT block item bodies.<br> Maintains circulating supply and balances state.")
           Component(plt_queries, "PLT Queries",, "Implements PLT queries on block state.")   
+          Component(plt_block_state_comp, "BlockStateQuery/Operations (Rust)",, "Queries on block state.")
+
+          Component(plt_kernel, "PLT Kernel",, "Executes PLT block item bodies.<br> Maintains circulating supply and balances state.")
 
           Boundary(token_module_boundary, "Token Module", "boundary") {
             Component(token_module, "Token Module",, "Executes create PLT instruction and PLT operations <br >and maintains module state.")
@@ -33,21 +38,23 @@ C4Container
           ComponentDb(block_state, "Block state",, "State for each block.")
           ComponentDb(plt_block_state, "PLT state",, "PLT state for each block.")  
         }
-        ComponentDb(tree_state, "Tree state (LMDB)",, "Block indexes.")
       }
 
 Rel(consensus, tree_state, "Maintains tree state")
-Rel(scheduler, block_state, "Updates and queries block state")
-Rel(queries, block_state, "Queries block state")
+Rel(scheduler, block_state_comp, "Updates and queries block state")
+Rel(block_state_comp, block_state, "Read/Write")
+Rel(queries, block_state_comp, "Queries block state")
 Rel(consensus, scheduler, "Execute block items")
 Rel(queries, plt_queries, "Queries PLT state")
 Rel(scheduler, plt_scheduler, "Executes PLT block item payloads")
 
-Rel(plt_scheduler, plt_block_state, "Updates and queries block state")
-Rel(plt_kernel, plt_block_state, "Updates and queries block state")
-Rel(plt_queries, plt_block_state, "Queries block state")
+Rel(plt_block_state_comp, plt_block_state, "Read/Write")
+Rel(plt_scheduler, plt_block_state_comp, "Updates and queries block state")
+Rel(plt_kernel, plt_block_state_comp, "Updates and queries block state")
+Rel(plt_queries, plt_block_state_comp, "Queries block state")
 Rel(plt_scheduler, token_module, "Executes PLT operations <br> and module token initialization")
 Rel(plt_queries, token_module_queries, "Queries module state")
+Rel(plt_block_state_comp, block_state_comp, "Query accounts by address/index<br>Query and update account token balance")
 
 Rel(block_state, plt_block_state, "Opaque pointer")
 
@@ -70,16 +77,18 @@ UpdateElementStyle(token_module, $borderColor="black")
 UpdateElementStyle(token_module_queries, $borderColor="black")
 
 UpdateRelStyle(scheduler, block_state, $offsetX="-100")
+UpdateRelStyle(scheduler, plt_scheduler, $lineColor="green", $textColor="green")
 UpdateRelStyle(consensus, scheduler, $offsetX="-50")
-UpdateRelStyle(queries, plt_queries, $offsetY="-50", $offsetX="50")
+UpdateRelStyle(queries, plt_queries, $lineColor="green", $textColor="green", $offsetY="-50", $offsetX="50")
 UpdateRelStyle(scheduler, block_state, $offsetY="-50", $offsetX="-200")
 
-UpdateRelStyle(plt_scheduler, token_module, $offsetY="-40", $offsetX="-180")
-UpdateRelStyle(plt_scheduler, plt_block_state, $offsetY="-30", $offsetX="-470")
-UpdateRelStyle(plt_kernel, plt_block_state, $offsetY="-20", $offsetX="-250")
+UpdateRelStyle(plt_scheduler, token_module, $offsetY="-150", $offsetX="-180")
+UpdateRelStyle(plt_scheduler, plt_block_state_comp, $offsetY="-10", $offsetX="-250")
+UpdateRelStyle(plt_kernel, plt_block_state_comp, $offsetY="0", $offsetX="-220")
+UpdateRelStyle(plt_block_state_comp, block_state_comp, $lineColor="red", $textColor="red", $offsetY="-10", $offsetX="-200")
 
-UpdateRelStyle(token_module, plt_kernel, $offsetY="-30", $offsetX="-100")
-UpdateRelStyle(token_module_queries, plt_kernel, $offsetY="30", $offsetX="-34")
+UpdateRelStyle(token_module, plt_kernel, $offsetY="-30", $offsetX="0")
+UpdateRelStyle(token_module_queries, plt_kernel, $offsetY="-30", $offsetX="-34")
 
-UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="2")
+UpdateLayoutConfig($c4ShapeInRow="4", $c4BoundaryInRow="2")
 ```
