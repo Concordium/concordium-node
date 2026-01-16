@@ -828,7 +828,7 @@ migrateUpdates migration Updates{..} = do
             StateMigrationParametersP6ToP7 -> CFalse
             StateMigrationParametersP7ToP8 _ -> CFalse
             StateMigrationParametersP8ToP9 _ -> CTrue minUpdateSequenceNumber
-            StateMigrationParametersP9ToP10 _ -> CTrue minUpdateSequenceNumber
+            StateMigrationParametersP9ToP10 _ -> pltUpdateSequenceNumber
     return
         Updates
             { currentKeyCollection = newKeyCollection,
