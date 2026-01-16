@@ -4,7 +4,8 @@ The diagram below depicts how the Rust PLT scheduler and the token module is emb
 
 The Rust PLT scheduler is responsible for executing create PLT update instructions and PLT operations (transfer, mint/burn, pause/unpause, allow/deny lists). 
 The block item header (signatures, energy limit, etc.) is handled in the Haskell scheduler, only the block item payload is dispatched to the Rust PLT scheduler.
-The PLT scheduler maintains circulating supply and balances. The token module maintains state related to allow/deny lists and pausing.
+The PLT scheduler maintains circulating supply and balances. The token module maintains state related to allow/deny lists and pausing. The token module
+only has access to state through the PLT kernel.
 
 Notice that in the current implementation, the Haskell scheduler maintains the token account state (balance) by request from the Rust PLT scheduler. For simplicity, this is
 not depicted in the diagram. It may change in the future, such that the Rust PLT scheduler directly maintains this account level token state.
