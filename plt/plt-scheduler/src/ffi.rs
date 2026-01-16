@@ -8,7 +8,7 @@ use crate::block_state::{
     TokenIndex, UpdateTokenAccountBalanceInBlockState, blob_store,
 };
 use crate::block_state_interface::{RawTokenAmountDelta, UnderOrOverflowError};
-use crate::{block_state, scheduler};
+use crate::scheduler;
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::transactions::Payload;
@@ -230,13 +230,13 @@ extern "C" fn ffi_cache_plt_block_state(
 
 /// A [loader](BackingStoreLoad) implemented by an external function.
 /// This is the dual to [`StoreCallback`]
-pub type LoadCallback = extern "C" fn(blob_store::Reference) -> *mut Vec<u8>;
+type LoadCallback = extern "C" fn(blob_store::Reference) -> *mut Vec<u8>;
 
 /// A [storer](BackingStoreStore) implemented by an external function.
 /// The function is passed a pointer to data to store, and the size of data. It
 /// should return the location where the data can be loaded via a
 /// [`LoadCallback`].
-pub type StoreCallback = extern "C" fn(data: *const u8, len: size_t) -> blob_store::Reference;
+type StoreCallback = extern "C" fn(data: *const u8, len: size_t) -> blob_store::Reference;
 
 impl BackingStoreStore for StoreCallback {
     fn store_raw(&mut self, data: &[u8]) -> Result<blob_store::Reference, WriteError> {
@@ -265,7 +265,7 @@ impl BackingStoreLoad for LoadCallback {
 ///
 /// Argument `account_index` must be a valid account index of an existing account.
 /// Argument `token_index` must be a valid token index of an existing token.
-pub type UpdateTokenAccountBalanceCallback =
+type UpdateTokenAccountBalanceCallback =
     extern "C" fn(account_index: u64, token_index: u64, amount: u64, add_amount: u8) -> u8;
 
 impl UpdateTokenAccountBalanceInBlockState for UpdateTokenAccountBalanceCallback {
@@ -307,8 +307,7 @@ impl UpdateTokenAccountBalanceInBlockState for UpdateTokenAccountBalanceCallback
 ///
 /// Argument `account_index` must be a valid account index of an existing account.
 /// Argument `token_index` must be a valid token index of an existing token.
-pub type ReadTokenAccountBalanceCallback =
-    extern "C" fn(account_index: u64, token_index: u64) -> u64;
+type ReadTokenAccountBalanceCallback = extern "C" fn(account_index: u64, token_index: u64) -> u64;
 
 impl ReadTokenAccountBalanceFromBlockState for ReadTokenAccountBalanceCallback {
     fn read_token_account_balance(
