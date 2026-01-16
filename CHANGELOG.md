@@ -2,6 +2,8 @@
 
 ## Unreleased changes
 
+# 10.0.3
+
 - Fix another bug in protocol update state migration that incorrectly migrated PLT state.
 
 # 10.0.2
