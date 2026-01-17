@@ -121,7 +121,7 @@ pub trait UpdateTokenAccountBalanceInBlockState {
         account: AccountIndex,
         token: TokenIndex,
         amount_delta: RawTokenAmountDelta,
-    ) -> Result<(), UnderOrOverflowError>;
+    ) -> Result<(), OverflowError>;
 }
 
 /// Runtime/execution state relevant for providing an implementation of
@@ -149,7 +149,7 @@ impl<
 > BlockStateQuery for ExecutionTimeBlockState<L, R, U>
 {
     type MutableTokenModuleState = ();
-    type Account = AccountIndex;
+    type Account = (AccountIndex, AccountAddress);
     type Token = TokenIndex;
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
@@ -205,12 +205,12 @@ impl<
         todo!()
     }
 
-    fn account_index(&self, _account: &Self::Account) -> AccountIndex {
-        todo!()
+    fn account_index(&self, account: &Self::Account) -> AccountIndex {
+        account.0
     }
 
-    fn account_canonical_address(&self, _account: &Self::Account) -> AccountAddress {
-        todo!()
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
+        account.1
     }
 
     fn account_token_balance(
@@ -219,7 +219,7 @@ impl<
         token: &Self::Token,
     ) -> RawTokenAmount {
         self.read_token_account_balance_callback
-            .read_token_account_balance(*account, *token)
+            .read_token_account_balance(account.0, *token)
     }
 }
 
@@ -248,7 +248,7 @@ impl<
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
         self.update_token_account_balance_callback
-            .update_token_account_balance(*account, *token, amount_delta)
+            .update_token_account_balance(account.0, *token, amount_delta)
     }
 
     fn touch_token_account(&mut self, _token: &Self::Token, _account: &Self::Account) {

@@ -7,13 +7,15 @@ use crate::block_state::{
     BlockStateSavepoint, ExecutionTimeBlockState, ReadTokenAccountBalanceFromBlockState,
     TokenIndex, UpdateTokenAccountBalanceInBlockState, blob_store,
 };
-use crate::block_state_interface::{RawTokenAmountDelta, UnderOrOverflowError};
+use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use crate::scheduler;
-use concordium_base::base::AccountIndex;
+use crate::scheduler::TransactionOutcome;
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common;
 use concordium_base::transactions::Payload;
 use libc::size_t;
 use plt_token_module::token_kernel_interface::RawTokenAmount;
+use std::mem;
 
 /// C-binding for calling [`crate::execute_transaction`].
 ///
@@ -47,9 +49,9 @@ extern "C" fn ffi_execute_transaction(
     payload: *const u8,
     payload_len: size_t,
     sender_account_index: u64,
-    _remaining_energy: u64,
+    remaining_energy: u64,
     block_state_out: *mut *const BlockStateSavepoint,
-    _used_energy_out: *mut u64,
+    used_energy_out: *mut u64,
 ) -> u8 {
     assert!(!block_state.is_null(), "Block state is a null pointer.");
     assert!(!payload.is_null(), "Payload is a null pointer.");
@@ -61,24 +63,41 @@ extern "C" fn ffi_execute_transaction(
         update_token_account_balance_callback,
     };
 
-    let sender = AccountIndex::from(sender_account_index);
+    let sender_account_index = AccountIndex::from(sender_account_index);
+
     let mut payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
-    // todo finish error handling as part of https://linear.app/concordium/issue/PSR-21/use-the-rust-scheduler-in-the-haskell-scheduler
+    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     let payload: Payload = common::from_bytes(&mut payload_bytes).unwrap();
-    let result = scheduler::execute_transaction(sender, &mut block_state, payload).unwrap();
 
-    let block_state = block_state.inner_block_state;
+    let remaining_energy = Energy::from(remaining_energy);
 
-    // todo set remaining energy as part of https://linear.app/concordium/issue/PSR-21/use-the-rust-scheduler-in-the-haskell-scheduler
+    let result = scheduler::execute_transaction(
+        sender_account_index,
+        &mut block_state,
+        payload,
+        remaining_energy,
+    );
 
-    match result {
-        // todo map reject reasons and events as part of https://linear.app/concordium/issue/PSR-21/use-the-rust-scheduler-in-the-haskell-scheduler
-        Ok(_) => {
-            unsafe { *block_state_out = Box::into_raw(Box::new(block_state.savepoint())) };
+    // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
+    let summary = result.unwrap();
+
+    unsafe {
+        *used_energy_out = summary.energy_used.energy;
+    }
+
+    match summary.outcome {
+        // todo marshal reject reasons and events as part of https://linear.app/concordium/issue/PSR-44/implement-serialization-and-returning-events-and-reject-reasons
+        TransactionOutcome::Success(_events) => {
+            unsafe {
+                *block_state_out =
+                    Box::into_raw(Box::new(block_state.inner_block_state.savepoint()));
+            }
             0
         }
-        Err(_) => {
-            unsafe { *block_state_out = std::ptr::null() };
+        TransactionOutcome::Rejected(_reject_reason) => {
+            unsafe {
+                *block_state_out = std::ptr::null();
+            };
             1
         }
     }
@@ -239,7 +258,14 @@ impl BackingStoreStore for StoreCallback {
 
 impl BackingStoreLoad for LoadCallback {
     fn load_raw(&mut self, location: blob_store::Reference) -> Vec<u8> {
-        *unsafe { Box::from_raw(self(location)) }
+        let vec_from_different_allocator = unsafe { Box::from_raw(self(location)) };
+
+        let vec = vec_from_different_allocator.as_ref().clone();
+
+        // todo free memory as part of https://linear.app/concordium/issue/COR-2113/fix-rust-allocator-issue-related-to-multiple-rust-cdylibs
+        mem::forget(vec_from_different_allocator);
+
+        vec
     }
 }
 
@@ -267,7 +293,7 @@ impl UpdateTokenAccountBalanceInBlockState for UpdateTokenAccountBalanceCallback
         account: AccountIndex,
         token: TokenIndex,
         amount_delta: RawTokenAmountDelta,
-    ) -> Result<(), UnderOrOverflowError> {
+    ) -> Result<(), OverflowError> {
         let result = self(
             account.index,
             token.0,
@@ -284,7 +310,7 @@ impl UpdateTokenAccountBalanceInBlockState for UpdateTokenAccountBalanceCallback
         if result == 0 {
             Ok(())
         } else {
-            Err(UnderOrOverflowError)
+            Err(OverflowError)
         }
     }
 }
