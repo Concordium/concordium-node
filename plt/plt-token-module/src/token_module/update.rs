@@ -4,11 +4,13 @@ use crate::token_kernel_interface::{
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
+use concordium_base::base::Energy;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason, RawCbor,
     TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator,
     TokenModuleRejectReasonEnum, TokenOperation, TokenTransfer,
 };
+use concordium_base::transactions;
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 
@@ -33,51 +35,56 @@ pub enum TokenUpdateError {
     StateInvariantViolation(#[from] TokenStateInvariantError),
 }
 
-/// Execute a token update transaction using the [`TokenKernelOperations`] implementation on `host` to
+/// Execute a token update transaction using the [`TokenKernelOperations`] to
 /// update state and produce events.
 ///
-/// When resulting in an `Err` signals a rejected operation and all of the calls to
-/// [`TokenKernelOperations`] must be rolled back y the caller.
+/// The caller must ensure to rollback state changes in case of
+/// an error is returned.
 ///
-/// The process is as follows:
+/// The following checks and operations are performed:
 ///
-/// - Decode the transaction CBOR parameter.
-/// - Check that amounts are within the representable range.
 /// - For each transfer operation:
 ///
 ///    - Check that the module is not paused.
 ///    - Check that the recipient is valid.
-///    - Check allowList/denyList restrictions.
+///    - Check allow and deny list restrictions.
+///    - Check that the transfer amount is specified with the correct number of decimals.
 ///    - Transfer the amount from the sender to the recipient, if the sender's balance is
-///      sufficient.
+///      sufficient (checked by the kernel).
 ///
 /// - For each list update operation:
 ///
 ///    - Check that the governance account is the sender.
 ///    - Check that the module configuration allows the list operation.
 ///    - Check that the account to add/remove exists on-chain.
+///    - Add or remove the account to/from the list.
 ///
 /// - For each mint operation:
 ///
 ///    - Check that the governance account is the sender.
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows minting.
-///    - Check that the minting process was successful.
+///    - Check that the mint amount is specified with the correct number of decimals.
+///    - Mint the amount to the sender, if the resulting circulating supply is
+///      within representable range (checked by the kernel).
 ///
 /// - For each burn operation:
 ///
 ///    - Check that the governance account is the sender.
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows burning.
-///    - Check that the burning process was successful.
+///    - Check that the burn amount is specified with the correct number of decimals.
+///    - Burn the amount from the sender, if the sender's balance is
+///      sufficient (checked by the kernel).
 ///
 /// - For each pause/unpause operation:
 ///
 ///     - Check that the governance account is the sender.
+///     - Pause/unpause the token.
 ///
-/// # INVARIANTS:
-///
-///   - Token module state contains a correctly encoded governance account address.
+/// If the state stored in the token module contains data that breaks the invariants
+/// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
+/// is returned. This is an unrecoverable error that will terminate the scheduler and should never happen.
 pub fn execute_token_update_transaction<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::Account>,
@@ -184,11 +191,31 @@ fn execute_token_update_operation<
     kernel: &mut TK,
     token_operation: TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // Charge energy
+    let energy_cost = energy_cost(&token_operation);
+    transaction_execution.tick_energy(energy_cost)?;
+
+    // Execute operation
     match token_operation {
         TokenOperation::Transfer(transfer) => {
             execute_token_transfer(transaction_execution, kernel, transfer)
         }
         _ => todo!(),
+    }
+}
+
+fn energy_cost(operation: &TokenOperation) -> Energy {
+    use transactions::cost::*;
+
+    match operation {
+        TokenOperation::Transfer(_) => PLT_TRANSFER,
+        TokenOperation::Mint(_) => PLT_MINT,
+        TokenOperation::Burn(_) => PLT_BURN,
+        TokenOperation::AddAllowList(_)
+        | TokenOperation::RemoveAllowList(_)
+        | TokenOperation::AddDenyList(_)
+        | TokenOperation::RemoveDenyList(_) => PLT_LIST_UPDATE,
+        TokenOperation::Pause(_) | TokenOperation::Unpause(_) => PLT_PAUSE,
     }
 }
 

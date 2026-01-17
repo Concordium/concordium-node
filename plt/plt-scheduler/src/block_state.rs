@@ -4,8 +4,8 @@
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
-    UnderOrOverflowError,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
+    TokenNotFoundByIdError,
 };
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
@@ -246,7 +246,7 @@ impl<
         token: &Self::Token,
         account: &Self::Account,
         amount_delta: RawTokenAmountDelta,
-    ) -> Result<(), UnderOrOverflowError> {
+    ) -> Result<(), OverflowError> {
         self.update_token_account_balance_callback
             .update_token_account_balance(*account, *token, amount_delta)
     }
