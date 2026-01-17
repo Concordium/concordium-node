@@ -12,8 +12,8 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
-    OverflowError,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
+    TokenNotFoundByIdError,
 };
 use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
@@ -351,10 +351,7 @@ impl BlockStateOperations for BlockStateStub {
                 balance.0 = balance.0.checked_add(add.0).ok_or(OverflowError)?;
             }
             RawTokenAmountDelta::Subtract(subtract) => {
-                balance.0 = balance
-                    .0
-                    .checked_sub(subtract.0)
-                    .ok_or(OverflowError)?;
+                balance.0 = balance.0.checked_sub(subtract.0).ok_or(OverflowError)?;
             }
         }
         Ok(())

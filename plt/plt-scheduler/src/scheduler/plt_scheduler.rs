@@ -1,28 +1,20 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
+use crate::TOKEN_MODULE_REF;
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenConfiguration, TokenNotFoundByIdError,
+    BlockStateOperations, TokenConfiguration, TokenNotFoundByIdError,
 };
 use crate::scheduler::{
-    TransactionExecutionError, TransactionRejectReason, UpdateInstructionExecutionError,
+    TransactionExecutionError, TransactionOutcome, TransactionRejectReason,
+    UpdateInstructionExecutionError,
 };
-use crate::types::events::{TokenTransferEvent, TransactionEvent};
+use crate::token_kernel::TokenKernelOperationsImpl;
+use crate::types::events::TransactionEvent;
 use crate::types::reject_reasons::TokenModuleRejectReason;
-use crate::{block_state_interface, TOKEN_MODULE_REF};
-use concordium_base::base::AccountIndex;
-use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
-use concordium_base::transactions::Memo;
+use concordium_base::protocol_level_tokens::TokenOperationsPayload;
 use concordium_base::updates::CreatePlt;
 use plt_scheduler_interface::TransactionExecution;
-use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
-    TokenTransferError,
-};
 use plt_token_module::token_module;
 use plt_token_module::token_module::TokenUpdateError;
 use std::mem;
@@ -38,14 +30,14 @@ pub fn execute_token_update_transaction<
     transaction_execution: &mut TE,
     block_state: &mut BSO,
     payload: TokenOperationsPayload,
-) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError> {
+) -> Result<TransactionOutcome, TransactionExecutionError> {
     // Lookup token
     let token = match block_state.token_by_id(&payload.token_id) {
         Ok(token) => token,
         Err(TokenNotFoundByIdError(_)) => {
-            return Ok(Err(TransactionRejectReason::NonExistentTokenId(
-                payload.token_id,
-            )));
+            return Ok(TransactionOutcome::Rejected(
+                TransactionRejectReason::NonExistentTokenId(payload.token_id),
+            ));
         }
     };
 
@@ -81,17 +73,21 @@ pub fn execute_token_update_transaction<
             }
 
             // Return events
-            Ok(Ok(events))
+            Ok(TransactionOutcome::Success(events))
         }
-        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => Ok(Err(
-            TransactionRejectReason::TokenModule(TokenModuleRejectReason {
-                // Use the canonical token id from the token configuration
-                token_id: token_configuration.token_id.clone(),
-                reason_type: reject_reason.reason_type,
-                details: reject_reason.details,
-            }),
+        Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
+            Ok(TransactionOutcome::Rejected(
+                TransactionRejectReason::TokenModule(TokenModuleRejectReason {
+                    // Use the canonical token id from the token configuration
+                    token_id: token_configuration.token_id.clone(),
+                    reason_type: reject_reason.reason_type,
+                    details: reject_reason.details,
+                }),
+            ))
+        }
+        Err(TokenUpdateError::OutOfEnergy(_)) => Ok(TransactionOutcome::Rejected(
+            TransactionRejectReason::OutOfEnergy,
         )),
-        Err(TokenUpdateError::OutOfEnergy(_)) => Ok(Err(TransactionRejectReason::OutOfEnergy)),
         Err(TokenUpdateError::StateInvariantViolation(err)) => Err(
             TransactionExecutionError::TokenStateInvariantBroken(err.to_string()),
         ),
@@ -163,139 +159,5 @@ pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
         Err(err) => {
             Err(UpdateInstructionExecutionError::ModuleTokenInitializationFailed(err.to_string()))
         }
-    }
-}
-
-struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
-    block_state: &'a mut BSQ,
-    token: &'a BSQ::Token,
-    token_configuration: &'a TokenConfiguration,
-    token_module_state: &'a mut BSQ::MutableTokenModuleState,
-    events: Vec<TransactionEvent>,
-    token_module_state_dirty: bool,
-}
-
-impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelOperationsImpl<'_, BSQ> {
-    type Account = BSQ::Account;
-
-    fn account_by_address(
-        &self,
-        address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address).map_err(
-            |block_state_interface::AccountNotFoundByAddressError(account_address)| {
-                AccountNotFoundByAddressError(account_address)
-            },
-        )
-    }
-
-    fn account_by_index(
-        &self,
-        index: AccountIndex,
-    ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index).map_err(
-            |block_state_interface::AccountNotFoundByIndexError(index)| {
-                AccountNotFoundByIndexError(index)
-            },
-        )
-    }
-
-    fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        self.block_state.account_index(account)
-    }
-
-    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
-        self.block_state.account_canonical_address(account)
-    }
-
-    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
-        self.block_state.account_token_balance(account, self.token)
-    }
-
-    fn decimals(&self) -> u8 {
-        self.block_state.token_configuration(self.token).decimals
-    }
-
-    fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
-        self.block_state
-            .lookup_token_module_state_value(self.token_module_state, &key)
-    }
-}
-
-impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
-    fn touch_account(&mut self, account: &Self::Account) {
-        self.block_state.touch_token_account(self.token, account);
-    }
-
-    fn mint(
-        &mut self,
-        _account: &Self::Account,
-        _amount: RawTokenAmount,
-    ) -> Result<(), AmountNotRepresentableError> {
-        todo!()
-    }
-
-    fn burn(
-        &mut self,
-        _account: &Self::Account,
-        _amount: RawTokenAmount,
-    ) -> Result<(), TokenBurnError> {
-        todo!()
-    }
-
-    fn transfer(
-        &mut self,
-        from: &Self::Account,
-        to: &Self::Account,
-        amount: RawTokenAmount,
-        memo: Option<Memo>,
-    ) -> Result<(), TokenTransferError> {
-        // Update sender balance
-        self.block_state
-            .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
-            .map_err(|_err: OverflowError| InsufficientBalanceError {
-                available: self.account_token_balance(from),
-                required: amount,
-            })?;
-
-        // Update receiver balance
-        self.block_state
-            .update_token_account_balance(self.token, to, RawTokenAmountDelta::Add(amount))
-            .map_err(|_err: OverflowError| {
-                // We should never overflow at transfer, since the total circulating supply of the token
-                // is always less that what is representable as a token amount.
-                TokenStateInvariantError("Transfer destination token amount overflow".to_string())
-            })?;
-
-        // Issue event
-        let event = TransactionEvent::TokenTransfer(TokenTransferEvent {
-            token_id: self.token_configuration.token_id.clone(),
-            from: self.account_canonical_address(from),
-            to: self.account_canonical_address(to),
-            amount: TokenAmount::from_raw(
-                amount.0,
-                self.block_state.token_configuration(self.token).decimals,
-            ),
-            memo,
-        });
-
-        self.events.push(event);
-
-        Ok(())
-    }
-
-    fn set_token_module_state_value(
-        &mut self,
-        key: ModuleStateKey,
-        value: Option<ModuleStateValue>,
-    ) {
-        self.token_module_state_dirty = true;
-        self.block_state
-            .update_token_module_state_value(self.token_module_state, &key, value);
-    }
-
-    fn log_token_event(&mut self, module_event: TokenModuleEvent) {
-        self.events
-            .push(TransactionEvent::TokenModule(module_event))
     }
 }

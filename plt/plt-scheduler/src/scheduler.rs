@@ -45,6 +45,16 @@ pub enum TransactionExecutionError {
     TokenStateInvariantBroken(String),
 }
 
+/// Outcome of executing a transaction that was correctly executed (not resulting in [`TransactionExecutionError`]).
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum TransactionOutcome {
+    /// The transaction was successfully applied.
+    Success(Vec<TransactionEvent>),
+    /// The transaction was rejected, but the transaction
+    /// is included in the block as a rejected transaction.
+    Rejected(TransactionRejectReason),
+}
+
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
 /// Returns the events produced if successful otherwise a reject reason.
 ///
@@ -53,7 +63,7 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
     sender_account: BSO::Account,
     block_state: &mut BSO,
     payload: Payload,
-) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError>
+) -> Result<TransactionOutcome, TransactionExecutionError>
 where
     BSO::Account: Clone,
 {
