@@ -1,5 +1,5 @@
 [package]
-name = "plt-token-module"
+name = "plt-scheduler-interface"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,10 +7,6 @@ edition = "2024"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-plt-scheduler-interface.workspace = true
-
 concordium_base.workspace = true
-thiserror.workspace = true
 
-[dev-dependencies]
-assert_matches.workspace = true
+thiserror.workspace = true
