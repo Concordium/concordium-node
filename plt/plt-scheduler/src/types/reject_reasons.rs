@@ -5,6 +5,7 @@
 //! the charge of energy.
 
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
+use plt_scheduler_interface::OutOfEnergyError;
 
 /// A reason for why a transaction was rejected.
 ///
@@ -19,6 +20,12 @@ pub enum TransactionRejectReason {
     NonExistentTokenId(TokenId),
     /// The token module rejected the transaction.
     TokenModule(TokenModuleRejectReason),
+}
+
+impl From<OutOfEnergyError> for TransactionRejectReason {
+    fn from(_err: OutOfEnergyError) -> Self {
+        Self::OutOfEnergy
+    }
 }
 
 /// Details provided by the token module in the event of rejecting a

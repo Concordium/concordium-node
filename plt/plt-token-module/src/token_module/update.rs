@@ -4,11 +4,13 @@ use crate::token_kernel_interface::{
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
+use concordium_base::base::Energy;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason, RawCbor,
     TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator,
     TokenModuleRejectReasonEnum, TokenOperation, TokenTransfer,
 };
+use concordium_base::transactions;
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 
@@ -82,7 +84,7 @@ pub enum TokenUpdateError {
 ///
 /// If the state stored in the token module contains data that breaks the invariants
 /// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
-/// is returned. This is an unrecoverable error and should never happen.
+/// is returned. This is an unrecoverable error that will terminate the scheduler and should never happen.
 pub fn execute_token_update_transaction<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::Account>,
@@ -189,11 +191,31 @@ fn execute_token_update_operation<
     kernel: &mut TK,
     token_operation: TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // Charge energy
+    let energy_cost = energy_cost(&token_operation);
+    transaction_execution.tick_energy(energy_cost)?;
+
+    // Execute operation
     match token_operation {
         TokenOperation::Transfer(transfer) => {
             execute_token_transfer(transaction_execution, kernel, transfer)
         }
         _ => todo!(),
+    }
+}
+
+fn energy_cost(operation: &TokenOperation) -> Energy {
+    use transactions::cost::*;
+
+    match operation {
+        TokenOperation::Transfer(_) => PLT_TRANSFER,
+        TokenOperation::Mint(_) => PLT_MINT,
+        TokenOperation::Burn(_) => PLT_BURN,
+        TokenOperation::AddAllowList(_)
+        | TokenOperation::RemoveAllowList(_)
+        | TokenOperation::AddDenyList(_)
+        | TokenOperation::RemoveDenyList(_) => PLT_LIST_UPDATE,
+        TokenOperation::Pause(_) | TokenOperation::Unpause(_) => PLT_PAUSE,
     }
 }
 
