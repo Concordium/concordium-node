@@ -12,7 +12,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler::UpdateInstructionExecutionError;
-use plt_scheduler::types::events::TransactionEvent;
+use plt_scheduler::types::events::BlockItemEvent;
 use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_token_module::token_kernel_interface::RawTokenAmount;
 
@@ -70,8 +70,11 @@ fn test_plt_create() {
         RawTokenAmount(0)
     );
 
-    // Assert no events
-    assert_eq!(events.len(), 0);
+    // Assert create token event
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], BlockItemEvent::TokenCreated(create) => {
+        assert_eq!(create.payload.token_id, token_id);
+    });
 }
 
 /// Test create protocol-level token.
@@ -118,9 +121,12 @@ fn test_plt_create_with_minting() {
         RawTokenAmount(5000)
     );
 
-    // Assert mint event
-    assert_eq!(events.len(), 1);
-    assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
+    // Assert create token and mint event
+    assert_eq!(events.len(), 2);
+    assert_matches!(&events[0], BlockItemEvent::TokenCreated(create) => {
+        assert_eq!(create.payload.token_id, token_id);
+    });
+    assert_matches!(&events[1], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount, TokenAmount::from_raw(5000, 4));
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
@@ -175,7 +181,7 @@ fn test_plt_create_duplicate_id() {
 
     assert_matches!(
         res,
-        Err(UpdateInstructionExecutionError::TokenIdAlreadyUsed(token_id)) => {
+        Err(UpdateInstructionExecutionError::DuplicateTokenId(token_id)) => {
             assert_eq!(token_id, token_id1);
         }
     );
@@ -215,7 +221,7 @@ fn test_plt_create_unknown_token_module_reference() {
 
     assert_matches!(
         res,
-        Err(UpdateInstructionExecutionError::UnknownTokenModuleRef(module_ref)) => {
+        Err(UpdateInstructionExecutionError::InvalidTokenModuleRef(module_ref)) => {
             assert_eq!(module_ref, unknown_module_ref);
         }
     );

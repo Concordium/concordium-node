@@ -12,7 +12,8 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler;
-use plt_scheduler::types::events::TransactionEvent;
+use plt_scheduler::scheduler::TransactionOutcome;
+use plt_scheduler::types::events::BlockItemEvent;
 use plt_token_module::token_kernel_interface::RawTokenAmount;
 
 mod block_state_stub;
@@ -43,10 +44,10 @@ fn test_plt_transfer() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
+    let result =
         scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("transfer");
+            .expect("transaction internal error");
+    let events = assert_matches!(result, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -63,7 +64,7 @@ fn test_plt_transfer() {
 
     // Assert transfer event
     assert_eq!(events.len(), 1);
-    assert_matches!(&events[0], TransactionEvent::TokenTransfer(transfer) => {
+    assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount, TokenAmount::from_raw(3000, 4));
         assert_eq!(transfer.from, stub.account_canonical_address(&gov_account));
@@ -84,10 +85,10 @@ fn test_plt_transfer() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
+    let result =
         scheduler::execute_transaction(account2, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("transfer");
+            .expect("transaction internal error");
+    let events = assert_matches!(result, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -104,7 +105,7 @@ fn test_plt_transfer() {
 
     // Assert transfer event
     assert_eq!(events.len(), 1);
-    assert_matches!(&events[0], TransactionEvent::TokenTransfer(transfer) => {
+    assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount, TokenAmount::from_raw(1000, 4));
         assert_eq!(transfer.from, stub.account_canonical_address(&account2));
@@ -134,10 +135,11 @@ fn test_plt_transfer_reject() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let reject_reason =
+    let result =
         scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect_err("transfer reject");
+            .expect("transaction internal error");
+    let reject_reason =
+        assert_matches!(result, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balances unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -173,10 +175,10 @@ fn test_plt_mint() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
+    let result =
         scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("mint");
+            .expect("transaction internal error");
+    let events = assert_matches!(result, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply increased
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(1000));
@@ -189,7 +191,7 @@ fn test_plt_mint() {
 
     // Assert mint event
     assert_eq!(events.len(), 1);
-    assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
+    assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
@@ -216,10 +218,11 @@ fn test_plt_mint_reject() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let reject_reason =
+    let result =
         scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect_err("mint reject");
+            .expect("transaction internal error");
+    let reject_reason =
+        assert_matches!(result, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balance unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -255,10 +258,10 @@ fn test_plt_burn() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
+    let result =
         scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("burn");
+            .expect("transaction internal error");
+    let events = assert_matches!(result, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply decreased
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(4000));
@@ -271,7 +274,7 @@ fn test_plt_burn() {
 
     // Assert burn event
     assert_eq!(events.len(), 1);
-    assert_matches!(&events[0], TransactionEvent::TokenBurn(burn) => {
+    assert_matches!(&events[0], BlockItemEvent::TokenBurn(burn) => {
         assert_eq!(burn.token_id, token_id);
         assert_eq!(burn.amount, TokenAmount::from_raw(1000, 4));
         assert_eq!(burn.target, stub.account_canonical_address(&gov_account));
@@ -298,10 +301,11 @@ fn test_plt_burn_reject() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let reject_reason =
+    let result =
         scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect_err("burn reject");
+            .expect("transaction internal error");
+    let reject_reason =
+        assert_matches!(result, TransactionOutcome::Rejected(reject_reason) => reject_reason);
 
     // Assert circulating supply and account balance unchanged
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
@@ -343,10 +347,10 @@ fn test_plt_multiple_operations() {
         operations: RawCbor::from(cbor::cbor_encode(&operations)),
     };
 
-    let events =
+    let result =
         scheduler::execute_transaction(gov_account, &mut stub, Payload::TokenUpdate { payload })
-            .expect("transaction internal error")
-            .expect("mint and transfer");
+            .expect("transaction internal error");
+    let events = assert_matches!(result, TransactionOutcome::Success(events) => events);
 
     // Assert circulating supply and accout balances
     assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(3000));
@@ -361,12 +365,12 @@ fn test_plt_multiple_operations() {
 
     // Assert two event in right order
     assert_eq!(events.len(), 2);
-    assert_matches!(&events[0], TransactionEvent::TokenMint(mint) => {
+    assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
         assert_eq!(mint.amount, TokenAmount::from_raw(3000, 4));
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
     });
-    assert_matches!(&events[1], TransactionEvent::TokenTransfer(transfer) => {
+    assert_matches!(&events[1], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
         assert_eq!(transfer.amount, TokenAmount::from_raw(1000, 4));
         assert_eq!(transfer.from, stub.account_canonical_address(&gov_account));

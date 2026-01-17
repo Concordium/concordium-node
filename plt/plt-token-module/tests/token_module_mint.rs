@@ -15,7 +15,7 @@ mod utils;
 /// Test successful mints.
 #[test]
 fn test_mint() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // First mint
@@ -56,7 +56,7 @@ fn test_mint() {
 /// Test mint that would overflow circulating supply
 #[test]
 fn test_mint_overflow() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     stub.set_account_balance(gov_account, RawTokenAmount(1000));
 
@@ -87,7 +87,7 @@ fn test_mint_overflow() {
 /// Test mint with initial supply specified with wrong number of decimals
 #[test]
 fn test_mint_decimals_mismatch() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);

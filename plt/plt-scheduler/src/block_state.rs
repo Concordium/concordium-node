@@ -1,7 +1,7 @@
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
-    UnderOrOverflowError,
+    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
+    TokenNotFoundByIdError,
 };
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
@@ -112,7 +112,7 @@ impl BlockStateOperations for BlockState {
         _token_index: &TokenIndex,
         _account_index: &AccountIndex,
         _amount_delta: RawTokenAmountDelta,
-    ) -> Result<(), UnderOrOverflowError> {
+    ) -> Result<(), OverflowError> {
         todo!()
     }
 

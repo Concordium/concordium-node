@@ -15,7 +15,7 @@ mod utils;
 /// Test successful burns.
 #[test]
 fn test_burn() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
 
@@ -57,7 +57,7 @@ fn test_burn() {
 /// Test burn amount that is not available on account.
 #[test]
 fn test_burn_insufficient_balance() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     stub.set_account_balance(gov_account, RawTokenAmount(1000));
 
@@ -86,7 +86,7 @@ fn test_burn_insufficient_balance() {
 /// Test burn with amount specified with wrong number of decimals
 #[test]
 fn test_burn_decimals_mismatch() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);

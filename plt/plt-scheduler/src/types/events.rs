@@ -1,14 +1,15 @@
-//! Events produced by transactions executed by the scheduler.
+//! Events produced by block items executed by the scheduler.
 //! Events generally represents observable changes to the chain state.
 
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use concordium_base::transactions::Memo;
+use concordium_base::updates::CreatePlt;
 use plt_token_module::token_kernel_interface::TokenModuleEvent;
 
-/// Token event. This is an observable effect on the token state.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub enum TransactionEvent {
+/// Block item event. This is an observable effect on the token state.
+#[derive(Debug, Clone)]
+pub enum BlockItemEvent {
     /// An event emitted by the token module.
     TokenModule(TokenModuleEvent),
     /// An event emitted when a transfer of tokens is performed.
@@ -19,6 +20,8 @@ pub enum TransactionEvent {
     /// An event emitted when the token supply is updated by burning tokens from
     /// the balance of a token holder.
     TokenBurn(TokenBurnEvent),
+    /// A new token was created.
+    TokenCreated(TokenCreateEvent),
 }
 
 /// An event emitted when a transfer of tokens from `from` to `to` is performed.
@@ -59,4 +62,11 @@ pub struct TokenBurnEvent {
     pub target: AccountAddress,
     /// The burned amount
     pub amount: TokenAmount,
+}
+
+/// A new token was created.
+#[derive(Debug, Clone)]
+pub struct TokenCreateEvent {
+    /// The update instruction payload for the token creation.
+    pub payload: CreatePlt,
 }

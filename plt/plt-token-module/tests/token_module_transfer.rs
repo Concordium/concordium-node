@@ -20,7 +20,7 @@ const NON_EXISTING_ACCOUNT: AccountAddress = AccountAddress([2u8; 32]);
 /// Test successful transfer.
 #[test]
 fn test_transfer() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -49,7 +49,7 @@ fn test_transfer() {
 /// Test successful transfer with memo.
 #[test]
 fn test_transfer_with_memo() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -78,7 +78,7 @@ fn test_transfer_with_memo() {
 /// Test transfer to sending account
 #[test]
 fn test_transfer_self() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
@@ -102,7 +102,7 @@ fn test_transfer_self() {
 /// Test transfer with unsufficient funds
 #[test]
 fn test_transfer_insufficient_balance() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -135,7 +135,7 @@ fn test_transfer_insufficient_balance() {
 /// Test transfer with amount specified with wrong number of decimals
 #[test]
 fn test_transfer_decimals_mismatch() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     let receiver = stub.create_account();
@@ -165,7 +165,7 @@ fn test_transfer_decimals_mismatch() {
 /// Test transfer where receiving account does not exist
 #[test]
 fn test_transfer_to_non_existing_receiver() {
-    let mut stub = KernelStub::new(2);
+    let mut stub = KernelStub::with_decimals(2);
     stub.init_token(TokenInitTestParams::default());
     let sender = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
