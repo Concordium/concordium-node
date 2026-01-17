@@ -12,6 +12,7 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler::UpdateInstructionExecutionError;
+use plt_scheduler::types::events::BlockItemEvent;
 use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_token_module::token_kernel_interface::RawTokenAmount;
 
@@ -47,7 +48,8 @@ fn test_plt_create() {
         decimals: 4,
         initialization_parameters,
     });
-    scheduler::execute_update_instruction(&mut stub, payload).expect("create and initialize token");
+    let events = scheduler::execute_update_instruction(&mut stub, payload)
+        .expect("create and initialize token");
 
     // Assert update instruction sequence number incremented
     assert_eq!(stub.plt_update_instruction_sequence_number(), 1);
@@ -67,6 +69,12 @@ fn test_plt_create() {
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(0)
     );
+
+    // Assert create token event
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], BlockItemEvent::TokenCreated(create) => {
+        assert_eq!(create.payload.token_id, token_id);
+    });
 }
 
 /// Test create protocol-level token.

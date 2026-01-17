@@ -2,7 +2,7 @@
 //! transaction and update instruction payloads.
 
 use crate::block_state_interface::BlockStateOperations;
-use crate::types::events::TransactionEvent;
+use crate::types::events::BlockItemEvent;
 use crate::types::reject_reasons::TransactionRejectReason;
 use concordium_base::base::Energy;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
@@ -46,10 +46,10 @@ pub enum TransactionExecutionError {
 }
 
 /// Outcome of executing a transaction that was correctly executed (not resulting in [`TransactionExecutionError`]).
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum TransactionOutcome {
     /// The transaction was successfully applied.
-    Success(Vec<TransactionEvent>),
+    Success(Vec<BlockItemEvent>),
     /// The transaction was rejected, but the transaction
     /// is included in the block as a rejected transaction.
     Rejected(TransactionRejectReason),
@@ -97,7 +97,7 @@ pub enum UpdateInstructionExecutionError {
 pub fn execute_update_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: UpdatePayload,
-) -> Result<Vec<TransactionEvent>, UpdateInstructionExecutionError>
+) -> Result<Vec<BlockItemEvent>, UpdateInstructionExecutionError>
 where
     BSO::Account: Clone,
 {

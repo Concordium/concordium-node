@@ -10,7 +10,7 @@ use crate::scheduler::{
     UpdateInstructionExecutionError,
 };
 use crate::token_kernel::TokenKernelOperationsImpl;
-use crate::types::events::TransactionEvent;
+use crate::types::events::{BlockItemEvent, TokenCreateEvent};
 use crate::types::reject_reasons::TokenModuleRejectReason;
 use concordium_base::protocol_level_tokens::TokenOperationsPayload;
 use concordium_base::updates::CreatePlt;
@@ -99,7 +99,7 @@ pub fn execute_token_update_transaction<
 pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: CreatePlt,
-) -> Result<Vec<TransactionEvent>, UpdateInstructionExecutionError> {
+) -> Result<Vec<BlockItemEvent>, UpdateInstructionExecutionError> {
     // Check that token id is not already used (notice that token_by_id lookup is case-insensitive
     // as the check should be)
     if let Ok(existing_token) = block_state.token_by_id(&payload.token_id) {
@@ -116,7 +116,7 @@ pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
     }
 
     let token_configuration = TokenConfiguration {
-        token_id: payload.token_id,
+        token_id: payload.token_id.clone(),
         module_ref: payload.token_module,
         decimals: payload.decimals,
     };
@@ -134,6 +134,12 @@ pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
         token_module_state_dirty: false,
         events: Default::default(),
     };
+
+    kernel
+        .events
+        .push(BlockItemEvent::TokenCreated(TokenCreateEvent {
+            payload: payload.clone(),
+        }));
 
     // Initialize token in token module
     let token_initialize_result =

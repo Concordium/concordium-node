@@ -4,7 +4,7 @@ use crate::block_state_interface;
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
 };
-use crate::types::events::{TokenTransferEvent, TransactionEvent};
+use crate::types::events::{BlockItemEvent, TokenTransferEvent};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenAmount;
@@ -86,7 +86,7 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     /// Whether token module state has been changed so far
     pub token_module_state_dirty: bool,
     /// Events produced so far
-    pub events: Vec<TransactionEvent>,
+    pub events: Vec<BlockItemEvent>,
 }
 
 impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
@@ -135,7 +135,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
             })?;
 
         // Issue event
-        let event = TransactionEvent::TokenTransfer(TokenTransferEvent {
+        let event = BlockItemEvent::TokenTransfer(TokenTransferEvent {
             token_id: self.token_configuration.token_id.clone(),
             from: self.account_canonical_address(from),
             to: self.account_canonical_address(to),
@@ -162,8 +162,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
     }
 
     fn log_token_event(&mut self, module_event: TokenModuleEvent) {
-        self.events
-            .push(TransactionEvent::TokenModule(module_event))
+        self.events.push(BlockItemEvent::TokenModule(module_event))
     }
 }
 
