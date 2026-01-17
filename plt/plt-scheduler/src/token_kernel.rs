@@ -166,16 +166,6 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
     }
 }
 
-impl<BSO: BlockStateOperations> TokenKernelOperationsImpl<'_, BSO> {
-    fn queries(&self) -> TokenKernelQueriesImpl<'_, BSO> {
-        TokenKernelQueriesImpl {
-            block_state: self.block_state,
-            token: self.token,
-            token_module_state: self.token_module_state,
-        }
-    }
-}
-
 impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl<'_, BSO> {
     type Account = BSO::Account;
 
@@ -183,33 +173,42 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.queries().account_by_address(address)
+        self.block_state.account_by_address(address).map_err(
+            |block_state_interface::AccountNotFoundByAddressError(account_address)| {
+                AccountNotFoundByAddressError(account_address)
+            },
+        )
     }
 
     fn account_by_index(
         &self,
         index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.queries().account_by_index(index)
+        self.block_state.account_by_index(index).map_err(
+            |block_state_interface::AccountNotFoundByIndexError(index)| {
+                AccountNotFoundByIndexError(index)
+            },
+        )
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        self.queries().account_index(account)
+        self.block_state.account_index(account)
     }
 
     fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
-        self.queries().account_canonical_address(account)
+        self.block_state.account_canonical_address(account)
     }
 
     fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
-        self.queries().account_token_balance(account)
+        self.block_state.account_token_balance(account, self.token)
     }
 
     fn decimals(&self) -> u8 {
-        self.queries().decimals()
+        self.block_state.token_configuration(self.token).decimals
     }
 
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
-        self.queries().lookup_token_module_state_value(key)
+        self.block_state
+            .lookup_token_module_state_value(self.token_module_state, &key)
     }
 }
