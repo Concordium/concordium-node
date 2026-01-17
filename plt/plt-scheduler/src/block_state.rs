@@ -140,7 +140,7 @@ pub trait UpdateTokenAccountBalance {
 ///
 /// This is needed since callbacks are only available during the execution time.
 #[derive(Debug)]
-pub struct ExecutionTimeBlockState<T: BlockStateCallbacks> {
+pub struct ExecutionTimeBlockState<T: BlockStateExternal> {
     /// The library block state implementation.
     pub inner_block_state: BlockState,
     // Temporary disable warning until we have the implementation below started.
@@ -153,13 +153,13 @@ pub struct ExecutionTimeBlockState<T: BlockStateCallbacks> {
     pub update_token_account_balance_callback: T::UpdateTokenAccountBalance,
 }
 
-trait BlockStateCallbacks {
+pub trait BlockStateExternal {
     type BackingStoreLoad: BackingStoreLoad;
     type ReadTokenAccountBalance: ReadTokenAccountBalance;
     type UpdateTokenAccountBalance: UpdateTokenAccountBalance;
 }
 
-impl<T: BlockStateCallbacks> BlockStateQuery for ExecutionTimeBlockState<T> {
+impl<T: BlockStateExternal> BlockStateQuery for ExecutionTimeBlockState<T> {
     type MutableTokenModuleState = ();
     type Account = (AccountIndex, AccountAddress);
     type Token = TokenIndex;
@@ -235,7 +235,7 @@ impl<T: BlockStateCallbacks> BlockStateQuery for ExecutionTimeBlockState<T> {
     }
 }
 
-impl<T: BlockStateCallbacks> BlockStateOperations for ExecutionTimeBlockState<T> {
+impl<T: BlockStateExternal> BlockStateOperations for ExecutionTimeBlockState<T> {
     fn set_token_circulating_supply(
         &mut self,
         _token: &Self::Token,

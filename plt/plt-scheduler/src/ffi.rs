@@ -4,8 +4,8 @@
 
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore};
 use crate::block_state::{
-    BlockStateSavepoint, ExecutionTimeBlockState, ReadTokenAccountBalance, TokenIndex,
-    UpdateTokenAccountBalance, blob_store,
+    BlockStateExternal, BlockStateSavepoint, ExecutionTimeBlockState, ReadTokenAccountBalance,
+    TokenIndex, UpdateTokenAccountBalance, blob_store,
 };
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use crate::scheduler;
@@ -60,12 +60,10 @@ extern "C" fn ffi_execute_transaction(
     block_state_out: *mut *const BlockStateSavepoint,
     used_energy_out: *mut u64,
 ) -> u8 {
-    let a = 1;
-
     assert!(!block_state.is_null(), "Block state is a null pointer.");
     assert!(!payload.is_null(), "Payload is a null pointer.");
 
-    let mut block_state = ExecutionTimeBlockState {
+    let mut block_state = ExecutionTimeBlockState::<BlockStateCallbacks> {
         inner_block_state: unsafe { (*block_state).new_generation() },
         load_callback,
         read_token_account_balance_callback,
@@ -119,6 +117,14 @@ extern "C" fn ffi_execute_transaction(
             1
         }
     }
+}
+
+struct BlockStateCallbacks;
+
+impl BlockStateExternal for BlockStateCallbacks {
+    type BackingStoreLoad = LoadCallback;
+    type ReadTokenAccountBalance = ReadTokenAccountBalanceCallback;
+    type UpdateTokenAccountBalance = UpdateTokenAccountBalanceCallback;
 }
 
 /// Allocate a new empty PLT block state.
