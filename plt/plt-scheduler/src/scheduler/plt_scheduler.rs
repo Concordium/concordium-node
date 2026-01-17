@@ -121,7 +121,6 @@ pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
     let token = block_state.create_token(token_configuration.clone());
 
     let mut events = Vec::new();
-
     events.push(BlockItemEvent::TokenCreated(TokenCreateEvent {
         payload: payload.clone(),
     }));
