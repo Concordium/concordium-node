@@ -63,7 +63,7 @@ where
 
     match payload {
         Payload::TokenUpdate { payload } => {
-            plt_scheduler::execute_plt_transaction(&mut execution, block_state, payload)
+            plt_scheduler::execute_token_update_transaction(&mut execution, block_state, payload)
         }
         _ => Err(TransactionExecutionError::UnexpectedPayload),
     }
@@ -77,9 +77,9 @@ pub enum UpdateInstructionExecutionError {
     #[error("Initialization of token in token module failed: {0}")]
     ModuleTokenInitializationFailed(String),
     #[error("Token with specified id already exists: {0}")]
-    TokenIdAlreadyUsed(TokenId),
-    #[error("Unknown token module: {0:?}")]
-    UnknownTokenModuleRef(TokenModuleRef),
+    DuplicateTokenId(TokenId),
+    #[error("Invalid token module: {0:?}")]
+    InvalidTokenModuleRef(TokenModuleRef),
 }
 
 /// Execute an update instruction payload modifying `block_state` accordingly.
@@ -93,7 +93,7 @@ where
 {
     match payload {
         UpdatePayload::CreatePlt(create_plt) => {
-            plt_scheduler::execute_plt_create_instruction(block_state, create_plt)
+            plt_scheduler::execute_create_plt_instruction(block_state, create_plt)
         }
         _ => Err(UpdateInstructionExecutionError::UnexpectedPayload),
     }

@@ -13,7 +13,7 @@ use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, RawTokenAmountDelta, TokenConfiguration, TokenNotFoundByIdError,
-    UnderOrOverflowError,
+    OverflowError,
 };
 use plt_scheduler::{TOKEN_MODULE_REF, scheduler};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
@@ -340,7 +340,7 @@ impl BlockStateOperations for BlockStateStub {
         token: &Self::Token,
         account: &Self::Account,
         amount_delta: RawTokenAmountDelta,
-    ) -> Result<(), UnderOrOverflowError> {
+    ) -> Result<(), OverflowError> {
         let balance = &mut self.accounts[account.0]
             .tokens
             .entry(*token)
@@ -348,13 +348,13 @@ impl BlockStateOperations for BlockStateStub {
             .balance;
         match amount_delta {
             RawTokenAmountDelta::Add(add) => {
-                balance.0 = balance.0.checked_add(add.0).ok_or(UnderOrOverflowError)?;
+                balance.0 = balance.0.checked_add(add.0).ok_or(OverflowError)?;
             }
             RawTokenAmountDelta::Subtract(subtract) => {
                 balance.0 = balance
                     .0
                     .checked_sub(subtract.0)
-                    .ok_or(UnderOrOverflowError)?;
+                    .ok_or(OverflowError)?;
             }
         }
         Ok(())

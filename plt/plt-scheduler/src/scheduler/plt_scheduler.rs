@@ -2,15 +2,15 @@
 //! of transactions related to protocol-level tokens.
 
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, RawTokenAmountDelta, TokenConfiguration,
-    TokenNotFoundByIdError, UnderOrOverflowError,
+    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+    TokenConfiguration, TokenNotFoundByIdError,
 };
 use crate::scheduler::{
     TransactionExecutionError, TransactionRejectReason, UpdateInstructionExecutionError,
 };
-use crate::types::events::{TokenBurnEvent, TokenMintEvent, TokenTransferEvent, TransactionEvent};
+use crate::types::events::{TokenTransferEvent, TransactionEvent};
 use crate::types::reject_reasons::TokenModuleRejectReason;
-use crate::{TOKEN_MODULE_REF, block_state_interface};
+use crate::{block_state_interface, TOKEN_MODULE_REF};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenOperationsPayload};
@@ -31,7 +31,7 @@ use std::mem;
 /// Returns the events produced if successful otherwise a reject reason.
 ///
 /// The caller must ensure to rollback state changes in case of the transaction being rejected.
-pub fn execute_plt_transaction<
+pub fn execute_token_update_transaction<
     BSO: BlockStateOperations,
     TE: TransactionExecution<Account = BSO::Account>,
 >(
@@ -100,21 +100,21 @@ pub fn execute_plt_transaction<
 
 /// Execute an update instruction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful.
-pub fn execute_plt_create_instruction<BSO: BlockStateOperations>(
+pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: CreatePlt,
 ) -> Result<Vec<TransactionEvent>, UpdateInstructionExecutionError> {
     // Check that token id is not already used (notice that token_by_id lookup is case-insensitive
     // as the check should be)
     if let Ok(existing_token) = block_state.token_by_id(&payload.token_id) {
-        return Err(UpdateInstructionExecutionError::TokenIdAlreadyUsed(
+        return Err(UpdateInstructionExecutionError::DuplicateTokenId(
             block_state.token_configuration(&existing_token).token_id,
         ));
     }
 
     // Check token module ref matches the implemented token module
     if payload.token_module != TOKEN_MODULE_REF {
-        return Err(UpdateInstructionExecutionError::UnknownTokenModuleRef(
+        return Err(UpdateInstructionExecutionError::InvalidTokenModuleRef(
             payload.token_module,
         ));
     }
@@ -229,79 +229,18 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 
     fn mint(
         &mut self,
-        account: &Self::Account,
-        amount: RawTokenAmount,
+        _account: &Self::Account,
+        _amount: RawTokenAmount,
     ) -> Result<(), AmountNotRepresentableError> {
-        // Update balance of the account
-        self.block_state
-            .update_token_account_balance(self.token, account, RawTokenAmountDelta::Add(amount))
-            .map_err(|_err: UnderOrOverflowError| AmountNotRepresentableError)?;
-
-        // Update total supply
-        let mut circulating_supply = self.block_state.token_circulating_supply(self.token);
-        circulating_supply.0 = circulating_supply
-            .0
-            .checked_add(amount.0)
-            .ok_or(AmountNotRepresentableError)?;
-        self.block_state
-            .set_token_circulating_supply(self.token, circulating_supply);
-
-        // Issue event
-        let event = TransactionEvent::TokenMint(TokenMintEvent {
-            token_id: self.token_configuration.token_id.clone(),
-            target: self.account_canonical_address(account),
-            amount: TokenAmount::from_raw(
-                amount.0,
-                self.block_state.token_configuration(self.token).decimals,
-            ),
-        });
-
-        self.events.push(event);
-
-        Ok(())
+        todo!()
     }
 
     fn burn(
         &mut self,
-        account: &Self::Account,
-        amount: RawTokenAmount,
+        _account: &Self::Account,
+        _amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError> {
-        // Update balance of the account
-        self.block_state
-            .update_token_account_balance(
-                self.token,
-                account,
-                RawTokenAmountDelta::Subtract(amount),
-            )
-            .map_err(|_err: UnderOrOverflowError| InsufficientBalanceError {
-                available: self.account_token_balance(account),
-                required: amount,
-            })?;
-
-        // Update total supply
-        let mut circulating_supply = self.block_state.token_circulating_supply(self.token);
-        circulating_supply.0 = circulating_supply.0.checked_sub(amount.0).ok_or_else(||
-            // We should never underflow total supply at transfer, since the total circulating supply of the token
-            // is always more than any account balance.
-            TokenStateInvariantError(
-                "Circulating supply token amount underflow at burn".to_string(),
-            ))?;
-        self.block_state
-            .set_token_circulating_supply(self.token, circulating_supply);
-
-        // Issue event
-        let event = TransactionEvent::TokenBurn(TokenBurnEvent {
-            token_id: self.token_configuration.token_id.clone(),
-            target: self.account_canonical_address(account),
-            amount: TokenAmount::from_raw(
-                amount.0,
-                self.block_state.token_configuration(self.token).decimals,
-            ),
-        });
-
-        self.events.push(event);
-
-        Ok(())
+        todo!()
     }
 
     fn transfer(
@@ -314,7 +253,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         // Update sender balance
         self.block_state
             .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
-            .map_err(|_err: UnderOrOverflowError| InsufficientBalanceError {
+            .map_err(|_err: OverflowError| InsufficientBalanceError {
                 available: self.account_token_balance(from),
                 required: amount,
             })?;
@@ -322,7 +261,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         // Update receiver balance
         self.block_state
             .update_token_account_balance(self.token, to, RawTokenAmountDelta::Add(amount))
-            .map_err(|_err: UnderOrOverflowError| {
+            .map_err(|_err: OverflowError| {
                 // We should never overflow at transfer, since the total circulating supply of the token
                 // is always less that what is representable as a token amount.
                 TokenStateInvariantError("Transfer destination token amount overflow".to_string())

@@ -162,7 +162,7 @@ fn test_plt_create_duplicate_id() {
 
     assert_matches!(
         res,
-        Err(UpdateInstructionExecutionError::TokenIdAlreadyUsed(token_id)) => {
+        Err(UpdateInstructionExecutionError::DuplicateTokenId(token_id)) => {
             assert_eq!(token_id, token_id1);
         }
     );
@@ -202,7 +202,7 @@ fn test_plt_create_unknown_token_module_reference() {
 
     assert_matches!(
         res,
-        Err(UpdateInstructionExecutionError::UnknownTokenModuleRef(module_ref)) => {
+        Err(UpdateInstructionExecutionError::InvalidTokenModuleRef(module_ref)) => {
             assert_eq!(module_ref, unknown_module_ref);
         }
     );
