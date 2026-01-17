@@ -192,14 +192,14 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// # Errors
     ///
-    /// - [`UnderOrOverflowError`] The update would overflow or underflow (result in negative balance)
+    /// - [`OverflowError`] The update would overflow or underflow (result in negative balance)
     ///   the token balance on the account.
     fn update_token_account_balance(
         &mut self,
         token: &Self::Token,
         account: &Self::Account,
         amount_delta: RawTokenAmountDelta,
-    ) -> Result<(), UnderOrOverflowError>;
+    ) -> Result<(), OverflowError>;
 
     /// Touch the token account. This initializes a token account state with a
     /// balance of zero. This only affects an account if its state for the token
@@ -231,7 +231,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     );
 }
 
-/// The computation resulted in underflow or overflow.
+/// The computation resulted in overflow (negative or above maximum value).
 #[derive(Debug, thiserror::Error)]
-#[error("Token amount underflow or overflow")]
-pub struct UnderOrOverflowError;
+#[error("Token amount overflow")]
+pub struct OverflowError;

@@ -2,7 +2,7 @@
 //! transaction and update instruction payloads.
 
 use crate::block_state_interface::BlockStateOperations;
-use crate::types::events::TransactionEvent;
+use crate::types::events::BlockItemEvent;
 use crate::types::reject_reasons::TransactionRejectReason;
 use concordium_base::base::Energy;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
@@ -45,6 +45,16 @@ pub enum TransactionExecutionError {
     TokenStateInvariantBroken(String),
 }
 
+/// Outcome of executing a transaction that was correctly executed (not resulting in [`TransactionExecutionError`]).
+#[derive(Debug, Clone)]
+pub enum TransactionOutcome {
+    /// The transaction was successfully applied.
+    Success(Vec<BlockItemEvent>),
+    /// The transaction was rejected, but the transaction
+    /// is included in the block as a rejected transaction.
+    Rejected(TransactionRejectReason),
+}
+
 /// Execute a transaction payload modifying `transaction_execution` and `block_state` accordingly.
 /// Returns the events produced if successful otherwise a reject reason.
 ///
@@ -53,7 +63,7 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
     sender_account: BSO::Account,
     block_state: &mut BSO,
     payload: Payload,
-) -> Result<Result<Vec<TransactionEvent>, TransactionRejectReason>, TransactionExecutionError>
+) -> Result<TransactionOutcome, TransactionExecutionError>
 where
     BSO::Account: Clone,
 {
@@ -63,7 +73,7 @@ where
 
     match payload {
         Payload::TokenUpdate { payload } => {
-            plt_scheduler::execute_plt_transaction(&mut execution, block_state, payload)
+            plt_scheduler::execute_token_update_transaction(&mut execution, block_state, payload)
         }
         _ => Err(TransactionExecutionError::UnexpectedPayload),
     }
@@ -77,9 +87,9 @@ pub enum UpdateInstructionExecutionError {
     #[error("Initialization of token in token module failed: {0}")]
     ModuleTokenInitializationFailed(String),
     #[error("Token with specified id already exists: {0}")]
-    TokenIdAlreadyUsed(TokenId),
-    #[error("Unknown token module: {0:?}")]
-    UnknownTokenModuleRef(TokenModuleRef),
+    DuplicateTokenId(TokenId),
+    #[error("Invalid token module: {0:?}")]
+    InvalidTokenModuleRef(TokenModuleRef),
 }
 
 /// Execute an update instruction payload modifying `block_state` accordingly.
@@ -87,13 +97,13 @@ pub enum UpdateInstructionExecutionError {
 pub fn execute_update_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: UpdatePayload,
-) -> Result<Vec<TransactionEvent>, UpdateInstructionExecutionError>
+) -> Result<Vec<BlockItemEvent>, UpdateInstructionExecutionError>
 where
     BSO::Account: Clone,
 {
     match payload {
         UpdatePayload::CreatePlt(create_plt) => {
-            plt_scheduler::execute_plt_create_instruction(block_state, create_plt)
+            plt_scheduler::execute_create_plt_instruction(block_state, create_plt)
         }
         _ => Err(UpdateInstructionExecutionError::UnexpectedPayload),
     }
