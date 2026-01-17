@@ -1,6 +1,7 @@
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
 /// Change in [`RawTokenAmount`].
@@ -28,20 +29,17 @@ pub struct TokenConfiguration {
     pub decimals: u8,
 }
 
+/// Token account state at block state level.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct TokenAccountBlockState {
+    /// Balance of the account
+    pub balance: RawTokenAmount,
+}
+
 /// Account with given id does not exist
 #[derive(Debug, thiserror::Error)]
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
-
-/// Account with given address does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with address {0} does not exist")]
-pub struct AccountNotFoundByAddressError(pub AccountAddress);
-
-/// Account with given index does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with index {0} does not exist")]
-pub struct AccountNotFoundByIndexError(pub AccountIndex);
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
@@ -143,6 +141,13 @@ pub trait BlockStateQuery {
     /// Get the token balance of the account.
     fn account_token_balance(&self, account: &Self::Account, token: &Self::Token)
     -> RawTokenAmount;
+
+    /// Get token account states. It returns states for all tokens
+    /// that the account holds.
+    fn token_account_states(
+        &self,
+        account: &Self::Account,
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountBlockState)>;
 }
 
 /// Operations on the state of a block in the chain.

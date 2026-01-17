@@ -3,9 +3,10 @@
 
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::{TokenAmount, TokenModuleState};
+use concordium_base::protocol_level_tokens::{TokenAmount, TokenId, TokenModuleState};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::{TOKEN_MODULE_REF, queries};
+use plt_token_module::token_kernel_interface::RawTokenAmount;
 
 mod block_state_stub;
 
@@ -31,9 +32,9 @@ fn test_query_plt_list() {
 #[test]
 fn test_query_token_info() {
     let mut stub = BlockStateStub::new();
-    let token_id = "TokenId1".parse().unwrap();
-    let (token, _) = stub.create_and_init_token(token_id, TokenInitTestParams::default(), 4, None);
-    let token_id = stub.token_configuration(&token).token_id;
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (_token, _) =
+        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
 
     let non_canonical_token_id = "toKeniD1".parse().unwrap();
     // Lookup by token id that is not in canonical casing
@@ -48,5 +49,39 @@ fn test_query_token_info() {
     assert_eq!(
         token_module_state.name.as_deref(),
         Some("Protocol-level token")
+    );
+}
+
+/// Test query token account info
+#[test]
+fn test_query_token_account_info() {
+    let mut stub = BlockStateStub::new();
+    let account = stub.create_account();
+    let token_id1: TokenId = "TokenId1".parse().unwrap();
+    let (token1, _) =
+        stub.create_and_init_token(token_id1.clone(), TokenInitTestParams::default(), 4, None);
+    let token_id2: TokenId = "TokenId2".parse().unwrap();
+    let (token2, _) =
+        stub.create_and_init_token(token_id2.clone(), TokenInitTestParams::default(), 4, None);
+    let token_id3 = "TokenId3".parse().unwrap();
+    let (_token3, _) =
+        stub.create_and_init_token(token_id3, TokenInitTestParams::default(), 4, None);
+
+    stub.increment_account_balance(account, token1, RawTokenAmount(1000));
+    stub.increment_account_balance(account, token2, RawTokenAmount(2000));
+
+    // Lookup account token infos
+    let token_account_infos =
+        queries::token_account_infos(&stub, stub.account_index(&account)).unwrap();
+    assert_eq!(token_account_infos.len(), 2);
+    assert_eq!(token_account_infos[0].token_id, token_id1);
+    assert_eq!(
+        token_account_infos[0].account_state.balance,
+        TokenAmount::from_raw(1000, 4)
+    );
+    assert_eq!(token_account_infos[1].token_id, token_id2);
+    assert_eq!(
+        token_account_infos[1].account_state.balance,
+        TokenAmount::from_raw(2000, 4)
     );
 }
