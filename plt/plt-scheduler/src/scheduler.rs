@@ -48,8 +48,9 @@ impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> 
     }
 }
 
-/// Error executing transaction. This does not include reject reasons,
-/// which are handled at a higher level.
+/// Unrecoverable error executing transaction. This represents the
+/// return value of [`execute_transaction`] for transactions that cannot
+/// be correctly executed.
 #[derive(Debug, thiserror::Error)]
 pub enum TransactionExecutionError {
     #[error("Unexpected transaction payload that cannot be handled")]
@@ -60,9 +61,9 @@ pub enum TransactionExecutionError {
     TokenStateInvariantBroken(String),
 }
 
-/// Outcome of execution a transaction, unless [`TransactionExecutionError`] is returned.
+/// Summary of execution a transaction.
 #[derive(Debug, Clone)]
-pub struct TransactionOutcomeSummary {
+pub struct TransactionExecutionSummary {
     /// Outcome of executing the transaction.
     /// If transaction was successful, this is a list of events that represents
     /// the changes that were applied to the chain state by the transaction. The same changes
@@ -87,7 +88,7 @@ pub enum TransactionOutcome {
 /// Execute a transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason. Additionally, the
 /// amount of energy used by the execution is returned. The returned values are represented
-/// via the type [`TransactionOutcomeSummary`].
+/// via the type [`TransactionExecutionSummary`].
 ///
 /// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
 ///
@@ -107,7 +108,7 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: Payload,
     energy_limit: Energy,
-) -> Result<TransactionOutcomeSummary, TransactionExecutionError>
+) -> Result<TransactionExecutionSummary, TransactionExecutionError>
 where
     BSO::Account: Clone,
 {
@@ -125,7 +126,7 @@ where
                 payload,
             )?;
 
-            Ok(TransactionOutcomeSummary {
+            Ok(TransactionExecutionSummary {
                 outcome: result,
                 energy_used: execution.energy_used,
             })

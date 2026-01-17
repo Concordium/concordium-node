@@ -84,7 +84,7 @@ pub enum TokenUpdateError {
 ///
 /// If the state stored in the token module contains data that breaks the invariants
 /// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
-/// is returned. This is an unrecoverable error and should never happen.
+/// is returned. This is an unrecoverable error that will terminate the scheduler and should never happen.
 pub fn execute_token_update_transaction<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::Account>,
