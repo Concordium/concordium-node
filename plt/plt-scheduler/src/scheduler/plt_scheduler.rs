@@ -42,10 +42,9 @@ pub fn execute_token_update_transaction<
 
     let token_configuration = block_state.token_configuration(&token);
 
-    let mut token_module_state = block_state.mutable_token_module_state(&token);
-
-    let mut token_module_state_dirty = false;
     let mut events = Vec::new();
+    let mut token_module_state = block_state.mutable_token_module_state(&token);
+    let mut token_module_state_dirty = false;
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
         token: &token,
