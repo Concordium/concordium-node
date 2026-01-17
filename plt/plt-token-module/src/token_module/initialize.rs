@@ -3,7 +3,8 @@ use crate::module_state::{
     STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME,
 };
 use crate::token_kernel_interface::{
-    AccountNotFoundByAddressError, AmountNotRepresentableError, TokenKernelOperations,
+    AccountNotFoundByAddressError, MintWouldOverflowError, TokenKernelOperations, TokenMintError,
+    TokenStateInvariantError,
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
@@ -24,7 +25,18 @@ pub enum TokenInitializationError {
     #[error("The initial mint amount has wrong number of decimals: {0}")]
     MintAmountDecimalsMismatch(#[from] TokenAmountDecimalsMismatchError),
     #[error("The initial mint amount is not representable: {0}")]
-    MintAmountNotRepresentable(#[from] AmountNotRepresentableError),
+    MintAmountNotRepresentable(#[from] MintWouldOverflowError),
+    #[error("State invariant violation at token initialization: {0}")]
+    StateInvariantViolation(#[from] TokenStateInvariantError),
+}
+
+impl From<TokenMintError> for TokenInitializationError {
+    fn from(err: TokenMintError) -> Self {
+        match err {
+            TokenMintError::StateInvariantViolation(err) => Self::StateInvariantViolation(err),
+            TokenMintError::MintWouldOverflow(err) => Self::MintAmountNotRepresentable(err),
+        }
+    }
 }
 
 /// Initialize a PLT by recording the relevant configuration parameters in the state and
