@@ -4,15 +4,16 @@
 
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore};
 use crate::block_state::{
-    BlockStateSavepoint, ExecutionTimeBlockState, ReadTokenAccountBalanceFromBlockState,
-    TokenIndex, UpdateTokenAccountBalanceInBlockState, blob_store,
+    BlockStateSavepoint, ExecutionTimeBlockState, ReadTokenAccountBalance, TokenIndex,
+    UpdateTokenAccountBalance, blob_store,
 };
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use crate::scheduler;
 use crate::scheduler::TransactionOutcome;
 use concordium_base::base::{AccountIndex, Energy};
-use concordium_base::common;
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
+use concordium_base::{common, contracts_common};
 use libc::size_t;
 use plt_token_module::token_kernel_interface::RawTokenAmount;
 use std::mem;
@@ -27,11 +28,13 @@ use std::mem;
 /// # Arguments
 ///
 /// - `load_callback` External function to call for loading bytes a reference from the blob store.
+/// - `update_token_account_balance_callback` External function to call reading the token balance of an account.
 /// - `update_token_account_balance_callback` External function to call updating the token balance of an account.
 /// - `block_state` Unique pointer to a block state to mutate during execution.
 /// - `payload` Pointer to transaction payload bytes.
 /// - `payload_len` Byte length of transaction payload.
 /// - `sender_account_index` The account index of the account which signed as the sender of the transaction.
+/// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
 /// - `used_energy_out` Location for writing the energy used by the execution.
@@ -40,6 +43,9 @@ use std::mem;
 ///
 /// - Argument `block_state` must be non-null point to well-formed [`crate::block_state::BlockState`].
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
+/// - Argument `sender_account_address` must be non-null and valid for reads for 32 bytes.
+/// - Argument `block_state_out` must be a non-null and valid pointer
+/// - Argument `used_energy_out` must be a non-null and valid pointer
 #[unsafe(no_mangle)]
 extern "C" fn ffi_execute_transaction(
     load_callback: LoadCallback,
@@ -49,10 +55,13 @@ extern "C" fn ffi_execute_transaction(
     payload: *const u8,
     payload_len: size_t,
     sender_account_index: u64,
+    sender_account_address: *const u8,
     remaining_energy: u64,
     block_state_out: *mut *const BlockStateSavepoint,
     used_energy_out: *mut u64,
 ) -> u8 {
+    let a = 1;
+
     assert!(!block_state.is_null(), "Block state is a null pointer.");
     assert!(!payload.is_null(), "Payload is a null pointer.");
 
@@ -64,6 +73,19 @@ extern "C" fn ffi_execute_transaction(
     };
 
     let sender_account_index = AccountIndex::from(sender_account_index);
+    let sender_account_address = {
+        let mut address_bytes = [0u8; contracts_common::ACCOUNT_ADDRESS_SIZE];
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                sender_account_address,
+                address_bytes.as_mut_ptr(),
+                contracts_common::ACCOUNT_ADDRESS_SIZE,
+            );
+        }
+        AccountAddress(address_bytes)
+    };
+
+    let sender = (sender_account_index, sender_account_address);
 
     let mut payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
@@ -71,12 +93,8 @@ extern "C" fn ffi_execute_transaction(
 
     let remaining_energy = Energy::from(remaining_energy);
 
-    let result = scheduler::execute_transaction(
-        sender_account_index,
-        &mut block_state,
-        payload,
-        remaining_energy,
-    );
+    let result =
+        scheduler::execute_transaction(sender, &mut block_state, payload, remaining_energy);
 
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     let summary = result.unwrap();
@@ -275,19 +293,14 @@ impl BackingStoreLoad for LoadCallback {
 ///
 /// # Arguments
 ///
-/// - `account_index` The index of the account to update a token balance for.
-/// - `token_index` The index of the token.
+/// - `account_index` The index of the account to update a token balance for. Must be a valid account index of an existing account.
+/// - `token_index` The index of the token. Must be a valid token index of an existing token.
 /// - `amount` The amount to add to or subtract from the balance.
 /// - `add_amount` If `1`, the amount will be added to the balance. If `0`, it will be subtracted.
-///
-/// # Safety
-///
-/// Argument `account_index` must be a valid account index of an existing account.
-/// Argument `token_index` must be a valid token index of an existing token.
 type UpdateTokenAccountBalanceCallback =
     extern "C" fn(account_index: u64, token_index: u64, amount: u64, add_amount: u8) -> u8;
 
-impl UpdateTokenAccountBalanceInBlockState for UpdateTokenAccountBalanceCallback {
+impl UpdateTokenAccountBalance for UpdateTokenAccountBalanceCallback {
     fn update_token_account_balance(
         &mut self,
         account: AccountIndex,
@@ -319,16 +332,11 @@ impl UpdateTokenAccountBalanceInBlockState for UpdateTokenAccountBalanceCallback
 ///
 /// # Arguments
 ///
-/// - `account_index` The index of the account to update a token balance for.
-/// - `token_index` The index of the token.
-///
-/// # Safety
-///
-/// Argument `account_index` must be a valid account index of an existing account.
-/// Argument `token_index` must be a valid token index of an existing token.
+/// - `account_index` The index of the account to update a token balance for. Must be a valid account index of an existing account.
+/// - `token_index` The index of the token. Must be a valid token index of an existing token.
 type ReadTokenAccountBalanceCallback = extern "C" fn(account_index: u64, token_index: u64) -> u64;
 
-impl ReadTokenAccountBalanceFromBlockState for ReadTokenAccountBalanceCallback {
+impl ReadTokenAccountBalance for ReadTokenAccountBalanceCallback {
     fn read_token_account_balance(
         &self,
         account: AccountIndex,

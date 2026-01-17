@@ -103,7 +103,12 @@ impl BlockState {
 
 /// Trait allowing reading the account token balance from the block state.
 /// The account token balance block state is currently managed in Haskell.
-pub trait ReadTokenAccountBalanceFromBlockState {
+///
+/// # Arguments
+///
+/// - `account_index` The index of the account to update a token balance for. Must be a valid account index of an existing account.
+/// - `token_index` The index of the token. Must be a valid token index of an existing token.
+pub trait ReadTokenAccountBalance {
     /// Change the account.
     fn read_token_account_balance(
         &self,
@@ -114,7 +119,13 @@ pub trait ReadTokenAccountBalanceFromBlockState {
 
 /// Trait allowing updating the account token balance in the block state.
 /// The account token balance block state is currently managed in Haskell.
-pub trait UpdateTokenAccountBalanceInBlockState {
+///
+/// # Arguments
+///
+/// - `account_index` The index of the account to update a token balance for. Must be a valid account index of an existing account.
+/// - `token_index` The index of the token. Must be a valid token index of an existing token.
+/// - `amount_delta` The amount to add to or subtract from the balance.
+pub trait UpdateTokenAccountBalance {
     /// Change the account.
     fn update_token_account_balance(
         &mut self,
@@ -129,25 +140,26 @@ pub trait UpdateTokenAccountBalanceInBlockState {
 ///
 /// This is needed since callbacks are only available during the execution time.
 #[derive(Debug)]
-pub struct ExecutionTimeBlockState<L, R, U> {
+pub struct ExecutionTimeBlockState<T: BlockStateCallbacks> {
     /// The library block state implementation.
     pub inner_block_state: BlockState,
     // Temporary disable warning until we have the implementation below started.
     #[expect(dead_code)]
     /// External function for reading from the blob store.
-    pub load_callback: L,
+    pub load_callback: T::BackingStoreLoad,
     /// External function for reading the token balance for an account.
-    pub read_token_account_balance_callback: R,
+    pub read_token_account_balance_callback: T::ReadTokenAccountBalance,
     /// External function for updating the token balance for an account.
-    pub update_token_account_balance_callback: U,
+    pub update_token_account_balance_callback: T::UpdateTokenAccountBalance,
 }
 
-impl<
-    L: BackingStoreLoad,
-    R: ReadTokenAccountBalanceFromBlockState,
-    U: UpdateTokenAccountBalanceInBlockState,
-> BlockStateQuery for ExecutionTimeBlockState<L, R, U>
-{
+trait BlockStateCallbacks {
+    type BackingStoreLoad: BackingStoreLoad;
+    type ReadTokenAccountBalance: ReadTokenAccountBalance;
+    type UpdateTokenAccountBalance: UpdateTokenAccountBalance;
+}
+
+impl<T: BlockStateCallbacks> BlockStateQuery for ExecutionTimeBlockState<T> {
     type MutableTokenModuleState = ();
     type Account = (AccountIndex, AccountAddress);
     type Token = TokenIndex;
@@ -223,12 +235,7 @@ impl<
     }
 }
 
-impl<
-    L: BackingStoreLoad,
-    R: ReadTokenAccountBalanceFromBlockState,
-    U: UpdateTokenAccountBalanceInBlockState,
-> BlockStateOperations for ExecutionTimeBlockState<L, R, U>
-{
+impl<T: BlockStateCallbacks> BlockStateOperations for ExecutionTimeBlockState<T> {
     fn set_token_circulating_supply(
         &mut self,
         _token: &Self::Token,
