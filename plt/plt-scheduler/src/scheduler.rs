@@ -2,7 +2,7 @@
 //! transaction and update instruction payloads.
 
 use crate::block_state_interface::BlockStateOperations;
-use crate::types::events::TransactionEvent;
+use crate::types::events::BlockItemEvent;
 use crate::types::reject_reasons::TransactionRejectReason;
 use concordium_base::base::Energy;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
@@ -60,23 +60,34 @@ pub enum TransactionExecutionError {
     TokenStateInvariantBroken(String),
 }
 
-/// Result of execution a transaction, unless [`TransactionExecutionError`] is returned.
-pub struct TransactionExecutionResult {
-    /// Result of executing the transaction.
+/// Outcome of execution a transaction, unless [`TransactionExecutionError`] is returned.
+#[derive(Debug, Clone)]
+pub struct TransactionOutcomeSummary {
+    /// Outcome of executing the transaction.
     /// If transaction was successful, this is a list of events that represents
     /// the changes that were applied to the chain state by the transaction. The same changes
     /// have been applied via the `block_state` argument to [`execute_transaction`]. If the transaction was
     /// rejected, the only change to the chain state is the charge of energy. If the transaction is rejected,
     /// the caller of [`execute_transaction`] must make sure that changes to the given `block_state` are rolled back.
-    pub result: Result<Vec<TransactionEvent>, TransactionRejectReason>,
+    pub outcome: TransactionOutcome,
     /// Energy used by the execution. This is always less than the `energy_limit` argument given to [`execute_transaction`].
     pub energy_used: Energy,
+}
+
+/// Outcome of executing a transaction that was correctly executed (not resulting in [`TransactionExecutionError`]).
+#[derive(Debug, Clone)]
+pub enum TransactionOutcome {
+    /// The transaction was successfully applied.
+    Success(Vec<BlockItemEvent>),
+    /// The transaction was rejected, but the transaction
+    /// is included in the block as a rejected transaction.
+    Rejected(TransactionRejectReason),
 }
 
 /// Execute a transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason. Additionally, the
 /// amount of energy used by the execution is returned. The returned values are represented
-/// via the type [`TransactionExecutionResult`].
+/// via the type [`TransactionOutcomeSummary`].
 ///
 /// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
 ///
@@ -96,7 +107,7 @@ pub fn execute_transaction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: Payload,
     energy_limit: Energy,
-) -> Result<TransactionExecutionResult, TransactionExecutionError>
+) -> Result<TransactionOutcomeSummary, TransactionExecutionError>
 where
     BSO::Account: Clone,
 {
@@ -108,11 +119,14 @@ where
 
     match payload {
         Payload::TokenUpdate { payload } => {
-            let result =
-                plt_scheduler::execute_plt_transaction(&mut execution, block_state, payload)?;
+            let result = plt_scheduler::execute_token_update_transaction(
+                &mut execution,
+                block_state,
+                payload,
+            )?;
 
-            Ok(TransactionExecutionResult {
-                result,
+            Ok(TransactionOutcomeSummary {
+                outcome: result,
                 energy_used: execution.energy_used,
             })
         }
@@ -128,9 +142,9 @@ pub enum UpdateInstructionExecutionError {
     #[error("Initialization of token in token module failed: {0}")]
     ModuleTokenInitializationFailed(String),
     #[error("Token with specified id already exists: {0}")]
-    TokenIdAlreadyUsed(TokenId),
-    #[error("Unknown token module: {0:?}")]
-    UnknownTokenModuleRef(TokenModuleRef),
+    DuplicateTokenId(TokenId),
+    #[error("Invalid token module: {0:?}")]
+    InvalidTokenModuleRef(TokenModuleRef),
 }
 
 /// Execute an update instruction modifying `block_state` accordingly.
@@ -149,13 +163,13 @@ pub enum UpdateInstructionExecutionError {
 pub fn execute_update_instruction<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: UpdatePayload,
-) -> Result<Vec<TransactionEvent>, UpdateInstructionExecutionError>
+) -> Result<Vec<BlockItemEvent>, UpdateInstructionExecutionError>
 where
     BSO::Account: Clone,
 {
     match payload {
         UpdatePayload::CreatePlt(create_plt) => {
-            plt_scheduler::execute_plt_create_instruction(block_state, create_plt)
+            plt_scheduler::execute_create_plt_instruction(block_state, create_plt)
         }
         _ => Err(UpdateInstructionExecutionError::UnexpectedPayload),
     }
