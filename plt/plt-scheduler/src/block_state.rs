@@ -140,6 +140,7 @@ pub trait BlockStateExternal {
 }
 
 /// Representation of an account in the block state implementation.
+/// This type is only used for accounts that are sure exist on chain.
 #[derive(Debug, Clone)]
 pub struct AccountRepr {
     /// The index of the account.
