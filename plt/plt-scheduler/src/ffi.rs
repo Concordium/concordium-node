@@ -3,11 +3,17 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore};
-use crate::block_state::{
-    BlockStateExternal, BlockStateSavepoint, ExecutionTimeBlockState, ReadTokenAccountBalance,
-    TokenIndex, UpdateTokenAccountBalance, blob_store,
+use crate::block_state::external::{
+    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, IncrementPltUpdateSequenceNumber,
+    ReadTokenAccountBalance, UpdateTokenAccountBalance,
 };
-use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
+use crate::block_state::{
+    AccountRepr, BlockStateExternal, BlockStateSavepoint, ExecutionTimeBlockState, TokenIndex,
+    blob_store,
+};
+use crate::block_state_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OverflowError, RawTokenAmountDelta,
+};
 use crate::scheduler;
 use crate::scheduler::TransactionOutcome;
 use concordium_base::base::{AccountIndex, Energy};
@@ -18,23 +24,26 @@ use libc::size_t;
 use plt_token_module::token_kernel_interface::RawTokenAmount;
 use std::mem;
 
-/// C-binding for calling [`crate::execute_transaction`].
+/// C-binding for calling [`scheduler::execute_transaction`].
 ///
-/// Returns a byte representing the status code, where the value should be interpreted as:
+/// Returns a byte representing the result:
 ///
-/// - `0` execution succeeded.
-/// - `1` rejected due to ...
+/// - `0`: Transaction execution succeeded and transaction was applied to block state.
+/// - `1`: Transaction was rejected with a reject reason.
 ///
 /// # Arguments
 ///
 /// - `load_callback` External function to call for loading bytes a reference from the blob store.
 /// - `update_token_account_balance_callback` External function to call reading the token balance of an account.
 /// - `update_token_account_balance_callback` External function to call updating the token balance of an account.
+/// - `increment_plt_update_sequence_number_callback` External function for incrementing the PLT update instruction sequence number.
+/// - `get_account_address_by_index_callback` External function for getting account canonical address by account index.
+/// - `get_account_index_by_address_callback` External function for getting account index by account address.
 /// - `block_state` Unique pointer to a block state to mutate during execution.
 /// - `payload` Pointer to transaction payload bytes.
 /// - `payload_len` Byte length of transaction payload.
 /// - `sender_account_index` The account index of the account which signed as the sender of the transaction.
-/// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
+/// - `sender_account_address` The canonical account address of the account which signed as the sender of the transaction.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
 /// - `used_energy_out` Location for writing the energy used by the execution.
@@ -44,13 +53,16 @@ use std::mem;
 /// - Argument `block_state` must be non-null point to well-formed [`crate::block_state::BlockState`].
 /// - Argument `payload` must be non-null and valid for reads for `payload_len` many bytes.
 /// - Argument `sender_account_address` must be non-null and valid for reads for 32 bytes.
-/// - Argument `block_state_out` must be a non-null and valid pointer
-/// - Argument `used_energy_out` must be a non-null and valid pointer
+/// - Argument `block_state_out` must be a non-null and valid pointer for writing
+/// - Argument `used_energy_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_execute_transaction(
     load_callback: LoadCallback,
     read_token_account_balance_callback: ReadTokenAccountBalanceCallback,
     update_token_account_balance_callback: UpdateTokenAccountBalanceCallback,
+    increment_plt_update_sequence_number_callback: IncrementPltUpdateSequenceNumberCallback,
+    get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
+    get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
     block_state: *const BlockStateSavepoint,
     payload: *const u8,
     payload_len: size_t,
@@ -63,11 +75,14 @@ extern "C" fn ffi_execute_transaction(
     assert!(!block_state.is_null(), "Block state is a null pointer.");
     assert!(!payload.is_null(), "Payload is a null pointer.");
 
-    let mut block_state = ExecutionTimeBlockState::<BlockStateCallbacks> {
+    let mut block_state = ExecutionTimeBlockState::<_, BlockStateCallbacks> {
         inner_block_state: unsafe { (*block_state).new_generation() },
-        load_callback,
-        read_token_account_balance_callback,
-        update_token_account_balance_callback,
+        backing_store_load: load_callback,
+        read_token_account_balance: read_token_account_balance_callback,
+        update_token_account_balance: update_token_account_balance_callback,
+        increment_plt_update_sequence_number: increment_plt_update_sequence_number_callback,
+        get_account_address_by_index: get_account_address_by_index_callback,
+        get_account_index_by_address: get_account_index_by_address_callback,
     };
 
     let sender_account_index = AccountIndex::from(sender_account_index);
@@ -83,7 +98,10 @@ extern "C" fn ffi_execute_transaction(
         AccountAddress(address_bytes)
     };
 
-    let sender = (sender_account_index, sender_account_address);
+    let sender = AccountRepr {
+        index: sender_account_index,
+        address: sender_account_address,
+    };
 
     let mut payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
@@ -122,9 +140,11 @@ extern "C" fn ffi_execute_transaction(
 struct BlockStateCallbacks;
 
 impl BlockStateExternal for BlockStateCallbacks {
-    type BackingStoreLoad = LoadCallback;
     type ReadTokenAccountBalance = ReadTokenAccountBalanceCallback;
     type UpdateTokenAccountBalance = UpdateTokenAccountBalanceCallback;
+    type IncrementPltUpdateSequenceNumber = IncrementPltUpdateSequenceNumberCallback;
+    type GetCanonicalAddressByAccountIndex = GetCanonicalAddressByAccountIndexCallback;
+    type GetAccountIndexByAddress = GetAccountIndexByAddressCallback;
 }
 
 /// Allocate a new empty PLT block state.
@@ -295,7 +315,8 @@ impl BackingStoreLoad for LoadCallback {
 
 /// External function for updating the token balance for an account.
 ///
-/// Returns non-zero if the balance overflows.
+/// Returns `0` if the balance change was applied, and `1` if the balance change would result in a
+/// negative balance or a balance above the representable amount.
 ///
 /// # Arguments
 ///
@@ -351,5 +372,79 @@ impl ReadTokenAccountBalance for ReadTokenAccountBalanceCallback {
         let value = self(account.index, token.0);
 
         RawTokenAmount(value)
+    }
+}
+
+/// External function for incrementing the PLT update instruction sequence number.
+type IncrementPltUpdateSequenceNumberCallback = extern "C" fn();
+
+impl IncrementPltUpdateSequenceNumber for IncrementPltUpdateSequenceNumberCallback {
+    fn increment_plt_update_sequence_number(&mut self) {
+        self();
+    }
+}
+
+/// External function for getting account canonical address by account index.
+/// Returns `0` if the account exist, `1` if not.
+/// If the account exists, its canonical address is written to `account_address_out`.
+///
+/// # Arguments
+///
+/// - `account_index` Index of the (possibly existing) account to get.
+/// - `account_address_out` Pointer to where to write the canonical account address of 32 bytes.
+///
+/// # Safety
+///
+/// - Argument `account_address_out` must be non-null and valid for writes of 32 bytes.
+type GetCanonicalAddressByAccountIndexCallback =
+    extern "C" fn(account_index: u64, account_address_out: *mut u8) -> u8;
+
+impl GetCanonicalAddressByAccountIndex for GetCanonicalAddressByAccountIndexCallback {
+    fn account_canonical_address_by_account_index(
+        &self,
+        account_index: AccountIndex,
+    ) -> Result<AccountAddress, AccountNotFoundByIndexError> {
+        let mut account_address = AccountAddress([0; 32]);
+
+        let result = self(account_index.index, account_address.0.as_mut_ptr());
+
+        if result == 0 {
+            Ok(account_address)
+        } else {
+            Err(AccountNotFoundByIndexError(account_index))
+        }
+    }
+}
+
+/// External function for getting account index by account address (canonical address or alias address).
+/// Returns `0` if the account exist, `1` if not.
+/// If the account exists, its index is written to `account_index_out`.
+///
+/// # Arguments
+///
+/// - `account_address` Address 32 bytes of the (possibly existing) account to get.
+/// - `account_index_out` Pointer to where to write account index.
+///
+/// # Safety
+///
+/// - Argument `account_address` must be non-null and valid for reads for 32 bytes.
+/// - Argument `account_index_out` must be a non-null and valid pointer for writing.
+type GetAccountIndexByAddressCallback =
+    extern "C" fn(account_address: *const u8, account_index: *mut u64) -> u8;
+
+impl GetAccountIndexByAddress for GetAccountIndexByAddressCallback {
+    fn account_index_by_account_address(
+        &self,
+        account_address: &AccountAddress,
+    ) -> Result<AccountIndex, AccountNotFoundByAddressError> {
+        let mut account_index = AccountIndex { index: 0 };
+
+        let result = self(account_address.0.as_ptr(), &mut account_index.index);
+
+        if result == 0 {
+            Ok(account_index)
+        } else {
+            Err(AccountNotFoundByAddressError(*account_address))
+        }
     }
 }

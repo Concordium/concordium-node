@@ -2,6 +2,10 @@
 //!
 
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
+use crate::block_state::external::{
+    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, IncrementPltUpdateSequenceNumber,
+    ReadTokenAccountBalance, UpdateTokenAccountBalance,
+};
 use crate::block_state_interface::{
     AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
     BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
@@ -13,6 +17,7 @@ use concordium_base::protocol_level_tokens::TokenId;
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 
 pub mod blob_store;
+pub mod external;
 
 /// Index of the protocol-level token in the block state map of tokens.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -101,67 +106,51 @@ impl BlockState {
     }
 }
 
-/// Trait allowing reading the account token balance from the block state.
-/// The account token balance block state is currently managed in Haskell.
-///
-/// # Arguments
-///
-/// - `account_index` The index of the account to update a token balance for. Must be a valid account index of an existing account.
-/// - `token_index` The index of the token. Must be a valid token index of an existing token.
-pub trait ReadTokenAccountBalance {
-    /// Change the account.
-    fn read_token_account_balance(
-        &self,
-        account: AccountIndex,
-        token: TokenIndex,
-    ) -> RawTokenAmount;
-}
-
-/// Trait allowing updating the account token balance in the block state.
-/// The account token balance block state is currently managed in Haskell.
-///
-/// # Arguments
-///
-/// - `account_index` The index of the account to update a token balance for. Must be a valid account index of an existing account.
-/// - `token_index` The index of the token. Must be a valid token index of an existing token.
-/// - `amount_delta` The amount to add to or subtract from the balance.
-pub trait UpdateTokenAccountBalance {
-    /// Change the account.
-    fn update_token_account_balance(
-        &mut self,
-        account: AccountIndex,
-        token: TokenIndex,
-        amount_delta: RawTokenAmountDelta,
-    ) -> Result<(), OverflowError>;
-}
-
 /// Runtime/execution state relevant for providing an implementation of
 /// [`BlockStateOperations`].
 ///
 /// This is needed since callbacks are only available during the execution time.
 #[derive(Debug)]
-pub struct ExecutionTimeBlockState<T: BlockStateExternal> {
+pub struct ExecutionTimeBlockState<L: BackingStoreLoad, T: BlockStateExternal> {
     /// The library block state implementation.
     pub inner_block_state: BlockState,
     // Temporary disable warning until we have the implementation below started.
     #[expect(dead_code)]
     /// External function for reading from the blob store.
-    pub load_callback: T::BackingStoreLoad,
+    pub backing_store_load: L,
     /// External function for reading the token balance for an account.
-    pub read_token_account_balance_callback: T::ReadTokenAccountBalance,
+    pub read_token_account_balance: T::ReadTokenAccountBalance,
     /// External function for updating the token balance for an account.
-    pub update_token_account_balance_callback: T::UpdateTokenAccountBalance,
+    pub update_token_account_balance: T::UpdateTokenAccountBalance,
+    /// External function for incrementing the PLT update sequence number.
+    pub increment_plt_update_sequence_number: T::IncrementPltUpdateSequenceNumber,
+    /// External function for fetching account address by index.
+    pub get_account_address_by_index: T::GetCanonicalAddressByAccountIndex,
+    /// External function for fetching account index by address.
+    pub get_account_index_by_address: T::GetAccountIndexByAddress,
 }
 
+/// Calls to externally managed parts of the block state.
 pub trait BlockStateExternal {
-    type BackingStoreLoad: BackingStoreLoad;
     type ReadTokenAccountBalance: ReadTokenAccountBalance;
     type UpdateTokenAccountBalance: UpdateTokenAccountBalance;
+    type IncrementPltUpdateSequenceNumber: IncrementPltUpdateSequenceNumber;
+    type GetCanonicalAddressByAccountIndex: GetCanonicalAddressByAccountIndex;
+    type GetAccountIndexByAddress: GetAccountIndexByAddress;
 }
 
-impl<T: BlockStateExternal> BlockStateQuery for ExecutionTimeBlockState<T> {
+/// Representation of an account in the block state implementation.
+#[derive(Debug, Clone)]
+pub struct AccountRepr {
+    /// The index of the account.
+    pub index: AccountIndex,
+    /// The canonical address of the account.
+    pub address: AccountAddress,
+}
+
+impl<L: BackingStoreLoad, T: BlockStateExternal> BlockStateQuery for ExecutionTimeBlockState<L, T> {
     type MutableTokenModuleState = ();
-    type Account = (AccountIndex, AccountAddress);
+    type Account = AccountRepr;
     type Token = TokenIndex;
 
     fn plt_list(&self) -> impl Iterator<Item = TokenId> {
@@ -205,24 +194,35 @@ impl<T: BlockStateExternal> BlockStateQuery for ExecutionTimeBlockState<T> {
 
     fn account_by_address(
         &self,
-        _address: &AccountAddress,
+        address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        todo!()
+        let index = self
+            .get_account_index_by_address
+            .account_index_by_account_address(address)?;
+
+        Ok(AccountRepr {
+            index,
+            address: *address,
+        })
     }
 
     fn account_by_index(
         &self,
-        _index: AccountIndex,
+        index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        todo!()
+        let address = self
+            .get_account_address_by_index
+            .account_canonical_address_by_account_index(index)?;
+
+        Ok(AccountRepr { index, address })
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        account.0
+        account.index
     }
 
     fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
-        account.1
+        account.address
     }
 
     fn account_token_balance(
@@ -230,12 +230,14 @@ impl<T: BlockStateExternal> BlockStateQuery for ExecutionTimeBlockState<T> {
         account: &Self::Account,
         token: &Self::Token,
     ) -> RawTokenAmount {
-        self.read_token_account_balance_callback
-            .read_token_account_balance(account.0, *token)
+        self.read_token_account_balance
+            .read_token_account_balance(account.index, *token)
     }
 }
 
-impl<T: BlockStateExternal> BlockStateOperations for ExecutionTimeBlockState<T> {
+impl<L: BackingStoreLoad, T: BlockStateExternal> BlockStateOperations
+    for ExecutionTimeBlockState<L, T>
+{
     fn set_token_circulating_supply(
         &mut self,
         _token: &Self::Token,
@@ -254,8 +256,8 @@ impl<T: BlockStateExternal> BlockStateOperations for ExecutionTimeBlockState<T> 
         account: &Self::Account,
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
-        self.update_token_account_balance_callback
-            .update_token_account_balance(account.0, *token, amount_delta)
+        self.update_token_account_balance
+            .update_token_account_balance(account.index, *token, amount_delta)
     }
 
     fn touch_token_account(&mut self, _token: &Self::Token, _account: &Self::Account) {
@@ -263,7 +265,8 @@ impl<T: BlockStateExternal> BlockStateOperations for ExecutionTimeBlockState<T> 
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
-        todo!()
+        self.increment_plt_update_sequence_number
+            .increment_plt_update_sequence_number();
     }
 
     fn set_token_module_state(
