@@ -121,7 +121,7 @@ pub trait BlockStateQuery {
         value: Option<ModuleStateValue>,
     );
 
-    /// Lookup the account using an account address.
+    /// Lookup the account using an account address (canonical address or alias address).
     fn account_by_address(
         &self,
         address: &AccountAddress,
