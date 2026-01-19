@@ -95,6 +95,16 @@ updateTokenAccountStateTable ref tokIx createNewState updateExisting = do
             tst
     refMake $ TokenAccountStateTable{tokenAccountStateTable = tst'}
 
+-- | Migrate a 'TokenAccountStateTable' from one blob store to another.
+--  Note, this migration preseves hashing.
+migrateTokenAccountStateTable ::
+    (SupportMigration m t) =>
+    TokenAccountStateTable ->
+    t m TokenAccountStateTable
+migrateTokenAccountStateTable tast = do
+    newTable <- mapM migrateHashedBufferedRefKeepHash (tokenAccountStateTable tast)
+    return TokenAccountStateTable{tokenAccountStateTable = newTable}
+
 -- | Token state at the account level
 newtype TokenAccountState = TokenAccountState
     { -- | The available balance for the account.
