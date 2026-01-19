@@ -57,7 +57,6 @@ processCertifiedBlock ::
       MonadThrow m,
       MonadConsensusEvent m,
       MonadLogger m,
-      MonadProtocolVersion m,
       IsConsensusV1 (MPV m),
       HasCallStack
     ) =>
@@ -207,7 +206,7 @@ makeStoredBlock ::
     m (LowLevel.StoredBlock (MPV m))
 makeStoredBlock finalized blockPtr = do
     statePointer <- saveBlockState (bpState blockPtr)
-    when finalized $ saveAccounts (bpState blockPtr)
+    when finalized $ saveGlobalMaps (bpState blockPtr)
     return
         LowLevel.StoredBlock
             { stbInfo = blockMetadata blockPtr,

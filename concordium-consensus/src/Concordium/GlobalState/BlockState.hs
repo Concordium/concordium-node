@@ -47,7 +47,6 @@ import Control.Monad.Reader
 import Control.Monad.Trans.Except
 import Control.Monad.Trans.Maybe
 import qualified Data.ByteString as BS
-import Data.Foldable (foldl')
 import Data.Kind (Type)
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq
@@ -83,13 +82,23 @@ import Concordium.Types.AnonymityRevokers
 import Concordium.Types.IdentityProviders
 import Concordium.Types.Queries (BakerPoolStatus, PassiveDelegationStatus, RewardStatus')
 import Concordium.Types.SeedState (SeedState, SeedStateVersion (..), SeedStateVersionFor)
+import Concordium.Types.Tokens (TokenRawAmount)
 import Concordium.Types.Transactions hiding (BareBlockItem (..))
 import qualified Concordium.Types.UpdateQueues as UQ
 
 import Concordium.Crypto.EncryptedTransfers
+import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference)
 import Concordium.GlobalState.ContractStateFFIHelpers (LoadCallback)
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.CooldownQueue (Cooldowns)
+import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as GSAccount
+import Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens (
+    PLTConfiguration,
+    ProtocolLevelTokensHash (..),
+    TokenIndex,
+    TokenStateKey,
+    TokenStateValue,
+ )
 import Concordium.GlobalState.Persistent.LMDB (FixedSizeSerialization)
 import Concordium.GlobalState.TransactionTable (TransactionTable)
 import Concordium.ID.Parameters (GlobalContext)
@@ -125,7 +134,10 @@ data BlockStateHashInputs (pv :: ProtocolVersion) = BlockStateHashInputs
       bshAccounts :: AccountsHash pv,
       bshInstances :: InstancesHash pv,
       bshUpdates :: H.Hash,
-      bshBlockRewardDetails :: BlockRewardDetailsHash pv
+      bshBlockRewardDetails :: BlockRewardDetailsHash pv,
+      -- | The protocol level tokens hash is present from protocol version 9.
+      bshProtocolLevelTokens ::
+        Conditionally (SupportsPLT (AccountVersionFor pv)) ProtocolLevelTokensHash
     }
     deriving (Show)
 
@@ -144,10 +156,12 @@ makeBlockStateHash BlockStateHashInputs{..} =
                     (H.hashOfHashes (theAccountsHash bshAccounts) (theInstancesHash bshInstances))
                 )
             )
-            ( H.hashOfHashes
-                bshUpdates
-                (brdHash bshBlockRewardDetails)
-            )
+            hash2
+  where
+    updatesAndBRDHash = H.hashOfHashes bshUpdates (brdHash bshBlockRewardDetails)
+    hash2 = case bshProtocolLevelTokens of
+        CFalse -> updatesAndBRDHash
+        CTrue pltHash -> H.hashOfHashes updatesAndBRDHash (theProtocolLevelTokensHash pltHash)
 
 -- | Constraint that a protocol version supports transaction outcomes.
 type SupportsTransactionOutcomes (pv :: ProtocolVersion) = (IsTransactionOutcomesVersion (TransactionOutcomesVersionFor pv))
@@ -252,6 +266,18 @@ class (BlockStateTypes m, Monad m) => AccountOperations m where
         (PVSupportsFlexibleCooldown (MPV m)) =>
         Account m ->
         m (Maybe Cooldowns)
+
+    -- | Get the protocol level tokens owned by an account. This is only available at account versions that
+    -- support protocol level tokens.
+    getAccountTokens :: (PVSupportsPLT (MPV m)) => Account m -> m (Map.Map TokenIndex GSAccount.TokenAccountState)
+
+    -- | Get the balance of a protocol-level token held by an account.
+    -- This is only available at protocol versions that support protocol-level tokens.
+    getAccountTokenBalance ::
+        (PVSupportsPLT (MPV m)) =>
+        Account m ->
+        TokenIndex ->
+        m TokenRawAmount
 
 -- * Active, current and next bakers/delegators
 
@@ -370,7 +396,8 @@ data
     InstanceInfoTypeV
         (instrumentedModule :: Wasm.WasmVersion -> Type)
         (contractState :: Wasm.WasmVersion -> Type)
-        (v :: Wasm.WasmVersion) = InstanceInfoV
+        (v :: Wasm.WasmVersion)
+    = InstanceInfoV
     { -- | Immutable parameters that change rarely after the instance is created.
       iiParameters :: InstanceParameters (instrumentedModule v),
       -- | The state that will be modified during execution.
@@ -414,7 +441,9 @@ class (Monad m, BlockStateTypes m) => ModuleQuery m where
 -- | We create a wrapper here so we can
 --  derive another 'HashableTo' instance which omits
 --  the exact 'RejectReason' in the resulting hash.
-newtype TransactionSummaryV1 = TransactionSummaryV1 {_transactionSummaryV1 :: TransactionSummary' ValidResult}
+newtype TransactionSummaryV1 (tov :: TransactionOutcomesVersion) = TransactionSummaryV1
+    { _transactionSummaryV1 :: TransactionSummary' tov ValidResult
+    }
     deriving (Eq, Show)
 
 -- | A 'HashableTo' instance for a 'TransactionSummary'' which omits the exact
@@ -425,12 +454,13 @@ newtype TransactionSummaryV1 = TransactionSummaryV1 {_transactionSummaryV1 :: Tr
 --  bytestring. The downside is more foreign calls to the hashing function, so
 --  there might be opportunities for small-scale optimizations here, but this
 --  needs careful benchmarks.
-instance HashableTo H.Hash TransactionSummaryV1 where
+instance HashableTo H.Hash (TransactionSummaryV1 tov) where
     getHash (TransactionSummaryV1 summary) =
         H.hashLazy $!
             S.runPutLazy $!
                 S.putShortByteString "TransactionOutcomeHashV1"
                     <> encodeSender (tsSender summary)
+                    <> mapM_ (putMaybe S.put) (tsSponsorDetails summary)
                     <> S.put (tsHash summary)
                     <> S.put (tsCost summary)
                     <> S.put (tsEnergyCost summary)
@@ -458,19 +488,69 @@ instance HashableTo H.Hash TransactionSummaryV1 where
             S.putWord8 1
             S.put sender
 
-instance (MonadBlobStore m, MonadProtocolVersion m) => BlobStorable m TransactionSummaryV1 where
+instance (MonadBlobStore m, MonadProtocolVersion m, tov ~ TransactionOutcomesVersionFor (MPV m)) => BlobStorable m (TransactionSummaryV1 tov) where
     storeUpdate s@(TransactionSummaryV1 ts) = return (putTransactionSummary ts, s)
     load = do
         s <- getTransactionSummary (protocolVersion @(MPV m))
         return . return $! TransactionSummaryV1 s
 
 -- Generic instance based on the HashableTo instance
-instance (Monad m) => MHashableTo m H.Hash TransactionSummaryV1
+instance (Monad m) => MHashableTo m H.Hash (TransactionSummaryV1 tov)
+
+-- | Operations on mutable token state.
+--  Note that 'updateTokenState' can only fail if a key is locked by an iterator.
+--  If only this interface is used to manipulate the token state, it is not possible to create
+--  an iterator, and thus such failures should not be possible.
+class (Monad m) => TokenStateOperations ts m where
+    -- | Lookup the token state for the given key.
+    lookupTokenState :: TokenStateKey -> ts -> m (Maybe TokenStateValue)
+
+    -- | Update the token state with a new value for the given key.
+    --  If the value is 'Nothing', the key is removed from the state.
+    --
+    --  Returns
+    --  * @Just True@ if an entry was present in the state.
+    --  * @Just False@ if no entry was present.
+    --  * @Nothing@ if the update failed because the key was locked.
+    updateTokenState :: TokenStateKey -> Maybe TokenStateValue -> ts -> m (Maybe Bool)
+
+-- | Protocol-level token state query interface.
+--  Note, to avoid having duplicative @getX@ and @bsoGetX@ operations, this class is parametrised
+--  by the block state type, which can either be @BlockState m@ (for @getX@) or
+--  @UpdateableBlockState m@ (for @bsoGetX@).
+class (MonadProtocolVersion m, Monad m, TokenStateOperations ts m) => PLTQuery bs ts m | bs m -> ts where
+    -- | Get the 'TokenId's of all protocol-level tokens registered on the chain.
+    --  If the protocol version does not support protocol-level tokens, this will return the empty
+    --  list.
+    getPLTList :: bs -> m [TokenId]
+
+    -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
+    getTokenIndex :: (PVSupportsPLT (MPV m)) => bs -> TokenId -> m (Maybe TokenIndex)
+
+    -- | Convert a persistent state to a mutable one that can be updated by the scheduler.
+    --
+    -- Updates to this state will only persist in the block state using 'bsoSetTokenState'.
+    --
+    -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getMutableTokenState :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m ts
+
+    -- | Get the configuration of a protocol-level token.
+    --
+    -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getTokenConfiguration :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m PLTConfiguration
+
+    -- | Get the circulating supply of a protocol-level token.
+    --
+    -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getTokenCirculatingSupply :: (PVSupportsPLT (MPV m)) => bs -> TokenIndex -> m TokenRawAmount
 
 -- | The block query methods can query block state. They are needed by
 --  consensus itself to compute stake, get a list of and information about
 --  bakers, finalization committee, etc.
-class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockStateQuery m where
+class
+    (ContractStateOperations m, AccountOperations m, ModuleQuery m, PLTQuery (BlockState m) (MutableTokenState m) m) =>
+    BlockStateQuery m
+    where
     -- | Get the module source from the module table as deployed to the chain.
     getModule :: BlockState m -> ModuleRef -> m (Maybe Wasm.WasmModule)
 
@@ -522,6 +602,9 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
 
     -- | Get the list of addresses of modules existing in the given block state.
     getModuleList :: BlockState m -> m [ModuleRef]
+
+    -- | Get the size of the module table.
+    getModuleCount :: BlockState m -> m Word64
 
     -- | Get the list of account addresses existing in the given block state.
     --  This returns the canonical addresses.
@@ -575,7 +658,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getRewardStatus :: BlockState m -> m (RewardStatus' Epoch)
 
     -- | Get the outcome of a transaction in the given block.
-    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe TransactionSummary)
+    getTransactionOutcome :: BlockState m -> TransactionIndex -> m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 
     -- | Get the transactionOutcomesHash of a given block.
     getTransactionOutcomesHash :: BlockState m -> m TransactionOutcomesHash
@@ -584,7 +667,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getStateHash :: BlockState m -> m StateHash
 
     -- | Get all transaction outcomes for this block.
-    getOutcomes :: BlockState m -> m (Vec.Vector TransactionSummary)
+    getOutcomes :: BlockState m -> m (Vec.Vector (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
 
     -- | Get special transactions outcomes (for administrative transactions, e.g., baker reward)
     --  They should be returned in the order that they were emitted.
@@ -638,7 +721,7 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
     getCryptographicParameters :: BlockState m -> m CryptographicParameters
 
     -- | Get the block's UpdateKeysCollection
-    getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
+    getUpdateKeysCollection :: BlockState m -> m (UpdateKeysCollection (AuthorizationsVersionFor (MPV m)))
 
     -- | Get the current exchange rates, which are the Euro per NRG, micro CCD per Euro and the derived energy to microCCD rate.
     getExchangeRates :: BlockState m -> m ExchangeRates
@@ -662,6 +745,18 @@ class (ContractStateOperations m, AccountOperations m, ModuleQuery m) => BlockSt
         (PVSupportsDelegation (MPV m)) =>
         BlockState m ->
         m PassiveDelegationStatus
+
+    -- | Get the index of accounts with scheduled releases.
+    getScheduledReleaseAccounts :: BlockState m -> m (Map.Map Timestamp (Set.Set AccountIndex))
+
+    -- | Get the index of accounts with stake in cooldown.
+    getCooldownAccounts :: BlockState m -> m (Map.Map Timestamp (Set.Set AccountIndex))
+
+    -- | Get the index of accounts in pre-cooldown.
+    getPreCooldownAccounts :: BlockState m -> m [AccountIndex]
+
+    -- | Get the index of accounts in pre-pre-cooldown.
+    getPrePreCooldownAccounts :: BlockState m -> m [AccountIndex]
 
 -- | Distribution of newly-minted GTU.
 data MintAmounts = MintAmounts
@@ -734,7 +829,11 @@ data ActiveBakerInfo' bakerInfoRef = ActiveBakerInfo
       activeBakerPendingChange :: !(StakePendingChange' Timestamp),
       -- | Information about the delegators to the baker in ascending order of 'DelegatorId'.
       --  (There must be no duplicate 'DelegatorId's.)
-      activeBakerDelegators :: ![ActiveDelegatorInfo]
+      activeBakerDelegators :: ![ActiveDelegatorInfo],
+      -- | A flag indicating whether the baker is suspended.
+      activeBakerIsSuspended :: !Bool,
+      -- | The id of the baker.
+      activeBakerId :: !BakerId
     }
     deriving (Eq, Show)
 
@@ -744,7 +843,7 @@ type ActiveBakerInfo m = ActiveBakerInfo' (BakerInfoRef m)
 -- | Block state update operations parametrized by a monad. The operations which
 --  mutate the state all also return an 'UpdatableBlockState' handle. This is to
 --  support different implementations, from pure ones to stateful ones.
-class (BlockStateQuery m) => BlockStateOperations m where
+class (BlockStateQuery m, PLTQuery (UpdatableBlockState m) (MutableTokenState m) m) => BlockStateOperations m where
     -- | Get the module from the module table of the state instance.
     bsoGetModule :: UpdatableBlockState m -> ModuleRef -> m (Maybe (GSWasm.ModuleInterface (InstrumentedModuleRef m)))
 
@@ -801,7 +900,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Update the set of credentials on a given account by: removing credentials, adding
     --  credentials, and updating the account threshold (i.e. number of credentials that are
-    --  required for a valid signature from the account).  Added credentials will be be added
+    --  required for a valid signature from the account).  Added credentials will be added
     --  to the global set of known credentials.
     --
     --  The caller is responsible for establishing the following preconditions:
@@ -1068,8 +1167,15 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --        (2) update the account's finalization reward commission rate to the the supplied value @frc@;
     --
     --        (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
+
+    --  7. (>= P8) If the suspended/resumed flag is set:
+
+    --        (1) Suspend/resume the validator according to the flag.
+
+    --        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
     --
-    --  7. If the capital is supplied: if there is a pending change to the baker's capital, return
+    --
+    --  8. If the capital is supplied: if there is a pending change to the baker's capital, return
     --     @VCFChangePending@; otherwise:
     --
     --       * if the capital is 0
@@ -1105,7 +1211,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     --         is (preferentially) reactivated from the inactive stake, updating the global indices
     --         accordingly.
     --
-    --  8. Return @events@ with the updated block state.
+    --  9. Return @events@ with the updated block state.
     bsoUpdateValidator ::
         (PVSupportsDelegation (MPV m)) =>
         UpdatableBlockState m ->
@@ -1338,7 +1444,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Function 'bsoGetBakerPoolRewardDetails' returns a map with the 'BakerPoolRewardDetails' for each
     --  current-epoch baker (in the 'CapitalDistribution' returned by 'bsoGetCurrentCapitalDistribution').
-    bsoGetBakerPoolRewardDetails :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (Map.Map BakerId BakerPoolRewardDetails)
+    bsoGetBakerPoolRewardDetails :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> m (Map.Map BakerId (BakerPoolRewardDetails (AccountVersionFor (MPV m))))
 
     -- | Update the transaction fee rewards accruing to a baker pool by the specified delta. It is a
     --  precondition that the given baker is a current-epoch baker.
@@ -1347,9 +1453,9 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoUpdateAccruedTransactionFeesBaker :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> BakerId -> AmountDelta -> m (UpdatableBlockState m)
 
     -- | Mark that the given bakers have signed a finalization proof included in a block during the
-    --  reward period. Any baker ids that are not current-epoch bakers will be ignored.
-    --  (This is significant, as the finalization record in a block may be signed by a finalizer that
-    --  has since been removed as a baker.)
+    --  reward period and clear their missed rounds. Any baker ids that are not current-epoch bakers
+    --  will be ignored. (This is significant, as the finalization record in a block may be signed by
+    --  a finalizer that has since been removed as a baker.)
     --  Note, the finalization-awake status is reset by 'bsoRotateCurrentCapitalDistribution'.
     bsoMarkFinalizationAwakeBakers :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> [BakerId] -> m (UpdatableBlockState m)
 
@@ -1415,7 +1521,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoSetPaydayMintRate :: (PVSupportsDelegation (MPV m)) => UpdatableBlockState m -> MintRate -> m (UpdatableBlockState m)
 
     -- | Set the transaction outcomes for the block.
-    bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary] -> m (UpdatableBlockState m)
+    bsoSetTransactionOutcomes :: UpdatableBlockState m -> [TransactionSummary (TransactionOutcomesVersionFor (MPV m))] -> m (UpdatableBlockState m)
 
     -- | Add a special transaction outcome.
     bsoAddSpecialTransactionOutcome :: UpdatableBlockState m -> SpecialTransactionOutcome -> m (UpdatableBlockState m)
@@ -1424,7 +1530,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoProcessUpdateQueues ::
         UpdatableBlockState m ->
         Timestamp ->
-        m ([(TransactionTime, UpdateValue (ChainParametersVersionFor (MPV m)))], UpdatableBlockState m)
+        m ([(TransactionTime, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))], UpdatableBlockState m)
 
     -- | Unlock the amounts up to the given timestamp
     bsoProcessReleaseSchedule :: UpdatableBlockState m -> Timestamp -> m (UpdatableBlockState m)
@@ -1432,7 +1538,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     -- | Get the current 'Authorizations' for validating updates.
     bsoGetUpdateKeyCollection ::
         UpdatableBlockState m ->
-        m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
+        m (UpdateKeysCollection (AuthorizationsVersionFor (MPV m)))
 
     -- | Get the next 'UpdateSequenceNumber' for a given update type.
     bsoGetNextUpdateSequenceNumber :: UpdatableBlockState m -> UpdateType -> m UpdateSequenceNumber
@@ -1441,16 +1547,26 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoEnqueueUpdate ::
         UpdatableBlockState m ->
         TransactionTime ->
-        (UpdateValue (ChainParametersVersionFor (MPV m))) ->
+        (UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m))) ->
         m (UpdatableBlockState m)
+
+    -- | Increment the update sequence number for Protocol Level Tokens (PLT).
+    -- Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
+    bsoIncrementPLTUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> m (UpdatableBlockState m)
+
+    -- | Convert a mutable state to a persistent one and store it in the block state.
+    --
+    -- To ensure this is future-proof, the mutable state should not be used after this call.
+    --
+    -- PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoSetTokenState :: (PVSupportsPLT (MPV m)) => UpdatableBlockState m -> TokenIndex -> MutableTokenState m -> m (UpdatableBlockState m)
 
     -- | Overwrite the election difficulty, removing any queued election difficulty updates.
     --  This is intended to be used for protocol updates that affect the election difficulty in
     --  tandem with the slot duration.
     --  Note that this does not affect the next sequence number for election difficulty updates.
     bsoOverwriteElectionDifficulty ::
-        ( ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0
-        ) =>
+        (ConsensusParametersVersionFor (ChainParametersVersionFor (MPV m)) ~ 'ConsensusParametersVersion0) =>
         UpdatableBlockState m ->
         ElectionDifficulty ->
         m (UpdatableBlockState m)
@@ -1473,7 +1589,7 @@ class (BlockStateQuery m) => BlockStateOperations m where
     bsoGetEpochBlocksBaked :: UpdatableBlockState m -> m (Word64, [(BakerId, Word64)])
 
     -- | Record that the given baker has baked a block in the current epoch. It is a precondition that
-    --  the given baker is a current-epoch baker.
+    --  the given baker is a current-epoch baker. This also clears the missed rounds for a baker.
     bsoNotifyBlockBaked :: UpdatableBlockState m -> BakerId -> m (UpdatableBlockState m)
 
     -- | Clear the tracking of baked blocks in the current epoch.
@@ -1502,6 +1618,94 @@ class (BlockStateQuery m) => BlockStateOperations m where
 
     -- | Get whether a protocol update is effective
     bsoIsProtocolUpdateEffective :: UpdatableBlockState m -> m Bool
+
+    -- | Update the count of missed rounds for given validators by the given
+    --  delta. Rounds are `missed` by a validator, if it has been elected leader but the
+    --  round did timeout.
+    bsoUpdateMissedRounds :: (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> Map.Map BakerId Word64 -> m (UpdatableBlockState m)
+
+    -- | Mark given validators for possible suspension at the next snapshot
+    --  epoch. Returns the subset of the current epoch validator ids whose
+    --  missed rounds exceeded the given threshold and are now primed for
+    --  suspension.
+    bsoPrimeForSuspension ::
+        (PVSupportsDelegation (MPV m), PVSupportsValidatorSuspension (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | The threshold for maximal missed rounds
+        Word64 ->
+        -- | Returns the subset of primed validator ids of the current epoch
+        --  validators and the updated block state
+        m ([BakerId], UpdatableBlockState m)
+
+    -- | Suspend validators with the given account indices, if
+    --  1) the account index points to an existing account
+    --  2) the account belongs to a validator
+    --  3) the account was not already suspended
+    --  Returns the subset of account indices that were suspended together with their canonical
+    --  addresses.
+    bsoSuspendValidators :: (PVSupportsValidatorSuspension (MPV m)) => UpdatableBlockState m -> [AccountIndex] -> m ([(AccountIndex, AccountAddress)], UpdatableBlockState m)
+
+    -- | Set the recorded total circulating supply for a protocol-level token.
+    --  This should always be kept up-to-date with the total balance held in accounts
+    --  (and smart contracts).
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoSetTokenCirculatingSupply ::
+        (PVSupportsPLT (MPV m)) =>
+        -- | The current block state.
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The new total circulating supply for the token.
+        TokenRawAmount ->
+        -- | The updated block state.
+        m (UpdatableBlockState m)
+
+    -- | Create a new token with the given configuration. The initial state will be empty
+    --  and the initial supply will be 0. Returns the token index and the updated state.
+    --
+    --  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already be in use
+    --  by a protocol-level token, i.e. @getTokenIndex s (_pltTokenId cfg)@ should return
+    --  @Nothing@. The 'PLTConfiguration' MUST be valid, and in particular the
+    --  '_pltGovernanceAccountIndex' MUST reference a valid account.
+    bsoCreateToken ::
+        (PVSupportsPLT (MPV m)) =>
+        -- | The current block state @s@.
+        UpdatableBlockState m ->
+        -- | The configuration for the token @cfg@.
+        PLTConfiguration ->
+        -- | The index of the new token and the updated block state.
+        m (TokenIndex, UpdatableBlockState m)
+
+    -- Update the token balance. Returns 'Nothing' if the update would overflow or underflow
+    -- the token balance on the account.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    bsoUpdateTokenAccountBalance ::
+        (PVSupportsPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | The token index to update.
+        TokenIndex ->
+        -- | The account to update.
+        AccountIndex ->
+        -- | The token balance delta.
+        GSAccount.TokenAmountDelta ->
+        m (Maybe (UpdatableBlockState m))
+
+    -- Touch the token account. This initializes a token account state with a
+    -- balance of zero. This only affects an account if its state for the token
+    -- is empty.
+    --
+    -- Returns nothing, if the account already contained a token account state,
+    -- otherwise the updated block state.
+    bsoTouchTokenAccount ::
+        (PVSupportsPLT (MPV m)) =>
+        UpdatableBlockState m ->
+        -- | The token index to update
+        TokenIndex ->
+        -- | The account to update
+        AccountIndex ->
+        m (Maybe (UpdatableBlockState m))
 
     -- | A snapshot of the block state that can be used to roll back to a previous state.
     type StateSnapshot m
@@ -1547,11 +1751,12 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     -- | Ensure that a block state is stored and return a reference to it.
     saveBlockState :: BlockState m -> m (BlockStateRef m)
 
-    -- | Ensure that any accounts created in a block are persisted.
+    -- | Add all accounts created and modules added since the last finalized block to the
+    --  global account and module maps.
     --  This should be called when a block is being finalized.
     --
     --  Precondition: The block state must be in memory and it must not have been archived.
-    saveAccounts :: BlockState m -> m ()
+    saveGlobalMaps :: BlockState m -> m ()
 
     -- | Reconstructs the account difference map and return it.
     --  This function is used for blocks that are stored but are not finalized (in particular, certified blocks)
@@ -1559,6 +1764,8 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --
     --  Preconditions:
     --  * This function MUST only be called on a certified block.
+    --  * The block state MUST already be cached (with 'cacheBlockState'). Otherwise the update to
+    --    the difference map may not be retained.
     --  * This function MUST only be called on a block state that does not already
     --    have a difference map.
     --  * The provided list of accounts MUST correspond to the accounts created in the block,
@@ -1571,11 +1778,32 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
         -- | The block state to reconstruct the difference map for.
         BlockState m ->
         -- | The difference map reference from the parent block's state.
-        DiffMap.DifferenceMapReference ->
+        DiffMap.AccountDifferenceMapReference ->
         -- | The account addresses created in the block, in order of creation.
         [AccountAddress] ->
         -- | Reference to the new difference map for the block.
-        m DiffMap.DifferenceMapReference
+        m DiffMap.AccountDifferenceMapReference
+
+    -- | Reconstruct the module difference map and return it.
+    --  This function is used for blocks that are stored but are not finalized (in particular,
+    --  certified blocks) since only the modules for finalized blocks are stored in the LMDB store.
+    --
+    --  Preconditions:
+    --  * This function MUST only be called on a certified block.
+    --  * This function MUST only be called on a block state that does not already have
+    --    a difference map.
+    --  * The provided difference map reference MUST be the one of the parent block.
+    --
+    --  This function should only be used when starting from an already initialized state, and hence
+    --  we need to reconstruct the difference map since the modules are not yet finalized.
+    reconstructModuleDifferenceMap ::
+        -- | The block state to reconstruct the difference map for.
+        BlockState m ->
+        -- | The difference map reference from the parent block's state, and size of its
+        --  module table.
+        (ModuleDifferenceMapReference, Word64) ->
+        -- | Reference to the new difference map for the block, and size of its module table.
+        m (ModuleDifferenceMapReference, Word64)
 
     -- | Load a block state from a reference, given its state hash if provided,
     --  otherwise calculate the state hash upon loading.
@@ -1598,15 +1826,29 @@ class (BlockStateOperations m, FixedSizeSerialization (BlockStateRef m)) => Bloc
     --  the next "update sequence numbers".
     cacheBlockStateAndGetTransactionTable :: BlockState m -> m TransactionTable
 
-    -- | Populate the LMDB account map if it has not already been initialized.
-    --  If the lmdb store has already been initialized, then this function does nothing.
-    --  Otherwise this function populates the lmdb backed account map with the accounts
-    --  present in the account table of the block state.
-    tryPopulateAccountMap :: BlockState m -> m ()
+    -- | Populate the LMDB account map and module map if they are not already initialized.
+    --  If either map contains fewer entries than the corresponding table in the block state,
+    --  then the map is reconstructed afresh from the table.
+    --
+    --  The provided block is expected to be the last finalized block. It is assumed that
+    --  any entries in the existing maps are based on finalized accounts and modules, and
+    --  hence will be correct for all future blocks.
+    tryPopulateGlobalMaps :: BlockState m -> m ()
 
 instance (Monad (t m), MonadTrans t, ModuleQuery m) => ModuleQuery (MGSTrans t m) where
     getModuleArtifact = lift . getModuleArtifact
     {-# INLINE getModuleArtifact #-}
+
+instance (Monad (t m), MonadTrans t, TokenStateOperations ts m) => TokenStateOperations ts (MGSTrans t m) where
+    lookupTokenState key = lift . lookupTokenState key
+    updateTokenState key value = lift . updateTokenState key value
+
+instance (Monad (t m), MonadTrans t, PLTQuery bs ts m) => PLTQuery bs ts (MGSTrans t m) where
+    getPLTList = lift . getPLTList
+    getTokenIndex bs = lift . getTokenIndex bs
+    getMutableTokenState blockState = lift . getMutableTokenState blockState
+    getTokenConfiguration bs = lift . getTokenConfiguration bs
+    getTokenCirculatingSupply bs = lift . getTokenCirculatingSupply bs
 
 instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGSTrans t m) where
     getModule s = lift . getModule s
@@ -1622,6 +1864,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getBakerAccount s = lift . getBakerAccount s
     getContractInstance s = lift . getContractInstance s
     getModuleList = lift . getModuleList
+    getModuleCount = lift . getModuleCount
     getAccountList = lift . getAccountList
     getContractInstanceList = lift . getContractInstanceList
     getSeedState = lift . getSeedState
@@ -1654,6 +1897,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     getPaydayEpoch = lift . getPaydayEpoch
     getPoolStatus s = lift . getPoolStatus s
     getPassiveDelegationStatus = lift . getPassiveDelegationStatus
+    getScheduledReleaseAccounts = lift . getScheduledReleaseAccounts
+    getCooldownAccounts = lift . getCooldownAccounts
+    getPreCooldownAccounts = lift . getPreCooldownAccounts
+    getPrePreCooldownAccounts = lift . getPrePreCooldownAccounts
     {-# INLINE getModule #-}
     {-# INLINE getAccount #-}
     {-# INLINE accountExists #-}
@@ -1662,6 +1909,7 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getBakerAccount #-}
     {-# INLINE getContractInstance #-}
     {-# INLINE getModuleList #-}
+    {-# INLINE getModuleCount #-}
     {-# INLINE getAccountList #-}
     {-# INLINE getContractInstanceList #-}
     {-# INLINE getSeedState #-}
@@ -1688,6 +1936,10 @@ instance (Monad (t m), MonadTrans t, BlockStateQuery m) => BlockStateQuery (MGST
     {-# INLINE getUpdateKeysCollection #-}
     {-# INLINE getExchangeRates #-}
     {-# INLINE getChainParameters #-}
+    {-# INLINE getScheduledReleaseAccounts #-}
+    {-# INLINE getCooldownAccounts #-}
+    {-# INLINE getPreCooldownAccounts #-}
+    {-# INLINE getPrePreCooldownAccounts #-}
 
 instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (MGSTrans t m) where
     getAccountCanonicalAddress = lift . getAccountCanonicalAddress
@@ -1709,6 +1961,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     derefBakerInfo = lift . derefBakerInfo
     getAccountHash = lift . getAccountHash
     getAccountCooldowns = lift . getAccountCooldowns
+    getAccountTokens = lift . getAccountTokens
+    getAccountTokenBalance acct tokenIx = lift $ getAccountTokenBalance acct tokenIx
     {-# INLINE getAccountCanonicalAddress #-}
     {-# INLINE getAccountAmount #-}
     {-# INLINE getAccountAvailableAmount #-}
@@ -1724,6 +1978,8 @@ instance (Monad (t m), MonadTrans t, AccountOperations m) => AccountOperations (
     {-# INLINE derefBakerInfo #-}
     {-# INLINE getAccountHash #-}
     {-# INLINE getAccountCooldowns #-}
+    {-# INLINE getAccountTokens #-}
+    {-# INLINE getAccountTokenBalance #-}
 
 type instance MBSStore (MGSTrans t m) = MBSStore m
 instance (Monad (t m), MonadTrans t, ContractStateOperations m) => ContractStateOperations (MGSTrans t m) where
@@ -1802,6 +2058,7 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetUpdateKeyCollection = lift . bsoGetUpdateKeyCollection
     bsoGetNextUpdateSequenceNumber s = lift . bsoGetNextUpdateSequenceNumber s
     bsoEnqueueUpdate s tt payload = lift $ bsoEnqueueUpdate s tt payload
+    bsoIncrementPLTUpdateSequenceNumber = lift . bsoIncrementPLTUpdateSequenceNumber
     bsoOverwriteElectionDifficulty s = lift . bsoOverwriteElectionDifficulty s
     bsoClearProtocolUpdate = lift . bsoClearProtocolUpdate
     bsoGetExchangeRates = lift . bsoGetExchangeRates
@@ -1815,6 +2072,14 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     bsoGetBankStatus = lift . bsoGetBankStatus
     bsoSetRewardAccounts s = lift . bsoSetRewardAccounts s
     bsoIsProtocolUpdateEffective = lift . bsoIsProtocolUpdateEffective
+    bsoUpdateMissedRounds s = lift . bsoUpdateMissedRounds s
+    bsoPrimeForSuspension s = lift . bsoPrimeForSuspension s
+    bsoSuspendValidators s = lift . bsoSuspendValidators s
+    bsoSetTokenState blockState tokenIndex mutableState = lift $ bsoSetTokenState blockState tokenIndex mutableState
+    bsoSetTokenCirculatingSupply s tokIx = lift . bsoSetTokenCirculatingSupply s tokIx
+    bsoCreateToken s = lift . bsoCreateToken s
+    bsoUpdateTokenAccountBalance s tokIx accIx = lift . bsoUpdateTokenAccountBalance s tokIx accIx
+    bsoTouchTokenAccount s tokIx = lift . bsoTouchTokenAccount s tokIx
     type StateSnapshot (MGSTrans t m) = StateSnapshot m
     bsoSnapshotState = lift . bsoSnapshotState
     bsoRollback s = lift . bsoRollback s
@@ -1871,6 +2136,14 @@ instance (Monad (t m), MonadTrans t, BlockStateOperations m) => BlockStateOperat
     {-# INLINE bsoSetRewardAccounts #-}
     {-# INLINE bsoGetCurrentEpochBakers #-}
     {-# INLINE bsoIsProtocolUpdateEffective #-}
+    {-# INLINE bsoUpdateMissedRounds #-}
+    {-# INLINE bsoPrimeForSuspension #-}
+    {-# INLINE bsoSetTokenCirculatingSupply #-}
+    {-# INLINE bsoCreateToken #-}
+    {-# INLINE bsoUpdateTokenAccountBalance #-}
+    {-# INLINE bsoTouchTokenAccount #-}
+    {-# INLINE bsoSetTokenState #-}
+    {-# INLINE bsoSuspendValidators #-}
     {-# INLINE bsoSnapshotState #-}
     {-# INLINE bsoRollback #-}
 
@@ -1881,14 +2154,15 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     purgeBlockState = lift . purgeBlockState
     archiveBlockState = lift . archiveBlockState
     saveBlockState = lift . saveBlockState
-    saveAccounts = lift . saveAccounts
+    saveGlobalMaps = lift . saveGlobalMaps
     reconstructAccountDifferenceMap bs parentMap = lift . reconstructAccountDifferenceMap bs parentMap
+    reconstructModuleDifferenceMap bs = lift . reconstructModuleDifferenceMap bs
     loadBlockState hsh = lift . loadBlockState hsh
     blockStateLoadCallback = lift blockStateLoadCallback
     collapseCaches = lift collapseCaches
     cacheBlockState = lift . cacheBlockState
     cacheBlockStateAndGetTransactionTable = lift . cacheBlockStateAndGetTransactionTable
-    tryPopulateAccountMap = lift . tryPopulateAccountMap
+    tryPopulateGlobalMaps = lift . tryPopulateGlobalMaps
     {-# INLINE thawBlockState #-}
     {-# INLINE freezeBlockState #-}
     {-# INLINE dropUpdatableBlockState #-}
@@ -1896,14 +2170,17 @@ instance (Monad (t m), MonadTrans t, BlockStateStorage m) => BlockStateStorage (
     {-# INLINE archiveBlockState #-}
     {-# INLINE saveBlockState #-}
     {-# INLINE reconstructAccountDifferenceMap #-}
+    {-# INLINE reconstructModuleDifferenceMap #-}
     {-# INLINE loadBlockState #-}
     {-# INLINE blockStateLoadCallback #-}
     {-# INLINE collapseCaches #-}
     {-# INLINE cacheBlockState #-}
     {-# INLINE cacheBlockStateAndGetTransactionTable #-}
-    {-# INLINE tryPopulateAccountMap #-}
+    {-# INLINE tryPopulateGlobalMaps #-}
 
 type instance MBSStore (MaybeT m) = MBSStore m
+deriving via (MGSTrans MaybeT m) instance (TokenStateOperations ts m) => TokenStateOperations ts (MaybeT m)
+deriving via (MGSTrans MaybeT m) instance (PLTQuery bs ts m) => PLTQuery bs ts (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateQuery m) => BlockStateQuery (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (AccountOperations m) => AccountOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (ContractStateOperations m) => ContractStateOperations (MaybeT m)
@@ -1911,6 +2188,8 @@ deriving via (MGSTrans MaybeT m) instance (ModuleQuery m) => ModuleQuery (MaybeT
 deriving via (MGSTrans MaybeT m) instance (BlockStateOperations m) => BlockStateOperations (MaybeT m)
 deriving via (MGSTrans MaybeT m) instance (BlockStateStorage m) => BlockStateStorage (MaybeT m)
 
+deriving via (MGSTrans (ExceptT e) m) instance (TokenStateOperations ts m) => TokenStateOperations ts (ExceptT e m)
+deriving via (MGSTrans (ExceptT e) m) instance (PLTQuery bs ts m) => PLTQuery bs ts (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (BlockStateQuery m) => BlockStateQuery (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (AccountOperations m) => AccountOperations (ExceptT e m)
 deriving via (MGSTrans (ExceptT e) m) instance (ContractStateOperations m) => ContractStateOperations (ExceptT e m)

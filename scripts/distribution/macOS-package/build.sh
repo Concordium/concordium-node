@@ -19,9 +19,10 @@ readonly developerIdInstaller="Developer ID Installer: Concordium Software Aps (
 macPackageDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 readonly macPackageDir
 
-readonly nodeDir="$macPackageDir/../../../concordium-node"
-readonly collectorDir="$macPackageDir/../../../collector"
-readonly consensusDir="$macPackageDir/../../../concordium-consensus"
+readonly baseDir="$macPackageDir/../../.."
+readonly nodeDir="$baseDir/concordium-node"
+readonly collectorDir="$baseDir/collector"
+readonly consensusDir="$baseDir/concordium-consensus"
 
 readonly toolsDir="$macPackageDir/tools"
 readonly macdylibbundlerDir="$toolsDir/macdylibbundler-1.0.5"
@@ -33,10 +34,9 @@ readonly pkgFile="$buildDir/packages/concordium-node.pkg"
 readonly productFile="$buildDir/packages/concordium-node-$version-unsigned.pkg"
 readonly signedProductFile="$buildDir/packages/concordium-node-$version.pkg"
 
-ghcVersion="$(stack --stack-yaml "$consensusDir/stack.yaml" ghc -- --version | cut -d' ' -f8)" # Get the GHC version used in Consensus.
-readonly ghcVersion
 
-readonly ghcVariant="x86_64-osx-ghc-$ghcVersion"
+ghcVersion="$(stack --stack-yaml "$baseDir/stack.yaml" ghc -- --version | cut -d' ' -f8)" # Get the GHC version used in Consensus.
+readonly ghcVersion
 
 # Log info in green color.
 logInfo () {
@@ -160,7 +160,7 @@ function createBuildDirFromTemplate() {
 
 # Compile Consensus using stack.
 function compileConsensus() {
-    cd "$consensusDir"
+    cd "$baseDir"
     logInfo "Building Consensus..."
     stack build
     logInfo "Done"
@@ -170,9 +170,9 @@ function compileConsensus() {
 function compileNodeAndCollector() {
     cd "$nodeDir"
     logInfo "Building Node and Collector..."
-    cargo build --bin concordium-node --release
+    cargo build --bin concordium-node --release --locked
     cd "$collectorDir"
-    cargo build --release
+    cargo build --release --locked
     logInfo "Done"
 }
 
@@ -254,18 +254,43 @@ function collectDylibs() {
         # the results of previous calls to `collectDylibsFor`.
         "$macdylibbundlerDir/dylibbundler" --fix-file "$fileToFix" --bundle-deps --dest-dir "./libs" --install-path "@executable_path/libs/" --create-dir \
             -s "$concordiumDylibDir" \
-            -s "$concordiumDylibDir/$ghcVariant" \
+            -s "$concordiumDylibGhcDir" \
             -s "$stackSnapshotDir" \
             $stackLibDirs # Unquoted on purpose to use as arguments correctly
     }
 
     logInfo "Collecting dylibs with dylibbundler (this will take a few minutes)..."
 
-    concordiumDylibDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --local-install-root)"/lib"
-    stackSnapshotDir=$(stack --stack-yaml "$consensusDir/stack.yaml" path --snapshot-install-root)"/lib/$ghcVariant"
+    concordiumDylibDir=$(stack --stack-yaml "$baseDir/stack.yaml" path --local-install-root)"/lib"    
+    # We use `find` to get the first directory that matches the GHC version.
+    # There SHOULD be exactly one such directory. We do this because we do not want to
+    # hardcode the ABI short hash, which is the last part of the directory name.
+    concordiumDylibGhcDirs=()
+    while IFS= read -r line; do
+        concordiumDylibGhcDirs+=("$line")
+    done < <(find "$concordiumDylibDir" -maxdepth 1 -type d -name "*-${ghcVersion}*")
+    if [[ ${#concordiumDylibGhcDirs[@]} -ne 1 ]]; then
+        logInfo "Expected exactly one directory matching '*-${ghcVersion}*' in '$concordiumDylibDir'. Found: ${#concordiumDylibGhcDirs[@]} directories."
+        logInfo "Directories found: ${concordiumDylibGhcDirs[@]}"
+        exit 1
+    fi
+    concordiumDylibGhcDir="${concordiumDylibGhcDirs[0]}"
+
+    stackSnapshotRoot=$(stack --stack-yaml "$baseDir/stack.yaml" path --snapshot-install-root)"/lib"    
+    stackSnapshotDirs=()
+    while IFS= read -r dir; do
+        stackSnapshotDirs+=("$dir")
+    done < <(find "$stackSnapshotRoot" -maxdepth 1 -type d -name "*-${ghcVersion}*")
+    if [[ ${#stackSnapshotDirs[@]} -ne 1 ]]; then
+        logInfo "Expected exactly one directory matching '*-${ghcVersion}*' in '$stackSnapshotRoot'. Found: ${#stackSnapshotDirs[@]} directories."
+        logInfo "Directories found: ${stackSnapshotDirs[@]}"
+        exit 1
+    fi
+    stackSnapshotDir="${stackSnapshotDirs[0]}"
     # Use awk to preprend '-s ' to each dylib, to be used as argument for dylibbundler directly.
-    stackLibDirs=$(find "$(stack --stack-yaml "$consensusDir/stack.yaml" ghc -- --print-libdir)" -maxdepth 1 -type d | awk '{print "-s "$0}')
+    stackLibDirs=$(find "$(stack --stack-yaml "$baseDir/stack.yaml" ghc -- --print-libdir)" -maxdepth 1 -type d | awk '{print "-s "$0}')
     readonly concordiumDylibDir
+    readonly concordiumDylibGhcDir
     readonly stackSnapshotDir
     readonly stackLibDirs
 

@@ -21,7 +21,6 @@ For now `numberOfTransactions == maxNumIncoming + 2`.
 -}
 
 import Control.Monad
-import Data.Foldable
 import Data.Maybe (fromJust)
 import qualified Data.Sequence as Seq
 import Test.HUnit
@@ -63,7 +62,7 @@ testCase0 spv pvString = when (supportsEncryptedTransfers spv)
             initialBlockState
             transactionsAndAssertions
   where
-    makeTransactionsAndAssertions :: IO [Helpers.TransactionAndAssertion pv]
+    makeTransactionsAndAssertions :: IO [Helpers.BlockItemAndAssertion pv]
     makeTransactionsAndAssertions = do
         -- Transaction 1. Pub to sec (1000)
         let encryptedAmount1000 :: EncryptedAmount
@@ -121,14 +120,15 @@ testCase0 spv pvString = when (supportsEncryptedTransfers spv)
                     (numberOfTransactions * 10)
 
         return $
-            [ Helpers.TransactionAndAssertion
-                { taaTransaction =
-                    Runner.TJSON
-                        { payload = Runner.TransferToEncrypted 1_000,
-                          metadata = makeDummyHeader accountAddress0 1 100_000,
-                          keys = [(0, [(0, keyPair0)])]
-                        },
-                  taaAssertion = \result state -> do
+            [ Helpers.BlockItemAndAssertion
+                { biaaTransaction =
+                    Runner.AccountTx $
+                        Runner.TJSON
+                            { payload = Runner.TransferToEncrypted 1_000,
+                              metadata = makeDummyHeader accountAddress0 1 100_000,
+                              keys = [(0, [(0, keyPair0)])]
+                            },
+                  biaaAssertion = \result state -> do
                     doEncryptedBalanceAssertions <-
                         assertEncryptedBalance
                             Types.initialAccountEncryptedAmount
@@ -151,14 +151,15 @@ testCase0 spv pvString = when (supportsEncryptedTransfers spv)
                 -- Now send 34 transactions of 10 tokens from account0 to account1
                 ++ generatedTransactions
                 -- Send the encrypted 340 tokens on account1 to public balance
-                ++ [ Helpers.TransactionAndAssertion
-                        { taaTransaction =
-                            Runner.TJSON
-                                { payload = Runner.TransferToPublic secToPubTransferData,
-                                  metadata = makeDummyHeader accountAddress1 1 100_000,
-                                  keys = [(0, [(0, keyPair1)])]
-                                },
-                          taaAssertion = \result state -> do
+                ++ [ Helpers.BlockItemAndAssertion
+                        { biaaTransaction =
+                            Runner.AccountTx $
+                                Runner.TJSON
+                                    { payload = Runner.TransferToPublic secToPubTransferData,
+                                      metadata = makeDummyHeader accountAddress1 1 100_000,
+                                      keys = [(0, [(0, keyPair1)])]
+                                    },
+                          biaaAssertion = \result state -> do
                             doEncryptedBalanceAssertions <-
                                 assertEncryptedBalance
                                     Types.initialAccountEncryptedAmount
@@ -369,16 +370,17 @@ makeTransaction ::
     Helpers.TransactionAssertion pv ->
     EncryptedAmountTransferData ->
     EncryptedAmountAggIndex ->
-    Helpers.TransactionAndAssertion pv
+    Helpers.BlockItemAndAssertion pv
 makeTransaction blockStateChecks transferData idx =
-    Helpers.TransactionAndAssertion
-        { taaTransaction =
-            Runner.TJSON
-                { payload = Runner.EncryptedAmountTransfer accountAddress1 transferData, -- create an encrypted transfer to account1
-                  metadata = makeDummyHeader accountAddress0 (fromIntegral idx + 1) 100_000, -- from account0 with nonce idx + 1
-                  keys = [(0, [(0, keyPair0)])]
-                },
-          taaAssertion = \result state -> do
+    Helpers.BlockItemAndAssertion
+        { biaaTransaction =
+            Runner.AccountTx $
+                Runner.TJSON
+                    { payload = Runner.EncryptedAmountTransfer accountAddress1 transferData, -- create an encrypted transfer to account1
+                      metadata = makeDummyHeader accountAddress0 (fromIntegral idx + 1) 100_000, -- from account0 with nonce idx + 1
+                      keys = [(0, [(0, keyPair0)])]
+                    },
+          biaaAssertion = \result state -> do
             doBlockStateChecks <- blockStateChecks result state
             return $ do
                 case Helpers.getResults $ Sch.ftAdded $ Helpers.srTransactions result of

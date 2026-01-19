@@ -42,6 +42,7 @@ import Test.Hspec
 
 -- | Deterministically generate a baker account from a seed.
 makeTestBakerV1FromSeed ::
+    forall av m.
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     -- | The initial balance of the account.
     Amount ->
@@ -53,14 +54,17 @@ makeTestBakerV1FromSeed ::
     BakerId ->
     -- | Seed used to generate account and baker keys.
     Int ->
+    -- | Whether to suspend the account initially.
+    Bool ->
     m (BS.PersistentAccount av)
-makeTestBakerV1FromSeed amount stake bakerId seed = do
+makeTestBakerV1FromSeed amount stake bakerId seed suspend = do
     account <- Helpers.makeTestAccountFromSeed amount seed
     let (fulBaker, _, _, _) = mkFullBaker seed bakerId
     let bakerInfoEx =
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. theBakerInfo,
-                  _bieBakerPoolInfo = poolInfo
+                  _bieBakerPoolInfo = poolInfo,
+                  _bieIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @av)) suspend
                 }
     BS.addAccountBakerV1 bakerInfoEx stake True account
   where
@@ -96,7 +100,7 @@ makeTestDelegatorFromSeed amount accountDelegation seed = do
 baker0Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
-baker0Account = makeTestBakerV1FromSeed 1_000_000_000_000 1_000_000_000_000 bakerId seed
+baker0Account = makeTestBakerV1FromSeed 1_000_000_000_000 1_000_000_000_000 bakerId seed False
   where
     bakerId = 0
     seed = 16
@@ -128,7 +132,7 @@ delegator1KP = Helpers.keyPairFromSeed 17
 baker2Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
-baker2Account = makeTestBakerV1FromSeed balance stake bakerId seed
+baker2Account = makeTestBakerV1FromSeed balance stake bakerId seed False
   where
     balance = 1_000_000_000_000
     stake = 1_000_000_000
@@ -153,7 +157,16 @@ dummy3KP = Helpers.keyPairFromSeed 19
 baker4Account ::
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     m (BS.PersistentAccount av)
-baker4Account = makeTestBakerV1FromSeed 20_000_000_000_000 500_000_000_000 bakerId seed
+baker4Account = makeTestBakerV1FromSeed 20_000_000_000_000 500_000_000_000 bakerId seed False
+  where
+    bakerId = 4
+    seed = 20
+
+-- | Account of the baker 5. This account is suspended.
+baker5Account ::
+    (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
+    m (BS.PersistentAccount av)
+baker5Account = makeTestBakerV1FromSeed 20_000_000_000_000 500_000_000_000 bakerId seed True
   where
     bakerId = 4
     seed = 20
@@ -221,7 +234,8 @@ testDelegatorToBakerOk spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader delegator1Address 1 10_000,
                       keys = [(0, [(0, delegator1KP)])]
@@ -239,6 +253,7 @@ testDelegatorToBakerOk spv pvString =
         doBlockStateAssertions
   where
     stakeAmount = 300_000_000_000
+    events :: BakerKeysWithProofs -> [Event]
     events keysWithProofs =
         [ DelegationRemoved{edrDelegatorId = 1, edrAccount = delegator1Address},
           BakerAdded
@@ -285,7 +300,7 @@ testDelegatorToBakerOk spv pvString =
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 438 1
     checkState ::
         BakerKeysWithProofs ->
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState keysWithProofs result blockState = do
@@ -322,7 +337,8 @@ testDelegatorToBakerOk spv pvString =
                               _bakingCommission = makeAmountFraction 1_000,
                               _transactionCommission = makeAmountFraction 1_000
                             }
-                    }
+                    },
+              _bieIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
             }
     updateStaking keysWithProofs = case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
         SFalse -> id
@@ -363,7 +379,8 @@ testDelegatorToBakerDuplicateKey spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader delegator1Address 1 10_000,
                       keys = [(0, [(0, delegator1KP)])]
@@ -387,7 +404,7 @@ testDelegatorToBakerDuplicateKey spv pvString =
     -- Transaction length is 438 bytes (378 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 438 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -426,7 +443,8 @@ testDelegatorToBakerMissingParam spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader delegator1Address 1 10_000,
                       keys = [(0, [(0, delegator1KP)])]
@@ -447,7 +465,7 @@ testDelegatorToBakerMissingParam spv pvString =
     -- Transaction length is 437 bytes (378 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 437 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -471,7 +489,7 @@ testAddBakerOk ::
     SProtocolVersion pv ->
     String ->
     Spec
-testAddBakerOk _spv pvString =
+testAddBakerOk spv pvString =
     specify (pvString ++ ": AddBaker (OK)") $ do
         keysWithProofs <- makeBakerKeysWithProofs dummy3Address 3
         let transactions =
@@ -485,7 +503,8 @@ testAddBakerOk _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader dummy3Address 1 transactionEnergy,
                       keys = [(0, [(0, dummy3KP)])]
@@ -547,7 +566,7 @@ testAddBakerOk _spv pvString =
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 439 1
     checkState ::
         BakerKeysWithProofs ->
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState keysWithProofs result blockState = do
@@ -584,7 +603,8 @@ testAddBakerOk _spv pvString =
                               _bakingCommission = makeAmountFraction 1_000,
                               _transactionCommission = makeAmountFraction 1_000
                             }
-                    }
+                    },
+              _bieIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
             }
     updateStaking keysWithProofs =
         ( Transient.accountStaking
@@ -619,7 +639,8 @@ testAddBakerInsufficientBalance _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader dummy3Address 1 transactionEnergy,
                       keys = [(0, [(0, dummy3KP)])]
@@ -639,7 +660,7 @@ testAddBakerInsufficientBalance _spv pvString =
     -- Transaction length is 438 bytes (379 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 439 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -677,7 +698,8 @@ testAddBakerMissingParam _spv pvString =
                               cbMetadataURL = Nothing,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader dummy3Address 1 transactionEnergy,
                       keys = [(0, [(0, dummy3KP)])]
@@ -697,7 +719,7 @@ testAddBakerMissingParam _spv pvString =
     -- Transaction length is 437 bytes (377 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 437 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -736,7 +758,8 @@ testAddBakerInvalidProofs _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader dummy3Address 1 transactionEnergy,
                       keys = [(0, [(0, dummy3KP)])]
@@ -755,7 +778,7 @@ testAddBakerInvalidProofs _spv pvString =
     -- Transaction length is 438 bytes (379 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 439 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -792,7 +815,8 @@ testUpdateBakerOk _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -838,7 +862,7 @@ testUpdateBakerOk _spv pvString =
     -- Transaction length is 79 bytes (19 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 79 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -856,7 +880,8 @@ testUpdateBakerOk _spv pvString =
                 )
                 updatedAccount1
     updateStaking =
-        ( Transient.accountStaking . accountBaker
+        ( Transient.accountStaking
+            . accountBaker
             %~ (stakedAmount .~ stakeAmount)
                 . (stakeEarnings .~ True)
                 . ( accountBakerInfo . bieBakerPoolInfo
@@ -887,7 +912,8 @@ testUpdateBakerInsufficientBalance _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -906,7 +932,7 @@ testUpdateBakerInsufficientBalance _spv pvString =
     -- Transaction length is 79 bytes (19 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 79 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -943,7 +969,8 @@ testUpdateBakerLowStake _spv pvString =
                               cbMetadataURL = Just emptyUrlText,
                               cbTransactionFeeCommission = Just (makeAmountFraction 1_000),
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -962,7 +989,7 @@ testUpdateBakerLowStake _spv pvString =
     -- Transaction length is 79 bytes (19 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 79 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -1001,7 +1028,8 @@ testUpdateBakerInvalidProofs _spv pvString =
                               cbMetadataURL = Nothing,
                               cbTransactionFeeCommission = Nothing,
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -1019,7 +1047,7 @@ testUpdateBakerInvalidProofs _spv pvString =
     -- Transaction length is 415 bytes (355 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 415 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -1055,7 +1083,8 @@ testUpdateBakerRemoveOk spv pvString =
                               cbMetadataURL = Nothing,
                               cbTransactionFeeCommission = Nothing,
                               cbBakingRewardCommission = Nothing,
-                              cbFinalizationRewardCommission = Nothing
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -1079,7 +1108,7 @@ testUpdateBakerRemoveOk spv pvString =
     -- Transaction length is 71 bytes (11 bytes for the transaction and 60 bytes for the header).
     transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 71 1
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -1126,7 +1155,8 @@ testUpdateBakerReduceStakeOk spv pvString =
                               cbMetadataURL = Nothing,
                               cbTransactionFeeCommission = Nothing,
                               cbBakingRewardCommission = Just (makeAmountFraction 1_000),
-                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000)
+                              cbFinalizationRewardCommission = Just (makeAmountFraction 1_000),
+                              cbSuspend = Nothing
                             },
                       metadata = makeDummyHeader baker4Address 1 transactionEnergy,
                       keys = [(0, [(0, baker4KP)])]
@@ -1170,7 +1200,7 @@ testUpdateBakerReduceStakeOk spv pvString =
     transactionEnergy = Cost.configureBakerCostWithKeys + Cost.baseCost 431 1
     checkState ::
         BakerKeysWithProofs ->
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState keysWithProofs result blockState = do
@@ -1191,8 +1221,7 @@ testUpdateBakerReduceStakeOk spv pvString =
         ( case sSupportsFlexibleCooldown (sAccountVersionFor spv) of
             SFalse ->
                 Transient.accountStaking . accountBaker
-                    %~ ( bakerPendingChange .~ ReduceStake stakeAmount (PendingChangeEffectiveV1 86400000)
-                       )
+                    %~ (bakerPendingChange .~ ReduceStake stakeAmount (PendingChangeEffectiveV1 86400000))
             STrue ->
                 (Transient.accountStakeCooldown . unconditionally .~ emptyCooldowns{prePreCooldown = Present 200_000_000_000})
                     . (Transient.accountStaking . accountBaker . stakedAmount .~ stakeAmount)
@@ -1207,6 +1236,84 @@ testUpdateBakerReduceStakeOk spv pvString =
     accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
     accountBaker _ x = pure x
 
+data TestSuspendOrResume
+    = Suspend
+    | Resume
+    deriving (Show, Eq)
+
+testUpdateBakerSuspendResumeOk ::
+    forall m pv.
+    (IsProtocolVersion pv, PVSupportsDelegation pv, m ~ Helpers.PersistentBSM pv) =>
+    SProtocolVersion pv ->
+    String ->
+    TestSuspendOrResume ->
+    m (BS.PersistentAccount (AccountVersionFor pv)) ->
+    Spec
+testUpdateBakerSuspendResumeOk spv pvString suspendOrResume accM =
+    specify (pvString ++ ": UpdateBaker: " ++ show suspendOrResume ++ " (OK)") $ do
+        let transactions =
+                [ Runner.TJSON
+                    { payload =
+                        Runner.ConfigureBaker
+                            { cbCapital = Nothing,
+                              cbRestakeEarnings = Nothing,
+                              cbOpenForDelegation = Nothing,
+                              cbKeysWithProofs = Nothing,
+                              cbMetadataURL = Nothing,
+                              cbTransactionFeeCommission = Nothing,
+                              cbBakingRewardCommission = Nothing,
+                              cbFinalizationRewardCommission = Nothing,
+                              cbSuspend = Just $ suspendOrResume == Suspend
+                            },
+                      metadata = makeDummyHeader baker4Address 1 transactionEnergy,
+                      keys = [(0, [(0, baker4KP)])]
+                    }
+                ]
+        (result, doBlockStateAssertions) <-
+            Helpers.runSchedulerTestTransactionJson
+                Helpers.defaultTestConfig
+                (initialBlockState2 @pv)
+                (Helpers.checkReloadCheck checkState)
+                transactions
+        Helpers.assertSuccessWithEvents events result
+        doBlockStateAssertions
+  where
+    -- Transaction length is 64 bytes (4 bytes for the transaction and 60 bytes for the header).
+    transactionEnergy = Cost.configureBakerCostWithoutKeys + Cost.baseCost 64 1
+    checkState ::
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
+        BS.PersistentBlockState pv ->
+        Helpers.PersistentBSM pv Assertion
+    checkState result blockState = do
+        invariants <- Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
+        updatedAccount1 <- BS.toTransientAccount . fromJust =<< BS.bsoGetAccountByIndex blockState 4
+        initialAccount1 <- BS.toTransientAccount =<< accM
+        return $ do
+            invariants
+            assertEqual
+                "Expected account update"
+                ( initialAccount1
+                    & Transient.accountNonce .~ 2
+                    & Transient.accountAmount -~ Helpers.energyToAmount transactionEnergy
+                    & updateResumed
+                )
+                updatedAccount1
+    updateResumed = case sSupportsValidatorSuspension (sAccountVersionFor spv) of
+        STrue ->
+            Transient.accountStaking
+                . accountBaker
+                . accountBakerInfo
+                . bieIsSuspended
+                .~ (suspendOrResume == Suspend)
+        SFalse -> id
+    accountBaker f (AccountStakeBaker b) = AccountStakeBaker <$> f b
+    accountBaker _ x = pure x
+    events =
+        [ if suspendOrResume == Suspend
+            then BakerSuspended{ebsBakerId = 4, ebsAccount = baker4Address}
+            else BakerResumed{ebrBakerId = 4, ebrAccount = baker4Address}
+        ]
+
 tests :: Spec
 tests =
     describe "ConfigureBaker transactions" $
@@ -1214,7 +1321,7 @@ tests =
             Helpers.forEveryProtocolVersion testCases
   where
     testCases :: forall pv. (IsProtocolVersion pv) => SProtocolVersion pv -> String -> Spec
-    testCases spv pvString =
+    testCases spv pvString = do
         case delegationSupport @(AccountVersionFor pv) of
             SAVDelegationNotSupported -> return ()
             SAVDelegationSupported -> do
@@ -1231,3 +1338,8 @@ tests =
                 testUpdateBakerInvalidProofs spv pvString
                 testUpdateBakerRemoveOk spv pvString
                 testUpdateBakerReduceStakeOk spv pvString
+                case sSupportsValidatorSuspension (sAccountVersionFor spv) of
+                    STrue -> do
+                        testUpdateBakerSuspendResumeOk spv pvString Suspend (baker4Account @(AccountVersionFor pv))
+                        testUpdateBakerSuspendResumeOk spv pvString Resume (baker5Account @(AccountVersionFor pv))
+                    SFalse -> return ()

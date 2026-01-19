@@ -13,6 +13,9 @@ extern crate log;
 
 #[allow(clippy::large_enum_variant, clippy::enum_variant_names)]
 mod grpc {
+    mod plt {
+        tonic::include_proto!("concordium.v2.plt");
+    }
     tonic::include_proto!("concordium.v2");
 }
 use grpc::{node_info::node::ConsensusStatus, tokenomics_info::Tokenomics};
@@ -29,37 +32,45 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_HOST",
         use_delimiter = true // default delimiter is a comma
     )]
-    pub grpc_hosts:             Vec<String>,
+    pub grpc_hosts: Vec<String>,
     #[structopt(
         long = "node-name",
         help = "Node name",
         env = "CONCORDIUM_NODE_COLLECTOR_NODE_NAME",
         use_delimiter = true // default delimiter is a comma
     )]
-    pub node_names:             Vec<NodeName>,
+    pub node_names: Vec<NodeName>,
     #[structopt(
         long = "collector-url",
         help = "Alias submitted of the node collected from",
         default_value = "http://localhost:3000/post/nodes",
         env = "CONCORDIUM_NODE_COLLECTOR_URL"
     )]
-    pub collector_url:          String,
+    pub collector_url: String,
     #[structopt(
         long = "print-config",
         help = "Print out config struct",
         env = "CONCORDIUM_NODE_COLLECTOR_PRINT_CONFIG"
     )]
-    pub print_config:           bool,
+    pub print_config: bool,
     #[structopt(
         long = "debug",
         short = "d",
         help = "Debug mode",
         env = "CONCORDIUM_NODE_COLLECTOR_DEBUG"
     )]
-    pub debug:                  bool,
-    #[structopt(long = "trace", help = "Trace mode", env = "CONCORDIUM_NODE_COLLECTOR_TRACE")]
-    pub trace:                  bool,
-    #[structopt(long = "info", help = "Info mode", env = "CONCORDIUM_NODE_COLLECTOR_INFO")]
+    pub debug: bool,
+    #[structopt(
+        long = "trace",
+        help = "Trace mode",
+        env = "CONCORDIUM_NODE_COLLECTOR_TRACE"
+    )]
+    pub trace: bool,
+    #[structopt(
+        long = "info",
+        help = "Info mode",
+        env = "CONCORDIUM_NODE_COLLECTOR_INFO"
+    )]
     #[allow(dead_code)] // allow for backwards compatibility.
     pub info: bool,
     #[structopt(
@@ -67,14 +78,14 @@ struct ConfigCli {
         help = "Do not output timestamp in log output",
         env = "CONCORDIUM_NODE_COLLECTOR_NO_LOG_TIMESTAMP"
     )]
-    pub no_log_timestamp:       bool,
+    pub no_log_timestamp: bool,
     #[structopt(
         long = "collect-interval",
         help = "Interval in miliseconds to sleep between runs of the collector",
         default_value = "5000",
         env = "CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL"
     )]
-    pub collector_interval:     u64,
+    pub collector_interval: u64,
     #[structopt(
         long = "artificial-start-delay",
         help = "Time (in ms) to delay when the first gRPC request is sent to the node",
@@ -88,7 +99,7 @@ struct ConfigCli {
         default_value = "30",
         env = "CONCORDIUM_NODE_COLLECTOR_GRPC_TIMEOUT"
     )]
-    pub grpc_timeout:           u64,
+    pub grpc_timeout: u64,
     #[cfg(target_os = "macos")]
     #[structopt(
         long = "use-mac-log",
@@ -99,7 +110,7 @@ struct ConfigCli {
         env = "CONCORDIUM_NODE_COLLECTOR_USE_MAC_LOG",
         conflicts_with = "log-config"
     )]
-    pub use_mac_log:            Option<String>,
+    pub use_mac_log: Option<String>,
 }
 
 #[tokio::main]
@@ -118,7 +129,10 @@ async fn main() {
         info!("{:?}", conf);
     }
 
-    info!("Starting up node-collector version {}!", env!("CARGO_PKG_VERSION"));
+    info!(
+        "Starting up node-collector version {}!",
+        env!("CARGO_PKG_VERSION")
+    );
 
     if conf.node_names.len() != conf.grpc_hosts.len() {
         error!("{:?}, {:?}", conf.node_names, conf.grpc_hosts);
@@ -127,7 +141,10 @@ async fn main() {
     }
 
     if conf.artificial_start_delay > 0 {
-        info!("Delaying first collection from the node for {} ms", conf.artificial_start_delay);
+        info!(
+            "Delaying first collection from the node for {} ms",
+            conf.artificial_start_delay
+        );
         tokio::time::sleep(Duration::from_millis(conf.artificial_start_delay)).await;
     }
 
@@ -144,7 +161,11 @@ async fn main() {
             trace!("Processing node {}/{}", node_name, grpc_host);
             match collect_data(node_name.clone(), grpc_host.to_owned(), &conf).await {
                 Ok(node_info) => {
-                    trace!("Node data collected successfully from {}/{}", node_name, grpc_host);
+                    trace!(
+                        "Node data collected successfully from {}/{}",
+                        node_name,
+                        grpc_host
+                    );
                     match rmp_serde::encode::to_vec(&node_info) {
                         Ok(msgpack) => {
                             let client_builder = reqwest::Client::builder()
@@ -192,7 +213,10 @@ async fn collect_data<'a>(
     grpc_host: String,
     conf: &ConfigCli,
 ) -> anyhow::Result<NodeInfo> {
-    info!("Collecting node information via gRPC from {}/{}", node_name, grpc_host);
+    info!(
+        "Collecting node information via gRPC from {}/{}",
+        node_name, grpc_host
+    );
 
     // Setting up Client
     let grpc_timeout = conf.grpc_timeout;
@@ -212,17 +236,28 @@ async fn collect_data<'a>(
         block_hash_input: Some(grpc::block_hash_input::BlockHashInput::Best(grpc::Empty {})),
     };
     let last_final = grpc::BlockHashInput {
-        block_hash_input: Some(grpc::block_hash_input::BlockHashInput::LastFinal(grpc::Empty {})),
+        block_hash_input: Some(grpc::block_hash_input::BlockHashInput::LastFinal(
+            grpc::Empty {},
+        )),
     };
 
     // Client calls
     let node_info = client.get_node_info(grpc::Empty {}).await?.into_inner();
-    let peers = client.get_peers_info(grpc::Empty {}).await?.into_inner().peers;
-    let consensus = client.get_consensus_info(grpc::Empty {}).await?.into_inner();
+    let peers = client
+        .get_peers_info(grpc::Empty {})
+        .await?
+        .into_inner()
+        .peers;
+    let consensus = client
+        .get_consensus_info(grpc::Empty {})
+        .await?
+        .into_inner();
     let best_block = client.get_block_info(best.clone()).await?.into_inner();
     let finalized_block = client.get_block_info(last_final).await?.into_inner();
-    let tokenomics_info =
-        client.get_tokenomics_info(get_block_hash_input(best_block.hash)?).await?.into_inner();
+    let tokenomics_info = client
+        .get_tokenomics_info(get_block_hash_input(best_block.hash)?)
+        .await?
+        .into_inner();
 
     // Helper variables
     let latencies = peers
@@ -247,9 +282,11 @@ async fn collect_data<'a>(
     let (total_amount, total_encrypted_amount, foundation_amount) =
         match tokenomics_info.tokenomics.req()?.clone() {
             Tokenomics::V0(t) => (t.total_amount, t.total_encrypted_amount, None),
-            Tokenomics::V1(t) => {
-                (t.total_amount, t.total_encrypted_amount, t.foundation_transaction_rewards)
-            }
+            Tokenomics::V1(t) => (
+                t.total_amount,
+                t.total_encrypted_amount,
+                t.foundation_transaction_rewards,
+            ),
         };
 
     let ancestors_since_best_block = {
@@ -260,11 +297,13 @@ async fn collect_data<'a>(
 
             let req = grpc::AncestorsRequest {
                 block_hash: Some(best),
-                amount:     height_diff,
+                amount: height_diff,
             };
             let ancestors = client.get_ancestors(req).await?.into_inner();
-            let hex_ancestors: Vec<String> =
-                ancestors.map_ok(|x| hex::encode(x.value)).try_collect().await?;
+            let hex_ancestors: Vec<String> = ancestors
+                .map_ok(|x| hex::encode(x.value))
+                .try_collect()
+                .await?;
             Some(hex_ancestors)
         } else {
             None
@@ -353,7 +392,12 @@ fn get_node_baker_info(
                 };
                 let finalization_committee =
                     matches!(baker_status, BakerStatus::ActiveFinalizerCommitteeInfo(_));
-                (true, Some(baker_id), committee_status, finalization_committee)
+                (
+                    true,
+                    Some(baker_id),
+                    committee_status,
+                    finalization_committee,
+                )
             }
         },
     })
@@ -420,7 +464,12 @@ impl FromStr for NodeName {
     type Err = anyhow::Error;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        Ok(Self(input.split_whitespace().map(ToOwned::to_owned).collect::<Vec<String>>()))
+        Ok(Self(
+            input
+                .split_whitespace()
+                .map(ToOwned::to_owned)
+                .collect::<Vec<String>>(),
+        ))
     }
 }
 
@@ -447,7 +496,13 @@ pub fn setup_logger(trace: bool, debug: bool, no_log_timestamp: bool) {
         log_builder.format_timestamp(None);
     } else {
         log_builder.format(|buf, record| {
-            writeln!(buf, "{}: {}: {}", buf.timestamp_nanos(), record.level(), record.args())
+            writeln!(
+                buf,
+                "{}: {}: {}",
+                buf.timestamp_nanos(),
+                record.level(),
+                record.args()
+            )
         });
     }
     log_builder.filter(Some("tokio_reactor"), LevelFilter::Error);

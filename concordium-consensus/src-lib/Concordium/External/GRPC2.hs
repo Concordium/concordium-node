@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -15,6 +16,7 @@ import Control.Concurrent
 import qualified Data.ByteString.Unsafe as BS
 import qualified Data.FixedByteString as FBS
 import Data.Foldable (toList)
+import Data.Functor
 import Data.Int
 import qualified Data.ProtoLens as Proto
 import qualified Data.ProtoLens.Combinators as Proto
@@ -40,6 +42,7 @@ import Concordium.Crypto.SHA256 (Hash (Hash))
 import Concordium.External.Helpers
 import Concordium.GlobalState.Parameters (CryptographicParameters)
 import Concordium.ID.Parameters (withGlobalContext)
+import Concordium.Scheduler.ProtocolLevelTokens.Queries (QueryTokenInfoError (..))
 import qualified Concordium.Types.InvokeContract as InvokeContract
 import qualified Concordium.Wasm as Wasm
 
@@ -130,6 +133,43 @@ getAccountInfoV2 cptr blockType blockHashPtr accIdType accIdBytesPtr outHash out
     res <- runMVR (Q.getAccountInfo bhi ai) mvr
     returnMaybeMessageWithBlock (copier outVec) outHash res
 
+getTokenInfoV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Token ID.
+    Ptr Word8 ->
+    -- | Token ID length.
+    Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    Ptr ReceiverVec ->
+    -- | Callback to output data.
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getTokenInfoV2 cptr blockType blockHashPtr tokenIdPtr tokenIdLen outHash outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    decodeTokenId tokenIdPtr tokenIdLen >>= \case
+        Left _ -> return $ queryResultCode QRInvalidArgument
+        Right tokenId -> do
+            res <- runMVR (Q.getTokenInfo bhi tokenId) mvr
+            case res of
+                Q.BQRBlock _ (Left QTIEUnknownToken) -> do
+                    copyHashTo outHash res
+                    return $ queryResultCode QRNotFound
+                Q.BQRBlock _ (Left e@QTIEInternal{}) -> do
+                    mvLog mvr Logger.External Logger.LLError $
+                        "Internal error processing GetTokenInfo: " ++ show e
+                    return $ queryResultCode QRInternalError
+                Q.BQRBlock _ (Right r) ->
+                    returnMessageWithBlock (copier outVec) outHash (res $> r)
+                Q.BQRNoBlock ->
+                    return $ queryResultCode QRNotFound
+
 -- | Optionally copy a block hash (32 bytes) to a pointer.
 -- Used to provide back the block hash used in a given query, via the FFI.
 copyHashTo :: Ptr Word8 -> Q.BHIQueryResponse a -> IO ()
@@ -147,12 +187,20 @@ getAccountListV2 ::
     Ptr Word8 ->
     FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
     IO Int64
-getAccountListV2 cptr channel blockType blockHashPtr outHash cbk = do
-    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let sender = callChannelSendCallback cbk
-    bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getAccountList bhi) mvr
-    returnStreamWithBlock (sender channel) outHash response
+getAccountListV2 = blockStreamHelper Q.getAccountList
+
+getTokenListV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
+    IO Int64
+getTokenListV2 = blockStreamHelper Q.getTokenList
 
 getModuleListV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -165,12 +213,7 @@ getModuleListV2 ::
     Ptr Word8 ->
     FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
     IO Int64
-getModuleListV2 cptr channel blockType blockHashPtr outHash cbk = do
-    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let sender = callChannelSendCallback cbk
-    bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getModuleList bhi) mvr
-    returnStreamWithBlock (sender channel) outHash response
+getModuleListV2 = blockStreamHelper Q.getModuleList
 
 getModuleSourceV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -205,12 +248,7 @@ getInstanceListV2 ::
     Ptr Word8 ->
     FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
     IO Int64
-getInstanceListV2 cptr channel blockType blockHashPtr outHash cbk = do
-    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let sender = callChannelSendCallback cbk
-    bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getInstanceList bhi) mvr
-    returnStreamWithBlock (sender channel) outHash response
+getInstanceListV2 = blockStreamHelper Q.getInstanceList
 
 getInstanceInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -314,6 +352,24 @@ getConsensusInfoV2 cptr outVec copierCbk = do
     let copier = callCopyToVecCallback copierCbk
     consensusInfo <- runMVR Q.getConsensusStatus mvr
     returnMessage (copier outVec) consensusInfo
+
+getConsensusDetailedStatusV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    -- | Non-zero if the genesis index is explicitly specified
+    Word8 ->
+    -- | Genesis index
+    Word32 ->
+    Ptr ReceiverVec ->
+    FunPtr CopyToVecCallback ->
+    IO Int64
+getConsensusDetailedStatusV2 cptr explicitGenesisIndex genesisIndex outVec copierCbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let copier = callCopyToVecCallback copierCbk
+    let maybeGI = if explicitGenesisIndex == 0 then Nothing else Just (GenesisIndex genesisIndex)
+    runMVR (Q.getConsensusDetailedStatus maybeGI) mvr >>= \case
+        Left Q.GCDSEUnknownEra -> return $ queryResultCode QRNotFound
+        Left Q.GCDSEInvalidEra -> return $ queryResultCode QRInvalidArgument
+        Right status -> returnMessageRaw (copier outVec) status
 
 getCryptographicParametersV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -523,12 +579,7 @@ getBakerListV2 ::
     Ptr Word8 ->
     FunPtr ChannelSendCallback ->
     IO Int64
-getBakerListV2 cptr channel blockType blockHashPtr outHash cbk = do
-    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let sender = callChannelSendCallback cbk
-    bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getRegisteredBakers bhi) mvr
-    returnStreamWithBlock (sender channel) outHash response
+getBakerListV2 = blockStreamHelper Q.getRegisteredBakers
 
 getPoolInfoV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -785,12 +836,7 @@ getIdentityProvidersV2 ::
     Ptr Word8 ->
     FunPtr ChannelSendCallback ->
     IO Int64
-getIdentityProvidersV2 cptr channel blockType blockHashPtr outHash cbk = do
-    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let sender = callChannelSendCallback cbk
-    bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getAllIdentityProviders bhi) mvr
-    returnStreamWithBlock (sender channel) outHash response
+getIdentityProvidersV2 = blockStreamHelper Q.getAllIdentityProviders
 
 getAnonymityRevokersV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -803,12 +849,7 @@ getAnonymityRevokersV2 ::
     Ptr Word8 ->
     FunPtr ChannelSendCallback ->
     IO Int64
-getAnonymityRevokersV2 cptr channel blockType blockHashPtr outHash cbk = do
-    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let sender = callChannelSendCallback cbk
-    bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getAllAnonymityRevokers bhi) mvr
-    returnStreamWithBlock (sender channel) outHash response
+getAnonymityRevokersV2 = blockStreamHelper Q.getAllAnonymityRevokers
 
 getAccountNonFinalizedTransactionsV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -837,12 +878,7 @@ getBlockItemsV2 ::
     Ptr Word8 ->
     FunPtr ChannelSendCallback ->
     IO Int64
-getBlockItemsV2 cptr channel blockType blockHashPtr outHash cbk = do
-    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let sender = callChannelSendCallback cbk
-    bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getBlockItems bhi) mvr
-    returnStreamWithBlock (sender channel) outHash response
+getBlockItemsV2 = blockStreamHelper Q.getBlockItems
 
 getBlockTransactionEventsV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -863,7 +899,11 @@ getBlockTransactionEventsV2 cptr channel blockType blockHashPtr outHash cbk = do
     copyHashTo outHash response
     case response of
         Q.BQRNoBlock -> return (queryResultCode QRNotFound)
-        Q.BQRBlock bh events -> case traverse toProto events of
+        Q.BQRBlock bh (Left err) -> do
+            mvLog mvr Logger.External Logger.LLError $
+                "Failed getting transaction summaries for block '" ++ show bh ++ "': " ++ err
+            return $ queryResultCode QRInternalError
+        Q.BQRBlock bh (Right events) -> case traverse toProto events of
             Left e -> do
                 mvLog mvr Logger.External Logger.LLError $ "Internal conversion error occured for block '" ++ show bh ++ "': " ++ show e
                 return $ queryResultCode QRInternalError
@@ -900,12 +940,7 @@ getBlockPendingUpdatesV2 ::
     Ptr Word8 ->
     FunPtr ChannelSendCallback ->
     IO Int64
-getBlockPendingUpdatesV2 cptr channel blockType blockHashPtr outHash cbk = do
-    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
-    let sender = callChannelSendCallback cbk
-    bhi <- decodeBlockHashInput blockType blockHashPtr
-    response <- runMVR (Q.getBlockPendingUpdates bhi) mvr
-    returnStreamWithBlock (sender channel) outHash response
+getBlockPendingUpdatesV2 = blockStreamHelper Q.getBlockPendingUpdates
 
 getNextUpdateSequenceNumbersV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -925,6 +960,58 @@ getNextUpdateSequenceNumbersV2 cptr blockType blockHashPtr outHash outVec copier
     bhi <- decodeBlockHashInput blockType blockHashPtr
     result <- runMVR (Q.getNextUpdateSequenceNumbers bhi) mvr
     returnMessageWithBlock (copier outVec) outHash result
+
+getScheduledReleaseAccountsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getScheduledReleaseAccountsV2 = blockStreamHelper Q.getScheduledReleaseAccounts
+
+getCooldownAccountsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getCooldownAccountsV2 = blockStreamHelper Q.getCooldownAccounts
+
+getPreCooldownAccountsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getPreCooldownAccountsV2 = blockStreamHelper Q.getPreCooldownAccounts
+
+getPrePreCooldownAccountsV2 ::
+    StablePtr Ext.ConsensusRunner ->
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    FunPtr ChannelSendCallback ->
+    IO Int64
+getPrePreCooldownAccountsV2 = blockStreamHelper Q.getPrePreCooldownAccounts
 
 getBlockChainParametersV2 ::
     StablePtr Ext.ConsensusRunner ->
@@ -1103,10 +1190,40 @@ returnMessage ::
     -- | The message.
     a ->
     IO Int64
-returnMessage copier v = do
-    let encoded = Proto.encodeMessage (toProto v)
+returnMessage copier = returnMessageRaw copier . toProto
+
+-- | Encode and write the given message using the provided callback.
+returnMessageRaw :: (Proto.Message msg) => (Ptr Word8 -> Int64 -> IO ()) -> msg -> IO Int64
+returnMessageRaw copier v = do
+    let encoded = Proto.encodeMessage v
     BS.unsafeUseAsCStringLen encoded (\(ptr, len) -> copier (castPtr ptr) (fromIntegral len))
     return $ queryResultCode QRSuccess
+
+-- | A helper for defining queries that take a block hash input and return a stream of
+--  protobuf messages.
+blockStreamHelper ::
+    (Proto.Message (Output a), ToProto a) =>
+    -- | Wrapped query function.
+    (forall finconf. BlockHashInput -> MVR finconf (Q.BHIQueryResponse [a])) ->
+    -- | Consensus pointer.
+    StablePtr Ext.ConsensusRunner ->
+    -- | Channel to send messages to.
+    Ptr SenderChannel ->
+    -- | Block type.
+    Word8 ->
+    -- | Block hash.
+    Ptr Word8 ->
+    -- | Out pointer for writing the block hash that was used.
+    Ptr Word8 ->
+    -- | Callback to output data to the channel.
+    FunPtr ChannelSendCallback ->
+    IO Int64
+blockStreamHelper query cptr channel blockType blockHashPtr outHash cbk = do
+    Ext.ConsensusRunner mvr <- deRefStablePtr cptr
+    let sender = callChannelSendCallback cbk
+    bhi <- decodeBlockHashInput blockType blockHashPtr
+    response <- runMVR (query bhi) mvr
+    returnStreamWithBlock (sender channel) outHash response
 
 returnStreamWithBlock ::
     (Proto.Message (Output a), ToProto a) =>
@@ -1167,7 +1284,38 @@ foreign export ccall
         IO Int64
 
 foreign export ccall
+    getTokenInfoV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Token ID.
+        Ptr Word8 ->
+        -- | Token ID length.
+        Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        Ptr ReceiverVec ->
+        -- | Callback to output data.
+        FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
     getAccountListV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr (Ptr SenderChannel -> Ptr Word8 -> Int64 -> IO Int32) ->
+        IO Int64
+
+foreign export ccall
+    getTokenListV2 ::
         StablePtr Ext.ConsensusRunner ->
         Ptr SenderChannel ->
         -- | Block type.
@@ -1322,6 +1470,17 @@ foreign export ccall
 foreign export ccall
     getConsensusInfoV2 ::
         StablePtr Ext.ConsensusRunner ->
+        Ptr ReceiverVec ->
+        FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
+        IO Int64
+
+foreign export ccall
+    getConsensusDetailedStatusV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        -- | Non-zero if the genesis index is explicitly specified
+        Word8 ->
+        -- | Genesis index
+        Word32 ->
         Ptr ReceiverVec ->
         FunPtr (Ptr ReceiverVec -> Ptr Word8 -> Int64 -> IO ()) ->
         IO Int64
@@ -1632,6 +1791,58 @@ foreign export ccall
         Ptr Word8 ->
         Ptr ReceiverVec ->
         FunPtr CopyToVecCallback ->
+        IO Int64
+
+foreign export ccall
+    getScheduledReleaseAccountsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getCooldownAccountsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getPreCooldownAccountsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
+        IO Int64
+
+foreign export ccall
+    getPrePreCooldownAccountsV2 ::
+        StablePtr Ext.ConsensusRunner ->
+        Ptr SenderChannel ->
+        -- | Block type.
+        Word8 ->
+        -- | Block hash.
+        Ptr Word8 ->
+        -- | Out pointer for writing the block hash that was used.
+        Ptr Word8 ->
+        FunPtr ChannelSendCallback ->
         IO Int64
 
 foreign export ccall

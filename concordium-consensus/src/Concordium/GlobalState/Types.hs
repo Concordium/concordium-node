@@ -40,11 +40,15 @@ class BlockStateTypes (m :: Type -> Type) where
     -- | A reference to an instrumented module.
     type InstrumentedModuleRef m :: WasmVersion -> Type
 
+    -- | The type representing the mutable state of a PLT.
+    type MutableTokenState m :: Type
+
 -- | Data retrieved from the existing skov instance that is needed to construct
 --  the new instance. This is an existential type that closes over the **new**
 --  protocol version. The existing protocol version is determined from the monad
 --  @m@, which will have to be an instance of 'MonadProtocolVersion'.
-data PVInit m = forall pv.
+data PVInit m
+    = forall pv.
       (IsProtocolVersion pv) =>
     PVInit
     { -- | Genesis data for the new chain.
@@ -69,6 +73,7 @@ instance BlockStateTypes (MGSTrans t m) where
     type ContractState (MGSTrans t m) = ContractState m
     type BakerInfoRef (MGSTrans t m) = BakerInfoRef m
     type InstrumentedModuleRef (MGSTrans t m) = InstrumentedModuleRef m
+    type MutableTokenState (MGSTrans t m) = MutableTokenState m
 
 deriving via MGSTrans MaybeT m instance BlockStateTypes (MaybeT m)
 deriving via MGSTrans (ExceptT e) m instance BlockStateTypes (ExceptT e m)

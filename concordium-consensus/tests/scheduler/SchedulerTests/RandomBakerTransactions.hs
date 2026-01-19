@@ -13,7 +13,7 @@ import Test.QuickCheck
 
 import Control.Monad
 import qualified Control.Monad.Except as Except
-import qualified Data.List as List
+import qualified Data.List.NonEmpty as NonEmpty
 import qualified Data.Map as Map
 import Lens.Micro.Platform
 import System.Random
@@ -259,8 +259,8 @@ testTransactions spv = forAll makeTransactions (ioProperty . tt)
 
         let rejs =
                 [ (z, decodePayload spv (atrPayload z), rr)
-                  | ((WithMetadata{wmdData = NormalTransaction z}, _), TxReject rr) <-
-                        Helpers.getResults ftAdded
+                | ((WithMetadata{wmdData = NormalTransaction z}, _), TxReject rr) <-
+                    Helpers.getResults ftAdded
                 ]
         let checkRejects [] [] = return ()
             checkRejects [] _ = Left "Expected additional rejected transactions"
@@ -272,13 +272,13 @@ testTransactions spv = forAll makeTransactions (ioProperty . tt)
                 | otherwise = Left $ "Unexpected rejected transaction:" ++ show r
         let checkResults = do
                 unless (null ftFailed) $ Left $ "some transactions failed: " ++ show ftFailed
-                checkRejects rejs $ map head $ List.group predRejects
+                checkRejects rejs $ map NonEmpty.head $ NonEmpty.group predRejects
                 doCheckState
         case checkResults of
             Left f -> return $ counterexample f False
             Right _ -> return $ property True
     constructStateChecks ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv (Either String ())
     constructStateChecks result state = do

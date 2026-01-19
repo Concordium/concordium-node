@@ -17,28 +17,28 @@
 # The build of the image will clone the genesis data repository so needs
 # credentials to access it.
 
-ARG static_binaries_image_tag
-FROM static-node-binaries:${static_binaries_image_tag} as binaries
+ARG static_binaries_image_tag=latest
+FROM static-node-binaries:${static_binaries_image_tag} AS binaries
 
 # Fetch genesis-data.
-FROM alpine/git:latest as genesis-data
-ARG genesis_ref
-ARG genesis_path
+FROM alpine/git:latest AS genesis-data
+ARG genesis_ref=main
+ARG genesis_path=testnet/2022-06-13/genesis_data
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
 RUN --mount=type=ssh git clone --depth 1 --branch "${genesis_ref}" git@github.com:Concordium/concordium-infra-genesis-data.git
 RUN mv "concordium-infra-genesis-data/${genesis_path}" /data
 
-FROM ubuntu:20.04
+FROM ubuntu:22.04
  
 # Which environment we are building the image for.
 # Currently it should be either
 #   - stagenet
 #   - testnet
 #   - mainnet
-ARG environment
+ARG environment=testnet
 
 RUN apt-get update && \
-    apt-get install -y libgmp10 libssl1.1 ca-certificates && \
+    apt-get install -y ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=binaries /build/bin/concordium-node /concordium-node

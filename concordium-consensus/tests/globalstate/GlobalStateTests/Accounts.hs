@@ -96,7 +96,7 @@ data AccountAction
 
 randomizeAccount :: AccountAddress -> ID.CredentialPublicKeys -> Gen (Account (AccountVersionFor PV))
 randomizeAccount _accountAddress _accountVerificationKeys = do
-    let vfKey = snd . head $ Map.toAscList (ID.credKeys _accountVerificationKeys)
+    let vfKey = snd $ Map.findMin (ID.credKeys _accountVerificationKeys)
     let cred = dummyCredential dummyCryptographicParameters _accountAddress vfKey dummyMaxValidTo dummyCreatedAt
     let a0 = newAccount dummyCryptographicParameters _accountAddress cred
     nonce <- Nonce <$> arbitrary
@@ -240,7 +240,7 @@ runAccountAction Reconstruct (ba, pa) = do
             let ref = DiffMap.dmParentMapRef paDiffMap
                 -- Note that we sort them by ascending account index such that the order
                 -- matches the insertion order.
-                accs = map snd $ sortOn fst $ HM.elems $ DiffMap.dmAccounts paDiffMap
+                accs = map snd $ sortOn fst $ HM.elems $ DiffMap.dmMap paDiffMap
             return (ref, accs)
     -- create pa' which is the same as pa, but with an empty difference map.
     emptyRef <- liftIO DiffMap.newEmptyReference

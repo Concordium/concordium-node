@@ -15,7 +15,6 @@
 module Concordium.Scheduler.TreeStateEnvironment where
 
 import Control.Monad
-import Data.Foldable
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Ratio
@@ -159,7 +158,7 @@ calculatePaydayMintAmounts ::
     -- | Payday slot
     Slot ->
     -- | Changes to mint distribution or mint rate
-    [(Slot, UpdateValue cpv)] ->
+    [(Slot, UpdateValue cpv auv)] ->
     -- | Total GTU
     Amount ->
     MintAmounts
@@ -227,7 +226,7 @@ doMintingP4 ::
     -- | Current foundation account
     AccountAddress ->
     -- | Ordered updates to the minting parameters
-    [(Slot, UpdateValue 'ChainParametersV1)] ->
+    [(Slot, UpdateValue 'ChainParametersV1 auv)] ->
     -- | Block state
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
@@ -582,7 +581,7 @@ rewardBakers ::
     -- | The capital of bakers and delegators in the reward period
     Vec.Vector BakerCapital ->
     -- | The details of rewards earned by each baker pool
-    Map.Map BakerId BakerPoolRewardDetails ->
+    Map.Map BakerId (BakerPoolRewardDetails (AccountVersionFor (MPV m))) ->
     m (BakerRewardOutcomes, UpdatableBlockState m)
 rewardBakers bs bakers bakerTotalBakingRewards bakerTotalFinalizationRewards bcs poolRewardDetails
     | paydayBlockCount == 0 = return (emptyRewardOutcomes, bs)
@@ -711,7 +710,7 @@ distributeRewards ::
     AccountAddress ->
     CapitalDistribution ->
     BI.FullBakersEx ->
-    Map.Map BakerId BakerPoolRewardDetails ->
+    Map.Map BakerId (BakerPoolRewardDetails (AccountVersionFor (MPV m))) ->
     UpdatableBlockState m ->
     m (UpdatableBlockState m)
 distributeRewards foundationAddr capitalDistribution bakers poolRewardDetails bs0 = do
@@ -796,7 +795,7 @@ updatedTimeParameters ::
     -- | Original time parameters
     TimeParameters ->
     -- | Updates
-    [(Slot, UpdateValue cpv)] ->
+    [(Slot, UpdateValue cpv auv)] ->
     TimeParameters
 updatedTimeParameters targetSlot tp0 upds =
     timeParametersAtSlot
@@ -829,7 +828,7 @@ mintForSkippedPaydays ::
     -- | Foundation account address
     AccountAddress ->
     -- | Updates processed in this block
-    [(Slot, UpdateValue 'ChainParametersV1)] ->
+    [(Slot, UpdateValue 'ChainParametersV1 auv)] ->
     -- | Block state
     UpdatableBlockState m ->
     m (Epoch, MintRate, UpdatableBlockState m)
@@ -859,14 +858,14 @@ addAwakeFinalizers (Just FinalizerInfo{..}) bs0 =
 -- | Parameters used by 'mintAndReward' that are determined by 'updateBirkParameters'.
 --  'updateBirkParameters' determines these, since it makes state changes that would make them
 --  inaccessible in 'mintAndReward'.
-data MintRewardParams (cpv :: ChainParametersVersion) where
+data MintRewardParams (cpv :: ChainParametersVersion) (av :: AccountVersion) where
     MintRewardParamsV0 ::
         { -- | Whether the block is in a different epoch to its parent.
           isNewEpoch :: !Bool
         } ->
-        MintRewardParams 'ChainParametersV0
+        MintRewardParams 'ChainParametersV0 av
     -- | Indicates that no payday has elapsed since the parent block.
-    MintRewardParamsV1NoPayday :: MintRewardParams 'ChainParametersV1
+    MintRewardParamsV1NoPayday :: MintRewardParams 'ChainParametersV1 av
     -- | Indicates that at least one payday has elapsed since the parent block.
     MintRewardParamsV1Payday ::
         { -- | The distribution of the capital at the first elapsed payday.
@@ -874,11 +873,11 @@ data MintRewardParams (cpv :: ChainParametersVersion) where
           -- | The baker stakes at the first elapsed payday.
           paydayBakers :: !BI.FullBakersEx,
           -- | The reward details for each baker pool at the first payday.
-          paydayBakerPoolRewards :: !(Map.Map BakerId BakerPoolRewardDetails),
+          paydayBakerPoolRewards :: !(Map.Map BakerId (BakerPoolRewardDetails av)),
           -- | The epoch of the latest elapsed payday.
           lastElapsedPayday :: !Epoch
         } ->
-        MintRewardParams 'ChainParametersV1
+        MintRewardParams 'ChainParametersV1 av
 
 -- | Mint new tokens and distribute rewards to bakers, finalizers and the foundation.
 --
@@ -950,7 +949,7 @@ mintAndReward ::
     -- | Epoch of the new block
     Epoch ->
     -- | Parameters determined by 'updateBirkParameters'
-    MintRewardParams (ChainParametersVersionFor (MPV m)) ->
+    MintRewardParams (ChainParametersVersionFor (MPV m)) (AccountVersionFor (MPV m)) ->
     -- | Info on finalization committee for included record, if any
     Maybe FinalizerInfo ->
     -- | Transaction fees
@@ -958,7 +957,7 @@ mintAndReward ::
     -- | Number of "free" transactions of each type
     FreeTransactionCounts ->
     -- | Ordered chain updates since the last block
-    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))] ->
+    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))] ->
     m (UpdatableBlockState m)
 mintAndReward bshandle blockParent slotNumber bid newEpoch mintParams mfinInfo transFees freeCounts updates =
     case protocolVersion @(MPV m) of
@@ -1059,8 +1058,8 @@ updateBirkParameters ::
     -- | Chain parameters at the previous block
     ChainParameters (MPV m) ->
     -- | Chain updates since the previous block
-    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))] ->
-    m (MintRewardParams (ChainParametersVersionFor (MPV m)), UpdatableBlockState m)
+    [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))] ->
+    m (MintRewardParams (ChainParametersVersionFor (MPV m)) (AccountVersionFor (MPV m)), UpdatableBlockState m)
 updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocolVersion @(MPV m) of
     SP1 -> updateCPV0AccountV0
     SP2 -> updateCPV0AccountV0
@@ -1070,7 +1069,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
   where
     updateCPV0AccountV0 ::
         (AccountVersionFor (MPV m) ~ 'AccountV0) =>
-        m (MintRewardParams 'ChainParametersV0, UpdatableBlockState m)
+        m (MintRewardParams 'ChainParametersV0 (AccountVersionFor (MPV m)), UpdatableBlockState m)
     updateCPV0AccountV0 = do
         oldSeedState <- bsoGetSeedState bs0
         let isNewEpoch = oldSeedState ^. epoch /= newSeedState ^. epoch
@@ -1090,7 +1089,7 @@ updateBirkParameters newSeedState bs0 oldChainParameters updates = case protocol
           SeedStateVersionFor (MPV m) ~ 'SeedStateVersion0,
           SupportsFlexibleCooldown (AccountVersionFor (MPV m)) ~ 'False
         ) =>
-        m (MintRewardParams 'ChainParametersV1, UpdatableBlockState m)
+        m (MintRewardParams 'ChainParametersV1 (AccountVersionFor (MPV m)), UpdatableBlockState m)
     updateCPV1AccountV1 = do
         oldSeedState <- bsoGetSeedState bs0
         if oldSeedState ^. epoch == newSeedState ^. epoch
@@ -1182,13 +1181,16 @@ putBakerCommissionsInRange ranges bs (BakerId ai) = case protocolVersion @(MPV m
     SP5 -> bsoConstrainBakerCommission bs ai ranges
     SP6 -> bsoConstrainBakerCommission bs ai ranges
     SP7 -> bsoConstrainBakerCommission bs ai ranges
+    SP8 -> bsoConstrainBakerCommission bs ai ranges
+    SP9 -> bsoConstrainBakerCommission bs ai ranges
+    SP10 -> bsoConstrainBakerCommission bs ai ranges
 
 -- | The result of executing the block prologue.
 data PrologueResult m = PrologueResult
     { -- | Ordered list of chain parameter updates that have occurred since the previous block.
-      prologueUpdates :: [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)))],
+      prologueUpdates :: [(Slot, UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)))],
       -- | The parameters required for mint and rewarding in the block epilogue.
-      prologueMintRewardParams :: MintRewardParams (ChainParametersVersionFor (MPV m)),
+      prologueMintRewardParams :: MintRewardParams (ChainParametersVersionFor (MPV m)) (AccountVersionFor (MPV m)),
       -- | The updated block state after executing the prologue.
       prologueBlockState :: UpdatableBlockState m
     }
@@ -1342,7 +1344,7 @@ constructBlock ::
     Maybe FinalizerInfo ->
     -- | New seed state
     SeedState (SeedStateVersionFor (MPV m)) ->
-    m (Sch.FilteredTransactions, ExecutionResult m)
+    m (Sch.FilteredTransactions (TransactionOutcomesVersionFor (MPV m)), ExecutionResult m)
 constructBlock slotNumber slotTime blockParent blockBaker mfinInfo newSeedState =
     let cm = ChainMetadata{..}
     in  do

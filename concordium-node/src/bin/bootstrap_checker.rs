@@ -37,13 +37,18 @@ fn main() -> anyhow::Result<()> {
     let regenesis_arc: Arc<Regenesis> = Arc::new(Regenesis::from_blocks(regenesis_blocks));
 
     ensure!(
-        regenesis_arc.blocks.read().unwrap().len() > 0,
+        !regenesis_arc.blocks.read().unwrap().is_empty(),
         "Bootstrapper can't run without specifying genesis hashes."
     );
 
-    let (node, server, poll) =
-        P2PNode::new(conf.common.id, &conf, PeerType::Node, stats_export_service, regenesis_arc)
-            .context("Failed to create the node.")?;
+    let (node, server, poll) = P2PNode::new(
+        conf.common.id,
+        &conf,
+        PeerType::Node,
+        stats_export_service,
+        regenesis_arc,
+    )
+    .context("Failed to create the node.")?;
 
     spawn(&node, server, poll, None);
 
@@ -67,11 +72,11 @@ fn main() -> anyhow::Result<()> {
                 .arg("--header")
                 .arg("Accept: application/vnd.pagerduty+json;version=2")
                 .arg("--header")
-                .arg(&format!("From: {}", pager_duty_email))
+                .arg(format!("From: {}", pager_duty_email))
                 .arg("--header")
-                .arg(&format!("Authorization: Token token={}", pager_duty_token))
+                .arg(format!("Authorization: Token token={}", pager_duty_token))
                 .arg("-d")
-                .arg(&format!(
+                .arg(format!(
                     "
                     {{
                       \"incident\": {{

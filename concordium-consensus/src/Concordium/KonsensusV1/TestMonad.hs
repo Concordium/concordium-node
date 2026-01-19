@@ -25,12 +25,16 @@ import Concordium.TimeMonad
 import Concordium.Types
 
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
+import qualified Concordium.Genesis.Data.P10 as P10
 import qualified Concordium.Genesis.Data.P6 as P6
 import qualified Concordium.Genesis.Data.P7 as P7
+import qualified Concordium.Genesis.Data.P8 as P8
+import qualified Concordium.Genesis.Data.P9 as P9
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
 import Concordium.GlobalState.BlockState
+import qualified Concordium.GlobalState.ContractStateV1 as StateV1
 import Concordium.GlobalState.Parameters (
-    GenesisData (GDP6, GDP7),
+    GenesisData (GDP10, GDP6, GDP7, GDP8, GDP9),
     defaultRuntimeParameters,
     genesisBlockHash,
  )
@@ -148,6 +152,9 @@ genesisCore :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => GenesisDat
 genesisCore = case protocolVersion @pv of
     SP6 -> \(GDP6 P6.GDP6Initial{genesisCore = core}) -> core
     SP7 -> \(GDP7 P7.GDP7Initial{genesisCore = core}) -> core
+    SP8 -> \(GDP8 P8.GDP8Initial{genesisCore = core}) -> core
+    SP9 -> \(GDP9 P9.GDP9Initial{genesisCore = core}) -> core
+    SP10 -> \(GDP10 P10.GDP10Initial{genesisCore = core}) -> core
 
 -- | Run an operation in the 'TestMonad' with the given baker, time and genesis data.
 --  This sets up a temporary blob store for the block state that is deleted after use.
@@ -175,7 +182,7 @@ runTestMonad _tcBakerContext _tcCurrentTime genData (TestMonad a) =
                                   _nextPayday = payday
                                 }
                     genStateRef <- saveBlockState genState
-                    void $ saveAccounts genState
+                    void $ saveGlobalMaps genState
                     return (genState, genStateRef, initTT, genTimeoutBase, genEpochBakers)
         let genMetadata =
                 GenesisMetadata
@@ -228,6 +235,21 @@ deriving via
     (PersistentBlockStateMonadHelper pv)
     instance
         (IsProtocolVersion pv) => AccountOperations (TestMonad pv)
+
+deriving via
+    (PersistentBlockStateMonadHelper pv)
+    instance
+        (IsProtocolVersion pv) => TokenStateOperations StateV1.MutableState (TestMonad pv)
+
+deriving via
+    (PersistentBlockStateMonadHelper pv)
+    instance
+        (IsProtocolVersion pv) => PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (TestMonad pv)
+
+deriving via
+    (PersistentBlockStateMonadHelper pv)
+    instance
+        (IsProtocolVersion pv) => PLTQuery (PersistentBlockState pv) StateV1.MutableState (TestMonad pv)
 
 deriving via
     (PersistentBlockStateMonadHelper pv)

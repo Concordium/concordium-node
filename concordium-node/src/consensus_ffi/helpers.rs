@@ -186,23 +186,37 @@ pub enum ConsensusFfiResponse {
     ChainUpdateInvalidSignatures,
     #[error("The stated energy of the transaction exceeds the maximum allowed")]
     MaxBlockEnergyExceeded,
-    #[error("The sender did not have enough funds to cover the costs")]
+    #[error("The sender/sponsor did not have enough funds to cover the costs")]
     InsufficientFunds,
     #[error("The consensus message is a result of double signing")]
     DoubleSign,
+    #[error("Consensus entered an unrecoverable state")]
+    ConsensusFailure,
+    #[error("Sponsor account does not exist")]
+    NonexistingSponsorAccount,
+    #[error("Sponsor account is missing")]
+    MissingSponsorAccount,
+    #[error("Sponsor signature is missing")]
+    MissingSponsorSignature,
 }
 
 impl ConsensusFfiResponse {
     pub fn is_successful(self) -> bool {
         use ConsensusFfiResponse::*;
 
-        matches!(self, Success | PendingBlock | PendingFinalization | Asynchronous)
+        matches!(
+            self,
+            Success | PendingBlock | PendingFinalization | Asynchronous
+        )
     }
 
     pub fn is_pending(self) -> bool {
         use ConsensusFfiResponse::*;
 
-        matches!(self, PendingBlock | PendingFinalization | InvalidGenesisIndex | Unverifiable)
+        matches!(
+            self,
+            PendingBlock | PendingFinalization | InvalidGenesisIndex | Unverifiable
+        )
     }
 
     pub fn is_acceptable(self) -> bool {
@@ -259,7 +273,11 @@ impl ConsensusFfiResponse {
             | BakerNotFound
             | MissingImportFile
             | ContinueCatchUp
-            | DoubleSign => false,
+            | DoubleSign
+            | ConsensusFailure
+            | NonexistingSponsorAccount
+            | MissingSponsorAccount
+            | MissingSponsorSignature => false,
             PendingBlock => packet_type != PacketType::Block,
             Success | PendingFinalization | Asynchronous => true,
         }
@@ -276,6 +294,14 @@ impl ConsensusFfiResponse {
             "invalid"
         }
     }
+
+    /// Panic if the response indicates an unrecoverable consensus failure.
+    pub fn check_consistent(self) -> Self {
+        if let ConsensusFfiResponse::ConsensusFailure = self {
+            panic!("Consensus entered an unrecoverable state.");
+        }
+        self
+    }
 }
 
 #[derive(Debug, Error)]
@@ -286,7 +312,10 @@ pub struct ConsensusFfiResponseConversionError {
 
 impl From<ConsensusFfiResponseConversionError> for tonic::Status {
     fn from(code: ConsensusFfiResponseConversionError) -> Self {
-        Self::internal(format!("Unexpected response from FFI call: {}.", code.unknown_code))
+        Self::internal(format!(
+            "Unexpected response from FFI call: {}.",
+            code.unknown_code
+        ))
     }
 }
 
@@ -331,6 +360,10 @@ impl TryFrom<i64> for ConsensusFfiResponse {
             29 => Ok(MaxBlockEnergyExceeded),
             30 => Ok(InsufficientFunds),
             31 => Ok(DoubleSign),
+            32 => Ok(ConsensusFailure),
+            33 => Ok(NonexistingSponsorAccount),
+            34 => Ok(MissingSponsorAccount),
+            35 => Ok(MissingSponsorSignature),
             _ => Err(ConsensusFfiResponseConversionError {
                 unknown_code: value,
             }),
@@ -358,7 +391,10 @@ impl TryFrom<u8> for ConsensusIsInBakingCommitteeResponse {
             1 => Ok(NotInCommittee),
             2 => Ok(AddedButNotActiveInCommittee),
             3 => Ok(AddedButWrongKeys),
-            _ => Err(anyhow!("Unsupported FFI return code ({}) for committee status", value)),
+            _ => Err(anyhow!(
+                "Unsupported FFI return code ({}) for committee status",
+                value
+            )),
         }
     }
 }
@@ -381,7 +417,10 @@ impl TryFrom<u8> for ConsensusIsInFinalizationCommitteeResponse {
             0 => Ok(NotInCommittee),
             1 => Ok(AddedButNotActiveInCommittee),
             2 => Ok(ActiveInCommittee),
-            _ => Err(anyhow!("Unsupported FFI return code for committee status ({})", value)),
+            _ => Err(anyhow!(
+                "Unsupported FFI return code for committee status ({})",
+                value
+            )),
         }
     }
 }
@@ -421,7 +460,10 @@ pub struct ConsensusQueryUnknownCode {
 
 impl From<ConsensusQueryUnknownCode> for tonic::Status {
     fn from(code: ConsensusQueryUnknownCode) -> Self {
-        Self::internal(format!("Unexpected response from internal query: {}.", code.unknown_code))
+        Self::internal(format!(
+            "Unexpected response from internal query: {}.",
+            code.unknown_code
+        ))
     }
 }
 
@@ -436,9 +478,7 @@ impl TryFrom<i64> for ConsensusQueryResponse {
             1 => Ok(Self::NotFound),
             2 => Ok(Self::Unavailable),
             3 => Ok(Self::FutureEpoch),
-            unknown_code => Err(ConsensusQueryUnknownCode {
-                unknown_code,
-            }),
+            unknown_code => Err(ConsensusQueryUnknownCode { unknown_code }),
         }
     }
 }
@@ -448,7 +488,7 @@ pub enum ContractStateResponse {
         state: Vec<u8>,
     },
     V1 {
-        state:  concordium_smart_contract_engine::v1::trie::PersistentState,
+        state: concordium_smart_contract_engine::v1::trie::PersistentState,
         loader: concordium_smart_contract_engine::v1::trie::LoadCallback,
     },
 }

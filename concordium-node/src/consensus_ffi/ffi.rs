@@ -28,7 +28,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Once,
     },
-    u64,
 };
 
 /// A type used in this module to document that a given value is intended
@@ -165,7 +164,10 @@ fn start_haskell_init(
         args.push("+RTS".to_owned())
     }
 
-    if rts_flags.iter().all(|arg| !arg.trim().starts_with("--install-signal-handlers")) {
+    if rts_flags
+        .iter()
+        .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
+    {
         args.push("--install-signal-handlers=no".to_owned());
     }
 
@@ -179,10 +181,18 @@ fn start_haskell_init(
         args.push("-RTS".to_owned());
     }
 
-    info!("Starting consensus with the following profiling arguments {:?}", args);
-    let args =
-        args.iter().map(|arg| CString::new(arg.as_bytes()).unwrap()).collect::<Vec<CString>>();
-    let c_args = args.iter().map(|arg| arg.as_ptr()).collect::<Vec<*const c_char>>();
+    info!(
+        "Starting consensus with the following profiling arguments {:?}",
+        args
+    );
+    let args = args
+        .iter()
+        .map(|arg| CString::new(arg.as_bytes()).unwrap())
+        .collect::<Vec<CString>>();
+    let c_args = args
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .collect::<Vec<*const c_char>>();
     let ptr_c_argc = &(c_args.len() as c_int);
     let ptr_c_argv = &c_args.as_ptr();
     unsafe {
@@ -196,7 +206,10 @@ fn start_haskell_init(rts_flags: &[String]) {
     let mut args = vec![program_name];
     args.push("+RTS".to_owned());
     if !rts_flags.is_empty() {
-        if rts_flags.iter().all(|arg| !arg.trim().starts_with("--install-signal-handlers")) {
+        if rts_flags
+            .iter()
+            .all(|arg| !arg.trim().starts_with("--install-signal-handlers"))
+        {
             args.push("--install-signal-handlers=no".to_owned());
         }
         for flag in rts_flags {
@@ -208,9 +221,14 @@ fn start_haskell_init(rts_flags: &[String]) {
         args.push("--install-signal-handlers=no".to_owned());
     }
     args.push("-RTS".to_owned());
-    let args =
-        args.iter().map(|arg| CString::new(arg.as_bytes()).unwrap()).collect::<Vec<CString>>();
-    let c_args = args.iter().map(|arg| arg.as_ptr()).collect::<Vec<*const c_char>>();
+    let args = args
+        .iter()
+        .map(|arg| CString::new(arg.as_bytes()).unwrap())
+        .collect::<Vec<CString>>();
+    let c_args = args
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .collect::<Vec<*const c_char>>();
     let ptr_c_argc = &(c_args.len() as c_int);
     let ptr_c_argv = &c_args.as_ptr();
     unsafe {
@@ -228,9 +246,11 @@ fn start_haskell_init(rts_flags: &[String]) {
 /// Will panic if called more than once.
 pub fn stop_haskell() {
     if STOPPED.swap(true, Ordering::SeqCst) {
-        panic!("The GHC runtime may only be stopped once. See \
+        panic!(
+            "The GHC runtime may only be stopped once. See \
                 https://downloads.haskell.org/%7Eghc/latest/docs/html/users_guide\
-                /ffi-chap.html#id1 ");
+                /ffi-chap.html#id1 "
+        );
     }
     stop_nopanic();
 }
@@ -297,7 +317,7 @@ type CopyCryptographicParametersCallback =
 /// Context for returning V1 contract state in the
 /// [`get_instance_state_v2`](ConsensusContainer::get_instance_state_v2) query.
 pub struct V1ContractStateReceiver {
-    state:  concordium_smart_contract_engine::v1::trie::PersistentState,
+    state: concordium_smart_contract_engine::v1::trie::PersistentState,
     loader: concordium_smart_contract_engine::v1::trie::LoadCallback,
 }
 
@@ -349,7 +369,7 @@ pub struct NotificationContext {
 type NotifyCallback = unsafe extern "C" fn(*mut NotificationContext, u8, *const u8, u64, u64, u8);
 
 pub struct NotificationHandlers {
-    pub blocks:           futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
+    pub blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
     pub finalized_blocks: futures::channel::mpsc::UnboundedReceiver<Arc<[u8]>>,
 }
 
@@ -520,6 +540,28 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get information about a specific account in a given block.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `token_id` - Pointer to the token identifier.
+    /// * `token_id_len` - Length of the token identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getTokenInfoV2(
+        consensus: *mut consensus_runner,
+        block_id_type: u8,
+        block_id: *const u8,
+        token_id: *const u8,
+        token_id_len: u8,
+        out_hash: *mut u8,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
     /// Get next account sequence number.
     ///
     /// * `consensus` - Pointer to the current consensus.
@@ -541,6 +583,26 @@ extern "C" {
     /// * `copier` - Callback for writting the output.
     pub fn getConsensusInfoV2(
         consensus: *mut consensus_runner,
+        out: *mut Vec<u8>,
+        copier: CopyToVecCallback,
+    ) -> i64;
+
+    /// Get the detailed status of the consensus. If the genesis index is
+    /// explicitly specified, then the status of the consensus at that
+    /// genesis index is returned. Otherwise, the status of the consensus at
+    /// the latest genesis index is returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `use_genesis_index` - Non-zero if the genesis index is explicitly
+    ///   specified.
+    /// * `genesis_index` - Genesis index to use if `use_genesis_index` is
+    ///   non-zero.
+    /// * `out` - Location to write the output of the query.
+    /// * `copier` - Callback for writting the output.
+    pub fn getConsensusDetailedStatusV2(
+        consensus: *mut consensus_runner,
+        use_genesis_index: u8,
+        genesis_index: u32,
         out: *mut Vec<u8>,
         copier: CopyToVecCallback,
     ) -> i64;
@@ -779,6 +841,32 @@ extern "C" {
     /// * `out_hash` - Location to write the block hash used in the query.
     /// * `callback` - Callback for writing to the response stream.
     pub fn getAccountListV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get the list of tokens in a given block and, if the block exists,
+    /// enqueue them into the provided [Sender](futures::channel::mpsc::Sender).
+    ///
+    /// Individual protocol level tokens are enqueued using the provided
+    /// callback.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getTokenListV2(
         consensus: *mut consensus_runner,
         stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
         block_id_type: u8,
@@ -1280,6 +1368,107 @@ extern "C" {
         copier: CopyToVecCallback,
     ) -> i64;
 
+    /// Get all accounts that have scheduled releases, with the timestamp of the
+    /// first pending scheduled release for that account.
+    /// The stream will end when all the accounts that have scheduled releases
+    /// have been returned.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getScheduledReleaseAccountsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get all accounts that have stake in cooldown, with the timestamp of the
+    /// first pending cooldown expiry for each account.
+    /// The stream will end when all the accounts that have stake in cooldown
+    /// have been returned.
+    /// Prior to protocol version 7, the resulting stream will always be empty.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getCooldownAccountsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get all accounts (by account index) that have stake in pre-cooldown.
+    /// The stream will end when all the accounts that have stake in
+    /// pre-cooldown have been returned.
+    /// Prior to protocol version 7, the resulting stream will always be empty.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getPreCooldownAccountsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
+    /// Get all accounts (by account index) that have stake in pre-pre-cooldown.
+    /// The stream will end when all the accounts that have stake in
+    /// pre-pre-cooldown have been returned.
+    /// Prior to protocol version 7, the resulting stream will always be empty.
+    ///
+    /// * `consensus` - Pointer to the current consensus.
+    /// * `stream` - Pointer to the response stream.
+    /// * `block_id_type` - Type of block identifier.
+    /// * `block_id` - Location with the block identifier. Length must match the
+    ///   corresponding type of block identifier.
+    /// * `out_hash` - Location to write the block hash used in the query.
+    /// * `callback` - Callback for writing to the response stream.
+    pub fn getPrePreCooldownAccountsV2(
+        consensus: *mut consensus_runner,
+        stream: *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+        block_id_type: u8,
+        block_id: *const u8,
+        out_hash: *mut u8,
+        callback: extern "C" fn(
+            *mut futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+            *const u8,
+            i64,
+        ) -> i32,
+    ) -> i64;
+
     /// Get the chain parameters that are in effect in the given block.
     ///
     /// * `consensus` - Pointer to the current consensus.
@@ -1531,7 +1720,9 @@ unsafe extern "C" fn notify_callback(
     match ty {
         0u8 => {
             sender.last_arrived_block_height.set(block_height);
-            sender.last_arrived_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+            sender
+                .last_arrived_block_timestamp
+                .set(chrono::Utc::now().timestamp_millis());
             if home_baked {
                 sender.baked_blocks.inc()
             }
@@ -1552,7 +1743,9 @@ unsafe extern "C" fn notify_callback(
         }
         1u8 => {
             sender.last_finalized_block_height.set(block_height);
-            sender.last_finalized_block_timestamp.set(chrono::Utc::now().timestamp_millis());
+            sender
+                .last_finalized_block_timestamp
+                .set(chrono::Utc::now().timestamp_millis());
             if home_baked {
                 sender.finalized_baked_blocks.inc()
             }
@@ -1571,7 +1764,10 @@ unsafe extern "C" fn notify_callback(
             }
         }
         unexpected => {
-            error!("Unexpected notification type {}. This is a bug.", unexpected);
+            error!(
+                "Unexpected notification type {}. This is a bug.",
+                unexpected
+            );
             // do nothing
         }
     }
@@ -1585,19 +1781,21 @@ unsafe extern "C" fn unsupported_update_callback(
     unsupported_update_pending: u64,
 ) {
     let context = &*context_ptr;
-    context.unsupported_pending_protocol_version.set(unsupported_update_pending);
+    context
+        .unsupported_pending_protocol_version
+        .set(unsupported_update_pending);
 }
 
 /// Information needed to start consensus.
 pub struct StartConsensusConfig {
     /// Serialized genesis data.
-    pub genesis_data:               Vec<u8>,
+    pub genesis_data: Vec<u8>,
     /// Maximum logging level.
-    pub maximum_log_level:          ConsensusLogLevel,
+    pub maximum_log_level: ConsensusLogLevel,
     /// Regenesis object.
-    pub regenesis_arc:              Arc<Regenesis>,
+    pub regenesis_arc: Arc<Regenesis>,
     /// Context for notifying upon new block arrival, and new finalized blocks.
-    pub notification_context:       Option<NotificationContext>,
+    pub notification_context: Option<NotificationContext>,
     /// Context for when signalling a unsupported protocol update is pending.
     pub unsupported_update_context: Option<NotifyUnsupportedUpdatesContext>,
 }
@@ -1715,7 +1913,9 @@ pub struct DryRun {
 unsafe impl Send for DryRun {}
 
 impl Drop for DryRun {
-    fn drop(&mut self) { unsafe { dryRunEnd(self.handle) } }
+    fn drop(&mut self) {
+        unsafe { dryRunEnd(self.handle) }
+    }
 }
 
 impl DryRun {
@@ -1783,9 +1983,12 @@ impl DryRun {
             invoker_contract_subindex,
         ) = if let Some(address) = &request.invoker {
             match address.r#type.as_ref().require()? {
-                crate::grpc2::types::address::Type::Account(account) => {
-                    (1, crate::grpc2::types::account_address_to_ffi(account).require()?, 0, 0)
-                }
+                crate::grpc2::types::address::Type::Account(account) => (
+                    1,
+                    crate::grpc2::types::account_address_to_ffi(account).require()?,
+                    0,
+                    0,
+                ),
                 crate::grpc2::types::address::Type::Contract(contract) => {
                     (2, std::ptr::null(), contract.index, contract.subindex)
                 }
@@ -1958,7 +2161,8 @@ impl ConsensusContainer {
 
         (
             ConsensusFfiResponse::try_from(result)
-                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code)),
+                .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+                .check_consistent(),
             callback,
         )
     }
@@ -1971,14 +2175,16 @@ impl ConsensusContainer {
         let result = unsafe { executeBlock(consensus, execute_block_callback) };
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            .check_consistent()
     }
 
     pub fn send_finalization(&self, genesis_index: u32, msg: &[u8]) -> ConsensusFfiResponse {
         wrap_send_data_to_c!(self, genesis_index, msg, receiveFinalizationMessage)
+            .check_consistent()
     }
 
     pub fn send_finalization_record(&self, genesis_index: u32, rec: &[u8]) -> ConsensusFfiResponse {
-        wrap_send_data_to_c!(self, genesis_index, rec, receiveFinalizationRecord)
+        wrap_send_data_to_c!(self, genesis_index, rec, receiveFinalizationRecord).check_consistent()
     }
 
     /// Send a transaction to consensus. Return whether the operation succeeded
@@ -1993,7 +2199,8 @@ impl ConsensusContainer {
         };
 
         let return_code = ConsensusFfiResponse::try_from(result)
-            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code));
+            .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            .check_consistent();
         if return_code == ConsensusFfiResponse::Success {
             (Some(out_hash.into()), return_code)
         } else {
@@ -2054,6 +2261,7 @@ impl ConsensusContainer {
 
         ConsensusFfiResponse::try_from(result)
             .unwrap_or_else(|code| panic!("Unknown FFI return code: {}", code))
+            .check_consistent()
     }
 
     /// Gets baker status of the node along with the baker ID
@@ -2079,7 +2287,10 @@ impl ConsensusContainer {
         };
 
         let status = ConsensusIsInBakingCommitteeResponse::try_from(result).unwrap_or_else(|err| {
-            unreachable!("An error occured when trying to convert FFI return code: {}", err)
+            unreachable!(
+                "An error occured when trying to convert FFI return code: {}",
+                err
+            )
         });
 
         (status, has_baker_id != 0, baker_id, baker_lottery_power)
@@ -2091,7 +2302,9 @@ impl ConsensusContainer {
 
     /// Checks if consensus is running, i.e. if consensus has been shut down,
     /// this will return false.
-    pub fn is_consensus_running(&self) -> bool { wrap_c_bool_call!(self, checkIfRunning) }
+    pub fn is_consensus_running(&self) -> bool {
+        wrap_c_bool_call!(self, checkIfRunning)
+    }
 
     /// Import blocks from the given file path. If the file exists and the node
     /// could import all blocks from the file `Ok(())` is returned. Otherwise an
@@ -2099,13 +2312,16 @@ impl ConsensusContainer {
     pub fn import_blocks(&self, import_file_path: &Path) -> anyhow::Result<()> {
         let consensus = self.consensus.load(Ordering::SeqCst);
 
-        let path_bytes =
-            import_file_path.as_os_str().to_str().context("Cannot decode path.")?.as_bytes();
+        let path_bytes = import_file_path
+            .as_os_str()
+            .to_str()
+            .context("Cannot decode path.")?
+            .as_bytes();
 
         let len = path_bytes.len();
 
         let response = unsafe { importBlocks(consensus, path_bytes.as_ptr(), len as i64) };
-        match ConsensusFfiResponse::try_from(response)? {
+        match ConsensusFfiResponse::try_from(response)?.check_consistent() {
             ConsensusFfiResponse::Success => Ok(()),
             other => bail!("Error during block import: {}", other),
         }
@@ -2153,6 +2369,48 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
+    /// Get the global info about a protocol-level token in a block.
+    /// The return value is a pair of the block hash which was used for the
+    /// query, and the protobuf serialized response.
+    ///
+    /// If the token cannot be found then a [tonic::Status::not_found] is
+    /// returned. If the token id is not valid
+    pub fn get_token_info_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        token_id: &crate::grpc2::types::plt::TokenId,
+    ) -> Result<([u8; 32], Vec<u8>), tonic::Status> {
+        use crate::grpc2::Require;
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let token_id_len = token_id.value.len();
+        if token_id_len > 255 {
+            return Err(tonic::Status::invalid_argument(
+                "TokenId: length must be at most 255 bytes",
+            ));
+        }
+        let token_id_len = token_id_len as u8;
+        let token_id_ptr = token_id.value.as_ptr();
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let mut out_hash = [0u8; 32];
+        let response: ConsensusQueryResponse = unsafe {
+            getTokenInfoV2(
+                consensus,
+                block_id_type,
+                block_hash.as_ptr(),
+                token_id_ptr,
+                token_id_len,
+                out_hash.as_mut_ptr(),
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("tokenId or block")?;
+        Ok((out_hash, out_data))
+    }
+
     /// Get the best guess as to what the next account sequence number should
     /// be. If all account transactions are finalized, then this information
     /// is reliable. Otherwise, this is the best guess, assuming all other
@@ -2190,6 +2448,30 @@ impl ConsensusContainer {
         Ok(out_data)
     }
 
+    pub fn get_consensus_detailed_status_v2(
+        &self,
+        genesis_index: Option<u32>,
+    ) -> Result<Vec<u8>, tonic::Status> {
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut out_data: Vec<u8> = Vec::new();
+        let (use_genesis_index, genesis_index) = match genesis_index {
+            Some(genesis_index) => (1, genesis_index),
+            None => (0, 0),
+        };
+        let response: ConsensusQueryResponse = unsafe {
+            getConsensusDetailedStatusV2(
+                consensus,
+                use_genesis_index,
+                genesis_index,
+                &mut out_data,
+                copy_to_vec_callback,
+            )
+            .try_into()?
+        };
+        response.ensure_ok("genesis index")?;
+        Ok(out_data)
+    }
+
     /// Get the cryptographic parameters in a given block.
     pub fn get_cryptographic_parameters_v2(
         &self,
@@ -2217,8 +2499,8 @@ impl ConsensusContainer {
             .ok_or_else(|| tonic::Status::internal("Failed to access cryptographic parameters"))?;
 
         let out = crate::grpc2::types::CryptographicParameters {
-            genesis_string:          crypto_parameters.genesis_string.clone(),
-            bulletproof_generators:  concordium_base::common::to_bytes(
+            genesis_string: crypto_parameters.genesis_string.clone(),
+            bulletproof_generators: concordium_base::common::to_bytes(
                 crypto_parameters.bulletproof_generators(),
             ),
             on_chain_commitment_key: concordium_base::common::to_bytes(
@@ -2247,6 +2529,42 @@ impl ConsensusContainer {
         let sender_ptr = Box::into_raw(sender);
         let response: ConsensusQueryResponse = unsafe {
             getAccountListV2(
+                consensus,
+                sender_ptr,
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        if let Err(e) = response.ensure_ok("block") {
+            let _ = unsafe { Box::from_raw(sender_ptr) }; // deallocate sender since it is unused by Haskell.
+            Err(e)
+        } else {
+            Ok(buf)
+        }
+    }
+
+    /// Look up tokens in the given block, and return a stream of their
+    /// token ids.
+    ///
+    /// The return value is a block hash used for the query. If the requested
+    /// block does not exist a [tonic::Status::not_found] is returned.
+    pub fn get_token_list_v2(
+        &self,
+        block_hash: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(block_hash).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let sender_ptr = Box::into_raw(sender);
+        let response: ConsensusQueryResponse = unsafe {
+            getTokenListV2(
                 consensus,
                 sender_ptr,
                 block_id_type,
@@ -2415,13 +2733,14 @@ impl ConsensusContainer {
         };
         response.ensure_ok("block or instance")?;
         match out_v1_data {
-            None => Ok((out_hash, ContractStateResponse::V0 {
-                state: out_v0_data,
-            })),
-            Some(data) => Ok((out_hash, ContractStateResponse::V1 {
-                state:  data.state,
-                loader: data.loader,
-            })),
+            None => Ok((out_hash, ContractStateResponse::V0 { state: out_v0_data })),
+            Some(data) => Ok((
+                out_hash,
+                ContractStateResponse::V1 {
+                    state: data.state,
+                    loader: data.loader,
+                },
+            )),
         }
     }
 
@@ -2543,9 +2862,12 @@ impl ConsensusContainer {
             invoker_contract_subindex,
         ) = if let Some(address) = &request.invoker {
             match address.r#type.as_ref().require()? {
-                crate::grpc2::types::address::Type::Account(account) => {
-                    (1, crate::grpc2::types::account_address_to_ffi(account).require()?, 0, 0)
-                }
+                crate::grpc2::types::address::Type::Account(account) => (
+                    1,
+                    crate::grpc2::types::account_address_to_ffi(account).require()?,
+                    0,
+                    0,
+                ),
                 crate::grpc2::types::address::Type::Contract(contract) => {
                     (2, std::ptr::null(), contract.index, contract.subindex)
                 }
@@ -3152,6 +3474,121 @@ impl ConsensusContainer {
         Ok((out_hash, out_data))
     }
 
+    /// Get accounts with scheduled releases at the end of a given block.
+    /// The stream will end when all accounts with scheduled releases have been
+    /// returned.
+    pub fn get_scheduled_release_accounts_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getScheduledReleaseAccountsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get accounts in cooldown at the end of a given block.
+    /// The stream will end when all accounts in cooldown have been returned.
+    pub fn get_cooldown_accounts_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getCooldownAccountsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get accounts in pre-cooldown at the end of a given block.
+    /// The stream will end when all accounts in pre-cooldown have been
+    /// returned.
+    pub fn get_pre_cooldown_accounts_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getPreCooldownAccountsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
+    /// Get accounts in pre-pre-cooldown at the end of a given block.
+    /// The stream will end when all accounts in pre-pre-cooldown have been
+    /// returned.
+    pub fn get_pre_pre_cooldown_accounts_v2(
+        &self,
+        request: &crate::grpc2::types::BlockHashInput,
+        sender: futures::channel::mpsc::Sender<Result<Vec<u8>, tonic::Status>>,
+    ) -> Result<[u8; 32], tonic::Status> {
+        use crate::grpc2::Require;
+        let sender = Box::new(sender);
+        let consensus = self.consensus.load(Ordering::SeqCst);
+        let mut buf = [0u8; 32];
+        let bhi = crate::grpc2::types::block_hash_input_to_ffi(request).require()?;
+        let (block_id_type, block_hash) = bhi.to_ptr();
+        let response: ConsensusQueryResponse = unsafe {
+            getPrePreCooldownAccountsV2(
+                consensus,
+                Box::into_raw(sender),
+                block_id_type,
+                block_hash.as_ptr(),
+                buf.as_mut_ptr(),
+                enqueue_bytearray_callback,
+            )
+        }
+        .try_into()?;
+        response.ensure_ok("block")?;
+        Ok(buf)
+    }
+
     /// Get chain parameters for the given block.
     pub fn get_block_chain_parameters_v2(
         &self,
@@ -3274,7 +3711,12 @@ impl ConsensusContainer {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let mut out_data: Vec<u8> = Vec::new();
         let response: ConsensusQueryResponse = unsafe {
-            getBakerEarliestWinTimeV2(consensus, request.value, &mut out_data, copy_to_vec_callback)
+            getBakerEarliestWinTimeV2(
+                consensus,
+                request.value,
+                &mut out_data,
+                copy_to_vec_callback,
+            )
         }
         .try_into()?;
         response.ensure_ok("baker")?;
@@ -3285,9 +3727,7 @@ impl ConsensusContainer {
     pub fn dry_run(&self, energy_quota: u64) -> DryRun {
         let consensus = self.consensus.load(Ordering::SeqCst);
         let handle = unsafe { dryRunStart(consensus, copy_to_vec_callback, energy_quota) };
-        DryRun {
-            handle,
-        }
+        DryRun { handle }
     }
 }
 
@@ -3398,12 +3838,12 @@ extern "C" fn enqueue_bytearray_callback(
     match sender.try_send(Ok(data.to_vec())) {
         Ok(()) => {
             // Do not drop the sender.
-            Box::into_raw(sender);
+            let _ = Box::into_raw(sender);
             0
         }
         Err(e) if e.is_full() => {
             // Do not drop the sender, we will enqueue more things.
-            Box::into_raw(sender);
+            let _ = Box::into_raw(sender);
             -1
         }
         Err(_) => {

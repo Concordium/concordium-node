@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeAbstractions #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -238,7 +239,8 @@ runWithEBlockStateContext mvr (EBlockStateContextV1 vc1 drs) operation = do
         mvr
 
 -- | Handle that identifies a particular dry-run session.
-data DryRunHandle = forall finconf.
+data DryRunHandle
+    = forall finconf.
       DryRunHandle
     { -- | Wrap the multi-version runner from the consensus runner.
       drhMVR :: !(MultiVersionRunner finconf),
@@ -686,14 +688,16 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                                 key <- KeyIndex <$> peekByteOff sigPairs (2 * i + 1)
                                 addSigs (i + 1) $!
                                     m
-                                        & at' cred . nonEmpty . at' key
+                                        & at' cred
+                                            . nonEmpty
+                                            . at' key
                                             ?~ Sig.dummySignatureEd25519
                             | otherwise = return m
                     addSigs 0 Map.empty
         let dummySignature = TransactionSignature sigMap
         let signatureCount = getTransactionNumSigs dummySignature
 
-        res <- runWithEBlockStateContext shiMVR shiBSC $ \drsRef -> do
+        res <- runWithEBlockStateContext shiMVR shiBSC $ \(drsRef :: IORef (DryRunState pv)) -> do
             drs@DryRunState{..} <- liftIO $ readIORef drsRef
             let context =
                     Scheduler.ContextState
@@ -751,19 +755,36 @@ dryRunTransaction dryRunPtr senderPtr energyLimit payloadPtr payloadLen sigPairs
                                               dreAvailableAmount = accBalance
                                             }
                                         shiQuotaRem
-
-                            lift (Scheduler.dispatchTransactionBody transaction src cost) >>= \case
+                            let checkHeaderResult = Scheduler.CheckHeaderResult src src cost
+                            lift (Scheduler.dispatchTransactionBody transaction checkHeaderResult) >>= \case
                                 Nothing -> do
                                     lift . lift . liftIO $ writeIORef shiQuotaRef 0
                                     return $ Left OutOfEnergyQuota
-                                Just (res :: TransactionSummary' ValidResultWithReturn) -> do
+                                Just (res :: TransactionSummary' tov ValidResultWithReturn) -> do
                                     let newQuotaRem = shiQuotaRem - tsEnergyCost res
                                     lift . lift . liftIO $
                                         writeIORef shiQuotaRef newQuotaRem
-
-                                    return $! case toProto (DryRunResponse res newQuotaRem) of
-                                        Left _ -> Left InternalError
-                                        Right r -> Right r
+                                    let mInitParam = do
+                                            let spv = protocolVersion @pv
+                                            InitContract{..} <- decodePayload spv payload ^? _Right
+                                            return icParam
+                                    case supplementEvents (addInitializeParameter mInitParam) res of
+                                        Nothing -> do
+                                            -- This should not occur, since 'mInitParam' is only
+                                            -- needed if the transaction is an 'InitContract', in
+                                            -- which case, 'mInitParam' will not be 'Nothing'.
+                                            lift . logEvent External LLError $
+                                                "DryRun: a contract initialization parameter was \
+                                                \expected but not found"
+                                            return $ Left InternalError
+                                        Just res' -> case toProto (DryRunResponse res' newQuotaRem) of
+                                            Left err -> do
+                                                lift . logEvent External LLError $
+                                                    "DryRun: failed to serialize response: "
+                                                        ++ show err
+                                                return $ Left InternalError
+                                            Right r ->
+                                                return $ Right r
             (res, ss) <- Scheduler.runSchedulerT exec context schedulerState
             liftIO $ writeIORef drsRef (drs{drsBlockState = ss ^. Scheduler.ssBlockState})
             return res

@@ -20,12 +20,12 @@ const DEFAULT_GRPC2_PORT: u16 = 20000;
 /// Configuration for logging to a rollable log file.
 pub struct LogFileConfig {
     /// Base path of the file to log to.
-    pub path:         PathBuf,
+    pub path: PathBuf,
     /// Size at which the log is rolled. If None, the log is never rolled.
-    pub roll_size:    Option<String>,
+    pub roll_size: Option<String>,
     /// The number of rolled logs to keep. If None, this is treated as 0, and
     /// the log is deleted when it is rolled.
-    pub roll_count:   Option<u16>,
+    pub roll_count: Option<u16>,
     /// File name pattern for rolled logs. This needs to include "{}", which is
     /// replaced with a number. If None, the pattern is derived from the
     /// base path by adding ".{}" before the file extension.
@@ -44,64 +44,64 @@ pub enum LoggerConfig {
 /// Runner for a node
 pub struct NodeConfig {
     // Name of the node for logging purposes
-    pub name:                String,
+    pub name: String,
     // Bootstrap node string
-    pub bootstrap_nodes:     String,
+    pub bootstrap_nodes: String,
     // Configuration directory for the node
-    pub config_dir:          PathBuf,
+    pub config_dir: PathBuf,
     // Data directory for the node
-    pub data_dir:            PathBuf,
+    pub data_dir: PathBuf,
     // Credentials file (optional)
-    pub baker_credentials:   Option<PathBuf>,
+    pub baker_credentials: Option<PathBuf>,
     // Address to accept GRPC V2 requests on
-    pub grpc2_address:       Option<IpAddr>,
+    pub grpc2_address: Option<IpAddr>,
     // Port for GRPC V2 requests
-    pub grpc2_port:          Option<u16>,
+    pub grpc2_port: Option<u16>,
     // Address to listen for peer-to-peer connections on
-    pub listen_address:      Option<IpAddr>,
+    pub listen_address: Option<IpAddr>,
     // Port for peer-to-peer connections
-    pub listen_port:         Option<u16>,
+    pub listen_port: Option<u16>,
     // Log configuration file; if specified, other log optsion
-    pub log_config:          LoggerConfig,
+    pub log_config: LoggerConfig,
     // log level
-    pub log_level:           Option<Level>,
+    pub log_level: Option<Level>,
     // Node binary
-    pub node_bin:            Option<PathBuf>,
+    pub node_bin: Option<PathBuf>,
     // Node environment variables
-    pub node_env:            HashMap<String, String>,
+    pub node_env: HashMap<String, String>,
     // Node arguments
-    pub node_args:           Vec<String>,
+    pub node_args: Vec<String>,
     // Collector enabled
-    pub collector_enabled:   Option<bool>,
+    pub collector_enabled: Option<bool>,
     // Collector URL
-    pub collector_url:       Option<String>,
+    pub collector_url: Option<String>,
     // Collector node name
     pub collector_node_name: Option<String>,
     // Collector interval
-    pub collector_interval:  Option<u64>,
+    pub collector_interval: Option<u64>,
     // Collector logging file
-    pub collector_log_file:  Option<PathBuf>,
+    pub collector_log_file: Option<PathBuf>,
     // Collector binary
-    pub collector_bin:       Option<PathBuf>,
+    pub collector_bin: Option<PathBuf>,
     // Collector environment variables
-    pub collector_env:       HashMap<String, String>,
+    pub collector_env: HashMap<String, String>,
     // Collector arguments
-    pub collector_args:      Vec<String>,
+    pub collector_args: Vec<String>,
 }
 
 /// A started node.
 pub struct Node {
     /// The child process for the node.
-    node_process:      Child,
+    node_process: Child,
     /// The configuration settings used to start the node.
-    pub node_config:   NodeConfig,
+    pub node_config: NodeConfig,
     /// A temporary file used to redirect the node's stderr.
-    stderr_path:       TempPath,
+    stderr_path: TempPath,
     /// The child process for the collector.
     collector_process: Option<Child>,
     /// A temporary file used for configuring the node's logging.
     /// (When this is dropped, the file will be deleted.)
-    _log_config_file:  Option<TempPath>,
+    _log_config_file: Option<TempPath>,
 }
 
 impl NodeConfig {
@@ -137,12 +137,15 @@ impl NodeConfig {
             collector_cmd.envs(&self.collector_env);
 
             // We have already checked that the URL is specified, so unwrap won't fail
-            collector_cmd
-                .env("CONCORDIUM_NODE_COLLECTOR_URL", self.collector_url.as_ref().unwrap());
+            collector_cmd.env(
+                "CONCORDIUM_NODE_COLLECTOR_URL",
+                self.collector_url.as_ref().unwrap(),
+            );
 
             // If the rpc address is not given, or is unspecified, default to local host
-            let mut collector_rpc_ip =
-                self.grpc2_address.unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
+            let mut collector_rpc_ip = self
+                .grpc2_address
+                .unwrap_or(IpAddr::V4(Ipv4Addr::LOCALHOST));
             if collector_rpc_ip.is_unspecified() {
                 collector_rpc_ip = if collector_rpc_ip.is_ipv4() {
                     IpAddr::V4(Ipv4Addr::LOCALHOST)
@@ -169,12 +172,16 @@ impl NodeConfig {
 
             collector_cmd.env(
                 "CONCORDIUM_NODE_COLLECTOR_NODE_NAME",
-                self.collector_node_name.clone().unwrap_or_else(|| self.name.clone()),
+                self.collector_node_name
+                    .clone()
+                    .unwrap_or_else(|| self.name.clone()),
             );
 
             if let Some(interval) = self.collector_interval {
-                collector_cmd
-                    .env("CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL", interval.to_string());
+                collector_cmd.env(
+                    "CONCORDIUM_NODE_COLLECTOR_COLLECT_INTERVAL",
+                    interval.to_string(),
+                );
             }
 
             collector_cmd.args(&self.collector_args);
@@ -209,7 +216,10 @@ impl NodeConfig {
         cmd.envs(&self.node_env);
         cmd.env("CONCORDIUM_NODE_CONFIG_DIR", self.config_dir.clone());
         cmd.env("CONCORDIUM_NODE_DATA_DIR", self.data_dir.clone());
-        cmd.env("CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES", self.bootstrap_nodes.clone());
+        cmd.env(
+            "CONCORDIUM_NODE_CONNECTION_BOOTSTRAP_NODES",
+            self.bootstrap_nodes.clone(),
+        );
         self.baker_credentials
             .as_ref()
             .map(|bcred| cmd.env("CONCORDIUM_NODE_VALIDATOR_CREDENTIALS_FILE", bcred.clone()));
@@ -251,7 +261,10 @@ impl NodeConfig {
         let node_process = cmd.spawn()?;
 
         let collector_process = self.start_collector().unwrap_or_else(|e| {
-            error!("Failed to start collector for node '{}': {:#}", self.name, e);
+            error!(
+                "Failed to start collector for node '{}': {:#}",
+                self.name, e
+            );
             None
         });
 
@@ -274,8 +287,10 @@ fn make_log_config_file(
 ) -> anyhow::Result<Option<TempPath>> {
     match &logger_config {
         LoggerConfig::None => {
-            let temp_file =
-                tempfile::Builder::new().prefix("node-log-conf").suffix(".toml").tempfile()?;
+            let temp_file = tempfile::Builder::new()
+                .prefix("node-log-conf")
+                .suffix(".toml")
+                .tempfile()?;
             let (mut lc_file, lc_path) = temp_file.into_parts();
             lc_file.write_all(b"[root]\nlevel = 'error'\nappenders = []")?;
             lc_file.sync_data()?;
@@ -296,8 +311,10 @@ fn make_log_config_file(
                 Value::String(log_config.path.to_string_lossy().to_string()),
             );
             if let Some(roll_size) = &log_config.roll_size {
-                appenders_file_map
-                    .insert("kind".to_string(), Value::String("rolling_file".to_string()));
+                appenders_file_map.insert(
+                    "kind".to_string(),
+                    Value::String("rolling_file".to_string()),
+                );
                 let roll_count = log_config.roll_count.unwrap_or(0);
                 let roller_map = if roll_count == 0 {
                     Map::from_iter([("kind".to_string(), Value::String("delete".to_string()))])
@@ -309,10 +326,17 @@ fn make_log_config_file(
                         } else {
                             "{}".to_string()
                         };
-                        log_config.path.with_extension(new_extension).to_string_lossy().to_string()
+                        log_config
+                            .path
+                            .with_extension(new_extension)
+                            .to_string_lossy()
+                            .to_string()
                     });
                     Map::from_iter([
-                        ("kind".to_string(), Value::String("fixed_window".to_string())),
+                        (
+                            "kind".to_string(),
+                            Value::String("fixed_window".to_string()),
+                        ),
                         ("count".to_string(), Value::Integer(roll_count.into())),
                         ("pattern".to_string(), Value::String(pattern)),
                     ])
@@ -358,8 +382,10 @@ fn make_log_config_file(
                     )])),
                 ),
             ]));
-            let temp_file =
-                tempfile::Builder::new().prefix("node-log-conf").suffix(".toml").tempfile()?;
+            let temp_file = tempfile::Builder::new()
+                .prefix("node-log-conf")
+                .suffix(".toml")
+                .tempfile()?;
             let (mut lc_file, lc_path) = temp_file.into_parts();
             lc_file.write_all(toml::to_string(&log_toml)?.as_bytes())?;
             lc_file.sync_data()?;

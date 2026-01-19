@@ -21,6 +21,7 @@ import Test.HUnit
 
 import Concordium.Types
 import Concordium.Types.Accounts
+import Concordium.Types.Conditionally
 import Concordium.Types.Execution
 import Concordium.Types.Option
 
@@ -62,6 +63,16 @@ dummyCooldownAccount ai amt cooldowns = do
             cq <- CooldownQueue.makeCooldownQueue cooldowns
             newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
             return $ PAV3 acc{SV1.accountEnduringData = newEnduring}
+        PAV4 acc -> do
+            let ed = SV1.enduringData acc
+            cq <- CooldownQueue.makeCooldownQueue cooldowns
+            newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
+            return $ PAV4 acc{SV1.accountEnduringData = newEnduring}
+        PAV5 acc -> do
+            let ed = SV1.enduringData acc
+            cq <- CooldownQueue.makeCooldownQueue cooldowns
+            newEnduring <- refMake =<< SV1.rehashAccountEnduringData ed{SV1.paedStakeCooldown = cq}
+            return $ PAV5 acc{SV1.accountEnduringData = newEnduring}
 
 -- | A configuration for an account, specifying the account index, amount, staking details and
 --  cooldowns. This is used to create accounts for testing.
@@ -90,6 +101,7 @@ dummyBakerPoolInfo =
 
 -- | Set the staking details for an account.
 setAccountStakeDetails ::
+    forall av m.
     (MonadBlobStore m, AVSupportsDelegation av, IsAccountVersion av) =>
     AccountIndex ->
     StakeDetails av ->
@@ -104,10 +116,12 @@ setAccountStakeDetails ai StakeDetailsBaker{..} mPoolInfo acc =
     bie =
         BakerInfoExV1
             { _bieBakerInfo = fulBaker ^. bakerInfo,
-              _bieBakerPoolInfo = poolInfo
+              _bieBakerPoolInfo = poolInfo,
+              _bieIsSuspended = conditionally hasValidatorSuspension False
             }
     fulBaker = DummyData.mkFullBaker (fromIntegral ai) (BakerId ai) ^. _1
     poolInfo = fromMaybe dummyBakerPoolInfo mPoolInfo
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @av)
 setAccountStakeDetails ai StakeDetailsDelegator{..} _ acc =
     setAccountStakePendingChange sdPendingChange =<< addAccountDelegator del acc
   where
@@ -143,6 +157,26 @@ makeDummyAccount AccountConfig{..} = do
                             ed{SV1.paedStakeCooldown = cq}
                 return $
                     PAV3
+                        acc{SV1.accountEnduringData = newEnduring}
+            PAV4 acc -> do
+                let ed = SV1.enduringData acc
+                cq <- CooldownQueue.makeCooldownQueue acCooldowns
+                newEnduring <-
+                    refMake
+                        =<< SV1.rehashAccountEnduringData
+                            ed{SV1.paedStakeCooldown = cq}
+                return $
+                    PAV4
+                        acc{SV1.accountEnduringData = newEnduring}
+            PAV5 acc -> do
+                let ed = SV1.enduringData acc
+                cq <- CooldownQueue.makeCooldownQueue acCooldowns
+                newEnduring <-
+                    refMake
+                        =<< SV1.rehashAccountEnduringData
+                            ed{SV1.paedStakeCooldown = cq}
+                return $
+                    PAV5
                         acc{SV1.accountEnduringData = newEnduring}
         SFalse -> return acc1
 
@@ -263,7 +297,7 @@ checkActiveBakers bs = do
             accounts
             DummyData.dummyIdentityProviders
             DummyData.dummyArs
-            (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+            (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
             DummyData.dummyChainParameters
 
 dumpState :: (SupportsPersistentState pv m) => HashedPersistentBlockState pv -> m ()

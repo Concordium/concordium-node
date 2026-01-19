@@ -19,7 +19,11 @@ import qualified SchedulerTests.RejectReasons (tests)
 import qualified SchedulerTests.RejectReasonsRustContract (tests)
 import qualified SchedulerTests.SimpleTransferSpec (tests)
 import qualified SchedulerTests.SimpleTransfersTest (tests)
+import qualified SchedulerTests.SponsoredTransactions (tests)
 import qualified SchedulerTests.StakedAmountLocked (tests)
+import qualified SchedulerTests.TokenCreation (tests)
+import qualified SchedulerTests.TokenHolderTransactions (tests)
+import qualified SchedulerTests.TokenModule (tests)
 import qualified SchedulerTests.TransactionExpirySpec (tests)
 import qualified SchedulerTests.TransactionGroupingSpec2 (tests)
 import qualified SchedulerTests.TransfersWithScheduleTest (tests)
@@ -33,6 +37,7 @@ import qualified SchedulerTests.SmartContracts.V0.SmartContractTests (tests)
 import qualified SchedulerTests.SmartContracts.Invoke (tests)
 import qualified SchedulerTests.SmartContracts.V1.AccountSignatureChecks (tests)
 import qualified SchedulerTests.SmartContracts.V1.AllNewHostFunctions (tests)
+import qualified SchedulerTests.SmartContracts.V1.Caller (tests)
 import qualified SchedulerTests.SmartContracts.V1.Checkpointing (tests)
 import qualified SchedulerTests.SmartContracts.V1.Counter (tests)
 import qualified SchedulerTests.SmartContracts.V1.CrossMessaging (tests)
@@ -82,6 +87,7 @@ main = hspec $ do
     SchedulerTests.StakedAmountLocked.tests
     SchedulerTests.RejectReasons.tests
     SchedulerTests.RejectReasonsRustContract.tests
+    SchedulerTests.SponsoredTransactions.tests
     SchedulerTests.SmartContracts.V0.SmartContractTests.tests
     SchedulerTests.SmartContracts.V0.RelaxedRestrictions.tests
     SchedulerTests.SmartContracts.V1.Counter.tests
@@ -109,4 +115,8 @@ main = hspec $ do
     SchedulerTests.SmartContracts.V1.CustomSectionSize.tests
     SchedulerTests.SmartContracts.V1.AccountSignatureChecks.tests
     SchedulerTests.SmartContracts.V1.InspectModuleReferenceAndContractName.tests
+    SchedulerTests.SmartContracts.V1.Caller.tests
     SchedulerTests.KonsensusV1.EpochTransition.tests
+    SchedulerTests.TokenModule.tests
+    SchedulerTests.TokenCreation.tests
+    SchedulerTests.TokenHolderTransactions.tests

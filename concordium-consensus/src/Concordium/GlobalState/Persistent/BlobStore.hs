@@ -65,6 +65,7 @@ module Concordium.GlobalState.Persistent.BlobStore (
     storeUpdateRef,
     loadRef,
     DirectBlobStorable (..),
+    DirectBlobHashable (..),
 
     -- * Nullable
     Nullable (..),
@@ -131,6 +132,7 @@ import qualified Control.Monad.Catch as MonadCatch
 import Control.Monad.Reader.Class
 import Control.Monad.Trans
 import Control.Monad.Trans.Except (ExceptT)
+import Control.Monad.Trans.Maybe (MaybeT)
 import Control.Monad.Trans.Reader (ReaderT (..))
 import Control.Monad.Trans.State.Strict (StateT)
 import Control.Monad.Trans.Writer.Strict (WriterT)
@@ -167,12 +169,14 @@ import Concordium.Types.Accounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
 import qualified Concordium.Types.IdentityProviders as IPS
 import Concordium.Types.Parameters
+import Concordium.Types.Tokens (TokenRawAmount (..))
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Wasm
 
 import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
 import Concordium.Types.HashableTo
 
 -- | A @BlobRef store a@ represents an offset on a file, at
@@ -609,6 +613,12 @@ deriving via
         (MonadIO m, MonadLogger m, LMDBAccountMap.HasDatabaseHandlers r) =>
         LMDBAccountMap.MonadAccountMapStore (BlobStoreT store r m)
 
+deriving via
+    (LMDBAccountMap.AccountMapStoreMonad (BlobStoreT r m))
+    instance
+        (MonadIO m, MonadLogger m, LMDBAccountMap.HasDatabaseHandlers r) =>
+        MonadModuleMapStore (BlobStoreT r m)
+
 -- | Apply a given function to modify the context of a 'BlobStoreT' operation.
 alterBlobStoreT :: (r1 -> r2) -> BlobStoreT store r2 m a -> BlobStoreT store r1 m a
 alterBlobStoreT f (BlobStoreT a) = BlobStoreT (a . f)
@@ -664,6 +674,11 @@ deriving via
     (LiftMonadBlobStore (ExceptT e) m)
     instance
         (MonadBlobStore m) => MonadBlobStore (ExceptT e m)
+
+deriving via
+    (LiftMonadBlobStore MaybeT m)
+    instance
+        (MonadBlobStore m) => MonadBlobStore (MaybeT m)
 
 type instance MBSStore (ReaderT r m) = MBSStore m
 
@@ -886,6 +901,23 @@ instance {-# OVERLAPPABLE #-} (MonadBlobStore m, BlobStorable m a) => DirectBlob
     loadDirect = loadRef
     {-# INLINE storeUpdateDirect #-}
     {-# INLINE loadDirect #-}
+
+-- | The @DirectBlobHashable m h a@ class defines an operation for directly loading the hash
+--  of a value of type @a@ from the blob store. This allows for a more efficient implementation
+--  than loading the full value and then computing the hash in cases where loading may be expensive.
+class (MonadBlobStore m) => DirectBlobHashable m h a where
+    -- | Load the hash of a value of type @a@ from the underlying storage.
+    --
+    -- prop> loadHash = getHashM <=< loadDirect
+    loadHash :: BlobRef a -> m h
+
+instance
+    {-# OVERLAPPABLE #-}
+    (DirectBlobStorable m a, MHashableTo m h a) =>
+    DirectBlobHashable m h a
+    where
+    loadHash = getHashM <=< loadDirect
+    {-# INLINE loadHash #-}
 
 instance (BlobStorable m a, BlobStorable m b) => BlobStorable m (a, b) where
     storeUpdate (a, b) = do
@@ -1558,6 +1590,7 @@ instance (MonadBlobStore m) => BlobStorable m ()
 instance (MonadBlobStore m) => BlobStorable m Word8
 instance (MonadBlobStore m) => BlobStorable m Word32
 instance (MonadBlobStore m) => BlobStorable m Word64
+instance (MonadBlobStore m) => BlobStorable m TokenRawAmount
 
 instance (MonadBlobStore m) => BlobStorable m AccountEncryptedAmount
 instance (MonadBlobStore m) => BlobStorable m PersistingAccountData
@@ -1576,12 +1609,13 @@ instance (MonadBlobStore m, IsCooldownParametersVersion cpv) => BlobStorable m (
 instance (MonadBlobStore m) => BlobStorable m Parameters.TimeParameters
 instance (MonadBlobStore m) => BlobStorable m Parameters.TimeoutParameters
 instance (MonadBlobStore m) => BlobStorable m Parameters.FinalizationCommitteeParameters
+instance (MonadBlobStore m) => BlobStorable m Parameters.ValidatorScoreParameters
 instance (MonadBlobStore m) => BlobStorable m Duration
 instance (MonadBlobStore m) => BlobStorable m Energy
 instance (MonadBlobStore m) => BlobStorable m (Map AccountAddress Timestamp)
 instance (MonadBlobStore m) => BlobStorable m WasmModule
 instance (IsWasmVersion v, MonadBlobStore m) => BlobStorable m (WasmModuleV v)
-instance (MonadBlobStore m) => BlobStorable m BakerPoolRewardDetails
+instance (MonadBlobStore m, IsAccountVersion av) => BlobStorable m (BakerPoolRewardDetails av)
 instance (MonadBlobStore m) => BlobStorable m DelegatorCapital
 instance (MonadBlobStore m) => BlobStorable m BakerCapital
 instance (MonadBlobStore m) => BlobStorable m CapitalDistribution
@@ -1920,7 +1954,7 @@ instance (Applicative m) => Cacheable m (StoreSerialized a)
 instance (Applicative m) => Cacheable m (Parameters.PoolParameters' ppv)
 instance (Applicative m) => Cacheable m (Parameters.CooldownParameters' cpv)
 instance (Applicative m) => Cacheable m Parameters.TimeParameters
-instance (Applicative m) => Cacheable m BakerPoolRewardDetails
+instance (Applicative m) => Cacheable m (BakerPoolRewardDetails av)
 instance (Applicative m) => Cacheable m DelegatorCapital
 instance (Applicative m) => Cacheable m BakerCapital
 instance (Applicative m) => Cacheable m CapitalDistribution

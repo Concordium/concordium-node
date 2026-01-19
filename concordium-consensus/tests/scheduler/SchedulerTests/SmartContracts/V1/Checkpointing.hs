@@ -79,28 +79,30 @@ checkpointingTest1 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 checkpointingSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 checkpointingSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -111,14 +113,15 @@ checkpointingTest1 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -131,14 +134,15 @@ checkpointingTest1 spv pvString =
             },
           -- We supply one micro CCD as we expect a trap from a v1 contract.
           -- See the contract for details.
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 1 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 1 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 3) result
             }
         ]
@@ -185,28 +189,30 @@ checkpointingTest2 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 checkpointingSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 checkpointingSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -217,14 +223,15 @@ checkpointingTest2 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -239,14 +246,15 @@ checkpointingTest2 spv pvString =
           -- does not expect errors i.e. a trap signal from underlying invocations.
           -- The 'inner' call to contract A does not modify the state.
           -- See the contract for details.
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 0 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 7) result
             }
         ]
@@ -289,28 +297,30 @@ checkpointingTest3 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 checkpointingSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 checkpointingSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -321,14 +331,15 @@ checkpointingTest3 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -341,14 +352,15 @@ checkpointingTest3 spv pvString =
             },
           -- We supply three micro CCDs as we're instructing the contract to carry out a transfer instead of a call.
           -- See the contract for details.
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 3 (Types.ContractAddress 0 0) "a.a_modify_proxy" (BSS.toShort (encode accountAddress1)),
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 3 (Types.ContractAddress 0 0) "a.a_modify_proxy" (BSS.toShort (encode accountAddress1)),
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 4) result
             }
         ]
@@ -378,28 +390,30 @@ checkpointingTest4 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 checkpointingSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 checkpointingSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -410,14 +424,15 @@ checkpointingTest4 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -431,14 +446,15 @@ checkpointingTest4 spv pvString =
           -- We supply four micro CCDs as we're instructing the contract to expect state modifications
           -- being made from the 'inner' contract A call to be in effect when returned to the caller (a.a_modify_proxy)
           -- See the contract for details.
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 7) result
             }
         ]
@@ -486,40 +502,43 @@ checkpointingTest5 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 checkpointingSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 checkpointingSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V0 v0ProxySourceFile,
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V0 v0ProxySourceFile,
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV0 v0ProxySourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -530,14 +549,15 @@ checkpointingTest5 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -548,14 +568,15 @@ checkpointingTest5 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V0 v0ProxySourceFile "init_proxy" "",
-                      metadata = makeDummyHeader accountAddress0 5 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V0 v0ProxySourceFile "init_proxy" "",
+                          metadata = makeDummyHeader accountAddress0 5 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -568,14 +589,15 @@ checkpointingTest5 spv pvString =
             },
           -- We supply two micro CCDs as we expect a trap from a v0 contract.
           -- See the contract for details.
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 2 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
-                      metadata = makeDummyHeader accountAddress0 6 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 2 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
+                          metadata = makeDummyHeader accountAddress0 6 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 3) result
             }
         ]
@@ -633,40 +655,43 @@ checkpointingTest6 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 checkpointingSourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 checkpointingSourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 checkpointingSourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V0 v0ProxySourceFile,
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V0 v0ProxySourceFile,
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV0 v0ProxySourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_a" "",
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -677,14 +702,15 @@ checkpointingTest6 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointingSourceFile "init_b" "",
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -695,14 +721,15 @@ checkpointingTest6 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V0 v0ProxySourceFile "init_proxy" "",
-                      metadata = makeDummyHeader accountAddress0 5 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V0 v0ProxySourceFile "init_proxy" "",
+                          metadata = makeDummyHeader accountAddress0 5 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -716,14 +743,15 @@ checkpointingTest6 spv pvString =
           -- We supply four micro CCDs as we're instructing the contract to expect state modifications
           -- being made from the 'inner' contract A call to be in effect when returned to the caller (a.a_modify_proxy)
           -- See the contract for details.
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
-                      metadata = makeDummyHeader accountAddress0 6 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 4 (Types.ContractAddress 0 0) "a.a_modify_proxy" parameters,
+                          metadata = makeDummyHeader accountAddress0 6 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertSuccessWhere (Helpers.assertNumberOfEvents 8) result
             }
         ]
@@ -783,28 +811,30 @@ checkpointingTest7 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 checkpointing2SourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 checkpointing2SourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 checkpointing2SourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointing2SourceFile "init_test" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointing2SourceFile "init_test" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ -> do
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -815,14 +845,15 @@ checkpointingTest7 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "test.a" callArgs,
-                      metadata = makeDummyHeader accountAddress0 3 700_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 0 (Types.ContractAddress 0 0) "test.a" callArgs,
+                          metadata = makeDummyHeader accountAddress0 3 700_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ -> do
                 return $ do
                     if Types.demoteProtocolVersion spv >= Types.P6
                         then Helpers.assertSuccess result
@@ -861,28 +892,30 @@ checkpointingTest8 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 checkpointing2SourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 checkpointing2SourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 checkpointing2SourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointing2SourceFile "init_test" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointing2SourceFile "init_test" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ -> do
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -893,14 +926,15 @@ checkpointingTest8 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "test.a" callArgs,
-                      metadata = makeDummyHeader accountAddress0 3 700_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 0 (Types.ContractAddress 0 0) "test.a" callArgs,
+                          metadata = makeDummyHeader accountAddress0 3 700_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ -> do
                 return $ do
                     if Types.demoteProtocolVersion spv >= Types.P6
                         then Helpers.assertSuccess result
@@ -936,28 +970,30 @@ checkpointingTest9 spv pvString =
                 initialBlockState
                 transactionsAndAssertions
   where
-    transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+    transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
     transactionsAndAssertions =
-        [ Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = DeployModule V1 checkpointing2SourceFile,
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+        [ Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = DeployModule V1 checkpointing2SourceFile,
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyDeploymentV1 checkpointing2SourceFile result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = InitContract 0 V1 checkpointing2SourceFile "init_test" "",
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = InitContract 0 V1 checkpointing2SourceFile "init_test" "",
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ -> do
                 return $ do
                     Helpers.assertSuccess result
                     Helpers.assertUsedEnergyInitialization
@@ -968,14 +1004,15 @@ checkpointingTest9 spv pvString =
                         Nothing
                         result
             },
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                TJSON
-                    { payload = Update 0 (Types.ContractAddress 0 0) "test.e" callArgs,
-                      metadata = makeDummyHeader accountAddress0 3 700_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ -> do
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                AccountTx $
+                    TJSON
+                        { payload = Update 0 (Types.ContractAddress 0 0) "test.e" callArgs,
+                          metadata = makeDummyHeader accountAddress0 3 700_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ -> do
                 return $ do
                     if Types.demoteProtocolVersion spv >= Types.P6
                         then Helpers.assertSuccess result

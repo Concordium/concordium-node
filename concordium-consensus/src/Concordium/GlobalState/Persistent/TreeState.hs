@@ -162,7 +162,7 @@ insertDeadCache !bh dc@DeadCache{..}
     | HS.member bh _dcHashes = dc
     | otherwise =
         let newHashes = HS.insert bh _dcHashes
-        in  if HS.size newHashes > deadCacheSize
+        in  if deadCacheCurrentSize dc >= deadCacheSize
                 then
                     let (newHashes', newQueue) = case _dcQueue of
                             h Seq.:<| q -> (HS.delete h newHashes, q)
@@ -180,6 +180,10 @@ insertDeadCache !bh dc@DeadCache{..}
 -- | Return whether the given block hash is in the cache.
 memberDeadCache :: BlockHash -> DeadCache -> Bool
 memberDeadCache bh DeadCache{..} = HS.member bh _dcHashes
+
+-- | Return the current size of the dead block cache.
+deadCacheCurrentSize :: DeadCache -> Int
+deadCacheCurrentSize = Seq.length . _dcQueue
 
 -- | A table of live and non-finalized blocks together with a small cache of dead
 --  ones.
@@ -495,9 +499,9 @@ activateSkovPersistentData pbsc uninitState =
         tt <- cacheBlockStateAndGetTransactionTable bps
         logEvent GlobalState LLTrace "Done caching last finalized block"
         -- initialize the account map if it has not already been so.
-        logEvent GlobalState LLDebug "Initializing LMDB account map"
-        void $ tryPopulateAccountMap bps
-        logEvent GlobalState LLDebug "Finished initializing LMDB account map"
+        logEvent GlobalState LLDebug "Initializing LMDB account map and module map"
+        tryPopulateGlobalMaps bps
+        logEvent GlobalState LLDebug "Finished initializing LMDB account map and module map"
         return $! uninitState{_transactionTable = tt}
   where
     runBlockState a = runReaderT (PBS.runPersistentBlockStateMonad @pv a) pbsc
@@ -537,6 +541,10 @@ newtype PersistentTreeStateMonad state (m :: Type -> Type) (a :: Type) = Persist
           ModuleQuery,
           TimeMonad
         )
+
+deriving instance (TokenStateOperations ts m) => TokenStateOperations ts (PersistentTreeStateMonad state m)
+
+deriving instance (PLTQuery bs ts m) => PLTQuery bs ts (PersistentTreeStateMonad state m)
 
 deriving instance (MonadProtocolVersion m) => MonadProtocolVersion (PersistentTreeStateMonad state m)
 
@@ -583,7 +591,6 @@ getWeakPointer weakPtr ptrHash name = do
                 -- a parent that is also alive, which means either actually in memory `BlockAlive` or already
                 -- finalized. If we fail to dereference the weak pointer we should thus be able to directly look
                 -- up the block from the block table.
-
                     use (skovPersistentData . blockTable . liveMap . at' ptrHash)
                         >>= \case
                             Just (BlockAlive bp) -> return bp
@@ -725,9 +732,9 @@ instance
     markFinalized bh fr =
         use (skovPersistentData . blockTable . liveMap . at' bh) >>= \case
             Just (BlockAlive bp) -> do
-                -- Save the block state and write the accounts out to disk.
+                -- Save the block state and write the accounts and modules out to disk.
                 st <- saveBlockState (_bpState bp)
-                void $ saveAccounts (_bpState bp)
+                saveGlobalMaps (_bpState bp)
                 -- NB: Removing the block from the in-memory cache only makes
                 -- sense if no block lookups are done between the call to this
                 -- function and 'wrapUpFinalization'. This is currently the case,
@@ -895,12 +902,17 @@ instance
                         mAcc <- getAccount lfbState $ transactionSender tr
                         nonce <- maybe (pure minNonce) getAccountNonce (snd <$> mAcc)
                         return $! nonce <= transactionNonce tr
+                    ExtendedTransaction tr -> do
+                        lfbState <- use (skovPersistentData . lastFinalized . to _bpState)
+                        mAcc <- getAccount lfbState $ transactionSender tr
+                        nonce <- maybe (pure minNonce) getAccountNonce (snd <$> mAcc)
+                        return $! nonce <= transactionNonce tr
                     -- We need to check here that the nonce is still ok with respect to the last finalized block,
                     -- because it could be that a block was finalized thus the next account nonce being incremented
                     -- after this transaction was received and pre-verified.
                     CredentialDeployment{} -> not <$> memberTransactionTable wmdHash
                     -- the sequence number will be checked by @Impl.addTransaction@.
-                    _ -> return True
+                    ChainUpdate{} -> return True
                 if mayAddTransaction
                     then do
                         let ~(added, newTT) = addTransaction bi 0 verRes tt
@@ -922,7 +934,7 @@ instance
     type FinTrans (PersistentTreeStateMonad state m) = [(TransactionHash, FinalizedTransactionStatus)]
     finalizeTransactions bh slot txs = mapM finTrans txs
       where
-        finTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
+        finAccountTrans WithMetadata{wmdData = tr, ..} = do
             let nonce = transactionNonce tr
                 sender = accountAddressEmbed (transactionSender tr)
             anft <- use (skovPersistentData . transactionTable . ttNonFinalizedTransactions . at' sender . non emptyANFT)
@@ -943,6 +955,8 @@ instance
                     return ss
                 else do
                     logErrorAndThrowTS $ "Tried to finalize transaction which is not known to be in the set of non-finalized transactions for the sender " ++ show sender
+        finTrans WithMetadata{wmdData = NormalTransaction tr, ..} =
+            finAccountTrans WithMetadata{wmdData = TransactionV0 tr, ..}
         finTrans WithMetadata{wmdData = CredentialDeployment{}, ..} =
             deleteAndFinalizeStatus wmdHash
         finTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
@@ -969,6 +983,8 @@ instance
                 . at' uty
                 ?= (nfcu & (nfcuMap . at' sn .~ Nothing) & (nfcuNextSequenceNumber .~ sn + 1))
             return ss
+        finTrans WithMetadata{wmdData = ExtendedTransaction tr, ..} =
+            finAccountTrans WithMetadata{wmdData = TransactionV1 tr, ..}
 
         deleteAndFinalizeStatus txHash = do
             status <- preuse (skovPersistentData . transactionTable . ttHashMap . ix txHash . _2)

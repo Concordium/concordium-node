@@ -47,28 +47,34 @@ impl NetworkMessage {
         let mut builder = FlatBufferBuilder::with_capacity(capacity);
 
         let (payload_type, payload_offset) = match self.payload {
-            NetworkPayload::NetworkPacket(ref packet) => {
-                (network::NetworkPayload::NetworkPacket, serialize_packet(&mut builder, packet)?)
-            }
-            NetworkPayload::NetworkRequest(ref request) => {
-                (network::NetworkPayload::NetworkRequest, serialize_request(&mut builder, request)?)
-            }
+            NetworkPayload::NetworkPacket(ref packet) => (
+                network::NetworkPayload::NetworkPacket,
+                serialize_packet(&mut builder, packet)?,
+            ),
+            NetworkPayload::NetworkRequest(ref request) => (
+                network::NetworkPayload::NetworkRequest,
+                serialize_request(&mut builder, request)?,
+            ),
             NetworkPayload::NetworkResponse(ref response) => (
                 network::NetworkPayload::NetworkResponse,
                 serialize_response(&mut builder, response)?,
             ),
         };
 
-        let message_offset =
-            network::NetworkMessage::create(&mut builder, &network::NetworkMessageArgs {
+        let message_offset = network::NetworkMessage::create(
+            &mut builder,
+            &network::NetworkMessageArgs {
                 timestamp: get_current_stamp(),
                 payload_type,
                 payload: Some(payload_offset),
-            });
+            },
+        );
 
         network::finish_size_prefixed_network_message_buffer(&mut builder, message_offset);
 
-        target.write_all(builder.finished_data()).map_err(Error::from)?;
+        target
+            .write_all(builder.finished_data())
+            .map_err(Error::from)?;
 
         Ok(())
     }
@@ -143,11 +149,14 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
     match request.variant() {
         network::RequestVariant::Ping => Ok(NetworkPayload::NetworkRequest(NetworkRequest::Ping)),
         network::RequestVariant::GetPeers => {
-            if let Some(network_ids) =
-                request.payload_as_network_ids().and_then(|payload| payload.ids())
+            if let Some(network_ids) = request
+                .payload_as_network_ids()
+                .and_then(|payload| payload.ids())
             {
                 let network_ids = network_ids.iter().map(NetworkId::from).collect();
-                Ok(NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(network_ids)))
+                Ok(NetworkPayload::NetworkRequest(NetworkRequest::GetPeers(
+                    network_ids,
+                )))
             } else {
                 bail!("missing network ids in a GetPeers request")
             }
@@ -199,21 +208,26 @@ fn deserialize_request(root: &network::NetworkMessage) -> anyhow::Result<Network
                     bail!("missing genesis blocks in a Handshake")
                 };
 
-                Ok(NetworkPayload::NetworkRequest(NetworkRequest::Handshake(Handshake {
-                    remote_id,
-                    remote_port,
-                    networks,
-                    node_version,
-                    wire_versions,
-                    genesis_blocks,
-                    proof: Vec::new(),
-                })))
+                Ok(NetworkPayload::NetworkRequest(NetworkRequest::Handshake(
+                    Handshake {
+                        remote_id,
+                        remote_port,
+                        networks,
+                        node_version,
+                        wire_versions,
+                        genesis_blocks,
+                        proof: Vec::new(),
+                    },
+                )))
             } else {
                 bail!("missing handshake payload")
             }
         }
         network::RequestVariant::JoinNetwork | network::RequestVariant::LeaveNetwork => {
-            if let Some(id) = request.payload_as_network_id().map(|id| NetworkId::from(id.id())) {
+            if let Some(id) = request
+                .payload_as_network_id()
+                .map(|id| NetworkId::from(id.id()))
+            {
                 Ok(NetworkPayload::NetworkRequest(match request.variant() {
                     network::RequestVariant::JoinNetwork => NetworkRequest::JoinNetwork(id),
                     network::RequestVariant::LeaveNetwork => NetworkRequest::LeaveNetwork(id),
@@ -237,7 +251,10 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
             Ok(NetworkPayload::NetworkResponse(NetworkResponse::Pong))
         }
         network::ResponseVariant::PeerList => {
-            if let Some(peers) = response.payload_as_peer_list().and_then(|peers| peers.peers()) {
+            if let Some(peers) = response
+                .payload_as_peer_list()
+                .and_then(|peers| peers.peers())
+            {
                 let mut list = Vec::with_capacity(peers.len());
                 for i in 0..peers.len() {
                     let peer = peers.get(i);
@@ -279,7 +296,9 @@ fn deserialize_response(root: &network::NetworkMessage) -> anyhow::Result<Networ
                     list.push(peer);
                 }
 
-                Ok(NetworkPayload::NetworkResponse(NetworkResponse::PeerList(list)))
+                Ok(NetworkPayload::NetworkResponse(NetworkResponse::PeerList(
+                    list,
+                )))
             } else {
                 bail!("missing peers in a PeerList response")
             }
@@ -295,27 +314,32 @@ fn serialize_packet(
     packet: &NetworkPacket,
 ) -> io::Result<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>> {
     let destination_offset = match packet.destination {
-        PacketDestination::Direct(target_id) => {
-            network::Destination::create(builder, &network::DestinationArgs {
+        PacketDestination::Direct(target_id) => network::Destination::create(
+            builder,
+            &network::DestinationArgs {
                 variant: network::Direction::Direct,
-                target:  target_id.remote_peer_id as u64,
-            })
-        }
-        PacketDestination::Broadcast(..) => {
-            network::Destination::create(builder, &network::DestinationArgs {
+                target: target_id.remote_peer_id as u64,
+            },
+        ),
+        PacketDestination::Broadcast(..) => network::Destination::create(
+            builder,
+            &network::DestinationArgs {
                 variant: network::Direction::Broadcast,
-                target:  Default::default(),
-            })
-        }
+                target: Default::default(),
+            },
+        ),
     };
 
     let payload_offset = builder.create_vector(&packet.message);
 
-    let packet_offset = network::NetworkPacket::create(builder, &network::NetworkPacketArgs {
-        destination: Some(destination_offset),
-        network_id:  packet.network_id.id,
-        payload:     Some(payload_offset),
-    })
+    let packet_offset = network::NetworkPacket::create(
+        builder,
+        &network::NetworkPacketArgs {
+            destination: Some(destination_offset),
+            network_id: packet.network_id.id,
+            payload: Some(payload_offset),
+        },
+    )
     .as_union_value();
 
     Ok(packet_offset)
@@ -326,18 +350,19 @@ fn serialize_request(
     request: &NetworkRequest,
 ) -> io::Result<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>> {
     let (variant, payload_type, payload) = match request {
-        NetworkRequest::Ping => {
-            (network::RequestVariant::Ping, network::RequestPayload::NONE, None)
-        }
+        NetworkRequest::Ping => (
+            network::RequestVariant::Ping,
+            network::RequestPayload::NONE,
+            None,
+        ),
         NetworkRequest::GetPeers(nets) => {
             builder.start_vector::<u16>(nets.len());
             for net in nets {
                 builder.push(net.id);
             }
             let nets_offset = Some(builder.end_vector(nets.len()));
-            let offset = network::NetworkIds::create(builder, &network::NetworkIdsArgs {
-                ids: nets_offset,
-            });
+            let offset =
+                network::NetworkIds::create(builder, &network::NetworkIdsArgs { ids: nets_offset });
             (
                 network::RequestVariant::GetPeers,
                 network::RequestPayload::NetworkIds,
@@ -357,9 +382,12 @@ fn serialize_request(
                 builder.push(*byte);
             }
             let node_version = Some(builder.end_vector(node_version.len()));
-            let node_version_offset = network::Version::create(builder, &network::VersionArgs {
-                version: node_version,
-            });
+            let node_version_offset = network::Version::create(
+                builder,
+                &network::VersionArgs {
+                    version: node_version,
+                },
+            );
 
             builder.start_vector::<u8>(handshake.wire_versions.len());
             for byte in handshake.wire_versions.iter().rev() {
@@ -376,9 +404,12 @@ fn serialize_request(
                         builder.push(*byte);
                     }
                     let block_offset = Some(builder.end_vector(32));
-                    network::BlockHash::create(builder, &network::BlockHashArgs {
-                        genesis_block: block_offset,
-                    })
+                    network::BlockHash::create(
+                        builder,
+                        &network::BlockHashArgs {
+                            genesis_block: block_offset,
+                        },
+                    )
                 })
                 .collect::<Vec<flatbuffers::WIPOffset<network::BlockHash>>>();
             builder
@@ -388,16 +419,19 @@ fn serialize_request(
             }
             let genesis_blocks_offset = Some(builder.end_vector(genesis_blocks.len()));
 
-            let offset = network::Handshake::create(builder, &network::HandshakeArgs {
-                version:        0,
-                node_id:        handshake.remote_id.as_raw(),
-                port:           handshake.remote_port,
-                network_ids:    nets_offset,
-                node_version:   Some(node_version_offset),
-                wire_versions:  wire_version_offset,
-                genesis_blocks: genesis_blocks_offset,
-                zk:             None,
-            });
+            let offset = network::Handshake::create(
+                builder,
+                &network::HandshakeArgs {
+                    version: 0,
+                    node_id: handshake.remote_id.as_raw(),
+                    port: handshake.remote_port,
+                    network_ids: nets_offset,
+                    node_version: Some(node_version_offset),
+                    wire_versions: wire_version_offset,
+                    genesis_blocks: genesis_blocks_offset,
+                    zk: None,
+                },
+            );
             (
                 network::RequestVariant::Handshake,
                 network::RequestPayload::Handshake,
@@ -405,9 +439,7 @@ fn serialize_request(
             )
         }
         NetworkRequest::JoinNetwork(id) => {
-            let offset = network::NetworkId::create(builder, &network::NetworkIdArgs {
-                id: id.id,
-            });
+            let offset = network::NetworkId::create(builder, &network::NetworkIdArgs { id: id.id });
             (
                 network::RequestVariant::JoinNetwork,
                 network::RequestPayload::NetworkId,
@@ -415,9 +447,7 @@ fn serialize_request(
             )
         }
         NetworkRequest::LeaveNetwork(id) => {
-            let offset = network::NetworkId::create(builder, &network::NetworkIdArgs {
-                id: id.id,
-            });
+            let offset = network::NetworkId::create(builder, &network::NetworkIdArgs { id: id.id });
             (
                 network::RequestVariant::LeaveNetwork,
                 network::RequestPayload::NetworkId,
@@ -426,11 +456,14 @@ fn serialize_request(
         }
     };
 
-    let request_offset = network::NetworkRequest::create(builder, &network::NetworkRequestArgs {
-        variant,
-        payload_type,
-        payload,
-    })
+    let request_offset = network::NetworkRequest::create(
+        builder,
+        &network::NetworkRequestArgs {
+            variant,
+            payload_type,
+            payload,
+        },
+    )
     .as_union_value();
 
     Ok(request_offset)
@@ -441,9 +474,11 @@ fn serialize_response(
     response: &NetworkResponse,
 ) -> io::Result<flatbuffers::WIPOffset<flatbuffers::UnionWIPOffset>> {
     let (variant, payload_type, payload) = match response {
-        NetworkResponse::Pong => {
-            (network::ResponseVariant::Pong, network::ResponsePayload::NONE, None)
-        }
+        NetworkResponse::Pong => (
+            network::ResponseVariant::Pong,
+            network::ResponsePayload::NONE,
+            None,
+        ),
         NetworkResponse::PeerList(peerlist) => {
             let mut peers = Vec::with_capacity(peerlist.len());
             for peer in peerlist.iter() {
@@ -458,43 +493,53 @@ fn serialize_response(
                 }
                 let octets = Some(builder.end_vector(octets_len));
 
-                let ip_offset = network::IpAddr::create(builder, &network::IpAddrArgs {
-                    variant,
-                    octets,
-                });
+                let ip_offset =
+                    network::IpAddr::create(builder, &network::IpAddrArgs { variant, octets });
 
                 let peer_type = match peer.peer_type {
                     PeerType::Node => network::PeerVariant::Node,
                     PeerType::Bootstrapper => network::PeerVariant::Bootstrapper,
                 };
 
-                let peer = network::P2PPeer::create(builder, &network::P2PPeerArgs {
-                    id:      peer.id.as_raw(),
-                    addr:    Some(ip_offset),
-                    port:    peer.addr.port(),
-                    variant: peer_type,
-                });
+                let peer = network::P2PPeer::create(
+                    builder,
+                    &network::P2PPeerArgs {
+                        id: peer.id.as_raw(),
+                        addr: Some(ip_offset),
+                        port: peer.addr.port(),
+                        variant: peer_type,
+                    },
+                );
                 peers.push(peer);
             }
             let peers_offset = Some(builder.create_vector(&peers));
             let offset = Some(
-                network::PeerList::create(builder, &network::PeerListArgs {
-                    peers: peers_offset,
-                })
+                network::PeerList::create(
+                    builder,
+                    &network::PeerListArgs {
+                        peers: peers_offset,
+                    },
+                )
                 .as_union_value(),
             );
 
-            (network::ResponseVariant::PeerList, network::ResponsePayload::PeerList, offset)
+            (
+                network::ResponseVariant::PeerList,
+                network::ResponsePayload::PeerList,
+                offset,
+            )
         }
     };
 
-    let response_offset =
-        network::NetworkResponse::create(builder, &network::NetworkResponseArgs {
+    let response_offset = network::NetworkResponse::create(
+        builder,
+        &network::NetworkResponseArgs {
             variant,
             payload_type,
             payload,
-        })
-        .as_union_value();
+        },
+    )
+    .as_union_value();
 
     Ok(response_offset)
 }
@@ -510,6 +555,9 @@ mod tests {
         let mut buffer = std::io::Cursor::new(Vec::with_capacity(payload_size));
 
         msg.serialize(&mut buffer).unwrap();
-        println!("flatbuffers s11n ratio: {}", buffer.get_ref().len() as f64 / payload_size as f64);
+        println!(
+            "flatbuffers s11n ratio: {}",
+            buffer.get_ref().len() as f64 / payload_size as f64
+        );
     }
 }

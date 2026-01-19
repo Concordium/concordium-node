@@ -53,7 +53,10 @@ impl P2PNode {
 
     /// Obtain the node ids of all the node peers.
     pub fn get_node_peer_tokens(&self) -> Vec<RemotePeerId> {
-        self.get_peer_stats(Some(PeerType::Node)).into_iter().map(|stats| stats.local_id).collect()
+        self.get_peer_stats(Some(PeerType::Node))
+            .into_iter()
+            .map(|stats| stats.local_id)
+            .collect()
     }
 
     /// Measures the node's average byte throughput as bps i.e., bytes per
@@ -65,8 +68,12 @@ impl P2PNode {
         let bytes_received = self.stats.received_bytes.get();
         let bytes_sent = self.stats.sent_bytes.get();
 
-        self.stats.last_throughput_measurement_received_bytes.set(bytes_received);
-        self.stats.last_throughput_measurement_sent_bytes.set(bytes_sent);
+        self.stats
+            .last_throughput_measurement_received_bytes
+            .set(bytes_received);
+        self.stats
+            .last_throughput_measurement_sent_bytes
+            .set(bytes_sent);
 
         let now = Utc::now().timestamp_millis();
         let (avg_bps_in, avg_bps_out) = calculate_average_throughput(
@@ -102,12 +109,16 @@ impl P2PNode {
 
     /// Update the timestamp of the last peer update.
     pub fn bump_last_peer_update(&self) {
-        self.connection_handler.last_peer_update.store(get_current_stamp(), Ordering::SeqCst)
+        self.connection_handler
+            .last_peer_update
+            .store(get_current_stamp(), Ordering::SeqCst)
     }
 
     /// Obtain the timestamp of the last peer update.
     pub fn last_peer_update(&self) -> u64 {
-        self.connection_handler.last_peer_update.load(Ordering::SeqCst)
+        self.connection_handler
+            .last_peer_update
+            .load(Ordering::SeqCst)
     }
 }
 
@@ -120,14 +131,21 @@ impl P2PNode {
 /// work and the strange looking messages "already connected to ..." in the
 /// logs.
 pub fn check_peers(node: &Arc<P2PNode>, peer_stats: &[PeerStats], attempted_bootstrap: bool) {
-    debug!("I currently have {}/{} peers", peer_stats.len(), node.config.max_allowed_nodes);
+    debug!(
+        "I currently have {}/{} peers",
+        peer_stats.len(),
+        node.config.max_allowed_nodes
+    );
 
     if node.config.print_peers {
         node.print_stats(peer_stats);
     }
 
     if node.self_peer.peer_type == PeerType::Node {
-        let node_count = peer_stats.iter().filter(|peer| peer.peer_type == PeerType::Node).count();
+        let node_count = peer_stats
+            .iter()
+            .filter(|peer| peer.peer_type == PeerType::Node)
+            .count();
 
         if !node.config.no_net && node_count < node.config.desired_nodes_count as usize {
             if peer_stats.is_empty() {

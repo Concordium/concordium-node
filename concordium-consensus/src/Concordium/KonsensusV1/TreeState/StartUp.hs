@@ -10,6 +10,7 @@ import Control.Monad.Catch
 import Control.Monad.IO.Class
 import Control.Monad.State.Strict
 import qualified Data.Map.Strict as Map
+import Data.Word
 
 import Data.Maybe
 import qualified Data.Sequence as Seq
@@ -25,7 +26,8 @@ import Concordium.Types.Updates
 import Concordium.Utils
 
 import qualified Concordium.GlobalState.AccountMap.DifferenceMap as DiffMap
-import Concordium.GlobalState.BlockState
+import Concordium.GlobalState.AccountMap.ModuleMap (ModuleDifferenceMapReference)
+import Concordium.GlobalState.BlockState as BlockState
 import Concordium.GlobalState.Parameters hiding (getChainParameters)
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import qualified Concordium.GlobalState.Statistics as Stats
@@ -181,8 +183,9 @@ loadSkovData ::
     RuntimeParameters ->
     -- | Set to 'True' if a rollback occurred before loading the skov
     Bool ->
-    -- | The 'SkovData' and, if the consensus is shutdown, the effective protocol update.
-    m (SkovData pv, Maybe ProtocolUpdate)
+    -- | The 'SkovData' and, if the consensus is shutdown, the effective protocol update and
+    --  relative block height of the terminal block.
+    m (SkovData pv, Maybe (ProtocolUpdate, BlockHeight))
 loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
     _persistentRoundStatus <- LowLevel.lookupCurrentRoundStatus
     mLatestFinEntry <- LowLevel.lookupLatestFinalizationEntry
@@ -238,17 +241,13 @@ loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
     -- seedstate, the consensus is shutdown, so we determine the shutdown trigger block, which
     -- will be the terminal block. The terminal block may differ from the last finalized block.
     let consensusIsShutdown = lastFinSeedState ^. shutdownTriggered
-    _terminalBlock <-
-        if consensusIsShutdown
-            then Present <$> findShutdownTriggerBlock lastFinBlock
-            else return Absent
     (currentEpoch, lastEpochFinEntry) <-
         if lastFinSeedState ^. epochTransitionTriggered
             && not consensusIsShutdown
             then case mLatestFinEntry of
                 Nothing ->
-                    throwM . TreeStateInvariantViolation $
-                        "Missing finalization entry for last finalized block"
+                    -- In this case, by the above check, the last finalized block is the genesis block.
+                    return (blockEpoch lastFinBlock, Absent)
                 Just finEntry -> return (blockEpoch lastFinBlock + 1, Present finEntry)
             else return (blockEpoch lastFinBlock, Absent)
     chainParams <- getChainParameters $ bpState lastFinBlock
@@ -288,17 +287,24 @@ loadSkovData _genesisBlockHeight _runtimeParameters didRollback = do
                   _focusBlock = lastFinBlock
                 }
     let _statistics = Stats.initialConsensusStatistics
-    protocolUpdate <-
+    (_terminalBlock, protocolUpdate) <-
         if consensusIsShutdown
             then do
                 getProtocolUpdateStatus (bpState lastFinBlock) >>= \case
-                    ProtocolUpdated pu -> return $ Just pu
+                    ProtocolUpdated pu -> do
+                        termBlock <- findShutdownTriggerBlock lastFinBlock
+                        return (Present termBlock, Just (pu, blockHeight termBlock))
                     PendingProtocolUpdates{} ->
                         throwM . TreeStateInvariantViolation $
                             "Consensus is shut down, but no effective protocol update was present \
                             \in the last finalized block."
-            else return Nothing
+            else return (Absent, Nothing)
     return (SkovData{..}, protocolUpdate)
+
+-- | The parent block's account difference map reference, module difference map reference, and
+--  module count. This is used to reconstruct the difference maps for a block when loading a
+--  certified block.
+type MapInfo = (DiffMap.AccountDifferenceMapReference, (ModuleDifferenceMapReference, Word64))
 
 -- | Load the certified blocks from the low-level database into the tree state.
 --  This caches their block states, adds them to the block table and branches,
@@ -330,7 +336,7 @@ loadCertifiedBlocks = do
     -- Load all certified blocks
     -- This sets the skov state, puts transactions in the transaction table,
     -- and reconstructs the account map difference maps for the certified blocks.
-    foldM_ (flip loadCertBlock) (HM.empty :: HM.HashMap BlockHash DiffMap.DifferenceMapReference) certBlocks
+    foldM_ (flip loadCertBlock) (HM.empty :: HM.HashMap BlockHash MapInfo) certBlocks
     oLastTimeout <- use $ persistentRoundStatus . prsLatestTimeout
     forM_ oLastTimeout $ \lastTimeout -> do
         curRound <- use $ roundStatus . rsCurrentRound
@@ -435,29 +441,64 @@ loadCertifiedBlocks = do
     getAccountAddressFromDeployment bi = case bi of
         WithMetadata{wmdData = CredentialDeployment{biCred = AccountCreation{..}}} -> (Just . addressFromRegId . credId) credential
         _ -> Nothing
+    loadCertBlock ::
+        (LowLevel.StoredBlock (MPV m), QuorumCertificate) ->
+        HM.HashMap BlockHash MapInfo ->
+        m (HM.HashMap BlockHash MapInfo)
     loadCertBlock (storedBlock, qc) loadedBlocks = do
         blockPointer <- mkBlockPointer storedBlock
+        let bh = getHash @BlockHash blockPointer
+        -- Cache the block state first, as this is required for reconstructing the account
+        -- difference map.
+        cacheBlockState (bpState blockPointer)
+
         -- As only finalized accounts are stored in the account map, then
         -- we need to reconstruct the 'DiffMap.DifferenceMap' here for the certified block we're loading.
         let accountsToInsert = mapMaybe getAccountAddressFromDeployment (blockTransactions storedBlock)
-        --  If a parent cannot be looked up in the @loadedBlocks@ it must mean that parent block is finalized,
-        --  and as a result we simply set the parent reference for the difference map to be empty.
-        -- This is alright as the certified blocks we're folding over are in order of ascending round number.
-        parentDiffMapReference <- case blockBakedData storedBlock of
-            -- If the parent is a genesis block then there is no difference map for it.
-            Absent -> liftIO DiffMap.newEmptyReference
-            Present b -> do
-                let parentHash = qcBlock $ bbQuorumCertificate $ sbBlock b
-                -- If the parent cannot be looked up, then it must be finalized and hence no
-                -- difference map exists.
-                case HM.lookup parentHash loadedBlocks of
-                    Nothing -> liftIO DiffMap.newEmptyReference
-                    Just diffMapReference -> return diffMapReference
-        newDifferenceMap <- reconstructAccountDifferenceMap (bpState blockPointer) parentDiffMapReference accountsToInsert
-        -- append to the accummulator with this new difference map reference
-        let loadedBlocks' = HM.insert (getHash storedBlock) newDifferenceMap loadedBlocks
 
-        cacheBlockState (bpState blockPointer)
+        parentBP <- gets parentOfLive <*> pure blockPointer
+
+        let parentHash = getHash parentBP
+        (parentADMRef, parentMDMInfo) <- case HM.lookup parentHash loadedBlocks of
+            Nothing -> do
+                -- If a parent cannot be looked up in the @loadedBlocks@ it must mean that parent
+                -- block is finalized, and as a result we simply set the parent reference for the
+                -- difference map to be empty. This is alright as the certified blocks we're
+                -- folding over are in order of ascending round number.
+                parentADMRef <- liftIO DiffMap.newEmptyReference
+                parentMDMRef <- liftIO DiffMap.newEmptyReference
+                parentModCount <- getModuleCount (bpState parentBP)
+                return (parentADMRef, (parentMDMRef, parentModCount))
+            Just mapInfo -> return mapInfo
+        newADMRef <- reconstructAccountDifferenceMap (bpState blockPointer) parentADMRef accountsToInsert
+        newMDMInfo <- reconstructModuleDifferenceMap (bpState blockPointer) parentMDMInfo
+
+        -- append to the accumulator with this new difference map reference
+        let loadedBlocks' = HM.insert (getHash storedBlock) (newADMRef, newMDMInfo) loadedBlocks
+
+        -- Validate that the 'accountsToInsert' are now accessible.
+        -- This should never fail, but it is worth verifying here since there are likely to be
+        -- few such accounts and it is better to catch any bug here than end up with a corrupted
+        -- account map.
+        forM_ accountsToInsert $ \addr -> do
+            BlockState.getAccount (bpState blockPointer) addr >>= \case
+                Nothing ->
+                    throwM . TreeStateInvariantViolation $
+                        "Account "
+                            ++ show addr
+                            ++ " not found after loading certified block "
+                            ++ show bh
+                Just (_, acc) -> do
+                    actualAddr <- getAccountCanonicalAddress acc
+                    unless (actualAddr == addr) $
+                        throwM . TreeStateInvariantViolation $
+                            "Account address mismatch ("
+                                ++ show actualAddr
+                                ++ " != "
+                                ++ show addr
+                                ++ ") after loading certified block "
+                                ++ show bh
+
         blockTable . liveMap . at' (getHash blockPointer) ?=! blockPointer
         addToBranches blockPointer
         forM_ (blockTransactions blockPointer) $ \tr -> do

@@ -253,7 +253,7 @@ runAddDelegatorTest spv dtc@DelegatorTestConfig{..} da@DelegatorAdd{..} = runTes
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
 
 -- | Test 'bsoAddDelegator' with a random configurations.
@@ -280,7 +280,7 @@ testAddDelegator spv = withMaxSuccess 1000 $ property $ do
     let chooseInvalidAccount =
             elements
                 [ DelegateToBaker (BakerId (fromIntegral i))
-                  | i <- [length accounts .. length accounts + 10]
+                | i <- [length accounts .. length accounts + 10]
                 ]
     -- Favour delegating to a baker, as this covers the most interesting cases.
     target <-
@@ -457,7 +457,7 @@ runUpdateDelegatorTest spv dtc@DelegatorTestConfig{..} du@DelegatorUpdate{..} = 
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
 
 -- | Test 'bsoUpdateDelegator' with a random configurations.
@@ -531,3 +531,12 @@ tests = parallel $ describe "Configure delegator" $ do
     describe "P7" $ do
         it "bsoAddDelegator" $ testAddDelegator SP7
         it "bsoUpdateDelegator" $ testUpdateDelegator SP7
+    describe "P8" $ do
+        it "bsoAddDelegator" $ testAddDelegator SP8
+        it "bsoUpdateDelegator" $ testUpdateDelegator SP8
+    describe "P9" $ do
+        it "bsoAddDelegator" $ testAddDelegator SP9
+        it "bsoUpdateDelegator" $ testUpdateDelegator SP9
+    describe "P10" $ do
+        it "bsoAddDelegator" $ testAddDelegator SP10
+        it "bsoUpdateDelegator" $ testUpdateDelegator SP10

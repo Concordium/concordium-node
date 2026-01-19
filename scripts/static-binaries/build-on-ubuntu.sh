@@ -13,19 +13,23 @@ set -euxo pipefail
 
 extra_features=${EXTRA_FEATURES:-""}
 
-protoc_version=3.15.3
-flatbuffers_version=v22.10.26
-rust_toolchain_version=1.73
+REQUIRED_PARAMETERS=("PROTOC_VERSION" "FLATBUFFERS_VERSION" "RUST_TOOLCHAIN_VERSION")
+
+# Loop through the required variables and check if they are set
+for VAR in "${REQUIRED_PARAMETERS[@]}"; do
+  if [ -z "${!VAR}" ]; then
+    echo "Error: $VAR is not set or empty."
+    exit 1
+  fi
+done
 
 # Install dependencies.
 
 apt-get update && \
 DEBIAN_FRONTEND=noninteractive apt-get -y install \
-	git \
 	curl \
 	libprotobuf-dev \
 	libssl-dev \
-	cmake \
 	pkg-config \
 	libnuma-dev \
 	libgmp-dev \
@@ -37,7 +41,7 @@ DEBIAN_FRONTEND=noninteractive apt-get -y install \
 
 # Install protobuf
 
-curl -L https://github.com/protocolbuffers/protobuf/releases/download/v${protoc_version}/protoc-${protoc_version}-linux-x86_64.zip -o protoc.zip
+curl -L "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip" -o protoc.zip
 unzip protoc.zip bin/protoc -d /usr/
 rm protoc.zip
 
@@ -46,12 +50,19 @@ rm protoc.zip
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source "$HOME/.cargo/env"
 rustup set profile minimal
-rustup default "$rust_toolchain_version"
+rustup default "$RUST_TOOLCHAIN_VERSION"
 
-# Install flatbuffers.
+ASSETS_URL="https://github.com/google/flatbuffers/releases/expanded_assets/v${FLATBUFFERS_VERSION}"
+GCC_VERSION=$(curl -s "$ASSETS_URL" | grep -oP 'Linux\.flatc\.binary\.g\+\+\-\K[0-9]+' | head -n 1)
+if [ -z "$GCC_VERSION" ]; then
+  echo "Could not determine GCC version."
+  exit 1
+else
+  echo "Derived GCC version: $GCC_VERSION"
+fi
 
-git clone https://github.com/google/flatbuffers.git
-( cd flatbuffers && git checkout "$flatbuffers_version" && cmake -G "Unix Makefiles" && make -j"$(nproc)" && make install )
+curl -L "https://github.com/google/flatbuffers/releases/download/v${FLATBUFFERS_VERSION}/Linux.flatc.binary.g++-${GCC_VERSION}.zip" -O
+unzip "Linux.flatc.binary.g++-${GCC_VERSION}.zip" -d /usr/bin
 
 # Build all the binaries and copy them to ./bin/
 # This requires an up-to-date lockfile which should be committed to the repository.

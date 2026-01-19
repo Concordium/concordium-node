@@ -78,6 +78,7 @@ instance BlockData (VerifiedBlock pv) where
     blockTimestamp = blockTimestamp . vbBlock
     blockBakedData = blockBakedData . vbBlock
     blockTransactions = blockTransactions . vbBlock
+    blockTransaction i = blockTransaction i . vbBlock
     blockTransactionCount = blockTransactionCount . vbBlock
 
 -- * Receiving blocks
@@ -435,7 +436,6 @@ processBlock ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
-      MonadProtocolVersion m,
       MonadIO m,
       TimeMonad m,
       MonadThrow m,
@@ -513,6 +513,11 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 -- This implies that the block is in the epoch after the last
                                 -- finalized block.
                                 newBlock <- addBlock @m pendingBlock blockState parent energyUsed
+                                -- Record the transactions in the block as committed.
+                                commitTransactions
+                                    (blockRound pendingBlock)
+                                    (getHash pendingBlock)
+                                    (blockTransactions pendingBlock)
                                 let certifiedParent =
                                         CertifiedBlock
                                             { cbQuorumCertificate = blockQuorumCertificate pendingBlock,
@@ -722,6 +727,12 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
             rejectBlock
         | otherwise = continue
     checkBlockExecution GenesisMetadata{..} parentBF continue = do
+        let missedRounds =
+                computeMissedRounds
+                    (blockQuorumCertificate pendingBlock)
+                    (blockTimeoutCertificate pendingBlock)
+                    (_bfBakers vbBakersAndFinalizers)
+                    vbLeadershipElectionNonce
         let execData =
                 BlockExecutionData
                     { bedIsNewEpoch = blockEpoch pendingBlock == blockEpoch parent + 1,
@@ -736,7 +747,8 @@ processBlock parent VerifiedBlock{vbBlock = pendingBlock, ..}
                                 quorumCertificateSigningBakers
                                     (_bfFinalizers parentBF)
                                     (blockQuorumCertificate pendingBlock)
-                            }
+                            },
+                      bedMissedRounds = missedRounds
                     }
         processBlockItems (sbBlock (pbBlock pendingBlock)) parent >>= \case
             Nothing -> do
@@ -885,7 +897,6 @@ validateBlock ::
       IsConsensusV1 (MPV m),
       MonadThrow m,
       MonadIO m,
-      MonadProtocolVersion m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       MonadReader r m,
@@ -969,7 +980,6 @@ checkedValidateBlock ::
       LowLevel.MonadTreeStateStore m,
       MonadThrow m,
       MonadIO m,
-      MonadProtocolVersion m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       TimeMonad m,
@@ -1003,7 +1013,6 @@ executeBlock ::
       BlockState m ~ HashedPersistentBlockState (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadState (SkovData (MPV m)) m,
-      MonadProtocolVersion m,
       MonadIO m,
       TimeMonad m,
       MonadThrow m,
@@ -1182,7 +1191,6 @@ bakeBlock ::
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       TimeMonad m,
-      MonadProtocolVersion m,
       IsConsensusV1 (MPV m),
       LowLevel.MonadTreeStateStore m,
       MonadConsensusEvent m,
@@ -1204,6 +1212,12 @@ bakeBlock BakeBlockInputs{..} = do
         gets (getBakersForEpoch (qcEpoch bbiQuorumCertificate)) <&> \case
             Nothing -> error "Invariant violation: could not determine bakers for QC epoch."
             Just bakers -> quorumCertificateSigningBakers (bakers ^. bfFinalizers) bbiQuorumCertificate
+    let missedRounds =
+            computeMissedRounds
+                bbiQuorumCertificate
+                bbiTimeoutCertificate
+                bbiEpochBakers
+                bbiLeadershipElectionNonce
     let executionData =
             BlockExecutionData
                 { bedIsNewEpoch = isPresent bbiEpochFinalizationEntry,
@@ -1215,7 +1229,8 @@ bakeBlock BakeBlockInputs{..} = do
                     ParticipatingBakers
                         { pbBlockBaker = bakerId bbiBakerIdentity,
                           pbQCSignatories = signatories
-                        }
+                        },
+                  bedMissedRounds = missedRounds
                 }
     runtime <- use runtimeParameters
     tt <- use transactionTable
@@ -1350,7 +1365,6 @@ makeBlock ::
       LowLevel.MonadTreeStateStore m,
       TimeMonad m,
       TimerMonad m,
-      MonadProtocolVersion m,
       MonadBroadcast m,
       MonadThrow m,
       MonadIO m,

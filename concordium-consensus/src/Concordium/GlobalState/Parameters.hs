@@ -146,47 +146,49 @@ instance FromJSON RuntimeParameters where
 --  These are slightly different to the 'UpdatePayload' type,
 --  specifically in that for the foundation account we store
 --  the account index rather than the account address.
-data UpdateValue (cpv :: ChainParametersVersion) where
+data UpdateValue (cpv :: ChainParametersVersion) (auv :: AuthorizationsVersion) where
     -- | Protocol updates.
-    UVProtocol :: forall cpv. !ProtocolUpdate -> UpdateValue cpv
+    UVProtocol :: forall cpv auv. !ProtocolUpdate -> UpdateValue cpv auv
     -- | Updates to the election difficulty parameter.
-    UVElectionDifficulty :: (IsSupported 'PTElectionDifficulty cpv ~ 'True) => !ElectionDifficulty -> UpdateValue cpv
+    UVElectionDifficulty :: (IsSupported 'PTElectionDifficulty cpv ~ 'True) => !ElectionDifficulty -> UpdateValue cpv auv
     -- | Updates to the euro:energy exchange rate.
-    UVEuroPerEnergy :: forall cpv. !ExchangeRate -> UpdateValue cpv
+    UVEuroPerEnergy :: forall cpv auv. !ExchangeRate -> UpdateValue cpv auv
     -- | Updates to the GTU:euro exchange rate.
-    UVMicroGTUPerEuro :: forall cpv. !ExchangeRate -> UpdateValue cpv
+    UVMicroGTUPerEuro :: forall cpv auv. !ExchangeRate -> UpdateValue cpv auv
     -- | Updates to the foundation account.
-    UVFoundationAccount :: forall cpv. !AccountIndex -> UpdateValue cpv
+    UVFoundationAccount :: forall cpv auv. !AccountIndex -> UpdateValue cpv auv
     -- | Updates to the mint distribution.
-    UVMintDistribution :: forall cpv. !(MintDistribution (MintDistributionVersionFor cpv)) -> UpdateValue cpv
+    UVMintDistribution :: forall cpv auv. !(MintDistribution (MintDistributionVersionFor cpv)) -> UpdateValue cpv auv
     -- | Updates to the transaction fee distribution.
-    UVTransactionFeeDistribution :: forall cpv. !TransactionFeeDistribution -> UpdateValue cpv
+    UVTransactionFeeDistribution :: forall cpv auv. !TransactionFeeDistribution -> UpdateValue cpv auv
     -- | Updates to the GAS rewards.
-    UVGASRewards :: forall cpv. !(GASRewards (GasRewardsVersionFor cpv)) -> UpdateValue cpv
+    UVGASRewards :: forall cpv auv. !(GASRewards (GasRewardsVersionFor cpv)) -> UpdateValue cpv auv
     -- | Updates to the pool parameters.
-    UVPoolParameters :: forall cpv. !(PoolParameters cpv) -> UpdateValue cpv
+    UVPoolParameters :: forall cpv auv. !(PoolParameters cpv) -> UpdateValue cpv auv
     -- | Adds a new anonymity revoker
-    UVAddAnonymityRevoker :: forall cpv. !ArInfo -> UpdateValue cpv
+    UVAddAnonymityRevoker :: forall cpv auv. !ArInfo -> UpdateValue cpv auv
     -- | Adds a new identity provider
-    UVAddIdentityProvider :: forall cpv. !IpInfo -> UpdateValue cpv
+    UVAddIdentityProvider :: forall cpv auv. !IpInfo -> UpdateValue cpv auv
     -- | Updates to root keys.
-    UVRootKeys :: forall cpv. !(HigherLevelKeys RootKeysKind) -> UpdateValue cpv
+    UVRootKeys :: forall cpv auv. !(HigherLevelKeys RootKeysKind) -> UpdateValue cpv auv
     -- | Updates to level 1 keys.
-    UVLevel1Keys :: forall cpv. !(HigherLevelKeys Level1KeysKind) -> UpdateValue cpv
+    UVLevel1Keys :: forall cpv auv. !(HigherLevelKeys Level1KeysKind) -> UpdateValue cpv auv
     -- | Updates to level 2 keys.
-    UVLevel2Keys :: forall cpv. !(Authorizations (AuthorizationsVersionFor cpv)) -> UpdateValue cpv
+    UVLevel2Keys :: forall cpv auv. !(Authorizations auv) -> UpdateValue cpv auv
     -- | Updates to cooldown parameters for chain parameter version 1.
-    UVCooldownParameters :: (IsSupported 'PTCooldownParametersAccessStructure cpv ~ 'True) => !(CooldownParameters cpv) -> UpdateValue cpv
+    UVCooldownParameters :: (IsSupported 'PTCooldownParametersAccessStructure cpv ~ 'True) => !(CooldownParameters cpv) -> UpdateValue cpv auv
     -- | Updates to time parameters for chain parameters version 1.
-    UVTimeParameters :: (IsSupported 'PTTimeParameters cpv ~ 'True) => !TimeParameters -> UpdateValue cpv
+    UVTimeParameters :: (IsSupported 'PTTimeParameters cpv ~ 'True) => !TimeParameters -> UpdateValue cpv auv
     -- | Updates to timeout parameters for chain parameters version 2.
-    UVTimeoutParameters :: (IsSupported 'PTTimeoutParameters cpv ~ 'True) => !TimeoutParameters -> UpdateValue cpv
+    UVTimeoutParameters :: (IsSupported 'PTTimeoutParameters cpv ~ 'True) => !TimeoutParameters -> UpdateValue cpv auv
     -- | Updates to minimum block time for chain parameters version 2.
-    UVMinBlockTime :: (IsSupported 'PTMinBlockTime cpv ~ 'True) => !Duration -> UpdateValue cpv
+    UVMinBlockTime :: (IsSupported 'PTMinBlockTime cpv ~ 'True) => !Duration -> UpdateValue cpv auv
     -- | Updates to block energy limit for chain parameters version 2.
-    UVBlockEnergyLimit :: (IsSupported 'PTBlockEnergyLimit cpv ~ 'True) => !Energy -> UpdateValue cpv
+    UVBlockEnergyLimit :: (IsSupported 'PTBlockEnergyLimit cpv ~ 'True) => !Energy -> UpdateValue cpv auv
     -- | Updates to the finalization committee parameters for chain parameters version 2.
-    UVFinalizationCommitteeParameters :: (IsSupported 'PTFinalizationCommitteeParameters cpv ~ 'True) => !FinalizationCommitteeParameters -> UpdateValue cpv
+    UVFinalizationCommitteeParameters :: (IsSupported 'PTFinalizationCommitteeParameters cpv ~ 'True) => !FinalizationCommitteeParameters -> UpdateValue cpv auv
+    -- | Updates to the validator score parameters for chain parameters version 3.
+    UVValidatorScoreParameters :: (IsSupported 'PTValidatorScoreParameters cpv ~ 'True) => !ValidatorScoreParameters -> UpdateValue cpv auv
 
-deriving instance Eq (UpdateValue cpv)
-deriving instance Show (UpdateValue cpv)
+deriving instance Eq (UpdateValue cpv auv)
+deriving instance Show (UpdateValue cpv auv)

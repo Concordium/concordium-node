@@ -10,8 +10,11 @@ _rust_rocksdb*
 tags
 path
 .vscode
+.idea/
+concordium-node/.idea/
 .so
 .stack-work
+.stack-work-test
 dist
 .cabal-sandbox
 cabal.sandbox.config
@@ -60,3 +63,8 @@ hie.yaml
 xcuserdata/
 /scripts/distribution/macOS-package/NodeConfigurationInstallerPlugin/build/
 /scripts/distribution/macOS-package/NodeConfigurationInstallerPlugin/*.gcno
+# Code coverage report
+lcov.info
+# Test artefacts
+.stack-work-coverage*
+*.blob

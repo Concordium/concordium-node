@@ -73,7 +73,7 @@ scheduledTransferWithMemoRejectsP1 =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor Types.P1) ->
         BS.PersistentBlockState PV1 ->
         Helpers.PersistentBSM PV1 Assertion
     checkState result state =
@@ -105,17 +105,18 @@ scheduledTransferTest _ pvString =
   where
     transactionsAndAssertions =
         [ -- make a scheduled transfer
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithSchedule
-                            accountAddress1
-                            [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithSchedule
+                                accountAddress1
+                                [(101, 10), (102, 11), (103, 12)],
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $
                     Helpers.assertSuccessWithEvents
                         [ TransferredWithSchedule
@@ -126,59 +127,63 @@ scheduledTransferTest _ pvString =
                         result
             },
           -- should get rejected since timestamps are not increasing
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithSchedule
-                            accountAddress1
-                            [(101, 10), (103, 11), (102, 12)],
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithSchedule
+                                accountAddress1
+                                [(101, 10), (103, 11), (102, 12)],
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertRejectWithReason NonIncreasingSchedule result
             },
           -- should get rejected since first timestamp has expired
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithSchedule
-                            accountAddress1
-                            [(99, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithSchedule
+                                accountAddress1
+                                [(99, 10), (102, 11), (103, 12)],
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertRejectWithReason FirstScheduledReleaseExpired result
             },
           -- should get rejected since sender = receiver
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithSchedule
-                            accountAddress0
-                            [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithSchedule
+                                accountAddress0
+                                [(101, 10), (102, 11), (103, 12)],
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertRejectWithReason (ScheduledSelfTransfer accountAddress0) result
             },
           -- should get rejected since one of the amounts is 0
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithSchedule
-                            accountAddress1
-                            [(101, 10), (102, 0), (103, 12)],
-                      metadata = makeDummyHeader accountAddress0 5 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithSchedule
+                                accountAddress1
+                                [(101, 10), (102, 0), (103, 12)],
+                          metadata = makeDummyHeader accountAddress0 5 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertRejectWithReason ZeroScheduledAmount result
             }
         ]
@@ -209,18 +214,19 @@ scheduledTransferWithMemoTest _ pvString =
   where
     transactionsAndAssertions =
         [ -- make a scheduled transfer
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithScheduleAndMemo
-                            accountAddress1
-                            (Memo $ BSS.pack [0, 1, 2, 3])
-                            [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader accountAddress0 1 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithScheduleAndMemo
+                                accountAddress1
+                                (Memo $ BSS.pack [0, 1, 2, 3])
+                                [(101, 10), (102, 11), (103, 12)],
+                          metadata = makeDummyHeader accountAddress0 1 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $
                     Helpers.assertSuccessWithEvents
                         [ TransferredWithSchedule
@@ -232,63 +238,67 @@ scheduledTransferWithMemoTest _ pvString =
                         result
             },
           -- should get rejected since timestamps are not increasing
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithScheduleAndMemo
-                            accountAddress1
-                            (Memo $ BSS.pack [0, 1, 2, 3])
-                            [(101, 10), (103, 11), (102, 12)],
-                      metadata = makeDummyHeader accountAddress0 2 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithScheduleAndMemo
+                                accountAddress1
+                                (Memo $ BSS.pack [0, 1, 2, 3])
+                                [(101, 10), (103, 11), (102, 12)],
+                          metadata = makeDummyHeader accountAddress0 2 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertRejectWithReason NonIncreasingSchedule result
             },
           -- should get rejected since first timestamp has expired
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithScheduleAndMemo
-                            accountAddress1
-                            (Memo $ BSS.pack [0, 1, 2, 3])
-                            [(99, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader accountAddress0 3 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithScheduleAndMemo
+                                accountAddress1
+                                (Memo $ BSS.pack [0, 1, 2, 3])
+                                [(99, 10), (102, 11), (103, 12)],
+                          metadata = makeDummyHeader accountAddress0 3 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertRejectWithReason FirstScheduledReleaseExpired result
             },
           -- should get rejected since sender = receiver
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithScheduleAndMemo
-                            accountAddress0
-                            (Memo $ BSS.pack [0, 1, 2, 3])
-                            [(101, 10), (102, 11), (103, 12)],
-                      metadata = makeDummyHeader accountAddress0 4 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithScheduleAndMemo
+                                accountAddress0
+                                (Memo $ BSS.pack [0, 1, 2, 3])
+                                [(101, 10), (102, 11), (103, 12)],
+                          metadata = makeDummyHeader accountAddress0 4 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertRejectWithReason (ScheduledSelfTransfer accountAddress0) result
             },
           -- should get rejected since one of the amounts is 0
-          Helpers.TransactionAndAssertion
-            { taaTransaction =
-                Runner.TJSON
-                    { payload =
-                        Runner.TransferWithScheduleAndMemo
-                            accountAddress1
-                            (Memo $ BSS.pack [0, 1, 2, 3])
-                            [(101, 10), (102, 0), (103, 12)],
-                      metadata = makeDummyHeader accountAddress0 5 100_000,
-                      keys = [(0, [(0, keyPair0)])]
-                    },
-              taaAssertion = \result _ ->
+          Helpers.BlockItemAndAssertion
+            { biaaTransaction =
+                Runner.AccountTx $
+                    Runner.TJSON
+                        { payload =
+                            Runner.TransferWithScheduleAndMemo
+                                accountAddress1
+                                (Memo $ BSS.pack [0, 1, 2, 3])
+                                [(101, 10), (102, 0), (103, 12)],
+                          metadata = makeDummyHeader accountAddress0 5 100_000,
+                          keys = [(0, [(0, keyPair0)])]
+                        },
+              biaaAssertion = \result _ ->
                 return $ Helpers.assertRejectWithReason ZeroScheduledAmount result
             }
         ]
@@ -326,7 +336,7 @@ scheduledTransferRejectsSelfTransferUsingAliases _ pvString =
             doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result state =

@@ -2,7 +2,7 @@
 
 ## Dependencies to build the project
 
-- Rust (stable 1.73 for using static libraries)
+- Rust (stable 1.82 for using static libraries)
 - binutils >= 2.22
   - For macOS one should use the binutils provided by Xcode.
 - cmake >= 3.8.0
@@ -26,9 +26,28 @@
 
 ## Building the node
 
-The [build.rs](./build.rs) script links with a number of Haskell libraries and
-supports a number of configuration options that can be configured in two
-different ways, either via environment variables or Cargo features.
+First build Haskell code (concordium-base and concordium-consensus) using
+
+```console
+stack build
+```
+
+from the repository base folder. Then from the concordium-node subfolder, build the Rust code (here in release mode) using 
+
+```console
+cargo build --release
+```
+
+The [build.rs](./build.rs) script links with the Haskell libraries but will not build them,
+hence the Haskell build must be done manually first. 
+
+To build and run the node, use
+
+```console
+cargo run --release -- --config-dir <CONCORDIUM_NODE_CONFIG_DIR> --data-dir <CONCORDIUM_NODE_DATA_DIR>
+```
+  
+Documentation about what <CONCORDIUM_NODE_CONFIG_DIR> and <CONCORDIUM_NODE_DATA_DIR> is seen at https://github.com/Concordium/concordium-node/blob/main/VARIABLES.md#common
 
 ### Features
 
@@ -45,7 +64,7 @@ The package supports the following features related to linking with the Haskell 
   mkdir out
   docker run -v $(pwd)/out:/out concordium/static-libraries
   mkdir -p concordium-node/deps/static-libs/linux
-  tar -xf out/static-consensus-9.6.4.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
+  tar -xf out/static-consensus-9.10.2.tar.gz --strip-components=1 -C concordium-node/deps/static-libs/linux
   ```
 
   (this is assuming a GNU version of tar)
@@ -86,35 +105,25 @@ Environment variables only apply to the default build. This links with shared Ha
 
 ### CAVEATS
 
-- Note that [build.rs](./build.rs) **will not** automatically build the Haskell
-  dependencies, it will only try to discover them. Building should be done before
-  by running `stack build` inside
-  [../concordium-consensus/](../concordium-consensus/) or running
-
-  ```console
-  stack --stack-yaml ../concordium-consensus/stack.yaml build
-  ```
-
-  Once the node is built it can be run as
-
-  ```console
-  cargo run -- --config-dir <CONCORDIUM_NODE_CONFIG_DIR> --data-dir <CONCORDIUM_NODE_DATA_DIR>
-  ```
-
-  or
-
-  ```console
-  cargo run --release -- --config-dir <CONCORDIUM_NODE_CONFIG_DIR> --data-dir <CONCORDIUM_NODE_DATA_DIR>
-  ```
-
-  to be run in release mode for improved performance. Note that the
-  [concordium-consensus](../concordium-consensus/) dependency is the same regardless of how the
-  node itself is built, the `--release` only applies to the optimization of the rust node components.
-  
-Documentation about what <CONCORDIUM_NODE_CONFIG_DIR> and <CONCORDIUM_NODE_DATA_DIR> is seen at https://github.com/Concordium/concordium-node/blob/main/VARIABLES.md#common
-
 - The node built with Haskell library auto-discovery is not suitable for distribution to other
   machines. It is a dynamically linked binary with a large number of shared library dependencies.
+
+### Genesis Data
+Running the node on a local machine would requires the *genesis data* to be set up in the `<CONCORDIUM_NODE_DATA_DIR>`.
+To run your own local chain, you can use the [genesis-creator](https://github.com/Concordium/concordium-misc-tools/tree/main/genesis-creator) tool to generate the required genesis data and initial validator keys.
+
+To run the node agains the mainnet or testnet you would need to get the relevant `genesis.dat` [file](https://docs.concordium.com/en/mainnet/docs/installation/downloads.html#genesis-block).
+
+```
+cargo install --git https://github.com/Concordium/concordium-misc-tools.git genesis-creator --locked
+```
+
+You will also need to have a genesis-config TOML file. You can use the following [file](https://raw.githubusercontent.com/Concordium/concordium-misc-tools/main/genesis-creator/examples/single-baker-example-p6.toml) as an example.
+
+To generate the genesis data run:
+```
+~/.cargo/bin/genesis-creator your-genesis-config.toml
+```
 
 ### MacOS Specific
 
@@ -151,8 +160,8 @@ Before building the node, you should install the following dependencies:
 
 - Haskell [stack](https://docs.haskellstack.org/en/stable/install_and_upgrade/)
 - [Rust](https://www.rust-lang.org/tools/install)
-  - For building the node, the toolchain `1.73-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.73-x86_64-pc-windows-gnu`.
-  - For building the node runner service (optional), the toolchain `1.73-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.73-x86_64-pc-windows-msvc`.
+  - For building the node, the toolchain `1.82-x86_64-pc-windows-gnu` is required, which can be installed with the command: `rustup toolchain install 1.82-x86_64-pc-windows-gnu`.
+  - For building the node runner service (optional), the toolchain `1.82-x86_64-pc-windows-msvc`  is required, which can be installed with the command: `rustup toolchain install 1.82-x86_64-pc-windows-msvc`.
 - GCC is required for building some library dependencies. [WinLibs](https://winlibs.com/) provides a standalone build of GCC with MinGW-w64. Download the latest release version (Win64, without LLVM) and extract it (e.g. to `C:\mingw64`) and ensure that the `bin` directory is on the path. (Installing `gcc` under `stack`'s `msys2` installation does not seem to work when building the node.)
 - [flatc](https://github.com/google/flatbuffers/releases/tag/v22.12.06) 22.12.06 (should be in the path)
 - [protoc](https://github.com/protocolbuffers/protobuf/releases) >= 3.15

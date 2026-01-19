@@ -5,7 +5,6 @@
 module Concordium.GlobalState.PurgeTransactions where
 
 import Control.Monad.Trans.State.Strict
-import Data.Foldable
 import qualified Data.HashMap.Strict as HM
 import qualified Data.HashSet as HS
 import qualified Data.Map.Strict as Map
@@ -226,7 +225,7 @@ filterTables ::
     -- | 'BlockHash' of block that transactions were added in
     BlockHash ->
     -- | Filtered transactions as a result of constructing the block.
-    FilteredTransactions ->
+    FilteredTransactions tov ->
     -- | Transaction table to update
     TransactionTable ->
     -- | Pending transaction table to update

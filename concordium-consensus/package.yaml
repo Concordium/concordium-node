@@ -384,7 +384,8 @@ tests:
     - filepath >= 1.4.2
     - template-haskell
     - temporary >= 1.3
-
+    - cborg >= 0.2
+    
 benchmarks:
   trie:
     main:                TrieBench.hs
@@ -447,6 +448,35 @@ benchmarks:
   leader-election:
     main:                LeaderElectionBench.hs
     source-dirs:         benchmarks/leader-election
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N1
+    - -Wall
+    - -Wcompat
+    - -fno-ignore-asserts
+    - -Wno-deprecations
+    when:
+      - condition: os(windows)
+        then:
+          ghc-options: -static
+        else:
+          when:
+            - condition: flag(dynamic)
+              then:
+                ghc-options: -dynamic
+              else:
+                ghc-options: -static
+    dependencies:
+    - concordium-consensus
+    - containers
+    - temporary >= 1.3
+    - criterion
+    - deepseq
+
+  transactions:
+    main:                TransactionsBench.hs
+    source-dirs:         benchmarks/transactions
     ghc-options:
     - -threaded
     - -rtsopts

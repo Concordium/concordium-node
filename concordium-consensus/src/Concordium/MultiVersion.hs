@@ -23,9 +23,9 @@
 module Concordium.MultiVersion where
 
 import Control.Concurrent
-import Control.Exception
+import Control.Exception hiding (handle)
 import Control.Monad
-import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow (throwM))
+import Control.Monad.Catch (MonadCatch, MonadMask, MonadThrow (throwM), handle)
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as State
 import Data.ByteString (ByteString)
@@ -34,6 +34,7 @@ import Data.IORef
 import Data.Serialize
 import qualified Data.Text as Text
 import Data.Time
+import Data.Typeable
 import qualified Data.Vector as Vec
 import System.FilePath
 
@@ -257,11 +258,9 @@ data Callbacks = Callbacks
 --  be populated with a configuration for the genesis index prior to calling this function.
 skovV1Handlers ::
     forall pv finconf.
-    (IsConsensusV1 pv, IsProtocolVersion pv) =>
     GenesisIndex ->
-    AbsoluteBlockHeight ->
     SkovV1.HandlerContext pv (MVR finconf)
-skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
+skovV1Handlers gi = SkovV1.HandlerContext{..}
   where
     _sendTimeoutHandler timeoutMsg = MVR $ \mvr -> do
         broadcastFinalizationMessage
@@ -279,50 +278,62 @@ skovV1Handlers gi genHeight = SkovV1.HandlerContext{..}
             gi
             (runPut (KonsensusV1.putSignedBlock block))
 
-    _onBlockHandler :: SkovV1.BlockPointer pv -> MVR finconf ()
-    _onBlockHandler block = do
-        -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
-        -- baker ID of this node and it could be the case that the block was not baked by this node,
-        -- if another node using the same baker ID.
-        -- The information is used to count the number of baked blocks exposed by a prometheus metric.
-        -- An alternative implementation would be to extend the @onBlock@ handler (part of @OnSkov@)
-        -- to take an extra argument indicating whether the block was just baked or processed as part of a received
-        -- block. This would mean that only blocks baked since start by this node would be counted,
-        -- not blocks received as part of catchup. However the same cannot be done for finalized blocks as easily
-        -- and so for consistency between these two methods we chose to also count blocks received as part of catchup
-        -- in both.
-        asks (notifyBlockArrived . mvCallbacks) >>= \case
+-- | Handler for a block arriving. This is used to notify the network layer that a block has
+--  arrived. This ultimately calls @notify_callback@, which is used to notify any gRPC clients
+--  listening for block arrivals, and to update metrics.
+skovV1BlockHandler ::
+    -- | Height of the genesis block
+    AbsoluteBlockHeight ->
+    -- | The newly-arrived block.
+    SkovV1.BlockPointer pv ->
+    MVR finconf ()
+skovV1BlockHandler genHeight block = do
+    -- Notice that isHomeBaked (in the code below) represents whether this block is baked by the
+    -- baker ID of this node and it could be the case that the block was not baked by this node,
+    -- if another node using the same baker ID.
+    -- The information is used to count the number of baked blocks exposed by a prometheus metric.
+    -- An alternative implementation would be to extend the @onBlock@ handler (part of @OnSkov@)
+    -- to take an extra argument indicating whether the block was just baked or processed as part of a received
+    -- block. This would mean that only blocks baked since start by this node would be counted,
+    -- not blocks received as part of catchup. However the same cannot be done for finalized blocks as easily
+    -- and so for consistency between these two methods we chose to also count blocks received as part of catchup
+    -- in both.
+    asks (notifyBlockArrived . mvCallbacks) >>= \case
+        Nothing -> return ()
+        Just notifyCallback -> do
+            let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight block)
+            nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
+            let isHomeBaked = case nodeBakerIdMaybe of
+                    Nothing -> False
+                    Just nodeBakerId ->
+                        Present nodeBakerId
+                            == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData block)
+            liftIO (notifyCallback (getHash block) height isHomeBaked)
+
+-- | Handler for block finalization. This notifies the network layer, ultimately calling
+--  @notify_callback@, which is used to notify any gRPC clients listening for block finalizations,
+--  and to update metrics.
+--  It does not check for protocol updates, which should be handled subsequently.
+skovV1FinalizeHandler ::
+    -- | Height of the genesis block
+    AbsoluteBlockHeight ->
+    KonsensusV1.FinalizationEntry pv ->
+    [SkovV1.BlockPointer pv] ->
+    VersionedSkovV1M finconf pv ()
+skovV1FinalizeHandler genHeight _ finalizedBlocks = do
+    lift $
+        asks (notifyBlockFinalized . mvCallbacks) >>= \case
             Nothing -> return ()
             Just notifyCallback -> do
-                let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight block)
                 nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
-                let isHomeBaked = case nodeBakerIdMaybe of
-                        Nothing -> False
-                        Just nodeBakerId ->
-                            Present nodeBakerId
-                                == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData block)
-                liftIO (notifyCallback (getHash block) height isHomeBaked)
-
-    _onFinalizeHandler _ finalizedBlocks = do
-        lift $
-            asks (notifyBlockFinalized . mvCallbacks) >>= \case
-                Nothing -> return ()
-                Just notifyCallback -> do
-                    nodeBakerIdMaybe <- asks (fmap (bakerId . bakerIdentity) . mvBaker)
-                    forM_ finalizedBlocks $ \bp -> do
-                        let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight bp)
-                        let isHomeBaked = case nodeBakerIdMaybe of
-                                Nothing -> False
-                                Just nodeBakerId ->
-                                    Present nodeBakerId
-                                        == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
-                        liftIO (notifyCallback (getHash bp) height isHomeBaked)
-        checkForProtocolUpdateV1
-
-    _onPendingLiveHandler = do
-        -- Notify peers of our catch-up status, since they may not be aware of the now-live pending
-        -- blocks.
-        bufferedSendCatchUpStatus
+                forM_ finalizedBlocks $ \bp -> do
+                    let height = localToAbsoluteBlockHeight genHeight (SkovV1.blockHeight bp)
+                    let isHomeBaked = case nodeBakerIdMaybe of
+                            Nothing -> False
+                            Just nodeBakerId ->
+                                Present nodeBakerId
+                                    == (KonsensusV1.blockBaker <$> KonsensusV1.blockBakedData bp)
+                    liftIO (notifyCallback (getHash bp) height isHomeBaked)
 
 -- | Baker identity and baking thread 'MVar'.
 data Baker = Baker
@@ -500,6 +511,26 @@ data CatchUpStatusBufferState
     | -- | We should not send any more catch-up status messages.
       BufferShutdown
 
+-- | A representation of whether the global write lock has been poisoned due to an exception in
+--  a thread that held the lock.
+data GlobalStateStatus
+    = -- | The global state is in a consistent state.
+      GSOk
+    | -- | A thread has thrown an exception while processing the global state, indicating an
+      --  unrecoverable error.
+      GSError
+    deriving (Eq)
+
+-- | An exception indicating that the global state lock was poisoned by an error in another thread.
+--  This indicates that some invariants of the global state may have been violated, and is not
+--  recoverable.
+data GlobalLockPoisonError = GlobalLockPoisonError
+    deriving (Eq, Show, Typeable)
+
+instance Exception GlobalLockPoisonError where
+    displayException _ =
+        "The global state lock was poisoned by an unrecoverable error in another thread."
+
 -- | The context for managing multi-version consensus.
 data MultiVersionRunner finconf = MultiVersionRunner
     { -- | Base configuration.
@@ -515,7 +546,7 @@ data MultiVersionRunner finconf = MultiVersionRunner
       --  the write lock is held.
       mvVersions :: !(IORef (Vec.Vector (EVersionedConfiguration finconf))),
       -- | Global write lock.
-      mvWriteLock :: !(MVar ()),
+      mvWriteLock :: !(MVar GlobalStateStatus),
       -- | Flag to stop importing blocks. When importing blocks from a file is in progress,
       --  setting this flag to True will cause the import to stop.
       mvShouldStopImportingBlocks :: !(IORef Bool),
@@ -546,6 +577,25 @@ instance MonadLogger (MVR finconf) where
     logEvent src lvl msg = MVR $ \mvr -> mvLog mvr src lvl msg
     {-# INLINE logEvent #-}
 
+-- | Catch and log exceptions in the 'MVR' monad.
+--  Returns a specified value in the event of an exception.
+handleMVRExceptionsWith ::
+    -- | Value to return in the event of an exception.
+    a ->
+    -- | Action to run
+    MVR finconf a ->
+    MVR finconf a
+handleMVRExceptionsWith failRes = handle handler
+  where
+    handler (e :: SomeException) = do
+        logEvent Runner LLError $ "Unrecoverable exception: " <> displayException e
+        return failRes
+
+-- | Catch and log exceptions in the 'MVR' monad.
+--  Returns 'Skov.ResultConsensusFailure' in the event of an exception.
+handleMVRExceptions :: MVR finconf Skov.UpdateResult -> MVR finconf Skov.UpdateResult
+handleMVRExceptions = handleMVRExceptionsWith Skov.ResultConsensusFailure
+
 -- | Perform an action while holding the global state write lock.
 --  If the action throws an exception, this ensures that the lock is
 --  released.
@@ -561,14 +611,23 @@ withWriteLockIO :: MultiVersionRunner finconf -> IO a -> IO a
 withWriteLockIO MultiVersionRunner{..} a =
     bracketOnError
         (takeMVar mvWriteLock)
-        ( \() ->
-            tryPutMVar mvWriteLock ()
-                >> mvLog Runner LLWarning "Released global state lock following error."
+        ( \_ -> do
+            poisoned <- tryPutMVar mvWriteLock GSError
+            when poisoned $
+                mvLog
+                    Runner
+                    LLWarning
+                    "An error occurred while holding the global state lock.\
+                    \ This will be propagated to other threads."
         )
-        $ \_ -> do
-            res <- a
-            putMVar mvWriteLock ()
-            return res
+        $ \case
+            GSOk -> do
+                res <- a
+                putMVar mvWriteLock GSOk
+                return res
+            GSError -> do
+                putMVar mvWriteLock GSError
+                throwIO GlobalLockPoisonError
 
 -- | Perform an action while holding the global state write lock. Optionally, when the action
 --  completes, a thread is forked to perform a follow-up action before releasing the lock.
@@ -585,17 +644,26 @@ withWriteLockMaybeFork action followup = MVR $ \mvr ->
 withWriteLockMaybeForkIO :: MultiVersionRunner finconf -> IO (a, Maybe b) -> (b -> IO ()) -> IO a
 {-# INLINE withWriteLockMaybeForkIO #-}
 withWriteLockMaybeForkIO MultiVersionRunner{..} action followup = mask $ \unmask -> do
-    () <- takeMVar mvWriteLock
-    (res, mContinue) <- unmask action `onException` tryPutMVar mvWriteLock ()
+    gsStatus <- takeMVar mvWriteLock
+    when (gsStatus == GSError) $ do
+        putMVar mvWriteLock GSError
+        throwIO GlobalLockPoisonError
+    (res, mContinue) <- unmask action `onException` tryPutMVar mvWriteLock GSError
     case mContinue of
         Just continueArg -> do
-            let release = putMVar mvWriteLock ()
+            let release (Left exception) = do
+                    mvLog Runner LLError $
+                        "An unrecovarable error occurred in a worker thread\
+                        \ while holding the global state lock: "
+                            ++ show exception
+                    putMVar mvWriteLock GSError
+                release (Right _) = putMVar mvWriteLock GSOk
             -- forkIO is guaranteed to be uninterruptible, so we can be sure that an async exception
             -- won't prevent the lock being released. Also note that the masking state of the thread
             -- is inherited, so we unmask when running the follow-up.
-            void $ forkIO (unmask (try @SomeException (followup continueArg)) >> release)
+            void $ forkIO (unmask (try @SomeException (followup continueArg)) >>= release)
         Nothing -> do
-            putMVar mvWriteLock ()
+            putMVar mvWriteLock GSOk
     return res
 
 -- | Lift a 'LogIO' action into the 'MVR' monad.
@@ -682,7 +750,7 @@ newGenesis (PVGenesisData (gd :: GenesisData pv)) genesisHeight = case consensus
                         unliftSkov a = do
                             config <- readMVar configRef
                             runMVR (runSkovV1Transaction config a) mvr
-                    let !handlers = skovV1Handlers vc1Index genesisHeight
+                    let !handlers = skovV1Handlers vc1Index
                     let genesisBlockHeightInfo =
                             KonsensusV1.GenesisBlockHeightInfo
                                 { gbhiAbsoluteHeight = genesisHeight,
@@ -806,7 +874,7 @@ checkForProtocolUpdateV0 = liftSkov body
                             unliftSkov a = do
                                 config <- readMVar configRef
                                 runMVR (runSkovV1Transaction config a) mvr
-                        let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
+                        let !handlers = skovV1Handlers vc1Index
                         -- get the last finalized block state
                         lastFinBlockState <- Skov.queryBlockState =<< Skov.lastFinalizedBlock
                         -- the existing persistent block state context.
@@ -981,7 +1049,7 @@ checkForProtocolUpdateV1 = body
                             unliftSkov a = do
                                 config <- readMVar configRef
                                 runMVR (runSkovV1Transaction config a) mvr
-                        let !handlers = skovV1Handlers vc1Index vc1GenesisHeight
+                        let !handlers = skovV1Handlers vc1Index
                         let genesisBlockHeightInfo =
                                 KonsensusV1.GenesisBlockHeightInfo
                                     { gbhiAbsoluteHeight = vc1GenesisHeight,
@@ -1137,7 +1205,7 @@ makeMultiVersionRunner
         mvTransactionPurgingThread <- newEmptyMVar
         let mvr = MultiVersionRunner{..}
         runMVR (startupSkov genesis) mvr
-        putMVar mvWriteLock ()
+        putMVar mvWriteLock GSOk
         startTransactionPurgingThread mvr
         return mvr
 
@@ -1256,10 +1324,10 @@ startupSkov genesis = do
                                 -- continue to the next iteration. If the state for the next
                                 -- configuration is missing, 'activateThis' is called which will
                                 -- activate the configuration and trigger the protocol update.
-                                loadLoop nextSPV activateThis (genIndex + 1) (fromIntegral lastFinalizedHeight + 1)
+                                loadLoop nextSPV activateThis (genIndex + 1) (lastFinalizedHeight + 1)
                     Nothing -> activateLast
             ConsensusV1 -> do
-                let !handlers = skovV1Handlers genIndex genHeight
+                let !handlers = skovV1Handlers genIndex
                 let genesisBlockHeightInfo =
                         KonsensusV1.GenesisBlockHeightInfo
                             { gbhiAbsoluteHeight = genHeight,
@@ -1308,7 +1376,7 @@ startupSkov genesis = do
                                 activateConfiguration (newVersionV1 newEConfig)
                                 liftSkovV1Update newEConfig checkForProtocolUpdateV1
                         case esProtocolUpdate of
-                            Just protocolUpdate
+                            Just (protocolUpdate, terminalBlockHeight)
                                 | Right upd <- ProtocolUpdateV1.checkUpdate @pv protocolUpdate -> do
                                     let nextSPV = ProtocolUpdateV1.updateNextProtocolVersion upd
                                     -- A protocol update has occurred for this configuration, so
@@ -1319,7 +1387,7 @@ startupSkov genesis = do
                                         nextSPV
                                         activateThis
                                         (genIndex + 1)
-                                        (fromIntegral esLastFinalizedHeight + 1)
+                                        (localToAbsoluteBlockHeight genHeight terminalBlockHeight + 1)
                             _ -> do
                                 -- This is still the current configuration (i.e. no protocol update
                                 -- has occurred, or the protocol update is not supported), so
@@ -1467,12 +1535,14 @@ shutdownMultiVersionRunner MultiVersionRunner{..} = mask_ $ do
     -- Kill the transaction purging thread, if any.
     tryTakeMVar mvTransactionPurgingThread >>= mapM_ killThread
     -- Acquire the write lock. This prevents further updates, as they will block.
-    takeMVar mvWriteLock
-    versions <- readIORef mvVersions
-    -- Shut down the consensus databases.
-    runLoggerT (forM_ versions evcShutdown) mvLog
-    -- Shut down the global account map.
-    LMDBAccountMap.closeDatabase (globalAccountMap (mvcStateConfig mvConfiguration))
+    takeMVar mvWriteLock >>= \case
+        GSOk -> do
+            versions <- readIORef mvVersions
+            -- Shut down the consensus databases.
+            runLoggerT (forM_ versions evcShutdown) mvLog
+            -- Shut down the global account map.
+            LMDBAccountMap.closeDatabase (globalAccountMap (mvcStateConfig mvConfiguration))
+        GSError -> throwIO GlobalLockPoisonError
 
 -- | Lift a version-0 consensus skov action to the 'MVR' monad, running it on a
 --  particular 'VersionedConfigurationV0'. Note that this does not
@@ -1492,14 +1562,35 @@ liftSkovV0Update vc a = MVR $ \mvr -> do
 --  'VersionedConfigurationV1'. Note that this does not acquire the write lock: the caller must
 --  ensure that the lock is held.
 liftSkovV1Update ::
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
     VersionedConfigurationV1 finconf pv ->
     VersionedSkovV1M finconf pv a ->
     MVR finconf a
 liftSkovV1Update vc a = MVR $ \mvr -> do
     oldState <- readIORef (vc1State vc)
-    (res, newState) <- runMVR (SkovV1.runSkovT a (vc1Context vc) oldState) mvr
+    (res, newState, evs) <- runMVR (SkovV1.runSkovT a (vc1Context vc) oldState) mvr
     writeIORef (vc1State vc) $! newState
+    let
+        handleEvent (st, didFinalize) (SkovV1.OnBlock bp) = do
+            runMVR (skovV1BlockHandler genHeight bp) mvr
+            return (st, didFinalize)
+        handleEvent (st, _didFinalize) (SkovV1.OnFinalize finEntry bp) = do
+            (_, st', _) <- runMVR (SkovV1.runSkovT (skovV1FinalizeHandler genHeight finEntry bp) (vc1Context vc) st) mvr
+            writeIORef (vc1State vc) $! st'
+            return (st', True)
+    (updState, didFinalize) <- foldM handleEvent (newState, False) evs
+    -- If a finalization occurred, check for a protocol update.
+    -- This is done here to ensure that it only occurs once. Otherwise, it can be the case that
+    -- multiple finalization events would result in the protocol update happening more than once
+    -- (which is bad and results in a corrupted state).
+    -- Note that this should be sufficient to ensure that the protocol update does not occur twice,
+    -- since after the terminal block is finalized, no further finalizations can occur.
+    when didFinalize $ do
+        (_, st', _) <- runMVR (SkovV1.runSkovT checkForProtocolUpdateV1 (vc1Context vc) updState) mvr
+        writeIORef (vc1State vc) $! st'
     return $! res
+  where
+    genHeight = vc1GenesisHeight vc
 
 -- | Run a version-0 consensus transaction that may affect the state.
 --  This acquires the write lock for the duration of the operation.
@@ -1516,6 +1607,7 @@ runSkovV0Transaction vc a = withWriteLock $ liftSkovV0Update vc a
 --  If the action throws an exception, the state will not be updated,
 --  but the lock is guaranteed to be released.
 runSkovV1Transaction ::
+    (IsProtocolVersion pv, IsConsensusV1 pv) =>
     VersionedConfigurationV1 finconf pv ->
     VersionedSkovV1M finconf pv a ->
     MVR finconf a
@@ -1678,58 +1770,67 @@ receiveBlock ::
     GenesisIndex ->
     ByteString ->
     MVR finconf (Skov.UpdateResult, Maybe ExecuteBlock)
-receiveBlock gi blockBS = withLatestExpectedVersion gi $ \case
-    (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) -> do
-        MVR $ \mvr -> do
-            now <- currentTime
-            case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
-                Left err -> do
-                    mvLog mvr Runner LLDebug err
-                    return (Skov.ResultSerializationFail, Nothing)
-                Right block -> do
-                    (updateResult, mVerifiedPendingBlock) <- runMVR (runSkovV0Transaction vc (Skov.receiveBlock block)) mvr
-                    case mVerifiedPendingBlock of
-                        Nothing -> return (updateResult, Nothing)
-                        Just verifiedPendingBlock -> do
-                            let exec = do
-                                    runSkovV0Transaction vc (Skov.executeBlock verifiedPendingBlock)
-                            let cont = ExecuteBlock $ runMVR exec mvr
-                            return (updateResult, Just cont)
-    (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
-        MVR $ \mvr -> do
-            now <- currentTime
-            case SkovV1.deserializeExactVersionedPendingBlock @pv blockBS now of
-                Left err -> do
-                    mvLog mvr Runner LLDebug err
-                    return (Skov.ResultSerializationFail, Nothing)
-                Right block -> do
-                    blockResult <- runMVR (runSkovV1Transaction vc (SkovV1.uponReceivingBlock block)) mvr
-                    case blockResult of
-                        SkovV1.BlockResultSuccess vb -> do
-                            let exec = do
-                                    runSkovV1Transaction vc (SkovV1.executeBlock vb)
-                                    return Skov.ResultSuccess
-                            let cont = ExecuteBlock $ runMVR exec mvr
-                            return (Skov.ResultSuccess, Just cont)
-                        SkovV1.BlockResultDoubleSign vb -> do
-                            runMVR (runSkovV1Transaction vc (SkovV1.executeBlock vb)) mvr
-                            return (Skov.ResultDoubleSign, Nothing)
-                        SkovV1.BlockResultInvalid -> return (Skov.ResultInvalid, Nothing)
-                        SkovV1.BlockResultStale -> return (Skov.ResultStale, Nothing)
-                        SkovV1.BlockResultPending -> return (Skov.ResultPendingBlock, Nothing)
-                        SkovV1.BlockResultEarly -> return (Skov.ResultEarlyBlock, Nothing)
-                        SkovV1.BlockResultDuplicate -> return (Skov.ResultDuplicate, Nothing)
-                        SkovV1.BlockResultConsensusShutdown -> return (Skov.ResultConsensusShutDown, Nothing)
+receiveBlock gi blockBS = handleMVRExceptionsWith (Skov.ResultConsensusFailure, Nothing) $
+    withLatestExpectedVersion gi $ \case
+        (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) -> do
+            MVR $ \mvr -> do
+                now <- currentTime
+                case deserializeExactVersionedPendingBlock (protocolVersion @pv) blockBS now of
+                    Left err -> do
+                        mvLog mvr Runner LLDebug err
+                        return (Skov.ResultSerializationFail, Nothing)
+                    Right block -> do
+                        (updateResult, mVerifiedPendingBlock) <-
+                            runMVR
+                                (runSkovV0Transaction vc (Skov.receiveBlock block))
+                                mvr
+                        case mVerifiedPendingBlock of
+                            Nothing -> return (updateResult, Nothing)
+                            Just verifiedPendingBlock -> do
+                                let exec = do
+                                        runSkovV0Transaction vc $
+                                            Skov.executeBlock verifiedPendingBlock
+                                let cont = ExecuteBlock $ runMVR exec mvr
+                                return (updateResult, Just cont)
+        (EVersionedConfigurationV1 (vc :: VersionedConfigurationV1 finconf pv)) -> do
+            MVR $ \mvr -> do
+                now <- currentTime
+                case SkovV1.deserializeExactVersionedPendingBlock @pv blockBS now of
+                    Left err -> do
+                        mvLog mvr Runner LLDebug err
+                        return (Skov.ResultSerializationFail, Nothing)
+                    Right block -> do
+                        blockResult <-
+                            runMVR
+                                (runSkovV1Transaction vc (SkovV1.uponReceivingBlock block))
+                                mvr
+                        case blockResult of
+                            SkovV1.BlockResultSuccess vb -> do
+                                let exec = do
+                                        runSkovV1Transaction vc (SkovV1.executeBlock vb)
+                                        return Skov.ResultSuccess
+                                let cont = ExecuteBlock $ runMVR exec mvr
+                                return (Skov.ResultSuccess, Just cont)
+                            SkovV1.BlockResultDoubleSign vb -> do
+                                runMVR (runSkovV1Transaction vc (SkovV1.executeBlock vb)) mvr
+                                return (Skov.ResultDoubleSign, Nothing)
+                            SkovV1.BlockResultInvalid -> return (Skov.ResultInvalid, Nothing)
+                            SkovV1.BlockResultStale -> return (Skov.ResultStale, Nothing)
+                            SkovV1.BlockResultPending -> return (Skov.ResultPendingBlock, Nothing)
+                            SkovV1.BlockResultEarly -> return (Skov.ResultEarlyBlock, Nothing)
+                            SkovV1.BlockResultDuplicate -> return (Skov.ResultDuplicate, Nothing)
+                            SkovV1.BlockResultConsensusShutdown ->
+                                return (Skov.ResultConsensusShutDown, Nothing)
 
 -- | Invoke the continuation yielded by 'receiveBlock'.
 --  The continuation performs a transaction which will acquire the write lock
 --  before trying to add the block to the tree and release the lock again afterwards.
 executeBlock :: ExecuteBlock -> MVR finconf Skov.UpdateResult
-executeBlock = liftIO . runBlock
+executeBlock = handleMVRExceptions . liftIO . runBlock
 
 -- | Deserialize and receive a finalization message at a given genesis index.
 receiveFinalizationMessage :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
-receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion_ gi $ \case
+receiveFinalizationMessage gi finMsgBS = handleMVRExceptions $ withLatestExpectedVersion_ gi $ \case
     (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
         case runGet getExactVersionedFPM finMsgBS of
             Left err -> do
@@ -1748,16 +1849,16 @@ receiveFinalizationMessage gi finMsgBS = withLatestExpectedVersion_ gi $ \case
                             Left leftRes -> (leftRes, Nothing)
                             Right cont -> (Skov.ResultSuccess, Just cont)
                     followup = liftSkovV1Update vc
-                -- We spawn a thread to perform the follow-up so that the P2P layer can immediately
-                -- relay the message, since the follow-up action can be time consuming (including
-                -- finalizing blocks and baking a new block).
+                -- We spawn a thread to perform the follow-up so that the P2P layer can
+                -- immediately relay the message, since the follow-up action can be time
+                -- consuming (including finalizing blocks and baking a new block).
                 withWriteLockMaybeFork receive followup
 
 -- | Deserialize and receive a finalization entity.
 --  For consensus version 0 this should be a 'FinalizationRecord'.
 --  For consensus version 1 this should be a 'FinalizationEntry'.
 receiveFinalization :: GenesisIndex -> ByteString -> MVR finconf Skov.UpdateResult
-receiveFinalization gi finBS = withLatestExpectedVersion_ gi $ \case
+receiveFinalization gi finBS = handleMVRExceptions $ withLatestExpectedVersion_ gi $ \case
     (EVersionedConfigurationV0 (vc :: VersionedConfigurationV0 finconf pv)) ->
         case runGet getExactVersionedFinalizationRecord finBS of
             Left err -> do
@@ -1794,7 +1895,7 @@ receiveCatchUpStatus ::
     CatchUpConfiguration ->
     MVR finconf Skov.UpdateResult
 receiveCatchUpStatus gi catchUpBS cuConfig@CatchUpConfiguration{..} =
-    case runGet getVersionedCatchUpStatus catchUpBS of
+    handleMVRExceptions $ case runGet getVersionedCatchUpStatus catchUpBS of
         Left err -> do
             logEvent Runner LLDebug $ "Could not deserialize catch-up status message: " ++ err
             return Skov.ResultSerializationFail
@@ -1988,7 +2089,7 @@ getCatchUpRequest = do
 --  the result of the update. The hash is present unless the transaction could
 --  not be deserialized.
 receiveTransaction :: forall finconf. ByteString -> MVR finconf (Maybe TransactionHash, Skov.UpdateResult)
-receiveTransaction transactionBS = do
+receiveTransaction transactionBS = handleMVRExceptionsWith (Nothing, Skov.ResultConsensusFailure) $ do
     now <- utcTimeToTransactionTime <$> currentTime
     mvr <- ask
     vvec <- liftIO $ readIORef $ mvVersions mvr
@@ -2094,7 +2195,7 @@ receiveExecuteBlock gi blockBS = withLatestExpectedVersion_ gi $ \case
 
 -- | Import a block file for out-of-band catch-up.
 importBlocks :: FilePath -> MVR finconf Skov.UpdateResult
-importBlocks importFile = do
+importBlocks importFile = handleMVRExceptions $ do
     vvec <- liftIO . readIORef =<< asks mvVersions
     -- Import starting from the genesis index of the latest consensus
     let genIndex = evcIndex (Vec.last vvec)

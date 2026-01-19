@@ -10,19 +10,25 @@
 
 module Concordium.KonsensusV1.TreeState.Types where
 
+import Control.Monad
 import qualified Data.ByteString as BS
+import Data.Foldable
 import Data.Function
 import qualified Data.Map.Strict as Map
+import qualified Data.ProtoLens.Combinators as Proto
 import Data.Serialize
 import Data.Time
 import Data.Time.Clock.POSIX
 import Data.Word
 import Lens.Micro.Platform
 
+import Concordium.GRPC2 (ToProto (..))
 import Concordium.Types
 import qualified Concordium.Types.Conditionally as Cond
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
+import qualified Proto.V2.Concordium.Types as Proto
+import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
@@ -159,6 +165,7 @@ instance BlockData (BlockPointer pv) where
     blockTimestamp = blockTimestamp . bpBlock
     blockBakedData = blockBakedData . bpBlock
     blockTransactions = blockTransactions . bpBlock
+    blockTransaction i = blockTransaction i . bpBlock
     blockTransactionCount = blockTransactionCount . bpBlock
 
 instance Show (BlockPointer pv) where
@@ -195,6 +202,7 @@ instance BlockData (PendingBlock pv) where
     blockTimestamp = blockTimestamp . pbBlock
     blockBakedData = blockBakedData . pbBlock
     blockTransactions = blockTransactions . pbBlock
+    blockTransaction i = blockTransaction i . pbBlock
     blockTransactionCount = blockTransactionCount . pbBlock
 
 instance BakedBlockData (PendingBlock pv) where
@@ -299,6 +307,14 @@ instance Serialize PersistentRoundStatus where
         _prsLatestTimeout <- get
         return PersistentRoundStatus{..}
 
+instance ToProto PersistentRoundStatus where
+    type Output PersistentRoundStatus = Proto.PersistentRoundStatus
+    toProto PersistentRoundStatus{..} = Proto.make $ do
+        mapM_ (assign ProtoFields.lastSignedQuorumMessage . toProto) _prsLastSignedQuorumMessage
+        mapM_ (assign ProtoFields.lastSignedTimeoutMessage . toProto) _prsLastSignedTimeoutMessage
+        ProtoFields.lastBakedRound .= toProto _prsLastBakedRound
+        mapM_ (assign ProtoFields.latestTimeout . toProto) _prsLatestTimeout
+
 -- | The 'PersistentRoundStatus' at genesis.
 initialPersistentRoundStatus :: PersistentRoundStatus
 initialPersistentRoundStatus =
@@ -359,6 +375,12 @@ data RoundTimeout (pv :: ProtocolVersion) = RoundTimeout
     }
     deriving (Eq, Show)
 
+instance ToProto (RoundTimeout pv) where
+    type Output (RoundTimeout pv) = Proto.RoundTimeout
+    toProto RoundTimeout{..} = Proto.make $ do
+        ProtoFields.timeoutCertificate .= toProto rtTimeoutCertificate
+        ProtoFields.quorumCertificate .= toProto (cbQuorumCertificate rtCertifiedBlock)
+
 -- | The current round status.
 --  Note that it can be the case that both the 'QuorumSignatureMessage' and the
 --  'TimeoutSignatureMessage' are present.
@@ -408,6 +430,19 @@ data RoundStatus (pv :: ProtocolVersion) = RoundStatus
 
 makeLenses ''RoundStatus
 
+instance ToProto (RoundStatus pv) where
+    type Output (RoundStatus pv) = Proto.RoundStatus
+    toProto RoundStatus{..} = Proto.make $ do
+        ProtoFields.currentRound .= toProto _rsCurrentRound
+        ProtoFields.highestCertifiedBlock .= toProto (cbQuorumCertificate _rsHighestCertifiedBlock)
+        forM_ _rsPreviousRoundTimeout $ \timeout ->
+            ProtoFields.previousRoundTimeout .= toProto timeout
+        ProtoFields.roundEligibleToBake .= _rsRoundEligibleToBake
+        ProtoFields.currentEpoch .= toProto _rsCurrentEpoch
+        forM_ _rsLastEpochFinalizationEntry $ \finEntry ->
+            ProtoFields.lastEpochFinalizationEntry .= toProto finEntry
+        ProtoFields.currentTimeout .= toProto _rsCurrentTimeout
+
 -- | The 'RoundStatus' for consensus at genesis.
 initialRoundStatus ::
     -- | The base timeout.
@@ -444,6 +479,19 @@ data BakersAndFinalizers = BakersAndFinalizers
 
 makeLenses ''BakersAndFinalizers
 
+instance ToProto BakersAndFinalizers where
+    type Output BakersAndFinalizers = Proto.BakersAndFinalizers
+    toProto BakersAndFinalizers{..} = Proto.make $ do
+        ProtoFields.bakers .= fmap toProto (toList . fullBakerInfos $ _bfBakers)
+        ProtoFields.finalizers
+            .= fmap (toProto . finalizerBakerId) (toList . committeeFinalizers $ _bfFinalizers)
+        ProtoFields.bakerTotalStake .= toProto (bakerTotalStake _bfBakers)
+        ProtoFields.finalizerTotalStake
+            .= toProto (weightAsAmount $ committeeTotalWeight _bfFinalizers)
+        ProtoFields.finalizationCommitteeHash .= toProto _bfFinalizerHash
+      where
+        weightAsAmount (VoterPower w) = Amount w
+
 -- | The bakers and finalizers associated with the previous, current and next epochs (with respect
 --  to a particular epoch). Note that the current epoch referred to here is typically the epoch
 --  of the last finalized block, which is distinct from the current epoch as recorded in the
@@ -464,6 +512,16 @@ data EpochBakers = EpochBakers
     }
 
 makeClassy ''EpochBakers
+
+instance ToProto EpochBakers where
+    type Output EpochBakers = Proto.EpochBakers
+    toProto EpochBakers{..} = Proto.make $ do
+        ProtoFields.previousEpochBakers .= toProto _previousEpochBakers
+        unless (_currentEpochBakers == _previousEpochBakers) $
+            ProtoFields.currentEpochBakers .= toProto _currentEpochBakers
+        unless (_nextEpochBakers == _currentEpochBakers) $
+            ProtoFields.nextEpochBakers .= toProto _nextEpochBakers
+        ProtoFields.nextPayday .= toProto _nextPayday
 
 -- | Quorum messages collected for a round.
 data QuorumMessages = QuorumMessages
@@ -501,3 +559,12 @@ data TimeoutMessages
         tmSecondEpochTimeouts :: !(Map.Map FinalizerIndex TimeoutMessage)
       }
     deriving (Eq, Show)
+
+instance ToProto TimeoutMessages where
+    type Output TimeoutMessages = Proto.TimeoutMessages
+    toProto TimeoutMessages{..} = Proto.make $ do
+        ProtoFields.firstEpoch .= toProto tmFirstEpoch
+        ProtoFields.firstEpochTimeouts
+            .= fmap toProto (toList tmFirstEpochTimeouts)
+        ProtoFields.secondEpochTimeouts
+            .= fmap toProto (toList tmSecondEpochTimeouts)

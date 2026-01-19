@@ -17,18 +17,22 @@ pub struct P2PNodeId(pub PeerId);
 
 impl Distribution<P2PNodeId> for Standard {
     fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> P2PNodeId {
-        P2PNodeId(Uniform::new(0, PeerId::max_value()).sample(rng))
+        P2PNodeId(Uniform::new(0, PeerId::MAX).sample(rng))
     }
 }
 
 /// This is implemented manually so that the ID is printed in hex so that
 /// it can be recognized.
 impl fmt::Debug for P2PNodeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{:016x}", self.0) }
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
 }
 
 impl fmt::Display for P2PNodeId {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result { write!(f, "{:016x}", self.0) }
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:016x}", self.0)
+    }
 }
 
 impl std::str::FromStr for P2PNodeId {
@@ -47,7 +51,9 @@ impl std::str::FromStr for P2PNodeId {
 }
 
 impl Serial for P2PNodeId {
-    fn serial<W: Buffer + WriteBytesExt>(&self, target: &mut W) { self.0.serial(target); }
+    fn serial<W: Buffer + WriteBytesExt>(&self, target: &mut W) {
+        self.0.serial(target);
+    }
 }
 
 impl Deserial for P2PNodeId {
@@ -58,5 +64,7 @@ impl Deserial for P2PNodeId {
 
 impl P2PNodeId {
     /// Obtain the integer behind the node id.
-    pub fn as_raw(self) -> PeerId { self.0 }
+    pub fn as_raw(self) -> PeerId {
+        self.0
+    }
 }

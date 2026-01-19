@@ -1,7 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
@@ -49,10 +48,12 @@ module Concordium.GlobalState.Persistent.LFMBTree (
     fromAscListV,
 
     -- * Traversal
+    mfoldRef,
     mfold,
     mfoldDesc,
     migrateLFMBTree,
     mmap_,
+    traverseWhileDescRef,
 
     -- * Specialized functions for @Nullable@
     lookupNullable,
@@ -378,7 +379,7 @@ appendV value (NonEmpty s t) = do
 
 -- | Update a value at a given key.
 --
--- If the key is not present in the tree, the same tree is returned.
+-- If the key is not present in the tree, @Nothing@ is returned.
 -- Otherwise, the value is loaded, modified with the given function and stored again.
 --
 -- @update@ will also recompute the hashes on the way up to the root.
@@ -454,6 +455,17 @@ fromAscListNullable l = fromAscList $ go l 0
         | otherwise = (replicate (fromIntegral $ i - ix) Null) ++ go z i
     go [] _ = []
 
+-- | Fold a monadic action over the leaves of the tree in ascending order of index.
+--  This is strict in the intermediate results.
+mfoldRef :: (CanStoreLFMBTree m ref1 l) => (a -> l -> m a) -> a -> LFMBTree' k ref1 l -> m a
+mfoldRef _ a0 Empty = return a0
+mfoldRef f !a0 (NonEmpty _ t) = mfoldT a0 t
+  where
+    mfoldT a (Leaf v) = f a v
+    mfoldT a (Node _ l r) = do
+        !a' <- mfoldT a =<< refLoad l
+        mfoldT a' =<< refLoad r
+
 -- | Fold a monadic action over the tree in ascending order of index.
 -- This is strict in the intermediate results.
 mfold :: (CanStoreLFMBTree m ref1 (ref2 v), Reference m (MBSStore m) ref2 v) => (a -> v -> m a) -> a -> LFMBTree' k ref1 (ref2 v) -> m a
@@ -485,6 +497,22 @@ mmap_ f (NonEmpty _ t) = mmap_T t
     mmap_T (Node _ l r) = do
         mmap_T =<< refLoad l
         mmap_T =<< refLoad r
+
+-- | Call the given (monadic) function on each element of the tree in descending order of index,
+--  until the function returns @False@.
+traverseWhileDescRef :: (CanStoreLFMBTree m ref1 l, Num k, Coercible k Word64) => (k -> l -> m Bool) -> LFMBTree' k ref1 l -> m ()
+traverseWhileDescRef _ Empty = return ()
+traverseWhileDescRef f (NonEmpty s t) = traverseWhileDescRefT (\_ -> return ()) t (coerce s - 1)
+  where
+    traverseWhileDescRefT kont (Leaf v) !key = do
+        continue <- f key v
+        when continue $ kont (key - 1)
+    traverseWhileDescRefT kont (Node _ l r) key = do
+        let kont' key' = do
+                l' <- refLoad l
+                traverseWhileDescRefT kont l' key'
+        r' <- refLoad r
+        traverseWhileDescRefT kont' r' key
 
 -- | Migrate a LFMBTree from one context to the other. The new tree is cached in
 -- memory and written to disk. Accounts are migrated in order of increasing account

@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}
@@ -26,6 +27,7 @@ import Concordium.Types.Conditionally
 import Concordium.Utils
 
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.Account.MigrationStateInterface
 import Concordium.GlobalState.Persistent.Accounts
@@ -169,7 +171,8 @@ newtype
         (pv :: ProtocolVersion)
         (t :: (Type -> Type) -> (Type -> Type))
         (m :: (Type -> Type))
-        (a :: Type) = AccountMigrationStateTT
+        (a :: Type)
+    = AccountMigrationStateTT
     { runAccountMigrationStateTT' ::
         StateT (AccountMigrationState oldpv pv) (t m) a
     }
@@ -180,6 +183,7 @@ newtype
           MonadState (AccountMigrationState oldpv pv),
           MonadIO,
           LMDBAccountMap.MonadAccountMapStore,
+          MonadModuleMapStore,
           MonadLogger
         )
 
@@ -197,8 +201,7 @@ deriving via
         (pv :: ProtocolVersion)
         (t :: (Type -> Type) -> (Type -> Type))
         (m :: (Type -> Type)).
-    ( StateT (AccountMigrationState oldpv pv) (t m)
-    )
+    (StateT (AccountMigrationState oldpv pv) (t m))
     instance
         (MonadBlobStore (t m)) =>
         (MonadBlobStore (AccountMigrationStateTT oldpv pv t m))
@@ -209,8 +212,7 @@ deriving via
         (pv :: ProtocolVersion)
         (t :: (Type -> Type) -> (Type -> Type))
         (m :: (Type -> Type)).
-    ( StateT (AccountMigrationState oldpv pv) (t m)
-    )
+    (StateT (AccountMigrationState oldpv pv) (t m))
     instance
         (MonadCache c (t m)) =>
         (MonadCache c (AccountMigrationStateTT oldpv pv t m))

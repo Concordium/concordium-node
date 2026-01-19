@@ -21,7 +21,8 @@ name: Check formatting, build and run tests
 
 on:
   push:
-    branches: main
+    branches:
+        - main
     paths:
     - '.github/workflows/build-test.yaml'
     - '**/Cargo.toml'
@@ -35,7 +36,6 @@ on:
     - 'concordium-node/rustfmt.toml'
 
   pull_request:
-    branches: main
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
     - '.github/workflows/build-test.yaml'
@@ -51,9 +51,8 @@ on:
   workflow_dispatch: # allow manual trigger
 
 env:
-  dummy: 16                 # change to force cache invalidation
+  dummy: 17                # change to force cache invalidation
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
-  TEST_LEVEL: 1            # for stack tests
 
 jobs:
 
@@ -65,9 +64,16 @@ jobs:
     - name: Download fourmolu
       uses: supplypike/setup-bin@v1
       with:
-        uri: 'https://github.com/fourmolu/fourmolu/releases/download/v0.13.1.0/fourmolu-0.13.1.0-linux-x86_64'
+        uri: 'https://github.com/fourmolu/fourmolu/releases/download/v0.18.0.0/fourmolu-0.18.0.0-linux-x86_64'
         name: 'fourmolu'
-        version: '0.13.1.0'
+        version: '0.18.0.0'
+    
+    - name: Download hpack
+      run: |
+        curl -L https://github.com/sol/hpack/releases/download/0.38.1/hpack_linux.gz -o hpack.gz
+        gunzip hpack.gz
+        chmod +x hpack
+        mv hpack /usr/local/bin/
 
     - name: Checkout project
       uses: actions/checkout@v2
@@ -78,7 +84,8 @@ jobs:
     # needed to generate a cabal file from the package.yaml.
     - name: Setup the project
       run: |
-        stack --stack-yaml concordium-consensus/stack.yaml setup
+        cd concordium-consensus
+        hpack package.yaml
 
     - name: Run fourmolu
       run: |
@@ -91,7 +98,7 @@ jobs:
     strategy:
       matrix:
         plan:
-        - rust: "nightly-2023-04-01-x86_64-unknown-linux-gnu"
+        - rust: "1.82"
 
     steps:
     - name: Checkout
@@ -119,14 +126,14 @@ jobs:
   build:
     needs: [fourmolu, rustfmt]
     # Use fixed OS version because we install packages on the system.
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     if: ${{ !github.event.pull_request.draft }}
 
     strategy:
       matrix:
         plan:
-        - rust: 1.73
-          ghc: 9.6.4
+        - rust: 1.82
+          ghc: 9.10.2
 
     steps:
     - name: Remove unnecessary files
@@ -141,13 +148,9 @@ jobs:
     - name: Install system packages and protoc
       run: |
         sudo apt-get update && sudo apt-get -y install liblmdb-dev gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
-        wget https://github.com/google/flatbuffers/archive/refs/tags/v22.12.06.zip
-        unzip v22.12.06.zip
-        cd flatbuffers-22.12.06
-        cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release
-        make
-        sudo make install
-        cd ..
+        wget https://github.com/google/flatbuffers/releases/download/v22.12.06/Linux.flatc.binary.g++-10.zip
+        unzip Linux.flatc.binary.g++-10.zip
+        sudo mv ./flatc /usr/bin/flatc
         flatc --version
         wget https://github.com/protocolbuffers/protobuf/releases/download/v3.15.3/protoc-3.15.3-linux-x86_64.zip
         unzip protoc-3.15.3-linux-x86_64.zip
@@ -163,21 +166,28 @@ jobs:
         profile: minimal
         toolchain: ${{ matrix.plan.rust }}
         override: true
-        components: clippy
+        components: clippy, llvm-tools
         target: x86_64-pc-windows-gnu
+    # Install tool for code coverage reporting.
+    # Version cargo-llvm-cov 0.6.22 requries Rust 1.87, so we use 0.6.21 for now
+    - name: Install cargo-llvm-cov
+      run: |
+        cargo install cargo-llvm-cov --version 0.6.21 --locked
     - name: Cache cargo dependencies and targets
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
           concordium-base/rust-src/target
           concordium-base/lib
-          concordium-consensus/smart-contracts/wasm-chain-integration/target
-          concordium-consensus/smart-contracts/lib
+          concordium-base/smart-contracts/wasm-chain-integration/target
+          concordium-base/smart-contracts/lib
           concordium-node/target
-        key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          collector/target
+        key: ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}-${{ hashFiles('concordium-base/rust-src/**/*.rs','concordium-base/smart-contracts/wasm-chain-integration/**/*.rs')}}
         restore-keys: |
+          ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
           ${{ runner.os }}-${{ env.dummy }}-rust-deps-${{ matrix.plan.rust }}
 
     # HASKELL #
@@ -188,24 +198,22 @@ jobs:
     # The cache entry keys depend on the GHC version and contents of 'package.yaml' and 'stack.yaml'
     # but will fall back to cache entries from different versions if no match is found.
 
+    - name: Compute cache keys
+      id: cache-keys
+      run: |
+        echo "proto_hash=${{ hashFiles('**/*.proto') }}" >> $GITHUB_OUTPUT
+        echo "base_hash=${{ hashFiles('concordium-base/**/*.hs') }}" >> $GITHUB_OUTPUT
+      
     - name: Cache stack global package DB
       id: stack-global
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: ~/.stack
         key: ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
         restore-keys: |
           ${{ runner.os }}-${{ env.dummy }}-stack-global-${{ matrix.plan.ghc }}
-    - name: Cache stack-installed programs in '~/.local/bin'
-      id: stack-programs
-      uses: actions/cache@v2
-      with:
-        path: ~/.local/bin
-        key: ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
-        restore-keys: |
-          ${{ runner.os }}-${{ env.dummy }}-stack-programs-${{ matrix.plan.ghc }}
     - name: Cache '.stack-work'
-      uses: actions/cache@v2
+      uses: actions/cache@v4
       with:
         path: |
           .stack-work
@@ -213,34 +221,21 @@ jobs:
           concordium-consensus/.stack-work
           concordium-consensus/haskell-lmdb/.stack-work
 
-        key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}
+        key: ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-${{ steps.cache-keys.outputs.base_hash }}
         restore-keys: |
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-${{ steps.cache-keys.outputs.proto_hash }}-
+          ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}-${{ hashFiles('**.yaml') }}-
           ${{ runner.os }}-${{ env.dummy }}-stack-work-${{ matrix.plan.ghc }}
 
-    - name: Install GHC (unless it was cached)
-      if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
-      run: |
-        stack setup --install-ghc
-    - name: Build haskell dependencies (unless they were cached)
-      if: steps.stack-programs.outputs.cache-hit != 'true' || steps.stack-global.outputs.cache-hit != 'true'
-      run: |
-        stack build --test --bench --only-dependencies --stack-yaml concordium-consensus/stack.yaml
-
     # Compile Haskell sources. This must be done before running checks or tests on the Rust sources.
-    - name: Build consensus
+    - name: Build consensus and run tests (with code coverage)
       run: |
-        stack build --test --bench --force-dirty --stack-yaml concordium-consensus/stack.yaml --no-run-tests --no-run-benchmarks --ghc-options "-Werror"
+        stack build concordium-consensus --test --bench --force-dirty --no-run-benchmarks --ghc-options "-Werror" --ghc-options -j --coverage
 
-    # Test Haskell sources. Could be run in parallel with the steps below.
-    - name: Test consensus
+    - name: Generate Haskell codecov report
       run: |
-        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:consensus --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
-    - name: Test globalstate
-      run: |
-        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:globalstate --bench --no-run-benchmarks --ta --level=${TEST_LEVEL}
-    - name: Test scheduler
-      run: |
-        stack --stack-yaml concordium-consensus/stack.yaml test concordium-consensus:scheduler --bench --no-run-benchmarks
+        stack install hpc-codecov
+        hpc-codecov stack:all -o codecov-haskell.json
 
     # RUST #
 
@@ -280,7 +275,19 @@ jobs:
         cargo clippy --locked --target x86_64-pc-windows-gnu --manifest-path service/windows/installer/custom-actions/Cargo.toml --all -- -D warnings
     - name: Test Rust crates (without extra features)
       run: |
-        cargo test --manifest-path concordium-node/Cargo.toml --all
+        cargo llvm-cov test --manifest-path concordium-node/Cargo.toml --all --no-report
     - name: Test Rust crates (with feature 'network_dump')
       run: |
-        cargo test --manifest-path concordium-node/Cargo.toml --all --features=network_dump
+        cargo llvm-cov test --manifest-path concordium-node/Cargo.toml --all --features=network_dump --no-report
+    - name: Generate a composite report of the tests above.
+      run: |
+        cargo llvm-cov report --manifest-path concordium-node/Cargo.toml  --lcov --output-path lcov.info
+      # Options documented here: https://github.com/codecov/codecov-action
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        disable_telem: true
+        fail_ci_if_error: false
+        token: ${{ secrets.CODECOV_TOKEN }}
+        verbose: true
+        files: lcov.info,codecov-haskell.json

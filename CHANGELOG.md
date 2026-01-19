@@ -2,6 +2,187 @@
 
 ## Unreleased changes
 
+# 10.0.3
+
+- Fix another bug in protocol update state migration that incorrectly migrated PLT state.
+
+# 10.0.2
+
+- Fix a bug where a protocol update can be executed twice, resulting in a corrupted database.
+- Fix a bug in protocol update state migration that incorrectly migrated PLT state.
+- Fix a bug where transactions are not reported as committed when they appear in live blocks.
+
+## 10.0.1
+
+- Add P9 -> P10 protocol update.
+- Fix a bug where the transaction summary for a sponsored transaction with an
+  invalid payload incorrectly attributed the transaction fees to the sender and
+  omitted the sponsor.
+
+## 10.0.0 (DevNet)
+
+- Updated the token module interface in accordance with adjustments to the PLT specification
+  <https://proposals.concordium.com/CIS/cis-7.html>
+  where token name, metadata and governance account are now optional in the token module initialization parameters and
+  the token module state. They are still required by the current token module implementation, and initialization
+  without the parameters set will be rejected, so there are no observable changes to PLT behaviour.
+- Fixed the `build_catchup_url` in the Ubuntu build release pipeline.
+- Added boilerplate code for the upcoming P10.
+- Extended the GRPC API to support submitting sponsored transactions.
+- Support for sponsored transactions from protocol version 10.
+
+## 9.0.7
+
+- Ubuntu 20.04 LTS is no longer supported for running the node. Minimum supported version is 22.04 LTS. 
+  The Docker base images have been upgraded accordingly from Ubuntu 20.04 to 22.04
+- Node Docker image is now signed with Sigstore Cosign
+- Add P8 -> P9 update.
+- Update GHC version to 9.10.2 (lts-24.0).
+- Protocol-level tokens:
+  - Change energy charging to occur as early as possible in the token module.
+  - Added `touch` kernel method. The `touch` method initializes the token state
+    of an account by setting its balance to zero. This method only affects
+    accounts that have no existing state for the token.
+  - Additional check in transaction verification asserting that the effective
+    time equals zero of CreatePLT update transactions.
+
+## 9.0.6 (DevNet)
+
+- Protocol-level tokens:
+  - Adjusted energy cost of mint/burn from 100 to 50
+  - PLTs can now only be created with the module reference:
+    5c5c2645db84a7026d78f2501740f60a8ccb8fae5c166dc2428077fd9a699a4a
+  - Support for token pause/unpause operations.
+
+## 9.0.5 (DevNet)
+
+- Protocol-level tokens:
+  - Simplified token transaction handling: Consolidated all token holder and
+    governance operations for a single `TokenUpdateTransaction` type.
+  - Moved authorization from the scheduler to the token module.
+  - Fix a bug in checking authorization for CreatePLT update.
+
+## 9.0.4 (DevNet)
+
+- Protocol-level tokens:
+  - Changes to event representation and serialization.
+
+## 9.0.3 (DevNet)
+
+- Protocol-level tokens:
+  - `GetAccountInfo` reports the token module-defined state as CBOR-encoded, rather than directly
+    exposing the allow/deny list membership at the GRPC level.
+  - `metadata` in token module state (reported in `GetTokenInfo`) can now include the metadata
+    hash as well as the URL.
+  - A new set of authorized level-2 keys for the `CreatePLT` chain update.
+
+## 9.0.2 (DevNet)
+
+- Protocol-level tokens:
+  - Token operations emit events. This includes `CreatePLT`.
+  - Support for energy charging for token module execution.
+
+## 9.0.1 (DevNet)
+
+- Protocol-level tokens:
+  - Support for token governance transactions (mint, burn, modify allow/deny lists).
+  - Enforcement of allow and deny lists in transfer operations.
+  - `GetTokenInfo` returns state from token module.
+  - `GetAccountInfo` reports state of allow/deny lists.
+  - Changes to the caching and storage of account-level token state.
+
+
+## 9.0.0 (DevNet)
+
+- Preliminary support for protocol-level tokens (as part of protocol version 9), including:
+  - Support for `CreatePLT` chain update for creating a new protocol-level token.
+  - Support for transferring protocol-level tokens between accounts with the `TokenHolder`
+    transaction type.
+  - API support:
+    - Add `GetTokenList` query for getting a list of all protocol-level tokens.
+    - Add `GetTokenInfo` query for getting details about a specific protocol-level token.
+    - `GetAccountInfo` query displays balances of protocol-level tokens held by an account.
+
+## 8.1.0
+
+- Replace `BufferedRef` with `HashedBufferedRef` in `PoolRewards`
+  `bakerPoolRewardDetails::LFMBTree` field to cache computed hashes.
+- Improvements to the loading of modules. This particularly improves the performance of
+  `GetModuleSource` in certain cases, and can also reduce start-up time.
+- Use a persistent LMDB-backed store to track the finalized module map.
+- Fix a bug that affects setting up the account map correctly for non-finalized certified blocks
+  that contain account creations (#1329).
+- Fix a bug that can occasionally result in a crash if `GetBlockInfo` is invoked during a protocol
+  update ([#1352](https://github.com/Concordium/concordium-node/issues/1352)). The fix delays
+  executing the on-block and on-finalization handlers until after the state update has been
+  committed. This also should also result in better consistency in the gRPC API (i.e. if a client
+  is notified that a block has arrived, `GetBlockInfo` should not result in `NOT_FOUND` for thatb
+  block).
+
+## 8.0.3
+
+- Fix a bug where, after a protocol update in consensus version 1 (P6 onwards), a node may
+  miscalculate the absolute height of blocks when it is restarted. (#1319)
+- Fix a bug where `GetBlockInfo` reports the parent block of a genesis block to be the last
+  finalized block of the previous genesis index, instead of the terminal block.
+
+## 8.0.2
+
+- Fix a bug where the P7->P8 protocol update affects payday timing.
+
+## 8.0.1
+
+- Fix a bug in computing the number of missed rounds in the event of a timeout.
+- Fix a bug where the suspended status of a baker pool would be omitted when it was suspended.
+- Fix a bug where `GetBlockChainParameters` returns a `ChainParametersV2` in cases where it should
+  return `ChainParametersV3`.
+
+## 8.0.0
+
+- Add P7 -> P8 update.
+- Automatically suspend validators from the consensus that missed too many
+  rounds in the previous payday.
+- Add support for suspend/resume to validator configuration updates.
+- Add support to add a validator in a suspended state.
+- Validators that are suspended are paused from participating in the consensus algorithm.
+- Add suspension info to `BakerPoolStatus` / `CurrentPaydayBakerPoolStatus` query results.
+- Add `GetConsensusDetailedStatus` gRPC endpoint for getting detailed information on the status
+  of the consensus, at consensus version 1.
+- Update Rust version to 1.82.
+- Update GHC version to 9.6.6 (LTS-22.39).
+- Add `GetScheduledReleaseAccounts` endpoint for querying the list of accounts that
+  have scheduled releases.
+- Add `GetCooldownAccounts`, `GetPreCooldownAccounts` and `GetPrePreCooldownAccounts`
+  endpoints for querying the lists of accounts that have pending cooldowns in protocol
+  version 7 onwards.
+- gRPC endpoints `DryRun`, `GetBlockItemStatus` and `GetBlockTransactionEvents` now report the
+  parameter used to initialize a smart contract instance as part of a `ContractInitializedEvent`.
+
+## 7.0.5
+
+- Fix inconsistent handling of valid contract names.
+
+## 7.0.4
+
+- Fix a bug where the next payday time reported by the `GetTokenomicsInfo` query was
+  incorrect (#1240).
+
+## 7.0.3
+
+- Fix a bug in the computation of the genesis height after the second protocol update. (#1237)
+- Fix a bug where an error was incorrectly thrown when loading the consenus state immediately
+  after a protocol update (in the new consensus version) (#1236).
+
+## 7.0.2
+
+- Fix the timing of paydays after protocol update from version 6 to 7.
+- Improve consensus behaviour in the event of an unrecoverable exception.
+
+## 7.0.1
+
+- Fix a bug in migration from protocol version 6 to 7.
+- Support "reboot" protocol update at protocol version 7.
+
 ## 7.0.0
 
 - Fix a bug where `GetBakersRewardPeriod` returns incorrect data (#1176).

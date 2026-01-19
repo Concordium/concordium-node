@@ -42,7 +42,6 @@ receiveFinalizationMessage ::
     ( IsConsensusV1 (MPV m),
       MonadThrow m,
       MonadIO m,
-      MonadProtocolVersion m,
       BlockStateStorage m,
       TimeMonad m,
       MonadTimeout m,
@@ -98,7 +97,6 @@ startEvents ::
     ( MonadReader r m,
       HasBakerContext r,
       MonadState (SkovData (MPV m)) m,
-      MonadProtocolVersion m,
       BlockStateStorage m,
       BlockState m ~ HashedPersistentBlockState (MPV m),
       IsConsensusV1 (MPV m),
@@ -135,8 +133,7 @@ getTerminalBlockState =
 --  This returns the transaction table and the pending transaction table (which is with respect to
 --  the last finalized block).
 clearSkov ::
-    ( MonadState (SkovData (MPV m)) m
-    ) =>
+    (MonadState (SkovData (MPV m)) m) =>
     m (TT.TransactionTable, TT.PendingTransactionTable)
 clearSkov = do
     lfb <- use lastFinalized

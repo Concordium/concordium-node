@@ -32,6 +32,7 @@ import Control.Monad.State
 import Data.Foldable
 import Data.IORef
 import Data.Maybe (fromMaybe)
+import qualified Data.ProtoLens.Combinators as Proto
 import Data.Time
 import Data.Typeable
 import GHC.Stack
@@ -41,22 +42,24 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
 import qualified Data.Sequence as Seq
 
+import Concordium.GRPC2 (ToProto (..))
 import qualified Concordium.Genesis.Data.BaseV1 as Base
 import Concordium.Types
 import qualified Concordium.Types.Conditionally as Cond
-import Concordium.Types.Execution
 import Concordium.Types.HashableTo
 import Concordium.Types.Option
 import Concordium.Types.Transactions
 import Concordium.Types.Updates
 import Concordium.Utils
 import Concordium.Utils.InterpolationSearch
+import qualified Proto.V2.Concordium.Types as Proto
+import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.Parameters (RuntimeParameters (..))
 import qualified Concordium.GlobalState.Persistent.BlobStore as BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
-import Concordium.GlobalState.Persistent.TreeState (DeadCache, emptyDeadCache, insertDeadCache, memberDeadCache)
+import Concordium.GlobalState.Persistent.TreeState (DeadCache, deadCacheCurrentSize, emptyDeadCache, insertDeadCache, memberDeadCache)
 import qualified Concordium.GlobalState.PurgeTransactions as Purge
 import qualified Concordium.GlobalState.Statistics as Stats
 import qualified Concordium.GlobalState.TransactionTable as TT
@@ -105,6 +108,12 @@ data BlockTable pv = BlockTable
     deriving (Show)
 
 makeLenses ''BlockTable
+
+instance ToProto (BlockTable pv) where
+    type Output (BlockTable pv) = Proto.BlockTableSummary
+    toProto BlockTable{..} = Proto.make $ do
+        ProtoFields.deadBlockCacheSize .= fromIntegral (deadCacheCurrentSize _deadBlocks)
+        ProtoFields.liveBlocks .= fmap toProto (HM.keys _liveMap)
 
 -- | Create the empty block table.
 emptyBlockTable :: BlockTable pv
@@ -221,6 +230,43 @@ instance HasPendingTransactions (SkovData pv) pv where
 instance HasEpochBakers (SkovData pv) where
     epochBakers = skovEpochBakers
     {-# INLINE epochBakers #-}
+
+instance ToProto (SkovData pv) where
+    type Output (SkovData pv) = Proto.ConsensusDetailedStatus
+    toProto sd = Proto.make $ do
+        ProtoFields.genesisBlock .= toProto (sd ^. currentGenesisHash)
+        ProtoFields.persistentRoundStatus .= toProto (sd ^. persistentRoundStatus)
+        ProtoFields.roundStatus .= toProto (sd ^. roundStatus)
+        ProtoFields.nonFinalizedTransactionCount
+            .= sd ^. transactionTable . to (fromIntegral . TT.getNumberOfNonFinalizedTransactions)
+        ProtoFields.transactionTablePurgeCounter .= fromIntegral (sd ^. transactionTablePurgeCounter)
+        ProtoFields.blockTable .= toProto (sd ^. blockTable)
+        let makeBranchBlocks blocks =
+                Proto.make $
+                    ProtoFields.blocksAtBranchHeight .= fmap (toProto . getHash @BlockHash) blocks
+        ProtoFields.branches .= fmap makeBranchBlocks (toList $ sd ^. branches)
+        let makeREB rnd baker witness = Proto.make $ do
+                ProtoFields.round .= toProto rnd
+                ProtoFields.baker .= toProto baker
+                ProtoFields.block .= toProto (bswBlockHash witness)
+        let flattenRE rnd = flip $ Map.foldrWithKey (\b w -> (makeREB rnd b w :))
+        ProtoFields.roundExistingBlocks .= Map.foldrWithKey flattenRE [] (sd ^. roundExistingBlocks)
+        let flattenREQCs rnd (QuorumCertificateCheckedWitness epoch) =
+                (:)
+                    ( Proto.make $ do
+                        ProtoFields.round .= toProto rnd
+                        ProtoFields.epoch .= toProto epoch
+                    )
+        ProtoFields.roundExistingQcs .= Map.foldrWithKey flattenREQCs [] (sd ^. roundExistingQCs)
+        ProtoFields.genesisBlockHeight .= toProto (sd ^. genesisBlockHeight . to gbhiAbsoluteHeight)
+        ProtoFields.lastFinalizedBlock .= toProto (getHash @BlockHash $ sd ^. lastFinalized)
+        ProtoFields.lastFinalizedBlockHeight .= toProto (blockHeight $ sd ^. lastFinalized)
+        mapM_ (assign ProtoFields.latestFinalizationEntry . toProto) (sd ^. latestFinalizationEntry)
+        ProtoFields.epochBakers .= toProto (sd ^. skovEpochBakers)
+        mapM_ (assign ProtoFields.timeoutMessages . toProto) (sd ^. currentTimeoutMessages)
+        mapM_
+            (assign ProtoFields.terminalBlock . toProto . getHash @BlockHash)
+            (sd ^. terminalBlock)
 
 -- | Getter for accessing the genesis hash for the current genesis.
 currentGenesisHash :: SimpleGetter (SkovData pv) BlockHash
@@ -798,7 +844,7 @@ finalizeTransactions ::
     m ()
 finalizeTransactions = mapM_ removeTrans
   where
-    removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
+    removeAccountTrans WithMetadata{wmdData = tr, ..} = do
         let nonce = transactionNonce tr
             sender = accountAddressEmbed (transactionSender tr)
         anft <- use (transactionTable . TT.ttNonFinalizedTransactions . at' sender . non TT.emptyANFT)
@@ -818,6 +864,10 @@ finalizeTransactions = mapM_ removeTrans
         -- If there are no non-finalized transactions left then remove the entry
         -- for the sender in @ttNonFinalizedTransactions@.
         transactionTable %=! TT.finalizeTransactionAt sender nonce
+    removeTrans WithMetadata{wmdData = NormalTransaction tr, ..} = do
+        removeAccountTrans (WithMetadata{wmdData = TransactionV0 tr, ..})
+    removeTrans WithMetadata{wmdData = ExtendedTransaction tr, ..} = do
+        removeAccountTrans (WithMetadata{wmdData = TransactionV1 tr, ..})
     removeTrans WithMetadata{wmdData = CredentialDeployment{}, ..} = do
         transactionTable . TT.ttHashMap . at' wmdHash .= Nothing
     removeTrans WithMetadata{wmdData = ChainUpdate cu, ..} = do
@@ -850,29 +900,24 @@ finalizeTransactions = mapM_ removeTrans
             . at' uty
             ?=! (nfcu & (TT.nfcuMap . at' sn .~ Nothing) & (TT.nfcuNextSequenceNumber .~ sn + 1))
 
--- | Mark a live transaction as committed in a particular block.
---  This does nothing if the transaction is not live.
---  A committed transaction cannot be purged while it is committed for a round after the round of
---  the last finalized block.
-commitTransaction ::
+-- | Mark the (live) transactions for a particular block as committed.
+--  This does nothing for transactions that are not live.
+commitTransactions ::
     (MonadState (SkovData pv) m) =>
     -- | Round of the block
     Round ->
     -- | The 'BlockHash' that the transaction should
     --  be committed to.
     BlockHash ->
-    -- | The 'TransactionIndex' in the block.
-    TransactionIndex ->
-    -- | The transaction to commit.
-    BlockItem ->
+    -- | The transactions to commit. This should consist of all transactions in the block
+    --  in order (starting from transaction index 0).
+    [BlockItem] ->
     m ()
-commitTransaction rnd bh ti transaction =
-    transactionTable
-        . TT.ttHashMap
-        . at' (getHash transaction)
-        . traversed
-        . _2
-        %=! TT.addResult bh rnd ti
+commitTransactions rnd bh transactions = transactionTable . TT.ttHashMap %=! doCommit 0 transactions
+  where
+    doCommit _ [] hm = hm
+    doCommit !ti (tx : txs) hm =
+        doCommit (ti + 1) txs $! (hm & at' (getHash tx) . traversed . _2 %~ TT.addResult bh rnd ti)
 
 -- | Add a transaction to the transaction table.
 --  For chain updates it is checked that the sequence number is at least the next

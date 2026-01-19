@@ -9,7 +9,11 @@ module Concordium.GlobalState.ContractStateV1 (
     InMemoryPersistentState (..),
     MutableState (..),
     MutableStateInner,
+    emptyPersistentState,
     newMutableState,
+    lookupMutableState,
+    insertMutableState,
+    deleteEntryMutableState,
     makePersistent,
     withMutableState,
     withPersistentState,
@@ -73,6 +77,141 @@ newMutableState msContext ptr = do
 withMutableState :: MutableState store -> (Ptr (ForeignMutableState store) -> IO a) -> IO a
 withMutableState MutableState{msInner = MutableStateInner fp} = withForeignPtr fp
 
+-- | Look up entry using key and read the value in a mutable state.
+foreign import ccall "lookup_entry_value_mutable_state"
+    lookupEntryValueMutableStateFFI ::
+        -- | Callback for loading persistent nodes into memory.
+        LoadCallback ->
+        -- | Location of the key.
+        Ptr Word8 ->
+        -- | Length of the key.
+        CSize ->
+        -- | Reference to the mutable state.
+        Ptr MutableStateInner ->
+        -- | Location for returning the length of the output.
+        Ptr CSize ->
+        -- | Returns pointer to the value, null pointer if no entry was found.
+        IO (Ptr Word8)
+
+-- | Look up entry using key and read the value in a mutable state.
+lookupMutableState :: BS.ByteString -> MutableState -> IO (Maybe BS.ByteString)
+lookupMutableState key state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
+    alloca $ \outPtr -> do
+        response <- withMutableState state $ \inner ->
+            lookupEntryValueMutableStateFFI
+                (msContext state)
+                (castPtr keyPtr)
+                (fromIntegral keyLen)
+                inner
+                outPtr
+        if response == nullPtr
+            then return Nothing
+            else do
+                len <- peek outPtr
+                Just
+                    <$> BSU.unsafePackCStringFinalizer
+                        (castPtr response)
+                        (fromIntegral len)
+                        (rs_free_array_len response (fromIntegral len))
+
+-- | Insert entry into the mutable state, overwriting the value if already present.
+--
+-- Returns:
+-- * 0 success and no entry was already present.
+-- * 1 success and entry got overwritten.
+-- * 2 failed due to the entry being locked.
+foreign import ccall "insert_entry_value_mutable_state"
+    insertEntryValueMutableStateFFI ::
+        -- | Callback for loading persistent nodes into memory.
+        LoadCallback ->
+        -- | Location of the key.
+        Ptr Word8 ->
+        -- | Length of the key.
+        CSize ->
+        -- | Location of the value.
+        Ptr Word8 ->
+        -- | Length of the value.
+        CSize ->
+        -- | Reference to the mutable state.
+        Ptr MutableStateInner ->
+        IO Word8
+
+-- | Insert a value into the mutable state at a specified key.
+--
+-- Returns
+-- * @Just True@ if an entry had a value which got replaced.
+-- * @Just False@ if no entry was overwritten.
+-- * @Nothing@ signals error due to the entry being locked.
+insertMutableState ::
+    -- | Key in the mutable state to insert to.
+    BS.ByteString ->
+    -- | Value to insert into the mutable state.
+    BS.ByteString ->
+    -- | The mutable state to modify.
+    MutableState ->
+    IO (Maybe Bool)
+insertMutableState key value state = BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
+    BSU.unsafeUseAsCStringLen value $ \(valuePtr, valueLen) ->
+        withMutableState state $ \inner -> do
+            out <-
+                insertEntryValueMutableStateFFI
+                    (msContext state)
+                    (castPtr keyPtr)
+                    (fromIntegral keyLen)
+                    (castPtr valuePtr)
+                    (fromIntegral valueLen)
+                    inner
+            return $ case out of
+                0 -> Just False
+                1 -> Just True
+                2 -> Nothing
+                _ -> error "insertMutableState: Unexpected FFI status code"
+
+-- | Delete entry at key.
+--
+-- Returns:
+-- * 0 if no entry found to be deleted.
+-- * 1 if an entry got deleted.
+-- * 2 if it failed due to the entry being locked.
+foreign import ccall "delete_entry_mutable_state"
+    deleteEntryMutableStateFFI ::
+        -- | Callback for loading persistent nodes into memory.
+        LoadCallback ->
+        -- | Location of the key.
+        Ptr Word8 ->
+        -- | Length of the key.
+        CSize ->
+        -- | Reference to the mutable state.
+        Ptr MutableStateInner ->
+        IO Word8
+
+-- | Delete entry at key.
+--
+-- Returns
+-- * @Just True@ if an entry was deleted.
+-- * @Just False@ if no entry found to be deleted.
+-- * @Nothing@ signals error due to the entry being locked.
+deleteEntryMutableState ::
+    -- | Key of the entry in the mutable state to delete.
+    BS.ByteString ->
+    -- | The mutable state to delete from.
+    MutableState ->
+    IO (Maybe Bool)
+deleteEntryMutableState key mutableState =
+    BSU.unsafeUseAsCStringLen key $ \(keyPtr, keyLen) ->
+        withMutableState mutableState $ \inner -> do
+            out <-
+                deleteEntryMutableStateFFI
+                    (msContext mutableState)
+                    (castPtr keyPtr)
+                    (fromIntegral keyLen)
+                    inner
+            return $ case out of
+                0 -> Just False
+                1 -> Just True
+                2 -> Nothing
+                _ -> error "deleteEntryMutableState: Unexpected FFI status code"
+
 -- | Opaque persistent state.
 data ForeignPersistentState store
 
@@ -88,6 +227,15 @@ newtype PersistentState store = PersistentState (ForeignPtr (ForeignPersistentSt
 --  part of the state to disk, and thus the entirety of this state is always
 --  in-memory.
 newtype InMemoryPersistentState store = InMemoryPersistentState (PersistentState store)
+
+-- | Allocate empty persistent state.
+foreign import ccall "empty_persistent_state" empty_persistent_state :: IO (Ptr PersistentState)
+
+-- | Allocate empty persistent state.
+emptyPersistentState :: IO PersistentState
+emptyPersistentState = do
+    state <- empty_persistent_state
+    PersistentState <$> newForeignPtr freePersistentState state
 
 -- | Migrate the provided persistent state from the existing backing store (which
 --  can be accessed using the provided 'LoadCallback'), to the new backing store

@@ -1,0 +1,14 @@
+on:
+  push:
+    tags:
+      - collector-backend/*
+
+jobs:
+  release-collector-backend:
+    uses: concordium/.github/.github/workflows/docker-release-workflow.yaml@v1
+    with:
+      SERVICE_NAME: "collector-backend"
+      BUILD_ARGS: |
+        base_image_tag="latest"
+      DOCKER_FILE_PATH: collector-backend/Dockerfile
+      CARGO_FILE_PATH: collector-backend/Cargo.toml

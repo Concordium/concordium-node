@@ -726,7 +726,7 @@ stopBaker cptr = mask_ $ do
 -- |    16 | ResultNonexistingSenderAccount              | The transaction's sender account does not exist according to the focus block                  | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    17 | ResultDuplicateNonce                        | The sequence number for this account or update type was already used                          | No       |
--- i+-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    18 | ResultNonceTooLarge                         | The transaction seq. number is larger than the next one for this account/update type          | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    19 | ResultTooLowEnergy                          | The stated transaction energy is lower than the minimum amount necessary to execute it        | No       |
@@ -751,9 +751,17 @@ stopBaker cptr = mask_ $ do
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    29 | ResultEnergyExceeded                        | The stated energy of the transaction exceeds the maximum allowed                              | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
--- |    30 | ResultInsufficientFunds                     | The sender did not have enough funds to cover the costs.                                      | No       |
+-- |    30 | ResultInsufficientFunds                     | The sender/sponsor did not have enough funds to cover the costs.                              | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 -- |    31 | ResultDoubleSign                            | The consensus message is a result of malignant double signing.                                | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    32 | ResultConsensusFailure                      | The consensus has thrown an exception and entered an unrecoverable state.                     | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    33 | ResultNonexistingSponsorAccount             | No account corresponding to the transaction's sponsor exists.                                 | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    34 | ResultMissingSponsorAccount                 | The transaction includes a sponsor signature but no sponsor account.                          | No       |
+-- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
+-- |    35 | ResultMissingSponsorSignature               | The transaction includes a sponsor account but no sponsor signature.                          | No       |
 -- +-------+---------------------------------------------+-----------------------------------------------------------------------------------------------+----------+
 type ReceiveResult = Int64
 
@@ -791,12 +799,16 @@ toReceiveResult ResultChainUpdateInvalidSignatures = 28
 toReceiveResult ResultEnergyExceeded = 29
 toReceiveResult ResultInsufficientFunds = 30
 toReceiveResult ResultDoubleSign = 31
+toReceiveResult ResultConsensusFailure = 32
+toReceiveResult ResultNonexistingSponsorAccount = 33
+toReceiveResult ResultMissingSponsorAccount = 34
+toReceiveResult ResultMissingSponsorSignature = 35
 
 -- | Handle receipt of a block.
 --  The possible return codes are @ResultSuccess@, @ResultSerializationFail@,
 --  @ResultInvalid@, @ResultPendingBlock@, @ResultDuplicate@, @ResultStale@,
 --  @ResultConsensusShutDown@, @ResultEarlyBlock@, @ResultInvalidGenesisIndex@, and
---  @ResultDoubleSign@.
+--  @ResultDoubleSign@. Additionally @ResultConsensusFailure@ is returned if an exception occurs.
 --  'receiveBlock' may invoke the callbacks for new finalization messages.
 --  If the block was successfully verified i.e. baker signature, finalization proofs etc. then
 --  the continuation for executing the block will be written to the 'Ptr' provided.
@@ -827,25 +839,27 @@ receiveBlock bptr genIndex msg msgLen ptrPtrExecuteBlock = do
             poke ptrPtrExecuteBlock =<< newStablePtr eb
             return $ toReceiveResult receiveResult
 
--- | Execute a block that has been received and succesfully verified.
+-- | Execute a block that has been received and successfully verified.
 --  The 'MV.ExecuteBlock' continuation is obtained via first calling 'receiveBlock' which in return
 --  will construct a pointer to the continuation.
 --  The 'StablePtr' is freed here and so this function should only be called once for each 'MV.ExecuteBlock'.
 --  The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@
 --  and @ResultConsensusShutDown@.
+--  Additionally @ResultConsensusFailure@ is returned if an exception occurs.
 executeBlock :: StablePtr ConsensusRunner -> StablePtr MV.ExecuteBlock -> IO ReceiveResult
 executeBlock ptrConsensus ptrCont = do
     (ConsensusRunner mvr) <- deRefStablePtr ptrConsensus
     executableBlock <- deRefStablePtr ptrCont
     freeStablePtr ptrCont
     mvLog mvr External LLTrace "Executing block."
-    res <- MV.runBlock executableBlock
+    res <- runMVR (MV.executeBlock executableBlock) mvr
     return $ toReceiveResult res
 
 -- | Handle receipt of a finalization message.
 --  The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 --  @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@, @ResultIncorrectFinalizationSession@,
 --  @ResultUnverifiable@, @ResultConsensusShutDown@, @ResultInvalidGenesisIndex@, and @ResultDoubleSign@.
+--  Additionally @ResultConsensusFailure@ is returned if an exception occurs.
 --  'receiveFinalization' may invoke the callbacks for new finalization messages.
 receiveFinalizationMessage ::
     StablePtr ConsensusRunner ->
@@ -863,6 +877,7 @@ receiveFinalizationMessage bptr genIndex msg msgLen = do
 --  The possible return codes are @ResultSuccess@, @ResultSerializationFail@, @ResultInvalid@,
 --  @ResultPendingBlock@, @ResultPendingFinalization@, @ResultDuplicate@, @ResultStale@,
 --  @ResultConsensusShutDown@ and @ResultInvalidGenesisIndex@.
+--  Additionally @ResultConsensusFailure@ is returned if an exception occurs.
 --  'receiveFinalizationRecord' may invoke the callbacks for new finalization messages.
 receiveFinalizationRecord ::
     StablePtr ConsensusRunner ->
@@ -885,7 +900,9 @@ receiveFinalizationRecord bptr genIndex msg msgLen = do
 --  @ResultCredentialDeploymentInvalidIP@, @ResultCredentialDeploymentInvalidAR@,
 --  @ResultCredentialDeploymentExpired@, @ResultChainUpdateInvalidSequenceNumber@,
 --  @ResultChainUpdateInvalidEffectiveTime@, @ResultChainUpdateInvalidSignatures@,
---  @ResultEnergyExceeded@
+--  @ResultEnergyExceeded@, @ResultNonexistingSponsorAccount@,
+--  @ResultMissingSponsorAccount@, @ResultMissingSponsorSignature@.
+--  Additionally @ResultConsensusFailure@ is returned if an exception occurs.
 receiveTransaction :: StablePtr ConsensusRunner -> CString -> Int64 -> Ptr Word8 -> IO ReceiveResult
 receiveTransaction bptr transactionData transactionLen outPtr = do
     (ConsensusRunner mvr) <- deRefStablePtr bptr
@@ -907,6 +924,7 @@ receiveTransaction bptr transactionData transactionLen outPtr = do
 --  * @ResultPendingBlock@ -- the sender has some data I am missing, and should be marked pending
 --  * @ResultSuccess@ -- I do not require additional data from the sender, so mark it as up-to-date
 --  * @ResultContinueCatchUp@ -- The sender should be marked pending if it is currently up-to-date (no change otherwise)
+--  * @ResultConsensusFailure@ -- an internal exception occurred
 receiveCatchUpStatus ::
     -- | Consensus pointer
     StablePtr ConsensusRunner ->
@@ -957,6 +975,7 @@ getCatchUpStatus cptr genIndexPtr resPtr = do
 
 -- | Import a file consisting of a set of blocks and finalization records for the purposes of
 --  out-of-band catch-up.
+--  @ResultConsensusFailure@ is returned if an exception occurs.
 importBlocks ::
     -- | Consensus runner
     StablePtr ConsensusRunner ->

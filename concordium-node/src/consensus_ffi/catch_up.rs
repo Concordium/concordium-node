@@ -9,7 +9,7 @@ use std::{
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PeerState {
     pub status: PeerStatus,
-    timestamp:  Instant,
+    timestamp: Instant,
 }
 
 impl PeerState {
@@ -20,7 +20,9 @@ impl PeerState {
         }
     }
 
-    pub fn is_catching_up(&self) -> bool { PeerStatus::CatchingUp == self.status }
+    pub fn is_catching_up(&self) -> bool {
+        PeerStatus::CatchingUp == self.status
+    }
 }
 
 impl Ord for PeerState {
@@ -34,26 +36,28 @@ impl Ord for PeerState {
 }
 
 impl PartialOrd for PeerState {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { Some(self.cmp(other)) }
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub enum PeerStatus {
     CatchingUp = 2,
-    Pending    = 1,
-    UpToDate   = 0,
+    Pending = 1,
+    UpToDate = 0,
 }
 
 #[derive(Default)]
 pub struct PeerList {
     /// The state of each peer.
-    pub peer_states:    HashMap<RemotePeerId, PeerStatus, BuildNoHashHasher<PeerId>>,
+    pub peer_states: HashMap<RemotePeerId, PeerStatus, BuildNoHashHasher<PeerId>>,
     /// The timestamp at which we last tried to catch up with a peer.
     pub catch_up_stamp: u64,
     /// The peer that we are currently catching up with (if any).
-    pub catch_up_peer:  Option<RemotePeerId>,
+    pub catch_up_peer: Option<RemotePeerId>,
     /// Queue of pending peers.
-    pub pending_queue:  VecDeque<RemotePeerId>,
+    pub pending_queue: VecDeque<RemotePeerId>,
 }
 
 impl PeerList {

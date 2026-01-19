@@ -308,6 +308,9 @@ instance (MonadBlobStore m, IsProtocolVersion pv) => BlobStorable m (ReleaseSche
         SP5 -> fmap ReleaseScheduleP5 <$> load
         SP6 -> fmap ReleaseScheduleP5 <$> load
         SP7 -> fmap ReleaseScheduleP5 <$> load
+        SP8 -> fmap ReleaseScheduleP5 <$> load
+        SP9 -> fmap ReleaseScheduleP5 <$> load
+        SP10 -> fmap ReleaseScheduleP5 <$> load
 
 instance (MonadBlobStore m) => Cacheable m (ReleaseSchedule pv) where
     cache (ReleaseScheduleP0 rs) = ReleaseScheduleP0 <$> cache rs
@@ -338,6 +341,9 @@ emptyReleaseSchedule = case protocolVersion @pv of
     SP5 -> rsP1
     SP6 -> rsP1
     SP7 -> rsP1
+    SP8 -> rsP1
+    SP9 -> rsP1
+    SP10 -> rsP1
   where
     rsP0 :: (RSAccountRef pv ~ AccountAddress) => m (ReleaseSchedule pv)
     rsP0 = do
@@ -385,6 +391,9 @@ trivialReleaseScheduleMigration = case protocolVersion @pv of
     SP5 -> RSMNewToNew
     SP6 -> RSMNewToNew
     SP7 -> RSMNewToNew
+    SP8 -> RSMNewToNew
+    SP9 -> RSMNewToNew
+    SP10 -> RSMNewToNew
 
 -- | Migrate a release schedule from one protocol version to another, given by a
 --  'ReleaseScheduleMigration'.
@@ -423,6 +432,9 @@ releasesMap ::
 releasesMap resolveAddr (ReleaseScheduleP0 rsRef) = do
     LegacyReleaseSchedule{..} <- refLoad rsRef
     forM lrsMap $ fmap Set.fromList . mapM resolveAddr . Set.toList
-releasesMap _ (ReleaseScheduleP5 rs) = do
+releasesMap _ (ReleaseScheduleP5 rs) = newReleasesMap rs
+
+newReleasesMap :: (MonadBlobStore m) => NewReleaseSchedule -> m (Map Timestamp (Set AccountIndex))
+newReleasesMap rs = do
     m <- Trie.toMap (nrsMap rs)
     return (theAccountSet <$> m)

@@ -47,6 +47,7 @@ import qualified Concordium.Crypto.SHA256 as H
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.Account hiding (addIncomingEncryptedAmount, addToSelfEncryptedAmount)
 import qualified Concordium.GlobalState.AccountMap.LMDB as LMDBAccountMap
+import Concordium.GlobalState.AccountMap.ModuleMap (MonadModuleMapStore)
 import Concordium.GlobalState.BakerInfo
 import Concordium.GlobalState.BlockState
 import Concordium.GlobalState.CapitalDistribution
@@ -56,12 +57,14 @@ import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.Account.CooldownQueue (NextCooldownChange (..))
 import qualified Concordium.GlobalState.Persistent.Account.MigrationState as MigrationState
+import Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens
 import Concordium.GlobalState.Persistent.Accounts (SupportsPersistentAccount)
 import qualified Concordium.GlobalState.Persistent.Accounts as Accounts
 import qualified Concordium.GlobalState.Persistent.Accounts as LMDBAccountMap
 import Concordium.GlobalState.Persistent.Bakers
 import Concordium.GlobalState.Persistent.BlobStore
 import qualified Concordium.GlobalState.Persistent.BlockState.Modules as Modules
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as PLT
 import Concordium.GlobalState.Persistent.BlockState.Updates
 import qualified Concordium.GlobalState.Persistent.Cache as Cache
 import Concordium.GlobalState.Persistent.Cooldown
@@ -71,6 +74,7 @@ import qualified Concordium.GlobalState.Persistent.LFMBTree as LFMBT
 import Concordium.GlobalState.Persistent.PoolRewards
 import Concordium.GlobalState.Persistent.ReleaseSchedule
 import qualified Concordium.GlobalState.Persistent.Trie as Trie
+import Concordium.GlobalState.PoolRewards
 import qualified Concordium.GlobalState.Rewards as Rewards
 import qualified Concordium.GlobalState.TransactionTable as TransactionTable
 import Concordium.GlobalState.Types
@@ -84,6 +88,7 @@ import Concordium.Types
 import Concordium.Types.Accounts (AccountBaker (..))
 import qualified Concordium.Types.Accounts as BaseAccounts
 import qualified Concordium.Types.AnonymityRevokers as ARS
+import Concordium.Types.Conditionally
 import Concordium.Types.Execution (DelegationTarget (..), TransactionIndex, TransactionSummary)
 import qualified Concordium.Types.Execution as Transactions
 import Concordium.Types.HashableTo
@@ -98,6 +103,7 @@ import Concordium.Types.Queries (
     makePoolPendingChange,
  )
 import Concordium.Types.SeedState
+import qualified Concordium.Types.Tokens as PLT
 import qualified Concordium.Types.TransactionOutcomes as TransactionOutcomes
 import qualified Concordium.Types.Transactions as Transactions
 import qualified Concordium.Types.UpdateQueues as UQ
@@ -113,6 +119,7 @@ import qualified Control.Monad.Catch as MonadCatch
 import qualified Control.Monad.Except as MTL
 import Control.Monad.Reader
 import qualified Control.Monad.State.Strict as MTL
+import Control.Monad.Trans.Maybe
 import qualified Control.Monad.Writer.Strict as MTL
 import Data.Bool.Singletons
 import Data.IORef
@@ -178,6 +185,9 @@ migrateSeedState (StateMigrationParametersP5ToP6 (P6.StateMigrationData _ time))
     let seed = H.hash $ "Regenesis" <> encode ss0CurrentLeadershipElectionNonce
     in  initialSeedStateV1 seed time
 migrateSeedState StateMigrationParametersP6ToP7{} ss = migrateSeedStateV1Trivial ss
+migrateSeedState StateMigrationParametersP7ToP8{} ss = migrateSeedStateV1Trivial ss
+migrateSeedState StateMigrationParametersP8ToP9{} ss = migrateSeedStateV1Trivial ss
+migrateSeedState StateMigrationParametersP9ToP10{} ss = migrateSeedStateV1Trivial ss
 
 -- | Trivial migration of a 'SeedStateV1' between protocol versions.
 migrateSeedStateV1Trivial :: SeedState 'SeedStateVersion1 -> SeedState 'SeedStateVersion1
@@ -570,12 +580,14 @@ consEpochBlock b hebbs = do
 
 data BlockRewardDetails' (av :: AccountVersion) (bhv :: BlockHashVersion) where
     BlockRewardDetailsV0 :: !HashedEpochBlocks -> BlockRewardDetails' 'AccountV0 bhv
-    BlockRewardDetailsV1 :: (AVSupportsDelegation av) => !(HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv)) -> BlockRewardDetails' av bhv
+    BlockRewardDetailsV1 :: (AVSupportsDelegation av) => !(HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv av)) -> BlockRewardDetails' av bhv
 
 type BlockRewardDetails pv = BlockRewardDetails' (AccountVersionFor pv) (BlockHashVersionFor pv)
 
 -- | Migrate the block reward details.
---  When migrating to a 'P4' or later, this sets the 'nextPaydayEpoch' to the reward period length.
+--  When migrating to 'P4' or 'P5', or from 'P5' to 'P6', this sets the 'nextPaydayEpoch' to the
+--  reward period length. Migrations from 'P6' onwards (consensus protocol version 1) will set the
+--  'nextPaydayEpoch' to occur at the same time as it would have before the protocol update.
 migrateBlockRewardDetails ::
     forall t m oldpv pv.
     ( MonadBlobStore (t m),
@@ -600,11 +612,7 @@ migrateBlockRewardDetails StateMigrationParametersTrivial _ _ tp oldEpoch = \cas
             BlockRewardDetailsV1
                 <$> migrateHashedBufferedRef migratePR hbr
           where
-            rpLength = rewardPeriodEpochs _tpRewardPeriodLength
-            migratePR pr = migratePoolRewards nextPayday pr
-              where
-                oldPaydayEpoch = nextPaydayEpoch pr
-                nextPayday = max 1 (min rpLength (oldPaydayEpoch - oldEpoch))
+            migratePR = migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength
         NoParam -> case protocolVersion @pv of {}
 migrateBlockRewardDetails StateMigrationParametersP1P2 _ _ _ _ = \case
     (BlockRewardDetailsV0 heb) -> BlockRewardDetailsV0 <$> migrateHashedEpochBlocks heb
@@ -623,13 +631,25 @@ migrateBlockRewardDetails StateMigrationParametersP5ToP6{} _ _ (SomeParam TimePa
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
             <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
-migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimeParametersV1{..}) _ = \case
+migrateBlockRewardDetails StateMigrationParametersP6ToP7{} _ _ (SomeParam TimeParametersV1{..}) oldEpoch = \case
     (BlockRewardDetailsV1 hbr) ->
         BlockRewardDetailsV1
-            <$> migrateHashedBufferedRef (migratePoolRewards (rewardPeriodEpochs _tpRewardPeriodLength)) hbr
+            <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
+migrateBlockRewardDetails StateMigrationParametersP7ToP8{} _ _ (SomeParam TimeParametersV1{..}) oldEpoch = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
+migrateBlockRewardDetails StateMigrationParametersP8ToP9{} _ _ (SomeParam TimeParametersV1{..}) oldEpoch = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
+migrateBlockRewardDetails StateMigrationParametersP9ToP10{} _ _ (SomeParam TimeParametersV1{..}) oldEpoch = \case
+    (BlockRewardDetailsV1 hbr) ->
+        BlockRewardDetailsV1
+            <$> migrateHashedBufferedRef (migratePoolRewardsP6 oldEpoch _tpRewardPeriodLength) hbr
 
 instance
-    (MonadBlobStore m, IsBlockHashVersion bhv) =>
+    (MonadBlobStore m, IsBlockHashVersion bhv, IsAccountVersion av) =>
     MHashableTo m (Rewards.BlockRewardDetailsHash' av bhv) (BlockRewardDetails' av bhv)
     where
     getHashM (BlockRewardDetailsV0 heb) = return $ Rewards.BlockRewardDetailsHashV0 (getHash heb)
@@ -642,7 +662,7 @@ instance (IsAccountVersion av, MonadBlobStore m) => BlobStorable m (BlockRewardD
         SAVDelegationNotSupported -> fmap (fmap BlockRewardDetailsV0) load
         SAVDelegationSupported -> fmap (fmap BlockRewardDetailsV1) load
 
-instance (MonadBlobStore m, IsBlockHashVersion bhv) => Cacheable m (BlockRewardDetails' av bhv) where
+instance (MonadBlobStore m, IsBlockHashVersion bhv, IsAccountVersion av) => Cacheable m (BlockRewardDetails' av bhv) where
     cache (BlockRewardDetailsV0 heb) = BlockRewardDetailsV0 <$> cache heb
     cache (BlockRewardDetailsV1 hpr) = BlockRewardDetailsV1 <$> cache hpr
 
@@ -673,16 +693,16 @@ emptyBlockRewardDetails =
 type PersistentBlockState (pv :: ProtocolVersion) = IORef (BufferedRef (BlockStatePointers pv))
 
 -- | Transaction outcomes stored in a merkle binary tree.
-data MerkleTransactionOutcomes = MerkleTransactionOutcomes
+data MerkleTransactionOutcomes (tov :: TransactionOutcomesVersion) = MerkleTransactionOutcomes
     { -- | Normal transaction outcomes
-      mtoOutcomes :: LFMBT.LFMBTree TransactionIndex HashedBufferedRef TransactionSummaryV1,
+      mtoOutcomes :: LFMBT.LFMBTree TransactionIndex HashedBufferedRef (TransactionSummaryV1 tov),
       -- | Special transaction outcomes
       mtoSpecials :: LFMBT.LFMBTree TransactionIndex HashedBufferedRef Transactions.SpecialTransactionOutcome
     }
     deriving (Show)
 
 -- | Create an empty 'MerkleTransactionOutcomes'
-emptyMerkleTransactionOutcomes :: MerkleTransactionOutcomes
+emptyMerkleTransactionOutcomes :: MerkleTransactionOutcomes tov
 emptyMerkleTransactionOutcomes =
     MerkleTransactionOutcomes
         { mtoOutcomes = LFMBT.empty,
@@ -700,9 +720,10 @@ emptyMerkleTransactionOutcomes =
 --  the hashing scheme is not a hash list but a merkle tree, so it is the root hash that is
 --  used in the final 'BlockHash'.
 data PersistentTransactionOutcomes (tov :: TransactionOutcomesVersion) where
-    PTOV0 :: TransactionOutcomes.TransactionOutcomes -> PersistentTransactionOutcomes 'TOV0
-    PTOV1 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'TOV1
-    PTOV2 :: MerkleTransactionOutcomes -> PersistentTransactionOutcomes 'TOV2
+    PTOV0 :: TransactionOutcomes.TransactionOutcomes 'TOV0 -> PersistentTransactionOutcomes 'TOV0
+    PTOV1 :: MerkleTransactionOutcomes 'TOV1 -> PersistentTransactionOutcomes 'TOV1
+    PTOV2 :: MerkleTransactionOutcomes 'TOV2 -> PersistentTransactionOutcomes 'TOV2
+    PTOV3 :: MerkleTransactionOutcomes 'TOV3 -> PersistentTransactionOutcomes 'TOV3
 
 -- | Create an empty persistent transaction outcome
 emptyPersistentTransactionOutcomes :: forall tov. (IsTransactionOutcomesVersion tov) => PersistentTransactionOutcomes tov
@@ -710,9 +731,10 @@ emptyPersistentTransactionOutcomes = case transactionOutcomesVersion @tov of
     STOV0 -> PTOV0 TransactionOutcomes.emptyTransactionOutcomesV0
     STOV1 -> PTOV1 emptyMerkleTransactionOutcomes
     STOV2 -> PTOV2 emptyMerkleTransactionOutcomes
+    STOV3 -> PTOV3 emptyMerkleTransactionOutcomes
 
 instance
-    (BlobStorable m TransactionSummaryV1) =>
+    (BlobStorable m (TransactionSummaryV1 tov), MonadProtocolVersion m, (TransactionOutcomesVersionFor (MPV m) ~ tov)) =>
     MHashableTo m (TransactionOutcomes.TransactionOutcomesHashV tov) (PersistentTransactionOutcomes tov)
     where
     getHashM (PTOV0 bto) = return (getHash bto)
@@ -730,6 +752,12 @@ instance
         return $!
             TransactionOutcomes.TransactionOutcomesHashV $
                 H.hashOfHashes (LFMBT.theLFMBTreeHash out) (LFMBT.theLFMBTreeHash special)
+    getHashM (PTOV3 MerkleTransactionOutcomes{..}) = do
+        out <- getHashM @_ @(LFMBT.LFMBTreeHash' 'BlockHashVersion1) mtoOutcomes
+        special <- getHashM @_ @(LFMBT.LFMBTreeHash' 'BlockHashVersion1) mtoSpecials
+        return $!
+            TransactionOutcomes.TransactionOutcomesHashV $
+                H.hashOfHashes (LFMBT.theLFMBTreeHash out) (LFMBT.theLFMBTreeHash special)
 
 instance
     ( TransactionOutcomesVersionFor (MPV m) ~ tov,
@@ -742,6 +770,7 @@ instance
     storeUpdate out = case out of
         PTOV1 mto -> (_2 %~ PTOV1) <$> inner mto
         PTOV2 mto -> (_2 %~ PTOV2) <$> inner mto
+        PTOV3 mto -> (_2 %~ PTOV3) <$> inner mto
       where
         inner MerkleTransactionOutcomes{..} = do
             (pout, mtoOutcomes') <- storeUpdate mtoOutcomes
@@ -767,6 +796,13 @@ instance
                     mtoOutcomes <- mout
                     mtoSpecials <- mspecials
                     return $! PTOV2 MerkleTransactionOutcomes{..}
+            STOV3 -> do
+                mout <- load
+                mspecials <- load
+                return $! do
+                    mtoOutcomes <- mout
+                    mtoSpecials <- mspecials
+                    return $! PTOV3 MerkleTransactionOutcomes{..}
 
 -- | Create an empty 'PersistentTransactionOutcomes' based on the 'ProtocolVersion'.
 emptyTransactionOutcomes ::
@@ -778,6 +814,7 @@ emptyTransactionOutcomes Proxy = case transactionOutcomesVersion @(TransactionOu
     STOV0 -> PTOV0 TransactionOutcomes.emptyTransactionOutcomesV0
     STOV1 -> PTOV1 emptyMerkleTransactionOutcomes
     STOV2 -> PTOV2 emptyMerkleTransactionOutcomes
+    STOV3 -> PTOV3 emptyMerkleTransactionOutcomes
 
 -- | References to the components that make up the block state.
 --
@@ -801,7 +838,9 @@ data BlockStatePointers (pv :: ProtocolVersion) = BlockStatePointers
       bspTransactionOutcomes :: !(PersistentTransactionOutcomes (TransactionOutcomesVersionFor pv)),
       -- | Details of bakers that baked blocks in the current epoch. This is
       --  used for rewarding bakers at the end of epochs.
-      bspRewardDetails :: !(BlockRewardDetails pv)
+      bspRewardDetails :: !(BlockRewardDetails pv),
+      -- | The global state of protocol-level tokens.
+      bspProtocolLevelTokens :: !(PLT.ProtocolLevelTokensForPV pv)
     }
 
 -- | Lens for accessing the birk parameters of a 'BlockStatePointers' structure.
@@ -844,6 +883,7 @@ instance (SupportsPersistentState pv m) => MHashableTo m StateHash (BlockStatePo
         bshInstances <- getHashM bspInstances
         bshUpdates <- getHashM bspUpdates
         bshBlockRewardDetails <- getHashM bspRewardDetails
+        bshProtocolLevelTokens <- getHashM bspProtocolLevelTokens
         return $ makeBlockStateHash @pv BlockStateHashInputs{..}
 
 instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv) where
@@ -860,6 +900,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         (preleases, bspReleaseSchedule') <- storeUpdate bspReleaseSchedule
         (pAccountsInCooldown, bspAccountInCooldown') <- storeUpdate bspAccountsInCooldown
         (pRewardDetails, bspRewardDetails') <- storeUpdate bspRewardDetails
+        (pProtocolLevelTokens, bspProtocolLevelTokens') <- storeUpdate bspProtocolLevelTokens
         let putBSP = do
                 paccts
                 pinsts
@@ -874,6 +915,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                 preleases
                 pAccountsInCooldown
                 pRewardDetails
+                pProtocolLevelTokens
         return
             ( putBSP,
               bsp0
@@ -888,7 +930,8 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
                   bspUpdates = bspUpdates',
                   bspReleaseSchedule = bspReleaseSchedule',
                   bspAccountsInCooldown = bspAccountInCooldown',
-                  bspRewardDetails = bspRewardDetails'
+                  bspRewardDetails = bspRewardDetails',
+                  bspProtocolLevelTokens = bspProtocolLevelTokens'
                 }
             )
     load = do
@@ -905,6 +948,7 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
         mReleases <- label "Release schedule" load
         mAccountsInCooldown <- label "Accounts in cooldown" load
         mRewardDetails <- label "Epoch blocks" load
+        mProtocolLevelTokens <- label "Protocol-level tokens" load
         return $! do
             bspAccounts <- maccts
             bspInstances <- minsts
@@ -918,13 +962,14 @@ instance (SupportsPersistentState pv m) => BlobStorable m (BlockStatePointers pv
             bspReleaseSchedule <- mReleases
             bspAccountsInCooldown <- mAccountsInCooldown
             bspRewardDetails <- mRewardDetails
+            bspProtocolLevelTokens <- mProtocolLevelTokens
             return $! BlockStatePointers{..}
 
 -- | Accessor for getting the pool rewards when supported by the protocol version.
 bspPoolRewards ::
     (PVSupportsDelegation pv, bhv ~ BlockHashVersionFor pv) =>
     BlockStatePointers pv ->
-    HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv)
+    HashedBufferedRef' (Rewards.PoolRewardsHash bhv) (PoolRewards bhv (AccountVersionFor pv))
 bspPoolRewards bsp = case bspRewardDetails bsp of
     BlockRewardDetailsV1 pr -> pr
 
@@ -939,12 +984,12 @@ initialPersistentState ::
     [PersistentAccount (AccountVersionFor pv)] ->
     IPS.IdentityProviders ->
     ARS.AnonymityRevokers ->
-    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
+    UpdateKeysCollection (AuthorizationsVersionFor pv) ->
     ChainParameters pv ->
     m (HashedPersistentBlockState pv)
 initialPersistentState seedState cryptoParams accounts ips ars keysCollection chainParams = do
     persistentBirkParameters <- initialBirkParameters accounts seedState (chainParams ^. cpFinalizationCommitteeParameters)
-    modules <- refMake Modules.emptyModules
+    modules <- refMake =<< Modules.emptyModules
     identityProviders <- bufferHashed $ makeHashed ips
     anonymityRevokers <- bufferHashed $ makeHashed ars
     cryptographicParameters <- bufferHashed $ makeHashed cryptoParams
@@ -954,6 +999,7 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
     releaseSchedule <- emptyReleaseSchedule
     acctsInCooldown <- initialAccountsInCooldown accounts
     red <- emptyBlockRewardDetails
+    plts <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -969,7 +1015,8 @@ initialPersistentState seedState cryptoParams accounts ips ars keysCollection ch
                   bspUpdates = updates,
                   bspReleaseSchedule = releaseSchedule,
                   bspAccountsInCooldown = acctsInCooldown,
-                  bspRewardDetails = red
+                  bspRewardDetails = red,
+                  bspProtocolLevelTokens = plts
                 }
     bps <- liftIO $ newIORef $! bsp
     hashBlockState bps
@@ -981,12 +1028,12 @@ emptyBlockState ::
     (SupportsPersistentState pv m) =>
     PersistentBirkParameters pv ->
     CryptographicParameters ->
-    UpdateKeysCollection (AuthorizationsVersionForPV pv) ->
+    UpdateKeysCollection (AuthorizationsVersionFor pv) ->
     ChainParameters pv ->
     m (PersistentBlockState pv)
 {-# WARNING emptyBlockState "should only be used for testing" #-}
 emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
-    modules <- refMake Modules.emptyModules
+    modules <- refMake =<< Modules.emptyModules
     identityProviders <- refMake IPS.emptyIdentityProviders
     anonymityRevokers <- refMake ARS.emptyAnonymityRevokers
     cryptographicParameters <- refMake cryptParams
@@ -994,6 +1041,7 @@ emptyBlockState bspBirkParameters cryptParams keysCollection chainParams = do
     bspReleaseSchedule <- emptyReleaseSchedule
     bspRewardDetails <- emptyBlockRewardDetails
     bspAccounts <- Accounts.emptyAccounts
+    bspProtocolLevelTokens <- PLT.emptyProtocolLevelTokensForPV
     bsp <-
         makeBufferedRef $
             BlockStatePointers
@@ -1101,7 +1149,13 @@ doGetModuleList :: (SupportsPersistentState pv m) => PersistentBlockState pv -> 
 doGetModuleList s = do
     bsp <- loadPBS s
     mods <- refLoad (bspModules bsp)
-    return $ Modules.moduleRefList mods
+    Modules.moduleRefList mods
+
+-- | Get the size of the module table.
+doGetModuleCount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Word64
+doGetModuleCount s = do
+    bsp <- loadPBS s
+    Modules.moduleCount <$> refLoad (bspModules bsp)
 
 doGetModuleSource :: (SupportsPersistentState pv m) => PersistentBlockState pv -> ModuleRef -> m (Maybe Wasm.WasmModule)
 doGetModuleSource s modRef = do
@@ -1333,7 +1387,19 @@ doGetActiveBakersAndDelegators pbs = do
                           activeBakerEquityCapital = theBaker ^. BaseAccounts.stakedAmount,
                           activeBakerPendingChange =
                             BaseAccounts.pendingChangeEffectiveTimestamp <$> theBaker ^. BaseAccounts.bakerPendingChange,
-                          activeBakerDelegators = abd
+                          activeBakerDelegators = abd,
+                          activeBakerIsSuspended =
+                            fromCondDef
+                                ( BaseAccounts._bieIsSuspended $
+                                    BaseAccounts._accountBakerInfo $
+                                        theBaker
+                                )
+                                False,
+                          activeBakerId =
+                            BaseAccounts._bakerIdentity $
+                                BaseAccounts._bieBakerInfo $
+                                    BaseAccounts._accountBakerInfo $
+                                        theBaker
                         }
     mkActiveDelegatorInfo :: BlockStatePointers pv -> DelegatorId -> m ActiveDelegatorInfo
     mkActiveDelegatorInfo bsp activeDelegatorId@(DelegatorId acct) =
@@ -1611,7 +1677,13 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
                   _poolCommissionRates = vaCommissionRates
                 }
     let bakerInfo = bakerKeyUpdateToInfo bid vaKeys
-    let bakerInfoEx = BaseAccounts.BakerInfoExV1 bakerInfo poolInfo
+    let bakerInfoEx =
+            BaseAccounts.BakerInfoExV1
+                { _bieBakerPoolInfo = poolInfo,
+                  _bieBakerInfo = bakerInfo,
+                  _bieIsSuspended = conditionally hasValidatorSuspension vaSuspended
+                }
+    -- The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Add the baker to the account.
     accWithBaker <- addAccountBakerV1 bakerInfoEx vaCapital vaRestakeEarnings acc
@@ -1635,6 +1707,7 @@ newAddValidator pbs ai va@ValidatorAdd{..} = do
   where
     bid = BakerId ai
     flexibleCooldowns = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
 
 -- | Check the conditions required for successfully updating a validator. This does not modify
 --  the block state.
@@ -1671,8 +1744,7 @@ updateValidatorChecks ::
     MTL.ExceptT ValidatorConfigureFailure m ()
 updateValidatorChecks bsp baker ValidatorUpdate{..} = do
     chainParams <- lookupCurrentParameters (bspUpdates bsp)
-    let
-        poolParams = chainParams ^. cpPoolParameters
+    let poolParams = chainParams ^. cpPoolParameters
         capitalMin = poolParams ^. ppMinimumEquityCapital
         ranges = poolParams ^. ppCommissionBounds
     -- Check if the aggregation key is fresh (or the same as the baker's existing one).
@@ -1751,7 +1823,7 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --
 --        (3) append @BakerConfigureBakingRewardCommission brc@ to @events@.
 --
---  6. If the finalization reward commission is supplied:
+--  7. If the finalization reward commission is supplied:
 --
 --        (1) if the commission does not fall within the current range according to the chain
 --            parameters, return @VCFFinalizationRewardCommissionNotInRange@; otherwise,
@@ -1760,7 +1832,13 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --
 --        (3) append @BakerConfigureFinalizationRewardCommission frc@ to @events@.
 --
---  7. If the capital is supplied: if there is a pending change to the baker's capital, return
+--  8. (>= P8) If the suspended/resumed flag is set:
+
+--        (1) Suspend/resume the validator according to the flag.
+
+--        (2) Append @BakerConfigureSuspended@ or @BakerConfigureResumed@ accordingly to @events@.
+--
+--  9. If the capital is supplied: if there is a pending change to the baker's capital, return
 --     @VCFChangePending@; otherwise:
 --
 --       * if the capital is 0
@@ -1796,8 +1874,8 @@ updateValidatorChecks bsp baker ValidatorUpdate{..} = do
 --         equity capital to the new capital (updating the total active capital in the active baker
 --         index by adding the difference between the new and old capital) and append
 --         @BakerConfigureStakeIncreased capital@ to @events@.
---
---  8. Return @events@ with the updated block state.
+
+--  10. Return @events@ with the updated block state.
 newUpdateValidator ::
     forall pv m.
     ( SupportsPersistentState pv m,
@@ -1814,7 +1892,7 @@ newUpdateValidator ::
     MTL.ExceptT ValidatorConfigureFailure m ([BakerConfigureUpdateChange], PersistentBlockState (MPV m))
 newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
     bsp <- loadPBS pbs
-    -- Cannot fail: account must exist.
+    -- Cannot fail: The precondition guaranties that the account exists
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Cannot fail: account must be a registered baker.
     existingBaker <- fromJust <$> accountBaker acc
@@ -1824,14 +1902,31 @@ newUpdateValidator pbs curTimestamp ai vu@ValidatorUpdate{..} = do
             updateKeys existingBaker (bsp, acc)
                 >>= updateRestakeEarnings
                 >>= updatePoolInfo existingBaker
+                -- NOTE: updateSuspend needs to be executed before updateCapital.
+                -- Because if we update the stake to 0, the validator gets
+                -- removed. After this, a call to updateSuspend will error.
+                >>= updateSuspend
                 >>= updateCapital existingBaker
         newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts newBSP)
         return newBSP{bspAccounts = newAccounts}
     (events,) <$> storePBS pbs newBSP
   where
     bid = BakerId ai
+    -- Only do the given update if specified.
     ifPresent Nothing _ = return
     ifPresent (Just v) k = k v
+    updateSuspend =
+        ifPresent vuSuspend $ \suspend (bsp, acc) -> do
+            case sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv)) of
+                STrue -> do
+                    acc1 <- setAccountValidatorSuspended suspend acc
+                    MTL.tell
+                        [ if suspend
+                            then BakerConfigureSuspended
+                            else BakerConfigureResumed
+                        ]
+                    return (bsp, acc1)
+                SFalse -> return (bsp, acc)
     updateKeys oldBaker = ifPresent vuKeys $ \keys (bsp, acc) -> do
         let oldAggrKey = oldBaker ^. BaseAccounts.bakerAggregationVerifyKey
         bsp1 <-
@@ -2125,7 +2220,7 @@ newAddDelegator pbs ai da@DelegatorAdd{..} = do
     addDelegatorChecks bsp da
     newBirkParameters <- do
         pab <- refLoad $ bspBirkParameters bsp ^. birkActiveBakers
-        -- Cannot fail: the delegation target is valid.
+        -- Cannot fail: the delegation target is valid because it is checked in 'addDelegatorChecks'.
         newActiveBakers <-
             addDelegatorUnsafe daDelegationTarget did daCapital pab
                 <&> totalActiveCapital %~ addActiveCapital daCapital
@@ -2210,7 +2305,7 @@ updateDelegatorChecks bsp oldDelegator DelegatorUpdate{..} = do
         Nothing -> case oldDelegator ^. BaseAccounts.delegationTarget of
             Transactions.DelegatePassive -> return Nothing
             Transactions.DelegateToBaker (BakerId baid) -> do
-                -- Cannot fail: the account must delegate to a valid baker.
+                -- Cannot fail: the account is already delegating to a baker that can thus be looked up.
                 baker <- fromJust <$> onAccount baid bsp accountBaker
                 -- Since it wasn't changed, the baker is the same as before.
                 return (Just (baker, True))
@@ -2291,7 +2386,7 @@ updateDelegatorChecks bsp oldDelegator DelegatorUpdate{..} = do
 --
 --       (4) Update the account to record the new delegation target.
 --
---       (5) Append @DelegationConfigureDelegationTarget target@ to @events@. [N.B. if the target is
+--       (5) Append @DelegationConfigureDelegationTarget target@ to @events@. [N.B. if the target
 --           pool is the same as the previous value, steps (1)-(4) will do nothing and may be skipped
 --           by the implementation. This relies on the invariant that delegators delegate only to
 --           valid pools.]
@@ -2309,7 +2404,7 @@ updateDelegatorChecks bsp oldDelegator DelegatorUpdate{..} = do
 --         plus the delegator cooldown chain parameter, and append
 --         @DelegationConfigureStakeReduced capital@ to @events@; otherwise
 --
---       * If the the new capital is less than the current staked capital (but not 0), mark the
+--       * If the new capital is less than the current staked capital (but not 0), mark the
 --         delegator as pending stake reduction to @capital@ at the slot timestamp plus the
 --         delegator cooldown chain parameter, and append @DelegationConfigureStakeReduced capital@
 --         to @events@;
@@ -2352,7 +2447,7 @@ newUpdateDelegator ::
     MTL.ExceptT DelegatorConfigureFailure m ([DelegationConfigureUpdateChange], PersistentBlockState (MPV m))
 newUpdateDelegator pbs blockTimestamp ai du@DelegatorUpdate{..} = do
     bsp <- loadPBS pbs
-    -- Cannot fail: account must exist.
+    -- Cannot fail: The precondition guarantees that the account exists.
     acc <- fromJust <$> Accounts.indexedAccount ai (bspAccounts bsp)
     -- Cannot fail: the account must already be a delegator.
     existingDelegator <- fromJust <$> accountDelegator acc
@@ -2369,6 +2464,7 @@ newUpdateDelegator pbs blockTimestamp ai du@DelegatorUpdate{..} = do
   where
     did = DelegatorId ai
     flexibleCooldown = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
+    -- Only do the update if specified.
     ifPresent Nothing _ = return
     ifPresent (Just v) k = k v
     updateDelegationTarget oldTarget = ifPresent duDelegationTarget $ \target (bsp, acc) -> do
@@ -2480,17 +2576,21 @@ newUpdateDelegator pbs blockTimestamp ai du@DelegatorUpdate{..} = do
                 (bspAccountsInCooldown bsp)
         return bsp{bspAccountsInCooldown = newAccountsInCooldown}
 
+-- | Whether a (pre-)(pre-)cooldown was removed on an account. Used by 'applyCooldownRemovalsGlobally'
+-- to then also remove the account from the global list of accounts in cooldown.
 data CooldownRemovals = CooldownRemovals
     { -- | Whether the pre-pre cooldown was removed.
-      crPrePreCooldown :: Bool,
+      crPrePreCooldown :: !Bool,
       -- | Whether the pre cooldown was removed.
-      crPreCooldown :: Bool,
+      crPreCooldown :: !Bool,
       -- | If all cooldowns were removed, this is the previous timestamp of the earliest cooldown.
-      crCooldown :: Maybe Timestamp
+      crCooldown :: !(Maybe Timestamp)
     }
 
 -- | Determine if a change in cooldowns requires global updates to the indexes.
 --  The change should arise from (possibly) reactivating stake from cooldown.
+--  The first input is old 'Cooldowns' on the account, and the second input is the new 'Cooldowns' on
+--  the account after possibly reactivating stake.
 cooldownRemovals ::
     Maybe CooldownQueue.Cooldowns -> Maybe CooldownQueue.Cooldowns -> CooldownRemovals
 cooldownRemovals Nothing _ = CooldownRemovals False False Nothing
@@ -2583,8 +2683,8 @@ doUpdateBakerStake pbs ai newStake = do
             if sdPendingChange /= BaseAccounts.NoChange
                 then -- A change is already pending
                     return (BSUChangePending (BakerId ai), pbs)
-                else -- We can make the change
-                do
+                else do
+                    -- We can make the change
                     let curEpoch = bspBirkParameters bsp ^. birkSeedState . epoch
                     upds <- refLoad (bspUpdates bsp)
                     cooldownEpochs <-
@@ -2717,7 +2817,7 @@ doRewardAccount pbs ai reward = do
         (_, newActiveBkrsMap) <- Trie.adjust adj bid activeBkrsMap
         return $! activeBkrs & activeBakers .~ newActiveBkrsMap
 
-doGetBakerPoolRewardDetails :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> m (Map.Map BakerId BakerPoolRewardDetails)
+doGetBakerPoolRewardDetails :: (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> m (Map.Map BakerId (BakerPoolRewardDetails (AccountVersionFor pv)))
 doGetBakerPoolRewardDetails pbs = do
     bsp <- loadPBS pbs
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
@@ -2768,6 +2868,9 @@ doGetRewardStatus pbs = do
         SP5 -> rewardsV1
         SP6 -> rewardsV1
         SP7 -> rewardsV1
+        SP8 -> rewardsV1
+        SP9 -> rewardsV1
+        SP10 -> rewardsV1
 
 doRewardFoundationAccount :: (SupportsPersistentState pv m) => PersistentBlockState pv -> Amount -> m (PersistentBlockState pv)
 doRewardFoundationAccount pbs reward = do
@@ -2894,6 +2997,9 @@ doModifyAccount pbs aUpd@AccountUpdate{..} = do
                     SP5 -> return _auIndex
                     SP6 -> return _auIndex
                     SP7 -> return _auIndex
+                    SP8 -> return _auIndex
+                    SP9 -> return _auIndex
+                    SP10 -> return _auIndex
                 !oldRel <- accountNextReleaseTimestamp acc
                 !newRel <- accountNextReleaseTimestamp acc'
                 return (acctRef :: RSAccountRef pv, oldRel, newRel)
@@ -3107,8 +3213,8 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                         br <- makeBufferedRef newParams
                         return (newParams, br, newModuleInterface)
             if deltaAmnt == 0
-                then -- there is no change in amount owned by the contract
-                case val of
+                -- there is no change in amount owned by the contract
+                then case val of
                     -- no change in either the state or the module. No need to change the instance
                     Nothing
                         | Nothing <- newModule -> return ((), PersistentInstanceV1 oldInst)
@@ -3135,8 +3241,8 @@ doModifyInstance pbs caddr deltaAmnt val newModule = do
                                   pinstanceModuleInterface = newModuleInterface
                                 }
                             )
-                else -- at least the amount has changed rehash in all cases
-                case val of
+                -- at least the amount has changed rehash in all cases
+                else case val of
                     Nothing ->
                         rehashV1
                             Nothing
@@ -3278,6 +3384,10 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                     let abpsPoolInfo = baker ^. BaseAccounts.bakerPoolInfo
                     let abpsBakerStakePendingChange =
                             makePoolPendingChange $ BaseAccounts.pendingChangeEffectiveTimestamp <$> (baker ^. BaseAccounts.bakerPendingChange)
+                    let abpsIsSuspended =
+                            fromCondDef
+                                (Just <$> BaseAccounts._bieIsSuspended (baker ^. BaseAccounts.accountBakerInfo))
+                                Nothing
                     return $! ActiveBakerPoolStatus{..}
                 epochBakers <- refLoad (_birkCurrentEpochBakers $ bspBirkParameters bsp)
                 mepochBaker <- epochBaker psBakerId epochBakers
@@ -3309,19 +3419,24 @@ doGetPoolStatus pbs psBakerId@(BakerId aid) = case delegationChainParameters @pv
                                               bpsCommissionRates =
                                                 currentEpochBaker
                                                     ^. BaseAccounts.bieBakerPoolInfo
-                                                        . BaseAccounts.poolCommissionRates
+                                                        . BaseAccounts.poolCommissionRates,
+                                              bpsIsPrimedForSuspension =
+                                                fromCondDef (fmap (Just . primedForSuspension) suspensionInfo) Nothing,
+                                              bpsMissedRounds =
+                                                fromCondDef (fmap (Just . missedRounds) suspensionInfo) Nothing
                                             }
                 if isJust psActiveStatus || isJust psCurrentPaydayStatus
                     then return $ Just BakerPoolStatus{..}
                     else return Nothing
 
-doGetTransactionOutcome :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe TransactionSummary)
+doGetTransactionOutcome :: forall tov pv m. (SupportsPersistentState pv m, TransactionOutcomesVersionFor pv ~ tov) => PersistentBlockState pv -> Transactions.TransactionIndex -> m (Maybe (TransactionSummary tov))
 doGetTransactionOutcome pbs transHash = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
         PTOV0 bto -> return $! bto ^? ix transHash
         PTOV1 bto -> fmap _transactionSummaryV1 <$> LFMBT.lookup transHash (mtoOutcomes bto)
         PTOV2 bto -> fmap _transactionSummaryV1 <$> LFMBT.lookup transHash (mtoOutcomes bto)
+        PTOV3 bto -> fmap _transactionSummaryV1 <$> LFMBT.lookup transHash (mtoOutcomes bto)
 
 doGetTransactionOutcomesHash ::
     forall pv m.
@@ -3333,7 +3448,7 @@ doGetTransactionOutcomesHash pbs = do
     TransactionOutcomes.toTransactionOutcomesHash @(TransactionOutcomesVersionFor pv)
         <$> getHashM (bspTransactionOutcomes bsp)
 
-doSetTransactionOutcomes :: forall pv m. (SupportsPersistentState pv m) => PersistentBlockState pv -> [TransactionSummary] -> m (PersistentBlockState pv)
+doSetTransactionOutcomes :: forall tov pv m. (SupportsPersistentState pv m, tov ~ TransactionOutcomesVersionFor pv) => PersistentBlockState pv -> [TransactionSummary tov] -> m (PersistentBlockState pv)
 doSetTransactionOutcomes pbs transList = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
@@ -3350,8 +3465,11 @@ doSetTransactionOutcomes pbs transList = do
         PTOV2 _ -> do
             mto <- makeMTO
             storePBS pbs bsp{bspTransactionOutcomes = PTOV2 mto}
+        PTOV3 _ -> do
+            mto <- makeMTO
+            storePBS pbs bsp{bspTransactionOutcomes = PTOV3 mto}
   where
-    makeMTO :: m MerkleTransactionOutcomes
+    makeMTO :: m (MerkleTransactionOutcomes tov)
     makeMTO = do
         mtoOutcomes <- LFMBT.fromAscList . map TransactionSummaryV1 $ transList
         return MerkleTransactionOutcomes{mtoSpecials = LFMBT.empty, ..}
@@ -3368,14 +3486,16 @@ doGetSpecialOutcomes pbs = do
         PTOV0 bto -> return (bto ^. TransactionOutcomes.outcomeSpecial)
         PTOV1 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
         PTOV2 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
+        PTOV3 bto -> Seq.fromList <$> LFMBT.toAscList (mtoSpecials bto)
 
-doGetOutcomes :: (SupportsPersistentState pv m, MonadProtocolVersion m) => PersistentBlockState pv -> m (Vec.Vector TransactionSummary)
+doGetOutcomes :: (SupportsPersistentState pv m, MonadProtocolVersion m) => PersistentBlockState pv -> m (Vec.Vector (TransactionSummary (TransactionOutcomesVersionFor pv)))
 doGetOutcomes pbs = do
     bsp <- loadPBS pbs
     case bspTransactionOutcomes bsp of
         PTOV0 bto -> return (TransactionOutcomes.outcomeValues bto)
         PTOV1 bto -> Vec.fromList . map _transactionSummaryV1 <$> LFMBT.toAscList (mtoOutcomes bto)
         PTOV2 bto -> Vec.fromList . map _transactionSummaryV1 <$> LFMBT.toAscList (mtoOutcomes bto)
+        PTOV3 bto -> Vec.fromList . map _transactionSummaryV1 <$> LFMBT.toAscList (mtoOutcomes bto)
 
 doAddSpecialTransactionOutcome :: (SupportsPersistentState pv m, MonadProtocolVersion m) => PersistentBlockState pv -> Transactions.SpecialTransactionOutcome -> m (PersistentBlockState pv)
 doAddSpecialTransactionOutcome pbs !o = do
@@ -3393,6 +3513,9 @@ doAddSpecialTransactionOutcome pbs !o = do
         PTOV2 bto -> do
             (_, newSpecials) <- LFMBT.append o (mtoSpecials bto)
             storePBS pbs $! bsp{bspTransactionOutcomes = PTOV2 (bto{mtoSpecials = newSpecials})}
+        PTOV3 bto -> do
+            (_, newSpecials) <- LFMBT.append o (mtoSpecials bto)
+            storePBS pbs $! bsp{bspTransactionOutcomes = PTOV3 (bto{mtoSpecials = newSpecials})}
 
 doGetElectionDifficulty ::
     ( SupportsPersistentState pv m,
@@ -3432,12 +3555,115 @@ doGetProtocolUpdateStatus = protocolUpdateStatus . bspUpdates <=< loadPBS
 doIsProtocolUpdateEffective :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m Bool
 doIsProtocolUpdateEffective = isProtocolUpdateEffective . bspUpdates <=< loadPBS
 
+doUpdateMissedRounds ::
+    ( PVSupportsDelegation pv,
+      SupportsPersistentState pv m
+    ) =>
+    PersistentBlockState pv ->
+    Map.Map BakerId Word64 ->
+    m (PersistentBlockState pv)
+doUpdateMissedRounds pbs rds = do
+    bsp <- loadPBS pbs
+    bsp' <-
+        foldM
+            ( \bsp0 (bId, newMissedRounds) ->
+                modifyBakerPoolRewardDetailsInPoolRewards
+                    bsp0
+                    bId
+                    ( \bprd ->
+                        bprd
+                            { suspensionInfo =
+                                (\SuspensionInfo{..} -> SuspensionInfo{missedRounds = missedRounds + newMissedRounds, ..})
+                                    <$> suspensionInfo bprd
+                            }
+                    )
+            )
+            bsp
+            (Map.toList rds)
+    storePBS pbs bsp'
+
+-- | Prime validators for suspension. Returns the subset of the given validator
+--  ids whose missed rounds exceeded the given threshold and are now primed for
+--  suspension.
+doPrimeForSuspension ::
+    ( PVSupportsDelegation pv,
+      SupportsPersistentState pv m
+    ) =>
+    PersistentBlockState pv ->
+    Word64 ->
+    m ([BakerId], PersistentBlockState pv)
+doPrimeForSuspension pbs threshold = do
+    bprds <- doGetBakerPoolRewardDetails pbs
+    bsp0 <- loadPBS pbs
+    (bidsUpd, bsp') <- do
+        foldM
+            ( \res@(acc, bsp) (bId, bprd) -> do
+                case suspensionInfo bprd of
+                    CTrue SuspensionInfo{..} | missedRounds > threshold -> do
+                        bsp' <-
+                            modifyBakerPoolRewardDetailsInPoolRewards
+                                bsp
+                                bId
+                                (\bpr -> bpr{suspensionInfo = (\suspInfo -> suspInfo{primedForSuspension = True}) <$> suspensionInfo bpr})
+                        return (bId : acc, bsp')
+                    _otherwise -> return res
+            )
+            ([], bsp0)
+            (Map.toList bprds)
+    pbs' <- storePBS pbs bsp'
+    return (bidsUpd, pbs')
+
+-- | Suspend validators with the given account indices, if
+--  1) the account index points to an existing account
+--  2) the account belongs to a validator
+--  3) the account was not already suspended
+--  Returns the subset of account indices that were suspended together with their canonical account
+--  addresses.
+doSuspendValidators ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    [AccountIndex] ->
+    m ([(AccountIndex, AccountAddress)], PersistentBlockState pv)
+doSuspendValidators pbs ais =
+    case hasValidatorSuspension of
+        STrue -> do
+            bsp0 <- loadPBS pbs
+            (aisSusp, bspUpd) <-
+                foldM
+                    ( \res@(aisSusp, bsp) ai -> do
+                        mAcc <- Accounts.indexedAccount ai (bspAccounts bsp)
+                        case mAcc of
+                            Nothing -> return res
+                            Just acc -> do
+                                mValidatorExists <- accountBaker acc
+                                case mValidatorExists of
+                                    Nothing -> return res
+                                    Just ba
+                                        -- The validator is not yet suspended
+                                        | False <-
+                                            uncond $ BaseAccounts._bieIsSuspended $ _accountBakerInfo ba -> do
+                                            newAcc <- setAccountValidatorSuspended True acc
+                                            newAccounts <- Accounts.setAccountAtIndex ai newAcc (bspAccounts bsp)
+                                            address <- accountCanonicalAddress newAcc
+                                            return ((ai, address) : aisSusp, bsp{bspAccounts = newAccounts})
+                                        -- The validator is already suspended, nothing to do
+                                        | otherwise -> return res
+                    )
+                    ([], bsp0)
+                    ais
+            pbsUpd <- storePBS pbs bspUpd
+            return (aisSusp, pbsUpd)
+        SFalse -> return ([], pbs)
+  where
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
+
 doProcessUpdateQueues ::
     forall pv m.
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     Timestamp ->
-    m ([(TransactionTime, UpdateValue (ChainParametersVersionFor pv))], PersistentBlockState pv)
+    m ([(TransactionTime, UpdateValue (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv))], PersistentBlockState pv)
 doProcessUpdateQueues pbs ts = do
     bsp <- loadPBS pbs
     let (u, ars, ips) = (bspUpdates bsp, bspAnonymityRevokers bsp, bspIdentityProviders bsp)
@@ -3484,6 +3710,9 @@ doProcessReleaseSchedule pbs ts = do
                     SP5 -> processAccountP5
                     SP6 -> processAccountP5
                     SP7 -> processAccountP5
+                    SP8 -> processAccountP5
+                    SP9 -> processAccountP5
+                    SP10 -> processAccountP5
             (newAccs, newRS) <- foldM processAccount (bspAccounts bsp, remRS) affectedAccounts
             storePBS pbs (bsp{bspAccounts = newAccs, bspReleaseSchedule = newRS})
 
@@ -3491,23 +3720,36 @@ doGetUpdateKeyCollection ::
     forall pv m.
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
-    m (UpdateKeysCollection (AuthorizationsVersionForPV pv))
+    m (UpdateKeysCollection (AuthorizationsVersionFor pv))
 doGetUpdateKeyCollection pbs = do
     bsp <- loadPBS pbs
     u <- refLoad (bspUpdates bsp)
-    withIsAuthorizationsVersionForPV (protocolVersion @pv) $
+    withIsAuthorizationsVersionFor (protocolVersion @pv) $
         unStoreSerialized <$> refLoad (currentKeyCollection u)
 
 doEnqueueUpdate ::
     (SupportsPersistentState pv m) =>
     PersistentBlockState pv ->
     TransactionTime ->
-    UpdateValue (ChainParametersVersionFor pv) ->
+    UpdateValue (ChainParametersVersionFor pv) (AuthorizationsVersionFor pv) ->
     m (PersistentBlockState pv)
 doEnqueueUpdate pbs effectiveTime payload = do
     bsp <- loadPBS pbs
     u' <- enqueueUpdate effectiveTime payload (bspUpdates bsp)
     storePBS pbs bsp{bspUpdates = u'}
+
+doIncrementPLTUpdateSequenceNumber ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    m (PersistentBlockState pv)
+doIncrementPLTUpdateSequenceNumber pbs =
+    case sSupportsCreatePLT (sAuthorizationsVersionFor (protocolVersion @pv)) of
+        SFalse -> case protocolVersion @pv of {}
+        STrue -> do
+            bsp <- loadPBS pbs
+            u' <- incrementPLTUpdateSequenceNumber (bspUpdates bsp)
+            storePBS pbs bsp{bspUpdates = u'}
 
 doOverwriteElectionDifficulty ::
     ( SupportsPersistentState pv m,
@@ -3594,7 +3836,7 @@ doGetEpochBlocksBaked pbs = do
 
 -- | This function updates the baker pool rewards details of a baker. It is a precondition that
 --  the given baker is active.
-modifyBakerPoolRewardDetailsInPoolRewards :: (SupportsPersistentAccount pv m, PVSupportsDelegation pv) => BlockStatePointers pv -> BakerId -> (BakerPoolRewardDetails -> BakerPoolRewardDetails) -> m (BlockStatePointers pv)
+modifyBakerPoolRewardDetailsInPoolRewards :: (SupportsPersistentAccount pv m, PVSupportsDelegation pv) => BlockStatePointers pv -> BakerId -> ((BakerPoolRewardDetails (AccountVersionFor pv)) -> (BakerPoolRewardDetails (AccountVersionFor pv))) -> m (BlockStatePointers pv)
 modifyBakerPoolRewardDetailsInPoolRewards bsp bid f = do
     let hpr = case bspRewardDetails bsp of BlockRewardDetailsV1 hp -> hp
     pr <- refLoad hpr
@@ -3624,7 +3866,11 @@ doNotifyBlockBaked pbs bid = do
             newBlockRewardDetails <- consBlockRewardDetails bid (bspRewardDetails bsp)
             storePBS pbs bsp{bspRewardDetails = newBlockRewardDetails}
         SAVDelegationSupported ->
-            let incBPR bpr = bpr{blockCount = blockCount bpr + 1}
+            let incBPR bpr =
+                    bpr
+                        { blockCount = blockCount bpr + 1,
+                          suspensionInfo = emptySuspensionInfo <$ suspensionInfo bpr
+                        }
             in  storePBS pbs =<< modifyBakerPoolRewardDetailsInPoolRewards bsp bid incBPR
 
 doUpdateAccruedTransactionFeesBaker :: forall pv m. (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> BakerId -> AmountDelta -> m (PersistentBlockState pv)
@@ -3653,13 +3899,28 @@ doMarkFinalizationAwakeBakers pbs bids = do
         case binarySearchI bcBakerId bpc bid of
             Nothing -> return bprs
             Just (i, _) -> do
-                mBPRs <- LFMBT.update setAwake (fromIntegral i) bprs
+                mBPRs <- MTL.runExceptT $ LFMBT.update setAwake (fromIntegral i) bprs
                 case mBPRs of
-                    Nothing ->
+                    -- error is used to signal that there is no change
+                    Left () -> return bprs
+                    Right Nothing ->
                         error "Invariant violation: unable to find baker in baker pool reward details tree"
-                    Just ((), newBPRs) ->
+                    Right (Just ((), newBPRs)) ->
                         return newBPRs
-    setAwake bpr = return ((), bpr{finalizationAwake = True})
+    setAwake bpr = do
+        -- If there's nothing to do, use throwError to skip the update.
+        when
+            ( finalizationAwake bpr
+                && all (== emptySuspensionInfo) (suspensionInfo bpr)
+            )
+            $ MTL.throwError ()
+        return
+            ( (),
+              bpr
+                { finalizationAwake = True,
+                  suspensionInfo = emptySuspensionInfo <$ suspensionInfo bpr
+                }
+            )
 
 doUpdateAccruedTransactionFeesPassive :: forall pv m. (PVSupportsDelegation pv, SupportsPersistentState pv m) => PersistentBlockState pv -> AmountDelta -> m (PersistentBlockState pv)
 doUpdateAccruedTransactionFeesPassive pbs delta = do
@@ -4040,6 +4301,157 @@ doSetRewardAccounts pbs rewards = do
     bsp <- loadPBS pbs
     storePBS pbs bsp{bspBank = bspBank bsp & unhashed . Rewards.rewardAccounts .~ rewards}
 
+-- | Get the index of accounts with scheduled releases.
+doGetScheduledReleaseAccounts :: (SupportsPersistentState pv m) => PersistentBlockState pv -> m (Map.Map Timestamp (Set.Set AccountIndex))
+doGetScheduledReleaseAccounts pbs = do
+    bsp <- loadPBS pbs
+    let resolveAddress addr = do
+            mIndex <- Accounts.getAccountIndex addr (bspAccounts bsp)
+            case mIndex of
+                Just index -> return index
+                Nothing -> error "Invariant violation: account address not found"
+    releasesMap resolveAddress (bspReleaseSchedule bsp)
+
+-- | Get the index of accounts with stake in cooldown.
+doGetCooldownAccounts ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    m (Map.Map Timestamp (Set.Set AccountIndex))
+doGetCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
+    STrue -> do
+        bsp <- loadPBS pbs
+        newReleasesMap (bspAccountsInCooldown bsp ^. accountsInCooldown . cooldown)
+    SFalse -> return Map.empty
+  where
+    sav = sAccountVersionFor (protocolVersion @pv)
+
+-- | Get the index of accounts in pre-cooldown.
+doGetPreCooldownAccounts ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    m [AccountIndex]
+doGetPreCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
+    STrue -> do
+        bsp <- loadPBS pbs
+        loadAccountList $ bspAccountsInCooldown bsp ^. accountsInCooldown . preCooldown
+    SFalse -> return []
+  where
+    sav = sAccountVersionFor (protocolVersion @pv)
+
+-- | Get the index of accounts in pre-pre-cooldown.
+doGetPrePreCooldownAccounts ::
+    forall pv m.
+    (SupportsPersistentState pv m) =>
+    PersistentBlockState pv ->
+    m [AccountIndex]
+doGetPrePreCooldownAccounts pbs = case sSupportsFlexibleCooldown sav of
+    STrue -> do
+        bsp <- loadPBS pbs
+        loadAccountList $ bspAccountsInCooldown bsp ^. accountsInCooldown . prePreCooldown
+    SFalse -> return []
+  where
+    sav = sAccountVersionFor (protocolVersion @pv)
+
+-- | Set the recorded total circulating supply for a protocol-level token.
+--  This should always be kept up-to-date with the total balance held in accounts
+--  (and smart contracts).
+--
+--  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+doSetTokenCirculatingSupply ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    PLT.TokenRawAmount ->
+    m (PersistentBlockState pv)
+doSetTokenCirculatingSupply pbs tokIx newSupply = do
+    bsp <- loadPBS pbs
+    newPLTs <- PLT.setTokenCirculatingSupply tokIx newSupply (bspProtocolLevelTokens bsp)
+    storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
+-- | Create a new token with the given configuration. The initial state will be empty
+--  and the initial supply will be 0. Returns the token index and the updated state.
+--
+--  PRECONDITION: The 'TokenId' of the given configuration MUST NOT already be in use
+--  by a protocol-level token, i.e. @getTokenIndex s (_pltTokenId cfg)@ should return
+--  @Nothing@.
+doCreateToken ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.PLTConfiguration ->
+    m (PLT.TokenIndex, PersistentBlockState pv)
+doCreateToken pbs tokenConfig = do
+    bsp <- loadPBS pbs
+    (tokIx, newPLTs) <- PLT.createToken tokenConfig (bspProtocolLevelTokens bsp)
+    (tokIx,) <$> storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
+doSetTokenState ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    StateV1.MutableState ->
+    m (PersistentBlockState pv)
+doSetTokenState pbs tokenIndex mutableState = do
+    bsp <- loadPBS pbs
+    newPLTs <- PLT.setTokenState tokenIndex mutableState (bspProtocolLevelTokens bsp)
+    storePBS pbs bsp{bspProtocolLevelTokens = newPLTs}
+
+-- | Update the token balance.
+doUpdateTokenAccountBalance ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    AccountIndex ->
+    TokenAmountDelta ->
+    m (Maybe (PersistentBlockState pv))
+doUpdateTokenAccountBalance pbs tokIx accIx (TokenAmountDelta delta) = runMaybeT $ do
+    bsp <- lift $ loadPBS pbs
+    newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
+    storePBS pbs bsp{bspAccounts = newAccounts}
+  where
+    upd =
+        updateTokenAccountState
+            tokIx
+            ( \case
+                Nothing -> updateBalance emptyTokenAccountState
+                Just tas -> updateBalance tas
+            )
+
+    updateBalance :: TokenAccountState -> MaybeT m TokenAccountState
+    updateBalance tas
+        | newBalanceInteger > fromIntegral (maxBound :: Word64) = hoistMaybe Nothing
+        | newBalanceInteger < 0 = hoistMaybe Nothing
+        | otherwise = hoistMaybe $ Just $ tas{tasBalance = fromIntegral newBalanceInteger}
+      where
+        newBalanceInteger = fromIntegral (tasBalance tas) + delta
+
+-- | Touch a token account, i.e. set the balance of the given token to zero if
+--  the account didn't have a balance before.
+doTouchTokenAccount ::
+    forall pv m.
+    (SupportsPersistentState pv m, PVSupportsPLT pv) =>
+    PersistentBlockState pv ->
+    PLT.TokenIndex ->
+    AccountIndex ->
+    m (Maybe (PersistentBlockState pv))
+doTouchTokenAccount pbs tokIx accIx = runMaybeT $ do
+    bsp <- lift $ loadPBS pbs
+    newAccounts <- Accounts.updateAccountsAtIndex' upd accIx (bspAccounts bsp)
+    storePBS pbs bsp{bspAccounts = newAccounts}
+  where
+    upd =
+        updateTokenAccountState
+            tokIx
+            ( \case
+                Nothing -> return emptyTokenAccountState
+                Just _tas -> hoistMaybe Nothing
+            )
+
 -- | Context that supports the persistent block state.
 data PersistentBlockStateContext pv = PersistentBlockStateContext
     { -- | The 'BlobStore' used for storing the persistent state.
@@ -4109,6 +4521,7 @@ instance (PersistentState av pv r m) => Cache.MonadCache (AccountCache av) (Pers
 instance (PersistentState av pv r m) => Cache.MonadCache Modules.ModuleCache (PersistentBlockStateMonad pv r m)
 
 deriving via (LMDBAccountMap.AccountMapStoreMonad m) instance (MonadIO m, MonadLogger m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) => LMDBAccountMap.MonadAccountMapStore (PersistentBlockStateMonad pv r m)
+deriving via (LMDBAccountMap.AccountMapStoreMonad m) instance (MonadIO m, MonadLogger m, MonadReader r m, LMDBAccountMap.HasDatabaseHandlers r) => MonadModuleMapStore (PersistentBlockStateMonad pv r m)
 
 type instance BlockStatePointer (PersistentBlockState pv) = BlobRef (BlockStatePointers pv)
 type instance BlockStatePointer (HashedPersistentBlockState pv) = BlobRef (BlockStatePointers pv)
@@ -4123,9 +4536,39 @@ instance BlockStateTypes (PersistentBlockStateMonad pv r m) where
     type BakerInfoRef (PersistentBlockStateMonad pv r m) = PersistentBakerInfoRef (AccountVersionFor pv)
     type ContractState (PersistentBlockStateMonad pv r m) = Instances.InstanceStateV
     type InstrumentedModuleRef (PersistentBlockStateMonad pv r m) = Modules.PersistentInstrumentedModuleV
+    type MutableTokenState (PersistentBlockStateMonad pv r m) = StateV1.MutableState
 
 instance (PersistentState av pv r m) => ModuleQuery (PersistentBlockStateMonad pv r m) where
     getModuleArtifact = doGetModuleArtifact
+
+instance (PersistentState av pv r m) => TokenStateOperations StateV1.MutableState (PersistentBlockStateMonad pv r m) where
+    lookupTokenState = PLT.lookupTokenState
+    updateTokenState = PLT.updateTokenState
+
+instance
+    (IsProtocolVersion pv, PersistentState av pv r m) =>
+    PLTQuery (PersistentBlockState pv) StateV1.MutableState (PersistentBlockStateMonad pv r m)
+    where
+    getPLTList =
+        PLT.getPLTList . bspProtocolLevelTokens <=< loadPBS
+    getTokenIndex bs tokIx =
+        PLT.getTokenIndex tokIx . bspProtocolLevelTokens =<< loadPBS bs
+    getMutableTokenState bs tokenIndex =
+        PLT.getMutableTokenState tokenIndex . bspProtocolLevelTokens =<< loadPBS bs
+    getTokenConfiguration bs tokIx =
+        PLT.getTokenConfiguration tokIx . bspProtocolLevelTokens =<< loadPBS bs
+    getTokenCirculatingSupply bs tokIx =
+        PLT.getTokenCirculatingSupply tokIx . bspProtocolLevelTokens =<< loadPBS bs
+
+instance
+    (IsProtocolVersion pv, PersistentState av pv r m) =>
+    PLTQuery (HashedPersistentBlockState pv) StateV1.MutableState (PersistentBlockStateMonad pv r m)
+    where
+    getPLTList = getPLTList . hpbsPointers
+    getTokenIndex = getTokenIndex . hpbsPointers
+    getMutableTokenState = getMutableTokenState . hpbsPointers
+    getTokenConfiguration = getTokenConfiguration . hpbsPointers
+    getTokenCirculatingSupply = getTokenCirculatingSupply . hpbsPointers
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (PersistentBlockStateMonad pv r m) where
     getModule = doGetModuleSource . hpbsPointers
@@ -4140,6 +4583,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getAccountByIndex = doGetIndexedAccountByIndex . hpbsPointers
     getContractInstance = doGetInstance . hpbsPointers
     getModuleList = doGetModuleList . hpbsPointers
+    getModuleCount = doGetModuleCount . hpbsPointers
     getAccountList = doAccountList . hpbsPointers
     getContractInstanceList = doContractInstanceList . hpbsPointers
     getSeedState = doGetSeedState . hpbsPointers
@@ -4173,6 +4617,10 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateQuery (P
     getPaydayEpoch = doGetPaydayEpoch . hpbsPointers
     getPoolStatus = doGetPoolStatus . hpbsPointers
     getPassiveDelegationStatus = doGetPassiveDelegationStatus . hpbsPointers
+    getScheduledReleaseAccounts = doGetScheduledReleaseAccounts . hpbsPointers
+    getCooldownAccounts = doGetCooldownAccounts . hpbsPointers
+    getPreCooldownAccounts = doGetPreCooldownAccounts . hpbsPointers
+    getPrePreCooldownAccounts = doGetPrePreCooldownAccounts . hpbsPointers
 
 instance (MonadIO m, PersistentState av pv r m) => ContractStateOperations (PersistentBlockStateMonad pv r m) where
     thawContractState (Instances.InstanceStateV0 inst) = return inst
@@ -4226,6 +4674,9 @@ instance (PersistentState av pv r m, IsProtocolVersion pv) => AccountOperations 
     getAccountHash = accountHash
 
     getAccountCooldowns = accountCooldowns
+
+    getAccountTokens = accountTokens
+    getAccountTokenBalance = accountTokenBalance
 
 instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperations (PersistentBlockStateMonad pv r m) where
     bsoGetModule pbs mref = doGetModule pbs mref
@@ -4285,6 +4736,7 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetUpdateKeyCollection = doGetUpdateKeyCollection
     bsoGetNextUpdateSequenceNumber = doGetNextUpdateSequenceNumber
     bsoEnqueueUpdate = doEnqueueUpdate
+    bsoIncrementPLTUpdateSequenceNumber = doIncrementPLTUpdateSequenceNumber
     bsoOverwriteElectionDifficulty = doOverwriteElectionDifficulty
     bsoClearProtocolUpdate = doClearProtocolUpdate
     bsoSetNextCapitalDistribution = doSetNextCapitalDistribution
@@ -4308,6 +4760,14 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateOperatio
     bsoGetBankStatus = doGetBankStatus
     bsoSetRewardAccounts = doSetRewardAccounts
     bsoIsProtocolUpdateEffective = doIsProtocolUpdateEffective
+    bsoUpdateMissedRounds = doUpdateMissedRounds
+    bsoPrimeForSuspension = doPrimeForSuspension
+    bsoSuspendValidators = doSuspendValidators
+    bsoSetTokenCirculatingSupply = doSetTokenCirculatingSupply
+    bsoCreateToken = doCreateToken
+    bsoSetTokenState = doSetTokenState
+    bsoUpdateTokenAccountBalance = doUpdateTokenAccountBalance
+    bsoTouchTokenAccount = doTouchTokenAccount
     type StateSnapshot (PersistentBlockStateMonad pv r m) = BlockStatePointers pv
     bsoSnapshotState = loadPBS
     bsoRollback = storePBS
@@ -4334,18 +4794,26 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
         flushStore
         return ref
 
-    saveAccounts HashedPersistentBlockState{..} = do
+    saveGlobalMaps HashedPersistentBlockState{..} = do
         -- this load should be cheap as the blockstate is in memory.
-        accs <- bspAccounts <$> loadPBS hpbsPointers
+        pbs <- loadPBS hpbsPointers
         -- write the accounts that were created in the block and
         -- potentially non-finalized parent blocks.
         -- Note that this also empties the difference map for the
         -- block.
-        void $ Accounts.writeAccountsCreated accs
+        Accounts.writeAccountsCreated (bspAccounts pbs)
+        -- Write the modules that were added in the block and
+        -- potentially non-finalized parent blocks.
+        -- This also empties the module difference maps.
+        Modules.writeModulesAdded =<< refLoad (bspModules pbs)
 
     reconstructAccountDifferenceMap HashedPersistentBlockState{..} parentDifferenceMap listOfAccounts = do
         accs <- bspAccounts <$> loadPBS hpbsPointers
         Accounts.reconstructDifferenceMap parentDifferenceMap listOfAccounts accs
+
+    reconstructModuleDifferenceMap HashedPersistentBlockState{..} parentInfo = do
+        mods <- bspModules <$> loadPBS hpbsPointers
+        Modules.reconstructDifferenceMap parentInfo =<< refLoad mods
 
     loadBlockState hpbsHashM ref = do
         hpbsPointers <- liftIO $ newIORef $ blobRefToBufferedRef ref
@@ -4363,11 +4831,13 @@ instance (IsProtocolVersion pv, PersistentState av pv r m) => BlockStateStorage 
     cacheBlockState = cacheState
 
     cacheBlockStateAndGetTransactionTable = cacheStateAndGetTransactionTable
-    tryPopulateAccountMap HashedPersistentBlockState{..} = do
+    tryPopulateGlobalMaps HashedPersistentBlockState{..} = do
         -- load the top level references and write the accounts to the LMDB backed
         -- account map (if this has not already been done).
         BlockStatePointers{..} <- loadPBS hpbsPointers
         LMDBAccountMap.tryPopulateLMDBStore bspAccounts
+        -- Write the module map to the LMDB backed module map (if this has not already been done).
+        Modules.tryPopulateModuleLMDB =<< refLoad bspModules
 
 -- | Migrate the block state from the representation used by protocol version
 --  @oldpv@ to the one used by protocol version @pv@. The migration is done gradually,
@@ -4436,6 +4906,9 @@ migrateBlockPointers migration BlockStatePointers{..} = do
                     Just ai -> ai
             StateMigrationParametersP5ToP6{} -> RSMNewToNew
             StateMigrationParametersP6ToP7{} -> RSMNewToNew
+            StateMigrationParametersP7ToP8{} -> RSMNewToNew
+            StateMigrationParametersP8ToP9{} -> RSMNewToNew
+            StateMigrationParametersP9ToP10{} -> RSMNewToNew
     logEvent GlobalState LLTrace "Migrating release schedule"
     newReleaseSchedule <- migrateReleaseSchedule rsMigration bspReleaseSchedule
     pab <- lift . refLoad $ bspBirkParameters ^. birkActiveBakers
@@ -4485,7 +4958,8 @@ migrateBlockPointers migration BlockStatePointers{..} = do
     logEvent GlobalState LLTrace "Migrating reward details"
     newRewardDetails <-
         migrateBlockRewardDetails migration curBakers nextBakers timeParams oldEpoch bspRewardDetails
-
+    logEvent GlobalState LLTrace "Migrating protocol-level tokens"
+    newProtocolLevelTokens <- PLT.migrateProtocolLevelTokensForPV migration bspProtocolLevelTokens
     return $!
         BlockStatePointers
             { bspAccounts = newAccounts,
@@ -4500,16 +4974,18 @@ migrateBlockPointers migration BlockStatePointers{..} = do
               bspReleaseSchedule = newReleaseSchedule,
               bspAccountsInCooldown = newAccountsInCooldown,
               bspTransactionOutcomes = newTransactionOutcomes,
-              bspRewardDetails = newRewardDetails
+              bspRewardDetails = newRewardDetails,
+              bspProtocolLevelTokens = newProtocolLevelTokens
             }
 
 -- | Thaw the block state, making it ready for modification.
 --  This function wraps the underlying 'PersistentBlockState' of the provided 'HashedPersistentBlockState' in a new 'IORef'
 --  such that changes to the thawed block state does not propagate into the parent state.
 --
---  Further the 'DiffMap.DifferenceMap' of the accounts structure in the provided block state is
---  "bumped" in the sense that a new one is created for the new thawed block with a pointer to the parent difference map.
---  The parent difference map is empty if the parent is persisted otherwise it may contain new accounts created in that block.
+--  Further the 'DiffMap.DifferenceMap's of the accounts and modules structures in the provided
+--  block state are "bumped" in the sense that new ones are created for the new thawed block with
+--  a pointer to the parent difference maps. The parent difference map is empty if the parent is
+--  finalized, otherwise it may contain new accounts created in that block.
 doThawBlockState ::
     (SupportsPersistentState pv m) =>
     HashedPersistentBlockState pv ->
@@ -4517,7 +4993,11 @@ doThawBlockState ::
 doThawBlockState HashedPersistentBlockState{..} = do
     bsp@BlockStatePointers{..} <- loadPBS hpbsPointers
     bspAccounts' <- Accounts.mkNewChildDifferenceMap bspAccounts
-    let bsp' = bsp{bspAccounts = bspAccounts'}
+    -- Since 'Modules.mkNewChild' only affects the difference map, which is not relevant to the
+    -- blob store representation or hashing of the 'Modules', we can exploit 'liftCache' to
+    -- update the in-memory value without creating a new on-disk reference.
+    bspModules' <- liftCache Modules.mkNewChild bspModules
+    let bsp' = bsp{bspAccounts = bspAccounts', bspModules = bspModules'}
     liftIO $ newIORef =<< makeBufferedRef bsp'
 
 -- | Cache the block state.
@@ -4543,6 +5023,7 @@ cacheState hpbs = do
     rels <- cache bspReleaseSchedule
     cdowns <- cache bspAccountsInCooldown
     red <- cache bspRewardDetails
+    plts <- cache bspProtocolLevelTokens
     _ <-
         storePBS (hpbsPointers hpbs) $!
             BlockStatePointers
@@ -4558,7 +5039,8 @@ cacheState hpbs = do
                   bspReleaseSchedule = rels,
                   bspAccountsInCooldown = cdowns,
                   bspTransactionOutcomes = bspTransactionOutcomes,
-                  bspRewardDetails = red
+                  bspRewardDetails = red,
+                  bspProtocolLevelTokens = plts
                 }
     return ()
 
@@ -4599,6 +5081,7 @@ cacheStateAndGetTransactionTable hpbs = do
     rels <- cache bspReleaseSchedule
     cdowns <- cache bspAccountsInCooldown
     red <- cache bspRewardDetails
+    plts <- cache bspProtocolLevelTokens
     _ <-
         storePBS
             (hpbsPointers hpbs)
@@ -4615,6 +5098,7 @@ cacheStateAndGetTransactionTable hpbs = do
                   bspReleaseSchedule = rels,
                   bspAccountsInCooldown = cdowns,
                   bspTransactionOutcomes = bspTransactionOutcomes,
-                  bspRewardDetails = red
+                  bspRewardDetails = red,
+                  bspProtocolLevelTokens = plts
                 }
     return tt

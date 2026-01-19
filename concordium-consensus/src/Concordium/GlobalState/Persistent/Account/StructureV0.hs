@@ -220,7 +220,7 @@ loadPersistentBakerInfoEx PersistentBakerInfoEx{..} = do
         SAccountV0 -> return $ BakerInfoExV0 bkrInfo
         SAccountV1 -> do
             bkrInfoEx <- refLoad (bakerInfoExtra ^. theExtraBakerInfo)
-            return $ BakerInfoExV1 bkrInfo bkrInfoEx
+            return $ BakerInfoExV1 bkrInfo bkrInfoEx CFalse
 
 -- | Load the baker id from the 'PersistentBakerInfoEx' structure.
 loadBakerId :: (MonadBlobStore m) => PersistentBakerInfoEx (MBSStore m) av -> m BakerId
@@ -238,7 +238,7 @@ makePersistentBakerInfoEx ::
 makePersistentBakerInfoEx (BakerInfoExV0 bi) = do
     bakerInfoRef <- refMake bi
     return PersistentBakerInfoEx{bakerInfoExtra = PersistentExtraBakerInfo (), ..}
-makePersistentBakerInfoEx (BakerInfoExV1 bi ebi) = do
+makePersistentBakerInfoEx (BakerInfoExV1 bi ebi _isSuspended) = do
     bakerInfoRef <- refMake bi
     bakerInfoExtra <- makePersistentExtraBakerInfoV1 <$> refMake ebi
     return PersistentBakerInfoEx{..}
@@ -728,8 +728,8 @@ getNextReleaseTimestamp acc = nextReleaseTimestamp <$!> refLoad (acc ^. accountR
 -- | Get the baker and baker info reference (if any) attached to the account.
 getBakerAndInfoRef ::
     forall m av.
-    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) =>
-    PersistentAccount (MBSStore m) av ->
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, SupportsValidatorSuspension av ~ 'False) =>
+    PersistentAccount (MBSStore m)  av ->
     m (Maybe (AccountBaker av, PersistentBakerInfoEx (MBSStore m) av))
 getBakerAndInfoRef acc = case acc ^. accountBaker of
     Null -> return Nothing
@@ -751,14 +751,18 @@ getBakerAndInfoRef acc = case acc ^. accountBaker of
                 return $
                     Just
                         ( AccountBaker
-                            { _accountBakerInfo = BakerInfoExV1 abi ebi,
+                            { _accountBakerInfo = BakerInfoExV1 abi ebi CFalse,
                               ..
                             },
                           pab ^. accountBakerInfoEx
                         )
 
 -- | Get the baker (if any) attached to an account.
-getBaker :: forall m av. (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) => PersistentAccount (MBSStore m) av -> m (Maybe (AccountBaker av))
+getBaker ::
+    forall m av.
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, SupportsValidatorSuspension av ~ 'False) =>
+    PersistentAccount (MBSStore m) av ->
+    m (Maybe (AccountBaker av))
 getBaker acc = fmap fst <$> getBakerAndInfoRef acc
 
 -- | Get the baker and baker info reference (if any) attached to the account.
@@ -837,7 +841,7 @@ updateAccount !upd !acc = do
                     Add{..} -> addIncomingEncryptedAmount newAmount
                     ReplaceUpTo{..} -> replaceUpTo aggIndex newAmount
                     AddSelf{..} -> addToSelfEncryptedAmount newAmount
-                    )
+                )
                     encAmount
             encryptedAmountRef <- refMake newEncryptedAmount
             return (accountEncryptedAmount .~ encryptedAmountRef)
@@ -1237,7 +1241,7 @@ migratePersistentAccount migration PersistentAccount{..} = do
 -- | Converts an account to a transient (i.e. in memory) account. (Used for testing.)
 toTransientAccount ::
     forall m av.
-    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av) =>
+    (MonadBlobStore m, IsAccountVersion av, AVStructureV0 av, SupportsPLT av ~ 'False) =>
     PersistentAccount (MBSStore m) av ->
     m (Transient.Account av)
 toTransientAccount PersistentAccount{..} = do
@@ -1249,4 +1253,5 @@ toTransientAccount PersistentAccount{..} = do
         PersistentAccountStakeBaker bkr -> AccountStakeBaker <$> (loadPersistentAccountBaker =<< refLoad bkr)
         PersistentAccountStakeDelegate dlg -> AccountStakeDelegate <$> refLoad dlg
     let _accountStakeCooldown = Transient.emptyCooldownQueue (accountVersion @av)
+    let _accountTokenStateTable = CFalse
     return $ Transient.Account{..}

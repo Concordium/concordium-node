@@ -86,7 +86,7 @@ protocolUpdateTransactions :: Timestamp -> [BlockItem]
 protocolUpdateTransactions (Timestamp ts) = [ui]
   where
     ui =
-        addMetadata id 0 $
+        addMetadata 0 $
             ChainUpdate $
                 makeUpdateInstruction
                     RawUpdateInstruction
@@ -371,7 +371,8 @@ main = do
                     PoolParametersV0
                         { _ppBakerStakeThreshold = 300000000000
                         },
-                  _cpFinalizationCommitteeParameters = NoParam
+                  _cpFinalizationCommitteeParameters = NoParam,
+                  _cpValidatorScoreParameters = NoParam
                 }
     let (genesisData, bakerIdentities, _) =
             makeGenesisDataV0 @PV

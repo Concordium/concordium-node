@@ -6,7 +6,6 @@ module Concordium.TransactionVerification where
 import qualified Data.Map.Strict as OrdMap
 import qualified Data.Serialize as S
 
-import qualified Concordium.Cost as Cost
 import qualified Concordium.Crypto.SHA256 as Sha256
 import qualified Concordium.GlobalState.Types as GSTypes
 import qualified Concordium.ID.Account as A
@@ -15,6 +14,7 @@ import qualified Concordium.ID.IdentityProvider as IP
 import qualified Concordium.ID.Types as ID
 import qualified Concordium.Types as Types
 import Concordium.Types.HashableTo (getHash)
+import Concordium.Types.Option
 import qualified Concordium.Types.Parameters as Params
 import qualified Concordium.Types.Transactions as Tx
 import Concordium.Types.Updates (UpdateSequenceNumber)
@@ -72,6 +72,15 @@ data OkResult
         { keysHash :: !Sha256.Hash,
           nonce :: !Types.Nonce
         }
+    | -- | The extended transaction passed verification.
+      --  The result contains the hash of the keys of the sender and of the sponsor (if any), and the transaction nonce.
+      --  These can be used to short-circuit signature verification when executing the transaction.
+      --  If the sender or sponsor keys have changed for the account then the corresponding signature(s) have to be verified again.
+      ExtendedTransactionSuccess
+        { senderKeysHash :: !Sha256.Hash,
+          sponsorKeysHash :: !(Option Sha256.Hash),
+          nonce :: !Types.Nonce
+        }
     | -- | At start-up, the transaction was taken from a block that has already been verified, so
       --  we trust that it was verified correctly, but do not have the keys used to verify it.
       TrustedSuccess
@@ -102,11 +111,11 @@ data MaybeOkResult
       --  The result contains the next nonce.
       --  Reason for 'MaybeOk': the nonce could be valid at a later point in time.
       NormalTransactionInvalidNonce !Types.Nonce
-    | -- | The sender does not have enough funds to cover the transfer.
-      --  Reason for 'MaybeOk': the sender could have enough funds at a later point in time.
+    | -- | The sender (or sponsor) does not have enough funds to cover the transfer.
+      --  Reason for 'MaybeOk': the sender (or sponsor) could have enough funds at a later point in time.
       NormalTransactionInsufficientFunds
-    | -- | The 'NormalTransaction' contained invalid signatures.
-      --  Reason for 'MaybeOk': the sender could've changed account information at a later point in time.
+    | -- | The 'NormalTransaction' (or sponsored) contained invalid signatures.
+      --  Reason for 'MaybeOk': the sender/sponsor could've changed account information at a later point in time.
       NormalTransactionInvalidSignatures
     | -- | The energy requirement of the transaction exceeds the maximum allowed for a block.
       --  P6 makes the maxBlockEnergy configurable as a chain parameter, so it could be valid in a future block where
@@ -114,6 +123,9 @@ data MaybeOkResult
       --  This is treated as a 'MaybeOk' for simplicity also for older protocol versions as the transaction will
       --  be rejected when executed anyhow if it is surpassing the maximum block energy limit.
       NormalTransactionEnergyExceeded
+    | -- | The sponsored transaction contained an invalid sponsor.
+      -- Reason for 'MaybeOk': the sponsor could exist at a later point in time.
+      ExtendedTransactionInvalidSponsor !Types.AccountAddress
     deriving (Eq, Show, Ord)
 
 -- | Verification results which always should result in a transaction being rejected.
@@ -130,6 +142,8 @@ data NotOkResult
       CredentialDeploymentInvalidSignatures
     | -- | The 'ChainUpdate' had an expiry set too late.
       ChainUpdateEffectiveTimeBeforeTimeout
+    | -- | The 'ChainUpdate' is creating a PLT, but its effective time is non-zero.
+      ChainUpdateEffectiveTimeNonZeroForCreatePLT
     | -- | The `UpdateSequenceNumber` of the 'ChainUpdate' was too old.
       --  Reason for 'NotOk': the UpdateSequenceNumber can never be valid in a later block if the
       --  nonce is already used.
@@ -142,6 +156,10 @@ data NotOkResult
       Expired
     | -- | Transaction payload size exceeds protocol limit.
       InvalidPayloadSize
+    | -- | The transaction has a sponsor signature, but the sponsor is not specified in the header.
+      SponsoredTransactionMissingSponsor
+    | -- | The transaction has a sponsor specified in the header, but no sponsor signature.
+      SponsoredTransactionMissingSponsorSignature
     deriving (Eq, Show, Ord)
 
 -- | Type which can verify transactions in a monadic context.
@@ -171,7 +189,7 @@ class (Monad m, Types.MonadProtocolVersion m) => TransactionVerifier m where
     getNextUpdateSequenceNumber :: Updates.UpdateType -> m Updates.UpdateSequenceNumber
 
     -- | Get the UpdateKeysCollection
-    getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Params.AuthorizationsVersionForPV (Types.MPV m)))
+    getUpdateKeysCollection :: m (Updates.UpdateKeysCollection (Types.AuthorizationsVersionFor (Types.MPV m)))
 
     -- | Get the current available amount for the specified account.
     getAccountAvailableAmount :: GSTypes.Account m -> m Types.Amount
@@ -213,6 +231,8 @@ verify now bi = do
                 verifyChainUpdate ui
             Tx.WithMetadata{wmdData = Tx.NormalTransaction tx} -> do
                 verifyNormalTransaction tx
+            Tx.WithMetadata{wmdData = Tx.ExtendedTransaction tx} ->
+                verifyExtendedTransaction tx
 
 -- | Verifies a 'CredentialDeployment' transaction.
 --
@@ -271,6 +291,11 @@ verifyChainUpdate ui@Updates.UpdateInstruction{..} =
                 unless (Types.validatePayloadSize (Types.protocolVersion @(Types.MPV m)) (Updates.updatePayloadSize uiHeader)) $
                     throwError $
                         NotOk InvalidPayloadSize
+                case uiPayload of
+                    Updates.CreatePLTUpdatePayload _
+                        | Updates.updateEffectiveTime uiHeader > 0 ->
+                            throwError $ NotOk ChainUpdateEffectiveTimeNonZeroForCreatePLT
+                    _otherwise -> return ()
                 -- Check that the timeout is no later than the effective time,
                 -- or the update is immediate
                 when (Updates.updateTimeout uiHeader >= Updates.updateEffectiveTime uiHeader && Updates.updateEffectiveTime uiHeader /= 0) $
@@ -309,7 +334,7 @@ verifyNormalTransaction meta =
                     throwError $
                         NotOk InvalidPayloadSize
                 -- Check that enough energy is supplied
-                let cost = Cost.baseCost (Tx.getTransactionHeaderPayloadSize $ Tx.transactionHeader meta) (Tx.getTransactionNumSigs (Tx.transactionSignature meta))
+                let cost = Tx.transactionBaseCost meta
                 unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient
                 -- Check that the required energy does not exceed the maximum allowed for a block
                 maxEnergy <- lift getMaxBlockEnergy
@@ -342,6 +367,88 @@ verifyNormalTransaction meta =
                         let sigCheck = Tx.verifyTransaction keys meta
                         unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
                         return $ Ok $ NormalTransactionSuccess (getHash keys) nonce
+            )
+
+-- | Verifies an 'ExtendedTransaction' transaction.
+--  This function verifies the following:
+--  * Checks that enough energy is supplied for the transaction.
+--  * Checks that if a sponsor is specified, a sponsor signature is present as well.
+--  * Checks that if no sponsor is specified, no sponsor signature is present.
+--  * Checks that the sender is a valid account.
+--  * Checks that the sponsor is a valid account, if present.
+--  * Checks that the nonce is correct.
+--  * Checks that the 'ExtendedTransaction' is correctly signed by both sender and the optional sponsor.
+verifyExtendedTransaction ::
+    forall m msg.
+    (TransactionVerifier m, Tx.TransactionData msg) =>
+    msg ->
+    m VerificationResult
+verifyExtendedTransaction meta =
+    either id id
+        <$> runExceptT
+            ( do
+                unless (Types.validatePayloadSize (Types.protocolVersion @(Types.MPV m)) (Tx.thPayloadSize (Tx.transactionHeader meta))) $
+                    throwError $
+                        NotOk InvalidPayloadSize
+
+                -- Check that either both, the sponsor and the sponsor signature are specified or neither.
+                mbSponsorAddr <- case (Tx.transactionSponsor meta, Tx.transactionSponsorSignature meta) of
+                    (Just sponsorAddr, Just _sponsorSig) -> return $ Just sponsorAddr
+                    (Nothing, Nothing) -> return Nothing
+                    (Just _sponsorAddr, Nothing) -> throwError $ NotOk SponsoredTransactionMissingSponsorSignature
+                    (Nothing, Just _sponsorSignature) -> throwError $ NotOk SponsoredTransactionMissingSponsor
+
+                -- Check that enough energy is supplied
+                let cost = Tx.transactionBaseCost meta
+                unless (Tx.transactionGasAmount meta >= cost) $ throwError $ NotOk NormalTransactionDepositInsufficient
+                -- Check that the required energy does not exceed the maximum allowed for a block
+                maxEnergy <- lift getMaxBlockEnergy
+                when (Tx.transactionGasAmount meta > maxEnergy) $ throwError $ MaybeOk NormalTransactionEnergyExceeded
+                -- Check that the sender account exists
+                let senderAddr = Tx.transactionSender meta
+                mbSenderAcc <- lift (getAccount senderAddr)
+                senderAcc <- case mbSenderAcc of
+                    Nothing -> throwError (MaybeOk $ NormalTransactionInvalidSender senderAddr)
+                    Just senderAcc -> return senderAcc
+                -- Check that the sponsor account exists if a sponsor is present
+                mbSponsorAcc <- case mbSponsorAddr of
+                    Just sponsorAddr -> do
+                        macc <- lift (getAccount sponsorAddr)
+                        case macc of
+                            Nothing -> throwError (MaybeOk $ ExtendedTransactionInvalidSponsor sponsorAddr)
+                            Just acc -> return $ Just acc
+                    Nothing -> return Nothing
+                -- Check that the nonce of the transaction is correct.
+                nextNonce <- lift (getNextAccountNonce senderAcc)
+                let nonce = Tx.transactionNonce meta
+                when (nonce < nextNonce) $ throwError (NotOk $ NormalTransactionDuplicateNonce nonce)
+                -- For transactions received as part of a `Block` we only check that the `Nonce`
+                -- is not too old with respect to the 'last finalized block' or the 'parent block'.
+                -- In the `Scheduler` we check that the `Nonce` is actually the next one.
+                -- The reason for this is that otherwise when transactions are received via a block
+                -- we don't know what the next nonce is as we can't verify in the context of the 'block' which the
+                -- transactions were received with. Hence if there are multiple transactions from the same account within the same block,
+                -- which would lead us to rejecting the valid transaction(s).
+                exactNonce <- lift checkExactNonce
+                when (exactNonce && nonce /= nextNonce) $ throwError (MaybeOk $ NormalTransactionInvalidNonce nextNonce)
+                -- check that the sender or sponsor account has enough funds to cover the transfer
+                amnt <- case mbSponsorAcc of
+                    Nothing -> lift $ getAccountAvailableAmount senderAcc
+                    Just sponsorAcc -> lift $ getAccountAvailableAmount sponsorAcc
+                depositedAmount <- lift (energyToCcd (Tx.transactionGasAmount meta))
+                unless (depositedAmount <= amnt) $ throwError $ MaybeOk NormalTransactionInsufficientFunds
+                -- Check the sender and sponsor signatures
+                senderKeys <- lift (getAccountVerificationKeys senderAcc)
+                case mbSponsorAcc of
+                    Nothing -> do
+                        let sigCheck = Tx.verifyTransaction senderKeys meta
+                        unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
+                        return $ Ok $ ExtendedTransactionSuccess (getHash senderKeys) Absent nonce
+                    Just sponsorAcc -> do
+                        sponsorKeys <- lift (getAccountVerificationKeys sponsorAcc)
+                        let sigCheck = Tx.verifySponsoredTransaction senderKeys sponsorKeys meta
+                        unless sigCheck $ throwError $ MaybeOk NormalTransactionInvalidSignatures
+                        return $ Ok $ ExtendedTransactionSuccess (getHash senderKeys) (Present $ getHash sponsorKeys) nonce
             )
 
 -- | Wrapper types for pairing a transaction with its verification result (if it has one).

@@ -9,13 +9,17 @@
 module Concordium.GlobalState.BakerInfo where
 
 import qualified Concordium.Crypto.SHA256 as H
+import Concordium.GRPC2
 import Concordium.Genesis.Data
 import Concordium.Scheduler.Types
 import Concordium.Types.Accounts
 import Concordium.Types.HashableTo
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
+import qualified Proto.V2.Concordium.Types as Proto
+import qualified Proto.V2.Concordium.Types_Fields as ProtoFields
 
+import qualified Data.ProtoLens.Combinators as Proto
 import Data.Ratio
 import Data.Serialize
 import qualified Data.Vector as Vec
@@ -42,6 +46,15 @@ instance HasBakerInfo FullBakerInfo where
     bakerInfo = theBakerInfo
 instance HashableTo H.Hash FullBakerInfo where
     getHash = H.hash . encode
+
+instance ToProto FullBakerInfo where
+    type Output FullBakerInfo = Proto.FullBakerInfo
+    toProto fbi = Proto.make $ do
+        ProtoFields.bakerIdentity .= toProto (fbi ^. bakerIdentity)
+        ProtoFields.electionVerifyKey .= toProto (fbi ^. bakerElectionVerifyKey)
+        ProtoFields.signatureVerifyKey .= toProto (fbi ^. bakerSignatureVerifyKey)
+        ProtoFields.aggregationVerifyKey .= toProto (fbi ^. bakerAggregationVerifyKey)
+        ProtoFields.stake .= toProto (fbi ^. bakerStake)
 
 data FullBakers = FullBakers
     { -- | All bakers in ascending order of BakerId.
@@ -206,7 +219,9 @@ data ValidatorAdd = ValidatorAdd
       -- | The metadata URL for the validator.
       vaMetadataURL :: !UrlText,
       -- | The commission rates for the validator.
-      vaCommissionRates :: !CommissionRates
+      vaCommissionRates :: !CommissionRates,
+      -- | Whether the validator should be added as suspended.
+      vaSuspended :: !Bool
     }
     deriving (Eq, Show)
 
@@ -228,7 +243,9 @@ data ValidatorUpdate = ValidatorUpdate
       -- | The new baking reward commission for the validator.
       vuBakingRewardCommission :: !(Maybe AmountFraction),
       -- | The new finalization reward commission for the validator.
-      vuFinalizationRewardCommission :: !(Maybe AmountFraction)
+      vuFinalizationRewardCommission :: !(Maybe AmountFraction),
+      -- | Whether the validator's account should be suspended/resumed.
+      vuSuspend :: !(Maybe Bool)
     }
     deriving (Eq, Show)
 
@@ -243,7 +260,8 @@ validatorRemove =
           vuMetadataURL = Nothing,
           vuTransactionFeeCommission = Nothing,
           vuBakingRewardCommission = Nothing,
-          vuFinalizationRewardCommission = Nothing
+          vuFinalizationRewardCommission = Nothing,
+          vuSuspend = Nothing
         }
 
 -- | Failure modes when configuring a validator.
@@ -274,6 +292,8 @@ data BakerConfigureUpdateChange
     | BakerConfigureTransactionFeeCommission !AmountFraction
     | BakerConfigureBakingRewardCommission !AmountFraction
     | BakerConfigureFinalizationRewardCommission !AmountFraction
+    | BakerConfigureSuspended
+    | BakerConfigureResumed
     deriving (Eq, Show)
 
 -- | Parameters for adding a delegator.
@@ -355,6 +375,9 @@ genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
     SP5 -> binfoV1
     SP6 -> binfoV1
     SP7 -> binfoV1
+    SP8 -> binfoV1
+    SP9 -> binfoV1
+    SP10 -> binfoV1
   where
     bkrInfo =
         BakerInfo
@@ -366,9 +389,12 @@ genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
     binfoV1 :: (PVSupportsDelegation pv, PoolParametersVersionFor (ChainParametersVersionFor pv) ~ 'PoolParametersVersion1) => BakerInfoEx (AccountVersionFor pv)
     binfoV1 =
         BakerInfoExV1
-            bkrInfo
-            BakerPoolInfo
-                { _poolOpenStatus = OpenForAll,
-                  _poolMetadataUrl = emptyUrlText,
-                  _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
-                }
+            { _bieBakerInfo = bkrInfo,
+              _bieBakerPoolInfo =
+                BakerPoolInfo
+                    { _poolOpenStatus = OpenForAll,
+                      _poolMetadataUrl = emptyUrlText,
+                      _poolCommissionRates = cp ^. cpPoolParameters . ppCommissionBounds . to maximumCommissionRates
+                    },
+              _bieIsSuspended = conditionally (sSupportsValidatorSuspension (sAccountVersionFor spv)) False
+            }

@@ -105,10 +105,12 @@ testAddValidatorAllCases ::
     Spec
 testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
     forM_ validatorConditions $ \vc -> do
-        it (show vc) $ runTest False vc
-        when supportCooldown $ it (show vc <> " with cooldown") $ runTest True vc
+        it (show vc) $ runTest False False vc
+        when supportCooldown $ it (show vc <> " with cooldown") $ runTest True False vc
+        when supportSuspension $ it (show vc <> " with suspended validator") $ runTest True True vc
   where
     supportCooldown = supportsFlexibleCooldown $ accountVersionFor $ demoteProtocolVersion (protocolVersion @pv)
+    supportSuspension = supportsValidatorSuspension $ accountVersionFor $ demoteProtocolVersion (protocolVersion @pv)
     minEquity = 1_000_000_000
     chainParams =
         DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
@@ -127,9 +129,9 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
-    runTest withCooldown ValidatorConditions{..} = runTestBlockState @pv $ do
+    runTest withCooldown suspended ValidatorConditions{..} = runTestBlockState @pv $ do
         let va =
                 ValidatorAdd
                     { vaKeys = if vcAggregationKeyDuplicate then badKeys else goodKeys,
@@ -142,7 +144,8 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                             { _finalizationCommission = makeAmountFraction $ if vcFinalizationRewardNotInRange then 100 else 300,
                               _bakingCommission = makeAmountFraction $ if vcBakingRewardNotInRange then 100 else 500,
                               _transactionCommission = makeAmountFraction $ if vcTransactionFeeNotInRange then 300 else 100
-                            }
+                            },
+                      vaSuspended = suspended
                     }
         initialAccounts <- mapM makeDummyAccount (addValidatorTestAccounts withCooldown)
         initialBS <- mkInitialState initialAccounts
@@ -188,7 +191,8 @@ testAddValidatorAllCases spv = describe "bsoAddValidator" $ do
                                         { _poolOpenStatus = vaOpenForDelegation va,
                                           _poolMetadataUrl = vaMetadataURL va,
                                           _poolCommissionRates = vaCommissionRates va
-                                        }
+                                        },
+                                  _bieIsSuspended = conditionally (sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))) suspended
                                 }
                         }
             bkr <- getAccountBaker (fromJust acc)
@@ -287,7 +291,7 @@ validatorUpdateCases = do
           (Just (makeBakerKeyUpdate 0), "old keys", False),
           (Just (makeBakerKeyUpdate 2), "fresh keys", False),
           (Just (makeBakerKeyUpdate 1), "duplicate keys", True)
-            ]
+        ]
     (vuCapital, vuCapitalDesc, vcUnderThreshold) <-
         [ (Just 600_000_000_000, "increase", False),
           (Just initialStakedAmount, "same", False),
@@ -295,41 +299,46 @@ validatorUpdateCases = do
           (Just 999_999_999, "insufficient", True),
           (Just 0, "zero", False),
           (Nothing, "no change", False)
-            ]
+        ]
     (vuRestakeEarnings, vuRestakeEarningsDesc) <-
         [ (Just True, "restake"),
           (Just False, "no restake"),
           (Nothing, "no change")
-            ]
+        ]
     (vuOpenForDelegation, vuOpenForDelegationDesc) <-
         [ (Just OpenForAll, "open"),
           (Just ClosedForAll, "closed for all"),
           (Just ClosedForNew, "closed for new"),
           (Nothing, "no change")
-            ]
+        ]
     (vuMetadataURL, vuMetadataURLDesc) <-
         [ (Just (UrlText "Some URL"), "same URL"),
           (Just (UrlText "Some new URL"), "new URL"),
           (Nothing, "no change")
-            ]
+        ]
     (vuTransactionFeeCommission, vuTransactionFeeCommissionDesc, vcTransactionFeeNotInRange) <-
         [ (Just (makeAmountFraction 100), "in range", False),
           (Just (makeAmountFraction 201), "out of range", True),
           (Just (makeAmountFraction 150), "same", False),
           (Nothing, "no change", False)
-            ]
+        ]
     (vuBakingRewardCommission, vuBakingRewardCommissionDesc, vcBakingRewardNotInRange) <-
         [ (Just (makeAmountFraction 500), "in range", False),
           (Just (makeAmountFraction 400), "out of range", True),
           (Just (makeAmountFraction 550), "same", False),
           (Nothing, "no change", False)
-            ]
+        ]
     (vuFinalizationRewardCommission, vuFinalizationRewardCommissionDesc, vcFinalizationRewardNotInRange) <-
         [ (Just (makeAmountFraction 300), "in range", False),
           (Just (makeAmountFraction 401), "out of range", True),
           (Just (makeAmountFraction 350), "same", False),
           (Nothing, "no change", False)
-            ]
+        ]
+    (vuSuspend, vuSuspendDesc) <-
+        [ (Just True, "suspend"),
+          (Just False, "resume"),
+          (Nothing, "no change")
+        ]
     let vucValidatorUpdate = ValidatorUpdate{..}
     let vucValidatorConditions = ValidatorConditions{..}
     vucPendingChangeOrCooldown <- [True, False]
@@ -354,6 +363,8 @@ validatorUpdateCases = do
                         then ", pending change/cooldown"
                         else ", no pending change/cooldown"
                    )
+                <> ", validator suspend/resume: "
+                <> vuSuspendDesc
     return $ ValidatorUpdateConfig{..}
 
 -- | Commission ranges that narrowly include the commission rates used in the test cases.
@@ -421,6 +432,7 @@ testUpdateValidatorOverlappingCommissions spv =
                       vuRestakeEarnings = Nothing,
                       vuOpenForDelegation = Nothing,
                       vuMetadataURL = Nothing,
+                      vuSuspend = Nothing,
                       ..
                     }
         let vucPendingChangeOrCooldown = False
@@ -479,6 +491,11 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                 forM_ (vuTransactionFeeCommission vu) $ \fee -> tell [BakerConfigureTransactionFeeCommission fee]
                 forM_ (vuBakingRewardCommission vu) $ \fee -> tell [BakerConfigureBakingRewardCommission fee]
                 forM_ (vuFinalizationRewardCommission vu) $ \fee -> tell [BakerConfigureFinalizationRewardCommission fee]
+                forM_ (vuSuspend vu) $ \suspended ->
+                    tell
+                        [ if suspended then BakerConfigureSuspended else BakerConfigureResumed
+                        | STrue <- [hasValidatorSuspension]
+                        ]
                 forM_ (vuCapital vu) $ \capital ->
                     tell $
                         if capital >= initialStakedAmount
@@ -517,6 +534,9 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                         .~ (if newCapital == 0 then RemoveStake else ReduceStake newCapital)
                             (PendingChangeEffectiveV1 (24 * 60 * 60 * 1000 + 1000))
                 | otherwise = stakedAmount .~ newCapital
+        let updateSuspended suspend
+                | STrue <- hasValidatorSuspension = accountBakerInfo . bieIsSuspended .~ suspend
+                | otherwise = id
         let expectedAccountBaker
                 | STrue <- flexibleCooldown, vuCapital vu == Just 0 = Nothing
                 | otherwise =
@@ -537,10 +557,12 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                             & maybe id (poolCommissionRates . finalizationCommission .~) (vuFinalizationRewardCommission vu)
                             & maybe id (poolCommissionRates . bakingCommission .~) (vuBakingRewardCommission vu)
                             & maybe id (poolCommissionRates . transactionCommission .~) (vuTransactionFeeCommission vu)
+                            & maybe id updateSuspended (vuSuspend vu)
         actualAccountBaker <- getAccountBaker acc0
         liftIO $ actualAccountBaker `shouldBe` expectedAccountBaker
   where
     flexibleCooldown = sSupportsFlexibleCooldown (accountVersion @(AccountVersionFor pv))
+    hasValidatorSuspension = sSupportsValidatorSuspension (accountVersion @(AccountVersionFor pv))
     minEquity = 1_000_000_000
     chainParams =
         DummyData.dummyChainParameters @(ChainParametersVersionFor pv)
@@ -555,7 +577,7 @@ runUpdateValidatorTest spv commissionRanges ValidatorUpdateConfig{vucValidatorUp
                 accounts
                 DummyData.dummyIdentityProviders
                 DummyData.dummyArs
-                (withIsAuthorizationsVersionForPV spv DummyData.dummyKeyCollection)
+                (withIsAuthorizationsVersionFor spv DummyData.dummyKeyCollection)
                 chainParams
 
 tests :: Word -> Spec
@@ -568,3 +590,15 @@ tests lvl = parallel $ describe "Validator" $ do
         testAddValidatorAllCases SP7
         testUpdateValidator SP7 (lvl > 1)
         testUpdateValidatorOverlappingCommissions SP7
+    describe "P8" $ do
+        testAddValidatorAllCases SP8
+        testUpdateValidator SP8 (lvl > 1)
+        testUpdateValidatorOverlappingCommissions SP8
+    describe "P9" $ do
+        testAddValidatorAllCases SP9
+        testUpdateValidator SP9 (lvl > 1)
+        testUpdateValidatorOverlappingCommissions SP9
+    describe "P10" $ do
+        testAddValidatorAllCases SP10
+        testUpdateValidator SP10 (lvl > 1)
+        testUpdateValidatorOverlappingCommissions SP10

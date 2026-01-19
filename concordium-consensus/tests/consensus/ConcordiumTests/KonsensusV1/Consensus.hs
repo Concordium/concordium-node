@@ -49,7 +49,7 @@ genesisDataV1 sProtocolVersion =
         Dummy.dummyArs
         [ foundationAcct
         ]
-        (withIsAuthorizationsVersionForPV sProtocolVersion Dummy.dummyKeyCollection)
+        (withIsAuthorizationsVersionFor sProtocolVersion Dummy.dummyKeyCollection)
         Dummy.dummyChainParameters
   where
     foundationAcct =

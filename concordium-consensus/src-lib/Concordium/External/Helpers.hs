@@ -96,3 +96,8 @@ decodeReceiveName ptr len = Wasm.ReceiveName <$> decodeText ptr len
 decodeParameter :: Ptr Word8 -> Word32 -> IO Wasm.Parameter
 decodeParameter ptr len =
     Wasm.Parameter . BSS.toShort <$> BS.packCStringLen (castPtr ptr, fromIntegral len)
+
+-- | Decode a 'TokenId' from the given pointer and length.
+decodeTokenId :: Ptr Word8 -> Word8 -> IO (Either String TokenId)
+decodeTokenId ptr len =
+    makeTokenId . BSS.toShort <$> BS.packCStringLen (castPtr ptr, fromIntegral len)

@@ -269,6 +269,7 @@ tests = do
         txs <- liftIO (processUngroupedTransactions transactionsInput)
         (outcomes, endState) <-
             Helpers.runSchedulerTestWithIntermediateStates
+                @(Types.TransactionOutcomesVersionFor PV1)
                 @PV1
                 Helpers.defaultTestConfig
                 initialBlockState

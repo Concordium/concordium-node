@@ -23,7 +23,9 @@ EXPORTS
  stopImportingBlocks
 
  getAccountInfoV2
+ getTokenInfoV2
  getAccountListV2
+ getTokenListV2
  getModuleListV2
  getModuleSourceV2
  getInstanceListV2
@@ -34,6 +36,7 @@ EXPORTS
  getInstanceStateV2
  getNextAccountSequenceNumberV2
  getConsensusInfoV2
+ getConsensusDetailedStatusV2
  getBlockItemStatusV2
  getCryptographicParametersV2
  getBlockInfoV2
@@ -55,6 +58,10 @@ EXPORTS
  getBlockTransactionEventsV2
  getBlockSpecialEventsV2
  getBlockPendingUpdatesV2
+ getScheduledReleaseAccountsV2
+ getCooldownAccountsV2
+ getPreCooldownAccountsV2
+ getPrePreCooldownAccountsV2
  getNextUpdateSequenceNumbersV2
  getBlockChainParametersV2
  getBlockFinalizationSummaryV2

@@ -10,13 +10,13 @@
 --  of whether the new stake would violate any of the cap bounds.
 module SchedulerTests.Delegation (tests) where
 
-import Data.Bool.Singletons
 import Lens.Micro.Platform
 
 import qualified Concordium.Cost as Cost
 import qualified Concordium.Crypto.SignatureScheme as SigScheme
 import Concordium.ID.Types as ID
 import Concordium.Types.Accounts
+import Concordium.Types.Conditionally
 
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
@@ -34,6 +34,7 @@ import Concordium.GlobalState.DummyData
 import Concordium.Scheduler.DummyData
 import Concordium.Types.Option
 import Control.Monad
+import Data.Bool.Singletons
 import Data.Maybe
 import qualified SchedulerTests.Helpers as Helpers
 import Test.HUnit
@@ -41,6 +42,7 @@ import Test.Hspec
 
 -- | Deterministically generate a baker account from a seed.
 makeTestBakerV1FromSeed ::
+    forall av m.
     (IsAccountVersion av, Blob.MonadBlobStore m, AVSupportsDelegation av) =>
     -- | The initial balance of the account.
     Amount ->
@@ -59,7 +61,9 @@ makeTestBakerV1FromSeed amount stake bakerId seed = do
     let bakerInfoEx =
             BakerInfoExV1
                 { _bieBakerInfo = fulBaker ^. theBakerInfo,
-                  _bieBakerPoolInfo = poolInfo
+                  _bieBakerPoolInfo = poolInfo,
+                  _bieIsSuspended =
+                    conditionally (sSupportsValidatorSuspension (accountVersion @av)) False
                 }
     BS.addAccountBakerV1 bakerInfoEx stake True account
   where
@@ -215,13 +219,13 @@ initialBlockState2 =
         ]
 
 -- | Test removing a delegator even if the stake is over the threshold.
-testCase1 ::
+testRemoveDelegatorWithStakeOverThreshold ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase1 _ pvString =
+testRemoveDelegatorWithStakeOverThreshold _ pvString =
     specify (pvString ++ ": Remove delegation") $ do
         let transactions =
                 [ Runner.TJSON
@@ -254,20 +258,20 @@ testCase1 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Test reducing delegator stake in such a way that it stays above the cap threshold.
-testCase2 ::
+testReduceDelegatorStakeStillAboveCapThreshold ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase2 _ pvString =
+testReduceDelegatorStakeStillAboveCapThreshold _ pvString =
     specify (pvString ++ ": Reduce delegation stake with overstaking") $ do
         let transactions =
                 [ Runner.TJSON
@@ -291,20 +295,20 @@ testCase2 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Test transaction rejects if increasing stake above the threshold of the pool
-testCase3 ::
+testTransactionRejectsIfStakeIncreasedOverThreshold ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase3 _ pvString =
+testTransactionRejectsIfStakeIncreasedOverThreshold _ pvString =
     specify (pvString ++ ": Increase stake with overstaking") $ do
         let transactions =
                 [ Runner.TJSON
@@ -328,7 +332,7 @@ testCase3 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
@@ -336,13 +340,13 @@ testCase3 _ pvString =
 
 -- | Test reducing delegator stake **and changing target** such that the new stake is above the cap
 --  for the new target.
-testCase4 ::
+testReducingStakeAndTargetNewStakeOverCap ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase4 _ pvString =
+testReducingStakeAndTargetNewStakeOverCap _ pvString =
     specify (pvString ++ ": Reduce stake and change target 1") $ do
         let transactions =
                 [ Runner.TJSON
@@ -366,7 +370,7 @@ testCase4 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
@@ -376,13 +380,13 @@ testCase4 _ pvString =
 --  This still fails before P7 because the change of stake is only effective after the cooldown period,
 --  so changing the target results in overdelegation to the new target. From P7, the stake is
 --  reduced immediately, so the transaction should succeed.
-testCase5 ::
+testChangingTargetAndReducingStake ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase5 _ pvString =
+testChangingTargetAndReducingStake _ pvString =
     specify (pvString ++ ": Reduce stake and change target 2") $ do
         let transactions =
                 [ Runner.TJSON
@@ -414,20 +418,20 @@ testCase5 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Increase stake successfully.
-testCase6 ::
+testIncreaseStake ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase6 _ pvString =
+testIncreaseStake _ pvString =
     specify (pvString ++ ": Increase stake successfully.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -451,20 +455,20 @@ testCase6 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Increase stake and change target successfully.
-testCase7 ::
+testIncreaseStakeAndTarget ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase7 _ pvString =
+testIncreaseStakeAndTarget _ pvString =
     specify (pvString ++ ": Increase stake and change target successfully.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -492,20 +496,20 @@ testCase7 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Increase stake and change target rejects with reason: maximum threshold for pool.
-testCase8 ::
+testIncreaseStakeAndChangeTargetReject ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase8 _ pvString =
+testIncreaseStakeAndChangeTargetReject _ pvString =
     specify (pvString ++ ": Increase stake and change target so that results is overdelegation.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -529,20 +533,20 @@ testCase8 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
--- | Increase stake and change target rejects with reason: maximum threshold for pool.
-testCase9 ::
+-- | Change target to overdelegated pool
+testChangeTargetToOverdelegatedPool ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase9 _ pvString =
+testChangeTargetToOverdelegatedPool _ pvString =
     specify (pvString ++ ": Change target to overdelegated pool.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -566,20 +570,20 @@ testCase9 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Add delegator successfully.
-testCase10 ::
+testAddDelegator ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase10 _ pvString =
+testAddDelegator _ pvString =
     specify (pvString ++ ": Add delegator successfully.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -603,7 +607,7 @@ testCase10 _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
@@ -616,13 +620,13 @@ testCase10 _ pvString =
         ]
 
 -- | Add delegator with 0 stake should get rejected.
-testCase10A ::
+testDelegatorWithZeroStake ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase10A _ pvString =
+testDelegatorWithZeroStake _ pvString =
     specify (pvString ++ ": Add delegator with 0 stake should get rejected.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -646,20 +650,20 @@ testCase10A _ pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
         Helpers.assertBlockStateInvariantsH blockState (Helpers.srExecutionCosts result)
 
 -- | Add delegator when already baker. Should get rejected in protocols <= P6 and accepted from P7.
-testCase11 ::
+testAddDelegatorWhenAlreadyBaker ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase11 spv pvString =
+testAddDelegatorWhenAlreadyBaker spv pvString =
     specify (pvString ++ ": Add delegator when already baker.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -687,7 +691,7 @@ testCase11 spv pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState =
@@ -702,13 +706,13 @@ testCase11 spv pvString =
 
 -- | Add delegator with 0 stake when already a baker should get rejected with
 --  `AlreadyABaker` in protocols <= P6 and `InsufficientDelegationStake` from P7.
-testCase11A ::
+testAddDelegatorWithZeroStakeWhenAlreadyBaker ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase11A spv pvString =
+testAddDelegatorWithZeroStakeWhenAlreadyBaker spv pvString =
     specify (pvString ++ ": Add delegator with 0 stake when already baker should get rejected.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -735,7 +739,7 @@ testCase11A spv pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -753,75 +757,79 @@ testCase11A spv pvString =
                 updatedBaker4
 
 -- | Reduce stake while in cooldown.
-testCase12 ::
+testReduceStakeWhileInCooldown ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase12 spv pvString =
+testReduceStakeWhileInCooldown spv pvString =
     specify (pvString ++ ": Reduce stake while in cooldown.") $ do
-        let transactionsAndAssertions :: [Helpers.TransactionAndAssertion pv]
+        let transactionsAndAssertions :: [Helpers.BlockItemAndAssertion pv]
             transactionsAndAssertions =
-                [ Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        Runner.TJSON
-                            { payload =
-                                Runner.ConfigureDelegation
-                                    { cdCapital = Just 999,
-                                      cdRestakeEarnings = Nothing,
-                                      cdDelegationTarget = Nothing
-                                    },
-                              metadata = makeDummyHeader delegator3Address 1 1_000,
-                              keys = [(0, [(0, delegator3KP)])]
-                            },
-                      taaAssertion = \result _ -> do
+                [ Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.ConfigureDelegation
+                                        { cdCapital = Just 999,
+                                          cdRestakeEarnings = Nothing,
+                                          cdDelegationTarget = Nothing
+                                        },
+                                  metadata = makeDummyHeader delegator3Address 1 1_000,
+                                  keys = [(0, [(0, delegator3KP)])]
+                                },
+                      biaaAssertion = \result _ -> do
                         return $ do
                             Helpers.assertSuccessWithEvents
                                 [DelegationStakeDecreased 3 delegator3Address 999]
                                 result
                     },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        Runner.TJSON
-                            { payload =
-                                Runner.ConfigureDelegation
-                                    { cdCapital = Just 995,
-                                      cdRestakeEarnings = Nothing,
-                                      cdDelegationTarget = Nothing
-                                    },
-                              metadata = makeDummyHeader delegator3Address 2 1_000,
-                              keys = [(0, [(0, delegator3KP)])]
-                            },
-                      taaAssertion = assertPrePreCooldown 5 (DelegationStakeDecreased 3 delegator3Address 995)
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.ConfigureDelegation
+                                        { cdCapital = Just 995,
+                                          cdRestakeEarnings = Nothing,
+                                          cdDelegationTarget = Nothing
+                                        },
+                                  metadata = makeDummyHeader delegator3Address 2 1_000,
+                                  keys = [(0, [(0, delegator3KP)])]
+                                },
+                      biaaAssertion = assertPrePreCooldown 5 (DelegationStakeDecreased 3 delegator3Address 995)
                     },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        Runner.TJSON
-                            { payload =
-                                Runner.ConfigureDelegation
-                                    { cdCapital = Just 998,
-                                      cdRestakeEarnings = Nothing,
-                                      cdDelegationTarget = Nothing
-                                    },
-                              metadata = makeDummyHeader delegator3Address 3 1_000,
-                              keys = [(0, [(0, delegator3KP)])]
-                            },
-                      taaAssertion = assertPrePreCooldown 2 (DelegationStakeIncreased 3 delegator3Address 998)
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.ConfigureDelegation
+                                        { cdCapital = Just 998,
+                                          cdRestakeEarnings = Nothing,
+                                          cdDelegationTarget = Nothing
+                                        },
+                                  metadata = makeDummyHeader delegator3Address 3 1_000,
+                                  keys = [(0, [(0, delegator3KP)])]
+                                },
+                      biaaAssertion = assertPrePreCooldown 2 (DelegationStakeIncreased 3 delegator3Address 998)
                     },
-                  Helpers.TransactionAndAssertion
-                    { taaTransaction =
-                        Runner.TJSON
-                            { payload =
-                                Runner.ConfigureDelegation
-                                    { cdCapital = Just 1000,
-                                      cdRestakeEarnings = Nothing,
-                                      cdDelegationTarget = Nothing
-                                    },
-                              metadata = makeDummyHeader delegator3Address 4 1_000,
-                              keys = [(0, [(0, delegator3KP)])]
-                            },
-                      taaAssertion = assertNoCooldown (DelegationStakeIncreased 3 delegator3Address 1000)
+                  Helpers.BlockItemAndAssertion
+                    { biaaTransaction =
+                        Runner.AccountTx $
+                            Runner.TJSON
+                                { payload =
+                                    Runner.ConfigureDelegation
+                                        { cdCapital = Just 1000,
+                                          cdRestakeEarnings = Nothing,
+                                          cdDelegationTarget = Nothing
+                                        },
+                                  metadata = makeDummyHeader delegator3Address 4 1_000,
+                                  keys = [(0, [(0, delegator3KP)])]
+                                },
+                      biaaAssertion = assertNoCooldown (DelegationStakeIncreased 3 delegator3Address 1000)
                     }
                 ]
         Helpers.runSchedulerTestAssertIntermediateStates
@@ -864,13 +872,13 @@ testCase12 spv pvString =
 
 -- | Change baker to delegate to itself should get rejected with
 --  `AlreadyABaker` in protocols <= P6 and `DelegationTargetNotABaker` from P7.
-testCase13 ::
+testDelegateToSelf ::
     forall pv.
     (IsProtocolVersion pv, PVSupportsDelegation pv) =>
     SProtocolVersion pv ->
     String ->
     Spec
-testCase13 spv pvString =
+testDelegateToSelf spv pvString =
     specify (pvString ++ ": Change baker to delegate to itself.") $ do
         let transactions =
                 [ Runner.TJSON
@@ -897,7 +905,7 @@ testCase13 spv pvString =
         doBlockStateAssertions
   where
     checkState ::
-        Helpers.SchedulerResult ->
+        Helpers.SchedulerResult (Types.TransactionOutcomesVersionFor pv) ->
         BS.PersistentBlockState pv ->
         Helpers.PersistentBSM pv Assertion
     checkState result blockState = do
@@ -925,18 +933,18 @@ tests =
         case delegationSupport @(AccountVersionFor pv) of
             SAVDelegationNotSupported -> return ()
             SAVDelegationSupported -> do
-                testCase1 spv pvString
-                testCase2 spv pvString
-                testCase3 spv pvString
-                testCase4 spv pvString
-                testCase5 spv pvString
-                testCase6 spv pvString
-                testCase7 spv pvString
-                testCase8 spv pvString
-                testCase9 spv pvString
-                testCase10 spv pvString
-                testCase10A spv pvString
-                testCase11 spv pvString
-                testCase11A spv pvString
-                testCase12 spv pvString
-                testCase13 spv pvString
+                testRemoveDelegatorWithStakeOverThreshold spv pvString
+                testReduceDelegatorStakeStillAboveCapThreshold spv pvString
+                testTransactionRejectsIfStakeIncreasedOverThreshold spv pvString
+                testReducingStakeAndTargetNewStakeOverCap spv pvString
+                testChangingTargetAndReducingStake spv pvString
+                testIncreaseStake spv pvString
+                testIncreaseStakeAndTarget spv pvString
+                testIncreaseStakeAndChangeTargetReject spv pvString
+                testChangeTargetToOverdelegatedPool spv pvString
+                testAddDelegator spv pvString
+                testDelegatorWithZeroStake spv pvString
+                testAddDelegatorWhenAlreadyBaker spv pvString
+                testAddDelegatorWithZeroStakeWhenAlreadyBaker spv pvString
+                testReduceStakeWhileInCooldown spv pvString
+                testDelegateToSelf spv pvString

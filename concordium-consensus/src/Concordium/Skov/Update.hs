@@ -587,7 +587,6 @@ doReceiveBlock pb@GB.PendingBlock{pbBlock = BakedBlock{..}, ..} =
         if slotTime > addDuration (utcTimeToTimestamp pbReceiveTime) threshold && threshold /= maxBound
             then return (ResultEarlyBlock, Nothing)
             else -- Check if the block is already known.
-
                 getRecentBlockStatus blockHash >>= \case
                     Unknown -> do
                         lfs <- getLastFinalizedSlot
@@ -816,8 +815,7 @@ doAddPreverifiedTransaction blockItem okRes = do
     case res of
         Added WithMetadata{..} verRes -> do
             ptrs <- getPendingTransactions
-            case wmdData of
-                NormalTransaction tx -> do
+            let addPreverifiedAccountTransaction tx = do
                     -- Record the transaction in the pending transaction table.
                     focus <- getFocusBlock
                     st <- blockState focus
@@ -826,6 +824,9 @@ doAddPreverifiedTransaction blockItem okRes = do
                     when (nextNonce <= transactionNonce tx) $
                         putPendingTransactions $!
                             addPendingTransaction nextNonce WithMetadata{wmdData = tx, ..} ptrs
+            case wmdData of
+                NormalTransaction tx -> addPreverifiedAccountTransaction (TransactionV0 tx)
+                ExtendedTransaction tx -> addPreverifiedAccountTransaction (TransactionV1 tx)
                 CredentialDeployment _ -> do
                     putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
                 ChainUpdate cu -> do
@@ -861,8 +862,7 @@ doReceiveTransactionInternal origin verifyBs tr ts slot = do
     addCommitTransaction tr ctx ts slot >>= \case
         Added bi@WithMetadata{..} verRes -> do
             ptrs <- getPendingTransactions
-            case wmdData of
-                NormalTransaction tx -> do
+            let addAccountTransaction tx = do
                     -- Transactions received individually should always be added to the ptt.
                     -- If the transaction was received as part of a block we only add it to the ptt if
                     -- the transaction nonce is at least the `nextNonce` recorded for sender account.
@@ -892,6 +892,9 @@ doReceiveTransactionInternal origin verifyBs tr ts slot = do
                             -- the focus block, then we do not need to add it to the
                             -- pending transactions. Otherwise, we do.
                             when (nextNonce <= transactionNonce tx) $ add nextNonce
+            case wmdData of
+                NormalTransaction tx -> addAccountTransaction (TransactionV0 tx)
+                ExtendedTransaction tx -> addAccountTransaction (TransactionV1 tx)
                 CredentialDeployment _ -> do
                     putPendingTransactions $! addPendingDeployCredential wmdHash ptrs
                 ChainUpdate cu -> do
@@ -901,6 +904,7 @@ doReceiveTransactionInternal origin verifyBs tr ts slot = do
                     when (nextSN <= updateSeqNumber (uiHeader cu)) $
                         putPendingTransactions $!
                             addPendingUpdate nextSN cu ptrs
+
             -- The actual verification result here is only used if the transaction was received individually.
             -- If the transaction was received as part of a block we don't use the result for anything.
             return (Just (bi, Just verRes), transactionVerificationResultToUpdateResult verRes)

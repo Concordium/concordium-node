@@ -4,6 +4,7 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
@@ -43,7 +44,9 @@ import qualified Concordium.TransactionVerification as TVer
 import Control.Exception (assert)
 
 import qualified Concordium.GlobalState.ContractStateV1 as StateV1
+import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Token
 import qualified Concordium.ID.Types as ID
+import Concordium.Scheduler.ProtocolLevelTokens.Kernel (PLTAccount, PLTKernelChargeEnergy, PLTKernelFail, PLTKernelPrivilegedUpdate)
 import qualified Concordium.Scheduler.WasmIntegration.V1 as V1
 import Concordium.Wasm (IsWasmVersion)
 import qualified Concordium.Wasm as GSWasm
@@ -90,6 +93,13 @@ data RemoveExistingStake
     | -- | The account has no existing stake.
       NoExistingStake
     deriving (Eq, Show)
+
+-- | PLT module execution error.
+data PLTExecutionError fail
+    = -- | The PLT module run out of energy during execution.
+      PLTEOutOfEnergy
+    | -- | The PLT module encountered a runtime error during execution.
+      PLTEFail fail
 
 -- | Information needed to execute transactions in the form that is easy to use.
 class
@@ -346,7 +356,7 @@ class
     -- * Chain updates
 
     -- | Get the current authorized keys for updates.
-    getUpdateKeyCollection :: m (UpdateKeysCollection (AuthorizationsVersionForPV (MPV m)))
+    getUpdateKeyCollection :: m (UpdateKeysCollection (AuthorizationsVersionFor (MPV m)))
 
     -- | Get the next sequence number of updates of a given type.
     getNextUpdateSequenceNumber :: UpdateType -> m UpdateSequenceNumber
@@ -356,7 +366,71 @@ class
     --  The next sequence number will be correspondingly incremented,
     --  and any queued updates of the given type with a later effective
     --  time are cancelled.
-    enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) -> m ()
+    enqueueUpdate :: TransactionTime -> UpdateValue (ChainParametersVersionFor (MPV m)) (AuthorizationsVersionFor (MPV m)) -> m ()
+
+    -- | Increment the update sequence number for Protocol Level Tokens (PLT).
+    -- Unlike the other chain updates this is a separate function,
+    -- since there is no queue associated with PLTs.
+    incrementPLTUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => m ()
+
+    -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
+    getTokenIndex :: (PVSupportsPLT (MPV m)) => TokenId -> m (Maybe Token.TokenIndex)
+
+    -- | Get the configuration of a protocol-level token.
+    --
+    --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
+    getTokenConfiguration :: (PVSupportsPLT (MPV m)) => Token.TokenIndex -> m Token.PLTConfiguration
+
+    -- | Take a snapshot of the current block state, and run the given
+    --  computation. If the result is @(_, True)@, then the block state is
+    --  reverted to the snapshot. Otherwise, any changes to the block state are
+    --  retained. The return value is the result of the computation.
+    withBlockStateRollback :: m (a, Bool) -> m a
+
+    -- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel.
+    --  This call does not charge energy.
+    --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
+    runPLT ::
+        (PVSupportsPLT (MPV m)) =>
+        Token.TokenIndex ->
+        ( forall m1.
+          ( Monad m1,
+            PLTKernelPrivilegedUpdate m1,
+            PLTKernelFail e m1,
+            PLTAccount m1 ~ (AccountIndex, AccountAddress)
+          ) =>
+          m1 a
+        ) ->
+        m (Either e a, [Event])
+
+    -- | Run a protocol-layer token (PLT) operation that invokes the PLT kernel
+    --  and uses at the maximum the specified amount of energy. Returns the result of
+    --  the computation together with the used energy.
+    --
+    --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
+    runPLTWithEnergy ::
+        (PVSupportsPLT (MPV m)) =>
+        Token.TokenIndex ->
+        Energy ->
+        ( forall m1.
+          ( Monad m1,
+            PLTKernelPrivilegedUpdate m1,
+            PLTKernelFail e m1,
+            PLTKernelChargeEnergy m1,
+            PLTAccount m1 ~ (AccountIndex, AccountAddress)
+          ) =>
+          m1 a
+        ) ->
+        m (Either (PLTExecutionError e) a, [Event], Energy)
+
+    -- | Create a new protocol-layer token with the given 'PLTConfiguration'.
+    --
+    --  PRECONDITION: There MUST NOT already be a token with the specified token ID.
+    --  The governance account index MUST reference a valid account.
+    createToken ::
+        (PVSupportsPLT (MPV m)) =>
+        Token.PLTConfiguration ->
+        m Token.TokenIndex
 
 -- | Contract state that is lazily thawed. This is used in the scheduler when
 --  looking up contracts. When looking them up first time we don't convert the
@@ -814,8 +888,9 @@ data LocalState m = LocalState
 makeLenses ''LocalState
 
 data TransactionContext = TransactionContext
-    { -- | Header of the transaction initiating the transaction.
-      _tcTxSender :: !AccountIndex,
+    { -- | Index of the account that is paying for the transaction.
+      _tcTxPayer :: !AccountIndex,
+      -- | Amount deposited by the payer to fund the transaction cost.
       _tcDepositedAmount :: !Amount
     }
 
@@ -841,12 +916,16 @@ runLocalT ::
     forall m a.
     (Monad m) =>
     LocalT a m a ->
+    -- | Deposit amount.
     Amount ->
+    -- | Payer account index.
     AccountIndex ->
-    Energy -> -- Energy limit by the transaction header.
-    Energy -> -- remaining block energy
+    -- | Energy left for executing this transaction.
+    Energy ->
+    -- | Energy left for executing this block.
+    Energy ->
     m (Either (Maybe RejectReason) a, LocalState m)
-runLocalT (LocalT st) _tcDepositedAmount _tcTxSender _energyLeft _blockEnergyLeft = do
+runLocalT (LocalT st) _tcDepositedAmount _tcTxPayer _energyLeft _blockEnergyLeft = do
     -- The initial contract modification index must start at 1 since 0 is the
     -- "initial state" of all contracts (as recorded in the changeset).
     let s =
@@ -871,6 +950,15 @@ instance BlockStateTypes (LocalT r m) where
     type ContractState (LocalT r m) = ContractState m
     type BakerInfoRef (LocalT r m) = BakerInfoRef m
     type InstrumentedModuleRef (LocalT r m) = InstrumentedModuleRef m
+    type MutableTokenState (LocalT r m) = MutableTokenState m
+
+-- | The energy used in executing a transaction and the cost that was paid for it.
+data ExecutionCharge = ExecutionCharge
+    { -- | The amount of energy used in the transaction.
+      ecUsedEnergy :: !Energy,
+      -- | The cost charged for the energy used in the transaction.
+      ecEnergyCost :: !Amount
+    }
 
 -- | Given the deposited amount and the remaining amount of gas compute how much
 --  the sender of the transaction should be charged, as well as how much energy was used
@@ -882,21 +970,29 @@ computeExecutionCharge ::
     Energy ->
     -- | Energy remaining unused.
     Energy ->
-    m (Energy, Amount)
-computeExecutionCharge allocated unused =
-    let used = allocated - unused
-    in  (used,) <$> energyToGtu used
+    m ExecutionCharge
+computeExecutionCharge allocated unused = do
+    let ecUsedEnergy = allocated - unused
+    ecEnergyCost <- energyToGtu ecUsedEnergy
+    return ExecutionCharge{..}
 
 -- | Reduce the public balance on the account to charge for execution cost. The
 --  given amount is the amount to charge (subtract). The precondition of this
 --  method is that the account exists and its balance is sufficient to
 --  cover the costs. These are not checked.
 --
---  NB: This method should only be used directly when the given account's balance
---  is the only one affected by the transaction, either because a transaction was
---  rejected, or because it was a transaction which only affects one account's
---  balance such as DeployCredential, or DeployModule.
-chargeExecutionCost :: forall m. (SchedulerMonad m) => IndexedAccount m -> Amount -> m ()
+--  NB: This function is only called in two ways:
+--
+--    - by 'computeChargeExecution' to charge for executing a payload that was deserialized.
+--    - by 'dispatchTransactionBody' to charge for a payload that could not be deserialized.
+chargeExecutionCost ::
+    forall m.
+    (SchedulerMonad m) =>
+    -- | Payer account.`
+    IndexedAccount m ->
+    -- | Execution cost.
+    Amount ->
+    m ()
 chargeExecutionCost (ai, acc) amnt = do
     balance <- getAccountAmount acc
     let csWithAccountDelta = emptyCS (Proxy @m) & accountUpdates . at ai ?~ (emptyAccountUpdate ai & auAmount ?~ amountDiff 0 amnt)
@@ -904,9 +1000,25 @@ chargeExecutionCost (ai, acc) amnt = do
         commitChanges csWithAccountDelta
     notifyExecutionCost amnt
 
+-- | Compute the amount to charge the transaction payer for executing the transaction,
+--  and charge the account. Returns the energy and cost charged.
+computeChargeExecution ::
+    (SchedulerMonad m) =>
+    -- | The context for the transaction execution.
+    WithDepositContext m ->
+    -- | The remaining unused energy.
+    Energy ->
+    m ExecutionCharge
+computeChargeExecution wtc unused = do
+    executionCharge <- computeExecutionCharge (_wtcEnergyAmount wtc) unused
+    chargeExecutionCost (_wtcPayerAccount wtc) (ecEnergyCost executionCharge)
+    return executionCharge
+
 data WithDepositContext m = WithDepositContext
     { -- | The account initiating the transaction.
       _wtcSenderAccount :: !(IndexedAccount m),
+      -- | The account paying the energy cost for the transaction.
+      _wtcPayerAccount :: !(IndexedAccount m),
       -- | Type of the top-level transaction.
       _wtcTransactionType :: !TransactionType,
       -- | Hash of the top-level transaction.
@@ -914,6 +1026,8 @@ data WithDepositContext m = WithDepositContext
       -- | Address of the sender of the transaction.
       -- This should correspond to '_wtcSenderAccount', but need not be the canonical address.
       _wtcSenderAddress :: !AccountAddress,
+      -- | If the transaction is sponsored, this is the address of the sponsor account.
+      _wtcSponsorAddress :: !(Maybe AccountAddress),
       -- | The amount of energy dedicated for the execution of this transaction.
       _wtcEnergyAmount :: !Energy,
       -- | Cost to be charged for checking the transaction header.
@@ -926,27 +1040,28 @@ data WithDepositContext m = WithDepositContext
 
 makeLenses ''WithDepositContext
 
--- | Given an account which is initiating the top-level transaction and the
+-- | Given an account which is paying the fees for the top-level transaction and the
 --  deposited amount, run the given computation in the modified environment where
 --  the balance on the account is decreased by the deposited amount. Return the
 --  amount of energy __used__ by the computation and any result returned. The
 --  function __ensures__ that the amount of energy is not more than the
 --  deposited amount. The function __assumes__ the following
 --
---    * The account exists in the account database.
+--    * The payer account exists in the account database.
 --    * The deposited amount exists in the public account value.
 --    * The deposited amount is __at least__ Cost.checkHeader applied to the respective parameters (i.e., minimum transaction cost).
 withDeposit ::
-    (SchedulerMonad m, TransactionResult res) =>
+    forall tov m res a.
+    (SchedulerMonad m, TransactionResult res, tov ~ TransactionOutcomesVersionFor (MPV m)) =>
     WithDepositContext m ->
     -- | The computation to run in the modified environment with reduced amount on the initial account.
     LocalT a m a ->
     -- | Continuation for the successful branch of the computation.
+    --  The execution cost is charged before this is called.
     --  It gets the result of the previous computation as input, in particular the
-    --  remaining energy and the ChangeSet. It should return the result, and the amount that was charged
-    --  for the execution.
-    (LocalState m -> a -> m (res, Amount, Energy)) ->
-    m (Maybe (TransactionSummary' res))
+    --  remaining energy and the ChangeSet. It should return the result.
+    (LocalState m -> a -> m res) ->
+    m (Maybe (TransactionSummary' tov res))
 withDeposit wtc comp k = do
     let tsHash = wtc ^. wtcTransactionHash
     let totalEnergyToUse = wtc ^. wtcEnergyAmount
@@ -957,7 +1072,7 @@ withDeposit wtc comp k = do
     let energy = totalEnergyToUse - wtc ^. wtcTransactionCheckHeaderCost
     -- record how much we have deposited. This cannot be touched during execution.
     depositedAmount <- energyToGtu totalEnergyToUse
-    (res, ls) <- runLocalT comp depositedAmount (wtc ^. wtcSenderAccount . _1) energy beLeft
+    (res, ls) <- runLocalT comp depositedAmount (wtc ^. wtcPayerAccount . _1) energy beLeft
     let addReturn result =
             foldr
                 (setTransactionReturnValue . V1.returnValueToByteString)
@@ -968,16 +1083,17 @@ withDeposit wtc comp k = do
         Left Nothing -> return Nothing
         -- Failure: transaction fails (out of energy or actual failure by transaction logic)
         Left (Just reason) -> do
-            -- The only effect of this transaction is that the sender is charged for the execution cost
+            -- The only effect of this transaction is that the payer is charged for the execution cost
             -- (energy ticked so far).
-            (usedEnergy, payment) <- computeExecutionCharge totalEnergyToUse (ls ^. energyLeft)
-            chargeExecutionCost (wtc ^. wtcSenderAccount) payment
+            executionCharge <- computeChargeExecution wtc (ls ^. energyLeft)
+            let (tsCost, sponsorDetails) = computeCostDetails executionCharge
+
             return $!
                 Just $!
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
-                          tsCost = payment,
-                          tsEnergyCost = usedEnergy,
+                          tsSponsorDetails = conditionally cHasSponsorDetails sponsorDetails,
+                          tsEnergyCost = ecUsedEnergy executionCharge,
                           tsResult = addReturn $ transactionReject reason,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
                           tsIndex = wtc ^. wtcTransactionIndex,
@@ -985,36 +1101,46 @@ withDeposit wtc comp k = do
                         }
         -- Computation successful
         Right a -> do
-            -- In this case we invoke the continuation, which should charge for the used energy.
-            (tsResult0, tsCost, tsEnergyCost) <- k ls a
+            -- In this case we charge for the used energy then invoke the continuation.
+            executionCharge <- computeChargeExecution wtc (ls ^. energyLeft)
+            let (tsCost, sponsorDetails) = computeCostDetails executionCharge
+            tsResult0 <- k ls a
             return $!
                 Just $!
                     TransactionSummary
                         { tsSender = Just (wtc ^. wtcSenderAddress),
+                          tsSponsorDetails = conditionally cHasSponsorDetails sponsorDetails,
+                          tsEnergyCost = ecUsedEnergy executionCharge,
                           tsType = TSTAccountTransaction $ Just $ wtc ^. wtcTransactionType,
                           tsIndex = wtc ^. wtcTransactionIndex,
                           tsResult = addReturn tsResult0,
                           ..
                         }
+  where
+    cHasSponsorDetails = sHasSponsorDetails (sTransactionOutcomesVersionFor (protocolVersion @(MPV m)))
+    computeCostDetails ExecutionCharge{..}
+        | Just sponsorAddress <- wtc ^. wtcSponsorAddress =
+            ( 0,
+              Just $
+                SponsorDetails
+                    { sdSponsor = sponsorAddress,
+                      sdCost = ecEnergyCost
+                    }
+            )
+        | otherwise = (ecEnergyCost, Nothing)
 
-{-# INLINE defaultSuccess #-}
-
--- | Default continuation to use with 'withDeposit'. It charges for the energy used, commits the changes
+-- | Default continuation to use with 'withDeposit'. It commits the changes
 --  from the current changeset and returns the recorded events, the amount corresponding to the
 --  used energy and the used energy.
+{-# INLINE defaultSuccess #-}
 defaultSuccess ::
     (SchedulerMonad m, TransactionResult res) =>
-    WithDepositContext m ->
     LocalState m ->
     [Event] ->
-    m (res, Amount, Energy)
-defaultSuccess wtc = \ls res -> do
-    let energyAllocated = wtc ^. wtcEnergyAmount
-        senderAccount = wtc ^. wtcSenderAccount
-    (usedEnergy, energyCost) <- computeExecutionCharge energyAllocated (ls ^. energyLeft)
-    chargeExecutionCost senderAccount energyCost
+    m res
+defaultSuccess = \ls res -> do
     commitChanges (ls ^. changeSet)
-    return (transactionSuccess res, energyCost, usedEnergy)
+    return (transactionSuccess res)
 
 {-# INLINE liftLocal #-}
 liftLocal :: (Monad m) => m a -> LocalT r m a
@@ -1255,9 +1381,9 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
     getCurrentAccountTotalAmount (ai, acc) = do
         oldTotal <- getAccountAmount acc
         !txCtx <- ask
-        -- If the account is the sender, subtract the deposit
+        -- If the account is the transaction fee payer, subtract the deposit
         let netDeposit =
-                if txCtx ^. tcTxSender == ai
+                if txCtx ^. tcTxPayer == ai
                     then oldTotal - (txCtx ^. tcDepositedAmount)
                     else oldTotal
         macc <- use (changeSet . accountUpdates . at ai)
@@ -1275,9 +1401,9 @@ instance (MonadProtocolVersion m, StaticInformation m, AccountOperations m, Cont
         oldLockedUp <- getAccountLockedAmount acc
         staked <- getAccountTotalStakedAmount acc
         !txCtx <- ask
-        -- If the account is the sender, subtract the deposit
+        -- If the account is the transaction fee payer, subtract the deposit
         let netDeposit =
-                if txCtx ^. tcTxSender == ai
+                if txCtx ^. tcTxPayer == ai
                     then oldTotal - (txCtx ^. tcDepositedAmount)
                     else oldTotal
         macc <- use (changeSet . accountUpdates . at ai)
@@ -1394,6 +1520,8 @@ logInvalidBlockItem WithMetadata{wmdData = CredentialDeployment cred} fk =
     logEvent Scheduler LLWarning $ "Credential with registration id " ++ (show . ID.credId . credential $ cred) ++ " was invalid with reason " ++ show fk
 logInvalidBlockItem WithMetadata{wmdData = ChainUpdate{}, ..} fk =
     logEvent Scheduler LLWarning $ "Chain update with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
+logInvalidBlockItem WithMetadata{wmdData = ExtendedTransaction{}, ..} fk =
+    logEvent Scheduler LLWarning $ "Transaction with hash " ++ show wmdHash ++ " was invalid with reason: " ++ show fk
 
 {-# INLINE logInvalidTransaction #-}
 logInvalidTransaction :: (SchedulerMonad m) => TVer.TransactionWithStatus -> FailureKind -> m ()

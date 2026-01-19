@@ -1,8 +1,8 @@
-ARG ubuntu_version
-ARG static_libraries_image_tag
+ARG ubuntu_version=latest
+ARG static_libraries_image_tag=latest
 
 # Build static consensus libraries.
-FROM concordium/static-libraries:$static_libraries_image_tag as static-builder
+FROM concordium/static-libraries:${static_libraries_image_tag} AS static-builder
 COPY . /build
 ARG ghc_version
 WORKDIR /build
@@ -10,7 +10,7 @@ RUN GHC_VERSION="$ghc_version" \
       /build/scripts/static-libraries/build-static-libraries.sh
 
 # Build static node binaries.
-FROM ubuntu:$ubuntu_version
+FROM ubuntu:${ubuntu_version}
 
 COPY scripts/static-binaries/build-on-ubuntu.sh /build-on-ubuntu.sh
 COPY . /build
@@ -27,9 +27,16 @@ RUN tar -C /tmp -xf /tmp/static-consensus.tar.gz && \
 # Build (mostly) static node and some auxiliary binaries
 ARG build_version
 ARG extra_features
+ARG protoc_version
+ARG flatbuffers_version
+ARG rust_toolchain_version
+
 WORKDIR /build
-RUN BRANCH="$branch" \
-    EXTRA_FEATURES="$extra_features" \
+RUN BRANCH="${branch}" \
+    EXTRA_FEATURES="${extra_features}" \
+    PROTOC_VERSION="${protoc_version}" \
+    FLATBUFFERS_VERSION="${flatbuffers_version}" \
+    RUST_TOOLCHAIN_VERSION="${rust_toolchain_version}" \
       /build-on-ubuntu.sh
 
 # The binaries are available in the

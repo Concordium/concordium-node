@@ -12,6 +12,7 @@ import Control.Monad.Except (ExceptT)
 import Control.Monad.IO.Class
 import Control.Monad.Reader
 import Control.Monad.State.Strict
+import Control.Monad.Trans.Maybe (MaybeT)
 import Control.Monad.Writer.Strict (WriterT)
 import qualified Data.IntMap.Strict as IntMap
 import Data.Kind (Type)
@@ -46,6 +47,11 @@ instance (Monoid w, MonadCache c m) => MonadCache c (WriterT w m) where
     {-# INLINE getCache #-}
 
 instance (MonadCache c m) => MonadCache c (ExceptT e m) where
+    -- Note that exceptions will not cause rollbacks in the cache.
+    getCache = lift getCache
+    {-# INLINE getCache #-}
+
+instance (MonadCache c m) => MonadCache c (MaybeT m) where
     -- Note that exceptions will not cause rollbacks in the cache.
     getCache = lift getCache
     {-# INLINE getCache #-}
