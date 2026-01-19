@@ -9,6 +9,10 @@
 - Advisory update: concordium-node, ring 0.17.8 - ID: RUSTSEC-2025-0009
 - Advisory update: concordium-node, tokio 1.41.1. - ID: RUSTSEC-2025-0023
 
+# 10.0.3
+
+- Fix another bug in protocol update state migration that incorrectly migrated PLT state.
+
 # 10.0.2
 
 - Fix a bug where a protocol update can be executed twice, resulting in a corrupted database.

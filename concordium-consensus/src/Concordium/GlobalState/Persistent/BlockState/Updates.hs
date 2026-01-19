@@ -1,5 +1,6 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
@@ -12,6 +13,7 @@ module Concordium.GlobalState.Persistent.BlockState.Updates where
 
 import Control.Monad
 import Control.Monad.Trans
+import Data.Bool.Singletons
 import qualified Data.ByteString as BS
 import Data.Foldable (toList)
 import qualified Data.List as List
@@ -818,17 +820,22 @@ migrateUpdates migration Updates{..} = do
                     currentKeyCollection
     newParameters <- migrateHashedBufferedRef (return . StoreSerialized . migrateChainParameters migration . unStoreSerialized) currentParameters
 
-    let newPltUpdateSequenceNumber = case migration of
-            StateMigrationParametersTrivial -> pltUpdateSequenceNumber
-            StateMigrationParametersP1P2 -> CFalse
-            StateMigrationParametersP2P3 -> CFalse
-            StateMigrationParametersP3ToP4 _ -> CFalse
-            StateMigrationParametersP4ToP5 -> CFalse
-            StateMigrationParametersP5ToP6 _ -> CFalse
-            StateMigrationParametersP6ToP7 -> CFalse
-            StateMigrationParametersP7ToP8 _ -> CFalse
-            StateMigrationParametersP8ToP9 _ -> CTrue minUpdateSequenceNumber
-            StateMigrationParametersP9ToP10 _ -> CTrue minUpdateSequenceNumber
+    let newPltUpdateSequenceNumber = case sSupportsCreatePLT (sAuthorizationsVersionFor (protocolVersion @oldpv)) of
+            STrue -> case sSupportsCreatePLT (sAuthorizationsVersionFor (protocolVersion @pv)) of
+                STrue ->
+                    -- We already have a sequence number, so preserve it
+                    pltUpdateSequenceNumber
+                SFalse ->
+                    -- No updates should remove the sequence number
+                    case migration of {}
+            SFalse -> case sSupportsCreatePLT (sAuthorizationsVersionFor (protocolVersion @pv)) of
+                STrue ->
+                    -- If the update introduces the sequence number, use the min
+                    CTrue minUpdateSequenceNumber
+                SFalse ->
+                    -- Otherwise, it remains CFalse
+                    pltUpdateSequenceNumber
+
     return
         Updates
             { currentKeyCollection = newKeyCollection,
