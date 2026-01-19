@@ -28,7 +28,7 @@ pub struct TokenConfiguration {
     pub decimals: u8,
 }
 
-/// Account with given id does not exist
+/// Token with given id does not exist
 #[derive(Debug, thiserror::Error)]
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
