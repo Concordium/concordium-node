@@ -2,16 +2,16 @@
 
 ## Unreleased changes
 
-- Advisory update: concordium-node, crossbeam-channel 0.5.13 - ID: RUSTSEC-2025-0024
-- Advisory update: concordium-node, openssl 0.10.68 - ID: RUSTSEC-2025-0004
-- Advisory update: concordium-node, openssl 0.10.68 - ID: RUSTSEC-2025-0022
-- Advisory update: concordium-node, protobuf 2.28.0 - ID: RUSTSEC-2024-0437
-- Advisory update: concordium-node, ring 0.17.8 - ID: RUSTSEC-2025-0009
-- Advisory update: concordium-node, tokio 1.41.1. - ID: RUSTSEC-2025-0023
-
 # 10.0.3
 
 - Fix another bug in protocol update state migration that incorrectly migrated PLT state.
+- Address security advisories and execute cargo update to upgrade the library dependencies below:
+  - Advisory update: concordium-node, crossbeam-channel 0.5.13 - ID: RUSTSEC-2025-0024
+  - Advisory update: concordium-node, openssl 0.10.68 - ID: RUSTSEC-2025-0004
+  - Advisory update: concordium-node, openssl 0.10.68 - ID: RUSTSEC-2025-0022
+  - Advisory update: concordium-node, protobuf 2.28.0 - ID: RUSTSEC-2024-0437
+  - Advisory update: concordium-node, ring 0.17.8 - ID: RUSTSEC-2025-0009
+  - Advisory update: concordium-node, tokio 1.41.1. - ID: RUSTSEC-2025-0023
 
 # 10.0.2
 
