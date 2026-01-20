@@ -1,8 +1,9 @@
 # Changelog
 
 ## Unreleased changes
-
-- advisory update: collector-backend, tokio 1.41.1 - RUSTSEC-2025-0023
+- Address security advisories and execute cargo update to upgrade the library dependencies below:
+  - advisory update: collector-backend, tokio 1.41.1 - RUSTSEC-2025-0023
+  - advisory update: concordium-node, url 2.5.3 - yanked version
  
 # 10.0.3
 
