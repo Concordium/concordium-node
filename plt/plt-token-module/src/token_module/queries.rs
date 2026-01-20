@@ -7,7 +7,7 @@ use concordium_base::protocol_level_tokens::{CborHolderAccount, RawCbor, TokenMo
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]
 pub enum QueryTokenModuleError {
-    #[error("Token module state invariant: {0}")]
+    #[error("{0}")]
     StateInvariantViolation(#[from] TokenModuleStateInvariantError),
 }
 
@@ -25,6 +25,7 @@ pub fn query_account_state<TK: TokenKernelQueries>(
     _kernel: &TK,
     _account: TK::Account,
 ) -> Result<Option<RawCbor>, QueryTokenModuleError> {
+    // todo implement as part of https://linear.app/concordium/issue/PSR-23/implement-token-module-account-state-query
     Ok(None)
 }
 

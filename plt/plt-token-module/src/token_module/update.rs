@@ -214,5 +214,8 @@ fn execute_token_transfer<
         raw_amount,
         transfer_operation.memo.map(Memo::from),
     )?;
+
+    // todo implement allow/deny list checks https://linear.app/concordium/issue/PSR-24/implement-allow-and-deny-lists
+
     Ok(())
 }
