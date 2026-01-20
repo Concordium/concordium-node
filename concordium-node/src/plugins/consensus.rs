@@ -1,5 +1,5 @@
 //! Consensus layer handling.
-use anyhow::{bail, ensure, Context};
+use anyhow::{bail, Context};
 use crossbeam_channel::TrySendError;
 
 use crate::{
@@ -109,7 +109,6 @@ pub fn handle_pkt_out(
     msg: Vec<u8>,
     is_broadcast: bool,
 ) -> anyhow::Result<()> {
-    ensure!(!msg.is_empty(),);
     let (consensus_type_bytes, payload) = msg
         .split_at_checked(1)
         .context("Packet payload can't be empty")?;
