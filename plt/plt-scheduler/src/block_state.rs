@@ -14,7 +14,7 @@ pub struct BlockState {}
 pub struct TokenIndex(u64);
 
 impl BlockStateQuery for BlockState {
-    type MutableTokenModuleState = ();
+    type TokenStateMap = ();
     type Account = AccountIndex;
     type Token = TokenIndex;
 
@@ -31,10 +31,10 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn mutable_token_module_state(
+    fn mutable_token_state_map(
         &self,
         _token_index: &TokenIndex,
-    ) -> Self::MutableTokenModuleState {
+    ) -> Self::TokenStateMap {
         todo!()
     }
 
@@ -46,17 +46,17 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn lookup_token_module_state_value(
+    fn lookup_token_state_value(
         &self,
-        _token_state: &Self::MutableTokenModuleState,
+        _token_state: &Self::TokenStateMap,
         _key: &ModuleStateKey,
     ) -> Option<ModuleStateValue> {
         todo!()
     }
 
-    fn update_token_module_state_value(
+    fn update_token_state_value(
         &self,
-        _token_state: &mut Self::MutableTokenModuleState,
+        _token_state: &mut Self::TokenStateMap,
         _key: &ModuleStateKey,
         _value: Option<ModuleStateValue>,
     ) {
@@ -133,10 +133,10 @@ impl BlockStateOperations for BlockState {
         todo!()
     }
 
-    fn set_token_module_state(
+    fn set_token_state_map(
         &mut self,
         _token_index: &TokenIndex,
-        _mutable_token_state: Self::MutableTokenModuleState,
+        _token_state_map: Self::TokenStateMap,
     ) {
         todo!()
     }

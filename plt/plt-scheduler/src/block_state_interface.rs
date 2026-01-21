@@ -43,8 +43,9 @@ pub struct TokenNotFoundByIdError(pub TokenId);
 
 /// Queries on the state of a block in the chain.
 pub trait BlockStateQuery {
-    /// Opaque type that represents the token module state.
-    type MutableTokenModuleState;
+    /// Opaque type that represents the module managed key-value map.
+    /// It defines a dynamic data model defined by the module.
+    type TokenStateMap;
 
     /// Opaque type that represents an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -68,14 +69,14 @@ pub trait BlockStateQuery {
     /// - `token_id` The token id to get the [`Self::Token`] of.
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError>;
 
-    /// Convert a persistent token module state to a mutable one that can be updated by the scheduler.
+    /// Convert a persistent token state key-values to a mutable one that can be updated by the scheduler.
     ///
-    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_module_state`].
+    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_state_map`].
     ///
     /// # Arguments
     ///
-    /// - `token` The token to get the module state from.
-    fn mutable_token_module_state(&self, token: &Self::Token) -> Self::MutableTokenModuleState;
+    /// - `token` The token to get the token state map for.
+    fn mutable_token_state_map(&self, token: &Self::Token) -> Self::TokenStateMap;
 
     /// Get the configuration of a protocol-level token.
     ///
@@ -91,30 +92,30 @@ pub trait BlockStateQuery {
     /// - `token` The token to get the circulating supply.
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount;
 
-    /// Lookup the value for the given key in the given token module state. Returns `None` if
+    /// Lookup the value for the given key in the given token state key-value map. Returns `None` if
     /// no value exists for the given key.
     ///
     /// # Arguments
     ///
-    /// - `token_module_state` The token module state to look up the value in.
+    /// - `token_module_map` The token module state to look up the value in.
     /// - `key` The token module state key.
-    fn lookup_token_module_state_value(
+    fn lookup_token_state_value(
         &self,
-        token_module_state: &Self::MutableTokenModuleState,
+        token_module_map: &Self::TokenStateMap,
         key: &ModuleStateKey,
     ) -> Option<ModuleStateValue>;
 
-    /// Update the value for the given key in the given token module state. If `None` is
+    /// Update the value for the given key in the given token state key-value map. If `None` is
     /// specified as value, the entry is removed.
     ///
     /// # Arguments
     ///
-    /// - `token_module_state` The token module state to update the value in.
+    /// - `token_module_map` The token module state to update the value in.
     /// - `key` The token module state key.
     /// - `value` The value to set. If `None`, the entry with the given key is removed.
-    fn update_token_module_state_value(
+    fn update_token_state_value(
         &self,
-        token_module_state: &mut Self::MutableTokenModuleState,
+        token_module_map: &mut Self::TokenStateMap,
         key: &ModuleStateKey,
         value: Option<ModuleStateValue>,
     );
@@ -217,7 +218,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
     fn increment_plt_update_instruction_sequence_number(&mut self);
 
-    /// Convert a mutable state to a persistent one and store it in the block state.
+    /// Convert a mutable token state key-value map to a persistent one and store it in the block state.
     ///
     /// To ensure this is future-proof, the mutable state should not be used after this call.
     ///
@@ -225,10 +226,10 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// - `token` The token index to update.
     /// - `mutable_token_module_state` The mutated state to set as the current token state.
-    fn set_token_module_state(
+    fn set_token_state_map(
         &mut self,
         token: &Self::Token,
-        mutable_token_module_state: Self::MutableTokenModuleState,
+        token_state_map: Self::TokenStateMap,
     );
 }
 

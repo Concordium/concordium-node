@@ -22,7 +22,7 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     /// Token in context
     pub token: &'a BSQ::Token,
     /// Token module state for the token in context
-    pub token_module_state: &'a BSQ::MutableTokenModuleState,
+    pub token_module_state: &'a BSQ::TokenStateMap,
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
@@ -60,7 +60,7 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
 
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
         self.block_state
-            .lookup_token_module_state_value(self.token_module_state, &key)
+            .lookup_token_state_value(self.token_module_state, &key)
     }
 }
 
@@ -73,7 +73,7 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     /// Configuration for the token in context
     pub token_configuration: &'a TokenConfiguration,
     /// Token module state for the token in context
-    pub token_module_state: &'a mut BSQ::MutableTokenModuleState,
+    pub token_module_state: &'a mut BSQ::TokenStateMap,
     /// Whether token module state has been changed so far
     pub token_module_state_dirty: &'a mut bool,
     /// Events produced so far
@@ -219,7 +219,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
     ) {
         *self.token_module_state_dirty = true;
         self.block_state
-            .update_token_module_state_value(self.token_module_state, &key, value);
+            .update_token_state_value(self.token_module_state, &key, value);
     }
 
     fn log_token_event(&mut self, module_event: TokenModuleEvent) {
@@ -262,6 +262,6 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
 
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
         self.block_state
-            .lookup_token_module_state_value(self.token_module_state, &key)
+            .lookup_token_state_value(self.token_module_state, &key)
     }
 }
