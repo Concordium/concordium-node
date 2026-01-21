@@ -1,6 +1,5 @@
 //! Implementation of the protocol-level token kernel.
 
-use crate::block_state_interface;
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
 };
@@ -9,11 +8,11 @@ use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenAmount;
 use concordium_base::transactions::Memo;
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, InsufficientBalanceError,
-    MintWouldOverflowError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
-    TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, ModuleStateKey, ModuleStateValue,
+    RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenMintError,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
 
 /// Implementation of token kernel queries with a specific token in context.
@@ -33,22 +32,14 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address).map_err(
-            |block_state_interface::AccountNotFoundByAddressError(account_address)| {
-                AccountNotFoundByAddressError(account_address)
-            },
-        )
+        self.block_state.account_by_address(address)
     }
 
     fn account_by_index(
         &self,
         index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index).map_err(
-            |block_state_interface::AccountNotFoundByIndexError(index)| {
-                AccountNotFoundByIndexError(index)
-            },
-        )
+        self.block_state.account_by_index(index)
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
@@ -243,22 +234,14 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address).map_err(
-            |block_state_interface::AccountNotFoundByAddressError(account_address)| {
-                AccountNotFoundByAddressError(account_address)
-            },
-        )
+        self.block_state.account_by_address(address)
     }
 
     fn account_by_index(
         &self,
         index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index).map_err(
-            |block_state_interface::AccountNotFoundByIndexError(index)| {
-                AccountNotFoundByIndexError(index)
-            },
-        )
+        self.block_state.account_by_index(index)
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {

@@ -15,12 +15,12 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
-    TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+    TokenAccountBlockState, TokenConfiguration, TokenNotFoundByIdError,
 };
 use plt_scheduler::scheduler::TransactionOutcome;
 use plt_scheduler::{TOKEN_MODULE_REF, queries, scheduler};
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 use plt_token_module::token_module;
 use std::collections::HashMap;
@@ -162,7 +162,7 @@ impl BlockStateStub {
             operations: RawCbor::from(cbor::cbor_encode(&operations)),
         };
 
-        let token_info = queries::token_info(self, &token_configuration.token_id).unwrap();
+        let token_info = queries::query_token_info(self, &token_configuration.token_id).unwrap();
         let token_module_state: TokenModuleState =
             cbor::cbor_decode(&token_info.state.module_state).unwrap();
         let gov_account = self
@@ -338,6 +338,22 @@ impl BlockStateQuery for BlockStateStub {
             .get(token)
             .map(|token| token.balance)
             .unwrap_or_default()
+    }
+
+    fn token_account_states(
+        &self,
+        account: &Self::Account,
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountBlockState)> {
+        self.accounts[account.0]
+            .tokens
+            .iter()
+            .map(|(token, state)| {
+                let token_account_state = TokenAccountBlockState {
+                    balance: state.balance,
+                };
+
+                (*token, token_account_state)
+            })
     }
 }
 

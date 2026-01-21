@@ -12,12 +12,14 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, TokenModuleInitializationParameters,
 };
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
+use plt_scheduler_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OutOfEnergyError,
+    TransactionExecution,
+};
 use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, InsufficientBalanceError,
-    MintWouldOverflowError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
-    TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, ModuleStateKey, ModuleStateValue,
+    RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenMintError,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
 use plt_token_module::token_module;
 
