@@ -1,3 +1,6 @@
+use crate::module_state::{
+    KernelOperationsExt, KernelQueriesExt, STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_PAUSED,
+};
 use crate::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
     TokenMintError, TokenStateInvariantError, TokenTransferError,
@@ -5,6 +8,7 @@ use crate::token_kernel_interface::{
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MintWouldOverflowRejectReason, RawCbor, TokenBalanceInsufficientRejectReason,
@@ -236,6 +240,8 @@ fn execute_token_update_operation<
         }
         TokenOperation::Mint(mint) => execute_token_mint(transaction_execution, kernel, mint),
         TokenOperation::Burn(burn) => execute_token_burn(transaction_execution, kernel, burn),
+        TokenOperation::Pause(_) => execute_token_pause(transaction_execution, kernel),
+        TokenOperation::Unpause(_) => execute_token_unpause(transaction_execution, kernel),
         _ => todo!(),
     }
 }
@@ -303,5 +309,34 @@ fn execute_token_burn<
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
+    Ok(())
+}
+
+fn execute_token_pause<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::Account>,
+>(
+    _transaction_execution: &mut TE,
+    kernel: &mut TK,
+) -> Result<(), TokenUpdateErrorInternal> {
+    // let gov_account = kernel
+    //     .get_module_state(STATE_KEY_GOVERNANCE_ACCOUNT)
+    //     .unwrap(); // TODO: how do we handle the case of a missing governance account?
+    // let gov_account = AccountAddress::try_from(gov_account.as_slice());
+    // TODO: authorization implemented as part of PSR-26
+
+    kernel.set_module_state(STATE_KEY_PAUSED, Some(vec![]));
+    Ok(())
+}
+
+fn execute_token_unpause<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::Account>,
+>(
+    _transaction_execution: &mut TE,
+    kernel: &mut TK,
+) -> Result<(), TokenUpdateErrorInternal> {
+    // TODO: authorization implemented as part of PSR-26
+    kernel.set_module_state(STATE_KEY_PAUSED, None);
     Ok(())
 }
