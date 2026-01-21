@@ -171,12 +171,6 @@ pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
         events: &mut events,
     };
 
-    kernel
-        .events
-        .push(BlockItemEvent::TokenCreated(TokenCreateEvent {
-            payload: payload.clone(),
-        }));
-
     // Initialize token in token module
     let token_initialize_result =
         token_module::initialize_token(&mut kernel, payload.initialization_parameters);

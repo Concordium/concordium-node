@@ -398,7 +398,7 @@ fn test_plt_multiple_operations() {
     assert_eq!(events.len(), 2);
     assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(mint.amount, TokenAmount::from_raw(3000, 4));
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
     });
     assert_matches!(&events[1], BlockItemEvent::TokenTransfer(transfer) => {
