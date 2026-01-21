@@ -254,6 +254,8 @@ fn test_pause_multiple_ops() {
     // state values changes attempted to _not_ have taken effect.
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
+    // NOTE: can we even do this verification at this point, or are we going to rely on block state
+    // rollback for the state to be reset?
     assert_eq!(state.paused, Some(false));
     assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
 }
