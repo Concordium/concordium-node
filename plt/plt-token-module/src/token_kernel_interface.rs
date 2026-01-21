@@ -67,7 +67,8 @@ pub enum TokenBurnError {
     InsufficientBalance(#[from] InsufficientBalanceError),
 }
 
-/// Queries provided by the token kernel.
+/// Queries provided by the token kernel. All queries are in context of
+/// a specific token that the kernel is initialized with.
 pub trait TokenKernelQueries {
     /// Opaque type that identifies an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -102,11 +103,19 @@ pub trait TokenKernelQueries {
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue>;
 }
 
-/// Operations provided by the token kernel. The operations do not only allow modifying
+/// Operations provided by the token kernel. All operations are in context of
+/// a specific token that the kernel is initialized with.
+///
+/// The operations do not only allow modifying
 /// token module state, but also indirectly affect the token state maintained by the token
 /// kernel.
 pub trait TokenKernelOperations: TokenKernelQueries {
-    /// Update the balance of the given account to zero if it didn't have a balance before.
+    /// Initialize the balance of the given account to zero if it didn't have a balance before.
+    /// It has the observable effect that the token is then returned when querying the tokens
+    /// for an account. Should be called if the token module account state is set,
+    /// in order to make sure the token is returned when querying token account info.
+    ///
+    /// If the account already has a balance for the token in context, the operation has no effect
     fn touch_account(&mut self, account: &Self::Account);
 
     /// Mint a specified amount and deposit it in the account.
