@@ -2,7 +2,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::{TokenStateKey, TokenStateValue, RawTokenAmount};
+use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenStateKey, TokenStateValue};
 
 /// Change in [`RawTokenAmount`].
 ///

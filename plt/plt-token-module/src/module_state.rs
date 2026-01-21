@@ -1,7 +1,7 @@
 //! Internal constants and utilities for token module state.
 
 use crate::token_kernel_interface::{
-    TokenStateKey, TokenStateValue, TokenKernelOperations, TokenKernelQueries,
+    TokenKernelOperations, TokenKernelQueries, TokenStateKey, TokenStateValue,
 };
 use crate::token_module::TokenModuleStateInvariantError;
 use crate::util;

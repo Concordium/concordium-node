@@ -17,9 +17,9 @@ use plt_scheduler_interface::{
     TransactionExecution,
 };
 use plt_token_module::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenStateKey, TokenStateValue,
-    RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenMintError,
-    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, RawTokenAmount, TokenBurnError,
+    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
+    TokenStateInvariantError, TokenStateKey, TokenStateValue, TokenTransferError,
 };
 use plt_token_module::token_module;
 
@@ -331,11 +331,7 @@ impl TokenKernelOperations for KernelStub {
         Ok(())
     }
 
-    fn set_token_module_state_value(
-        &mut self,
-        key: TokenStateKey,
-        value: Option<TokenStateValue>,
-    ) {
+    fn set_token_module_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
         match value {
             None => self.state.remove(&key).is_some(),
             Some(value) => self.state.insert(key, value).is_some(),

@@ -21,7 +21,7 @@ use plt_scheduler::block_state_interface::{
 use plt_scheduler::scheduler::TransactionOutcome;
 use plt_scheduler::{queries, scheduler};
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::{TokenStateKey, TokenStateValue, RawTokenAmount};
+use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenStateKey, TokenStateValue};
 use plt_token_module::{TOKEN_MODULE_REF, token_module};
 use std::collections::BTreeMap;
 

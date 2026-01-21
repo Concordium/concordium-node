@@ -5,7 +5,7 @@ use crate::block_state_interface::{
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::{TokenStateKey, TokenStateValue, RawTokenAmount};
+use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenStateKey, TokenStateValue};
 
 pub struct BlockState {}
 
@@ -31,10 +31,7 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn mutable_token_key_value_state(
-        &self,
-        _token_index: &TokenIndex,
-    ) -> Self::TokenKeyValueState {
+    fn mutable_token_key_value_state(&self, _token_index: &TokenIndex) -> Self::TokenKeyValueState {
         todo!()
     }
 

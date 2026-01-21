@@ -10,9 +10,9 @@ use concordium_base::protocol_level_tokens::TokenAmount;
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, TokenStateKey, TokenStateValue,
-    RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenMintError,
-    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, RawTokenAmount, TokenBurnError,
+    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
+    TokenStateInvariantError, TokenStateKey, TokenStateValue, TokenTransferError,
 };
 
 /// Implementation of token kernel queries with a specific token in context.
@@ -212,11 +212,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         Ok(())
     }
 
-    fn set_token_module_state_value(
-        &mut self,
-        key: TokenStateKey,
-        value: Option<TokenStateValue>,
-    ) {
+    fn set_token_module_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
         *self.token_module_state_dirty = true;
         self.block_state
             .update_token_state_value(self.token_module_state, &key, value);
