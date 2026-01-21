@@ -54,10 +54,12 @@ jobs:
         run: |
           cargo llvm-cov test --locked --all-targets --all-features --no-report
       - name: Generate a report of the tests above.
+        working-directory: plt
         run: |
           cargo llvm-cov report --lcov --output-path plt_lcov.info
         # Options documented here: https://github.com/codecov/codecov-action
       - name: Upload coverage to Codecov
+        working-directory: plt
         uses: codecov/codecov-action@v5
         with:
           disable_telem: true
