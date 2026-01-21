@@ -412,7 +412,7 @@ fn test_plt_multiple_operations() {
 
 /// Test protocol-level token transfer that is rejected because token does not exist.
 #[test]
-fn test_non_exising_token_id() {
+fn test_non_existing_token_id() {
     let mut stub = BlockStateStub::new();
     let account1 = stub.create_account();
     let account2 = stub.create_account();
@@ -489,6 +489,8 @@ fn test_energy_charge_at_reject() {
     let account2 = stub.create_account();
     stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
 
+    // Transfer operation with a larger amount than the token balance of the sender `gov_account`,
+    // which will be the cause of the rejection.
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 4),
         recipient: CborHolderAccount::from(stub.account_canonical_address(&account2)),
@@ -539,7 +541,7 @@ fn test_out_of_energy_error() {
         gov_account,
         &mut stub,
         Payload::TokenUpdate { payload },
-        Energy::from(150),
+        Energy::from(150), // needs 300 + 100 to succeed
     )
     .expect("transaction internal error");
 
