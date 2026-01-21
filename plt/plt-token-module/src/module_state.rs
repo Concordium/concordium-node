@@ -1,7 +1,7 @@
 //! Internal constants and utilities for token module state.
 
 use crate::token_kernel_interface::{
-    ModuleStateKey, ModuleStateValue, TokenKernelOperations, TokenKernelQueries,
+    TokenKernelOperations, TokenKernelQueries, TokenStateKey, TokenStateValue,
 };
 use crate::token_module::TokenModuleStateInvariantError;
 use crate::util;
@@ -25,8 +25,8 @@ pub const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
 /// module state updates.
 pub trait KernelOperationsExt: TokenKernelOperations {
     /// Set or clear a value in the token module state at the corresponding key.
-    fn set_module_state(&mut self, key: &[u8], value: Option<ModuleStateValue>) {
-        self.set_token_module_state_value(module_state_key(key), value);
+    fn set_module_state(&mut self, key: &[u8], value: Option<TokenStateValue>) {
+        self.set_token_state_value(module_state_key(key), value);
     }
 }
 
@@ -36,16 +36,16 @@ impl<T: TokenKernelOperations> KernelOperationsExt for T {}
 /// module state access.
 pub trait KernelQueriesExt: TokenKernelQueries {
     /// Get value from the token module state at the given key.
-    fn get_module_state(&self, key: &[u8]) -> Option<ModuleStateValue> {
-        self.lookup_token_module_state_value(module_state_key(key))
+    fn get_module_state(&self, key: &[u8]) -> Option<TokenStateValue> {
+        self.lookup_token_state_value(module_state_key(key))
     }
 }
 
 impl<T: TokenKernelQueries> KernelQueriesExt for T {}
 
-/// Construct a [`ModuleStateKey`] for a module key. This prefixes the key to
+/// Construct a [`TokenStateKey`] for a module key. This prefixes the key to
 /// distinguish it from other keys.
-fn module_state_key(key: &[u8]) -> ModuleStateKey {
+fn module_state_key(key: &[u8]) -> TokenStateKey {
     let mut module_key = Vec::with_capacity(MODULE_STATE_PREFIX.len() + key.len());
     module_key.extend_from_slice(&MODULE_STATE_PREFIX);
     module_key.extend_from_slice(key);

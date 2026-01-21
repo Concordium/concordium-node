@@ -22,10 +22,7 @@ fn test_token_pause_state() {
     let gov_account = stub.init_token(TokenInitTestParams::default());
 
     // Assert initial state matches expectations
-    assert_eq!(
-        stub.lookup_token_module_state_value(b"\0\0paused".into()),
-        None
-    );
+    assert_eq!(stub.lookup_token_state_value(b"\0\0paused".into()), None);
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.paused, Some(false));
@@ -42,7 +39,7 @@ fn test_token_pause_state() {
 
     // Assert pause has taken effect
     assert_eq!(
-        stub.lookup_token_module_state_value(b"\0\0paused".into()),
+        stub.lookup_token_state_value(b"\0\0paused".into()),
         Some(vec![])
     );
     let state: TokenModuleState =
@@ -60,10 +57,7 @@ fn test_token_pause_state() {
     .expect("executes successfully");
 
     // Assert unpause has taken effect
-    assert_eq!(
-        stub.lookup_token_module_state_value(b"\0\0paused".into()),
-        None
-    );
+    assert_eq!(stub.lookup_token_state_value(b"\0\0paused".into()), None);
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.paused, Some(false));

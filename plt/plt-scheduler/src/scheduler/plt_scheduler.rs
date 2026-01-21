@@ -66,7 +66,7 @@ pub fn execute_token_update_transaction<
     let token_configuration = block_state.token_configuration(&token);
 
     let mut events = Vec::new();
-    let mut token_module_state = block_state.mutable_token_module_state(&token);
+    let mut token_module_state = block_state.mutable_token_key_value_state(&token);
     let mut token_module_state_dirty = false;
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
@@ -88,7 +88,7 @@ pub fn execute_token_update_transaction<
         Ok(()) => {
             // Update token module state if dirty
             if token_module_state_dirty {
-                block_state.set_token_module_state(&token, token_module_state);
+                block_state.set_token_key_value_state(&token, token_module_state);
             }
 
             // Return events
@@ -160,7 +160,7 @@ pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
         payload: payload.clone(),
     }));
 
-    let mut token_module_state = block_state.mutable_token_module_state(&token);
+    let mut token_module_state = block_state.mutable_token_key_value_state(&token);
     let mut token_module_state_dirty = false;
     let mut kernel = TokenKernelOperationsImpl {
         block_state,
@@ -182,7 +182,7 @@ pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
 
             // Update token module state if dirty
             if token_module_state_dirty {
-                block_state.set_token_module_state(&token, token_module_state);
+                block_state.set_token_key_value_state(&token, token_module_state);
             }
 
             // Return events
