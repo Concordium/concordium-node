@@ -2,15 +2,14 @@ use crate::module_state::{
     KernelOperationsExt, STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST,
     STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME,
 };
-use crate::token_kernel_interface::{
-    AccountNotFoundByAddressError, AmountNotRepresentableError, TokenKernelOperations,
-};
+use crate::token_kernel_interface::{AmountNotRepresentableError, TokenKernelOperations};
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::common;
 use concordium_base::common::cbor;
 use concordium_base::common::cbor::CborSerializationError;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleInitializationParameters};
+use plt_scheduler_interface::AccountNotFoundByAddressError;
 
 /// Represents the reasons why [`initialize_token`] can fail.
 #[derive(Debug, thiserror::Error)]

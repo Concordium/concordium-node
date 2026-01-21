@@ -1,6 +1,5 @@
 use crate::token_kernel_interface::{
-    AccountNotFoundByAddressError, InsufficientBalanceError, TokenKernelOperations,
-    TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, TokenKernelOperations, TokenStateInvariantError, TokenTransferError,
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
@@ -10,7 +9,9 @@ use concordium_base::protocol_level_tokens::{
     TokenModuleRejectReasonEnum, TokenOperation, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
+use plt_scheduler_interface::{
+    AccountNotFoundByAddressError, OutOfEnergyError, TransactionExecution,
+};
 
 /// Details provided by the token module in the event of rejecting a
 /// transaction.

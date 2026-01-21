@@ -5,6 +5,7 @@ use crate::token_kernel::TokenKernelQueriesImpl;
 use crate::types::state::{TokenAccountState, TokenState};
 use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
+use plt_scheduler_interface::AccountNotFoundByIndexError;
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
 
@@ -32,7 +33,7 @@ pub enum QueryTokenInfoError {
 }
 
 /// Get the token state associated with the given token id.
-pub fn token_info(
+pub fn query_token_info(
     block_state: &impl BlockStateQuery,
     token_id: &TokenId,
 ) -> Result<TokenInfo, QueryTokenInfoError> {
@@ -83,12 +84,45 @@ pub struct TokenAccountInfo {
 pub enum QueryTokenAccountStateError {
     #[error("Error returned when querying the token module: {0}")]
     QueryTokenModule(#[from] QueryTokenModuleError),
+    #[error("{0}")]
+    AccountNotFoundByIndex(#[from] AccountNotFoundByIndexError),
 }
 
 /// Get the list of tokens on an account
-pub fn token_account_infos(
-    _block_state: &impl BlockStateQuery,
-    _account: AccountIndex,
+pub fn query_token_account_infos(
+    block_state: &impl BlockStateQuery,
+    account_index: AccountIndex,
 ) -> Result<Vec<TokenAccountInfo>, QueryTokenAccountStateError> {
-    todo!()
+    let account = block_state.account_by_index(account_index)?;
+
+    block_state
+        .token_account_states(&account)
+        .map(|(token, state)| {
+            let token_configuration = block_state.token_configuration(&token);
+
+            let token_module_state = block_state.mutable_token_module_state(&token);
+
+            let kernel = TokenKernelQueriesImpl {
+                block_state,
+                token: &token,
+                token_module_state: &token_module_state,
+            };
+
+            let module_state = token_module::query_account_token_module_state(&kernel, &account)?;
+
+            let balance = TokenAmount::from_raw(state.balance.0, token_configuration.decimals);
+
+            let account_state = TokenAccountState {
+                balance,
+                module_state,
+            };
+
+            let token_account_info = TokenAccountInfo {
+                token_id: token_configuration.token_id,
+                account_state,
+            };
+
+            Ok(token_account_info)
+        })
+        .collect()
 }
