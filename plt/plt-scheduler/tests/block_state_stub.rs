@@ -21,7 +21,7 @@ use plt_scheduler::block_state_interface::{
 use plt_scheduler::scheduler::TransactionOutcome;
 use plt_scheduler::{queries, scheduler};
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
+use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenStateKey, TokenStateValue};
 use plt_token_module::{TOKEN_MODULE_REF, token_module};
 use std::collections::BTreeMap;
 
@@ -41,7 +41,7 @@ pub struct BlockStateStub {
 #[derive(Debug)]
 struct Token {
     /// Module state
-    module_state: StubTokenModuleState,
+    module_state: StubTokenKeyValueState,
     /// Token configuration
     configuration: TokenConfiguration,
     /// Circulating supply
@@ -50,9 +50,9 @@ struct Token {
 
 /// Representation of module state in the stub
 #[derive(Debug, Clone, Default)]
-pub struct StubTokenModuleState {
+pub struct StubTokenKeyValueState {
     /// Token module managed state.
-    state: BTreeMap<ModuleStateKey, ModuleStateValue>,
+    state: BTreeMap<TokenStateKey, TokenStateValue>,
 }
 
 /// Internal representation of an account in [`BlockStateStub`].
@@ -234,7 +234,7 @@ pub struct AccountStubIndex(usize);
 pub struct TokenStubIndex(usize);
 
 impl BlockStateQuery for BlockStateStub {
-    type MutableTokenModuleState = StubTokenModuleState;
+    type TokenKeyValueState = StubTokenKeyValueState;
     type Account = AccountStubIndex;
     type Token = TokenStubIndex;
 
@@ -263,7 +263,7 @@ impl BlockStateQuery for BlockStateStub {
             .ok_or(TokenNotFoundByIdError(token_id.clone()))
     }
 
-    fn mutable_token_module_state(&self, token: &Self::Token) -> StubTokenModuleState {
+    fn mutable_token_key_value_state(&self, token: &Self::Token) -> StubTokenKeyValueState {
         self.tokens[token.0].module_state.clone()
     }
 
@@ -275,24 +275,24 @@ impl BlockStateQuery for BlockStateStub {
         self.tokens[token.0].circulating_supply
     }
 
-    fn lookup_token_module_state_value(
+    fn lookup_token_state_value(
         &self,
-        token_module_state: &StubTokenModuleState,
-        key: &ModuleStateKey,
-    ) -> Option<ModuleStateValue> {
-        token_module_state.state.get(key).cloned()
+        token_key_value_state: &StubTokenKeyValueState,
+        key: &TokenStateKey,
+    ) -> Option<TokenStateValue> {
+        token_key_value_state.state.get(key).cloned()
     }
 
-    fn update_token_module_state_value(
+    fn update_token_state_value(
         &self,
-        token_module_state: &mut StubTokenModuleState,
-        key: &ModuleStateKey,
-        value: Option<ModuleStateValue>,
+        token_key_value_state: &mut StubTokenKeyValueState,
+        key: &TokenStateKey,
+        value: Option<TokenStateValue>,
     ) {
         if let Some(value) = value {
-            token_module_state.state.insert(key.clone(), value);
+            token_key_value_state.state.insert(key.clone(), value);
         } else {
-            token_module_state.state.remove(key);
+            token_key_value_state.state.remove(key);
         }
     }
 
@@ -411,11 +411,11 @@ impl BlockStateOperations for BlockStateStub {
         self.plt_update_instruction_sequence_number += 1;
     }
 
-    fn set_token_module_state(
+    fn set_token_key_value_state(
         &mut self,
         token: &Self::Token,
-        mutable_token_module_state: Self::MutableTokenModuleState,
+        token_key_value_state: Self::TokenKeyValueState,
     ) {
-        self.tokens[token.0].module_state = mutable_token_module_state;
+        self.tokens[token.0].module_state = token_key_value_state;
     }
 }

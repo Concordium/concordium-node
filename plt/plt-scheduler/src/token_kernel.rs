@@ -10,9 +10,9 @@ use concordium_base::protocol_level_tokens::TokenAmount;
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, ModuleStateKey, ModuleStateValue,
-    RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenMintError,
-    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, RawTokenAmount, TokenBurnError,
+    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
+    TokenStateInvariantError, TokenStateKey, TokenStateValue, TokenTransferError,
 };
 
 /// Implementation of token kernel queries with a specific token in context.
@@ -22,7 +22,7 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     /// Token in context
     pub token: &'a BSQ::Token,
     /// Token module state for the token in context
-    pub token_module_state: &'a BSQ::MutableTokenModuleState,
+    pub token_module_state: &'a BSQ::TokenKeyValueState,
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
@@ -58,9 +58,9 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
         self.block_state.token_configuration(self.token).decimals
     }
 
-    fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
+    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.block_state
-            .lookup_token_module_state_value(self.token_module_state, &key)
+            .lookup_token_state_value(self.token_module_state, &key)
     }
 }
 
@@ -73,7 +73,7 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     /// Configuration for the token in context
     pub token_configuration: &'a TokenConfiguration,
     /// Token module state for the token in context
-    pub token_module_state: &'a mut BSQ::MutableTokenModuleState,
+    pub token_module_state: &'a mut BSQ::TokenKeyValueState,
     /// Whether token module state has been changed so far
     pub token_module_state_dirty: &'a mut bool,
     /// Events produced so far
@@ -212,14 +212,10 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         Ok(())
     }
 
-    fn set_token_module_state_value(
-        &mut self,
-        key: ModuleStateKey,
-        value: Option<ModuleStateValue>,
-    ) {
+    fn set_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
         *self.token_module_state_dirty = true;
         self.block_state
-            .update_token_module_state_value(self.token_module_state, &key, value);
+            .update_token_state_value(self.token_module_state, &key, value);
     }
 
     fn log_token_event(&mut self, module_event: TokenModuleEvent) {
@@ -260,8 +256,8 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
         self.block_state.token_configuration(self.token).decimals
     }
 
-    fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
+    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.block_state
-            .lookup_token_module_state_value(self.token_module_state, &key)
+            .lookup_token_state_value(self.token_module_state, &key)
     }
 }
