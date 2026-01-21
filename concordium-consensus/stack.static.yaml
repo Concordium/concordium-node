@@ -1,5 +1,19 @@
 resolver: lts-24.0
 
+# To be able to produce a statically linked shared library, we need to use a ghc
+# and libraries variant compiled with Position Independent Code (PIC) enabled.
+# Such a build is not provided by default, so instead we use a custom build.
+#
+# See `/scripts/build-static-ghc.sh` for how to do this.
+ghc-variant: static-build
+setup-info:
+  ghc:
+    linux64-custom-static-build-tinfo6:
+      9.10.2:
+        url: "/home/lime/Concordium/concordium-node/ghc2/ghc-9.10.2/_build/bindist/ghc-9.10.2-x86_64-unknown-linux.tar.xz"
+        # "https://s3-eu-west-1.amazonaws.com/static-libraries.concordium.com/ghc-9.10.2-fpic-gmp-x86_64-unknown-linux-gnu.tar.gz"
+        # sha256: 07d347a6d28bd818fde1a5b9d5ae79fcca63e225
+
 packages:
 - .
 - haskell-lmdb
@@ -14,3 +28,7 @@ extra-lib-dirs:
 ghc-options:
     # `simpl-tick-factor` parameter here is necessary due to a bug in the ghc: https://gitlab.haskell.org/ghc/ghc/-/issues/14637#note_413425
     "$everything": -fPIC -fsimpl-tick-factor=10000
+
+flags:
+  concordium-consensus:
+    dynamic: false
