@@ -33,7 +33,7 @@ pub enum QueryTokenInfoError {
 }
 
 /// Get the token state associated with the given token id.
-pub fn token_info(
+pub fn query_token_info(
     block_state: &impl BlockStateQuery,
     token_id: &TokenId,
 ) -> Result<TokenInfo, QueryTokenInfoError> {
@@ -89,7 +89,7 @@ pub enum QueryTokenAccountStateError {
 }
 
 /// Get the list of tokens on an account
-pub fn token_account_infos(
+pub fn query_token_account_infos(
     block_state: &impl BlockStateQuery,
     account_index: AccountIndex,
 ) -> Result<Vec<TokenAccountInfo>, QueryTokenAccountStateError> {

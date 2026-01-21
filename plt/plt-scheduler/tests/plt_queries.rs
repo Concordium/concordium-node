@@ -38,7 +38,7 @@ fn test_query_token_info() {
 
     let non_canonical_token_id = "toKeniD1".parse().unwrap();
     // Lookup by token id that is not in canonical casing
-    let token_info = queries::token_info(&stub, &non_canonical_token_id).unwrap();
+    let token_info = queries::query_token_info(&stub, &non_canonical_token_id).unwrap();
     // Assert that the token id returned is in the canonical casing
     assert_eq!(token_info.token_id, token_id);
     assert_eq!(token_info.state.decimals, 4);
@@ -72,7 +72,7 @@ fn test_query_token_account_info() {
 
     // Lookup account token infos
     let token_account_infos =
-        queries::token_account_infos(&stub, stub.account_index(&account)).unwrap();
+        queries::query_token_account_infos(&stub, stub.account_index(&account)).unwrap();
     assert_eq!(token_account_infos.len(), 2);
     assert_eq!(token_account_infos[0].token_id, token_id1);
     assert_eq!(

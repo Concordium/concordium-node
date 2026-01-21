@@ -22,7 +22,7 @@ pub fn query_token_module_state<TK: TokenKernelQueries>(
     Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
-    // todo implement as part of https://linear.app/concordium/issue/PSR-23/implement-token-module-account-state-query
+// todo implement as part of https://linear.app/concordium/issue/PSR-23/implement-token-module-account-state-query
 fn query_token_module_state_impl<TK: TokenKernelQueries>(
     kernel: &TK,
 ) -> Result<TokenModuleState, QueryTokenModuleError> {
