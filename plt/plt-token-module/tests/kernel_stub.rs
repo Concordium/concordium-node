@@ -3,21 +3,23 @@
 // items in the file.
 #![allow(unused)]
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, TokenModuleInitializationParameters,
 };
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
+use plt_scheduler_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OutOfEnergyError,
+    TransactionExecution,
+};
 use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, InsufficientBalanceError,
-    MintWouldOverflowError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
-    TokenStateInvariantError, TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, ModuleStateKey, ModuleStateValue,
+    RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenMintError,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
 use plt_token_module::token_module;
 
@@ -28,7 +30,7 @@ pub struct KernelStub {
     /// List of accounts existing.
     accounts: Vec<Account>,
     /// Token module managed state.
-    state: HashMap<ModuleStateKey, ModuleStateValue>,
+    state: BTreeMap<ModuleStateKey, ModuleStateValue>,
     /// Decimal places in token representation.
     decimals: u8,
     /// Circulating supply
@@ -349,11 +351,23 @@ impl TokenKernelOperations for KernelStub {
 #[derive(Debug)]
 pub struct TransactionExecutionTestImpl {
     sender: AccountStubIndex,
+    remaining_energy: Energy,
 }
 
 impl TransactionExecutionTestImpl {
+    pub fn with_sender_and_energy(sender: AccountStubIndex, remaining_energy: Energy) -> Self {
+        Self {
+            sender,
+            remaining_energy,
+        }
+    }
+
     pub fn with_sender(sender: AccountStubIndex) -> Self {
-        Self { sender }
+        Self::with_sender_and_energy(sender, Energy::from(u64::MAX))
+    }
+
+    pub fn remaining_energy(&self) -> Energy {
+        self.remaining_energy
     }
 }
 
@@ -365,7 +379,9 @@ impl TransactionExecution for TransactionExecutionTestImpl {
     }
 
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
-        todo!()
+        self.remaining_energy
+            .tick_energy(energy)
+            .map_err(|_err: InsufficientEnergy| OutOfEnergyError)
     }
 }
 

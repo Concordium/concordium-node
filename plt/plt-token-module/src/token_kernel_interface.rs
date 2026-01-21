@@ -6,6 +6,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 
 pub type ModuleStateKey = Vec<u8>;
 pub type ModuleStateValue = Vec<u8>;
@@ -54,16 +55,6 @@ pub struct MintWouldOverflowError {
     pub max_representable_amount: RawTokenAmount,
 }
 
-/// Account with given address does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with address {0} does not exist")]
-pub struct AccountNotFoundByAddressError(pub AccountAddress);
-
-/// Account with given index does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with index {0} does not exist")]
-pub struct AccountNotFoundByIndexError(pub AccountIndex);
-
 /// An invariant in the token state that should be enforced
 /// is broken. This is generally an error that should never happen and is unrecoverable.
 #[derive(Debug, thiserror::Error)]
@@ -97,7 +88,8 @@ pub enum TokenBurnError {
     InsufficientBalance(#[from] InsufficientBalanceError),
 }
 
-/// Queries provided by the token kernel.
+/// Queries provided by the token kernel. All queries are in context of
+/// a specific token that the kernel is initialized with.
 pub trait TokenKernelQueries {
     /// Opaque type that identifies an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -132,11 +124,19 @@ pub trait TokenKernelQueries {
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue>;
 }
 
-/// Operations provided by the token kernel. The operations do not only allow modifying
+/// Operations provided by the token kernel. All operations are in context of
+/// a specific token that the kernel is initialized with.
+///
+/// The operations do not only allow modifying
 /// token module state, but also indirectly affect the token state maintained by the token
 /// kernel.
 pub trait TokenKernelOperations: TokenKernelQueries {
-    /// Update the balance of the given account to zero if it didn't have a balance before.
+    /// Initialize the balance of the given account to zero if it didn't have a balance before.
+    /// It has the observable effect that the token is then returned when querying the tokens
+    /// for an account. Should be called if the token module account state is set,
+    /// in order to make sure the token is returned when querying token account info.
+    ///
+    /// If the account already has a balance for the token in context, the operation has no effect
     fn touch_account(&mut self, account: &Self::Account);
 
     /// Mint a specified amount and deposit it in the account.

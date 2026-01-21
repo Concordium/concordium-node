@@ -1,6 +1,7 @@
 //! Interface to the scheduler seen by lower level module, like the protocol-level tokens scheduler.
 
-use concordium_base::base::Energy;
+use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::contracts_common::AccountAddress;
 
 /// Operations and context related to transaction execution. This is the abstraction
 /// seen in the transaction execution logic in the scheduler and in the token module.
@@ -28,3 +29,13 @@ pub trait TransactionExecution {
 #[derive(Debug, thiserror::Error)]
 #[error("Execution out of energy")]
 pub struct OutOfEnergyError;
+
+/// Account with given address does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with address {0} does not exist")]
+pub struct AccountNotFoundByAddressError(pub AccountAddress);
+
+/// Account with given index does not exist
+#[derive(Debug, thiserror::Error)]
+#[error("Account with index {0} does not exist")]
+pub struct AccountNotFoundByIndexError(pub AccountIndex);

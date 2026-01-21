@@ -7,13 +7,13 @@ on:
     paths:
     - '.github/workflows/plt-build-test.yaml'
     - 'concordium-base'
-    - 'plt'
+    - 'plt/**'
 
   pull_request:
     paths:
     - '.github/workflows/plt-build-test.yaml'
     - 'concordium-base'
-    - 'plt'
+    - 'plt/**'
 env:
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
 
