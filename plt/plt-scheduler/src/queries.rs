@@ -44,7 +44,7 @@ pub fn query_token_info(
 
     let total_supply = TokenAmount::from_raw(circulating_supply.0, token_configuration.decimals);
 
-    let token_module_state = block_state.mutable_token_state_map(&token);
+    let token_module_state = block_state.mutable_token_key_value_state(&token);
 
     let kernel = TokenKernelQueriesImpl {
         block_state,
@@ -100,7 +100,7 @@ pub fn query_token_account_infos(
         .map(|(token, state)| {
             let token_configuration = block_state.token_configuration(&token);
 
-            let token_module_state = block_state.mutable_token_state_map(&token);
+            let token_module_state = block_state.mutable_token_key_value_state(&token);
 
             let kernel = TokenKernelQueriesImpl {
                 block_state,

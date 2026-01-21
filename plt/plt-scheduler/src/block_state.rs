@@ -5,7 +5,7 @@ use crate::block_state_interface::{
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
+use plt_token_module::token_kernel_interface::{TokenStateKey, TokenStateValue, RawTokenAmount};
 
 pub struct BlockState {}
 
@@ -14,7 +14,7 @@ pub struct BlockState {}
 pub struct TokenIndex(u64);
 
 impl BlockStateQuery for BlockState {
-    type TokenStateMap = ();
+    type TokenKeyValueState = ();
     type Account = AccountIndex;
     type Token = TokenIndex;
 
@@ -31,10 +31,10 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn mutable_token_state_map(
+    fn mutable_token_key_value_state(
         &self,
         _token_index: &TokenIndex,
-    ) -> Self::TokenStateMap {
+    ) -> Self::TokenKeyValueState {
         todo!()
     }
 
@@ -48,17 +48,17 @@ impl BlockStateQuery for BlockState {
 
     fn lookup_token_state_value(
         &self,
-        _token_state: &Self::TokenStateMap,
-        _key: &ModuleStateKey,
-    ) -> Option<ModuleStateValue> {
+        _token_state: &Self::TokenKeyValueState,
+        _key: &TokenStateKey,
+    ) -> Option<TokenStateValue> {
         todo!()
     }
 
     fn update_token_state_value(
         &self,
-        _token_state: &mut Self::TokenStateMap,
-        _key: &ModuleStateKey,
-        _value: Option<ModuleStateValue>,
+        _token_state: &mut Self::TokenKeyValueState,
+        _key: &TokenStateKey,
+        _value: Option<TokenStateValue>,
     ) {
         todo!()
     }
@@ -133,10 +133,10 @@ impl BlockStateOperations for BlockState {
         todo!()
     }
 
-    fn set_token_state_map(
+    fn set_token_key_value_state(
         &mut self,
         _token_index: &TokenIndex,
-        _token_state_map: Self::TokenStateMap,
+        _token_state_map: Self::TokenKeyValueState,
     ) {
         todo!()
     }

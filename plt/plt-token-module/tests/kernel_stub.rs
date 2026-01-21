@@ -17,7 +17,7 @@ use plt_scheduler_interface::{
     TransactionExecution,
 };
 use plt_token_module::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, ModuleStateKey, ModuleStateValue,
+    InsufficientBalanceError, MintWouldOverflowError, TokenStateKey, TokenStateValue,
     RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenMintError,
     TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
@@ -30,7 +30,7 @@ pub struct KernelStub {
     /// List of accounts existing.
     accounts: Vec<Account>,
     /// Token module managed state.
-    state: BTreeMap<ModuleStateKey, ModuleStateValue>,
+    state: BTreeMap<TokenStateKey, TokenStateValue>,
     /// Decimal places in token representation.
     decimals: u8,
     /// Circulating supply
@@ -246,7 +246,7 @@ impl TokenKernelQueries for KernelStub {
         self.decimals
     }
 
-    fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue> {
+    fn lookup_token_module_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.state.get(&key).cloned()
     }
 }
@@ -333,8 +333,8 @@ impl TokenKernelOperations for KernelStub {
 
     fn set_token_module_state_value(
         &mut self,
-        key: ModuleStateKey,
-        value: Option<ModuleStateValue>,
+        key: TokenStateKey,
+        value: Option<TokenStateValue>,
     ) {
         match value {
             None => self.state.remove(&key).is_some(),

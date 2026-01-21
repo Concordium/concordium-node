@@ -8,8 +8,8 @@ use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTy
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 
-pub type ModuleStateKey = Vec<u8>;
-pub type ModuleStateValue = Vec<u8>;
+pub type TokenStateKey = Vec<u8>;
+pub type TokenStateValue = Vec<u8>;
 
 /// Event produced from the effect of a token transaction.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
@@ -121,7 +121,7 @@ pub trait TokenKernelQueries {
     fn decimals(&self) -> u8;
 
     /// Lookup a key in the token state.
-    fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue>;
+    fn lookup_token_module_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue>;
 }
 
 /// Operations provided by the token kernel. All operations are in context of
@@ -192,8 +192,8 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// Set or clear a value in the token state at the corresponding key.
     fn set_token_module_state_value(
         &mut self,
-        key: ModuleStateKey,
-        value: Option<ModuleStateValue>,
+        key: TokenStateKey,
+        value: Option<TokenStateValue>,
     );
 
     /// Log a token module event with the specified type and details.

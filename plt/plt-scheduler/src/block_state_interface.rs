@@ -2,7 +2,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
+use plt_token_module::token_kernel_interface::{TokenStateKey, TokenStateValue, RawTokenAmount};
 
 /// Change in [`RawTokenAmount`].
 ///
@@ -45,7 +45,7 @@ pub struct TokenNotFoundByIdError(pub TokenId);
 pub trait BlockStateQuery {
     /// Opaque type that represents the module managed key-value map.
     /// It defines a dynamic data model defined by the module.
-    type TokenStateMap;
+    type TokenKeyValueState;
 
     /// Opaque type that represents an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -71,12 +71,12 @@ pub trait BlockStateQuery {
 
     /// Convert a persistent token state key-values to a mutable one that can be updated by the scheduler.
     ///
-    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_state_map`].
+    /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_key_value_state`].
     ///
     /// # Arguments
     ///
     /// - `token` The token to get the token state map for.
-    fn mutable_token_state_map(&self, token: &Self::Token) -> Self::TokenStateMap;
+    fn mutable_token_key_value_state(&self, token: &Self::Token) -> Self::TokenKeyValueState;
 
     /// Get the configuration of a protocol-level token.
     ///
@@ -92,7 +92,7 @@ pub trait BlockStateQuery {
     /// - `token` The token to get the circulating supply.
     fn token_circulating_supply(&self, token: &Self::Token) -> RawTokenAmount;
 
-    /// Lookup the value for the given key in the given token state key-value map. Returns `None` if
+    /// Lookup the value for the given key in the given token key-value state. Returns `None` if
     /// no value exists for the given key.
     ///
     /// # Arguments
@@ -101,9 +101,9 @@ pub trait BlockStateQuery {
     /// - `key` The token module state key.
     fn lookup_token_state_value(
         &self,
-        token_module_map: &Self::TokenStateMap,
-        key: &ModuleStateKey,
-    ) -> Option<ModuleStateValue>;
+        token_module_map: &Self::TokenKeyValueState,
+        key: &TokenStateKey,
+    ) -> Option<TokenStateValue>;
 
     /// Update the value for the given key in the given token state key-value map. If `None` is
     /// specified as value, the entry is removed.
@@ -115,9 +115,9 @@ pub trait BlockStateQuery {
     /// - `value` The value to set. If `None`, the entry with the given key is removed.
     fn update_token_state_value(
         &self,
-        token_module_map: &mut Self::TokenStateMap,
-        key: &ModuleStateKey,
-        value: Option<ModuleStateValue>,
+        token_module_map: &mut Self::TokenKeyValueState,
+        key: &TokenStateKey,
+        value: Option<TokenStateValue>,
     );
 
     /// Lookup the account using an account address.
@@ -218,7 +218,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     /// Unlike the other chain updates this is a separate function, since there is no queue associated with PLTs.
     fn increment_plt_update_instruction_sequence_number(&mut self);
 
-    /// Convert a mutable token state key-value map to a persistent one and store it in the block state.
+    /// Convert a mutable token key-value state to a persistent one and store it in the block state.
     ///
     /// To ensure this is future-proof, the mutable state should not be used after this call.
     ///
@@ -226,10 +226,10 @@ pub trait BlockStateOperations: BlockStateQuery {
     ///
     /// - `token` The token index to update.
     /// - `mutable_token_module_state` The mutated state to set as the current token state.
-    fn set_token_state_map(
+    fn set_token_key_value_state(
         &mut self,
         token: &Self::Token,
-        token_state_map: Self::TokenStateMap,
+        token_state_map: Self::TokenKeyValueState,
     );
 }
 
