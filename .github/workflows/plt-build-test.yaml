@@ -14,6 +14,7 @@ on:
     - '.github/workflows/plt-build-test.yaml'
     - 'concordium-base'
     - 'plt/**'
+
 env:
   CARGO_TERM_COLOR: always # implicitly adds '--color=always' to all cargo commands
 
@@ -59,11 +60,10 @@ jobs:
           cargo llvm-cov report --lcov --output-path plt_lcov.info
         # Options documented here: https://github.com/codecov/codecov-action
       - name: Upload coverage to Codecov
-        working-directory: plt
         uses: codecov/codecov-action@v5
         with:
           disable_telem: true
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
           verbose: true
-          files: plt_lcov.info
+          files: plt/plt_lcov.info

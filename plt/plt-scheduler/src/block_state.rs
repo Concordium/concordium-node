@@ -57,7 +57,7 @@ impl BlockStateQuery for BlockState {
         _key: &TokenStateKey,
         _value: Option<TokenStateValue>,
     ) {
-        todo!("test")
+        todo!()
     }
 
     fn account_by_address(
