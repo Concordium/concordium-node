@@ -277,22 +277,22 @@ impl BlockStateQuery for BlockStateStub {
 
     fn lookup_token_state_value(
         &self,
-        token_module_map: &StubTokenKeyValueState,
+        token_key_value_state: &StubTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
-        token_module_map.state.get(key).cloned()
+        token_key_value_state.state.get(key).cloned()
     }
 
     fn update_token_state_value(
         &self,
-        token_module_map: &mut StubTokenKeyValueState,
+        token_key_value_state: &mut StubTokenKeyValueState,
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     ) {
         if let Some(value) = value {
-            token_module_map.state.insert(key.clone(), value);
+            token_key_value_state.state.insert(key.clone(), value);
         } else {
-            token_module_map.state.remove(key);
+            token_key_value_state.state.remove(key);
         }
     }
 
@@ -414,8 +414,8 @@ impl BlockStateOperations for BlockStateStub {
     fn set_token_key_value_state(
         &mut self,
         token: &Self::Token,
-        token_state_map: Self::TokenKeyValueState,
+        token_key_value_state: Self::TokenKeyValueState,
     ) {
-        self.tokens[token.0].module_state = token_state_map;
+        self.tokens[token.0].module_state = token_key_value_state;
     }
 }

@@ -69,13 +69,13 @@ pub trait BlockStateQuery {
     /// - `token_id` The token id to get the [`Self::Token`] of.
     fn token_by_id(&self, token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError>;
 
-    /// Convert a persistent token key-values state to a mutable one that can be updated by the scheduler.
+    /// Convert a persistent token key-value state to a mutable one that can be updated by the scheduler.
     ///
     /// Updates to this state will only persist in the block state using [`BlockStateOperations::set_token_key_value_state`].
     ///
     /// # Arguments
     ///
-    /// - `token` The token to get the token state map for.
+    /// - `token` The token to get the token key-value state for.
     fn mutable_token_key_value_state(&self, token: &Self::Token) -> Self::TokenKeyValueState;
 
     /// Get the configuration of a protocol-level token.
@@ -101,7 +101,7 @@ pub trait BlockStateQuery {
     /// - `key` The token state key.
     fn lookup_token_state_value(
         &self,
-        token_module_map: &Self::TokenKeyValueState,
+        token_key_value: &Self::TokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue>;
 
@@ -115,7 +115,7 @@ pub trait BlockStateQuery {
     /// - `value` The value to set. If `None`, the entry with the given key is removed.
     fn update_token_state_value(
         &self,
-        token_module_map: &mut Self::TokenKeyValueState,
+        token_key_value: &mut Self::TokenKeyValueState,
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     );
@@ -229,7 +229,7 @@ pub trait BlockStateOperations: BlockStateQuery {
     fn set_token_key_value_state(
         &mut self,
         token: &Self::Token,
-        token_state_map: Self::TokenKeyValueState,
+        token_key_value_state: Self::TokenKeyValueState,
     );
 }
 
