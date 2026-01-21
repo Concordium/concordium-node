@@ -28,6 +28,11 @@ pub struct TokenModuleEvent {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 pub struct RawTokenAmount(pub u64);
 
+impl RawTokenAmount {
+    /// Maximum representable raw token amount.
+    pub const MAX: Self = Self(u64::MAX);
+}
+
 /// The account has insufficient balance.
 #[derive(Debug, thiserror::Error)]
 #[error("Insufficient balance on account")]
@@ -40,8 +45,15 @@ pub struct InsufficientBalanceError {
 
 /// Mint exceed the representable amount.
 #[derive(Debug, thiserror::Error)]
-#[error("Amount not representable")]
-pub struct AmountNotRepresentableError;
+#[error("Minting the requested amount would overflow the circulating supply amount")]
+pub struct MintWouldOverflowError {
+    /// Amount requested to be minted
+    pub requested_amount: RawTokenAmount,
+    /// Current circulating supply of the token
+    pub current_supply: RawTokenAmount,
+    /// Maximum representable token amount
+    pub max_representable_amount: RawTokenAmount,
+}
 
 /// An invariant in the token state that should be enforced
 /// is broken. This is generally an error that should never happen and is unrecoverable.
@@ -58,12 +70,21 @@ pub enum TokenTransferError {
     InsufficientBalance(#[from] InsufficientBalanceError),
 }
 
+/// Represents the reasons why a token mint may fail.
+#[derive(Debug, thiserror::Error)]
+pub enum TokenMintError {
+    #[error("{0}")]
+    StateInvariantViolation(#[from] TokenStateInvariantError),
+    #[error("{0}")]
+    MintWouldOverflow(#[from] MintWouldOverflowError),
+}
+
 /// Represents the reasons why a token burn may fail.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenBurnError {
     #[error("{0}")]
     StateInvariantViolation(#[from] TokenStateInvariantError),
-    #[error("Insufficient balance for transfer: {0}")]
+    #[error("Insufficient balance for burn: {0}")]
     InsufficientBalance(#[from] InsufficientBalanceError),
 }
 
@@ -126,12 +147,13 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     ///
     /// # Errors
     ///
-    /// - [`AmountNotRepresentableError`] The total supply would exceed the representable amount.
+    /// - [`TokenMintError::MintWouldOverflow`] The total supply would exceed the representable amount.
+    /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn mint(
         &mut self,
         account: &Self::Account,
         amount: RawTokenAmount,
-    ) -> Result<(), AmountNotRepresentableError>;
+    ) -> Result<(), TokenMintError>;
 
     /// Burn a specified amount from the account.
     ///
