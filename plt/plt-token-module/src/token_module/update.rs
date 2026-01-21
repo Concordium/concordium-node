@@ -1,6 +1,4 @@
-use crate::module_state::{
-    KernelOperationsExt, KernelQueriesExt, STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_PAUSED,
-};
+use crate::module_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
 use crate::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
     TokenMintError, TokenStateInvariantError, TokenTransferError,
@@ -8,12 +6,11 @@ use crate::token_kernel_interface::{
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
-use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
-    MintWouldOverflowRejectReason, RawCbor, TokenBalanceInsufficientRejectReason,
-    TokenModuleCborTypeDiscriminator, TokenModuleRejectReasonEnum, TokenOperation,
-    TokenSupplyUpdateDetails, TokenTransfer,
+    MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
+    TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator,
+    TokenModuleRejectReasonEnum, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{
@@ -162,6 +159,15 @@ pub fn execute_token_update_transaction<
                 TokenUpdateErrorInternal::StateInvariantViolation(err) => {
                     TokenUpdateError::StateInvariantViolation(err)
                 }
+                TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
+                    make_reject_reason(TokenModuleRejectReasonEnum::OperationNotPermitted(
+                        OperationNotPermittedRejectReason {
+                            index: index as u64,
+                            address: None,
+                            reason: Some("The token is paused".to_string()),
+                        },
+                    )),
+                ),
             },
         )?;
     }
@@ -192,6 +198,8 @@ enum TokenUpdateErrorInternal {
     StateInvariantViolation(#[from] TokenStateInvariantError),
     #[error("{0}")]
     MintWouldOverflow(#[from] MintWouldOverflowError),
+    #[error("The token is paused")]
+    Paused,
 }
 
 impl From<TokenTransferError> for TokenUpdateErrorInternal {
@@ -269,8 +277,16 @@ fn execute_token_transfer<
     kernel: &mut TK,
     transfer_operation: TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // preprocessing
     let raw_amount = util::to_raw_token_amount(kernel, transfer_operation.amount)?;
+
+    // operation execution
     let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
+
+    if module_state::is_paused(kernel) {
+        return Err(TokenUpdateErrorInternal::Paused);
+    }
+    // todo implement allow/deny list checks https://linear.app/concordium/issue/PSR-24/implement-allow-and-deny-lists
 
     kernel.transfer(
         &transaction_execution.sender_account(),
@@ -278,9 +294,6 @@ fn execute_token_transfer<
         raw_amount,
         transfer_operation.memo.map(Memo::from),
     )?;
-
-    // todo implement allow/deny list checks https://linear.app/concordium/issue/PSR-24/implement-allow-and-deny-lists
-
     Ok(())
 }
 
@@ -292,7 +305,13 @@ fn execute_token_mint<
     kernel: &mut TK,
     mint_operation: TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // preprocessing
     let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
+
+    // operation execution
+    if module_state::is_paused(kernel) {
+        return Err(TokenUpdateErrorInternal::Paused);
+    }
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -306,7 +325,13 @@ fn execute_token_burn<
     kernel: &mut TK,
     burn_operation: TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // preprocessing
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
+
+    // operation execution
+    if module_state::is_paused(kernel) {
+        return Err(TokenUpdateErrorInternal::Paused);
+    }
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
