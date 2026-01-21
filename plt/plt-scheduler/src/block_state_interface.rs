@@ -28,7 +28,7 @@ pub struct TokenConfiguration {
     pub decimals: u8,
 }
 
-/// Account with given id does not exist
+/// Token with given id does not exist
 #[derive(Debug, thiserror::Error)]
 #[error("Token with id {0} does not exist")]
 pub struct TokenNotFoundByIdError(pub TokenId);
@@ -196,9 +196,10 @@ pub trait BlockStateOperations: BlockStateQuery {
         amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError>;
 
-    /// Touch the token account. This initializes a token account state with a
-    /// balance of zero. This only affects an account if its state for the token
-    /// is empty.
+    /// Touch the token in the account state. This initializes the token in the account state with a
+    /// balance of zero if it does not already exist. It has the observable effect that the token
+    /// is then returned when querying the tokens for an account.
+    /// It only affects an account if the state for the token does not already exist.    
     ///
     /// # Arguments
     ///

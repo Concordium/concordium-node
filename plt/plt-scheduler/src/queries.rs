@@ -27,7 +27,7 @@ pub struct TokenInfo {
 pub enum QueryTokenInfoError {
     #[error("Error returned when querying the token module: {0}")]
     QueryTokenModule(#[from] QueryTokenModuleError),
-    #[error("The token does not exist: {0}")]
+    #[error("{0}")]
     TokenDoesNotExist(#[from] TokenNotFoundByIdError),
 }
 
