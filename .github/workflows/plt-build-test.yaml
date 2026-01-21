@@ -43,7 +43,7 @@ jobs:
       - name: Install tools
         working-directory: plt
         run: |
-          rustup component add clippy llvm-tool
+          rustup component add clippy llvm-tools
           cargo install cargo-llvm-cov --locked
       - name: Clippy
         working-directory: plt
