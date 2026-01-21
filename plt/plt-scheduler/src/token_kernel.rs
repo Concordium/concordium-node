@@ -1,19 +1,18 @@
 //! Implementation of the protocol-level token kernel.
 
-use crate::block_state_interface;
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
 };
-use crate::types::events::{BlockItemEvent, TokenTransferEvent};
+use crate::types::events::{BlockItemEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenAmount;
 use concordium_base::transactions::Memo;
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
-    TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, ModuleStateKey, ModuleStateValue,
+    RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenMintError,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
 
 /// Implementation of token kernel queries with a specific token in context.
@@ -33,22 +32,14 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address).map_err(
-            |block_state_interface::AccountNotFoundByAddressError(account_address)| {
-                AccountNotFoundByAddressError(account_address)
-            },
-        )
+        self.block_state.account_by_address(address)
     }
 
     fn account_by_index(
         &self,
         index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index).map_err(
-            |block_state_interface::AccountNotFoundByIndexError(index)| {
-                AccountNotFoundByIndexError(index)
-            },
-        )
+        self.block_state.account_by_index(index)
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
@@ -84,9 +75,9 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
     /// Token module state for the token in context
     pub token_module_state: &'a mut BSQ::MutableTokenModuleState,
     /// Whether token module state has been changed so far
-    pub token_module_state_dirty: bool,
+    pub token_module_state_dirty: &'a mut bool,
     /// Events produced so far
-    pub events: Vec<BlockItemEvent>,
+    pub events: &'a mut Vec<BlockItemEvent>,
 }
 
 impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
@@ -96,18 +87,88 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 
     fn mint(
         &mut self,
-        _account: &Self::Account,
-        _amount: RawTokenAmount,
-    ) -> Result<(), AmountNotRepresentableError> {
-        todo!()
+        account: &Self::Account,
+        amount: RawTokenAmount,
+    ) -> Result<(), TokenMintError> {
+        // Update total supply
+        let mut circulating_supply = self.block_state.token_circulating_supply(self.token);
+        circulating_supply.0 =
+            circulating_supply
+                .0
+                .checked_add(amount.0)
+                .ok_or(MintWouldOverflowError {
+                    requested_amount: amount,
+                    current_supply: self.block_state.token_circulating_supply(self.token),
+                    max_representable_amount: RawTokenAmount::MAX,
+                })?;
+        self.block_state
+            .set_token_circulating_supply(self.token, circulating_supply);
+
+        // Update balance of the account
+        self.block_state
+            .update_token_account_balance(self.token, account, RawTokenAmountDelta::Add(amount))
+            .map_err(|_err: OverflowError| {
+                // We should never overflow account balance at mint, since the total circulating supply of the token
+                // is always less that what is representable as a token amount.
+                TokenStateInvariantError("Mint destination account amount overflow".to_string())
+            })?;
+
+        // Issue event
+        let event = BlockItemEvent::TokenMint(TokenMintEvent {
+            token_id: self.token_configuration.token_id.clone(),
+            target: self.account_canonical_address(account),
+            amount: TokenAmount::from_raw(
+                amount.0,
+                self.block_state.token_configuration(self.token).decimals,
+            ),
+        });
+
+        self.events.push(event);
+
+        Ok(())
     }
 
     fn burn(
         &mut self,
-        _account: &Self::Account,
-        _amount: RawTokenAmount,
+        account: &Self::Account,
+        amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError> {
-        todo!()
+        // Update balance of the account
+        self.block_state
+            .update_token_account_balance(
+                self.token,
+                account,
+                RawTokenAmountDelta::Subtract(amount),
+            )
+            .map_err(|_err: OverflowError| InsufficientBalanceError {
+                available: self.account_token_balance(account),
+                required: amount,
+            })?;
+
+        // Update total supply
+        let mut circulating_supply = self.block_state.token_circulating_supply(self.token);
+        circulating_supply.0 = circulating_supply.0.checked_sub(amount.0).ok_or_else(||
+            // We should never overflow total supply at burn, since the total circulating supply of the token
+            // is always more than any account balance.
+            TokenStateInvariantError(
+                "Circulating supply amount overflow at burn".to_string(),
+            ))?;
+        self.block_state
+            .set_token_circulating_supply(self.token, circulating_supply);
+
+        // Issue event
+        let event = BlockItemEvent::TokenBurn(TokenBurnEvent {
+            token_id: self.token_configuration.token_id.clone(),
+            target: self.account_canonical_address(account),
+            amount: TokenAmount::from_raw(
+                amount.0,
+                self.block_state.token_configuration(self.token).decimals,
+            ),
+        });
+
+        self.events.push(event);
+
+        Ok(())
     }
 
     fn transfer(
@@ -156,7 +217,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         key: ModuleStateKey,
         value: Option<ModuleStateValue>,
     ) {
-        self.token_module_state_dirty = true;
+        *self.token_module_state_dirty = true;
         self.block_state
             .update_token_module_state_value(self.token_module_state, &key, value);
     }
@@ -173,22 +234,14 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
         &self,
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address).map_err(
-            |block_state_interface::AccountNotFoundByAddressError(account_address)| {
-                AccountNotFoundByAddressError(account_address)
-            },
-        )
+        self.block_state.account_by_address(address)
     }
 
     fn account_by_index(
         &self,
         index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index).map_err(
-            |block_state_interface::AccountNotFoundByIndexError(index)| {
-                AccountNotFoundByIndexError(index)
-            },
-        )
+        self.block_state.account_by_index(index)
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {

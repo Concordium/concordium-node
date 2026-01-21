@@ -80,7 +80,6 @@ fn test_plt_create() {
 
 /// Test create protocol-level token.
 #[test]
-#[ignore = "enable as part of https://linear.app/concordium/issue/PSR-29/implement-mint-and-burn"]
 fn test_plt_create_with_minting() {
     let mut stub = BlockStateStub::new();
     assert_eq!(stub.plt_update_instruction_sequence_number(), 0);
@@ -109,7 +108,8 @@ fn test_plt_create_with_minting() {
         decimals: 4,
         initialization_parameters,
     });
-    scheduler::execute_update_instruction(&mut stub, payload).expect("create and initialize token");
+    let events = scheduler::execute_update_instruction(&mut stub, payload)
+        .expect("create and initialize token");
 
     // Assert update instruction sequence number incremented
     assert_eq!(stub.plt_update_instruction_sequence_number(), 1);
@@ -121,6 +121,17 @@ fn test_plt_create_with_minting() {
         stub.account_token_balance(&gov_account, &token),
         RawTokenAmount(5000)
     );
+
+    // Assert create token and mint event
+    assert_eq!(events.len(), 2);
+    assert_matches!(&events[0], BlockItemEvent::TokenCreated(create) => {
+        assert_eq!(create.payload.token_id, token_id);
+    });
+    assert_matches!(&events[1], BlockItemEvent::TokenMint(mint) => {
+        assert_eq!(mint.token_id, token_id);
+        assert_eq!(mint.amount, TokenAmount::from_raw(5000, 4));
+        assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
+    });
 }
 
 /// Test create protocol-level token where the token id is already used. Two token

@@ -3,22 +3,27 @@
 // items in the file.
 #![allow(unused)]
 
-use concordium_base::base::AccountIndex;
+use assert_matches::assert_matches;
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, TokenAmount, TokenId, TokenModuleInitializationParameters,
+    CborHolderAccount, MetadataUrl, RawCbor, TokenAmount, TokenId,
+    TokenModuleInitializationParameters, TokenModuleState, TokenOperation, TokenOperationsPayload,
+    TokenSupplyUpdateDetails, TokenTransfer,
 };
+use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, BlockStateOperations,
-    BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
-    TokenNotFoundByIdError,
+    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
+    TokenAccountBlockState, TokenConfiguration, TokenNotFoundByIdError,
 };
-use plt_scheduler::scheduler;
+use plt_scheduler::scheduler::TransactionOutcome;
+use plt_scheduler::{queries, scheduler};
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 use plt_token_module::{TOKEN_MODULE_REF, token_module};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
 /// configuring the state of the block state.
@@ -47,7 +52,7 @@ struct Token {
 #[derive(Debug, Clone, Default)]
 pub struct StubTokenModuleState {
     /// Token module managed state.
-    state: HashMap<ModuleStateKey, ModuleStateValue>,
+    state: BTreeMap<ModuleStateKey, ModuleStateValue>,
 }
 
 /// Internal representation of an account in [`BlockStateStub`].
@@ -58,7 +63,7 @@ pub struct Account {
     /// The canonical account address of the account.
     address: AccountAddress,
     /// Tokens the account is holding
-    tokens: HashMap<TokenStubIndex, AccountToken>,
+    tokens: BTreeMap<TokenStubIndex, AccountToken>,
 }
 
 /// Internal representation of a token in an account.
@@ -133,20 +138,45 @@ impl BlockStateStub {
         (token, gov_account)
     }
 
-    /// Add amount to account balance in the stub
+    /// Add amount to account balance in the stub. This is done by minting
+    /// and transferring the given amount
     pub fn increment_account_balance(
         &mut self,
         account: AccountStubIndex,
         token: TokenStubIndex,
         balance: RawTokenAmount,
     ) {
-        self.tokens[token.0].circulating_supply.0 += balance.0;
-        self.accounts[account.0]
-            .tokens
-            .entry(token)
-            .or_default()
-            .balance
-            .0 += balance.0;
+        let token_configuration = self.token_configuration(&token);
+        let operations = vec![
+            TokenOperation::Mint(TokenSupplyUpdateDetails {
+                amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
+            }),
+            TokenOperation::Transfer(TokenTransfer {
+                amount: TokenAmount::from_raw(balance.0, token_configuration.decimals),
+                recipient: CborHolderAccount::from(self.account_canonical_address(&account)),
+                memo: None,
+            }),
+        ];
+        let payload = TokenOperationsPayload {
+            token_id: token_configuration.token_id.clone(),
+            operations: RawCbor::from(cbor::cbor_encode(&operations)),
+        };
+
+        let token_info = queries::query_token_info(self, &token_configuration.token_id).unwrap();
+        let token_module_state: TokenModuleState =
+            cbor::cbor_decode(&token_info.state.module_state).unwrap();
+        let gov_account = self
+            .account_by_address(&token_module_state.governance_account.unwrap().address)
+            .unwrap();
+
+        let outcome = scheduler::execute_transaction(
+            gov_account,
+            self,
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
+        assert_matches!(outcome.outcome, TransactionOutcome::Success(_));
     }
 
     /// Return protocol-level token update instruction sequence number
@@ -200,7 +230,7 @@ pub struct AccountStubIndex(usize);
 
 /// Stub token object.
 /// When testing it is the index into the list of accounts tracked by the `KernelStub`.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct TokenStubIndex(usize);
 
 impl BlockStateQuery for BlockStateStub {
@@ -312,6 +342,22 @@ impl BlockStateQuery for BlockStateStub {
             .get(token)
             .map(|token| token.balance)
             .unwrap_or_default()
+    }
+
+    fn token_account_states(
+        &self,
+        account: &Self::Account,
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountBlockState)> {
+        self.accounts[account.0]
+            .tokens
+            .iter()
+            .map(|(token, state)| {
+                let token_account_state = TokenAccountBlockState {
+                    balance: state.balance,
+                };
+
+                (*token, token_account_state)
+            })
     }
 }
 

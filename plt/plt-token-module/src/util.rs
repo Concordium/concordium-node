@@ -14,14 +14,19 @@ pub fn to_raw_token_amount(
     kernel: &impl TokenKernelQueries,
     amount: TokenAmount,
 ) -> Result<RawTokenAmount, TokenAmountDecimalsMismatchError> {
-    if amount.decimals() != kernel.decimals() {
+    let kernel_decimals = kernel.decimals();
+    if amount.decimals() != kernel_decimals {
         Err(TokenAmountDecimalsMismatchError {
-            expected: kernel.decimals(),
+            expected: kernel_decimals,
             found: amount.decimals(),
         })
     } else {
         Ok(RawTokenAmount(amount.value()))
     }
+}
+
+pub fn to_token_amount(kernel: &impl TokenKernelQueries, amount: RawTokenAmount) -> TokenAmount {
+    TokenAmount::from_raw(amount.0, kernel.decimals())
 }
 
 /// Decode given CBOR using decode options set to suit the token module. The decode options

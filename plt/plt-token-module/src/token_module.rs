@@ -8,7 +8,6 @@
 //! It is the responsibility of the token module to charge energy for execution via
 //! [`TransactionExecution`](plt_scheduler_interface::TransactionExecution),
 //! and release control (return an error) if the energy limit is reached.
-
 mod initialize;
 mod queries;
 mod update;

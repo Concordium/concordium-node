@@ -3,7 +3,7 @@
 // items in the file.
 #![allow(unused)]
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
 use concordium_base::common::cbor;
@@ -12,12 +12,14 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, TokenModuleInitializationParameters,
 };
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
+use plt_scheduler_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OutOfEnergyError,
+    TransactionExecution,
+};
 use plt_token_module::token_kernel_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AmountNotRepresentableError,
-    InsufficientBalanceError, ModuleStateKey, ModuleStateValue, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenModuleEvent, TokenStateInvariantError,
-    TokenTransferError,
+    InsufficientBalanceError, MintWouldOverflowError, ModuleStateKey, ModuleStateValue,
+    RawTokenAmount, TokenBurnError, TokenKernelOperations, TokenKernelQueries, TokenMintError,
+    TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
 use plt_token_module::token_module;
 
@@ -28,9 +30,11 @@ pub struct KernelStub {
     /// List of accounts existing.
     accounts: Vec<Account>,
     /// Token module managed state.
-    state: HashMap<ModuleStateKey, ModuleStateValue>,
+    state: BTreeMap<ModuleStateKey, ModuleStateValue>,
     /// Decimal places in token representation.
     decimals: u8,
+    /// Circulating supply
+    circulating_supply: RawTokenAmount,
     /// Counter for creating accounts in the stub
     next_account_index: AccountIndex,
     /// Transfers
@@ -60,6 +64,7 @@ impl KernelStub {
             accounts: vec![],
             state: Default::default(),
             decimals,
+            circulating_supply: RawTokenAmount::default(),
             next_account_index: AccountIndex { index: 0 },
             transfers: Default::default(),
         }
@@ -92,8 +97,16 @@ impl KernelStub {
     }
 
     /// Set account balance in the stub
-    pub fn set_account_balance(&mut self, account: AccountStubIndex, balance: RawTokenAmount) {
-        self.accounts[account.0].balance = Some(balance);
+    pub fn set_account_balance(&mut self, account: AccountStubIndex, new_balance: RawTokenAmount) {
+        let balance = self.accounts[account.0].balance.get_or_insert_default();
+        self.circulating_supply.0 = self
+            .circulating_supply
+            .0
+            .checked_add(new_balance.0)
+            .unwrap()
+            .checked_sub(balance.0)
+            .unwrap();
+        *balance = new_balance;
     }
 
     /// Initialize token and return the governance account
@@ -116,6 +129,11 @@ impl KernelStub {
         let encoded_parameters = cbor::cbor_encode(&parameters).into();
         token_module::initialize_token(self, encoded_parameters).expect("initialize token");
         gov_account
+    }
+
+    /// The circulating supply
+    pub fn circulating_supply(&self) -> RawTokenAmount {
+        self.circulating_supply
     }
 
     pub fn pop_transfer(
@@ -242,21 +260,48 @@ impl TokenKernelOperations for KernelStub {
         &mut self,
         account: &Self::Account,
         amount: RawTokenAmount,
-    ) -> Result<(), AmountNotRepresentableError> {
+    ) -> Result<(), TokenMintError> {
+        self.circulating_supply.0 =
+            self.circulating_supply
+                .0
+                .checked_add(amount.0)
+                .ok_or(MintWouldOverflowError {
+                    requested_amount: amount,
+                    current_supply: self.circulating_supply,
+                    max_representable_amount: RawTokenAmount::MAX,
+                })?;
+
         let balance = self.accounts[account.0].balance.get_or_insert_default();
         balance.0 = balance
             .0
             .checked_add(amount.0)
-            .ok_or(AmountNotRepresentableError)?;
+            .ok_or(TokenStateInvariantError("Overflow".to_string()))?;
         Ok(())
     }
 
     fn burn(
         &mut self,
-        _account: &Self::Account,
-        _amount: RawTokenAmount,
+        account: &Self::Account,
+        amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError> {
-        todo!()
+        let balance = self.accounts[account.0].balance.get_or_insert_default();
+        balance.0 = balance
+            .0
+            .checked_sub(amount.0)
+            .ok_or(TokenBurnError::InsufficientBalance(
+                InsufficientBalanceError {
+                    available: *balance,
+                    required: amount,
+                },
+            ))?;
+
+        self.circulating_supply.0 = self
+            .circulating_supply
+            .0
+            .checked_sub(amount.0)
+            .ok_or(TokenStateInvariantError("Underflow".to_string()))?;
+
+        Ok(())
     }
 
     fn transfer(
@@ -274,6 +319,7 @@ impl TokenKernelOperations for KernelStub {
                 available: *from_balance,
                 required: amount,
             })?;
+
         let to_balance = self.accounts[to.0].balance.get_or_insert_default();
         to_balance.0 = to_balance
             .0

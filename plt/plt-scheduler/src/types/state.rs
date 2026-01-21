@@ -22,5 +22,5 @@ pub struct TokenAccountState {
     /// The token balance of the account.
     pub balance: TokenAmount,
     /// The token-module defined state of the account.
-    pub module_state: RawCbor,
+    pub module_state: Option<RawCbor>,
 }

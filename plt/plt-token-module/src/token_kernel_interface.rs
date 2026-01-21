@@ -6,6 +6,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
+use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 
 pub type ModuleStateKey = Vec<u8>;
 pub type ModuleStateValue = Vec<u8>;
@@ -27,6 +28,11 @@ pub struct TokenModuleEvent {
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
 pub struct RawTokenAmount(pub u64);
 
+impl RawTokenAmount {
+    /// Maximum representable raw token amount.
+    pub const MAX: Self = Self(u64::MAX);
+}
+
 /// The account has insufficient balance.
 #[derive(Debug, thiserror::Error)]
 #[error("Insufficient balance on account")]
@@ -39,18 +45,15 @@ pub struct InsufficientBalanceError {
 
 /// Mint exceed the representable amount.
 #[derive(Debug, thiserror::Error)]
-#[error("Amount not representable")]
-pub struct AmountNotRepresentableError;
-
-/// Account with given address does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with address {0} does not exist")]
-pub struct AccountNotFoundByAddressError(pub AccountAddress);
-
-/// Account with given index does not exist
-#[derive(Debug, thiserror::Error)]
-#[error("Account with index {0} does not exist")]
-pub struct AccountNotFoundByIndexError(pub AccountIndex);
+#[error("Minting the requested amount would overflow the circulating supply amount")]
+pub struct MintWouldOverflowError {
+    /// Amount requested to be minted
+    pub requested_amount: RawTokenAmount,
+    /// Current circulating supply of the token
+    pub current_supply: RawTokenAmount,
+    /// Maximum representable token amount
+    pub max_representable_amount: RawTokenAmount,
+}
 
 /// An invariant in the token state that should be enforced
 /// is broken. This is generally an error that should never happen and is unrecoverable.
@@ -67,16 +70,26 @@ pub enum TokenTransferError {
     InsufficientBalance(#[from] InsufficientBalanceError),
 }
 
+/// Represents the reasons why a token mint may fail.
+#[derive(Debug, thiserror::Error)]
+pub enum TokenMintError {
+    #[error("{0}")]
+    StateInvariantViolation(#[from] TokenStateInvariantError),
+    #[error("{0}")]
+    MintWouldOverflow(#[from] MintWouldOverflowError),
+}
+
 /// Represents the reasons why a token burn may fail.
 #[derive(Debug, thiserror::Error)]
 pub enum TokenBurnError {
     #[error("{0}")]
     StateInvariantViolation(#[from] TokenStateInvariantError),
-    #[error("Insufficient balance for transfer: {0}")]
+    #[error("Insufficient balance for burn: {0}")]
     InsufficientBalance(#[from] InsufficientBalanceError),
 }
 
-/// Queries provided by the token kernel.
+/// Queries provided by the token kernel. All queries are in context of
+/// a specific token that the kernel is initialized with.
 pub trait TokenKernelQueries {
     /// Opaque type that identifies an account on chain.
     /// The account is guaranteed to exist on chain, when holding an instance of this type.
@@ -111,11 +124,19 @@ pub trait TokenKernelQueries {
     fn lookup_token_module_state_value(&self, key: ModuleStateKey) -> Option<ModuleStateValue>;
 }
 
-/// Operations provided by the token kernel. The operations do not only allow modifying
+/// Operations provided by the token kernel. All operations are in context of
+/// a specific token that the kernel is initialized with.
+///
+/// The operations do not only allow modifying
 /// token module state, but also indirectly affect the token state maintained by the token
 /// kernel.
 pub trait TokenKernelOperations: TokenKernelQueries {
-    /// Update the balance of the given account to zero if it didn't have a balance before.
+    /// Initialize the balance of the given account to zero if it didn't have a balance before.
+    /// It has the observable effect that the token is then returned when querying the tokens
+    /// for an account. Should be called if the token module account state is set,
+    /// in order to make sure the token is returned when querying token account info.
+    ///
+    /// If the account already has a balance for the token in context, the operation has no effect
     fn touch_account(&mut self, account: &Self::Account);
 
     /// Mint a specified amount and deposit it in the account.
@@ -126,12 +147,13 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     ///
     /// # Errors
     ///
-    /// - [`AmountNotRepresentableError`] The total supply would exceed the representable amount.
+    /// - [`TokenMintError::MintWouldOverflow`] The total supply would exceed the representable amount.
+    /// - [`TokenMintError::StateInvariantViolation`] If an internal token state invariant is broken.
     fn mint(
         &mut self,
         account: &Self::Account,
         amount: RawTokenAmount,
-    ) -> Result<(), AmountNotRepresentableError>;
+    ) -> Result<(), TokenMintError>;
 
     /// Burn a specified amount from the account.
     ///
