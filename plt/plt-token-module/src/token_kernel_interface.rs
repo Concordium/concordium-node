@@ -121,7 +121,7 @@ pub trait TokenKernelQueries {
     fn decimals(&self) -> u8;
 
     /// Lookup a key in the token state.
-    fn lookup_token_module_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue>;
+    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue>;
 }
 
 /// Operations provided by the token kernel. All operations are in context of
@@ -190,7 +190,7 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     ) -> Result<(), TokenTransferError>;
 
     /// Set or clear a value in the token state at the corresponding key.
-    fn set_token_module_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>);
+    fn set_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>);
 
     /// Log a token module event with the specified type and details.
     ///

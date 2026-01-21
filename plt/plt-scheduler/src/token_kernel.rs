@@ -58,7 +58,7 @@ impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ
         self.block_state.token_configuration(self.token).decimals
     }
 
-    fn lookup_token_module_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
+    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.block_state
             .lookup_token_state_value(self.token_module_state, &key)
     }
@@ -212,7 +212,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         Ok(())
     }
 
-    fn set_token_module_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
+    fn set_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
         *self.token_module_state_dirty = true;
         self.block_state
             .update_token_state_value(self.token_module_state, &key, value);
@@ -256,7 +256,7 @@ impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl
         self.block_state.token_configuration(self.token).decimals
     }
 
-    fn lookup_token_module_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
+    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.block_state
             .lookup_token_state_value(self.token_module_state, &key)
     }

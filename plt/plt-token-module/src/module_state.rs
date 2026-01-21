@@ -26,7 +26,7 @@ pub const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
 pub trait KernelOperationsExt: TokenKernelOperations {
     /// Set or clear a value in the token module state at the corresponding key.
     fn set_module_state(&mut self, key: &[u8], value: Option<TokenStateValue>) {
-        self.set_token_module_state_value(module_state_key(key), value);
+        self.set_token_state_value(module_state_key(key), value);
     }
 }
 
@@ -37,7 +37,7 @@ impl<T: TokenKernelOperations> KernelOperationsExt for T {}
 pub trait KernelQueriesExt: TokenKernelQueries {
     /// Get value from the token module state at the given key.
     fn get_module_state(&self, key: &[u8]) -> Option<TokenStateValue> {
-        self.lookup_token_module_state_value(module_state_key(key))
+        self.lookup_token_state_value(module_state_key(key))
     }
 }
 

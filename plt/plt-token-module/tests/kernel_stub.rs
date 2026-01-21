@@ -246,7 +246,7 @@ impl TokenKernelQueries for KernelStub {
         self.decimals
     }
 
-    fn lookup_token_module_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
+    fn lookup_token_state_value(&self, key: TokenStateKey) -> Option<TokenStateValue> {
         self.state.get(&key).cloned()
     }
 }
@@ -331,7 +331,7 @@ impl TokenKernelOperations for KernelStub {
         Ok(())
     }
 
-    fn set_token_module_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
+    fn set_token_state_value(&mut self, key: TokenStateKey, value: Option<TokenStateValue>) {
         match value {
             None => self.state.remove(&key).is_some(),
             Some(value) => self.state.insert(key, value).is_some(),
