@@ -1,5 +1,5 @@
 //! Implementation of the protocol-level token module. The capabilities of the token module
-//! is defined by the token kernel, see [`TokenKernelOperations`].
+//! are defined by the token kernel, see [`TokenKernelOperations`].
 
 mod initialize;
 mod queries;
