@@ -13,7 +13,6 @@ use plt_token_module::{
 use crate::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 
 mod kernel_stub;
-mod utils;
 
 // Test that pause/unpause operations modify the token module state as expected
 #[test]
