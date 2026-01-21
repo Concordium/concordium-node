@@ -41,7 +41,7 @@ pub struct BlockStateStub {
 #[derive(Debug)]
 struct Token {
     /// Module state
-    module_state: StubTokenStateMap,
+    module_state: StubTokenKeyValueState,
     /// Token configuration
     configuration: TokenConfiguration,
     /// Circulating supply
@@ -50,7 +50,7 @@ struct Token {
 
 /// Representation of module state in the stub
 #[derive(Debug, Clone, Default)]
-pub struct StubTokenStateMap {
+pub struct StubTokenKeyValueState {
     /// Token module managed state.
     state: BTreeMap<TokenStateKey, TokenStateValue>,
 }
@@ -234,7 +234,7 @@ pub struct AccountStubIndex(usize);
 pub struct TokenStubIndex(usize);
 
 impl BlockStateQuery for BlockStateStub {
-    type TokenKeyValueState = StubTokenStateMap;
+    type TokenKeyValueState = StubTokenKeyValueState;
     type Account = AccountStubIndex;
     type Token = TokenStubIndex;
 
@@ -263,7 +263,7 @@ impl BlockStateQuery for BlockStateStub {
             .ok_or(TokenNotFoundByIdError(token_id.clone()))
     }
 
-    fn mutable_token_key_value_state(&self, token: &Self::Token) -> StubTokenStateMap {
+    fn mutable_token_key_value_state(&self, token: &Self::Token) -> StubTokenKeyValueState {
         self.tokens[token.0].module_state.clone()
     }
 
@@ -277,7 +277,7 @@ impl BlockStateQuery for BlockStateStub {
 
     fn lookup_token_state_value(
         &self,
-        token_module_map: &StubTokenStateMap,
+        token_module_map: &StubTokenKeyValueState,
         key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
         token_module_map.state.get(key).cloned()
@@ -285,7 +285,7 @@ impl BlockStateQuery for BlockStateStub {
 
     fn update_token_state_value(
         &self,
-        token_module_map: &mut StubTokenStateMap,
+        token_module_map: &mut StubTokenKeyValueState,
         key: &TokenStateKey,
         value: Option<TokenStateValue>,
     ) {
