@@ -2,7 +2,8 @@
 //! It is only available if the `ffi` feature is enabled.
 
 use crate::scheduler;
-use concordium_base::base::AccountIndex;
+use crate::scheduler::TransactionOutcome;
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common;
 use concordium_base::transactions::Payload;
 use libc::size_t;
@@ -30,8 +31,11 @@ unsafe extern "C" fn ffi_execute_transaction(payload: *const u8, payload_len: si
     let account = AccountIndex::from(0);
     let payload: Payload = common::from_bytes(&mut &*payload).unwrap();
 
-    match scheduler::execute_transaction(account, &mut block_state, payload) {
-        Ok(_) => 0,
-        Err(_) => 1,
+    match scheduler::execute_transaction(account, &mut block_state, payload, Energy::from(u64::MAX))
+        .unwrap()
+        .outcome
+    {
+        TransactionOutcome::Success(_) => 0,
+        TransactionOutcome::Rejected(_) => 1,
     }
 }

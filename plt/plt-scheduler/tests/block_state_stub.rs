@@ -4,7 +4,7 @@
 #![allow(unused)]
 
 use assert_matches::assert_matches;
-use concordium_base::base::AccountIndex;
+use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -19,10 +19,10 @@ use plt_scheduler::block_state_interface::{
     TokenAccountBlockState, TokenConfiguration, TokenNotFoundByIdError,
 };
 use plt_scheduler::scheduler::TransactionOutcome;
-use plt_scheduler::{TOKEN_MODULE_REF, queries, scheduler};
+use plt_scheduler::{queries, scheduler};
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
-use plt_token_module::token_module;
+use plt_token_module::{TOKEN_MODULE_REF, token_module};
 use std::collections::BTreeMap;
 
 /// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
@@ -169,10 +169,14 @@ impl BlockStateStub {
             .account_by_address(&token_module_state.governance_account.unwrap().address)
             .unwrap();
 
-        let outcome =
-            scheduler::execute_transaction(gov_account, self, Payload::TokenUpdate { payload })
-                .expect("transaction internal error");
-        assert_matches!(outcome, TransactionOutcome::Success(_));
+        let outcome = scheduler::execute_transaction(
+            gov_account,
+            self,
+            Payload::TokenUpdate { payload },
+            Energy::from(u64::MAX),
+        )
+        .expect("transaction internal error");
+        assert_matches!(outcome.outcome, TransactionOutcome::Success(_));
     }
 
     /// Return protocol-level token update instruction sequence number

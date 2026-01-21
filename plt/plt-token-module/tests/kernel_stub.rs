@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 
-use concordium_base::base::{AccountIndex, Energy};
+use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
@@ -351,11 +351,23 @@ impl TokenKernelOperations for KernelStub {
 #[derive(Debug)]
 pub struct TransactionExecutionTestImpl {
     sender: AccountStubIndex,
+    remaining_energy: Energy,
 }
 
 impl TransactionExecutionTestImpl {
+    pub fn with_sender_and_energy(sender: AccountStubIndex, remaining_energy: Energy) -> Self {
+        Self {
+            sender,
+            remaining_energy,
+        }
+    }
+
     pub fn with_sender(sender: AccountStubIndex) -> Self {
-        Self { sender }
+        Self::with_sender_and_energy(sender, Energy::from(u64::MAX))
+    }
+
+    pub fn remaining_energy(&self) -> Energy {
+        self.remaining_energy
     }
 }
 
@@ -367,7 +379,9 @@ impl TransactionExecution for TransactionExecutionTestImpl {
     }
 
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
-        todo!()
+        self.remaining_energy
+            .tick_energy(energy)
+            .map_err(|_err: InsufficientEnergy| OutOfEnergyError)
     }
 }
 

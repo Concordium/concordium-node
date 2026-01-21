@@ -4,6 +4,7 @@ use crate::token_kernel_interface::{
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
+use concordium_base::base::Energy;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MintWouldOverflowRejectReason, RawCbor, TokenBalanceInsufficientRejectReason,
@@ -224,6 +225,11 @@ fn execute_token_update_operation<
     kernel: &mut TK,
     token_operation: TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // Charge energy
+    let energy_cost = energy_cost(&token_operation);
+    transaction_execution.tick_energy(energy_cost)?;
+
+    // Execute operation
     match token_operation {
         TokenOperation::Transfer(transfer) => {
             execute_token_transfer(transaction_execution, kernel, transfer)
@@ -231,6 +237,21 @@ fn execute_token_update_operation<
         TokenOperation::Mint(mint) => execute_token_mint(transaction_execution, kernel, mint),
         TokenOperation::Burn(burn) => execute_token_burn(transaction_execution, kernel, burn),
         _ => todo!(),
+    }
+}
+
+fn energy_cost(operation: &TokenOperation) -> Energy {
+    use concordium_base::transactions::cost::*;
+
+    match operation {
+        TokenOperation::Transfer(_) => PLT_TRANSFER,
+        TokenOperation::Mint(_) => PLT_MINT,
+        TokenOperation::Burn(_) => PLT_BURN,
+        TokenOperation::AddAllowList(_)
+        | TokenOperation::RemoveAllowList(_)
+        | TokenOperation::AddDenyList(_)
+        | TokenOperation::RemoveDenyList(_) => PLT_LIST_UPDATE,
+        TokenOperation::Pause(_) | TokenOperation::Unpause(_) => PLT_PAUSE,
     }
 }
 
