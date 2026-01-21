@@ -3,7 +3,7 @@
 // items in the file.
 #![allow(unused)]
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::common::cbor;
@@ -30,7 +30,7 @@ pub struct KernelStub {
     /// List of accounts existing.
     accounts: Vec<Account>,
     /// Token module managed state.
-    state: HashMap<ModuleStateKey, ModuleStateValue>,
+    state: BTreeMap<ModuleStateKey, ModuleStateValue>,
     /// Decimal places in token representation.
     decimals: u8,
     /// Circulating supply

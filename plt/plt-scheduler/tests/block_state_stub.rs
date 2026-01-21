@@ -23,7 +23,7 @@ use plt_scheduler::{TOKEN_MODULE_REF, queries, scheduler};
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{ModuleStateKey, ModuleStateValue, RawTokenAmount};
 use plt_token_module::token_module;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
 /// configuring the state of the block state.
@@ -52,7 +52,7 @@ struct Token {
 #[derive(Debug, Clone, Default)]
 pub struct StubTokenModuleState {
     /// Token module managed state.
-    state: HashMap<ModuleStateKey, ModuleStateValue>,
+    state: BTreeMap<ModuleStateKey, ModuleStateValue>,
 }
 
 /// Internal representation of an account in [`BlockStateStub`].
@@ -63,7 +63,7 @@ pub struct Account {
     /// The canonical account address of the account.
     address: AccountAddress,
     /// Tokens the account is holding
-    tokens: HashMap<TokenStubIndex, AccountToken>,
+    tokens: BTreeMap<TokenStubIndex, AccountToken>,
 }
 
 /// Internal representation of a token in an account.
@@ -226,7 +226,7 @@ pub struct AccountStubIndex(usize);
 
 /// Stub token object.
 /// When testing it is the index into the list of accounts tracked by the `KernelStub`.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct TokenStubIndex(usize);
 
 impl BlockStateQuery for BlockStateStub {
