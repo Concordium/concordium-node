@@ -1,7 +1,7 @@
 use crate::module_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
 use crate::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
-    TokenMintError, TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
+    TokenMintError, TokenStateInvariantError, TokenTransferError,
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
@@ -164,7 +164,7 @@ pub fn execute_token_update_transaction<
                         OperationNotPermittedRejectReason {
                             index: index as u64,
                             address: None,
-                            reason: format!("token operation {operation} is paused")
+                            reason: format!("token operation {} is paused", operation.cbor_name())
                                 .to_string()
                                 .into(),
                         },
