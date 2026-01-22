@@ -107,7 +107,7 @@ pub fn execute_token_update_transaction<
     })?;
 
     for (index, operation) in operations.into_iter().enumerate() {
-        execute_token_update_operation(transaction_execution, kernel, operation).map_err(
+        execute_token_update_operation(transaction_execution, kernel, &operation).map_err(
             |err| match err {
                 TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
@@ -164,7 +164,9 @@ pub fn execute_token_update_transaction<
                         OperationNotPermittedRejectReason {
                             index: index as u64,
                             address: None,
-                            reason: Some("The token is paused".to_string()),
+                            reason: format!("token operation {operation} is paused")
+                                .to_string()
+                                .into(),
                         },
                     )),
                 ),
@@ -235,10 +237,10 @@ fn execute_token_update_operation<
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
-    token_operation: TokenOperation,
+    token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
-    let energy_cost = energy_cost(&token_operation);
+    let energy_cost = energy_cost(token_operation);
     transaction_execution.tick_energy(energy_cost)?;
 
     // Execute operation
@@ -275,7 +277,7 @@ fn execute_token_transfer<
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
-    transfer_operation: TokenTransfer,
+    transfer_operation: &TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
     let raw_amount = util::to_raw_token_amount(kernel, transfer_operation.amount)?;
@@ -292,7 +294,7 @@ fn execute_token_transfer<
         &transaction_execution.sender_account(),
         &receiver,
         raw_amount,
-        transfer_operation.memo.map(Memo::from),
+        transfer_operation.memo.clone().map(Memo::from),
     )?;
     Ok(())
 }
@@ -303,7 +305,7 @@ fn execute_token_mint<
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
-    mint_operation: TokenSupplyUpdateDetails,
+    mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
     let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
@@ -323,7 +325,7 @@ fn execute_token_burn<
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
-    burn_operation: TokenSupplyUpdateDetails,
+    burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // preprocessing
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
