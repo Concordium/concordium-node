@@ -1,7 +1,7 @@
 use crate::module_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
 use crate::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
-    TokenMintError, TokenStateInvariantError, TokenTransferError,
+    TokenMintError, TokenModuleEvent, TokenStateInvariantError, TokenTransferError,
 };
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
@@ -355,6 +355,12 @@ fn execute_token_pause<
     // TODO: authorization implemented as part of PSR-26
 
     kernel.set_module_state(STATE_KEY_PAUSED, Some(vec![]));
+
+    let event_type = "paused"
+        .to_string()
+        .try_into()
+        .expect("is a valid cbor type descriptor"); // we unwrap here as we know this is valid.
+    kernel.log_token_event(event_type, vec![].into());
     Ok(())
 }
 
@@ -367,5 +373,11 @@ fn execute_token_unpause<
 ) -> Result<(), TokenUpdateErrorInternal> {
     // TODO: authorization implemented as part of PSR-26
     kernel.set_module_state(STATE_KEY_PAUSED, None);
+
+    let event_type = "unpaused"
+        .to_string()
+        .try_into()
+        .expect("is a valid cbor type descriptor"); // we unwrap here as we know this is valid.
+    kernel.log_token_event(event_type, vec![].into());
     Ok(())
 }

@@ -9,7 +9,8 @@ use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, TokenModuleInitializationParameters,
+    CborHolderAccount, MetadataUrl, RawCbor, TokenModuleCborTypeDiscriminator,
+    TokenModuleInitializationParameters,
 };
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{
@@ -338,7 +339,11 @@ impl TokenKernelOperations for KernelStub {
         };
     }
 
-    fn log_token_event(&mut self, _event: TokenModuleEvent) {
+    fn log_token_event(
+        &mut self,
+        _event_type: TokenModuleCborTypeDiscriminator,
+        _details: RawCbor,
+    ) {
         todo!()
     }
 }
