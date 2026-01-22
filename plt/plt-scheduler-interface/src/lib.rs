@@ -13,6 +13,9 @@ pub trait TransactionExecution {
     /// The account initiating the transaction.
     fn sender_account(&self) -> Self::Account;
 
+    /// The account address of the account initiating the transaction.
+    fn sender_account_address(&self) -> AccountAddress;
+
     /// Reduce the available energy for the execution.
     ///
     /// # Arguments
@@ -39,3 +42,15 @@ pub struct AccountNotFoundByAddressError(pub AccountAddress);
 #[derive(Debug, thiserror::Error)]
 #[error("Account with index {0} does not exist")]
 pub struct AccountNotFoundByIndexError(pub AccountIndex);
+
+/// Account representing (read-only) account state.
+///
+/// The account is guaranteed to exist on chain, when holding an instance of this type.
+#[derive(Debug)]
+pub struct AccountWithCanonicalAddress<Account> {
+    /// Opaque type that represents an account on chain.
+    pub account: Account,
+    /// The canonical account address of the account, i.e. the address used as part of the
+    /// credential deployment and not an alias.
+    pub canonical_account_address: AccountAddress,
+}

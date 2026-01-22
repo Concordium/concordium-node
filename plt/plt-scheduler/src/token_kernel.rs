@@ -8,7 +8,9 @@ use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenAmount;
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_scheduler_interface::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AccountWithCanonicalAddress,
+};
 use plt_token_module::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, RawTokenAmount, TokenBurnError,
     TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
@@ -26,32 +28,40 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
-    type Account = BSQ::Account;
+    type AccountWithAddress = (BSQ::Account, AccountAddress);
 
     fn account_by_address(
         &self,
         address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address)
+    ) -> Result<Self::AccountWithAddress, AccountNotFoundByAddressError> {
+        let account = self.block_state.account_by_address(address)?;
+
+        Ok((account, *address))
     }
 
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index)
+    ) -> Result<AccountWithCanonicalAddress<Self::AccountWithAddress>, AccountNotFoundByIndexError>
+    {
+        let account_with_canonical_address = self.block_state.account_by_index(index)?;
+
+        Ok(AccountWithCanonicalAddress {
+            account: (
+                account_with_canonical_address.account,
+                account_with_canonical_address.canonical_account_address,
+            ),
+            canonical_account_address: account_with_canonical_address.canonical_account_address,
+        })
     }
 
-    fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        self.block_state.account_index(account)
+    fn account_index(&self, account: &Self::AccountWithAddress) -> AccountIndex {
+        self.block_state.account_index(&account.0)
     }
 
-    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
-        self.block_state.account_canonical_address(account)
-    }
-
-    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
-        self.block_state.account_token_balance(account, self.token)
+    fn account_token_balance(&self, account: &Self::AccountWithAddress) -> RawTokenAmount {
+        self.block_state
+            .account_token_balance(&account.0, self.token)
     }
 
     fn decimals(&self) -> u8 {
@@ -81,11 +91,11 @@ pub struct TokenKernelOperationsImpl<'a, BSQ: BlockStateQuery> {
 }
 
 impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsImpl<'_, BSO> {
-    fn touch_account(&mut self, account: &Self::Account) {
+    fn touch_account(&mut self, account: &Self::AccountWithAddress) {
         self.block_state
             .update_token_account_balance(
                 self.token,
-                account,
+                &account.0,
                 RawTokenAmountDelta::Add(RawTokenAmount(0)),
             )
             .ok();
@@ -93,7 +103,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 
     fn mint(
         &mut self,
-        account: &Self::Account,
+        account: &Self::AccountWithAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenMintError> {
         // Update total supply
@@ -112,7 +122,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 
         // Update balance of the account
         self.block_state
-            .update_token_account_balance(self.token, account, RawTokenAmountDelta::Add(amount))
+            .update_token_account_balance(self.token, &account.0, RawTokenAmountDelta::Add(amount))
             .map_err(|_err: OverflowError| {
                 // We should never overflow account balance at mint, since the total circulating supply of the token
                 // is always less that what is representable as a token amount.
@@ -122,7 +132,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         // Issue event
         let event = BlockItemEvent::TokenMint(TokenMintEvent {
             token_id: self.token_configuration.token_id.clone(),
-            target: self.account_canonical_address(account),
+            target: account.1,
             amount: TokenAmount::from_raw(
                 amount.0,
                 self.block_state.token_configuration(self.token).decimals,
@@ -136,14 +146,14 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 
     fn burn(
         &mut self,
-        account: &Self::Account,
+        account: &Self::AccountWithAddress,
         amount: RawTokenAmount,
     ) -> Result<(), TokenBurnError> {
         // Update balance of the account
         self.block_state
             .update_token_account_balance(
                 self.token,
-                account,
+                &account.0,
                 RawTokenAmountDelta::Subtract(amount),
             )
             .map_err(|_err: OverflowError| InsufficientBalanceError {
@@ -165,7 +175,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         // Issue event
         let event = BlockItemEvent::TokenBurn(TokenBurnEvent {
             token_id: self.token_configuration.token_id.clone(),
-            target: self.account_canonical_address(account),
+            target: account.1,
             amount: TokenAmount::from_raw(
                 amount.0,
                 self.block_state.token_configuration(self.token).decimals,
@@ -179,14 +189,18 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 
     fn transfer(
         &mut self,
-        from: &Self::Account,
-        to: &Self::Account,
+        from: &Self::AccountWithAddress,
+        to: &Self::AccountWithAddress,
         amount: RawTokenAmount,
         memo: Option<Memo>,
     ) -> Result<(), TokenTransferError> {
         // Update sender balance
         self.block_state
-            .update_token_account_balance(self.token, from, RawTokenAmountDelta::Subtract(amount))
+            .update_token_account_balance(
+                self.token,
+                &from.0,
+                RawTokenAmountDelta::Subtract(amount),
+            )
             .map_err(|_err: OverflowError| InsufficientBalanceError {
                 available: self.account_token_balance(from),
                 required: amount,
@@ -194,7 +208,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 
         // Update receiver balance
         self.block_state
-            .update_token_account_balance(self.token, to, RawTokenAmountDelta::Add(amount))
+            .update_token_account_balance(self.token, &to.0, RawTokenAmountDelta::Add(amount))
             .map_err(|_err: OverflowError| {
                 // We should never overflow at transfer, since the total circulating supply of the token
                 // is always less that what is representable as a token amount.
@@ -204,8 +218,8 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         // Issue event
         let event = BlockItemEvent::TokenTransfer(TokenTransferEvent {
             token_id: self.token_configuration.token_id.clone(),
-            from: self.account_canonical_address(from),
-            to: self.account_canonical_address(to),
+            from: from.1,
+            to: to.1,
             amount: TokenAmount::from_raw(
                 amount.0,
                 self.block_state.token_configuration(self.token).decimals,
@@ -230,32 +244,40 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 }
 
 impl<BSO: BlockStateOperations> TokenKernelQueries for TokenKernelOperationsImpl<'_, BSO> {
-    type Account = BSO::Account;
+    type AccountWithAddress = (BSO::Account, AccountAddress);
 
     fn account_by_address(
         &self,
         address: &AccountAddress,
-    ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        self.block_state.account_by_address(address)
+    ) -> Result<Self::AccountWithAddress, AccountNotFoundByAddressError> {
+        let account = self.block_state.account_by_address(address)?;
+
+        Ok((account, *address))
     }
 
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        self.block_state.account_by_index(index)
+    ) -> Result<AccountWithCanonicalAddress<Self::AccountWithAddress>, AccountNotFoundByIndexError>
+    {
+        let account_with_canonical_address = self.block_state.account_by_index(index)?;
+
+        Ok(AccountWithCanonicalAddress {
+            account: (
+                account_with_canonical_address.account,
+                account_with_canonical_address.canonical_account_address,
+            ),
+            canonical_account_address: account_with_canonical_address.canonical_account_address,
+        })
     }
 
-    fn account_index(&self, account: &Self::Account) -> AccountIndex {
-        self.block_state.account_index(account)
+    fn account_index(&self, account: &Self::AccountWithAddress) -> AccountIndex {
+        self.block_state.account_index(&account.0)
     }
 
-    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
-        self.block_state.account_canonical_address(account)
-    }
-
-    fn account_token_balance(&self, account: &Self::Account) -> RawTokenAmount {
-        self.block_state.account_token_balance(account, self.token)
+    fn account_token_balance(&self, account: &Self::AccountWithAddress) -> RawTokenAmount {
+        self.block_state
+            .account_token_balance(&account.0, self.token)
     }
 
     fn decimals(&self) -> u8 {

@@ -89,14 +89,18 @@ pub enum QueryTokenAccountStateError {
 }
 
 /// Get the list of tokens on an account
-pub fn query_token_account_infos(
-    block_state: &impl BlockStateQuery,
+pub fn query_token_account_infos<BSQ>(
+    block_state: &BSQ,
     account_index: AccountIndex,
-) -> Result<Vec<TokenAccountInfo>, QueryTokenAccountStateError> {
+) -> Result<Vec<TokenAccountInfo>, QueryTokenAccountStateError>
+where
+    BSQ: BlockStateQuery,
+    BSQ::Account: Clone,
+{
     let account = block_state.account_by_index(account_index)?;
 
     block_state
-        .token_account_states(&account)
+        .token_account_states(&account.account)
         .map(|(token, state)| {
             let token_configuration = block_state.token_configuration(&token);
 
@@ -108,7 +112,10 @@ pub fn query_token_account_infos(
                 token_module_state: &token_module_state,
             };
 
-            let module_state = token_module::query_token_module_account_state(&kernel, &account)?;
+            let module_state = token_module::query_token_module_account_state(
+                &kernel,
+                &(account.account.clone(), account.canonical_account_address),
+            )?;
 
             let balance = TokenAmount::from_raw(state.balance.0, token_configuration.decimals);
 

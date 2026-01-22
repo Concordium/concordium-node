@@ -11,10 +11,12 @@ use crate::scheduler::{
 use crate::token_kernel::TokenKernelOperationsImpl;
 use crate::types::events::{BlockItemEvent, TokenCreateEvent};
 use crate::types::reject_reasons::TokenModuleRejectReason;
+use concordium_base::base::Energy;
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenOperationsPayload;
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
-use plt_scheduler_interface::TransactionExecution;
+use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
 use plt_token_module::token_module::TokenUpdateError;
 use plt_token_module::{TOKEN_MODULE_REF, token_module};
 
@@ -78,8 +80,11 @@ pub fn execute_token_update_transaction<
     };
 
     // Call token module to execute operations
+    let mut kernel_transaction_execution = KernelTransactionExecutionImpl {
+        inner: transaction_execution,
+    };
     let token_update_result = token_module::execute_token_update_transaction(
-        transaction_execution,
+        &mut kernel_transaction_execution,
         &mut kernel,
         payload.operations,
     );
@@ -110,6 +115,32 @@ pub fn execute_token_update_transaction<
         Err(TokenUpdateError::StateInvariantViolation(err)) => Err(
             TransactionExecutionError::TokenStateInvariantBroken(err.to_string()),
         ),
+    }
+}
+
+/// Transaction execution joining the opaque account identifier with the account address.
+/// This is needed by the token kernel type `TokenKernelQueries::AccountWithAddress`.
+#[derive(Debug)]
+struct KernelTransactionExecutionImpl<'a, TE> {
+    inner: &'a mut TE,
+}
+
+impl<TE: TransactionExecution> TransactionExecution for KernelTransactionExecutionImpl<'_, TE> {
+    type Account = (TE::Account, AccountAddress);
+
+    fn sender_account(&self) -> Self::Account {
+        (
+            self.inner.sender_account(),
+            self.inner.sender_account_address(),
+        )
+    }
+
+    fn sender_account_address(&self) -> AccountAddress {
+        self.inner.sender_account_address()
+    }
+
+    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
+        self.inner.tick_energy(energy)
     }
 }
 

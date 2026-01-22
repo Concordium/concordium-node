@@ -89,7 +89,7 @@ pub enum TokenUpdateError {
 /// is returned. This is an unrecoverable error and should never happen.
 pub fn execute_token_update_transaction<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -219,7 +219,7 @@ impl From<TokenBurnError> for TokenUpdateErrorInternal {
 
 fn execute_token_update_operation<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -257,7 +257,7 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
 
 fn execute_token_transfer<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -280,7 +280,7 @@ fn execute_token_transfer<
 
 fn execute_token_mint<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -294,7 +294,7 @@ fn execute_token_mint<
 
 fn execute_token_burn<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
