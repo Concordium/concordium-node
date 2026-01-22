@@ -271,6 +271,15 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
     }
 }
 
+fn check_not_paused<TK: TokenKernelOperations>(
+    kernel: &TK,
+) -> Result<(), TokenUpdateErrorInternal> {
+    if module_state::is_paused(kernel) {
+        return Err(TokenUpdateErrorInternal::Paused);
+    }
+    Ok(())
+}
+
 fn execute_token_transfer<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::Account>,
@@ -284,10 +293,7 @@ fn execute_token_transfer<
 
     // operation execution
     let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
-
-    if module_state::is_paused(kernel) {
-        return Err(TokenUpdateErrorInternal::Paused);
-    }
+    check_not_paused(kernel)?;
     // todo implement allow/deny list checks https://linear.app/concordium/issue/PSR-24/implement-allow-and-deny-lists
 
     kernel.transfer(
@@ -311,9 +317,7 @@ fn execute_token_mint<
     let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
 
     // operation execution
-    if module_state::is_paused(kernel) {
-        return Err(TokenUpdateErrorInternal::Paused);
-    }
+    check_not_paused(kernel)?;
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -331,9 +335,7 @@ fn execute_token_burn<
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
 
     // operation execution
-    if module_state::is_paused(kernel) {
-        return Err(TokenUpdateErrorInternal::Paused);
-    }
+    check_not_paused(kernel)?;
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
