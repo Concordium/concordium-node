@@ -39,5 +39,7 @@ pub trait Loadable: Sized {
 /// An error that may occur when loading data from persistent storage.
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
+    #[error("{0}")]
+    Decode(String),
     // add parsing errors here
 }

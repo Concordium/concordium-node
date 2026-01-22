@@ -15,4 +15,5 @@ concordium_base = {path = "../concordium-base/rust-src/concordium_base"}
 
 assert_matches = "1.5.0"
 libc = "0.2.178"
+sha2 = "0.10.9"
 thiserror = "2.0.17"
