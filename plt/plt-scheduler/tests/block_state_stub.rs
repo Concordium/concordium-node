@@ -403,10 +403,6 @@ impl BlockStateOperations for BlockStateStub {
         Ok(())
     }
 
-    fn touch_token_account(&mut self, token: &Self::Token, account: &Self::Account) {
-        self.accounts[account.0].tokens.entry(*token).or_default();
-    }
-
     fn increment_plt_update_instruction_sequence_number(&mut self) {
         self.plt_update_instruction_sequence_number += 1;
     }

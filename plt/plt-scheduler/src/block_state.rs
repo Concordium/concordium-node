@@ -1,38 +1,159 @@
+//! This module contains the [`PltBlockState`] which provides an implementation of [`BlockStateOperations`].
+//!
+
+use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
+use crate::block_state::external::{
+    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, IncrementPltUpdateSequenceNumber,
+    ReadTokenAccountBalance, UpdateTokenAccountBalance,
+};
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
     TokenAccountBlockState, TokenConfiguration, TokenNotFoundByIdError,
 };
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenStateKey, TokenStateValue};
 
-#[allow(unused)]
 pub mod blob_store;
-#[allow(unused)]
 pub mod external;
-
-pub struct BlockState {}
 
 /// Index of the protocol-level token in the block state map of tokens.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TokenIndex(pub u64);
 
-impl BlockStateQuery for BlockState {
+/// Marker for PLT block state hash type.
+pub enum PltBlockStateHashMarker {}
+/// Hash of PLT block state
+pub type PltBlockStateHash = concordium_base::hashes::HashBytes<PltBlockStateHashMarker>;
+
+/// Immutable block state save-point.
+///
+/// This is a wrapper around a [`PltBlockState`] ensuring further mutations can only be done by
+/// unwrapping using [`PltBlockStateSavepoint::new_generation`] which creates a new generation.
+#[derive(Debug)]
+pub struct PltBlockStateSavepoint {
+    /// The inner block state, which will not be mutated further for this generation.
+    block_state: PltBlockState,
+}
+
+impl PltBlockStateSavepoint {
+    /// Initialize a new block state.
+    pub fn empty() -> Self {
+        Self {
+            block_state: PltBlockState::empty(),
+        }
+    }
+
+    /// Compute the hash.
+    pub fn hash(&self, _loader: &mut impl BackingStoreLoad) -> PltBlockStateHash {
+        todo!()
+    }
+
+    /// Store a PLT block state in a blob store.
+    pub fn store_update(&mut self, storer: &mut impl BackingStoreStore) -> blob_store::Reference {
+        // todo
+        storer.store_raw(&[])
+    }
+
+    /// Migrate the PLT block state from one blob store to another.
+    pub fn migrate(
+        &mut self,
+        _loader: &mut impl BackingStoreLoad,
+        _storer: &mut impl BackingStoreStore,
+    ) -> Self {
+        todo!()
+    }
+
+    /// Cache the block state in memory.
+    pub fn cache(&mut self, _loader: &mut impl BackingStoreLoad) {
+        todo!()
+    }
+
+    /// Construct a new generation block state which can be mutated without affecting this
+    /// save-point.
+    pub fn new_generation(&self) -> PltBlockState {
+        let mut block_state = self.block_state.clone();
+        block_state.generation += 1;
+        block_state
+    }
+}
+
+impl blob_store::Loadable for PltBlockStateSavepoint {
+    fn load(
+        _loader: &mut impl BackingStoreLoad,
+        _source: &mut impl std::io::Read,
+    ) -> Result<Self, DecodeError> {
+        todo!()
+    }
+}
+
+/// Block state providing the various block state operations.
+#[derive(Debug, Clone)]
+pub struct PltBlockState {
+    /// The generation counter for the block state.
+    generation: u64,
+}
+
+impl PltBlockState {
+    /// Construct an empty block state.
+    fn empty() -> Self {
+        PltBlockState { generation: 0 }
+    }
+
+    /// Consume the mutable block state and create an immutable save-point.
+    pub fn savepoint(self) -> PltBlockStateSavepoint {
+        PltBlockStateSavepoint { block_state: self }
+    }
+}
+
+/// Runtime/execution state relevant for providing an implementation of
+/// [`BlockStateOperations`].
+///
+/// In addition to the PLT block state, this type contains callbacks
+/// for the parts of the state that is managed on the Haskell side.
+#[derive(Debug)]
+pub struct ExecutionTimePltBlockState<L: BackingStoreLoad, T: BlockStateExternal> {
+    /// The library block state implementation.
+    pub inner_block_state: PltBlockState,
+    /// External function for reading from the blob store.
+    pub backing_store_load: L,
+    /// External function for reading the token balance for an account.
+    pub read_token_account_balance: T::ReadTokenAccountBalance,
+    /// External function for updating the token balance for an account.
+    pub update_token_account_balance: T::UpdateTokenAccountBalance,
+    /// External function for incrementing the PLT update sequence number.
+    pub increment_plt_update_sequence_number: T::IncrementPltUpdateSequenceNumber,
+    /// External function for fetching account address by index.
+    pub get_account_address_by_index: T::GetCanonicalAddressByAccountIndex,
+    /// External function for fetching account index by address.
+    pub get_account_index_by_address: T::GetAccountIndexByAddress,
+}
+
+/// Calls to externally managed parts of the block state.
+pub trait BlockStateExternal {
+    type ReadTokenAccountBalance: ReadTokenAccountBalance;
+    type UpdateTokenAccountBalance: UpdateTokenAccountBalance;
+    type IncrementPltUpdateSequenceNumber: IncrementPltUpdateSequenceNumber;
+    type GetCanonicalAddressByAccountIndex: GetCanonicalAddressByAccountIndex;
+    type GetAccountIndexByAddress: GetAccountIndexByAddress;
+}
+
+impl<L: BackingStoreLoad, T: BlockStateExternal> BlockStateQuery
+    for ExecutionTimePltBlockState<L, T>
+{
     type TokenKeyValueState = ();
     type Account = AccountIndex;
     type Token = TokenIndex;
 
-    fn plt_list(&self) -> impl Iterator<Item = concordium_base::protocol_level_tokens::TokenId> {
+    fn plt_list(&self) -> impl Iterator<Item = TokenId> {
         // TODO implement this. The implementation below is just to help the type checker infer
-        // enough for this to compile
+        // enough for this to compile.
         Vec::new().into_iter()
     }
 
-    fn token_by_id(
-        &self,
-        _token_id: &concordium_base::protocol_level_tokens::TokenId,
-    ) -> Result<TokenIndex, TokenNotFoundByIdError> {
+    fn token_by_id(&self, _token_id: &TokenId) -> Result<Self::Token, TokenNotFoundByIdError> {
         todo!()
     }
 
@@ -40,17 +161,17 @@ impl BlockStateQuery for BlockState {
         todo!()
     }
 
-    fn token_configuration(&self, _token_index: &TokenIndex) -> TokenConfiguration {
+    fn token_configuration(&self, _token: &Self::Token) -> TokenConfiguration {
         todo!()
     }
 
-    fn token_circulating_supply(&self, _token_index: &TokenIndex) -> RawTokenAmount {
+    fn token_circulating_supply(&self, _token: &Self::Token) -> RawTokenAmount {
         todo!()
     }
 
     fn lookup_token_state_value(
         &self,
-        _token_state: &Self::TokenKeyValueState,
+        _token_key_value_state: &Self::TokenKeyValueState,
         _key: &TokenStateKey,
     ) -> Option<TokenStateValue> {
         todo!()
@@ -58,7 +179,7 @@ impl BlockStateQuery for BlockState {
 
     fn update_token_state_value(
         &self,
-        _token_state: &mut Self::TokenKeyValueState,
+        _token_key_value_state: &mut Self::TokenKeyValueState,
         _key: &TokenStateKey,
         _value: Option<TokenStateValue>,
     ) {
@@ -67,32 +188,46 @@ impl BlockStateQuery for BlockState {
 
     fn account_by_address(
         &self,
-        _address: &AccountAddress,
+        address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError> {
-        todo!()
+        let index = self
+            .get_account_index_by_address
+            .account_index_by_account_address(address)?;
+
+        Ok(index)
     }
 
     fn account_by_index(
         &self,
-        _index: AccountIndex,
+        index: AccountIndex,
     ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        todo!()
+        // lookup by address to make sure the account exists
+        // todo will be changed in following PR that changes account model a bit
+        let _ = self
+            .get_account_address_by_index
+            .account_canonical_address_by_account_index(index)?;
+
+        Ok(index)
     }
 
-    fn account_index(&self, _account: &Self::Account) -> AccountIndex {
-        todo!()
+    fn account_index(&self, account: &Self::Account) -> AccountIndex {
+        *account
     }
 
-    fn account_canonical_address(&self, _account: &Self::Account) -> AccountAddress {
-        todo!()
+    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
+        // todo will be changed in following PR that changes account model a bit
+        self.get_account_address_by_index
+            .account_canonical_address_by_account_index(*account)
+            .expect("account should exist")
     }
 
     fn account_token_balance(
         &self,
-        _account: &Self::Account,
-        _token: &Self::Token,
+        account: &Self::Account,
+        token: &Self::Token,
     ) -> RawTokenAmount {
-        todo!()
+        self.read_token_account_balance
+            .read_token_account_balance(*account, *token)
     }
 
     fn token_account_states(
@@ -100,45 +235,45 @@ impl BlockStateQuery for BlockState {
         _account: &Self::Account,
     ) -> impl Iterator<Item = (Self::Token, TokenAccountBlockState)> {
         // TODO implement this. The implementation below is just to help the type checker infer
-        // enough for this to compile
+        // enough for this to compile.
         Vec::new().into_iter()
     }
 }
 
-impl BlockStateOperations for BlockState {
+impl<L: BackingStoreLoad, T: BlockStateExternal> BlockStateOperations
+    for ExecutionTimePltBlockState<L, T>
+{
     fn set_token_circulating_supply(
         &mut self,
-        _token_index: &TokenIndex,
+        _token: &Self::Token,
         _circulating_supply: RawTokenAmount,
     ) {
         todo!()
     }
 
-    fn create_token(&mut self, _configuration: TokenConfiguration) -> TokenIndex {
+    fn create_token(&mut self, _configuration: TokenConfiguration) -> Self::Token {
         todo!()
     }
 
     fn update_token_account_balance(
         &mut self,
-        _token_index: &TokenIndex,
-        _account_index: &AccountIndex,
-        _amount_delta: RawTokenAmountDelta,
+        token: &Self::Token,
+        account: &Self::Account,
+        amount_delta: RawTokenAmountDelta,
     ) -> Result<(), OverflowError> {
-        todo!()
-    }
-
-    fn touch_token_account(&mut self, _token_index: &TokenIndex, _account_index: &AccountIndex) {
-        todo!()
+        self.update_token_account_balance
+            .update_token_account_balance(*account, *token, amount_delta)
     }
 
     fn increment_plt_update_instruction_sequence_number(&mut self) {
-        todo!()
+        self.increment_plt_update_sequence_number
+            .increment_plt_update_sequence_number();
     }
 
     fn set_token_key_value_state(
         &mut self,
-        _token_index: &TokenIndex,
-        _token_state_map: Self::TokenKeyValueState,
+        _token: &Self::Token,
+        _token_key_value_state: Self::TokenKeyValueState,
     ) {
         todo!()
     }
