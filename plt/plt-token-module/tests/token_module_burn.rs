@@ -2,8 +2,9 @@ use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    DeserializationFailureRejectReason, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
-    TokenModuleRejectReasonEnum, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
+    DeserializationFailureRejectReason, OperationNotPermittedRejectReason, RawCbor, TokenAmount,
+    TokenBalanceInsufficientRejectReason, TokenModuleRejectReasonEnum, TokenOperation,
+    TokenPauseDetails, TokenSupplyUpdateDetails,
 };
 use kernel_stub::KernelStub;
 use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
@@ -115,15 +116,21 @@ fn test_burn_paused() {
     let gov_account = stub.init_token(TokenInitTestParams::default());
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
 
-    // We set the token to be paused, and verify that the otherwise valid "mint" operation
-    // is rejected.
+    // We set the token to be paused, and verify that the otherwise valid "burn" operation
+    // is rejected in the subsequent transaction.
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![
-        TokenOperation::Pause(TokenPauseDetails {}),
-        TokenOperation::Burn(TokenSupplyUpdateDetails {
-            amount: TokenAmount::from_raw(1000, 2),
-        }),
-    ];
+    let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("Executed successfully");
+
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(1000, 2),
+    })];
     let res = token_module::execute_token_update_transaction(
         &mut execution,
         &mut stub,
@@ -133,6 +140,10 @@ fn test_burn_paused() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(_)
+        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 0,
+            address: None,
+            reason: Some(reason),
+        }) if reason == "token operation burn is paused"
     );
 }

@@ -4,8 +4,8 @@ use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, CborMemo, DeserializationFailureRejectReason,
-    RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReasonEnum,
-    TokenOperation, TokenPauseDetails, TokenTransfer,
+    OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
+    TokenModuleRejectReasonEnum, TokenOperation, TokenPauseDetails, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
 use kernel_stub::KernelStub;
@@ -202,16 +202,23 @@ fn test_transfer_paused() {
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
     // We set the token to be paused, and verify that the otherwise valid "transfer" operation
-    // is rejected.
+    // is rejected in the subsequent transaction.
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![
-        TokenOperation::Pause(TokenPauseDetails {}),
-        TokenOperation::Transfer(TokenTransfer {
-            amount: TokenAmount::from_raw(1000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
-            memo: None,
-        }),
-    ];
+    let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
+    token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    )
+    .expect("Executed successfully");
+
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::Transfer(TokenTransfer {
+        amount: TokenAmount::from_raw(1000, 2),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        memo: None,
+    })];
+
     let res = token_module::execute_token_update_transaction(
         &mut execution,
         &mut stub,
@@ -221,6 +228,10 @@ fn test_transfer_paused() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(_)
+        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 0,
+            address: None,
+            reason: Some(reason),
+        }) if reason == "token operation transfer is paused"
     );
 }

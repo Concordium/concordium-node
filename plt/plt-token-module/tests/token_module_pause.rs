@@ -1,8 +1,9 @@
+use assert_matches::assert_matches;
 use concordium_base::{
     common::cbor,
     protocol_level_tokens::{
-        RawCbor, TokenAmount, TokenModuleState, TokenOperation, TokenPauseDetails,
-        TokenSupplyUpdateDetails,
+        OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleRejectReasonEnum,
+        TokenModuleState, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
     },
 };
 use plt_token_module::{
@@ -13,8 +14,9 @@ use plt_token_module::{
 use crate::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 
 mod kernel_stub;
+mod utils;
 
-// Test that pause/unpause operations modify the token module state as expected
+/// Test that pause/unpause operations modify the token module state as expected
 #[test]
 fn test_token_pause_state() {
     let mut stub = KernelStub::with_decimals(0);
@@ -62,7 +64,11 @@ fn test_token_pause_state() {
     assert_eq!(state.paused, Some(false));
 }
 
-// Accept performing a "pause" operation on a token that is already paused is permitted
+/// Accept performing a "pause" operation on a token that is already paused is permitted. This
+/// ensures that "pause" operations are _not_:
+/// - rejected due to being redundant
+/// - affected by the paused state of the token, which is only meant to affect balance-changing
+///   operations.
 #[test]
 fn test_double_pause() {
     let mut stub = KernelStub::with_decimals(0);
@@ -96,7 +102,7 @@ fn test_double_pause() {
     assert_eq!(state.paused, Some(true));
 }
 
-// Accept performing an "unpause" operation on a token that is _not_ paused is permitted
+/// Accept performing an "unpause" operation on a token that is _not_ paused is permitted
 #[test]
 fn test_redundant_unpause() {
     let mut stub = KernelStub::with_decimals(0);
@@ -231,27 +237,25 @@ fn test_pause_multiple_ops() {
             amount: TokenAmount::from_raw(1000, 2),
         }),
     ];
-    let _res = token_module::execute_token_update_transaction(
+    let res = token_module::execute_token_update_transaction(
         &mut execution,
         &mut stub,
         RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
-    // TODO: test authorization PSR-26
-    // let reject_reason = utils::assert_reject_reason(&res);
-    // assert_matches!(
-    //     reject_reason,
-    //     TokenModuleRejectReasonEnum::OperationNotPermitted(_)
-    // );
-    //
-    // // As token updates and the operations contained are executed atomically, we expect the token
-    // // state values changes attempted to _not_ have taken effect.
-    // let state: TokenModuleState =
-    //     cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
-    // // NOTE: can we even do this verification at this point, or are we going to rely on block state
-    // // rollback for the state to be reset?
-    // assert_eq!(state.paused, Some(false));
-    // assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index: 1,
+            address: None,
+            reason: Some(reason),
+        }) if reason == "token operation mint is paused"
+    );
+
+    // Assert that no tokens were minted
+    assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
+    assert_eq!(stub.circulating_supply(), RawTokenAmount(0));
 }
 
 /// Accepts token update transactions with an "unpause" operation and a subsequent operation not
