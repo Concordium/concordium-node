@@ -223,7 +223,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
     fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor) {
         self.events
             .push(BlockItemEvent::TokenModule(TokenModuleEvent {
-                token_id,
+                token_id: self.token_configuration.token_id.clone(),
                 event_type,
                 details,
             }))

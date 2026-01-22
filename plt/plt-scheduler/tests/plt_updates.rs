@@ -7,8 +7,9 @@ use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, CborMemo, RawCbor, TokenAmount, TokenId, TokenModuleRejectReasonEnum,
-    TokenOperation, TokenOperationsPayload, TokenSupplyUpdateDetails, TokenTransfer,
+    CborHolderAccount, CborMemo, RawCbor, TokenAmount, TokenId, TokenModuleEventType,
+    TokenModuleRejectReasonEnum, TokenOperation, TokenOperationsPayload, TokenPauseDetails,
+    TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
@@ -394,7 +395,7 @@ fn test_plt_multiple_operations() {
         RawTokenAmount(1000)
     );
 
-    // Assert two event in right order
+    // Assert two events in right order
     assert_eq!(events.len(), 2);
     assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
@@ -407,6 +408,72 @@ fn test_plt_multiple_operations() {
         assert_eq!(transfer.from, stub.account_canonical_address(&gov_account));
         assert_eq!(transfer.to, stub.account_canonical_address(&account2));
         assert_eq!(transfer.memo, None);
+    });
+}
+
+/// Test protocol-level token "pause" operation.
+#[test]
+fn test_plt_pause() {
+    let mut stub = BlockStateStub::new();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (_, gov_account) =
+        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+
+    // Add the "pause" operation
+    let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+
+    let result = scheduler::execute_transaction(
+        gov_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
+
+    // Assert that the expected pause event is logged
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
+        assert_eq!(event.token_id, token_id);
+        assert_eq!(event.event_type, TokenModuleEventType::Pause.to_type_discriminator());
+        assert_eq!(event.details, vec![].into());
+    });
+}
+
+/// Test protocol-level token "unpause" operation.
+#[test]
+fn test_plt_unpause() {
+    let mut stub = BlockStateStub::new();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (_, gov_account) =
+        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+
+    // Add the "unpause" operation
+    let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+
+    let result = scheduler::execute_transaction(
+        gov_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
+
+    // Assert that the expected unpause event is logged
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
+        assert_eq!(event.token_id, token_id);
+        assert_eq!(event.event_type, TokenModuleEventType::Unpause.to_type_discriminator());
+        assert_eq!(event.details, vec![].into());
     });
 }
 

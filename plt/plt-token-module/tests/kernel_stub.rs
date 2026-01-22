@@ -344,7 +344,8 @@ impl TokenKernelOperations for KernelStub {
         _event_type: TokenModuleCborTypeDiscriminator,
         _details: RawCbor,
     ) {
-        todo!()
+        // NOTE: Implementation not needed, as this is tested at the scheduler level which relies
+        // on `TokenKernelOperationsImpl` with a stubbed block state.
     }
 }
 

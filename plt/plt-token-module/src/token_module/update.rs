@@ -9,7 +9,7 @@ use concordium_base::base::Energy;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
-    TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator,
+    TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator, TokenModuleEventType,
     TokenModuleRejectReasonEnum, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
@@ -373,10 +373,7 @@ fn execute_token_pause<
 
     kernel.set_module_state(STATE_KEY_PAUSED, Some(vec![]));
 
-    let event_type = "paused"
-        .to_string()
-        .try_into()
-        .expect("is a valid cbor type descriptor"); // we unwrap here as we know this is valid.
+    let event_type = TokenModuleEventType::Pause.to_type_discriminator();
     kernel.log_token_event(event_type, vec![].into());
     Ok(())
 }
@@ -391,10 +388,7 @@ fn execute_token_unpause<
     // TODO: authorization implemented as part of PSR-26
     kernel.set_module_state(STATE_KEY_PAUSED, None);
 
-    let event_type = "unpaused"
-        .to_string()
-        .try_into()
-        .expect("is a valid cbor type descriptor"); // we unwrap here as we know this is valid.
+    let event_type = TokenModuleEventType::Unpause.to_type_discriminator();
     kernel.log_token_event(event_type, vec![].into());
     Ok(())
 }
