@@ -7,8 +7,9 @@ use concordium_base::protocol_level_tokens::{
     TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
 };
 use kernel_stub::KernelStub;
-use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
+use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module::{self};
+use plt_types::types::primitives::RawTokenAmount;
 
 mod kernel_stub;
 mod utils;

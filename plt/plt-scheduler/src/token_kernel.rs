@@ -3,19 +3,22 @@
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
 };
-use crate::types::events::{BlockItemEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     RawCbor, TokenAmount, TokenModuleCborTypeDiscriminator,
 };
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
-    TokenStateInvariantError, TokenStateKey, TokenStateValue, TokenTransferError,
+use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_scheduler_interface::token_kernel_interface::{
+    InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
+    TokenKernelQueries, TokenMintError, TokenStateInvariantError, TokenStateKey, TokenStateValue,
+    TokenTransferError,
 };
+use plt_types::types::events::{
+    BlockItemEvent, TokenBurnEvent, TokenMintEvent, TokenModuleEvent, TokenTransferEvent,
+};
+use plt_types::types::primitives::RawTokenAmount;
 
 /// Implementation of token kernel queries with a specific token in context.
 pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {

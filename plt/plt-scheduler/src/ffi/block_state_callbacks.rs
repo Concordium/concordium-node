@@ -6,8 +6,8 @@ use crate::block_state::external::{
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::RawTokenAmount;
+use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_types::types::primitives::RawTokenAmount;
 
 /// External function for updating the token balance for an account.
 ///

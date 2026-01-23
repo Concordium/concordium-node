@@ -1,3 +1,4 @@
+use crate::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::{
     common::cbor,
@@ -7,12 +8,9 @@ use concordium_base::{
         TokenSupplyUpdateDetails,
     },
 };
-use plt_token_module::{
-    token_kernel_interface::{RawTokenAmount, TokenKernelQueries},
-    token_module,
-};
-
-use crate::kernel_stub::{KernelStub, TokenInitTestParams, TransactionExecutionTestImpl};
+use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
+use plt_token_module::token_module;
+use plt_types::types::primitives::RawTokenAmount;
 
 mod kernel_stub;
 mod utils;

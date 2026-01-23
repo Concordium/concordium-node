@@ -2,17 +2,20 @@
 resolver = "3"
 
 members = [
-    "plt-scheduler",
+    "plt-types",
     "plt-scheduler-interface",
+    "plt-scheduler",
     "plt-token-module"
 ]
 
 [workspace.dependencies]
 plt-token-module = {path = "plt-token-module"}
+plt-types = {path = "plt-types"}
 plt-scheduler-interface = {path = "plt-scheduler-interface"}
 
 concordium_base = {path = "../concordium-base/rust-src/concordium_base"}
 
 assert_matches = "1.5.0"
+hex = "0.4.3"
 libc = "0.2.178"
 thiserror = "2.0.17"

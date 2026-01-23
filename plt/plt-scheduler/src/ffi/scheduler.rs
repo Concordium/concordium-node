@@ -10,12 +10,12 @@ use crate::ffi::block_state_callbacks::{
     UpdateTokenAccountBalanceCallback,
 };
 use crate::scheduler;
-use crate::scheduler::TransactionOutcome;
 use concordium_base::base::{AccountIndex, Energy};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::transactions::Payload;
 use concordium_base::{common, contracts_common};
 use libc::size_t;
+use plt_types::types::execution::TransactionOutcome;
 
 /// Callbacks types definition
 pub struct BlockStateCallbacks;
