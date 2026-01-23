@@ -5,7 +5,9 @@ use crate::block_state_interface::{
 };
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::TokenAmount;
+use concordium_base::protocol_level_tokens::{
+    RawCbor, TokenAmount, TokenModuleCborTypeDiscriminator,
+};
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_scheduler_interface::token_kernel_interface::{
@@ -227,8 +229,13 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
             .update_token_state_value(self.token_module_state, &key, value);
     }
 
-    fn log_token_event(&mut self, module_event: TokenModuleEvent) {
-        self.events.push(BlockItemEvent::TokenModule(module_event))
+    fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor) {
+        self.events
+            .push(BlockItemEvent::TokenModule(TokenModuleEvent {
+                token_id: self.token_configuration.token_id.clone(),
+                event_type,
+                details,
+            }))
     }
 }
 

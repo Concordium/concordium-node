@@ -9,7 +9,8 @@ use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, TokenModuleInitializationParameters,
+    CborHolderAccount, MetadataUrl, RawCbor, TokenModuleCborTypeDiscriminator,
+    TokenModuleInitializationParameters,
 };
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::error::{
@@ -46,6 +47,7 @@ pub struct KernelStub {
         RawTokenAmount,
         Option<Memo>,
     )>,
+    pub events: Vec<(TokenModuleCborTypeDiscriminator, RawCbor)>,
 }
 
 /// Internal representation of an Account in [`KernelStub`].
@@ -69,6 +71,7 @@ impl KernelStub {
             circulating_supply: RawTokenAmount::default(),
             next_account_index: AccountIndex { index: 0 },
             transfers: Default::default(),
+            events: Default::default(),
         }
     }
 
@@ -340,8 +343,8 @@ impl TokenKernelOperations for KernelStub {
         };
     }
 
-    fn log_token_event(&mut self, _event: TokenModuleEvent) {
-        todo!()
+    fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor) {
+        self.events.push((event_type, details));
     }
 }
 

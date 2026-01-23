@@ -176,5 +176,5 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// # Events
     ///
     /// This will produce a `TokenModuleEvent` in the logs.
-    fn log_token_event(&mut self, event: TokenModuleEvent);
+    fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor);
 }
