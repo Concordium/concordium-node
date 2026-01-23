@@ -3,8 +3,8 @@ use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     DeserializationFailureRejectReason, OperationNotPermittedRejectReason, RawCbor, TokenAmount,
-    TokenBalanceInsufficientRejectReason, TokenModuleRejectReasonEnum, TokenOperation,
-    TokenPauseDetails, TokenSupplyUpdateDetails,
+    TokenBalanceInsufficientRejectReason, TokenModuleEventType, TokenModuleRejectReasonEnum,
+    TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
 };
 use kernel_stub::KernelStub;
 use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
@@ -146,4 +146,11 @@ fn test_burn_paused() {
             reason: Some(reason),
         }) if reason == "token operation burn is paused"
     );
+
+    assert_eq!(stub.events.len(), 1);
+    assert_eq!(
+        stub.events[0].0,
+        TokenModuleEventType::Pause.to_type_discriminator()
+    );
+    assert!(stub.events[0].1.as_ref().is_empty());
 }

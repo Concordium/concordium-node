@@ -2,8 +2,9 @@ use assert_matches::assert_matches;
 use concordium_base::{
     common::cbor,
     protocol_level_tokens::{
-        OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleRejectReasonEnum,
-        TokenModuleState, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
+        OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleEventType,
+        TokenModuleRejectReasonEnum, TokenModuleState, TokenOperation, TokenPauseDetails,
+        TokenSupplyUpdateDetails,
     },
 };
 use plt_token_module::{
@@ -62,11 +63,22 @@ fn test_token_pause_state() {
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.paused, Some(false));
+
+    assert_eq!(stub.events.len(), 2);
+    assert_eq!(
+        stub.events[0].0,
+        TokenModuleEventType::Pause.to_type_discriminator()
+    );
+    assert!(stub.events[0].1.as_ref().is_empty());
+    assert_eq!(
+        stub.events[1].0,
+        TokenModuleEventType::Unpause.to_type_discriminator()
+    );
+    assert!(stub.events[1].1.as_ref().is_empty());
 }
 
 /// Accept performing a "pause" operation on a token that is already paused is permitted. This
 /// ensures that "pause" operations are _not_:
-/// - rejected due to being redundant
 /// - affected by the paused state of the token, which is only meant to affect balance-changing
 ///   operations.
 #[test]
@@ -90,6 +102,7 @@ fn test_double_pause() {
     // Then we try to perform an "pause" operation on top of this state in a subsequent
     // transaction (with a new transaction execution context, for good measure).
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
     token_module::execute_token_update_transaction(
         &mut execution,
         &mut stub,
@@ -100,6 +113,12 @@ fn test_double_pause() {
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.paused, Some(true));
+
+    assert_eq!(stub.events.len(), 3);
+    assert!(stub.events.iter().all(|(event_type, details)| {
+        *event_type == TokenModuleEventType::Pause.to_type_discriminator()
+            && details.as_ref().is_empty()
+    }));
 }
 
 /// Accept performing an "unpause" operation on a token that is _not_ paused is permitted
@@ -122,6 +141,13 @@ fn test_redundant_unpause() {
     let state: TokenModuleState =
         cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
     assert_eq!(state.paused, Some(false));
+
+    assert_eq!(stub.events.len(), 1);
+    assert_eq!(
+        stub.events[0].0,
+        TokenModuleEventType::Unpause.to_type_discriminator()
+    );
+    assert!(stub.events[0].1.as_ref().is_empty());
 }
 
 /// Rejects pause operations from non-governance accounts.
@@ -256,6 +282,13 @@ fn test_pause_multiple_ops() {
     // Assert that no tokens were minted
     assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
     assert_eq!(stub.circulating_supply(), RawTokenAmount(0));
+
+    assert_eq!(stub.events.len(), 1);
+    assert_eq!(
+        stub.events[0].0,
+        TokenModuleEventType::Pause.to_type_discriminator()
+    );
+    assert!(stub.events[0].1.as_ref().is_empty());
 }
 
 /// Accepts token update transactions with an "unpause" operation and a subsequent operation not
@@ -299,4 +332,16 @@ fn test_unpause_multiple_ops() {
         stub.account_token_balance(&gov_account),
         RawTokenAmount(1000)
     );
+
+    assert_eq!(stub.events.len(), 2);
+    assert_eq!(
+        stub.events[0].0,
+        TokenModuleEventType::Pause.to_type_discriminator()
+    );
+    assert!(stub.events[0].1.as_ref().is_empty());
+    assert_eq!(
+        stub.events[1].0,
+        TokenModuleEventType::Unpause.to_type_discriminator()
+    );
+    assert!(stub.events[1].1.as_ref().is_empty());
 }

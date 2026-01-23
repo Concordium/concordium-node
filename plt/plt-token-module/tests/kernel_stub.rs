@@ -45,6 +45,7 @@ pub struct KernelStub {
         RawTokenAmount,
         Option<Memo>,
     )>,
+    pub events: Vec<(TokenModuleCborTypeDiscriminator, RawCbor)>,
 }
 
 /// Internal representation of an Account in [`KernelStub`].
@@ -68,6 +69,7 @@ impl KernelStub {
             circulating_supply: RawTokenAmount::default(),
             next_account_index: AccountIndex { index: 0 },
             transfers: Default::default(),
+            events: Default::default(),
         }
     }
 
@@ -339,13 +341,8 @@ impl TokenKernelOperations for KernelStub {
         };
     }
 
-    fn log_token_event(
-        &mut self,
-        _event_type: TokenModuleCborTypeDiscriminator,
-        _details: RawCbor,
-    ) {
-        // NOTE: Implementation not needed, as this is tested at the scheduler level which relies
-        // on `TokenKernelOperationsImpl` with a stubbed block state.
+    fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor) {
+        self.events.push((event_type, details));
     }
 }
 

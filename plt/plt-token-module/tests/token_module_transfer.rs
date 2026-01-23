@@ -5,7 +5,8 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, CborMemo, DeserializationFailureRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
-    TokenModuleRejectReasonEnum, TokenOperation, TokenPauseDetails, TokenTransfer,
+    TokenModuleEventType, TokenModuleRejectReasonEnum, TokenOperation, TokenPauseDetails,
+    TokenTransfer,
 };
 use concordium_base::transactions::Memo;
 use kernel_stub::KernelStub;
@@ -234,4 +235,11 @@ fn test_transfer_paused() {
             reason: Some(reason),
         }) if reason == "token operation transfer is paused"
     );
+
+    assert_eq!(stub.events.len(), 1);
+    assert_eq!(
+        stub.events[0].0,
+        TokenModuleEventType::Pause.to_type_discriminator()
+    );
+    assert!(stub.events[0].1.as_ref().is_empty());
 }
