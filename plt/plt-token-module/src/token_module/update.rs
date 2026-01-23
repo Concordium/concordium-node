@@ -324,8 +324,7 @@ fn check_authorized<TK: TokenKernelOperations>(
 ) -> Result<(), TokenUpdateErrorInternal> {
     let sender_index = kernel.account_index(sender);
     let authorized = module_state::get_governance_account_index(kernel)
-        .map(|gov_index| gov_index == sender_index)
-        .unwrap_or(false);
+        .is_ok_and(|gov_index| gov_index == sender_index);
 
     if !authorized {
         return Err(TokenUpdateErrorInternal::Unauthorized {
