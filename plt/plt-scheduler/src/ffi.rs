@@ -8,6 +8,9 @@ use concordium_base::common;
 use concordium_base::transactions::Payload;
 use libc::size_t;
 
+mod blob_store_callbacks;
+mod block_state_callbacks;
+
 /// C-binding for calling [`crate::execute_transaction`].
 ///
 /// Returns a byte representing the status code, where the value should be interpreted as:

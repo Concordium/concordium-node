@@ -7,11 +7,16 @@ use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenStateKey, TokenStateValue};
 
+#[allow(unused)]
+pub mod blob_store;
+#[allow(unused)]
+pub mod external;
+
 pub struct BlockState {}
 
 /// Index of the protocol-level token in the block state map of tokens.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TokenIndex(u64);
+pub struct TokenIndex(pub u64);
 
 impl BlockStateQuery for BlockState {
     type TokenKeyValueState = ();
