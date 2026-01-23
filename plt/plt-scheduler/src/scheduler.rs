@@ -120,14 +120,14 @@ where
 
     match payload {
         Payload::TokenUpdate { payload } => {
-            let result = plt_scheduler::execute_token_update_transaction(
+            let outcome = plt_scheduler::execute_token_update_transaction(
                 &mut execution,
                 block_state,
                 payload,
             )?;
 
             Ok(TransactionExecutionSummary {
-                outcome: result,
+                outcome,
                 energy_used: execution.energy_used,
             })
         }
