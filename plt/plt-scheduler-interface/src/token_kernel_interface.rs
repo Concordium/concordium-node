@@ -5,8 +5,8 @@
 use crate::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
+use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_types::types::events::TokenModuleEvent;
 use plt_types::types::primitives::RawTokenAmount;
 
 pub type TokenStateKey = Vec<u8>;
