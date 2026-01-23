@@ -2,7 +2,7 @@ use crate::kernel_stub::{TokenInitTestParams, TransactionExecutionTestImpl};
 use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
+    CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleEventType,
     TokenModuleRejectReasonEnum, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
 };
@@ -52,6 +52,55 @@ fn test_mint() {
         stub.account_token_balance(&gov_account),
         RawTokenAmount(5000)
     );
+}
+
+/// Rejects mint operations from non-governance accounts.
+#[test]
+fn test_unauthorized_mint() {
+    // Arrange a token and an unauthorized sender.
+    let mut stub = KernelStub::with_decimals(2);
+    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let non_governance_account = stub.create_account();
+
+    // Attempt to mint as a non-governance account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(non_governance_account);
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(1000, 2),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    // Assert the operation is rejected with the unauthorized sender details.
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index,
+            address,
+            ..
+        }) => {
+            assert_eq!(index, 0);
+            assert_eq!(
+                address,
+                Some(CborHolderAccount::from(
+                    stub.account_canonical_address(&non_governance_account)
+                ))
+            );
+        }
+    );
+
+    // Assert balances remain unchanged.
+    assert_eq!(stub.account_token_balance(&gov_account), RawTokenAmount(0));
+    assert_eq!(
+        stub.account_token_balance(&non_governance_account),
+        RawTokenAmount(0)
+    );
+
+    // and that no events have been logged
+    assert_eq!(stub.events.len(), 0);
 }
 
 /// Test mint that would overflow circulating supply

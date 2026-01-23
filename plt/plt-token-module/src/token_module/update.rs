@@ -6,6 +6,7 @@ use crate::token_kernel_interface::{
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
@@ -173,6 +174,19 @@ pub fn execute_token_update_transaction<
                         },
                     )),
                 ),
+                TokenUpdateErrorInternal::Unauthorized { account_address } => {
+                    TokenUpdateError::TokenModuleReject(make_reject_reason(
+                        TokenModuleRejectReasonEnum::OperationNotPermitted(
+                            OperationNotPermittedRejectReason {
+                                index: index as u64,
+                                address: Some(account_address.into()),
+                                reason: "sender is not the token governance account"
+                                    .to_string()
+                                    .into(),
+                            },
+                        ),
+                    ))
+                }
             },
         )?;
     }
@@ -219,6 +233,8 @@ enum TokenUpdateErrorInternal {
     MintWouldOverflow(#[from] MintWouldOverflowError),
     #[error("The token is paused")]
     Paused,
+    #[error("{account_address} is not the token governance account")]
+    Unauthorized { account_address: AccountAddress },
 }
 
 impl From<TokenTransferError> for TokenUpdateErrorInternal {
@@ -297,6 +313,23 @@ fn check_not_paused<TK: TokenKernelOperations>(
     Ok(())
 }
 
+fn check_authorized<TK: TokenKernelOperations>(
+    kernel: &TK,
+    sender: &TK::Account,
+) -> Result<(), TokenUpdateErrorInternal> {
+    let sender_index = kernel.account_index(sender);
+    let authorized = module_state::get_governance_account_index(kernel)
+        .map(|gov_index| gov_index == sender_index)
+        .unwrap_or(false);
+
+    if !authorized {
+        return Err(TokenUpdateErrorInternal::Unauthorized {
+            account_address: kernel.account_canonical_address(sender),
+        });
+    }
+    Ok(())
+}
+
 fn execute_token_transfer<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::Account>,
@@ -334,6 +367,7 @@ fn execute_token_mint<
     let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
 
     // operation execution
+    check_authorized(kernel, &transaction_execution.sender_account())?;
     check_not_paused(kernel)?;
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
@@ -352,6 +386,7 @@ fn execute_token_burn<
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
 
     // operation execution
+    check_authorized(kernel, &transaction_execution.sender_account())?;
     check_not_paused(kernel)?;
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
@@ -362,14 +397,10 @@ fn execute_token_pause<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::Account>,
 >(
-    _transaction_execution: &mut TE,
+    transaction_execution: &mut TE,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    // let gov_account = kernel
-    //     .get_module_state(STATE_KEY_GOVERNANCE_ACCOUNT)
-    //     .unwrap(); // TODO: how do we handle the case of a missing governance account?
-    // let gov_account = AccountAddress::try_from(gov_account.as_slice());
-    // TODO: authorization implemented as part of PSR-26
+    check_authorized(kernel, &transaction_execution.sender_account())?;
 
     kernel.set_module_state(STATE_KEY_PAUSED, Some(vec![]));
 
@@ -382,10 +413,11 @@ fn execute_token_unpause<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::Account>,
 >(
-    _transaction_execution: &mut TE,
+    transaction_execution: &mut TE,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    // TODO: authorization implemented as part of PSR-26
+    check_authorized(kernel, &transaction_execution.sender_account())?;
+
     kernel.set_module_state(STATE_KEY_PAUSED, None);
 
     let event_type = TokenModuleEventType::Unpause.to_type_discriminator();
