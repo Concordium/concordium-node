@@ -3,9 +3,9 @@ use assert_matches::assert_matches;
 use concordium_base::{
     common::cbor,
     protocol_level_tokens::{
-        OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleEventType,
-        TokenModuleRejectReasonEnum, TokenModuleState, TokenOperation, TokenPauseDetails,
-        TokenSupplyUpdateDetails,
+        CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAmount,
+        TokenModuleEventType, TokenModuleRejectReasonEnum, TokenModuleState, TokenOperation,
+        TokenPauseDetails, TokenSupplyUpdateDetails,
     },
 };
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
@@ -159,36 +159,38 @@ fn test_unauthorized_pause() {
     // Attempt to pause as a non-governance account.
     let mut execution = TransactionExecutionTestImpl::with_sender(non_governance_account);
     let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
-    let _res = token_module::execute_token_update_transaction(
+    let res = token_module::execute_token_update_transaction(
         &mut execution,
         &mut stub,
         RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
-    // TODO: test authorization PSR-26
     // Assert the operation is rejected with the unauthorized sender details.
-    // let reject_reason = utils::assert_reject_reason(&res);
-    // assert_matches!(
-    //     reject_reason,
-    //     TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
-    //         index,
-    //         address,
-    //         ..
-    //     }) => {
-    //         assert_eq!(index, 0);
-    //         assert_eq!(
-    //             address,
-    //             Some(CborHolderAccount::from(
-    //                 stub.account_canonical_address(&non_governance_account)
-    //             ))
-    //         );
-    //     }
-    // );
-    //
-    // // Assert the token remains unpaused.
-    // let state: TokenModuleState =
-    //     cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
-    // assert_eq!(state.paused, Some(false));
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index,
+            address,
+            ..
+        }) => {
+            assert_eq!(index, 0);
+            assert_eq!(
+                address,
+                Some(CborHolderAccount::from(
+                    stub.account_canonical_address(&non_governance_account)
+                ))
+            );
+        }
+    );
+
+    // Assert the token remains unpaused.
+    let state: TokenModuleState =
+        cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
+    assert_eq!(state.paused, Some(false));
+
+    // and that no events have been logged
+    assert_eq!(stub.events.len(), 0);
 }
 
 /// Rejects unpause operations from non-governance accounts.
@@ -213,36 +215,39 @@ fn test_unauthorized_unpause() {
     // Attempt to unpause as a non-governance account.
     let mut execution = TransactionExecutionTestImpl::with_sender(non_governance_account);
     let operations = vec![TokenOperation::Unpause(TokenPauseDetails {})];
-    let _res = token_module::execute_token_update_transaction(
+    let res = token_module::execute_token_update_transaction(
         &mut execution,
         &mut stub,
         RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
-    // TODO: test authorization PSR-26
     // Assert the operation is rejected with the unauthorized sender details.
-    // let reject_reason = utils::assert_reject_reason(&res);
-    // assert_matches!(
-    //     reject_reason,
-    //     TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
-    //         index,
-    //         address,
-    //         ..
-    //     }) => {
-    //         assert_eq!(index, 0);
-    //         assert_eq!(
-    //             address,
-    //             Some(CborHolderAccount::from(
-    //                 stub.account_canonical_address(&non_governance_account)
-    //             ))
-    //         );
-    //     }
-    // );
-    //
-    // // Assert the token remains unpaused.
-    // let state: TokenModuleState =
-    //     cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
-    // assert_eq!(state.paused, Some(true));
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index,
+            address,
+            ..
+        }) => {
+            assert_eq!(index, 0);
+            assert_eq!(
+                address,
+                Some(CborHolderAccount::from(
+                    stub.account_canonical_address(&non_governance_account)
+                ))
+            );
+        }
+    );
+
+    // Assert the token remains unpaused.
+    let state: TokenModuleState =
+        cbor::cbor_decode(token_module::query_token_module_state(&stub).unwrap()).unwrap();
+    assert_eq!(state.paused, Some(true));
+
+    // and that no _additional_ events have been logged, aside from the one logged by the initial
+    // "pause" operation
+    assert_eq!(stub.events.len(), 1);
 }
 
 /// Rejects token update transactions with a "pause" operation and a subsequent operation not

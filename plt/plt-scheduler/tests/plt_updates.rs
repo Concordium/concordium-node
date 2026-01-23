@@ -7,9 +7,9 @@ use assert_matches::assert_matches;
 use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, CborMemo, RawCbor, TokenAmount, TokenId, TokenModuleEventType,
-    TokenModuleRejectReasonEnum, TokenOperation, TokenOperationsPayload, TokenPauseDetails,
-    TokenSupplyUpdateDetails, TokenTransfer,
+    CborHolderAccount, CborMemo, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
+    TokenModuleEventType, TokenModuleRejectReasonEnum, TokenOperation, TokenOperationsPayload,
+    TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
@@ -256,6 +256,59 @@ fn test_plt_mint_reject() {
     assert_matches!(
         reject_reason,
         TokenModuleRejectReasonEnum::MintWouldOverflow(_)
+    );
+}
+
+/// Test protocol-level token mint from unauthorized sender.
+#[test]
+fn test_plt_mint_unauthorized() {
+    let mut stub = BlockStateStub::new();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, _gov_account) =
+        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let non_governance_account = stub.create_account();
+
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(1000, 4),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: "tokenid1".parse().unwrap(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+
+    let result = scheduler::execute_transaction(
+        non_governance_account,
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
+
+    // Assert circulating supply and account balance unchanged
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(0));
+    assert_eq!(
+        stub.account_token_balance(&non_governance_account, &token),
+        RawTokenAmount(0)
+    );
+
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+            index,
+            address,
+            reason,
+        }) => {
+            assert_eq!(index, 0);
+            assert_eq!(
+                address,
+                Some(CborHolderAccount::from(
+                    stub.account_canonical_address(&non_governance_account)
+                ))
+            );
+            assert_eq!(reason.as_deref(), Some("sender is not the token governance account"));
+        }
     );
 }
 
