@@ -4,8 +4,8 @@ use crate::block_state::TokenIndex;
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::RawTokenAmount;
+use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_types::types::primitives::RawTokenAmount;
 
 /// Trait allowing reading the account token balance from the block state.
 ///

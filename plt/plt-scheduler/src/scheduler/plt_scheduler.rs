@@ -4,25 +4,24 @@
 use crate::block_state_interface::{
     BlockStateOperations, TokenConfiguration, TokenNotFoundByIdError,
 };
-use crate::scheduler::{
-    TransactionExecutionError, TransactionOutcome, TransactionRejectReason,
-    UpdateInstructionExecutionError,
-};
+use crate::scheduler::{TransactionExecutionError, UpdateInstructionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
-use crate::types::events::{BlockItemEvent, TokenCreateEvent};
-use crate::types::reject_reasons::TokenModuleRejectReason;
 use concordium_base::protocol_level_tokens::TokenOperationsPayload;
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
-use plt_scheduler_interface::TransactionExecution;
+use plt_scheduler_interface::error::OutOfEnergyError;
+use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
 use plt_token_module::token_module::TokenUpdateError;
 use plt_token_module::{TOKEN_MODULE_REF, token_module};
+use plt_types::types::events::{BlockItemEvent, TokenCreateEvent};
+use plt_types::types::execution::TransactionOutcome;
+use plt_types::types::reject_reasons::{TokenModuleRejectReason, TransactionRejectReason};
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.
 /// Energy must be charged during execution by calling [`TransactionExecution::tick_energy`]. If
 /// execution is out of energy, the function `tick_energy` returns an error which means execution must be stopped,
-/// and the [`OutOfEnergyError`](plt_scheduler_interface::OutOfEnergyError) error must be returned by `execute_plt_transaction`.
+/// and the [`OutOfEnergyError`](plt_types::OutOfEnergyError) error must be returned by `execute_plt_transaction`.
 ///
 /// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
 ///
@@ -48,9 +47,10 @@ pub fn execute_token_update_transaction<
     if let Err(err) =
         transaction_execution.tick_energy(transactions::cost::PLT_OPERATIONS_TRANSACTIONS)
     {
-        return Ok(TransactionOutcome::Rejected(TransactionRejectReason::from(
-            err,
-        )));
+        let _: OutOfEnergyError = err; // assert type of error
+        return Ok(TransactionOutcome::Rejected(
+            TransactionRejectReason::OutOfEnergy,
+        ));
     }
 
     // Lookup token
@@ -96,7 +96,7 @@ pub fn execute_token_update_transaction<
         }
         Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
             Ok(TransactionOutcome::Rejected(
-                TransactionRejectReason::TokenModule(TokenModuleRejectReason {
+                TransactionRejectReason::TokenUpdateTransactionFailed(TokenModuleRejectReason {
                     // Use the canonical token id from the token configuration
                     token_id: token_configuration.token_id.clone(),
                     reason_type: reject_reason.reason_type,

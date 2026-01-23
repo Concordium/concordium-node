@@ -2,36 +2,15 @@
 //! by the token module. The kernel handles all operations affecting token
 //! balance and supply and manages the state and events related to balances and supply.
 
+use crate::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_types::types::events::TokenModuleEvent;
+use plt_types::types::primitives::RawTokenAmount;
 
 pub type TokenStateKey = Vec<u8>;
 pub type TokenStateValue = Vec<u8>;
-
-/// Event produced from the effect of a token transaction.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TokenModuleEvent {
-    /// The canonical token id.
-    pub token_id: TokenId,
-    /// The type of event produced.
-    pub event_type: TokenModuleCborTypeDiscriminator,
-    /// The details of the event produced, in the raw byte encoded form.
-    pub details: RawCbor,
-}
-
-/// Token amount without decimals specified. The token amount represented by
-/// this type must always be represented with the number of decimals
-/// the token natively has.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
-pub struct RawTokenAmount(pub u64);
-
-impl RawTokenAmount {
-    /// Maximum representable raw token amount.
-    pub const MAX: Self = Self(u64::MAX);
-}
 
 /// The account has insufficient balance.
 #[derive(Debug, thiserror::Error)]

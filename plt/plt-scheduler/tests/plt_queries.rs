@@ -7,7 +7,7 @@ use concordium_base::protocol_level_tokens::{TokenAmount, TokenId, TokenModuleSt
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::queries;
 use plt_token_module::TOKEN_MODULE_REF;
-use plt_token_module::token_kernel_interface::RawTokenAmount;
+use plt_types::types::primitives::RawTokenAmount;
 
 mod block_state_stub;
 

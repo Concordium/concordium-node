@@ -13,9 +13,9 @@ use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler;
 use plt_scheduler::scheduler::UpdateInstructionExecutionError;
-use plt_scheduler::types::events::BlockItemEvent;
 use plt_token_module::TOKEN_MODULE_REF;
-use plt_token_module::token_kernel_interface::RawTokenAmount;
+use plt_types::types::events::BlockItemEvent;
+use plt_types::types::primitives::RawTokenAmount;
 
 mod block_state_stub;
 

@@ -13,10 +13,10 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler;
-use plt_scheduler::scheduler::TransactionOutcome;
-use plt_scheduler::types::events::BlockItemEvent;
-use plt_scheduler::types::reject_reasons::TransactionRejectReason;
-use plt_token_module::token_kernel_interface::RawTokenAmount;
+use plt_types::types::events::BlockItemEvent;
+use plt_types::types::execution::TransactionOutcome;
+use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::reject_reasons::TransactionRejectReason;
 
 mod block_state_stub;
 mod utils;
@@ -510,7 +510,7 @@ fn test_energy_charge_at_reject() {
     .expect("transaction internal error");
     assert_matches!(
         result.outcome,
-        TransactionOutcome::Rejected(TransactionRejectReason::TokenModule(_))
+        TransactionOutcome::Rejected(TransactionRejectReason::TokenUpdateTransactionFailed(_))
     );
 
     // Assert energy used

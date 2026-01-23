@@ -2,25 +2,17 @@
 
 use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use crate::token_kernel::TokenKernelQueriesImpl;
-use crate::types::state::{TokenAccountState, TokenState};
 use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
-use plt_scheduler_interface::AccountNotFoundByIndexError;
+use plt_scheduler_interface::error::AccountNotFoundByIndexError;
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
+use plt_types::types::queries::{TokenAccountInfo, TokenInfo};
+use plt_types::types::state::{TokenAccountState, TokenState};
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
     block_state.plt_list().collect()
-}
-
-/// The token state at the block level.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TokenInfo {
-    /// The canonical identifier/symbol for the protocol level token.
-    pub token_id: TokenId,
-    /// The associated block level state.
-    pub state: TokenState,
 }
 
 /// Represents the reasons why a query of token state may fail
@@ -68,15 +60,6 @@ pub fn query_token_info(
     };
 
     Ok(token_info)
-}
-
-/// State of a protocol level token associated with some account.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TokenAccountInfo {
-    /// The canonical identifier/symbol for the protocol level token.
-    pub token_id: TokenId,
-    /// The state of the token associated with the account.
-    pub account_state: TokenAccountState,
 }
 
 /// Represents the reasons why a query of token state may fail
