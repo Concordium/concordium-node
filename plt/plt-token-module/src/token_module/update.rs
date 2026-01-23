@@ -2,6 +2,7 @@ use crate::module_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
@@ -47,15 +48,17 @@ pub enum TokenUpdateError {
 ///
 /// - For each transfer operation:
 ///
+///    - Check that the transfer amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
 ///    - Check that the module is not paused.
 ///    - Check that the recipient is valid.
 ///    - Check allow and deny list restrictions.
-///    - Check that the transfer amount is specified with the correct number of decimals.
 ///    - Transfer the amount from the sender to the recipient, if the sender's balance is
 ///      sufficient (checked by the kernel).
 ///
 /// - For each list update operation:
 ///
+///    - Tick energy required for the operation.
 ///    - Check that the governance account is the sender.
 ///    - Check that the module configuration allows the list operation.
 ///    - Check that the account to add/remove exists on-chain.
@@ -63,26 +66,29 @@ pub enum TokenUpdateError {
 ///
 /// - For each mint operation:
 ///
+///    - Check that the mint amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
 ///    - Check that the governance account is the sender.
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows minting.
-///    - Check that the mint amount is specified with the correct number of decimals.
 ///    - Mint the amount to the sender, if the resulting circulating supply is
 ///      within representable range (checked by the kernel).
 ///
 /// - For each burn operation:
 ///
+///    - Check that the burn amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
 ///    - Check that the governance account is the sender.
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows burning.
-///    - Check that the burn amount is specified with the correct number of decimals.
 ///    - Burn the amount from the sender, if the sender's balance is
 ///      sufficient (checked by the kernel).
 ///
 /// - For each pause/unpause operation:
 ///
-///     - Check that the governance account is the sender.
-///     - Pause/unpause the token.
+///    - Tick energy required for the operation
+///    - Check that the governance account is the sender.
+///    - Pause/unpause the token.
 ///
 /// If the state stored in the token module contains data that breaks the invariants
 /// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
@@ -172,6 +178,19 @@ pub fn execute_token_update_transaction<
                         },
                     )),
                 ),
+                TokenUpdateErrorInternal::Unauthorized { account_address } => {
+                    TokenUpdateError::TokenModuleReject(make_reject_reason(
+                        TokenModuleRejectReasonEnum::OperationNotPermitted(
+                            OperationNotPermittedRejectReason {
+                                index: index as u64,
+                                address: Some(account_address.into()),
+                                reason: "sender is not the token governance account"
+                                    .to_string()
+                                    .into(),
+                            },
+                        ),
+                    ))
+                }
             },
         )?;
     }
@@ -218,6 +237,8 @@ enum TokenUpdateErrorInternal {
     MintWouldOverflow(#[from] MintWouldOverflowError),
     #[error("The token is paused")]
     Paused,
+    #[error("{account_address} is not the token governance account")]
+    Unauthorized { account_address: AccountAddress },
 }
 
 impl From<TokenTransferError> for TokenUpdateErrorInternal {
@@ -296,6 +317,25 @@ fn check_not_paused<TK: TokenKernelOperations>(
     Ok(())
 }
 
+fn check_authorized<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &TK,
+) -> Result<(), TokenUpdateErrorInternal> {
+    let sender_index = kernel.account_index(&transaction_execution.sender_account());
+    let authorized = module_state::get_governance_account_index(kernel)
+        .is_ok_and(|gov_index| gov_index == sender_index);
+
+    if !authorized {
+        return Err(TokenUpdateErrorInternal::Unauthorized {
+            account_address: transaction_execution.sender_account_address(),
+        });
+    }
+    Ok(())
+}
+
 fn execute_token_transfer<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::AccountWithAddress>,
@@ -333,6 +373,7 @@ fn execute_token_mint<
     let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
 
     // operation execution
+    check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
@@ -351,6 +392,7 @@ fn execute_token_burn<
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
 
     // operation execution
+    check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
@@ -361,14 +403,10 @@ fn execute_token_pause<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
-    _transaction_execution: &mut TE,
+    transaction_execution: &mut TE,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    // let gov_account = kernel
-    //     .get_module_state(STATE_KEY_GOVERNANCE_ACCOUNT)
-    //     .unwrap(); // TODO: how do we handle the case of a missing governance account?
-    // let gov_account = AccountAddress::try_from(gov_account.as_slice());
-    // TODO: authorization implemented as part of PSR-26
+    check_authorized(transaction_execution, kernel)?;
 
     kernel.set_module_state(STATE_KEY_PAUSED, Some(vec![]));
 
@@ -381,10 +419,11 @@ fn execute_token_unpause<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
-    _transaction_execution: &mut TE,
+    transaction_execution: &mut TE,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    // TODO: authorization implemented as part of PSR-26
+    check_authorized(transaction_execution, kernel)?;
+
     kernel.set_module_state(STATE_KEY_PAUSED, None);
 
     let event_type = TokenModuleEventType::Unpause.to_type_discriminator();
