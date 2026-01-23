@@ -9,19 +9,22 @@ use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
 use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
-    CborHolderAccount, MetadataUrl, TokenModuleInitializationParameters,
+    CborHolderAccount, MetadataUrl, RawCbor, TokenModuleCborTypeDiscriminator,
+    TokenModuleInitializationParameters,
 };
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AccountWithCanonicalAddress,
-    OutOfEnergyError, TransactionExecution,
+use plt_scheduler_interface::error::{
+    AccountNotFoundByAddressError, AccountNotFoundByIndexError, OutOfEnergyError,
 };
-use plt_token_module::token_kernel_interface::{
-    InsufficientBalanceError, MintWouldOverflowError, RawTokenAmount, TokenBurnError,
-    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenModuleEvent,
-    TokenStateInvariantError, TokenStateKey, TokenStateValue, TokenTransferError,
+use plt_scheduler_interface::token_kernel_interface::{
+    AccountWithCanonicalAddress, InsufficientBalanceError, MintWouldOverflowError, TokenBurnError,
+    TokenKernelOperations, TokenKernelQueries, TokenMintError, TokenStateInvariantError,
+    TokenStateKey, TokenStateValue, TokenTransferError,
 };
+use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
 use plt_token_module::token_module;
+use plt_types::types::events::TokenModuleEvent;
+use plt_types::types::primitives::RawTokenAmount;
 
 /// Token kernel stub providing an implementation of [`TokenKernelOperations`] and methods for
 /// configuring the state of the kernel.
@@ -42,6 +45,7 @@ pub struct KernelStub {
         RawTokenAmount,
         Option<Memo>,
     )>,
+    pub events: Vec<(TokenModuleCborTypeDiscriminator, RawCbor)>,
 }
 
 /// Internal representation of an Account in [`KernelStub`].
@@ -64,6 +68,7 @@ impl KernelStub {
             decimals,
             circulating_supply: RawTokenAmount::default(),
             transfers: Default::default(),
+            events: Default::default(),
         }
     }
 
@@ -337,8 +342,8 @@ impl TokenKernelOperations for KernelStub {
         };
     }
 
-    fn log_token_event(&mut self, _event: TokenModuleEvent) {
-        todo!()
+    fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor) {
+        self.events.push((event_type, details));
     }
 }
 

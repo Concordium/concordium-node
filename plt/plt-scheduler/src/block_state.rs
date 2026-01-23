@@ -13,10 +13,11 @@ use crate::block_state_interface::{
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
-use plt_scheduler_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AccountWithCanonicalAddress,
+use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_scheduler_interface::token_kernel_interface::{
+    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
 };
-use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenStateKey, TokenStateValue};
+use plt_types::types::primitives::RawTokenAmount;
 
 pub mod blob_store;
 pub mod external;

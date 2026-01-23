@@ -1,12 +1,13 @@
 //! Internal utilities for the token module implementation.
 
-use crate::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use concordium_base::common::cbor;
 use concordium_base::common::cbor::{
     CborDeserialize, CborSerializationResult, SerializationOptions, UnknownMapKeys,
 };
 use concordium_base::protocol_level_tokens::TokenAmount;
+use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
+use plt_types::types::primitives::RawTokenAmount;
 
 /// Checks that token amount has the right number of decimals and converts it to a plain
 /// integer and return [`RawTokenAmount`]

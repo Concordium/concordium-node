@@ -2,37 +2,26 @@
 //! by the token module. The kernel handles all operations affecting token
 //! balance and supply and manages the state and events related to balances and supply.
 
+use crate::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{RawCbor, TokenId, TokenModuleCborTypeDiscriminator};
+use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_scheduler_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AccountWithCanonicalAddress,
-};
+use plt_types::types::primitives::RawTokenAmount;
 
 pub type TokenStateKey = Vec<u8>;
 pub type TokenStateValue = Vec<u8>;
 
-/// Event produced from the effect of a token transaction.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TokenModuleEvent {
-    /// The canonical token id.
-    pub token_id: TokenId,
-    /// The type of event produced.
-    pub event_type: TokenModuleCborTypeDiscriminator,
-    /// The details of the event produced, in the raw byte encoded form.
-    pub details: RawCbor,
-}
-
-/// Token amount without decimals specified. The token amount represented by
-/// this type must always be represented with the number of decimals
-/// the token natively has.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd, Default)]
-pub struct RawTokenAmount(pub u64);
-
-impl RawTokenAmount {
-    /// Maximum representable raw token amount.
-    pub const MAX: Self = Self(u64::MAX);
+/// Account representing (read-only) account state.
+///
+/// The account is guaranteed to exist on chain, when holding an instance of this type.
+#[derive(Debug)]
+pub struct AccountWithCanonicalAddress<Account> {
+    /// Opaque type that represents an account on chain.
+    pub account: Account,
+    /// The canonical account address of the account, i.e. the address used as part of the
+    /// credential deployment and not an alias.
+    pub canonical_account_address: AccountAddress,
 }
 
 /// The account has insufficient balance.
@@ -202,5 +191,5 @@ pub trait TokenKernelOperations: TokenKernelQueries {
     /// # Events
     ///
     /// This will produce a `TokenModuleEvent` in the logs.
-    fn log_token_event(&mut self, event: TokenModuleEvent);
+    fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor);
 }

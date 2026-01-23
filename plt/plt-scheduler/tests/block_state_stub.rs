@@ -18,13 +18,14 @@ use plt_scheduler::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
     TokenAccountBlockState, TokenConfiguration, TokenNotFoundByIdError,
 };
-use plt_scheduler::scheduler::TransactionOutcome;
 use plt_scheduler::{queries, scheduler};
-use plt_scheduler_interface::{
-    AccountNotFoundByAddressError, AccountNotFoundByIndexError, AccountWithCanonicalAddress,
+use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_scheduler_interface::token_kernel_interface::{
+    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
 };
-use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenStateKey, TokenStateValue};
-use plt_token_module::{TOKEN_MODULE_REF, token_module};
+use plt_token_module::TOKEN_MODULE_REF;
+use plt_types::types::execution::TransactionOutcome;
+use plt_types::types::primitives::RawTokenAmount;
 use std::collections::BTreeMap;
 
 /// Block state stub providing an implementation of [`BlockStateQuery`] and methods for

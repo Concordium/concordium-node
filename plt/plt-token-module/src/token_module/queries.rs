@@ -1,10 +1,10 @@
 use crate::module_state;
-use crate::token_kernel_interface::TokenKernelQueries;
 use crate::token_module::TokenModuleStateInvariantError;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
 };
+use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]

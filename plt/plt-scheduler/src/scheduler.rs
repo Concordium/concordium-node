@@ -2,14 +2,15 @@
 //! transaction and update instruction payloads.
 
 use crate::block_state_interface::BlockStateOperations;
-use crate::types::events::BlockItemEvent;
-use crate::types::reject_reasons::TransactionRejectReason;
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
-use plt_scheduler_interface::{OutOfEnergyError, TransactionExecution};
+use plt_scheduler_interface::error::OutOfEnergyError;
+use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
+use plt_types::types::events::BlockItemEvent;
+use plt_types::types::execution::TransactionExecutionSummary;
 
 mod plt_scheduler;
 
@@ -66,30 +67,6 @@ pub enum TransactionExecutionError {
     /// is broken. This is generally an error that should never happen and is unrecoverable.
     #[error("State invariant broken: {0}")]
     TokenStateInvariantBroken(String),
-}
-
-/// Summary of execution a transaction.
-#[derive(Debug, Clone)]
-pub struct TransactionExecutionSummary {
-    /// Outcome of executing the transaction.
-    /// If transaction was successful, this is a list of events that represents
-    /// the changes that were applied to the chain state by the transaction. The same changes
-    /// have been applied via the `block_state` argument to [`execute_transaction`]. If the transaction was
-    /// rejected, the only change to the chain state is the charge of energy. If the transaction is rejected,
-    /// the caller of [`execute_transaction`] must make sure that changes to the given `block_state` are rolled back.
-    pub outcome: TransactionOutcome,
-    /// Energy used by the execution. This is always less than the `energy_limit` argument given to [`execute_transaction`].
-    pub energy_used: Energy,
-}
-
-/// Outcome of executing a transaction that was correctly executed (not resulting in [`TransactionExecutionError`]).
-#[derive(Debug, Clone)]
-pub enum TransactionOutcome {
-    /// The transaction was successfully applied.
-    Success(Vec<BlockItemEvent>),
-    /// The transaction was rejected, but the transaction
-    /// is included in the block as a rejected transaction.
-    Rejected(TransactionRejectReason),
 }
 
 /// Execute a transaction payload modifying `block_state` accordingly.
