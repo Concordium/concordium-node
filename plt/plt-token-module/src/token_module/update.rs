@@ -49,15 +49,17 @@ pub enum TokenUpdateError {
 ///
 /// - For each transfer operation:
 ///
+///    - Check that the transfer amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
 ///    - Check that the module is not paused.
 ///    - Check that the recipient is valid.
 ///    - Check allow and deny list restrictions.
-///    - Check that the transfer amount is specified with the correct number of decimals.
 ///    - Transfer the amount from the sender to the recipient, if the sender's balance is
 ///      sufficient (checked by the kernel).
 ///
 /// - For each list update operation:
 ///
+///    - Tick energy required for the operation.
 ///    - Check that the governance account is the sender.
 ///    - Check that the module configuration allows the list operation.
 ///    - Check that the account to add/remove exists on-chain.
@@ -65,26 +67,29 @@ pub enum TokenUpdateError {
 ///
 /// - For each mint operation:
 ///
+///    - Check that the mint amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
 ///    - Check that the governance account is the sender.
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows minting.
-///    - Check that the mint amount is specified with the correct number of decimals.
 ///    - Mint the amount to the sender, if the resulting circulating supply is
 ///      within representable range (checked by the kernel).
 ///
 /// - For each burn operation:
 ///
+///    - Check that the burn amount is specified with the correct number of decimals.
+///    - Tick energy required for the operation.
 ///    - Check that the governance account is the sender.
 ///    - Check that the module is not paused.
 ///    - Check that the module configuration allows burning.
-///    - Check that the burn amount is specified with the correct number of decimals.
 ///    - Burn the amount from the sender, if the sender's balance is
 ///      sufficient (checked by the kernel).
 ///
 /// - For each pause/unpause operation:
 ///
-///     - Check that the governance account is the sender.
-///     - Pause/unpause the token.
+///    - Tick energy required for the operation
+///    - Check that the governance account is the sender.
+///    - Pause/unpause the token.
 ///
 /// If the state stored in the token module contains data that breaks the invariants
 /// maintained by the token module, the special error [`TokenUpdateError::StateInvariantViolation`]
