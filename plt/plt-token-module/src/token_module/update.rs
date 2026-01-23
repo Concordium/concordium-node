@@ -1,3 +1,4 @@
+use crate::module_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
 use crate::token_kernel_interface::{
     InsufficientBalanceError, MintWouldOverflowError, TokenBurnError, TokenKernelOperations,
     TokenMintError, TokenStateInvariantError, TokenTransferError,
@@ -7,9 +8,9 @@ use crate::util;
 use concordium_base::base::Energy;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
-    MintWouldOverflowRejectReason, RawCbor, TokenBalanceInsufficientRejectReason,
-    TokenModuleCborTypeDiscriminator, TokenModuleRejectReasonEnum, TokenOperation,
-    TokenSupplyUpdateDetails, TokenTransfer,
+    MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
+    TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator, TokenModuleEventType,
+    TokenModuleRejectReasonEnum, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::{
@@ -106,7 +107,7 @@ pub fn execute_token_update_transaction<
     })?;
 
     for (index, operation) in operations.into_iter().enumerate() {
-        execute_token_update_operation(transaction_execution, kernel, operation).map_err(
+        execute_token_update_operation(transaction_execution, kernel, &operation).map_err(
             |err| match err {
                 TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
@@ -158,10 +159,38 @@ pub fn execute_token_update_transaction<
                 TokenUpdateErrorInternal::StateInvariantViolation(err) => {
                     TokenUpdateError::StateInvariantViolation(err)
                 }
+                TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
+                    make_reject_reason(TokenModuleRejectReasonEnum::OperationNotPermitted(
+                        OperationNotPermittedRejectReason {
+                            index: index as u64,
+                            address: None,
+                            reason: format!(
+                                "token operation {} is paused",
+                                operation_name(&operation)
+                            )
+                            .to_string()
+                            .into(),
+                        },
+                    )),
+                ),
             },
         )?;
     }
     Ok(())
+}
+
+fn operation_name(operation: &TokenOperation) -> &'static str {
+    match operation {
+        TokenOperation::Transfer(_) => "transfer",
+        TokenOperation::Mint(_) => "mint",
+        TokenOperation::Burn(_) => "burn",
+        TokenOperation::AddAllowList(_) => "add-allow-list",
+        TokenOperation::RemoveAllowList(_) => "remove-allow-list",
+        TokenOperation::AddDenyList(_) => "add-deny-list",
+        TokenOperation::RemoveDenyList(_) => "remove-deny-list",
+        TokenOperation::Pause(_) => "pause",
+        TokenOperation::Unpause(_) => "unpause",
+    }
 }
 
 fn make_reject_reason(reject_reason: TokenModuleRejectReasonEnum) -> RejectReason {
@@ -188,6 +217,8 @@ enum TokenUpdateErrorInternal {
     StateInvariantViolation(#[from] TokenStateInvariantError),
     #[error("{0}")]
     MintWouldOverflow(#[from] MintWouldOverflowError),
+    #[error("The token is paused")]
+    Paused,
 }
 
 impl From<TokenTransferError> for TokenUpdateErrorInternal {
@@ -223,10 +254,10 @@ fn execute_token_update_operation<
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
-    token_operation: TokenOperation,
+    token_operation: &TokenOperation,
 ) -> Result<(), TokenUpdateErrorInternal> {
     // Charge energy
-    let energy_cost = energy_cost(&token_operation);
+    let energy_cost = energy_cost(token_operation);
     transaction_execution.tick_energy(energy_cost)?;
 
     // Execute operation
@@ -236,6 +267,8 @@ fn execute_token_update_operation<
         }
         TokenOperation::Mint(mint) => execute_token_mint(transaction_execution, kernel, mint),
         TokenOperation::Burn(burn) => execute_token_burn(transaction_execution, kernel, burn),
+        TokenOperation::Pause(_) => execute_token_pause(transaction_execution, kernel),
+        TokenOperation::Unpause(_) => execute_token_unpause(transaction_execution, kernel),
         _ => todo!(),
     }
 }
@@ -255,26 +288,37 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
     }
 }
 
+fn check_not_paused<TK: TokenKernelOperations>(
+    kernel: &TK,
+) -> Result<(), TokenUpdateErrorInternal> {
+    if module_state::is_paused(kernel) {
+        return Err(TokenUpdateErrorInternal::Paused);
+    }
+    Ok(())
+}
+
 fn execute_token_transfer<
     TK: TokenKernelOperations,
     TE: TransactionExecution<Account = TK::Account>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
-    transfer_operation: TokenTransfer,
+    transfer_operation: &TokenTransfer,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // preprocessing
     let raw_amount = util::to_raw_token_amount(kernel, transfer_operation.amount)?;
+
+    // operation execution
     let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
+    check_not_paused(kernel)?;
+    // todo implement allow/deny list checks https://linear.app/concordium/issue/PSR-24/implement-allow-and-deny-lists
 
     kernel.transfer(
         &transaction_execution.sender_account(),
         &receiver,
         raw_amount,
-        transfer_operation.memo.map(Memo::from),
+        transfer_operation.memo.clone().map(Memo::from),
     )?;
-
-    // todo implement allow/deny list checks https://linear.app/concordium/issue/PSR-24/implement-allow-and-deny-lists
-
     Ok(())
 }
 
@@ -284,9 +328,13 @@ fn execute_token_mint<
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
-    mint_operation: TokenSupplyUpdateDetails,
+    mint_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // preprocessing
     let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
+
+    // operation execution
+    check_not_paused(kernel)?;
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -298,10 +346,49 @@ fn execute_token_burn<
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
-    burn_operation: TokenSupplyUpdateDetails,
+    burn_operation: &TokenSupplyUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
+    // preprocessing
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
 
+    // operation execution
+    check_not_paused(kernel)?;
+
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
+    Ok(())
+}
+
+fn execute_token_pause<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::Account>,
+>(
+    _transaction_execution: &mut TE,
+    kernel: &mut TK,
+) -> Result<(), TokenUpdateErrorInternal> {
+    // let gov_account = kernel
+    //     .get_module_state(STATE_KEY_GOVERNANCE_ACCOUNT)
+    //     .unwrap(); // TODO: how do we handle the case of a missing governance account?
+    // let gov_account = AccountAddress::try_from(gov_account.as_slice());
+    // TODO: authorization implemented as part of PSR-26
+
+    kernel.set_module_state(STATE_KEY_PAUSED, Some(vec![]));
+
+    let event_type = TokenModuleEventType::Pause.to_type_discriminator();
+    kernel.log_token_event(event_type, vec![].into());
+    Ok(())
+}
+
+fn execute_token_unpause<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::Account>,
+>(
+    _transaction_execution: &mut TE,
+    kernel: &mut TK,
+) -> Result<(), TokenUpdateErrorInternal> {
+    // TODO: authorization implemented as part of PSR-26
+    kernel.set_module_state(STATE_KEY_PAUSED, None);
+
+    let event_type = TokenModuleEventType::Unpause.to_type_discriminator();
+    kernel.log_token_event(event_type, vec![].into());
     Ok(())
 }
