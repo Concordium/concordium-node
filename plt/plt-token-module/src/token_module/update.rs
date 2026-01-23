@@ -179,17 +179,17 @@ pub fn execute_token_update_transaction<
     Ok(())
 }
 
-fn operation_name(operation: &TokenOperation) -> String {
+fn operation_name(operation: &TokenOperation) -> &'static str {
     match operation {
-        TokenOperation::Transfer(_) => "transfer".to_string(),
-        TokenOperation::Mint(_) => "mint".to_string(),
-        TokenOperation::Burn(_) => "burn".to_string(),
-        TokenOperation::AddAllowList(_) => "add-allow-list".to_string(),
-        TokenOperation::RemoveAllowList(_) => "remove-allow-list".to_string(),
-        TokenOperation::AddDenyList(_) => "add-deny-list".to_string(),
-        TokenOperation::RemoveDenyList(_) => "remove-deny-list".to_string(),
-        TokenOperation::Pause(_) => "pause".to_string(),
-        TokenOperation::Unpause(_) => "unpause".to_string(),
+        TokenOperation::Transfer(_) => "transfer",
+        TokenOperation::Mint(_) => "mint",
+        TokenOperation::Burn(_) => "burn",
+        TokenOperation::AddAllowList(_) => "add-allow-list",
+        TokenOperation::RemoveAllowList(_) => "remove-allow-list",
+        TokenOperation::AddDenyList(_) => "add-deny-list",
+        TokenOperation::RemoveDenyList(_) => "remove-deny-list",
+        TokenOperation::Pause(_) => "pause",
+        TokenOperation::Unpause(_) => "unpause",
     }
 }
 

@@ -442,6 +442,11 @@ fn test_plt_pause() {
         assert_eq!(event.event_type, TokenModuleEventType::Pause.to_type_discriminator());
         assert_eq!(event.details, vec![].into());
     });
+
+    let token = stub.token_by_id(&token_id).expect("token exists");
+    let token_kv = stub.mutable_token_key_value_state(&token);
+    let paused = stub.lookup_token_state_value(&token_kv, &b"\0\0paused".into());
+    assert_eq!(paused, Some(vec![]));
 }
 
 /// Test protocol-level token "unpause" operation.
