@@ -59,7 +59,7 @@ pub enum TransactionExecutionError {
     /// An invariant in the state that should be enforced
     /// is broken. This is generally an error that should never happen and is unrecoverable.
     #[error("State invariant broken: {0}")]
-    TokenStateInvariantBroken(String),
+    StateInvariantBroken(String),
 }
 
 /// Execute a transaction payload modifying `block_state` accordingly.

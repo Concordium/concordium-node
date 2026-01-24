@@ -64,15 +64,19 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
 pub fn query_token_module_account_state<TK: TokenKernelQueries>(
     kernel: &TK,
     account: &TK::Account,
-) -> Result<Option<RawCbor>, QueryTokenModuleError> {
-    let state_option = query_token_module_account_state_impl(kernel, account)?;
+) -> RawCbor {
+    let state = query_token_module_account_state_impl(kernel, account);
 
-    Ok(state_option.map(|state| RawCbor::from(cbor::cbor_encode(&state))))
+    RawCbor::from(cbor::cbor_encode(&state))
 }
 
 fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
     _kernel: &TK,
     _account: &TK::Account,
-) -> Result<Option<TokenModuleAccountState>, QueryTokenModuleError> {
-    Ok(None)
+) -> TokenModuleAccountState {
+    TokenModuleAccountState {
+        allow_list: None,
+        deny_list: None,
+        additional: Default::default(),
+    }
 }

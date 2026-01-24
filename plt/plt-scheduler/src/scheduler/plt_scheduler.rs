@@ -108,7 +108,7 @@ pub fn execute_token_update_transaction<
             TransactionRejectReason::OutOfEnergy,
         )),
         Err(TokenUpdateError::StateInvariantViolation(err)) => Err(
-            TransactionExecutionError::TokenStateInvariantBroken(err.to_string()),
+            TransactionExecutionError::StateInvariantBroken(err.to_string()),
         ),
     }
 }

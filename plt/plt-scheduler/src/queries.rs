@@ -3,7 +3,6 @@
 use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use crate::token_kernel::TokenKernelQueriesImpl;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
-use plt_scheduler_interface::error::AccountNotFoundByIndexError;
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
 use plt_types::types::queries::{TokenAccountInfo, TokenInfo};
@@ -17,10 +16,22 @@ pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
 /// Represents the reasons why a query of token state may fail
 #[derive(Debug, thiserror::Error)]
 pub enum QueryTokenInfoError {
-    #[error("Error returned when querying the token module: {0}")]
-    QueryTokenModule(#[from] QueryTokenModuleError),
+    /// An invariant in the state that should be enforced
+    /// is broken. This is generally an error that should never happen.
+    #[error("State invariant broken: {0}")]
+    StateInvariantBroken(String),
     #[error("{0}")]
     TokenDoesNotExist(#[from] TokenNotFoundByIdError),
+}
+
+impl From<QueryTokenModuleError> for QueryTokenInfoError {
+    fn from(value: QueryTokenModuleError) -> Self {
+        match value {
+            QueryTokenModuleError::StateInvariantViolation(err) => {
+                Self::StateInvariantBroken(err.to_string())
+            }
+        }
+    }
 }
 
 /// Get the token state associated with the given token id.
@@ -61,20 +72,11 @@ pub fn query_token_info(
     Ok(token_info)
 }
 
-/// Represents the reasons why a query of token state may fail
-#[derive(Debug, thiserror::Error)]
-pub enum QueryTokenAccountStateError {
-    #[error("Error returned when querying the token module: {0}")]
-    QueryTokenModule(#[from] QueryTokenModuleError),
-    #[error("{0}")]
-    AccountNotFoundByIndex(#[from] AccountNotFoundByIndexError),
-}
-
 /// Get the list of tokens on an account
 pub fn query_token_account_infos<BSQ: BlockStateQuery>(
     block_state: &BSQ,
     account: BSQ::Account,
-) -> Result<Vec<TokenAccountInfo>, QueryTokenAccountStateError> {
+) -> Vec<TokenAccountInfo> {
     block_state
         .token_account_states(&account)
         .map(|(token, state)| {
@@ -88,7 +90,7 @@ pub fn query_token_account_infos<BSQ: BlockStateQuery>(
                 token_module_state: &token_module_state,
             };
 
-            let module_state = token_module::query_token_module_account_state(&kernel, &account)?;
+            let module_state = token_module::query_token_module_account_state(&kernel, &account);
 
             let balance = TokenAmount::from_raw(state.balance.0, token_configuration.decimals);
 
@@ -97,12 +99,10 @@ pub fn query_token_account_infos<BSQ: BlockStateQuery>(
                 module_state,
             };
 
-            let token_account_info = TokenAccountInfo {
+            TokenAccountInfo {
                 token_id: token_configuration.token_id,
                 account_state,
-            };
-
-            Ok(token_account_info)
+            }
         })
         .collect()
 }
