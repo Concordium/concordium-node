@@ -72,8 +72,7 @@ fn test_query_token_account_info() {
     stub.increment_account_balance(account, token2, RawTokenAmount(2000));
 
     // Lookup account token infos
-    let token_account_infos =
-        queries::query_token_account_infos(&stub, stub.account_index(&account)).unwrap();
+    let token_account_infos = queries::query_token_account_infos(&stub, account).unwrap();
     assert_eq!(token_account_infos.len(), 2);
     assert_eq!(token_account_infos[0].token_id, token_id1);
     assert_eq!(

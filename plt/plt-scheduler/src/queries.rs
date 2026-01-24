@@ -2,7 +2,6 @@
 
 use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use crate::token_kernel::TokenKernelQueriesImpl;
-use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
 use plt_scheduler_interface::error::AccountNotFoundByIndexError;
 use plt_token_module::token_module;
@@ -72,12 +71,10 @@ pub enum QueryTokenAccountStateError {
 }
 
 /// Get the list of tokens on an account
-pub fn query_token_account_infos(
-    block_state: &impl BlockStateQuery,
-    account_index: AccountIndex,
+pub fn query_token_account_infos<BSQ: BlockStateQuery>(
+    block_state: &BSQ,
+    account: BSQ::Account,
 ) -> Result<Vec<TokenAccountInfo>, QueryTokenAccountStateError> {
-    let account = block_state.account_by_index(account_index)?;
-
     block_state
         .token_account_states(&account)
         .map(|(token, state)| {
