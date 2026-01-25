@@ -4,7 +4,7 @@ use concordium_base::{
     common::cbor,
     protocol_level_tokens::{
         CborHolderAccount, OperationNotPermittedRejectReason, RawCbor, TokenAmount,
-        TokenModuleEventType, TokenModuleRejectReasonEnum, TokenModuleState, TokenOperation,
+        TokenModuleEventType, TokenModuleRejectReason, TokenModuleState, TokenOperation,
         TokenPauseDetails, TokenSupplyUpdateDetails,
     },
 };
@@ -169,7 +169,7 @@ fn test_unauthorized_pause() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
             index,
             address,
             ..
@@ -225,7 +225,7 @@ fn test_unauthorized_unpause() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
             index,
             address,
             ..
@@ -275,7 +275,7 @@ fn test_pause_multiple_ops() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
             index: 1,
             address: None,
             reason: Some(reason),

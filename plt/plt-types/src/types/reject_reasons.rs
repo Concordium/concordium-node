@@ -18,13 +18,13 @@ pub enum TransactionRejectReason {
     /// The provided identifier does not match a token currently on chain.
     NonExistentTokenId(TokenId),
     /// The token module rejected the transaction.
-    TokenUpdateTransactionFailed(TokenModuleRejectReason),
+    TokenUpdateTransactionFailed(EncodedTokenModuleRejectReason),
 }
 
 /// Details provided by the token module in the event of rejecting a
 /// transaction.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TokenModuleRejectReason {
+pub struct EncodedTokenModuleRejectReason {
     /// The canonical token id.
     pub token_id: TokenId,
     /// The type of the reject reason.

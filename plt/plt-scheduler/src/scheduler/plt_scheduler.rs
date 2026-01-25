@@ -15,7 +15,7 @@ use plt_token_module::token_module::TokenUpdateError;
 use plt_token_module::{TOKEN_MODULE_REF, token_module};
 use plt_types::types::events::{BlockItemEvent, TokenCreateEvent};
 use plt_types::types::execution::TransactionOutcome;
-use plt_types::types::reject_reasons::{TokenModuleRejectReason, TransactionRejectReason};
+use plt_types::types::reject_reasons::{EncodedTokenModuleRejectReason, TransactionRejectReason};
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.
@@ -96,12 +96,14 @@ pub fn execute_token_update_transaction<
         }
         Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
             Ok(TransactionOutcome::Rejected(
-                TransactionRejectReason::TokenUpdateTransactionFailed(TokenModuleRejectReason {
-                    // Use the canonical token id from the token configuration
-                    token_id: token_configuration.token_id.clone(),
-                    reason_type: reject_reason.reason_type,
-                    details: reject_reason.details,
-                }),
+                TransactionRejectReason::TokenUpdateTransactionFailed(
+                    EncodedTokenModuleRejectReason {
+                        // Use the canonical token id from the token configuration
+                        token_id: token_configuration.token_id.clone(),
+                        reason_type: reject_reason.reason_type,
+                        details: reject_reason.details,
+                    },
+                ),
             ))
         }
         Err(TokenUpdateError::OutOfEnergy(_)) => Ok(TransactionOutcome::Rejected(
