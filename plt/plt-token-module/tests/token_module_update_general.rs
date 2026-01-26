@@ -5,7 +5,7 @@ use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason, RawCbor,
-    TokenAmount, TokenModuleRejectReasonEnum, TokenOperation, TokenTransfer,
+    TokenAmount, TokenModuleRejectReason, TokenOperation, TokenTransfer,
 };
 use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
@@ -30,7 +30,7 @@ fn test_update_token_decode_failure() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::DeserializationFailure(
+    assert_matches!(reject_reason, TokenModuleRejectReason::DeserializationFailure(
         DeserializationFailureRejectReason {
             cause: Some(cause)
         }) => {
@@ -101,7 +101,7 @@ fn test_single_failing_operation() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::AddressNotFound(
+    assert_matches!(reject_reason, TokenModuleRejectReason::AddressNotFound(
         AddressNotFoundRejectReason {
             index,
             address,

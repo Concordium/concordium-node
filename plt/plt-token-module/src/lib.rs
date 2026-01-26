@@ -1,6 +1,6 @@
 use concordium_base::protocol_level_tokens::TokenModuleRef;
 
-mod module_state;
+mod key_value_state;
 pub mod token_module;
 mod util;
 

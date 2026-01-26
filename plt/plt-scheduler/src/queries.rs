@@ -2,9 +2,7 @@
 
 use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use crate::token_kernel::TokenKernelQueriesImpl;
-use concordium_base::base::AccountIndex;
 use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
-use plt_scheduler_interface::error::AccountNotFoundByIndexError;
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
 use plt_types::types::queries::{TokenAccountInfo, TokenInfo};
@@ -62,28 +60,19 @@ pub fn query_token_info(
     Ok(token_info)
 }
 
-/// Represents the reasons why a query of token state may fail
-#[derive(Debug, thiserror::Error)]
-pub enum QueryTokenAccountStateError {
-    #[error("Error returned when querying the token module: {0}")]
-    QueryTokenModule(#[from] QueryTokenModuleError),
-    #[error("{0}")]
-    AccountNotFoundByIndex(#[from] AccountNotFoundByIndexError),
-}
-
 /// Get the list of tokens on an account
 pub fn query_token_account_infos<BSQ>(
     block_state: &BSQ,
-    account_index: AccountIndex,
-) -> Result<Vec<TokenAccountInfo>, QueryTokenAccountStateError>
+    account: BSQ::Account,
+) -> Vec<TokenAccountInfo>
 where
     BSQ: BlockStateQuery,
     BSQ::Account: Clone,
 {
-    let account = block_state.account_by_index(account_index)?;
+    let account_index = block_state.account_index(&account);
 
     block_state
-        .token_account_states(&account.account)
+        .token_account_states(&account)
         .map(|(token, state)| {
             let token_configuration = block_state.token_configuration(&token);
 
@@ -95,10 +84,8 @@ where
                 token_module_state: &token_module_state,
             };
 
-            let module_state = token_module::query_token_module_account_state(
-                &kernel,
-                &(account.account.clone(), account.canonical_account_address),
-            )?;
+            let module_state =
+                token_module::query_token_module_account_state(&kernel, account_index);
 
             let balance = TokenAmount::from_raw(state.balance.0, token_configuration.decimals);
 
@@ -107,12 +94,10 @@ where
                 module_state,
             };
 
-            let token_account_info = TokenAccountInfo {
+            TokenAccountInfo {
                 token_id: token_configuration.token_id,
                 account_state,
-            };
-
-            Ok(token_account_info)
+            }
         })
         .collect()
 }

@@ -8,7 +8,7 @@ use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, CborMemo, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
-    TokenModuleEventType, TokenModuleRejectReasonEnum, TokenOperation, TokenOperationsPayload,
+    TokenModuleEventType, TokenModuleRejectReason, TokenOperation, TokenOperationsPayload,
     TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::{Memo, Payload};
@@ -241,7 +241,7 @@ fn test_plt_transfer_reject() {
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::TokenBalanceInsufficient(_)
+        TokenModuleRejectReason::TokenBalanceInsufficient(_)
     );
 }
 
@@ -376,10 +376,7 @@ fn test_plt_mint_reject() {
     );
 
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
-    assert_matches!(
-        reject_reason,
-        TokenModuleRejectReasonEnum::MintWouldOverflow(_)
-    );
+    assert_matches!(reject_reason, TokenModuleRejectReason::MintWouldOverflow(_));
 }
 
 /// Test protocol-level token mint from unauthorized sender.
@@ -419,7 +416,7 @@ fn test_plt_mint_unauthorized() {
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
             index,
             address,
             reason,
@@ -577,7 +574,7 @@ fn test_plt_burn_reject() {
     let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::TokenBalanceInsufficient(_)
+        TokenModuleRejectReason::TokenBalanceInsufficient(_)
     );
 }
 

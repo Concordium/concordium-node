@@ -1,4 +1,4 @@
-use crate::module_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
+use crate::key_value_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
@@ -7,7 +7,7 @@ use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
     TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator, TokenModuleEventType,
-    TokenModuleRejectReasonEnum, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
+    TokenModuleRejectReason, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, OutOfEnergyError};
@@ -103,11 +103,9 @@ pub fn execute_token_update_transaction<
 ) -> Result<(), TokenUpdateError> {
     let operations: Vec<TokenOperation> = util::cbor_decode(&token_operations).map_err(|err| {
         TokenUpdateError::TokenModuleReject(make_reject_reason(
-            TokenModuleRejectReasonEnum::DeserializationFailure(
-                DeserializationFailureRejectReason {
-                    cause: Some(err.to_string()),
-                },
-            ),
+            TokenModuleRejectReason::DeserializationFailure(DeserializationFailureRejectReason {
+                cause: Some(err.to_string()),
+            }),
         ))
     })?;
 
@@ -116,7 +114,7 @@ pub fn execute_token_update_transaction<
             |err| match err {
                 TokenUpdateErrorInternal::AccountDoesNotExist(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReasonEnum::AddressNotFound(AddressNotFoundRejectReason {
+                        TokenModuleRejectReason::AddressNotFound(AddressNotFoundRejectReason {
                             index: index as u64,
                             address: CborHolderAccount::from(err.0),
                         }),
@@ -124,7 +122,7 @@ pub fn execute_token_update_transaction<
                 }
                 TokenUpdateErrorInternal::AmountDecimalsMismatch(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReasonEnum::DeserializationFailure(
+                        TokenModuleRejectReason::DeserializationFailure(
                             DeserializationFailureRejectReason {
                                 cause: Some(err.to_string()),
                             },
@@ -133,7 +131,7 @@ pub fn execute_token_update_transaction<
                 }
                 TokenUpdateErrorInternal::InsufficientBalance(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReasonEnum::TokenBalanceInsufficient(
+                        TokenModuleRejectReason::TokenBalanceInsufficient(
                             TokenBalanceInsufficientRejectReason {
                                 index: index as u64,
                                 available_balance: util::to_token_amount(kernel, err.available),
@@ -144,20 +142,15 @@ pub fn execute_token_update_transaction<
                 }
                 TokenUpdateErrorInternal::MintWouldOverflow(err) => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReasonEnum::MintWouldOverflow(
-                            MintWouldOverflowRejectReason {
-                                index: index as u64,
-                                requested_amount: util::to_token_amount(
-                                    kernel,
-                                    err.requested_amount,
-                                ),
-                                current_supply: util::to_token_amount(kernel, err.current_supply),
-                                max_representable_amount: util::to_token_amount(
-                                    kernel,
-                                    err.max_representable_amount,
-                                ),
-                            },
-                        ),
+                        TokenModuleRejectReason::MintWouldOverflow(MintWouldOverflowRejectReason {
+                            index: index as u64,
+                            requested_amount: util::to_token_amount(kernel, err.requested_amount),
+                            current_supply: util::to_token_amount(kernel, err.current_supply),
+                            max_representable_amount: util::to_token_amount(
+                                kernel,
+                                err.max_representable_amount,
+                            ),
+                        }),
                     ))
                 }
                 TokenUpdateErrorInternal::OutOfEnergy(err) => TokenUpdateError::OutOfEnergy(err),
@@ -165,7 +158,7 @@ pub fn execute_token_update_transaction<
                     TokenUpdateError::StateInvariantViolation(err)
                 }
                 TokenUpdateErrorInternal::Paused => TokenUpdateError::TokenModuleReject(
-                    make_reject_reason(TokenModuleRejectReasonEnum::OperationNotPermitted(
+                    make_reject_reason(TokenModuleRejectReason::OperationNotPermitted(
                         OperationNotPermittedRejectReason {
                             index: index as u64,
                             address: None,
@@ -180,7 +173,7 @@ pub fn execute_token_update_transaction<
                 ),
                 TokenUpdateErrorInternal::Unauthorized { account_address } => {
                     TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReasonEnum::OperationNotPermitted(
+                        TokenModuleRejectReason::OperationNotPermitted(
                             OperationNotPermittedRejectReason {
                                 index: index as u64,
                                 address: Some(account_address.into()),
@@ -211,7 +204,7 @@ fn operation_name(operation: &TokenOperation) -> &'static str {
     }
 }
 
-fn make_reject_reason(reject_reason: TokenModuleRejectReasonEnum) -> RejectReason {
+fn make_reject_reason(reject_reason: TokenModuleRejectReason) -> RejectReason {
     let (reason_type, cbor) = reject_reason.encode_reject_reason();
     RejectReason {
         reason_type: reason_type.to_type_discriminator(),
@@ -311,7 +304,7 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
 fn check_not_paused<TK: TokenKernelOperations>(
     kernel: &TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if module_state::is_paused(kernel) {
+    if key_value_state::is_paused(kernel) {
         return Err(TokenUpdateErrorInternal::Paused);
     }
     Ok(())
@@ -325,7 +318,7 @@ fn check_authorized<
     kernel: &TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let sender_index = kernel.account_index(&transaction_execution.sender_account());
-    let authorized = module_state::get_governance_account_index(kernel)
+    let authorized = key_value_state::get_governance_account_index(kernel)
         .is_ok_and(|gov_index| gov_index == sender_index);
 
     if !authorized {

@@ -4,7 +4,7 @@ use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, OperationNotPermittedRejectReason,
     RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleEventType,
-    TokenModuleRejectReasonEnum, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
+    TokenModuleRejectReason, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
 };
 use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
@@ -80,7 +80,7 @@ fn test_unauthorized_burn() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
             index,
             address,
             ..
@@ -123,7 +123,7 @@ fn test_burn_insufficient_balance() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::TokenBalanceInsufficient(
+    assert_matches!(reject_reason, TokenModuleRejectReason::TokenBalanceInsufficient(
         TokenBalanceInsufficientRejectReason {
             available_balance,
             required_balance,
@@ -151,7 +151,7 @@ fn test_burn_decimals_mismatch() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::DeserializationFailure(
+    assert_matches!(reject_reason, TokenModuleRejectReason::DeserializationFailure(
         DeserializationFailureRejectReason {
             cause: Some(cause)
         }) => {
@@ -190,7 +190,7 @@ fn test_burn_paused() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
             index: 0,
             address: None,
             reason: Some(reason),
