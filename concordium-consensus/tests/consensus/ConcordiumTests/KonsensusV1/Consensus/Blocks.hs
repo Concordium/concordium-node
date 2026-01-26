@@ -40,6 +40,7 @@ import Concordium.Types.Transactions
 import qualified Concordium.Types.Transactions as Transactions
 
 import qualified Concordium.Genesis.Data.P10 as P10
+import qualified Concordium.Genesis.Data.P11 as P11
 import qualified Concordium.Genesis.Data.P6 as P6
 import qualified Concordium.Genesis.Data.P7 as P7
 import qualified Concordium.Genesis.Data.P8 as P8
@@ -133,6 +134,7 @@ genesisLEN sProtocolVersion = case sProtocolVersion of
     SP8 -> genesisLeadershipElectionNonce $ P8.genesisInitialState $ unGDP8 $ genesisData sProtocolVersion
     SP9 -> genesisLeadershipElectionNonce $ P9.genesisInitialState $ unGDP9 $ genesisData sProtocolVersion
     SP10 -> genesisLeadershipElectionNonce $ P10.genesisInitialState $ unGDP10 $ genesisData sProtocolVersion
+    SP11 -> genesisLeadershipElectionNonce $ P11.genesisInitialState $ unGDP11 $ genesisData sProtocolVersion
 
 -- | Full bakers at genesis
 genesisFullBakers :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> FullBakers
