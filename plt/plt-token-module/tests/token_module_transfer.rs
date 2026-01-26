@@ -5,7 +5,7 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, CborMemo, DeserializationFailureRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
-    TokenModuleEventType, TokenModuleRejectReasonEnum, TokenOperation, TokenPauseDetails,
+    TokenModuleEventType, TokenModuleRejectReason, TokenOperation, TokenPauseDetails,
     TokenTransfer,
 };
 use concordium_base::transactions::Memo;
@@ -123,7 +123,7 @@ fn test_transfer_insufficient_balance() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::TokenBalanceInsufficient(
+    assert_matches!(reject_reason, TokenModuleRejectReason::TokenBalanceInsufficient(
         TokenBalanceInsufficientRejectReason {
             available_balance,
             required_balance,
@@ -156,7 +156,7 @@ fn test_transfer_decimals_mismatch() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::DeserializationFailure(
+    assert_matches!(reject_reason, TokenModuleRejectReason::DeserializationFailure(
         DeserializationFailureRejectReason {
             cause: Some(cause)
         }) => {
@@ -185,7 +185,7 @@ fn test_transfer_to_non_existing_receiver() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::AddressNotFound(
+    assert_matches!(reject_reason, TokenModuleRejectReason::AddressNotFound(
         AddressNotFoundRejectReason {
             address,
             ..
@@ -230,7 +230,7 @@ fn test_transfer_paused() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
             index: 0,
             address: None,
             reason: Some(reason),

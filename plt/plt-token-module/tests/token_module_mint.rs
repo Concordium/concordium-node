@@ -4,7 +4,7 @@ use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleEventType,
-    TokenModuleRejectReasonEnum, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
+    TokenModuleRejectReason, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
 };
 use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
@@ -78,7 +78,7 @@ fn test_unauthorized_mint() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
             index,
             address,
             ..
@@ -122,7 +122,7 @@ fn test_mint_overflow() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::MintWouldOverflow(
+    assert_matches!(reject_reason, TokenModuleRejectReason::MintWouldOverflow(
         MintWouldOverflowRejectReason {
             requested_amount,
             current_supply,
@@ -152,7 +152,7 @@ fn test_mint_decimals_mismatch() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::DeserializationFailure(
+    assert_matches!(reject_reason, TokenModuleRejectReason::DeserializationFailure(
         DeserializationFailureRejectReason {
             cause: Some(cause)
         }) => {
@@ -190,7 +190,7 @@ fn test_mint_paused() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReasonEnum::OperationNotPermitted(OperationNotPermittedRejectReason {
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
             index: 0,
             address: None,
             reason: Some(reason),

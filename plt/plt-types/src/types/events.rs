@@ -12,7 +12,7 @@ use concordium_base::updates::CreatePlt;
 #[derive(Debug, Clone)]
 pub enum BlockItemEvent {
     /// An event emitted by the token module.
-    TokenModule(TokenModuleEvent),
+    TokenModule(EncodedTokenModuleEvent),
     /// An event emitted when a transfer of tokens is performed.
     TokenTransfer(TokenTransferEvent),
     /// An event emitted when the token supply is updated by minting tokens to a
@@ -74,7 +74,7 @@ pub struct TokenCreateEvent {
 
 /// Event produced from the effect of a token transaction.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TokenModuleEvent {
+pub struct EncodedTokenModuleEvent {
     /// The canonical token id.
     pub token_id: TokenId,
     /// The type of event produced.

@@ -1,16 +1,16 @@
 use assert_matches::assert_matches;
 use concordium_base::protocol_level_tokens::{
-    TokenId, TokenModuleRejectReasonEnum, TokenModuleRejectReasonType,
+    TokenId, TokenModuleRejectReason, TokenModuleRejectReasonType,
 };
-use plt_types::types::reject_reasons::{TokenModuleRejectReason, TransactionRejectReason};
+use plt_types::types::reject_reasons::{EncodedTokenModuleRejectReason, TransactionRejectReason};
 
 fn decode_token_module_reject_reason(
-    reject_reason: &TokenModuleRejectReason,
-) -> TokenModuleRejectReasonEnum {
+    reject_reason: &EncodedTokenModuleRejectReason,
+) -> TokenModuleRejectReason {
     let reject_reason_type =
         TokenModuleRejectReasonType::try_from_type_discriminator(&reject_reason.reason_type)
             .unwrap();
-    TokenModuleRejectReasonEnum::decode_reject_reason(
+    TokenModuleRejectReason::decode_reject_reason(
         reject_reason_type,
         reject_reason.details.as_ref().unwrap(),
     )
@@ -20,7 +20,7 @@ fn decode_token_module_reject_reason(
 pub fn assert_token_module_reject_reason(
     token_id: &TokenId,
     reject_reason: TransactionRejectReason,
-) -> TokenModuleRejectReasonEnum {
+) -> TokenModuleRejectReason {
     let reject_reason = assert_matches!(
         &reject_reason,
         TransactionRejectReason::TokenUpdateTransactionFailed(reject_reason) => reject_reason);

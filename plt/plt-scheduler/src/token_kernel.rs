@@ -16,7 +16,7 @@ use plt_scheduler_interface::token_kernel_interface::{
     TokenTransferError,
 };
 use plt_types::types::events::{
-    BlockItemEvent, TokenBurnEvent, TokenMintEvent, TokenModuleEvent, TokenTransferEvent,
+    BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
 };
 use plt_types::types::primitives::RawTokenAmount;
 
@@ -231,7 +231,7 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
 
     fn log_token_event(&mut self, event_type: TokenModuleCborTypeDiscriminator, details: RawCbor) {
         self.events
-            .push(BlockItemEvent::TokenModule(TokenModuleEvent {
+            .push(BlockItemEvent::TokenModule(EncodedTokenModuleEvent {
                 token_id: self.token_configuration.token_id.clone(),
                 event_type,
                 details,
