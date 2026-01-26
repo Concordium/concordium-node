@@ -16,22 +16,10 @@ pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
 /// Represents the reasons why a query of token state may fail
 #[derive(Debug, thiserror::Error)]
 pub enum QueryTokenInfoError {
-    /// An invariant in the state that should be enforced
-    /// is broken. This is generally an error that should never happen.
-    #[error("State invariant broken: {0}")]
-    StateInvariantBroken(String),
+    #[error("Error returned when querying the token module: {0}")]
+    QueryTokenModule(#[from] QueryTokenModuleError),
     #[error("{0}")]
     TokenDoesNotExist(#[from] TokenNotFoundByIdError),
-}
-
-impl From<QueryTokenModuleError> for QueryTokenInfoError {
-    fn from(value: QueryTokenModuleError) -> Self {
-        match value {
-            QueryTokenModuleError::StateInvariantViolation(err) => {
-                Self::StateInvariantBroken(err.to_string())
-            }
-        }
-    }
 }
 
 /// Get the token state associated with the given token id.
