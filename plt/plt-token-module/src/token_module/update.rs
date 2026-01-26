@@ -1,4 +1,4 @@
-use crate::module_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
+use crate::key_value_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
@@ -311,7 +311,7 @@ fn energy_cost(operation: &TokenOperation) -> Energy {
 fn check_not_paused<TK: TokenKernelOperations>(
     kernel: &TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    if module_state::is_paused(kernel) {
+    if key_value_state::is_paused(kernel) {
         return Err(TokenUpdateErrorInternal::Paused);
     }
     Ok(())
@@ -322,7 +322,7 @@ fn check_authorized<TK: TokenKernelOperations>(
     sender: &TK::Account,
 ) -> Result<(), TokenUpdateErrorInternal> {
     let sender_index = kernel.account_index(sender);
-    let authorized = module_state::get_governance_account_index(kernel)
+    let authorized = key_value_state::get_governance_account_index(kernel)
         .is_ok_and(|gov_index| gov_index == sender_index);
 
     if !authorized {

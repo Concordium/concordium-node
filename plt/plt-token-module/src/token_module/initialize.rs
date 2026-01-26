@@ -1,4 +1,4 @@
-use crate::module_state::{
+use crate::key_value_state::{
     KernelOperationsExt, STATE_KEY_ALLOW_LIST, STATE_KEY_BURNABLE, STATE_KEY_DENY_LIST,
     STATE_KEY_GOVERNANCE_ACCOUNT, STATE_KEY_METADATA, STATE_KEY_MINTABLE, STATE_KEY_NAME,
 };

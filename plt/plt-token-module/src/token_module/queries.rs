@@ -1,4 +1,4 @@
-use crate::module_state;
+use crate::key_value_state;
 use crate::token_module::TokenModuleStateInvariantError;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
@@ -26,15 +26,15 @@ pub fn query_token_module_state<TK: TokenKernelQueries>(
 fn query_token_module_state_impl<TK: TokenKernelQueries>(
     kernel: &TK,
 ) -> Result<TokenModuleState, QueryTokenModuleError> {
-    let name = module_state::get_name(kernel)?;
-    let metadata = module_state::get_metadata(kernel)?;
-    let allow_list = module_state::has_allow_list(kernel);
-    let deny_list = module_state::has_deny_list(kernel);
-    let mintable = module_state::is_mintable(kernel);
-    let burnable = module_state::is_burnable(kernel);
-    let paused = module_state::is_paused(kernel);
+    let name = key_value_state::get_name(kernel)?;
+    let metadata = key_value_state::get_metadata(kernel)?;
+    let allow_list = key_value_state::has_allow_list(kernel);
+    let deny_list = key_value_state::has_deny_list(kernel);
+    let mintable = key_value_state::is_mintable(kernel);
+    let burnable = key_value_state::is_burnable(kernel);
+    let paused = key_value_state::is_paused(kernel);
 
-    let governance_account_index = module_state::get_governance_account_index(kernel)?;
+    let governance_account_index = key_value_state::get_governance_account_index(kernel)?;
     let governance_account = kernel
         .account_by_index(governance_account_index)
         .map_err(|_| {
@@ -64,15 +64,19 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
 pub fn query_token_module_account_state<TK: TokenKernelQueries>(
     kernel: &TK,
     account: &TK::Account,
-) -> Result<Option<RawCbor>, QueryTokenModuleError> {
-    let state_option = query_token_module_account_state_impl(kernel, account)?;
+) -> RawCbor {
+    let state = query_token_module_account_state_impl(kernel, account);
 
-    Ok(state_option.map(|state| RawCbor::from(cbor::cbor_encode(&state))))
+    RawCbor::from(cbor::cbor_encode(&state))
 }
 
 fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
     _kernel: &TK,
     _account: &TK::Account,
-) -> Result<Option<TokenModuleAccountState>, QueryTokenModuleError> {
-    Ok(None)
+) -> TokenModuleAccountState {
+    TokenModuleAccountState {
+        allow_list: None,
+        deny_list: None,
+        additional: Default::default(),
+    }
 }
