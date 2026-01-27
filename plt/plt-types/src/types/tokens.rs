@@ -59,12 +59,12 @@ impl Deserial for RawTokenAmount {
 
         // Decode additional byte if 8'th bit is set.
         while 0x80 & byte != 0 {
-            // Check if shifting would overflow the value
+            // Check if shifting would overflow the value.
             if value & (0x7f << (64 - 7)) != 0 {
                 bail!("Token amount not representable as u64");
             }
 
-            // Decode additional byte and use 7 bits from it as least significant bytes in value
+            // Decode additional byte and use 7 bits from it as least significant bytes in value.
             byte = source.get()?;
             value <<= 7;
             value |= 0x7f & byte as u64;
