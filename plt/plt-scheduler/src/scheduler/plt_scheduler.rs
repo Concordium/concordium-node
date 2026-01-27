@@ -79,10 +79,18 @@ pub fn execute_token_update_transaction<
         events: &mut events,
     };
 
-    // Call token module to execute operations
+    // Create transaction execution that uses the account type (AccountIndex, AccountAddress).
+    // This is done in order to match the AccountWithAddress type in the kernel implementation
+    // which is also (AccountIndex, AccountAddress):
+    // TransactionExecution::Account = TokenKernelQueries::AccountWithAddress
+    // (see trait bounds on execute_token_update_transaction).
+    // See the documentation on TokenKernelQueries::AccountWithAddress for why the token kernel
+    // opaque account type includes the account address.
     let mut kernel_transaction_execution = KernelTransactionExecutionImpl {
         inner: transaction_execution,
     };
+
+    // Call token module to execute operations
     let token_update_result = token_module::execute_token_update_transaction(
         &mut kernel_transaction_execution,
         &mut kernel,
