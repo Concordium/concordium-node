@@ -1,0 +1,34 @@
+# These settings are synced to GitHub by https://github.com/github/safe-settings
+branches:
+  - name: main
+    protection:
+      required_pull_request_reviews:
+        required_approving_review_count: 1
+        dismiss_stale_reviews: true
+        require_code_owner_reviews: true
+        require_last_push_approval: true
+        required_signatures: true
+        require_linear_history: false
+        bypass_pull_request_allowances: null
+      required_status_checks:
+        strict: false
+      enforce_admins: false
+      restrictions:
+        users: []
+        teams: []
+  - name: release*
+    protection:
+      required_pull_request_reviews:
+        required_approving_review_count: 1
+        dismiss_stale_reviews: true
+        require_code_owner_reviews: true
+        require_last_push_approval: true
+        required_signatures: true
+        require_linear_history: false
+        bypass_pull_request_allowances: null
+      required_status_checks:
+        strict: false
+      enforce_admins: false
+      restrictions:
+        users: []
+        teams: []
