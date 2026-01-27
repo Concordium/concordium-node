@@ -202,6 +202,16 @@ mod test {
             "err: {}",
             err
         );
+
+        let bytes = hex::decode("84808080808080808000").unwrap();
+        let err = common::from_bytes::<RawTokenAmount, _>(&mut bytes.as_slice())
+            .expect_err("deserialize");
+        assert!(
+            err.to_string()
+                .contains("Token amount not representable as u64"),
+            "err: {}",
+            err
+        );
     }
 
     #[test]
