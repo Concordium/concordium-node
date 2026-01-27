@@ -1,10 +1,11 @@
 use crate::block_state::external::{
-    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, IncrementPltUpdateSequenceNumber,
-    ReadTokenAccountBalance, UpdateTokenAccountBalance,
+    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, GetTokenAccountStates,
+    IncrementPltUpdateSequenceNumber, ReadTokenAccountBalance, UpdateTokenAccountBalance,
 };
-use crate::block_state::types::TokenIndex;
+use crate::block_state::types::{TokenAccountState, TokenIndex};
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use concordium_base::base::AccountIndex;
+use concordium_base::common;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_types::types::tokens::RawTokenAmount;
@@ -154,5 +155,26 @@ impl GetAccountIndexByAddress for GetAccountIndexByAddressCallback {
                 result
             ),
         }
+    }
+}
+
+/// External function for getting token account states for an account.
+/// Returns pointer to `Vec<u8>` which must be taken ownership of and deallocated.
+/// The bytes in the `Vec<u8>` contains binary serialized list of token indexes and token account states.
+///
+/// # Arguments
+///
+/// - `account_index` The index of the account to update a token balance for. Must be a valid
+///   account index of an existing account.
+pub type GetTokenAccountStatesCallback = extern "C" fn(account_index: u64) -> *mut Vec<u8>;
+
+impl GetTokenAccountStates for GetTokenAccountStatesCallback {
+    fn token_account_states(
+        &self,
+        account_index: AccountIndex,
+    ) -> Vec<(TokenIndex, TokenAccountState)> {
+        let bytes = unsafe { Box::from_raw(self(account_index.index)) };
+        common::from_bytes(&mut bytes.as_slice())
+            .expect("Invalid serialization of (TokenIndex, TokenAccountState) list")
     }
 }

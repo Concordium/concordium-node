@@ -1,6 +1,6 @@
 //! Interactions with block state managed externally in Haskell.
 
-use crate::block_state::types::TokenIndex;
+use crate::block_state::types::{TokenAccountState, TokenIndex};
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
@@ -9,7 +9,7 @@ use plt_types::types::tokens::RawTokenAmount;
 
 /// Trait allowing reading the account token balance from the block state.
 ///
-/// The account token balance block state is currently managed in Haskell.
+/// The token account block state (which includes the balance) is currently managed in Haskell.
 ///
 /// # Arguments
 ///
@@ -29,7 +29,7 @@ pub trait ReadTokenAccountBalance {
 /// Returns an error if the balance change would result in a negative balance
 /// or a balance above the representable amount.
 ///
-/// The account token balance block state is currently managed in Haskell.
+/// The token account block state (which includes the balance) is currently managed in Haskell.
 ///
 /// # Arguments
 ///
@@ -78,4 +78,20 @@ pub trait GetAccountIndexByAddress {
         &self,
         account_address: &AccountAddress,
     ) -> Result<AccountIndex, AccountNotFoundByAddressError>;
+}
+
+/// Trait allowing getting token account states for an account.
+///
+/// The token account block state is currently managed in Haskell.
+///
+/// # Arguments
+///
+/// - `account_index` The index of the account to get token account states for. Must be a valid account index of an existing account.
+pub trait GetTokenAccountStates {
+    /// Get token account states for an account. Returns pairs of the token index and the
+    /// token account state for the token.
+    fn token_account_states(
+        &self,
+        account_index: AccountIndex,
+    ) -> Vec<(TokenIndex, TokenAccountState)>;
 }

@@ -1,6 +1,6 @@
 //! Types used specifically in the block state.
 
-use concordium_base::common::{Serial, Serialize};
+use concordium_base::common::Serialize;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use plt_types::types::tokens::RawTokenAmount;
 
@@ -28,7 +28,7 @@ pub struct TokenConfiguration {
 /// Token account state at block state level.
 ///
 /// Corresponding Haskell type: `Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens.TokenAccountState`
-#[derive(Debug, Clone, Eq, PartialEq, Hash, Serial)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize)]
 pub struct TokenAccountState {
     /// Balance of the account
     pub balance: RawTokenAmount,
@@ -42,17 +42,21 @@ mod test {
 
     #[test]
     fn test_token_configuration_serial() {
-        let event = TokenConfiguration {
+        let token_configuration = TokenConfiguration {
             token_id: "tokenid1".parse().unwrap(),
             module_ref: TokenModuleRef::from([5; 32]),
             decimals: 4,
         };
 
-        let bytes = common::to_bytes(&event);
+        let bytes = common::to_bytes(&token_configuration);
         assert_eq!(
             hex::encode(&bytes),
             "08746f6b656e696431050505050505050505050505050505050505050505050505050505050505050504"
         );
+
+        let token_configuration_deserialized: TokenConfiguration =
+            common::from_bytes(&mut bytes.as_slice()).unwrap();
+        assert_eq!(token_configuration_deserialized, token_configuration);
     }
 
     #[test]
@@ -63,5 +67,9 @@ mod test {
 
         let bytes = common::to_bytes(&state);
         assert_eq!(hex::encode(&bytes), "0a");
+
+        let state_deserialized: TokenAccountState =
+            common::from_bytes(&mut bytes.as_slice()).unwrap();
+        assert_eq!(state_deserialized, state);
     }
 }

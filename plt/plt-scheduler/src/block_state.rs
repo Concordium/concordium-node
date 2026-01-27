@@ -3,8 +3,8 @@
 
 use crate::block_state::blob_store::{BackingStoreLoad, BackingStoreStore, DecodeError};
 use crate::block_state::external::{
-    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, IncrementPltUpdateSequenceNumber,
-    ReadTokenAccountBalance, UpdateTokenAccountBalance,
+    GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, GetTokenAccountStates,
+    IncrementPltUpdateSequenceNumber, ReadTokenAccountBalance, UpdateTokenAccountBalance,
 };
 use crate::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
 use crate::block_state_interface::{
@@ -128,6 +128,8 @@ pub struct ExecutionTimePltBlockState<L: BackingStoreLoad, T: BlockStateExternal
     pub get_account_address_by_index: T::GetCanonicalAddressByAccountIndex,
     /// External function for fetching account index by address.
     pub get_account_index_by_address: T::GetAccountIndexByAddress,
+    /// External function for getting token account states.
+    pub get_token_account_states: T::GetTokenAccountStates,
 }
 
 /// Calls to externally managed parts of the block state.
@@ -137,6 +139,7 @@ pub trait BlockStateExternal {
     type IncrementPltUpdateSequenceNumber: IncrementPltUpdateSequenceNumber;
     type GetCanonicalAddressByAccountIndex: GetCanonicalAddressByAccountIndex;
     type GetAccountIndexByAddress: GetAccountIndexByAddress;
+    type GetTokenAccountStates: GetTokenAccountStates;
 }
 
 impl<L: BackingStoreLoad, T: BlockStateExternal> BlockStateQuery
@@ -231,11 +234,11 @@ impl<L: BackingStoreLoad, T: BlockStateExternal> BlockStateQuery
 
     fn token_account_states(
         &self,
-        _account: &Self::Account,
+        account: &Self::Account,
     ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
-        // TODO implement this. The implementation below is just to help the type checker infer
-        // enough for this to compile.
-        Vec::new().into_iter()
+        self.get_token_account_states
+            .token_account_states(*account)
+            .into_iter()
     }
 }
 

@@ -1,4 +1,4 @@
-use concordium_base::common::{Buffer, Put, Serial};
+use concordium_base::common::{Buffer, Deserial, ParseResult, Put, ReadBytesExt, Serial};
 
 /// Token amount without decimals specified. The token amount represented by
 /// this type must always be represented with the number of decimals
@@ -41,6 +41,13 @@ impl Serial for RawTokenAmount {
         for byte in bytes.iter().rev() {
             out.put(byte);
         }
+    }
+}
+
+impl Deserial for RawTokenAmount {
+    fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
+        // todo ar
+        todo!()
     }
 }
 
