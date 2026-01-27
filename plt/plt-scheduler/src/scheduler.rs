@@ -3,6 +3,7 @@
 
 use crate::block_state_interface::BlockStateOperations;
 use concordium_base::base::Energy;
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
@@ -22,6 +23,8 @@ struct TransactionExecutionImpl<Account> {
     energy_used: Energy,
     /// The account which signed as the sender of the transaction.
     sender_account: Account,
+    /// The address of the account which signed as the sender of the transaction.
+    sender_account_address: AccountAddress,
 }
 
 impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> {
@@ -29,6 +32,10 @@ impl<Account: Clone> TransactionExecution for TransactionExecutionImpl<Account> 
 
     fn sender_account(&self) -> Account {
         self.sender_account.clone()
+    }
+
+    fn sender_account_address(&self) -> AccountAddress {
+        self.sender_account_address
     }
 
     fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
@@ -82,6 +89,7 @@ pub enum TransactionExecutionError {
 ///   Returning this error will terminate the scheduler.
 pub fn execute_transaction<BSO: BlockStateOperations>(
     sender_account: BSO::Account,
+    sender_account_address: AccountAddress,
     block_state: &mut BSO,
     payload: Payload,
     energy_limit: Energy,
@@ -93,6 +101,7 @@ where
         energy_limit,
         energy_used: Energy::default(),
         sender_account,
+        sender_account_address,
     };
 
     match payload {

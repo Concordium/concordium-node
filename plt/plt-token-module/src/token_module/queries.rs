@@ -1,5 +1,6 @@
 use crate::key_value_state;
 use crate::token_module::TokenModuleStateInvariantError;
+use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
@@ -43,12 +44,13 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
                 governance_account_index
             ))
         })?;
-    let governance_account_address = kernel.account_canonical_address(&governance_account);
 
     let state = TokenModuleState {
         name: Some(name),
         metadata: Some(metadata),
-        governance_account: Some(CborHolderAccount::from(governance_account_address)),
+        governance_account: Some(CborHolderAccount::from(
+            governance_account.canonical_account_address,
+        )),
         allow_list: Some(allow_list),
         deny_list: Some(deny_list),
         mintable: Some(mintable),
@@ -63,7 +65,7 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
 /// Get the CBOR-encoded representation of the token module account state.
 pub fn query_token_module_account_state<TK: TokenKernelQueries>(
     kernel: &TK,
-    account: &TK::Account,
+    account: AccountIndex,
 ) -> RawCbor {
     let state = query_token_module_account_state_impl(kernel, account);
 
@@ -72,7 +74,7 @@ pub fn query_token_module_account_state<TK: TokenKernelQueries>(
 
 fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
     _kernel: &TK,
-    _account: &TK::Account,
+    _account: AccountIndex,
 ) -> TokenModuleAccountState {
     TokenModuleAccountState {
         allow_list: None,

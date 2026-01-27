@@ -87,7 +87,7 @@ fn test_unauthorized_mint() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    stub.account_address(&non_governance_account)
                 ))
             );
         }
@@ -102,6 +102,51 @@ fn test_unauthorized_mint() {
 
     // and that no events have been logged
     assert_eq!(stub.events.len(), 0);
+}
+
+/// Rejects mint operations from non-governance accounts. Test
+/// send operation using alias account address. Check that
+/// address in reject reason is the alias and not the canonical address.
+#[test]
+fn test_unauthorized_mint_using_alias() {
+    // Arrange a token and an unauthorized sender.
+    let mut stub = KernelStub::with_decimals(2);
+    stub.init_token(TokenInitTestParams::default());
+    let non_gov_account = stub.create_account();
+
+    let non_gov_account_address_alias =
+        stub.account_address(&non_gov_account).get_alias(5).unwrap();
+    let non_gov_account_alias = stub
+        .account_by_address(&non_gov_account_address_alias)
+        .unwrap();
+
+    // Attempt to mint as a non-governance account.
+    let mut execution = TransactionExecutionTestImpl::with_sender(non_gov_account_alias);
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(1000, 2),
+    })];
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            address,
+            ..
+        }) => {
+            // Assert the address alias is used in the reject reason.
+            assert_eq!(
+                address,
+                Some(CborHolderAccount::from(
+                    stub.account_address(&non_gov_account_alias)
+                ))
+            );
+        }
+    );
 }
 
 /// Test mint that would overflow circulating supply

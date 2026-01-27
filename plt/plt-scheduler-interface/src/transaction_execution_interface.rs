@@ -2,6 +2,7 @@
 
 use crate::error::OutOfEnergyError;
 use concordium_base::base::Energy;
+use concordium_base::contracts_common::AccountAddress;
 
 /// Operations and context related to transaction execution. This is the abstraction
 /// seen in the transaction execution logic in the scheduler and in the token module.
@@ -12,6 +13,9 @@ pub trait TransactionExecution {
 
     /// The account initiating the transaction.
     fn sender_account(&self) -> Self::Account;
+
+    /// The account address of the account initiating the transaction.
+    fn sender_account_address(&self) -> AccountAddress;
 
     /// Reduce the available energy for the execution.
     ///
