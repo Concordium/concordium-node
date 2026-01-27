@@ -1,9 +1,10 @@
+use crate::block_state::types::{TokenAccountState, TokenConfiguration};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
+use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_scheduler_interface::token_kernel_interface::{TokenStateKey, TokenStateValue};
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::RawTokenAmount;
 
 /// Change in [`RawTokenAmount`].
 ///
@@ -15,26 +16,6 @@ pub enum RawTokenAmountDelta {
     Add(RawTokenAmount),
     /// Subtract the token amount
     Subtract(RawTokenAmount),
-}
-
-/// Static configuration for a protocol-level token.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TokenConfiguration {
-    /// The token ID in its canonical form. Token IDs are case-insensitive when compared,
-    /// but the canonical token ID preserves the original casing specified when
-    /// the token was created.
-    pub token_id: TokenId,
-    /// The token module reference.
-    pub module_ref: TokenModuleRef,
-    /// The number of decimal places used in the representation of the token.
-    pub decimals: u8,
-}
-
-/// Token account state at block state level.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
-pub struct TokenAccountBlockState {
-    /// Balance of the account
-    pub balance: RawTokenAmount,
 }
 
 /// Account with given id does not exist
@@ -149,7 +130,7 @@ pub trait BlockStateQuery {
     fn token_account_states(
         &self,
         account: &Self::Account,
-    ) -> impl Iterator<Item = (Self::Token, TokenAccountBlockState)>;
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountState)>;
 }
 
 /// Operations on the state of a block in the chain.

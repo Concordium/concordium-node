@@ -1,9 +1,8 @@
 //! Scheduler implementation for protocol-level token updates. This module implements execution
 //! of transactions related to protocol-level tokens.
 
-use crate::block_state_interface::{
-    BlockStateOperations, TokenConfiguration, TokenNotFoundByIdError,
-};
+use crate::block_state::types::TokenConfiguration;
+use crate::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
 use crate::scheduler::{TransactionExecutionError, UpdateInstructionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
 use concordium_base::protocol_level_tokens::TokenOperationsPayload;

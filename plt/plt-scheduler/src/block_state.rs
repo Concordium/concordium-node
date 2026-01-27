@@ -6,23 +6,21 @@ use crate::block_state::external::{
     GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, IncrementPltUpdateSequenceNumber,
     ReadTokenAccountBalance, UpdateTokenAccountBalance,
 };
+use crate::block_state::types::{TokenAccountState, TokenConfiguration, TokenIndex};
 use crate::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenAccountBlockState, TokenConfiguration, TokenNotFoundByIdError,
+    TokenNotFoundByIdError,
 };
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_scheduler_interface::token_kernel_interface::{TokenStateKey, TokenStateValue};
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::RawTokenAmount;
 
 pub mod blob_store;
 pub mod external;
-
-/// Index of the protocol-level token in the block state map of tokens.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct TokenIndex(pub u64);
+pub mod types;
 
 /// Marker for PLT block state hash type.
 pub enum PltBlockStateHashMarker {}
@@ -234,7 +232,7 @@ impl<L: BackingStoreLoad, T: BlockStateExternal> BlockStateQuery
     fn token_account_states(
         &self,
         _account: &Self::Account,
-    ) -> impl Iterator<Item = (Self::Token, TokenAccountBlockState)> {
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
         // TODO implement this. The implementation below is just to help the type checker infer
         // enough for this to compile.
         Vec::new().into_iter()
