@@ -64,10 +64,16 @@ pub fn query_token_info(
 }
 
 /// Get the list of tokens on an account
-pub fn query_token_account_infos<BSQ: BlockStateQuery>(
+pub fn query_token_account_infos<BSQ>(
     block_state: &BSQ,
     account: BSQ::Account,
-) -> Vec<TokenAccountInfo> {
+) -> Vec<TokenAccountInfo>
+where
+    BSQ: BlockStateQuery,
+    BSQ::Account: Clone,
+{
+    let account_index = block_state.account_index(&account);
+
     block_state
         .token_account_states(&account)
         .map(|(token, state)| {
@@ -81,7 +87,8 @@ pub fn query_token_account_infos<BSQ: BlockStateQuery>(
                 token_module_state: &token_module_state,
             };
 
-            let module_state = token_module::query_token_module_account_state(&kernel, &account);
+            let module_state =
+                token_module::query_token_module_account_state(&kernel, account_index);
 
             let balance = TokenAmount {
                 amount: state.balance,

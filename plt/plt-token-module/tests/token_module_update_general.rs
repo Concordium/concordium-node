@@ -52,12 +52,12 @@ fn test_multiple_operations() {
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+            recipient: CborHolderAccount::from(stub.account_address(&receiver)),
             memo: None,
         }),
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(2000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+            recipient: CborHolderAccount::from(stub.account_address(&receiver)),
             memo: None,
         }),
     ];
@@ -85,7 +85,7 @@ fn test_single_failing_operation() {
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+            recipient: CborHolderAccount::from(stub.account_address(&receiver)),
             memo: None,
         }),
         TokenOperation::Transfer(TokenTransfer {
@@ -125,7 +125,7 @@ fn test_energy_charge() {
         TransactionExecutionTestImpl::with_sender_and_energy(sender, Energy::from(1000));
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
@@ -153,7 +153,7 @@ fn test_out_of_energy_error() {
         TransactionExecutionTestImpl::with_sender_and_energy(sender, Energy::from(50));
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
         memo: None,
     })];
     let result = token_module::execute_token_update_transaction(

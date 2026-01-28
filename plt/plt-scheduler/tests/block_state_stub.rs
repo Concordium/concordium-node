@@ -21,7 +21,9 @@ use plt_scheduler::block_state_interface::{
 };
 use plt_scheduler::{queries, scheduler};
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_scheduler_interface::token_kernel_interface::{TokenStateKey, TokenStateValue};
+use plt_scheduler_interface::token_kernel_interface::{
+    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
+};
 use plt_token_module::TOKEN_MODULE_REF;
 use plt_types::types::execution::TransactionOutcome;
 use plt_types::types::tokens::RawTokenAmount;
@@ -102,6 +104,10 @@ impl BlockStateStub {
         stub_index
     }
 
+    pub fn account_canonical_address(&self, account: &AccountStubIndex) -> AccountAddress {
+        self.accounts[account.0].address
+    }
+
     /// Create and initialize token in the stub and return stub representation of the token, together with
     /// the governance account.
     pub fn create_and_init_token(
@@ -112,7 +118,8 @@ impl BlockStateStub {
         initial_supply: Option<RawTokenAmount>,
     ) -> (TokenStubIndex, AccountStubIndex) {
         let gov_account = self.create_account();
-        let gov_holder_account = CborHolderAccount::from(self.accounts[gov_account.0].address);
+        let gov_holder_account =
+            CborHolderAccount::from(self.account_canonical_address(&gov_account));
         let metadata = MetadataUrl::from("https://plt.token".to_string());
         let parameters = TokenModuleInitializationParameters {
             name: Some("Protocol-level token".to_owned()),
@@ -168,11 +175,18 @@ impl BlockStateStub {
         let token_module_state: TokenModuleState =
             cbor::cbor_decode(&token_info.state.module_state).unwrap();
         let gov_account = self
-            .account_by_address(&token_module_state.governance_account.unwrap().address)
+            .account_by_address(
+                &token_module_state
+                    .governance_account
+                    .as_ref()
+                    .unwrap()
+                    .address,
+            )
             .unwrap();
 
         let outcome = scheduler::execute_transaction(
             gov_account,
+            token_module_state.governance_account.unwrap().address,
             self,
             Payload::TokenUpdate { payload },
             Energy::from(u64::MAX),
@@ -306,7 +320,7 @@ impl BlockStateQuery for BlockStateStub {
             .iter()
             .enumerate()
             .find_map(|(i, account)| {
-                if account.address == *address {
+                if account.address.is_alias(address) {
                     Some(AccountStubIndex(i))
                 } else {
                     None
@@ -318,9 +332,13 @@ impl BlockStateQuery for BlockStateStub {
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        if self.accounts.get(index.index as usize).is_some() {
-            Ok(AccountStubIndex(index.index as usize))
+    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError> {
+        if let Some(account) = self.accounts.get(index.index as usize) {
+            let account_with_canonical_address = AccountWithCanonicalAddress {
+                account: AccountStubIndex(index.index as usize),
+                canonical_account_address: account.address,
+            };
+            Ok(account_with_canonical_address)
         } else {
             Err(AccountNotFoundByIndexError(index))
         }
@@ -328,10 +346,6 @@ impl BlockStateQuery for BlockStateStub {
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
         self.accounts[account.0].index
-    }
-
-    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
-        self.accounts[account.0].address
     }
 
     fn account_token_balance(
@@ -416,4 +430,21 @@ impl BlockStateOperations for BlockStateStub {
     ) {
         self.tokens[token.0].module_state = token_key_value_state;
     }
+}
+
+/// Test looking up account by alias.
+#[test]
+fn test_account_by_alias() {
+    let mut stub = BlockStateStub::new();
+
+    let account = stub.create_account();
+    let account_address = stub.account_canonical_address(&account);
+    let account_by_alias = stub
+        .account_by_address(&account_address.get_alias(0).unwrap())
+        .unwrap();
+
+    assert_eq!(
+        stub.account_index(&account),
+        stub.account_index(&account_by_alias)
+    );
 }

@@ -178,7 +178,7 @@ fn test_unauthorized_pause() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    stub.account_address(&non_governance_account)
                 ))
             );
         }
@@ -234,7 +234,7 @@ fn test_unauthorized_unpause() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    stub.account_address(&non_governance_account)
                 ))
             );
         }

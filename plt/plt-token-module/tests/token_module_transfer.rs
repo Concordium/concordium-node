@@ -32,7 +32,7 @@ fn test_transfer() {
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
@@ -61,7 +61,7 @@ fn test_transfer_with_memo() {
     let memo = Memo::try_from(cbor::cbor_encode("testvalue")).unwrap();
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
         memo: Some(CborMemo::Cbor(memo.clone())),
     })];
     token_module::execute_token_update_transaction(
@@ -88,7 +88,7 @@ fn test_transfer_self() {
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&sender)),
+        recipient: CborHolderAccount::from(stub.account_address(&sender)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
@@ -113,7 +113,7 @@ fn test_transfer_insufficient_balance() {
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(10000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
         memo: None,
     })];
     let res = token_module::execute_token_update_transaction(
@@ -146,7 +146,7 @@ fn test_transfer_decimals_mismatch() {
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 4),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
         memo: None,
     })];
     let res = token_module::execute_token_update_transaction(
@@ -217,7 +217,7 @@ fn test_transfer_paused() {
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
         memo: None,
     })];
 
