@@ -1,13 +1,13 @@
-use crate::block_state::TokenIndex;
 use crate::block_state::external::{
     GetAccountIndexByAddress, GetCanonicalAddressByAccountIndex, IncrementPltUpdateSequenceNumber,
     ReadTokenAccountBalance, UpdateTokenAccountBalance,
 };
+use crate::block_state::types::TokenIndex;
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::RawTokenAmount;
 
 /// External function for updating the token balance for an account.
 ///

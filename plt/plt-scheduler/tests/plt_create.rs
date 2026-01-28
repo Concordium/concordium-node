@@ -15,7 +15,7 @@ use plt_scheduler::scheduler;
 use plt_scheduler::scheduler::UpdateInstructionExecutionError;
 use plt_token_module::TOKEN_MODULE_REF;
 use plt_types::types::events::BlockItemEvent;
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::RawTokenAmount;
 
 mod block_state_stub;
 
@@ -129,7 +129,8 @@ fn test_plt_create_with_minting() {
     });
     assert_matches!(&events[1], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount, TokenAmount::from_raw(5000, 4));
+        assert_eq!(mint.amount.amount, RawTokenAmount(5000));
+        assert_eq!(mint.amount.decimals, 4);
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
     });
 }
