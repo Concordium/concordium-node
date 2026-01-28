@@ -16,8 +16,7 @@ impl RawTokenAmount {
     pub const MAX: Self = Self(u64::MAX);
 }
 
-/// Serialization of 'TokenRawAmount' is as a variable length quantity (VLQ). We disallow
-/// 0-padding to enforce canonical serialization.
+/// Serialization of 'TokenRawAmount' is as a variable length quantity (VLQ).
 ///
 /// The VLQ encoding represents a value in big-endian base 128. Each byte of the encoding uses
 /// the high-order bit to indicate if further bytes follow (when set). The remaining bits represent
@@ -49,13 +48,22 @@ impl Serial for RawTokenAmount {
     }
 }
 
+/// Deserialization of 'TokenRawAmount' is as a variable length quantity (VLQ). We disallow
+/// 0-padding to enforce canonical serialization.
+///
+/// The VLQ encoding represents a value in big-endian base 128. Each byte of the encoding uses
+/// the high-order bit to indicate if further bytes follow (when set). The remaining bits represent
+/// the positional value in base 128. See https://en.wikipedia.org/wiki/Variable-length_quantity
 impl Deserial for RawTokenAmount {
     fn deserial<R: ReadBytesExt>(source: &mut R) -> ParseResult<Self> {
-        // todo ar don't allow padding
-
         // Decode first byte and use 7 bits from it.
         let mut byte: u8 = source.get()?;
         let mut value = 0x7f & byte as u64;
+
+        // Check for 0-padding.
+        if 0x80 & byte != 0 && value == 0 {
+            bail!("Token amount padded with zeros");
+        }
 
         // Decode additional byte if 8'th bit is set.
         while 0x80 & byte != 0 {
@@ -199,6 +207,7 @@ mod test {
             common::from_bytes(&mut bytes.as_slice()).unwrap();
         assert_eq!(token_amount_deserialized, token_amount);
 
+        // Test out of range value
         let bytes = hex::decode("82808080808080808000").unwrap();
         let err = common::from_bytes::<RawTokenAmount, _>(&mut bytes.as_slice())
             .expect_err("deserialize");
@@ -209,12 +218,33 @@ mod test {
             err
         );
 
+        // Test out of range value
         let bytes = hex::decode("84808080808080808000").unwrap();
         let err = common::from_bytes::<RawTokenAmount, _>(&mut bytes.as_slice())
             .expect_err("deserialize");
         assert!(
             err.to_string()
                 .contains("Token amount not representable as u64"),
+            "err: {}",
+            err
+        );
+
+        // Test value padded with 0
+        let bytes = hex::decode("8001").unwrap();
+        let err = common::from_bytes::<RawTokenAmount, _>(&mut bytes.as_slice())
+            .expect_err("deserialize");
+        assert!(
+            err.to_string().contains("Token amount padded with zeros"),
+            "err: {}",
+            err
+        );
+
+        // Test value padded with 0
+        let bytes = hex::decode("808101").unwrap();
+        let err = common::from_bytes::<RawTokenAmount, _>(&mut bytes.as_slice())
+            .expect_err("deserialize");
+        assert!(
+            err.to_string().contains("Token amount padded with zeros"),
             "err: {}",
             err
         );
