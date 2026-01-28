@@ -1,6 +1,8 @@
 # Changelog
 
 ## Unreleased changes
+
+- Preliminary support for protocol version P11.
  
 # 10.0.3
 
