@@ -92,7 +92,13 @@ pub struct TokenAmount {
 mod test {
     use crate::types::tokens::{RawTokenAmount, TokenAmount};
     use concordium_base::common;
+    use concordium_base::common::ParseResult;
+    use proptest::prelude::ProptestConfig;
+    use proptest::{prop_assert, prop_assert_eq, proptest};
 
+    /// Test special/corner cases for successful raw token amount serialization/deserialization
+    /// and for deserialization failures. This test is supplemented
+    /// with the property test [`prop_test_raw_token_amount_serial`].
     #[test]
     fn test_raw_token_amount_serial() {
         let token_amount = RawTokenAmount(0);
@@ -212,6 +218,23 @@ mod test {
             "err: {}",
             err
         );
+    }
+
+    /// Property test of raw token amount serialization/deserialization. Special cases
+    /// are tested in the test [`test_raw_token_amount_serial`].
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(10000))]
+
+        #[test]
+        fn prop_test_raw_token_amount_serial(value: u64) {
+            let token_amount = RawTokenAmount(value);
+            let bytes = common::to_bytes(&token_amount);
+            let token_amount_deserialized_result: ParseResult<RawTokenAmount> =
+                common::from_bytes(&mut bytes.as_slice());
+            prop_assert!(token_amount_deserialized_result.is_ok());
+            let token_amount_deserialized = token_amount_deserialized_result.unwrap();
+            prop_assert_eq!(token_amount_deserialized, token_amount);
+        }
     }
 
     #[test]
