@@ -26,7 +26,6 @@ import qualified Concordium.PLTScheduler.PLTMemory as Memory
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Execution as Types
 import qualified Concordium.Utils.Serialization as CS
-import Data.Either
 import qualified Data.FixedByteString as FixedByteString
 
 -- | Execute a transaction payload modifying the `block_state` accordingly.
