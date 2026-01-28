@@ -174,7 +174,7 @@ impl GetTokenAccountStates for GetTokenAccountStatesCallback {
         account_index: AccountIndex,
     ) -> Vec<(TokenIndex, TokenAccountState)> {
         let bytes = unsafe { Box::from_raw(self(account_index.index)) };
-        common::from_bytes(&mut bytes.as_slice())
+        common::from_bytes_until_end(*bytes)
             .expect("Invalid serialization of (TokenIndex, TokenAccountState) list")
     }
 }
