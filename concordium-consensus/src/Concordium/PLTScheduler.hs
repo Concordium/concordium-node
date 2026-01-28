@@ -119,9 +119,12 @@ executeTransaction
                                     oucome <- case statusCode of
                                         0 -> do
                                             updatedBlockState <- FFI.peek resultingBlockStateOutPtr >>= PLTBlockState.wrapFFIPtr
+                                            let getEvents = S.isolate (BS.length returnData) $ CS.getListOf $ Types.getEvent spv
                                             let events =
-                                                    fromRight (error "Block item events from Rust PLT Scheduler could not be deserialized") $
-                                                        S.runGet (CS.getListOf $ Types.getEvent spv) returnData
+                                                    either
+                                                        (\message -> error $ "Transaction events from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                                        id
+                                                        $ S.runGet getEvents returnData
                                             return $
                                                 ExecutionSuccess $
                                                     ExecutionOutcomeSuccess
@@ -129,9 +132,12 @@ executeTransaction
                                                           eosEvents = events
                                                         }
                                         1 -> do
+                                            let getRejectReason = S.isolate (BS.length returnData) S.get
                                             let rejectReason =
-                                                    fromRight (error "Reject reason from Rust PLT Scheduler could not be deserialized") $
-                                                        S.decode returnData
+                                                    either
+                                                        (\message -> error $ "Transaction reject reason from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                                        id
+                                                        $ S.runGet getRejectReason returnData
                                             return $
                                                 ExecutionReject $
                                                     ExecutionOutcomeReject
