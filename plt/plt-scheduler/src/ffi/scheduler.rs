@@ -161,7 +161,7 @@ extern "C" fn ffi_execute_transaction(
             }
             (0, common::to_bytes(&events))
         }
-        TransactionOutcome::Rejected(reject_reason) => (0, common::to_bytes(&reject_reason)),
+        TransactionOutcome::Rejected(reject_reason) => (1, common::to_bytes(&reject_reason)),
     };
 
     // shrink Vec should that we know capacity and length are equal (this is important when we later free with free_array_len_2)
