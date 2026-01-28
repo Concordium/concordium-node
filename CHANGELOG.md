@@ -1,6 +1,9 @@
 # Changelog
 
 ## Unreleased changes
+
+- Add recovery from corrupted databases that may be created when protocol updates are executed
+  twice (due to bugs in 8.1.0 - 10.0.1 versions).
  
 # 10.0.3
 
