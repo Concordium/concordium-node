@@ -137,7 +137,7 @@ extern "C" fn ffi_execute_transaction(
 
     let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let payload: Payload = common::from_bytes_until_end(payload_bytes).unwrap();
+    let payload: Payload = common::from_bytes_complete(payload_bytes).unwrap();
 
     let remaining_energy = Energy::from(remaining_energy);
 

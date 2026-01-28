@@ -55,7 +55,7 @@ mod test {
         );
 
         let token_configuration_deserialized: TokenConfiguration =
-            common::from_bytes_until_end(bytes.as_slice()).unwrap();
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(token_configuration_deserialized, token_configuration);
     }
 
@@ -69,7 +69,7 @@ mod test {
         assert_eq!(hex::encode(&bytes), "0a");
 
         let state_deserialized: TokenAccountState =
-            common::from_bytes_until_end(bytes.as_slice()).unwrap();
+            common::from_bytes_complete(bytes.as_slice()).unwrap();
         assert_eq!(state_deserialized, state);
     }
 }
