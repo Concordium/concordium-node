@@ -18,6 +18,7 @@ use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFo
 use plt_scheduler_interface::token_kernel_interface::{
     AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
 };
+use plt_types::types::tokens::RawTokenAmount;
 
 pub mod blob_store;
 pub mod external;
