@@ -1,4 +1,4 @@
-use concordium_base::common::__serialize_private::anyhow::{Context, bail};
+use concordium_base::common::__serialize_private::anyhow::bail;
 use concordium_base::common::{
     Buffer, Deserial, Get, ParseResult, Put, ReadBytesExt, Serial, Serialize,
 };
@@ -23,28 +23,35 @@ impl RawTokenAmount {
 /// the positional value in base 128. See https://en.wikipedia.org/wiki/Variable-length_quantity
 impl Serial for RawTokenAmount {
     fn serial<B: Buffer>(&self, out: &mut B) {
+        // Maximum number of bytes a u64 can be serialized to.
+        const MAX_BYTES: usize = 10;
+        // Use buffer for the serialized bytes since we produce bytes
+        // in the opposite order of which we want to write them
+        // (we produce the least significant first).
+        let mut buffer = [0; MAX_BYTES];
+        let mut buffer_index = MAX_BYTES - 1;
+
         let mut val = self.0;
-        let mut bytes = Vec::new();
 
         // The least significant byte. This byte is always there
         // and never has the continuation byte set, since it is the last.
         let byte = val as u8 & 0x7fu8;
-        bytes.push(byte);
+        buffer[buffer_index] = byte;
         val >>= 7;
 
         // Following bytes in order of more significant. Continuation
         // byte (0x80) is always set, since there is always a following byte.
         while val != 0 {
             let byte = 0x80u8 | (val as u8 & 0x7fu8);
-            bytes.push(byte);
+            buffer_index -= 1;
+            buffer[buffer_index] = byte;
             val >>= 7;
         }
 
-        for byte in bytes.iter().rev() {
-            out.put(byte);
+        // Write bytes in correct order.
+        for byte in &buffer[buffer_index..MAX_BYTES] {
+            out.put(&byte);
         }
-
-        // todo ar non alloc
     }
 }
 
@@ -250,11 +257,11 @@ mod test {
         );
     }
 
-    /// Property test of raw token amount serialization/deserialization. Special cases
-    /// are tested in the test [`test_raw_token_amount_serial`].
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(10000))]
 
+        /// Property test of raw token amount serialization/deserialization. Special cases
+        /// are tested in the test [`test_raw_token_amount_serial`].
         #[test]
         fn prop_test_raw_token_amount_serial(value: u64) {
             let token_amount = RawTokenAmount(value);
