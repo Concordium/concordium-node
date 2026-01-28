@@ -89,7 +89,7 @@ fn test_unauthorized_burn() {
             assert_eq!(
                 address,
                 Some(CborHolderAccount::from(
-                    stub.account_canonical_address(&non_governance_account)
+                    stub.account_address(&non_governance_account)
                 ))
             );
         }

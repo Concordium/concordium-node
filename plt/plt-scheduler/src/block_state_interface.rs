@@ -3,8 +3,9 @@ use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenId;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_scheduler_interface::token_kernel_interface::{TokenStateKey, TokenStateValue};
-use plt_types::types::tokens::RawTokenAmount;
+use plt_scheduler_interface::token_kernel_interface::{
+    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
+};
 
 /// Change in [`RawTokenAmount`].
 ///
@@ -108,18 +109,15 @@ pub trait BlockStateQuery {
         address: &AccountAddress,
     ) -> Result<Self::Account, AccountNotFoundByAddressError>;
 
-    /// Lookup the account using an account index.
+    /// Lookup the account using an account index. Returns both the opaque account
+    /// representation and the account canonical address.
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<Self::Account, AccountNotFoundByIndexError>;
+    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError>;
 
     /// Get the account index for the account.
     fn account_index(&self, account: &Self::Account) -> AccountIndex;
-
-    /// Get the canonical account address of the account, i.e. the address used as part of the
-    /// credential deployment and not an alias.
-    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress;
 
     /// Get the token balance of the account.
     fn account_token_balance(&self, account: &Self::Account, token: &Self::Token)

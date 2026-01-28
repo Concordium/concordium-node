@@ -42,7 +42,7 @@ fn test_initialize_token_parameters_missing() {
     let parameters = TokenModuleInitializationParameters {
         name: None,
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(stub.account_address(&gov_account).into()),
         allow_list: Some(true),
         deny_list: Some(false),
         initial_supply: None,
@@ -69,7 +69,7 @@ fn test_initialize_token_additional_parameter() {
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some("https://plt.token".to_owned().into()),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(stub.account_address(&gov_account).into()),
         allow_list: Some(true),
         deny_list: Some(false),
         initial_supply: None,
@@ -92,7 +92,7 @@ fn test_initialize_token_additional_parameter() {
 fn test_initialize_token_default_values() {
     let mut stub = KernelStub::with_decimals(0);
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
@@ -149,7 +149,7 @@ fn test_initialize_token_default_values() {
 fn test_initialize_token_no_minting() {
     let mut stub = KernelStub::with_decimals(0);
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
@@ -215,7 +215,7 @@ fn test_initialize_token_no_minting() {
 fn test_initialize_token_with_minting() {
     let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.create_account();
-    let gov_holder_account = CborHolderAccount::from(stub.account_canonical_address(&gov_account));
+    let gov_holder_account = CborHolderAccount::from(stub.account_address(&gov_account));
     let metadata = MetadataUrl::from("https://plt.token".to_string());
     let encoded_metadata = cbor::cbor_encode(&metadata);
     let parameters = TokenModuleInitializationParameters {
@@ -283,7 +283,7 @@ fn test_initialize_token_excessive_mint_decimals() {
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(stub.account_address(&gov_account).into()),
         allow_list: Some(false),
         deny_list: Some(false),
         initial_supply: Some(TokenAmount::from_raw(500000, 6)),
@@ -314,7 +314,7 @@ fn test_initialize_token_insufficient_mint_decimals() {
     let parameters = TokenModuleInitializationParameters {
         name: Some("Protocol-level token".to_owned()),
         metadata: Some(metadata),
-        governance_account: Some(stub.account_canonical_address(&gov_account).into()),
+        governance_account: Some(stub.account_address(&gov_account).into()),
         allow_list: Some(false),
         deny_list: Some(false),
         initial_supply: Some(TokenAmount::from_raw(500000, 2)),

@@ -47,7 +47,7 @@ impl BlockStateExternal for BlockStateCallbacks {
 /// - `payload` Pointer to transaction payload bytes.
 /// - `payload_len` Byte length of transaction payload.
 /// - `sender_account_index` The account index of the account which signed as the sender of the transaction.
-/// - `sender_account_address` The canonical account address of the account which signed as the sender of the transaction.
+/// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
 ///   The block state is only written if return value is `0`.
@@ -132,9 +132,6 @@ extern "C" fn ffi_execute_transaction(
         AccountAddress(address_bytes)
     };
 
-    // todo use in following PR that changes account model
-    let _ = sender_account_address;
-
     let mut payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
     let payload: Payload = common::from_bytes(&mut payload_bytes).unwrap();
@@ -143,6 +140,7 @@ extern "C" fn ffi_execute_transaction(
 
     let result = scheduler::execute_transaction(
         sender_account_index,
+        sender_account_address,
         &mut block_state,
         payload,
         remaining_energy,

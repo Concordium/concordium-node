@@ -95,7 +95,7 @@ pub enum TokenUpdateError {
 /// is returned. This is an unrecoverable error and should never happen.
 pub fn execute_token_update_transaction<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -263,7 +263,7 @@ impl From<TokenBurnError> for TokenUpdateErrorInternal {
 
 fn execute_token_update_operation<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -310,17 +310,20 @@ fn check_not_paused<TK: TokenKernelOperations>(
     Ok(())
 }
 
-fn check_authorized<TK: TokenKernelOperations>(
+fn check_authorized<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
     kernel: &TK,
-    sender: &TK::Account,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    let sender_index = kernel.account_index(sender);
+    let sender_index = kernel.account_index(&transaction_execution.sender_account());
     let authorized = key_value_state::get_governance_account_index(kernel)
         .is_ok_and(|gov_index| gov_index == sender_index);
 
     if !authorized {
         return Err(TokenUpdateErrorInternal::Unauthorized {
-            account_address: kernel.account_canonical_address(sender),
+            account_address: transaction_execution.sender_account_address(),
         });
     }
     Ok(())
@@ -328,7 +331,7 @@ fn check_authorized<TK: TokenKernelOperations>(
 
 fn execute_token_transfer<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -353,7 +356,7 @@ fn execute_token_transfer<
 
 fn execute_token_mint<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -363,7 +366,7 @@ fn execute_token_mint<
     let raw_amount = util::to_raw_token_amount(kernel, mint_operation.amount)?;
 
     // operation execution
-    check_authorized(kernel, &transaction_execution.sender_account())?;
+    check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
@@ -372,7 +375,7 @@ fn execute_token_mint<
 
 fn execute_token_burn<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
@@ -382,7 +385,7 @@ fn execute_token_burn<
     let raw_amount = util::to_raw_token_amount(kernel, burn_operation.amount)?;
 
     // operation execution
-    check_authorized(kernel, &transaction_execution.sender_account())?;
+    check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
@@ -391,12 +394,12 @@ fn execute_token_burn<
 
 fn execute_token_pause<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(kernel, &transaction_execution.sender_account())?;
+    check_authorized(transaction_execution, kernel)?;
 
     kernel.set_module_state(STATE_KEY_PAUSED, Some(vec![]));
 
@@ -407,12 +410,12 @@ fn execute_token_pause<
 
 fn execute_token_unpause<
     TK: TokenKernelOperations,
-    TE: TransactionExecution<Account = TK::Account>,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
 >(
     transaction_execution: &mut TE,
     kernel: &mut TK,
 ) -> Result<(), TokenUpdateErrorInternal> {
-    check_authorized(kernel, &transaction_execution.sender_account())?;
+    check_authorized(transaction_execution, kernel)?;
 
     kernel.set_module_state(STATE_KEY_PAUSED, None);
 
