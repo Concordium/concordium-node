@@ -378,6 +378,7 @@ genesisBakerInfoEx spv cp GenesisBaker{..} = case spv of
     SP8 -> binfoV1
     SP9 -> binfoV1
     SP10 -> binfoV1
+    SP11 -> binfoV1
   where
     bkrInfo =
         BakerInfo

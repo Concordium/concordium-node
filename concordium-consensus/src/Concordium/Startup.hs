@@ -33,6 +33,7 @@ import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as GDBaseV1
 import qualified Concordium.Genesis.Data.P1 as P1
 import qualified Concordium.Genesis.Data.P10 as P10
+import qualified Concordium.Genesis.Data.P11 as P11
 import qualified Concordium.Genesis.Data.P2 as P2
 import qualified Concordium.Genesis.Data.P3 as P3
 import qualified Concordium.Genesis.Data.P4 as P4
@@ -282,6 +283,12 @@ makeGenesisDataV1
             SP10 ->
                 GDP10
                     P10.GDP10Initial
+                        { genesisCore = GDBaseV1.CoreGenesisParametersV1{..},
+                          genesisInitialState = GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
+                        }
+            SP11 ->
+                GDP11
+                    P11.GDP11Initial
                         { genesisCore = GDBaseV1.CoreGenesisParametersV1{..},
                           genesisInitialState = GenesisData.GenesisState{genesisAccounts = Vec.fromList genesisAccounts, ..}
                         }

@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE EmptyCase #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -1176,14 +1177,9 @@ putBakerCommissionsInRange ::
     UpdatableBlockState m ->
     BakerId ->
     m (UpdatableBlockState m)
-putBakerCommissionsInRange ranges bs (BakerId ai) = case protocolVersion @(MPV m) of
-    SP4 -> bsoConstrainBakerCommission bs ai ranges
-    SP5 -> bsoConstrainBakerCommission bs ai ranges
-    SP6 -> bsoConstrainBakerCommission bs ai ranges
-    SP7 -> bsoConstrainBakerCommission bs ai ranges
-    SP8 -> bsoConstrainBakerCommission bs ai ranges
-    SP9 -> bsoConstrainBakerCommission bs ai ranges
-    SP10 -> bsoConstrainBakerCommission bs ai ranges
+putBakerCommissionsInRange ranges bs (BakerId ai) = case delegationSupport @(AccountVersionFor (MPV m)) of
+    SAVDelegationSupported -> bsoConstrainBakerCommission bs ai ranges
+    SAVDelegationNotSupported -> case protocolVersion @(MPV m) of {}
 
 -- | The result of executing the block prologue.
 data PrologueResult m = PrologueResult

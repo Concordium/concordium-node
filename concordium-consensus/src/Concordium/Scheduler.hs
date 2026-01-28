@@ -1299,18 +1299,11 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
                                             Nothing -> do
                                                 -- In protocol version 4 we did not emit the interrupt event in this failing case.
                                                 -- That was a mistake which is fixed in P5.
-                                                let newEvents =
-                                                        case demoteProtocolVersion (protocolVersion @(MPV m)) of
-                                                            P1 -> events
-                                                            P2 -> events
-                                                            P3 -> events
-                                                            P4 -> events
-                                                            P5 -> resumeEvent False : interruptEvent : events
-                                                            P6 -> resumeEvent False : interruptEvent : events
-                                                            P7 -> resumeEvent False : interruptEvent : events
-                                                            P8 -> resumeEvent False : interruptEvent : events
-                                                            P9 -> resumeEvent False : interruptEvent : events
-                                                            P10 -> resumeEvent False : interruptEvent : events
+                                                let newEvents
+                                                        | demoteProtocolVersion (protocolVersion @(MPV m)) < P5 =
+                                                            events
+                                                        | otherwise =
+                                                            resumeEvent False : interruptEvent : events
                                                 go newEvents =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                                             Just (InstanceInfoV0 targetInstance) -> do
                                                 -- we are invoking a V0 instance.
