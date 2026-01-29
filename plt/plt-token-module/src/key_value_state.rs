@@ -2,15 +2,17 @@
 
 use crate::token_module::TokenModuleStateInvariantError;
 use crate::util;
-use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::MetadataUrl;
+use concordium_base::{base::AccountIndex, common::to_bytes};
 use plt_scheduler_interface::token_kernel_interface::{
     TokenKernelOperations, TokenKernelQueries, TokenStateKey, TokenStateValue,
 };
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
+/// Little-endian prefix used to distinguish account state keys.
+const ACCOUNT_STATE_PREFIX: [u8; 2] = 40307u16.to_le_bytes();
 
 pub const STATE_KEY_NAME: &[u8] = b"name";
 pub const STATE_KEY_METADATA: &[u8] = b"metadata";
@@ -50,6 +52,15 @@ fn module_state_key(key: &[u8]) -> TokenStateKey {
     module_key.extend_from_slice(&MODULE_STATE_PREFIX);
     module_key.extend_from_slice(key);
     module_key
+}
+
+fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
+    let mut account_key =
+        Vec::with_capacity(ACCOUNT_STATE_PREFIX.len() + size_of::<AccountIndex>() + key.len());
+    account_key.extend_from_slice(&MODULE_STATE_PREFIX);
+    account_key.extend_from_slice(&to_bytes(&account_index));
+    account_key.extend_from_slice(key);
+    account_key
 }
 
 /// Get whether the balance-affecting operations on the token are currently
