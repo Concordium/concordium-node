@@ -1059,6 +1059,7 @@ dependencies = [
  "plt-scheduler-interface",
  "plt-token-module",
  "plt-types",
+ "sha2",
  "thiserror 2.0.17",
 ]
 
