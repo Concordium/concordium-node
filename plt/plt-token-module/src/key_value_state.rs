@@ -30,6 +30,15 @@ pub trait KernelOperationsExt: TokenKernelOperations {
     fn set_module_state(&mut self, key: &[u8], value: Option<TokenStateValue>) {
         self.set_token_state_value(module_state_key(key), value);
     }
+
+    fn set_account_state(
+        &mut self,
+        account_index: AccountIndex,
+        key: &[u8],
+        value: Option<TokenStateValue>,
+    ) {
+        self.set_token_state_value(account_state_key(account_index, key), value);
+    }
 }
 
 impl<T: TokenKernelOperations> KernelOperationsExt for T {}
@@ -40,6 +49,14 @@ pub trait KernelQueriesExt: TokenKernelQueries {
     /// Get value from the token module state at the given key.
     fn get_module_state(&self, key: &[u8]) -> Option<TokenStateValue> {
         self.lookup_token_state_value(module_state_key(key))
+    }
+
+    fn get_account_state(
+        &self,
+        account_index: AccountIndex,
+        key: &[u8],
+    ) -> Option<TokenStateValue> {
+        self.lookup_token_state_value(account_state_key(account_index, key))
     }
 }
 
