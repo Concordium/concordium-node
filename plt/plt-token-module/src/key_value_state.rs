@@ -33,10 +33,11 @@ pub trait KernelOperationsExt: TokenKernelOperations {
 
     fn set_account_state(
         &mut self,
-        account_index: AccountIndex,
+        account: &Self::AccountWithAddress,
         key: &[u8],
         value: Option<TokenStateValue>,
     ) {
+        let account_index = self.account_index(account);
         self.set_token_state_value(account_state_key(account_index, key), value);
     }
 }
@@ -53,9 +54,10 @@ pub trait KernelQueriesExt: TokenKernelQueries {
 
     fn get_account_state(
         &self,
-        account_index: AccountIndex,
+        account: &Self::AccountWithAddress,
         key: &[u8],
     ) -> Option<TokenStateValue> {
+        let account_index = self.account_index(account);
         self.lookup_token_state_value(account_state_key(account_index, key))
     }
 }
@@ -153,6 +155,48 @@ pub fn get_governance_account_index(
             })?,
     );
     Ok(governance_account_index)
+}
+
+/// Get the allow-list state for the account at the given account.
+pub fn get_allow_list_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: &TK::AccountWithAddress,
+) -> Option<bool> {
+    kernel
+        .get_account_state(account, STATE_KEY_ALLOW_LIST)
+        .map(|_| true)
+}
+
+/// Set the allow-list state for the account at the given account.
+pub fn set_allow_list_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: &TK::AccountWithAddress,
+    value: bool,
+) {
+    kernel.touch_account(account);
+    let state_value = if value { Some(vec![]) } else { None };
+    kernel.set_account_state(account, STATE_KEY_ALLOW_LIST, state_value)
+}
+
+/// Get the deny-list state for the account at the given account.
+pub fn get_deny_list_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: &TK::AccountWithAddress,
+) -> Option<bool> {
+    kernel
+        .get_account_state(account, STATE_KEY_DENY_LIST)
+        .map(|_| true)
+}
+
+/// Set the deny-list state for the account at the given account.
+pub fn set_deny_list_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: &TK::AccountWithAddress,
+    value: bool,
+) {
+    kernel.touch_account(account);
+    let state_value = if value { Some(vec![]) } else { None };
+    kernel.set_account_state(account, STATE_KEY_DENY_LIST, state_value)
 }
 
 #[cfg(test)]
