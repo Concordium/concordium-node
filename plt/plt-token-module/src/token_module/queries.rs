@@ -66,7 +66,6 @@ pub fn query_token_module_account_state<TK: TokenKernelQueries>(
     account: &TK::AccountWithAddress,
 ) -> RawCbor {
     let state = query_token_module_account_state_impl(kernel, account);
-
     RawCbor::from(cbor::cbor_encode(&state))
 }
 
@@ -74,8 +73,19 @@ fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
     kernel: &TK,
     account: &TK::AccountWithAddress,
 ) -> TokenModuleAccountState {
-    let allow_list = key_value_state::get_allow_list_for(kernel, account);
-    let deny_list = key_value_state::get_deny_list_for(kernel, account);
+    let has_allow_list = key_value_state::has_allow_list(kernel);
+    let allow_list = if has_allow_list {
+        key_value_state::get_allow_list_for(kernel, account).into()
+    } else {
+        None
+    };
+    let has_deny_list = key_value_state::has_deny_list(kernel);
+    let deny_list = if has_deny_list {
+        key_value_state::get_deny_list_for(kernel, account).into()
+    } else {
+        None
+    };
+
     TokenModuleAccountState {
         allow_list,
         deny_list,
