@@ -1,10 +1,11 @@
-use crate::module_state;
-use crate::token_kernel_interface::TokenKernelQueries;
+use crate::key_value_state;
 use crate::token_module::TokenModuleStateInvariantError;
+use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
 };
+use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 
 /// Represents the reasons why a query to the token module can fail.
 #[derive(Debug, thiserror::Error)]
@@ -26,15 +27,15 @@ pub fn query_token_module_state<TK: TokenKernelQueries>(
 fn query_token_module_state_impl<TK: TokenKernelQueries>(
     kernel: &TK,
 ) -> Result<TokenModuleState, QueryTokenModuleError> {
-    let name = module_state::get_name(kernel)?;
-    let metadata = module_state::get_metadata(kernel)?;
-    let allow_list = module_state::has_allow_list(kernel);
-    let deny_list = module_state::has_deny_list(kernel);
-    let mintable = module_state::is_mintable(kernel);
-    let burnable = module_state::is_burnable(kernel);
-    let paused = module_state::is_paused(kernel);
+    let name = key_value_state::get_name(kernel)?;
+    let metadata = key_value_state::get_metadata(kernel)?;
+    let allow_list = key_value_state::has_allow_list(kernel);
+    let deny_list = key_value_state::has_deny_list(kernel);
+    let mintable = key_value_state::is_mintable(kernel);
+    let burnable = key_value_state::is_burnable(kernel);
+    let paused = key_value_state::is_paused(kernel);
 
-    let governance_account_index = module_state::get_governance_account_index(kernel)?;
+    let governance_account_index = key_value_state::get_governance_account_index(kernel)?;
     let governance_account = kernel
         .account_by_index(governance_account_index)
         .map_err(|_| {
@@ -43,12 +44,13 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
                 governance_account_index
             ))
         })?;
-    let governance_account_address = kernel.account_canonical_address(&governance_account);
 
     let state = TokenModuleState {
         name: Some(name),
         metadata: Some(metadata),
-        governance_account: Some(CborHolderAccount::from(governance_account_address)),
+        governance_account: Some(CborHolderAccount::from(
+            governance_account.canonical_account_address,
+        )),
         allow_list: Some(allow_list),
         deny_list: Some(deny_list),
         mintable: Some(mintable),
@@ -63,16 +65,20 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
 /// Get the CBOR-encoded representation of the token module account state.
 pub fn query_token_module_account_state<TK: TokenKernelQueries>(
     kernel: &TK,
-    account: &TK::Account,
-) -> Result<Option<RawCbor>, QueryTokenModuleError> {
-    let state_option = query_token_module_account_state_impl(kernel, account)?;
+    account: AccountIndex,
+) -> RawCbor {
+    let state = query_token_module_account_state_impl(kernel, account);
 
-    Ok(state_option.map(|state| RawCbor::from(cbor::cbor_encode(&state))))
+    RawCbor::from(cbor::cbor_encode(&state))
 }
 
 fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
     _kernel: &TK,
-    _account: &TK::Account,
-) -> Result<Option<TokenModuleAccountState>, QueryTokenModuleError> {
-    Ok(None)
+    _account: AccountIndex,
+) -> TokenModuleAccountState {
+    TokenModuleAccountState {
+        allow_list: None,
+        deny_list: None,
+        additional: Default::default(),
+    }
 }

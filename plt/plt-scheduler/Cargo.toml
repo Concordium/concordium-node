@@ -10,6 +10,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 ffi = ["dep:libc"]
 
 [dependencies]
+plt-types.workspace = true
 plt-scheduler-interface.workspace = true
 plt-token-module.workspace = true
 

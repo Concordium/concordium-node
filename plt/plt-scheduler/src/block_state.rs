@@ -17,8 +17,11 @@ use concordium_base::common::{Buffer, Deserial, ParseResult, ReadBytesExt, Seria
 use concordium_base::constants::SHA256;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
-use plt_scheduler_interface::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenStateKey, TokenStateValue};
+use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
+use plt_scheduler_interface::token_kernel_interface::{
+    AccountWithCanonicalAddress, TokenStateKey, TokenStateValue,
+};
+use plt_types::types::primitives::RawTokenAmount;
 use sha2::Digest;
 use std::collections::BTreeMap;
 
@@ -263,25 +266,19 @@ impl<L: BackingStoreLoad, T: BlockStateExternal> BlockStateQuery
     fn account_by_index(
         &self,
         index: AccountIndex,
-    ) -> Result<Self::Account, AccountNotFoundByIndexError> {
-        // lookup by address to make sure the account exists
-        // todo will be changed in following PR that changes account model a bit
-        let _ = self
+    ) -> Result<AccountWithCanonicalAddress<Self::Account>, AccountNotFoundByIndexError> {
+        let canonical_account_address = self
             .get_account_address_by_index
             .account_canonical_address_by_account_index(index)?;
 
-        Ok(index)
+        Ok(AccountWithCanonicalAddress {
+            account: index,
+            canonical_account_address,
+        })
     }
 
     fn account_index(&self, account: &Self::Account) -> AccountIndex {
         *account
-    }
-
-    fn account_canonical_address(&self, account: &Self::Account) -> AccountAddress {
-        // todo will be changed in following PR that changes account model a bit
-        self.get_account_address_by_index
-            .account_canonical_address_by_account_index(*account)
-            .expect("account should exist")
     }
 
     fn account_token_balance(

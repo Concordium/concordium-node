@@ -5,11 +5,12 @@ use concordium_base::common::cbor;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason, RawCbor,
-    TokenAmount, TokenModuleRejectReasonEnum, TokenOperation, TokenTransfer,
+    TokenAmount, TokenModuleRejectReason, TokenOperation, TokenTransfer,
 };
 use kernel_stub::KernelStub;
-use plt_token_module::token_kernel_interface::{RawTokenAmount, TokenKernelQueries};
+use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module::{self, TokenUpdateError};
+use plt_types::types::primitives::RawTokenAmount;
 
 mod kernel_stub;
 mod utils;
@@ -29,7 +30,7 @@ fn test_update_token_decode_failure() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::DeserializationFailure(
+    assert_matches!(reject_reason, TokenModuleRejectReason::DeserializationFailure(
         DeserializationFailureRejectReason {
             cause: Some(cause)
         }) => {
@@ -51,12 +52,12 @@ fn test_multiple_operations() {
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+            recipient: CborHolderAccount::from(stub.account_address(&receiver)),
             memo: None,
         }),
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(2000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+            recipient: CborHolderAccount::from(stub.account_address(&receiver)),
             memo: None,
         }),
     ];
@@ -84,7 +85,7 @@ fn test_single_failing_operation() {
     let operations = vec![
         TokenOperation::Transfer(TokenTransfer {
             amount: TokenAmount::from_raw(1000, 2),
-            recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+            recipient: CborHolderAccount::from(stub.account_address(&receiver)),
             memo: None,
         }),
         TokenOperation::Transfer(TokenTransfer {
@@ -100,7 +101,7 @@ fn test_single_failing_operation() {
     );
 
     let reject_reason = utils::assert_reject_reason(&res);
-    assert_matches!(reject_reason, TokenModuleRejectReasonEnum::AddressNotFound(
+    assert_matches!(reject_reason, TokenModuleRejectReason::AddressNotFound(
         AddressNotFoundRejectReason {
             index,
             address,
@@ -124,7 +125,7 @@ fn test_energy_charge() {
         TransactionExecutionTestImpl::with_sender_and_energy(sender, Energy::from(1000));
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
         memo: None,
     })];
     token_module::execute_token_update_transaction(
@@ -152,7 +153,7 @@ fn test_out_of_energy_error() {
         TransactionExecutionTestImpl::with_sender_and_energy(sender, Energy::from(50));
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
         amount: TokenAmount::from_raw(1000, 2),
-        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        recipient: CborHolderAccount::from(stub.account_address(&receiver)),
         memo: None,
     })];
     let result = token_module::execute_token_update_transaction(

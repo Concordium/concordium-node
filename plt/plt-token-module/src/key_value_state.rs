@@ -1,13 +1,13 @@
-//! Internal constants and utilities for token module state.
+//! Internal constants and utilities for token key-value state.
 
-use crate::token_kernel_interface::{
-    TokenKernelOperations, TokenKernelQueries, TokenStateKey, TokenStateValue,
-};
 use crate::token_module::TokenModuleStateInvariantError;
 use crate::util;
 use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::MetadataUrl;
+use plt_scheduler_interface::token_kernel_interface::{
+    TokenKernelOperations, TokenKernelQueries, TokenStateKey, TokenStateValue,
+};
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
@@ -22,7 +22,7 @@ pub const STATE_KEY_PAUSED: &[u8] = b"paused";
 pub const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
 
 /// Extension trait for [`TokenKernelOperations`] to provide convenience wrappers for
-/// module state updates.
+/// state updates.
 pub trait KernelOperationsExt: TokenKernelOperations {
     /// Set or clear a value in the token module state at the corresponding key.
     fn set_module_state(&mut self, key: &[u8], value: Option<TokenStateValue>) {
@@ -33,7 +33,7 @@ pub trait KernelOperationsExt: TokenKernelOperations {
 impl<T: TokenKernelOperations> KernelOperationsExt for T {}
 
 /// Extension trait for [`TokenKernelQueries`] to provide convenience wrappers for
-/// module state access.
+/// state access.
 pub trait KernelQueriesExt: TokenKernelQueries {
     /// Get value from the token module state at the given key.
     fn get_module_state(&self, key: &[u8]) -> Option<TokenStateValue> {

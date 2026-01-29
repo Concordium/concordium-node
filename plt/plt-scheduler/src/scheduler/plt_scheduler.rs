@@ -4,25 +4,26 @@
 use crate::block_state_interface::{
     BlockStateOperations, TokenConfiguration, TokenNotFoundByIdError,
 };
-use crate::scheduler::{
-    TransactionExecutionError, TransactionOutcome, TransactionRejectReason,
-    UpdateInstructionExecutionError,
-};
+use crate::scheduler::{TransactionExecutionError, UpdateInstructionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
-use crate::types::events::{BlockItemEvent, TokenCreateEvent};
-use crate::types::reject_reasons::TokenModuleRejectReason;
+use concordium_base::base::Energy;
+use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::TokenOperationsPayload;
 use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
-use plt_scheduler_interface::TransactionExecution;
+use plt_scheduler_interface::error::OutOfEnergyError;
+use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
 use plt_token_module::token_module::TokenUpdateError;
 use plt_token_module::{TOKEN_MODULE_REF, token_module};
+use plt_types::types::events::{BlockItemEvent, TokenCreateEvent};
+use plt_types::types::execution::TransactionOutcome;
+use plt_types::types::reject_reasons::{EncodedTokenModuleRejectReason, TransactionRejectReason};
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.
 /// Energy must be charged during execution by calling [`TransactionExecution::tick_energy`]. If
 /// execution is out of energy, the function `tick_energy` returns an error which means execution must be stopped,
-/// and the [`OutOfEnergyError`](plt_scheduler_interface::OutOfEnergyError) error must be returned by `execute_plt_transaction`.
+/// and the [`OutOfEnergyError`](plt_types::OutOfEnergyError) error must be returned by `execute_plt_transaction`.
 ///
 /// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
 ///
@@ -48,9 +49,10 @@ pub fn execute_token_update_transaction<
     if let Err(err) =
         transaction_execution.tick_energy(transactions::cost::PLT_OPERATIONS_TRANSACTIONS)
     {
-        return Ok(TransactionOutcome::Rejected(TransactionRejectReason::from(
-            err,
-        )));
+        let _: OutOfEnergyError = err; // assert type of error
+        return Ok(TransactionOutcome::Rejected(
+            TransactionRejectReason::OutOfEnergy,
+        ));
     }
 
     // Lookup token
@@ -77,9 +79,20 @@ pub fn execute_token_update_transaction<
         events: &mut events,
     };
 
+    // Create transaction execution that uses the account type (AccountIndex, AccountAddress).
+    // This is done in order to match the AccountWithAddress type in the kernel implementation
+    // which is also (AccountIndex, AccountAddress):
+    // TransactionExecution::Account = TokenKernelQueries::AccountWithAddress
+    // (see trait bounds on execute_token_update_transaction).
+    // See the documentation on TokenKernelQueries::AccountWithAddress for why the token kernel
+    // opaque account type includes the account address.
+    let mut kernel_transaction_execution = KernelTransactionExecutionImpl {
+        inner: transaction_execution,
+    };
+
     // Call token module to execute operations
     let token_update_result = token_module::execute_token_update_transaction(
-        transaction_execution,
+        &mut kernel_transaction_execution,
         &mut kernel,
         payload.operations,
     );
@@ -96,20 +109,48 @@ pub fn execute_token_update_transaction<
         }
         Err(TokenUpdateError::TokenModuleReject(reject_reason)) => {
             Ok(TransactionOutcome::Rejected(
-                TransactionRejectReason::TokenModule(TokenModuleRejectReason {
-                    // Use the canonical token id from the token configuration
-                    token_id: token_configuration.token_id.clone(),
-                    reason_type: reject_reason.reason_type,
-                    details: reject_reason.details,
-                }),
+                TransactionRejectReason::TokenUpdateTransactionFailed(
+                    EncodedTokenModuleRejectReason {
+                        // Use the canonical token id from the token configuration
+                        token_id: token_configuration.token_id.clone(),
+                        reason_type: reject_reason.reason_type,
+                        details: reject_reason.details,
+                    },
+                ),
             ))
         }
         Err(TokenUpdateError::OutOfEnergy(_)) => Ok(TransactionOutcome::Rejected(
             TransactionRejectReason::OutOfEnergy,
         )),
         Err(TokenUpdateError::StateInvariantViolation(err)) => Err(
-            TransactionExecutionError::TokenStateInvariantBroken(err.to_string()),
+            TransactionExecutionError::StateInvariantBroken(err.to_string()),
         ),
+    }
+}
+
+/// Transaction execution joining the opaque account identifier with the account address.
+/// This is needed by the token kernel type `TokenKernelQueries::AccountWithAddress`.
+#[derive(Debug)]
+struct KernelTransactionExecutionImpl<'a, TE> {
+    inner: &'a mut TE,
+}
+
+impl<TE: TransactionExecution> TransactionExecution for KernelTransactionExecutionImpl<'_, TE> {
+    type Account = (TE::Account, AccountAddress);
+
+    fn sender_account(&self) -> Self::Account {
+        (
+            self.inner.sender_account(),
+            self.inner.sender_account_address(),
+        )
+    }
+
+    fn sender_account_address(&self) -> AccountAddress {
+        self.inner.sender_account_address()
+    }
+
+    fn tick_energy(&mut self, energy: Energy) -> Result<(), OutOfEnergyError> {
+        self.inner.tick_energy(energy)
     }
 }
 

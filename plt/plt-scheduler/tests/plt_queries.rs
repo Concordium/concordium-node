@@ -7,7 +7,7 @@ use concordium_base::protocol_level_tokens::{TokenAmount, TokenId, TokenModuleSt
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::queries;
 use plt_token_module::TOKEN_MODULE_REF;
-use plt_token_module::token_kernel_interface::RawTokenAmount;
+use plt_types::types::primitives::RawTokenAmount;
 
 mod block_state_stub;
 
@@ -72,8 +72,7 @@ fn test_query_token_account_info() {
     stub.increment_account_balance(account, token2, RawTokenAmount(2000));
 
     // Lookup account token infos
-    let token_account_infos =
-        queries::query_token_account_infos(&stub, stub.account_index(&account)).unwrap();
+    let token_account_infos = queries::query_token_account_infos(&stub, account);
     assert_eq!(token_account_infos.len(), 2);
     assert_eq!(token_account_infos[0].token_id, token_id1);
     assert_eq!(
