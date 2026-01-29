@@ -31,6 +31,7 @@ pub trait KernelOperationsExt: TokenKernelOperations {
         self.set_token_state_value(module_state_key(key), value);
     }
 
+    #[allow(dead_code)] // TODO: remove as part of PSR-24
     fn set_account_state(
         &mut self,
         account: &Self::AccountWithAddress,
@@ -168,6 +169,7 @@ pub fn get_allow_list_for<TK: TokenKernelQueries>(
 }
 
 /// Set the allow-list state for the account at the given account.
+#[allow(dead_code)] // TODO: remove as part of PSR-24
 pub fn set_allow_list_for<TK: TokenKernelOperations>(
     kernel: &mut TK,
     account: &TK::AccountWithAddress,
@@ -189,6 +191,7 @@ pub fn get_deny_list_for<TK: TokenKernelQueries>(
 }
 
 /// Set the deny-list state for the account at the given account.
+#[allow(dead_code)] // TODO: remove as part of PSR-24
 pub fn set_deny_list_for<TK: TokenKernelOperations>(
     kernel: &mut TK,
     account: &TK::AccountWithAddress,

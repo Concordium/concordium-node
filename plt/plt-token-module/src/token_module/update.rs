@@ -341,8 +341,8 @@ fn execute_token_transfer<
     let raw_amount = util::to_raw_token_amount(kernel, transfer_operation.amount)?;
 
     // operation execution
-    let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
     check_not_paused(kernel)?;
+    let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
     // todo implement allow/deny list checks https://linear.app/concordium/issue/PSR-24/implement-allow-and-deny-lists
 
     kernel.transfer(

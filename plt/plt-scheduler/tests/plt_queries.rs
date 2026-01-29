@@ -3,7 +3,9 @@
 
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::{TokenAmount, TokenId, TokenModuleState};
+use concordium_base::protocol_level_tokens::{
+    TokenAmount, TokenId, TokenModuleAccountState, TokenModuleState,
+};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::queries;
 use plt_token_module::TOKEN_MODULE_REF;
@@ -79,9 +81,16 @@ fn test_query_token_account_info() {
         token_account_infos[0].account_state.balance,
         TokenAmount::from_raw(1000, 4)
     );
+    let account_state1: TokenModuleAccountState =
+        cbor::cbor_decode(&token_account_infos[0].account_state.module_state).unwrap();
+    assert_eq!(account_state1, TokenModuleAccountState::default());
+
     assert_eq!(token_account_infos[1].token_id, token_id2);
     assert_eq!(
         token_account_infos[1].account_state.balance,
         TokenAmount::from_raw(2000, 4)
     );
+    let account_state2: TokenModuleAccountState =
+        cbor::cbor_decode(&token_account_infos[1].account_state.module_state).unwrap();
+    assert_eq!(account_state2, TokenModuleAccountState::default());
 }
