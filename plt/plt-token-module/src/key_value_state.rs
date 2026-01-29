@@ -158,8 +158,8 @@ pub fn get_governance_account_index(
 }
 
 /// Get the allow-list state for the account at the given account.
-pub fn get_allow_list_for<TK: TokenKernelOperations>(
-    kernel: &mut TK,
+pub fn get_allow_list_for<TK: TokenKernelQueries>(
+    kernel: &TK,
     account: &TK::AccountWithAddress,
 ) -> Option<bool> {
     kernel
@@ -179,8 +179,8 @@ pub fn set_allow_list_for<TK: TokenKernelOperations>(
 }
 
 /// Get the deny-list state for the account at the given account.
-pub fn get_deny_list_for<TK: TokenKernelOperations>(
-    kernel: &mut TK,
+pub fn get_deny_list_for<TK: TokenKernelQueries>(
+    kernel: &TK,
     account: &TK::AccountWithAddress,
 ) -> Option<bool> {
     kernel

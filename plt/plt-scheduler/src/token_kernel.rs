@@ -30,6 +30,18 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     pub token_module_state: &'a BSQ::TokenKeyValueState,
 }
 
+impl<'a, BSQ: BlockStateQuery> TokenKernelQueriesImpl<'a, BSQ> {
+    pub fn account_from_block_state_account(
+        &self,
+        account: &BSQ::Account,
+    ) -> AccountWithCanonicalAddress<<Self as TokenKernelQueries>::AccountWithAddress> {
+        let account_index = self.block_state.account_index(account);
+        // the account exists in BSQ, and thus must also exist in the token kernel.
+        self.account_by_index(account_index)
+            .expect("The account exists")
+    }
+}
+
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
     type AccountWithAddress = (BSQ::Account, AccountAddress);
 
