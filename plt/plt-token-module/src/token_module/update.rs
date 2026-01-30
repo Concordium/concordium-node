@@ -172,19 +172,18 @@ pub fn execute_token_update_transaction<
                         },
                     )),
                 ),
-                TokenUpdateErrorInternal::Unauthorized { account_address } => {
-                    TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReason::OperationNotPermitted(
-                            OperationNotPermittedRejectReason {
-                                index: index as u64,
-                                address: Some(account_address.into()),
-                                reason: "sender is not the token governance account"
-                                    .to_string()
-                                    .into(),
-                            },
-                        ),
-                    ))
-                }
+                TokenUpdateErrorInternal::OperationNotPermitted {
+                    account_address,
+                    reason,
+                } => TokenUpdateError::TokenModuleReject(make_reject_reason(
+                    TokenModuleRejectReason::OperationNotPermitted(
+                        OperationNotPermittedRejectReason {
+                            index: index as u64,
+                            address: account_address.map(Into::into),
+                            reason: reason.into(),
+                        },
+                    ),
+                )),
             },
         )?;
     }
@@ -231,8 +230,11 @@ enum TokenUpdateErrorInternal {
     MintWouldOverflow(#[from] MintWouldOverflowError),
     #[error("The token is paused")]
     Paused,
-    #[error("{account_address} is not the token governance account")]
-    Unauthorized { account_address: AccountAddress },
+    #[error("Operation not permitted: {reason}")]
+    OperationNotPermitted {
+        account_address: Option<AccountAddress>,
+        reason: String,
+    },
 }
 
 impl From<TokenTransferError> for TokenUpdateErrorInternal {
@@ -334,8 +336,9 @@ fn check_authorized<
         .is_ok_and(|gov_index| gov_index == sender_index);
 
     if !authorized {
-        return Err(TokenUpdateErrorInternal::Unauthorized {
-            account_address: transaction_execution.sender_account_address(),
+        return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+            account_address: Some(transaction_execution.sender_account_address()),
+            reason: "sender is not the token governance account".to_string(),
         });
     }
     Ok(())
@@ -354,11 +357,42 @@ fn execute_token_transfer<
 
     // operation execution
     check_not_paused(kernel)?;
+    let sender = transaction_execution.sender_account();
+    let sender_address = transaction_execution.sender_account_address();
     let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
-    // todo implement allow/deny list checks https://linear.app/concordium/issue/PSR-24/implement-allow-and-deny-lists
+
+    if key_value_state::has_allow_list(kernel) {
+        if !key_value_state::get_allow_list_for(kernel, &sender) {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(sender_address),
+                reason: "sender not in allow list".to_string(),
+            });
+        }
+        if !key_value_state::get_allow_list_for(kernel, &receiver) {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(transfer_operation.recipient.address),
+                reason: "recipient not in allow list".to_string(),
+            });
+        }
+    }
+
+    if key_value_state::has_deny_list(kernel) {
+        if key_value_state::get_deny_list_for(kernel, &sender) {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(sender_address),
+                reason: "sender in deny list".to_string(),
+            });
+        }
+        if key_value_state::get_deny_list_for(kernel, &receiver) {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(transfer_operation.recipient.address),
+                reason: "recipient in deny list".to_string(),
+            });
+        }
+    }
 
     kernel.transfer(
-        &transaction_execution.sender_account(),
+        &sender,
         &receiver,
         raw_amount,
         transfer_operation.memo.clone().map(Memo::from),
