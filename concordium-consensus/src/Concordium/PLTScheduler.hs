@@ -316,31 +316,18 @@ executeChainUpdate
                                               cuesEvents = events
                                             }
                             1 -> do
-                                let getFailureKindIsolated = S.isolate (BS.length returnData) getFailureKind
+                                let getFailureKind = S.isolate (BS.length returnData) S.get
                                 let failureKind =
                                         either
                                             (\message -> error $ "Chain update failure kind from Rust PLT Scheduler could not be deserialized: " ++ message)
                                             id
-                                            $ S.runGet getFailureKindIsolated returnData
+                                            $ S.runGet getFailureKind returnData
                                 return $
                                     ChainUpdateExecutionOutcomeFailed $
                                         ChainUpdateExecutionFailed
                                             { cuefFailureKind = failureKind
                                             }
                             _ -> error ("Unexpected status code from calling 'ffiExecuteChainUpdate': " ++ show statusCode)
-
--- | Decode `Concordium.Types.Execution.FailureKind`. Notice only failure kinds currently returned by the Rust PLT Scheduler
--- are currently implemented.
-getFailureKind :: S.Get Types.FailureKind
-getFailureKind =
-    S.getWord8 >>= \case
-        17 -> do
-            Types.DuplicateTokenId <$> S.get
-        18 -> do
-            Types.TokenInitializeFailure <$> S.get
-        19 -> do
-            Types.InvalidTokenModuleRef <$> S.get
-        n -> fail $ "Unrecognized failure kind tag: " ++ show n
 
 -- | C-binding for calling the Rust function `plt_scheduler::scheduler::execute_chain_update`.
 --
