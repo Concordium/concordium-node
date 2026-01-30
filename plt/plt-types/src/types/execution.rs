@@ -32,6 +32,10 @@ pub enum TransactionOutcome {
 }
 
 /// Outcome of executing a chain update that was correctly executed (not resulting in the unrecoverable error `ChainUpdateExecutionError`).
+///
+/// If the chain update was successful, this is a list of events that represents
+/// the changes that were applied to the block state by the chain update. If the chain update
+/// failed, it is a failure kind, and the changes to the block state must be rolled back.
 #[derive(Debug, Clone)]
 pub enum ChainUpdateOutcome {
     /// The chain update was successfully applied.

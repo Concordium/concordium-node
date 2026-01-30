@@ -4,7 +4,7 @@
 -- Each foreign imported function must match the signature of functions found in @plt-scheduler/src/ffi.rs@.
 module Concordium.PLTScheduler (
     executeTransaction,
-    ExecutionSummary (..),
+    TransactionExecutionSummary (..),
     ExecutionOutcome (..),
     ReadTokenAccountBalance,
     UpdateTokenAccountBalance,
@@ -55,7 +55,7 @@ executeTransaction ::
     -- | Remaining energy.
     Types.Energy ->
     -- | Outcome of the execution
-    m ExecutionSummary
+    m TransactionExecutionSummary
 executeTransaction
     spv
     blockState
@@ -128,10 +128,10 @@ executeTransaction
                                             id
                                             $ S.runGet getEvents returnData
                                 return $
-                                    ExecutionSuccess $
-                                        ExecutionOutcomeSuccess
-                                            { eosUpdatedPLTBlockState = updatedBlockState,
-                                              eosEvents = events
+                                    TransactionExecutionSuccess $
+                                        TransactionExecutionOutcomeSuccess
+                                            { teosUpdatedPLTBlockState = updatedBlockState,
+                                              teosEvents = events
                                             }
                             1 -> do
                                 let getRejectReason = S.isolate (BS.length returnData) S.get
@@ -141,17 +141,24 @@ executeTransaction
                                             id
                                             $ S.runGet getRejectReason returnData
                                 return $
-                                    ExecutionReject $
-                                        ExecutionOutcomeReject
-                                            { eorRejectReason = rejectReason
+                                    TransactionExecutionReject $
+                                        TransactionExecutionOutcomeReject
+                                            { teorRejectReason = rejectReason
                                             }
                             _ -> error ("Unexpected status code from calling 'ffiExecuteTransaction'" ++ show statusCode)
                         return
-                            ExecutionSummary
-                                { esUsedEnergy = usedEnergy,
-                                  esOutcome = oucome
+                            TransactionExecutionSummary
+                                { tesUsedEnergy = usedEnergy,
+                                  tesOutcome = oucome
                                 }
 
+-- | C-binding for calling [`scheduler::execute_transaction`].
+--
+-- Returns a byte representing the result:
+--
+-- - `0`: Transaction execution succeeded and transaction was applied to block state.
+-- - `1`: Transaction was rejected with a reject reason. Block state changes applied
+--   via callbacks must be rolled back.
 foreign import ccall "ffi_execute_transaction"
     ffiExecuteTransaction ::
         -- | Called to read data from blob store.
@@ -193,34 +200,37 @@ foreign import ccall "ffi_execute_transaction"
         -- | Output location for writing the length of the return data.
         FFI.Ptr Word.Word64 ->
         -- | Status code:
-        -- * `0` if transaction was executed and applied successfully
-        -- * `1` if transaction was rejected
+        -- * `0` if transaction was executed and applied successfully.
+        -- * `1` if transaction was rejected. Block state changes applied
+        --   via callbacks must be rolled back.
         IO Word.Word8
 
 -- | Summary of executing a transaction using the PLT scheduler.
-data ExecutionSummary = ExecutionSummary
-    { -- | The amount of energy used by the execution.
-      esUsedEnergy :: Types.Energy,
-      -- | The outcome (success/rejection) of the execution.
-      esOutcome :: ExecutionOutcome
+data TransactionExecutionSummary = TransactionExecutionSummary
+    { -- | The amount of energy used by the transaction execution. 
+      tesUsedEnergy :: Types.Energy,
+      -- | The outcome (success/rejection) of the transaction execution. The transaction can either be successful or rejected.
+      -- If the transaction is rejected, the changes to the block state must be rolled back.
+      tesOutcome :: TransactionExecutionOutcome
     }
 
--- | Outcome of the transaction: successful or rejected
-data ExecutionOutcome = ExecutionSuccess ExecutionOutcomeSuccess | ExecutionReject ExecutionOutcomeReject
+-- | Outcome of the transaction: successful or rejected.
+-- If the transaction was rejected, the changes to the block state must be rolled back.
+data TransactionExecutionOutcome = TransactionExecutionSuccess TransactionExecutionOutcomeSuccess | TransactionExecutionReject TransactionExecutionOutcomeReject
 
 -- todo introduce reject reason as part of https://linear.app/concordium/issue/PSR-44/implement-serialization-and-returning-events-and-reject-reasons
 -- eorRejectReason :: Types.RejectReason
 
 -- | Representation of rejected outcome
-data ExecutionOutcomeReject = ExecutionOutcomeReject
+data TransactionExecutionOutcomeReject = TransactionExecutionOutcomeReject
     { -- | Transaction reject reason
-      eorRejectReason :: ()
+      teorRejectReason :: ()
     }
 
 -- | Representation of successful outcome
-data ExecutionOutcomeSuccess = ExecutionOutcomeSuccess
+data TransactionExecutionOutcomeSuccess = TransactionExecutionOutcomeSuccess
     { -- | The updated PLT block state after the execution
-      eosUpdatedPLTBlockState :: PLTBlockState.ForeignPLTBlockStatePtr,
+      teosUpdatedPLTBlockState :: PLTBlockState.ForeignPLTBlockStatePtr,
       -- | Events produced during the execution
-      eosEvents :: [Types.Event]
+      teosEvents :: [Types.Event]
     }
