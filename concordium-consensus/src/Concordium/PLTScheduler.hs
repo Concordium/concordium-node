@@ -5,9 +5,15 @@
 module Concordium.PLTScheduler (
     executeTransaction,
     TransactionExecutionSummary (..),
-    ExecutionOutcome (..),
+    TransactionExecutionOutcome (..),
+    TransactionExecutionOutcomeReject (..),
+    TransactionExecutionOutcomeSuccess (..),
     ReadTokenAccountBalance,
     UpdateTokenAccountBalance,
+    IncrementPltUpdateSequenceNumber,
+    GetAccountIndexByAddress,
+    GetAccountAddressByIndex,
+    GetTokenAccountStates
 ) where
 
 import Control.Monad.IO.Class (liftIO)
@@ -221,7 +227,7 @@ data TransactionExecutionOutcome = TransactionExecutionSuccess TransactionExecut
 -- | Representation of rejected outcome
 data TransactionExecutionOutcomeReject = TransactionExecutionOutcomeReject
     { -- | Transaction reject reason
-      eorRejectReason :: Types.RejectReason
+      teorRejectReason :: Types.RejectReason
     }
 
 -- | Representation of successful outcome
