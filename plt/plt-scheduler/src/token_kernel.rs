@@ -31,6 +31,8 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
 }
 
 impl<'a, BSQ: BlockStateQuery> TokenKernelQueriesImpl<'a, BSQ> {
+    /// Convert the account type from a [`BlockStateQuery::Account`] to a
+    /// [`TokenKernelQueries::AccountWithAddress`]
     pub fn account_from_block_state_account(
         &self,
         account: &BSQ::Account,
