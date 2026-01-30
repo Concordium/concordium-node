@@ -3,7 +3,7 @@
 
 use crate::block_state::types::TokenConfiguration;
 use crate::block_state_interface::{BlockStateOperations, TokenNotFoundByIdError};
-use crate::scheduler::{TransactionExecutionError, UpdateInstructionExecutionError};
+use crate::scheduler::{ChainUpdateExecutionError, TransactionExecutionError};
 use crate::token_kernel::TokenKernelOperationsImpl;
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
@@ -12,17 +12,17 @@ use concordium_base::transactions;
 use concordium_base::updates::CreatePlt;
 use plt_scheduler_interface::error::OutOfEnergyError;
 use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
-use plt_token_module::token_module::TokenUpdateError;
+use plt_token_module::token_module::{TokenInitializationError, TokenUpdateError};
 use plt_token_module::{TOKEN_MODULE_REF, token_module};
 use plt_types::types::events::{BlockItemEvent, TokenCreateEvent};
-use plt_types::types::execution::TransactionOutcome;
+use plt_types::types::execution::{ChainUpdateOutcome, FailureKind, TransactionOutcome};
 use plt_types::types::reject_reasons::{EncodedTokenModuleRejectReason, TransactionRejectReason};
 
 /// Execute a token update transaction payload modifying `block_state` accordingly.
 /// Returns the events produced if successful, otherwise a reject reason.
 /// Energy must be charged during execution by calling [`TransactionExecution::tick_energy`]. If
 /// execution is out of energy, the function `tick_energy` returns an error which means execution must be stopped,
-/// and the [`OutOfEnergyError`](plt_types::OutOfEnergyError) error must be returned by `execute_plt_transaction`.
+/// and the [`OutOfEnergy`](TransactionRejectReason::OutOfEnergy) reject reason must be returned.
 ///
 /// NOTICE: The caller must ensure to rollback state changes in case of the transaction being rejected.
 ///
@@ -36,6 +36,7 @@ use plt_types::types::reject_reasons::{EncodedTokenModuleRejectReason, Transacti
 /// # Errors
 ///
 /// - [`TransactionExecutionError`] If executing the transaction fails with an unrecoverable error.
+///   Returning this error will terminate the scheduler.
 pub fn execute_token_update_transaction<
     BSO: BlockStateOperations,
     TE: TransactionExecution<Account = BSO::Account>,
@@ -153,36 +154,36 @@ impl<TE: TransactionExecution> TransactionExecution for KernelTransactionExecuti
     }
 }
 
-/// Execute a protocol-level token create instruction modifying `block_state` accordingly.
-/// Returns the events produced if successful.
+/// Execute a create protocol-level token chain update modifying `block_state` accordingly.
+/// Returns the events produced if successful, otherwise a failure kind is returned.
 ///
-/// NOTICE: The caller must ensure to rollback state changes in case an error is returned.
+/// NOTICE: The caller must ensure to rollback state changes in case a failure kind is returned.
 ///
 /// # Arguments
 ///
 /// - `block_state` Block state that can be queried and updated during execution.
-/// - `payload` The PLT create update instruction
+/// - `payload` The create PLT chain update.
 ///
 /// # Errors
 ///
-/// - [`UpdateInstructionExecutionError`] If executing the update instruction failed.
+/// - [`ChainUpdateExecutionError`] If executing the update instruction failed.
 ///   Returning this error will terminate the scheduler.
-pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
+pub fn execute_create_plt_chain_update<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: CreatePlt,
-) -> Result<Vec<BlockItemEvent>, UpdateInstructionExecutionError> {
+) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError> {
     // Check that token id is not already used (notice that token_by_id lookup is case-insensitive
     // as the check should be)
     if let Ok(existing_token) = block_state.token_by_id(&payload.token_id) {
-        return Err(UpdateInstructionExecutionError::DuplicateTokenId(
+        return Ok(ChainUpdateOutcome::Failed(FailureKind::DuplicateTokenId(
             block_state.token_configuration(&existing_token).token_id,
-        ));
+        )));
     }
 
     // Check token module ref matches the implemented token module
     if payload.token_module != TOKEN_MODULE_REF {
-        return Err(UpdateInstructionExecutionError::InvalidTokenModuleRef(
-            payload.token_module,
+        return Ok(ChainUpdateOutcome::Failed(
+            FailureKind::InvalidTokenModuleRef(payload.token_module),
         ));
     }
 
@@ -226,10 +227,13 @@ pub fn execute_create_plt_instruction<BSO: BlockStateOperations>(
             }
 
             // Return events
-            Ok(events)
+            Ok(ChainUpdateOutcome::Success(events))
         }
-        Err(err) => {
-            Err(UpdateInstructionExecutionError::ModuleTokenInitializationFailed(err.to_string()))
-        }
+        Err(TokenInitializationError::StateInvariantViolation(err)) => Err(
+            ChainUpdateExecutionError::StateInvariantBroken(err.to_string()),
+        ),
+        Err(err) => Ok(ChainUpdateOutcome::Failed(
+            FailureKind::TokenInitializeFailure(err.to_string()),
+        )),
     }
 }

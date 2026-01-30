@@ -140,7 +140,7 @@ impl BlockStateStub {
             decimals,
             initialization_parameters,
         });
-        scheduler::execute_update_instruction(self, payload).expect("create and initialize token");
+        scheduler::execute_chain_update(self, payload).expect("create and initialize token");
 
         let token = self.token_by_id(&token_id).expect("created token");
 

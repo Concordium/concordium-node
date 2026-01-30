@@ -9,28 +9,39 @@ use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 /// Summary of execution a transaction.
 #[derive(Debug, Clone)]
 pub struct TransactionExecutionSummary {
-    /// Outcome of executing the transaction.
-    /// If transaction was successful, this is a list of events that represents
-    /// the changes that were applied to the chain state by the transaction. The same changes
-    /// have been applied via the `block_state` argument to [`execute_transaction`]. If the transaction was
-    /// rejected, the only change to the chain state is the charge of energy. If the transaction is rejected,
-    /// the caller of [`execute_transaction`] must make sure that changes to the given `block_state` are rolled back.
+    /// Outcome of executing the transaction. The transaction can either be successful or rejected.
+    /// If the transaction is rejected, the changes to the block state must be rolled back.
     pub outcome: TransactionOutcome,
-    /// Energy used by the execution. This is always less than the `energy_limit` argument given to [`execute_transaction`].
+    /// Energy used by the execution. This is always less than the `energy_limit` argument given to `execute_transaction`.
     pub energy_used: Energy,
 }
 
-/// Outcome of executing a transaction that was correctly executed (not resulting in [`TransactionExecutionError`]).
+/// Outcome of executing a transaction that was correctly executed (not resulting in the unrecoverable error `TransactionExecutionError`).
+///
+/// If the transaction was successful, this is a list of events that represents
+/// the changes that were applied to the block state by the transaction. If the transaction was
+/// rejected, it is a reject reason, and the changes to the block state must be rolled back.
 #[derive(Debug, Clone)]
 pub enum TransactionOutcome {
     /// The transaction was successfully applied.
     Success(Vec<BlockItemEvent>),
-    /// The transaction was rejected, but the transaction
+    /// The transaction was rejected. The transaction
     /// is included in the block as a rejected transaction.
+    /// The changes to the block state must be rolled back.
     Rejected(TransactionRejectReason),
 }
 
-/// Reasons for the execution of a transaction to fail on the current block state.
+/// Outcome of executing a chain update that was correctly executed (not resulting in the unrecoverable error `ChainUpdateExecutionError`).
+#[derive(Debug, Clone)]
+pub enum ChainUpdateOutcome {
+    /// The chain update was successfully applied.
+    Success(Vec<BlockItemEvent>),
+    /// The chain update failed and is not included in the block.
+    /// The changes to the block state must be rolled back.
+    Failed(FailureKind),
+}
+
+/// Reasons for the execution of a block item to fail.
 ///
 /// Corresponding Haskell type: `Concordium.Types.Execution.FailureKind`
 #[derive(Debug, Clone)]
