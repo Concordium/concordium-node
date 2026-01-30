@@ -6,8 +6,11 @@ module Concordium.PLTScheduler (
     executeTransaction,
     TransactionExecutionSummary (..),
     TransactionExecutionOutcome (..),
-    TransactionExecutionOutcomeReject (..),
-    TransactionExecutionOutcomeSuccess (..),
+    TransactionExecutionReject (..),
+    TransactionExecutionSuccess (..),
+    ChainUpdateExecutionOutcome (..),
+    ChainUpdateExecutionFailed (..),
+    ChainUpdateExecutionSuccess (..),
     ReadTokenAccountBalance,
     UpdateTokenAccountBalance,
     IncrementPltUpdateSequenceNumber,
@@ -134,10 +137,10 @@ executeTransaction
                                             id
                                             $ S.runGet getEvents returnData
                                 return $
-                                    TransactionExecutionSuccess $
-                                        TransactionExecutionOutcomeSuccess
-                                            { teosUpdatedPLTBlockState = updatedBlockState,
-                                              teosEvents = events
+                                    TransactionExecutionOutcomeSuccess $
+                                        TransactionExecutionSuccess
+                                            { tesUpdatedPLTBlockState = updatedBlockState,
+                                              tesEvents = events
                                             }
                             1 -> do
                                 let getRejectReason = S.isolate (BS.length returnData) S.get
@@ -147,9 +150,9 @@ executeTransaction
                                             id
                                             $ S.runGet getRejectReason returnData
                                 return $
-                                    TransactionExecutionReject $
-                                        TransactionExecutionOutcomeReject
-                                            { teorRejectReason = rejectReason
+                                    TransactionExecutionOutcomeReject $
+                                        TransactionExecutionReject
+                                            { terRejectReason = rejectReason
                                             }
                             _ -> error ("Unexpected status code from calling 'ffiExecuteTransaction'" ++ show statusCode)
                         return
@@ -222,18 +225,36 @@ data TransactionExecutionSummary = TransactionExecutionSummary
 
 -- | Outcome of the transaction: successful or rejected.
 -- If the transaction was rejected, the changes to the block state must be rolled back.
-data TransactionExecutionOutcome = TransactionExecutionSuccess TransactionExecutionOutcomeSuccess | TransactionExecutionReject TransactionExecutionOutcomeReject
+data TransactionExecutionOutcome = TransactionExecutionOutcomeSuccess TransactionExecutionSuccess | TransactionExecutionOutcomeReject TransactionExecutionReject
 
--- | Representation of rejected outcome
-data TransactionExecutionOutcomeReject = TransactionExecutionOutcomeReject
+-- | Representation of rejected transaction execution outcome
+data TransactionExecutionReject = TransactionExecutionReject
     { -- | Transaction reject reason
-      teorRejectReason :: Types.RejectReason
+      terRejectReason :: Types.RejectReason
     }
 
--- | Representation of successful outcome
-data TransactionExecutionOutcomeSuccess = TransactionExecutionOutcomeSuccess
+-- | Representation of successful transaction execution outcome
+data TransactionExecutionSuccess = TransactionExecutionSuccess
     { -- | The updated PLT block state after the execution
-      teosUpdatedPLTBlockState :: PLTBlockState.ForeignPLTBlockStatePtr,
+      tesUpdatedPLTBlockState :: PLTBlockState.ForeignPLTBlockStatePtr,
       -- | Events produced during the execution
-      teosEvents :: [Types.Event]
+      tesEvents :: [Types.Event]
+    }
+
+-- | Outcome of the chain update: successful or failed.
+-- If the chain update failed, the changes to the block state must be rolled back.
+data ChainUpdateExecutionOutcome = ChainUpdateExecutionOutcomeSuccess ChainUpdateExecutionSuccess | ChainUpdateExecutionOutcomeFailed ChainUpdateExecutionFailed
+
+-- | Representation of failed chain update outcome
+data ChainUpdateExecutionFailed = ChainUpdateExecutionFailed
+    { -- | Chain update failure kind
+      cuefFailureKind :: Types.FailureKind
+    }
+
+-- | Representation of successful chain update outcome
+data ChainUpdateExecutionSuccess = ChainUpdateExecutionSuccess
+    { -- | The updated PLT block state after the execution
+      cuesUpdatedPLTBlockState :: PLTBlockState.ForeignPLTBlockStatePtr,
+      -- | Events produced during the execution
+      cuesEvents :: [Types.Event]
     }
