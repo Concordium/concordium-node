@@ -1,4 +1,4 @@
-use crate::key_value_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
+use crate::key_value_state;
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
@@ -6,7 +6,8 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
-    TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator, TokenModuleEventType,
+    TokenBalanceInsufficientRejectReason, TokenListUpdateDetails, TokenListUpdateEventDetails,
+    TokenModuleCborTypeDiscriminator, TokenModuleEvent, TokenModuleEventType,
     TokenModuleRejectReason, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
@@ -282,7 +283,18 @@ fn execute_token_update_operation<
         TokenOperation::Burn(burn) => execute_token_burn(transaction_execution, kernel, burn),
         TokenOperation::Pause(_) => execute_token_pause(transaction_execution, kernel),
         TokenOperation::Unpause(_) => execute_token_unpause(transaction_execution, kernel),
-        _ => todo!(),
+        TokenOperation::AddAllowList(list_operation) => {
+            execute_add_allow_list(transaction_execution, kernel, list_operation)
+        }
+        TokenOperation::RemoveAllowList(list_operation) => {
+            execute_remove_allow_list(transaction_execution, kernel, list_operation)
+        }
+        TokenOperation::AddDenyList(list_operation) => {
+            execute_add_deny_list(transaction_execution, kernel, list_operation)
+        }
+        TokenOperation::RemoveDenyList(list_operation) => {
+            execute_remove_deny_list(transaction_execution, kernel, list_operation)
+        }
     }
 }
 
@@ -401,7 +413,7 @@ fn execute_token_pause<
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
 
-    kernel.set_module_state(STATE_KEY_PAUSED, Some(vec![]));
+    key_value_state::set_paused(kernel, true);
 
     let event_type = TokenModuleEventType::Pause.to_type_discriminator();
     kernel.log_token_event(event_type, vec![].into());
@@ -417,9 +429,96 @@ fn execute_token_unpause<
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
 
-    kernel.set_module_state(STATE_KEY_PAUSED, None);
+    key_value_state::set_paused(kernel, false);
 
     let event_type = TokenModuleEventType::Unpause.to_type_discriminator();
     kernel.log_token_event(event_type, vec![].into());
+    Ok(())
+}
+
+fn execute_add_allow_list<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    list_operation: &TokenListUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(transaction_execution, kernel)?;
+    let account = kernel.account_by_address(&list_operation.target.address)?;
+
+    key_value_state::set_allow_list_for(kernel, &account, true);
+
+    let event_details = TokenListUpdateEventDetails {
+        target: list_operation.target.clone(),
+    };
+    let (event_type, details) = TokenModuleEvent::AddAllowList(event_details).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+
+    Ok(())
+}
+
+fn execute_add_deny_list<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    list_operation: &TokenListUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(transaction_execution, kernel)?;
+    let account = kernel.account_by_address(&list_operation.target.address)?;
+
+    key_value_state::set_deny_list_for(kernel, &account, true);
+
+    let event_details = TokenListUpdateEventDetails {
+        target: list_operation.target.clone(),
+    };
+    let (event_type, details) = TokenModuleEvent::AddDenyList(event_details).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+
+    Ok(())
+}
+
+fn execute_remove_allow_list<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    list_operation: &TokenListUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(transaction_execution, kernel)?;
+    let account = kernel.account_by_address(&list_operation.target.address)?;
+
+    key_value_state::set_allow_list_for(kernel, &account, false);
+
+    let event_details = TokenListUpdateEventDetails {
+        target: list_operation.target.clone(),
+    };
+    let (event_type, details) = TokenModuleEvent::RemoveAllowList(event_details).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+
+    Ok(())
+}
+fn execute_remove_deny_list<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    list_operation: &TokenListUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(transaction_execution, kernel)?;
+    let account = kernel.account_by_address(&list_operation.target.address)?;
+
+    key_value_state::set_deny_list_for(kernel, &account, false);
+
+    let event_details = TokenListUpdateEventDetails {
+        target: list_operation.target.clone(),
+    };
+    let (event_type, details) = TokenModuleEvent::RemoveDenyList(event_details).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+
     Ok(())
 }
