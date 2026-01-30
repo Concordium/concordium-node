@@ -203,13 +203,10 @@ data ExecutionSummary = ExecutionSummary
 -- | Outcome of the transaction: successful or rejected
 data ExecutionOutcome = ExecutionSuccess ExecutionOutcomeSuccess | ExecutionReject ExecutionOutcomeReject
 
--- todo introduce reject reason as part of https://linear.app/concordium/issue/PSR-44/implement-serialization-and-returning-events-and-reject-reasons
--- eorRejectReason :: Types.RejectReason
-
 -- | Representation of rejected outcome
 data ExecutionOutcomeReject = ExecutionOutcomeReject
     { -- | Transaction reject reason
-      eorRejectReason :: ()
+      eorRejectReason :: Types.RejectReason
     }
 
 -- | Representation of successful outcome
