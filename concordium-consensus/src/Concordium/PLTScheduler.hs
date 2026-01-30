@@ -218,13 +218,10 @@ data TransactionExecutionSummary = TransactionExecutionSummary
 -- If the transaction was rejected, the changes to the block state must be rolled back.
 data TransactionExecutionOutcome = TransactionExecutionSuccess TransactionExecutionOutcomeSuccess | TransactionExecutionReject TransactionExecutionOutcomeReject
 
--- todo introduce reject reason as part of https://linear.app/concordium/issue/PSR-44/implement-serialization-and-returning-events-and-reject-reasons
--- eorRejectReason :: Types.RejectReason
-
 -- | Representation of rejected outcome
 data TransactionExecutionOutcomeReject = TransactionExecutionOutcomeReject
     { -- | Transaction reject reason
-      teorRejectReason :: ()
+      eorRejectReason :: Types.RejectReason
     }
 
 -- | Representation of successful outcome
