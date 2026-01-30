@@ -380,6 +380,7 @@ fn execute_token_mint<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -399,6 +400,7 @@ fn execute_token_burn<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -445,6 +447,7 @@ fn execute_add_allow_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     key_value_state::set_allow_list_for(kernel, &account, true);
@@ -467,6 +470,7 @@ fn execute_add_deny_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     key_value_state::set_deny_list_for(kernel, &account, true);
@@ -489,6 +493,7 @@ fn execute_remove_allow_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     key_value_state::set_allow_list_for(kernel, &account, false);
@@ -510,6 +515,7 @@ fn execute_remove_deny_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     key_value_state::set_deny_list_for(kernel, &account, false);
