@@ -142,7 +142,7 @@ pub enum ChainUpdateExecutionError {
 ///
 /// # Errors
 ///
-/// - [`ChainUpdateExecutionError`] If executing the update instruction failed in an unrecoverable way.
+/// - [`ChainUpdateExecutionError`] If executing the chain update failed in an unrecoverable way.
 ///   Returning this error will terminate the scheduler.
 pub fn execute_chain_update<BSO: BlockStateOperations>(
     block_state: &mut BSO,
