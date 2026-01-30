@@ -1,6 +1,5 @@
 use crate::key_value_state;
 use crate::token_module::TokenModuleStateInvariantError;
-use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
@@ -23,7 +22,6 @@ pub fn query_token_module_state<TK: TokenKernelQueries>(
     Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
-// todo implement as part of https://linear.app/concordium/issue/PSR-23/implement-token-module-account-state-query
 fn query_token_module_state_impl<TK: TokenKernelQueries>(
     kernel: &TK,
 ) -> Result<TokenModuleState, QueryTokenModuleError> {
@@ -65,20 +63,32 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
 /// Get the CBOR-encoded representation of the token module account state.
 pub fn query_token_module_account_state<TK: TokenKernelQueries>(
     kernel: &TK,
-    account: AccountIndex,
+    account: &TK::AccountWithAddress,
 ) -> RawCbor {
     let state = query_token_module_account_state_impl(kernel, account);
-
     RawCbor::from(cbor::cbor_encode(&state))
 }
 
 fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
-    _kernel: &TK,
-    _account: AccountIndex,
+    kernel: &TK,
+    account: &TK::AccountWithAddress,
 ) -> TokenModuleAccountState {
+    let has_allow_list = key_value_state::has_allow_list(kernel);
+    let allow_list = if has_allow_list {
+        key_value_state::get_allow_list_for(kernel, account).into()
+    } else {
+        None
+    };
+    let has_deny_list = key_value_state::has_deny_list(kernel);
+    let deny_list = if has_deny_list {
+        key_value_state::get_deny_list_for(kernel, account).into()
+    } else {
+        None
+    };
+
     TokenModuleAccountState {
-        allow_list: None,
-        deny_list: None,
+        allow_list,
+        deny_list,
         additional: Default::default(),
     }
 }
