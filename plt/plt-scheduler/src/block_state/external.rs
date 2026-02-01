@@ -1,11 +1,11 @@
 //! Interactions with block state managed externally in Haskell.
 
-use crate::block_state::TokenIndex;
+use crate::block_state::types::TokenIndex;
 use crate::block_state_interface::{OverflowError, RawTokenAmountDelta};
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::RawTokenAmount;
 
 /// Trait allowing reading the account token balance from the block state.
 ///

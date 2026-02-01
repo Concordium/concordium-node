@@ -2,11 +2,11 @@
 
 use crate::block_state_interface::{BlockStateQuery, TokenNotFoundByIdError};
 use crate::token_kernel::TokenKernelQueriesImpl;
-use concordium_base::protocol_level_tokens::{TokenAmount, TokenId};
+use concordium_base::protocol_level_tokens::TokenId;
 use plt_token_module::token_module;
 use plt_token_module::token_module::QueryTokenModuleError;
-use plt_types::types::queries::{TokenAccountInfo, TokenInfo};
-use plt_types::types::state::{TokenAccountState, TokenState};
+use plt_types::types::queries::{TokenAccountInfo, TokenAccountState, TokenInfo, TokenState};
+use plt_types::types::tokens::TokenAmount;
 
 /// Get the [`TokenId`]s of all protocol-level tokens registered on the chain.
 pub fn plt_list(block_state: &impl BlockStateQuery) -> Vec<TokenId> {
@@ -32,7 +32,10 @@ pub fn query_token_info(
     let token_configuration = block_state.token_configuration(&token);
     let circulating_supply = block_state.token_circulating_supply(&token);
 
-    let total_supply = TokenAmount::from_raw(circulating_supply.0, token_configuration.decimals);
+    let total_supply = TokenAmount {
+        amount: circulating_supply,
+        decimals: token_configuration.decimals,
+    };
 
     let token_module_state = block_state.mutable_token_key_value_state(&token);
 
@@ -87,7 +90,10 @@ where
             let module_state =
                 token_module::query_token_module_account_state(&kernel, account_index);
 
-            let balance = TokenAmount::from_raw(state.balance.0, token_configuration.decimals);
+            let balance = TokenAmount {
+                amount: state.balance,
+                decimals: token_configuration.decimals,
+            };
 
             let account_state = TokenAccountState {
                 balance,

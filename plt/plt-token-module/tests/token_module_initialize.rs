@@ -14,7 +14,7 @@ use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module::{
     self, TokenAmountDecimalsMismatchError, TokenInitializationError,
 };
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::RawTokenAmount;
 
 mod kernel_stub;
 

@@ -14,9 +14,10 @@ use concordium_base::protocol_level_tokens::{
 };
 use concordium_base::transactions::Payload;
 use concordium_base::updates::{CreatePlt, UpdatePayload};
+use plt_scheduler::block_state::types::{TokenAccountState, TokenConfiguration};
 use plt_scheduler::block_state_interface::{
     BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
-    TokenAccountBlockState, TokenConfiguration, TokenNotFoundByIdError,
+    TokenNotFoundByIdError,
 };
 use plt_scheduler::{queries, scheduler};
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
@@ -25,7 +26,7 @@ use plt_scheduler_interface::token_kernel_interface::{
 };
 use plt_token_module::TOKEN_MODULE_REF;
 use plt_types::types::execution::TransactionOutcome;
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::RawTokenAmount;
 use std::collections::BTreeMap;
 
 /// Block state stub providing an implementation of [`BlockStateQuery`] and methods for
@@ -362,12 +363,12 @@ impl BlockStateQuery for BlockStateStub {
     fn token_account_states(
         &self,
         account: &Self::Account,
-    ) -> impl Iterator<Item = (Self::Token, TokenAccountBlockState)> {
+    ) -> impl Iterator<Item = (Self::Token, TokenAccountState)> {
         self.accounts[account.0]
             .tokens
             .iter()
             .map(|(token, state)| {
-                let token_account_state = TokenAccountBlockState {
+                let token_account_state = TokenAccountState {
                     balance: state.balance,
                 };
 
