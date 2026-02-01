@@ -3,12 +3,22 @@
 
 module Concordium.PLTScheduler.PLTMemory (
     rs_free_array_len_2,
+    copyToRustVec2,
+    RustVec,
 ) where
 
 import qualified Data.Word as Word
 import qualified Foreign as FFI
+import qualified Foreign.C.Types as FFI
 
 -- | Utility function shared by all instantations. Free an array that was
 --  allocated on the heap, of the given size.
 foreign import ccall unsafe "free_array_len_2"
     rs_free_array_len_2 :: FFI.Ptr Word.Word8 -> Word.Word64 -> IO ()
+
+-- | Opaque type representing a Rust vector. The vector's lifetime is managed by Rust, in the sense
+--  that the vector will be deallocated by the Rust runtime.
+data RustVec
+
+-- | Allocate and return a Rust vector that contains the given data.
+foreign import ccall "copy_to_vec_ffi_2" copyToRustVec2 :: FFI.Ptr Word.Word8 -> FFI.CSize -> IO (FFI.Ptr RustVec)

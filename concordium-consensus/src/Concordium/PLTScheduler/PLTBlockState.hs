@@ -2,7 +2,8 @@
 
 -- | Bindings to the Rust PLT block state implementation.
 module Concordium.PLTScheduler.PLTBlockState (
-    PLTBlockState,
+    RustPLTBlockState,
+    ForeignPLTBlockStatePtr,
     wrapFFIPtr,
     empty,
     withPLTBlockState,
@@ -21,36 +22,40 @@ import qualified Concordium.Types.HashableTo as Hashable
 import Control.Monad.Trans (lift, liftIO)
 import qualified Data.FixedByteString as FixedByteString
 
+-- | Opaque type representing a Rust maintained PLT state.
+-- The value is allocated in Rust and must be deallocated in Rust.
+data RustPLTBlockState
+
 -- | Opaque pointer to a immutable PLT block state save-point managed by the rust library.
 --
 -- Memory is deallocated using a finalizer.
-newtype PLTBlockState = PLTBlockState (FFI.ForeignPtr PLTBlockState)
+newtype ForeignPLTBlockStatePtr = ForeignPLTBlockStatePtr (FFI.ForeignPtr RustPLTBlockState)
 
 -- | Helper function to convert a raw pointer passed by the Rust library into a `PLTBlockState` object.
-wrapFFIPtr :: FFI.Ptr PLTBlockState -> IO PLTBlockState
-wrapFFIPtr blockStatePtr = PLTBlockState <$> FFI.newForeignPtr ffiFreePLTBlockState blockStatePtr
+wrapFFIPtr :: FFI.Ptr RustPLTBlockState -> IO ForeignPLTBlockStatePtr
+wrapFFIPtr blockStatePtr = ForeignPLTBlockStatePtr <$> FFI.newForeignPtr ffiFreePLTBlockState blockStatePtr
 
 -- | Deallocate a pointer to `PLTBlockState`.
 foreign import ccall unsafe "&ffi_free_plt_block_state"
-    ffiFreePLTBlockState :: FFI.FinalizerPtr PLTBlockState
+    ffiFreePLTBlockState :: FFI.FinalizerPtr RustPLTBlockState
 
 -- | Get temporary access to the block state pointer. The pointer should not be
 -- leaked from the computation.
 --
 -- This ensures the finalizer is not called until the computation is over.
-withPLTBlockState :: PLTBlockState -> (FFI.Ptr PLTBlockState -> IO a) -> IO a
-withPLTBlockState (PLTBlockState foreignPtr) = FFI.withForeignPtr foreignPtr
+withPLTBlockState :: ForeignPLTBlockStatePtr -> (FFI.Ptr RustPLTBlockState -> IO a) -> IO a
+withPLTBlockState (ForeignPLTBlockStatePtr foreignPtr) = FFI.withForeignPtr foreignPtr
 
 -- | Allocate new empty block state
-empty :: (BlobStore.MonadBlobStore m) => m PLTBlockState
+empty :: (BlobStore.MonadBlobStore m) => m ForeignPLTBlockStatePtr
 empty = liftIO $ do
     state <- ffiEmptyPLTBlockState
     wrapFFIPtr state
 
 foreign import ccall "ffi_empty_plt_block_state"
-    ffiEmptyPLTBlockState :: IO (FFI.Ptr PLTBlockState)
+    ffiEmptyPLTBlockState :: IO (FFI.Ptr RustPLTBlockState)
 
-instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m PLTBlockState where
+instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBlockStatePtr where
     load = do
         blobRef <- Serialize.get
         pure $! do
@@ -69,9 +74,9 @@ foreign import ccall "ffi_load_plt_block_state"
         -- | Called to read data from blob store.
         FFI.LoadCallback ->
         -- | Reference in the blob store.
-        BlobStore.BlobRef PLTBlockState ->
+        BlobStore.BlobRef RustPLTBlockState ->
         -- | Pointer to the loaded block state.
-        IO (FFI.Ptr PLTBlockState)
+        IO (FFI.Ptr RustPLTBlockState)
 
 -- | Write out the block state using the provided callback, and return a `BlobRef`.
 foreign import ccall "ffi_store_plt_block_state"
@@ -79,11 +84,11 @@ foreign import ccall "ffi_store_plt_block_state"
         -- | The provided closure is called to write data to blob store.
         FFI.StoreCallback ->
         -- | Pointer to the block state to write.
-        FFI.Ptr PLTBlockState ->
+        FFI.Ptr RustPLTBlockState ->
         -- | New reference in the blob store.
-        IO (BlobStore.BlobRef PLTBlockState)
+        IO (BlobStore.BlobRef RustPLTBlockState)
 
-instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m PLTBlockState where
+instance (BlobStore.MonadBlobStore m) => BlobStore.Cacheable m ForeignPLTBlockStatePtr where
     cache blockState = do
         loadCallback <- fst <$> BlobStore.getCallbacks
         liftIO $! withPLTBlockState blockState (ffiCachePLTBlockState loadCallback)
@@ -95,14 +100,14 @@ foreign import ccall "ffi_cache_plt_block_state"
         -- | Called to read data from blob store.
         FFI.LoadCallback ->
         -- | Pointer to the block state to cache into memory.
-        FFI.Ptr PLTBlockState ->
+        FFI.Ptr RustPLTBlockState ->
         IO ()
 
 -- | The hash of some `PLTBlockState`.
 newtype PLTBlockStateHash = PLTBlockStateHash {innerSha256Hash :: SHA256.Hash}
     deriving newtype (Eq, Ord, Show, Serialize.Serialize)
 
-instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m PLTBlockStateHash PLTBlockState where
+instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m PLTBlockStateHash ForeignPLTBlockStatePtr where
     getHashM blockState = do
         loadCallback <- fst <$> BlobStore.getCallbacks
         ((), hash) <-
@@ -117,7 +122,7 @@ foreign import ccall "ffi_hash_plt_block_state"
         -- | Called to read data from blob store.
         FFI.LoadCallback ->
         -- | Pointer to the block state to hash.
-        FFI.Ptr PLTBlockState ->
+        FFI.Ptr RustPLTBlockState ->
         -- | Pointer to write destination of the hash
         FFI.Ptr FFI.Word8 ->
         IO ()
@@ -126,9 +131,9 @@ foreign import ccall "ffi_hash_plt_block_state"
 migrate ::
     (BlobStore.SupportMigration m t) =>
     -- | Current block state
-    PLTBlockState ->
+    ForeignPLTBlockStatePtr ->
     -- | New migrated block state
-    t m PLTBlockState
+    t m ForeignPLTBlockStatePtr
 migrate currentState = do
     loadCallback <- fst <$> lift BlobStore.getCallbacks
     storeCallback <- snd <$> BlobStore.getCallbacks
@@ -143,6 +148,6 @@ foreign import ccall "ffi_migrate_plt_block_state"
         -- | Called to write data to the new blob store.
         FFI.StoreCallback ->
         -- | Pointer to the old block state.
-        FFI.Ptr PLTBlockState ->
+        FFI.Ptr RustPLTBlockState ->
         -- | Pointer to the new block state.
-        IO (FFI.Ptr PLTBlockState)
+        IO (FFI.Ptr RustPLTBlockState)

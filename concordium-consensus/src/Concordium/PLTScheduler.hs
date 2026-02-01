@@ -33,7 +33,7 @@ executeTransaction ::
     (BlobStore.MonadBlobStore m) =>
     Types.SProtocolVersion pv ->
     -- | Block state to mutate.
-    PLTBlockState.PLTBlockState ->
+    PLTBlockState.ForeignPLTBlockStatePtr ->
     -- | Callback for reading the token balance of an account.
     ReadTokenAccountBalance ->
     -- | Callback for updating the token balance of an account.
@@ -44,6 +44,8 @@ executeTransaction ::
     GetAccountIndexByAddress ->
     -- | Callback to get account address by account index
     GetAccountAddressByIndex ->
+    -- | Callback to get token account states for an account
+    GetTokenAccountStates ->
     -- | Transaction payload byte string.
     BS.ByteString ->
     -- | The account index of the account which signed as the sender of the transaction.
@@ -62,92 +64,93 @@ executeTransaction
     incrementPltUpdateSequence
     getAccountIndexByAddress
     getAccountAddressByIndex
+    getTokenAccountStates
     transactionPayload
     senderAccountIndex
     (Types.AccountAddress senderAccountAddress)
     remainingEnergy =
         do
             loadCallbackPtr <- fst <$> BlobStore.getCallbacks
-            liftIO $
-                FFI.alloca $ \usedEnergyOutPtr ->
-                    FFI.alloca $ \resultingBlockStateOutPtr ->
-                        FFI.alloca $ \returnDataPtrOutPtr ->
-                            FFI.alloca $ \returnDataLenOutPtr ->
-                                do
-                                    readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance readTokenAccountBalance
-                                    updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance updateTokenAccountBalance
-                                    incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber incrementPltUpdateSequence
-                                    getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress getAccountIndexByAddress
-                                    getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex getAccountAddressByIndex
-                                    -- Invoke the ffi call
-                                    statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
-                                        FixedByteString.withPtrReadOnly (senderAccountAddress) $ \senderAccountAddressPtr ->
-                                            BS.unsafeUseAsCStringLen transactionPayload $ \(transactionPayloadPtr, transactionPayloadLen) ->
-                                                ffiExecuteTransaction
-                                                    loadCallbackPtr
-                                                    readTokenAccountBalanceCallbackPtr
-                                                    updateTokenAccountBalanceCallbackPtr
-                                                    incrementPltUpdateSequenceCallbackPtr
-                                                    getAccountIndexByAddressCallbackPtr
-                                                    getAccountAddressByIndexCallbackPtr
-                                                    blockStatePtr
-                                                    (FFI.castPtr transactionPayloadPtr)
-                                                    (fromIntegral transactionPayloadLen)
-                                                    (fromIntegral senderAccountIndex)
-                                                    senderAccountAddressPtr
-                                                    (fromIntegral remainingEnergy)
-                                                    resultingBlockStateOutPtr
-                                                    usedEnergyOutPtr
-                                                    returnDataPtrOutPtr
-                                                    returnDataLenOutPtr
-                                    -- Free the function pointers we have just created (loadCallbackPtr is created in another context)
-                                    FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
-                                    FFI.freeHaskellFunPtr updateTokenAccountBalanceCallbackPtr
-                                    FFI.freeHaskellFunPtr incrementPltUpdateSequenceCallbackPtr
-                                    FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
-                                    FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
-                                    -- Process the returned status and values returend via out pointers
-                                    usedEnergy <- fromIntegral <$> FFI.peek usedEnergyOutPtr
-                                    returnDataLen <- FFI.peek returnDataLenOutPtr
-                                    returnDataPtr <- FFI.peek returnDataPtrOutPtr
-                                    returnData <-
-                                        BS.unsafePackCStringFinalizer
-                                            returnDataPtr
-                                            (fromIntegral returnDataLen)
-                                            (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
-                                    oucome <- case statusCode of
-                                        0 -> do
-                                            updatedBlockState <- FFI.peek resultingBlockStateOutPtr >>= PLTBlockState.wrapFFIPtr
-                                            let getEvents = S.isolate (BS.length returnData) $ CS.getListOf $ Types.getEvent spv
-                                            let events =
-                                                    either
-                                                        (\message -> error $ "Transaction events from Rust PLT Scheduler could not be deserialized: " ++ message)
-                                                        id
-                                                        $ S.runGet getEvents returnData
-                                            return $
-                                                ExecutionSuccess $
-                                                    ExecutionOutcomeSuccess
-                                                        { eosUpdatedPLTBlockState = updatedBlockState,
-                                                          eosEvents = events
-                                                        }
-                                        1 -> do
-                                            let getRejectReason = S.isolate (BS.length returnData) S.get
-                                            let rejectReason =
-                                                    either
-                                                        (\message -> error $ "Transaction reject reason from Rust PLT Scheduler could not be deserialized: " ++ message)
-                                                        id
-                                                        $ S.runGet getRejectReason returnData
-                                            return $
-                                                ExecutionReject $
-                                                    ExecutionOutcomeReject
-                                                        { eorRejectReason = rejectReason
-                                                        }
-                                        _ -> error ("Unexpected status code from calling 'ffiExecuteTransaction'" ++ show statusCode)
-                                    return
-                                        ExecutionSummary
-                                            { esUsedEnergy = usedEnergy,
-                                              esOutcome = oucome
+            liftIO $ FFI.alloca $ \usedEnergyOutPtr -> FFI.alloca $ \resultingBlockStateOutPtr ->
+                FFI.alloca $ \returnDataPtrOutPtr -> FFI.alloca $ \returnDataLenOutPtr ->
+                    do
+                        readTokenAccountBalanceCallbackPtr <- wrapReadTokenAccountBalance readTokenAccountBalance
+                        updateTokenAccountBalanceCallbackPtr <- wrapUpdateTokenAccountBalance updateTokenAccountBalance
+                        incrementPltUpdateSequenceCallbackPtr <- wrapIncrementPltUpdateSequenceNumber incrementPltUpdateSequence
+                        getAccountIndexByAddressCallbackPtr <- wrapGetAccountIndexByAddress getAccountIndexByAddress
+                        getAccountAddressByIndexCallbackPtr <- wrapGetAccountAddressByIndex getAccountAddressByIndex
+                        getTokenAccountStatesCallbackPtr <- wrapGetTokenAccountStates getTokenAccountStates
+                        -- Invoke the ffi call
+                        statusCode <- PLTBlockState.withPLTBlockState blockState $ \blockStatePtr ->
+                            FixedByteString.withPtrReadOnly (senderAccountAddress) $ \senderAccountAddressPtr ->
+                                BS.unsafeUseAsCStringLen transactionPayload $ \(transactionPayloadPtr, transactionPayloadLen) ->
+                                    ffiExecuteTransaction
+                                        loadCallbackPtr
+                                        readTokenAccountBalanceCallbackPtr
+                                        updateTokenAccountBalanceCallbackPtr
+                                        incrementPltUpdateSequenceCallbackPtr
+                                        getAccountIndexByAddressCallbackPtr
+                                        getAccountAddressByIndexCallbackPtr
+                                        getTokenAccountStatesCallbackPtr
+                                        blockStatePtr
+                                        (FFI.castPtr transactionPayloadPtr)
+                                        (fromIntegral transactionPayloadLen)
+                                        (fromIntegral senderAccountIndex)
+                                        senderAccountAddressPtr
+                                        (fromIntegral remainingEnergy)
+                                        resultingBlockStateOutPtr
+                                        usedEnergyOutPtr
+                                        returnDataPtrOutPtr
+                                        returnDataLenOutPtr
+                        -- Free the function pointers we have just created (loadCallbackPtr is created in another context)
+                        FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
+                        FFI.freeHaskellFunPtr updateTokenAccountBalanceCallbackPtr
+                        FFI.freeHaskellFunPtr incrementPltUpdateSequenceCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
+                        FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
+                        FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
+                        -- Process the returned status and values returend via out pointers
+                        usedEnergy <- fromIntegral <$> FFI.peek usedEnergyOutPtr
+                        returnDataLen <- FFI.peek returnDataLenOutPtr
+                        returnDataPtr <- FFI.peek returnDataPtrOutPtr
+                        returnData <-
+                            BS.unsafePackCStringFinalizer
+                                returnDataPtr
+                                (fromIntegral returnDataLen)
+                                (Memory.rs_free_array_len_2 returnDataPtr (fromIntegral returnDataLen))
+                        oucome <- case statusCode of
+                            0 -> do
+                                updatedBlockState <- FFI.peek resultingBlockStateOutPtr >>= PLTBlockState.wrapFFIPtr
+                                let getEvents = S.isolate (BS.length returnData) $ CS.getListOf $ Types.getEvent spv
+                                let events =
+                                        either
+                                            (\message -> error $ "Transaction events from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                            id
+                                            $ S.runGet getEvents returnData
+                                return $
+                                    ExecutionSuccess $
+                                        ExecutionOutcomeSuccess
+                                            { eosUpdatedPLTBlockState = updatedBlockState,
+                                              eosEvents = events
                                             }
+                            1 -> do
+                                let getRejectReason = S.isolate (BS.length returnData) S.get
+                                let rejectReason =
+                                        either
+                                            (\message -> error $ "Transaction reject reason from Rust PLT Scheduler could not be deserialized: " ++ message)
+                                            id
+                                            $ S.runGet getRejectReason returnData
+                                return $
+                                    ExecutionReject $
+                                        ExecutionOutcomeReject
+                                            { eorRejectReason = rejectReason
+                                            }
+                            _ -> error ("Unexpected status code from calling 'ffiExecuteTransaction'" ++ show statusCode)
+                        return
+                            ExecutionSummary
+                                { esUsedEnergy = usedEnergy,
+                                  esOutcome = oucome
+                                }
 
 foreign import ccall "ffi_execute_transaction"
     ffiExecuteTransaction ::
@@ -163,8 +166,10 @@ foreign import ccall "ffi_execute_transaction"
         GetAccountIndexByAddressCallbackPtr ->
         -- | Called to get account address by account index.
         GetAccountAddressByIndexCallbackPtr ->
+        -- | Called to get token account states for account.
+        GetTokenAccountStatesCallbackPtr ->
         -- | Pointer to the input PLT block state.
-        FFI.Ptr PLTBlockState.PLTBlockState ->
+        FFI.Ptr PLTBlockState.RustPLTBlockState ->
         -- | Pointer to transaction payload bytes.
         FFI.Ptr Word.Word8 ->
         -- | Byte length of transaction payload.
@@ -178,7 +183,7 @@ foreign import ccall "ffi_execute_transaction"
         Word.Word64 ->
         -- | Output location for the resulting PLT block state.
         -- Only written set if the executes was successful (return code `0`)
-        FFI.Ptr (FFI.Ptr PLTBlockState.PLTBlockState) ->
+        FFI.Ptr (FFI.Ptr PLTBlockState.RustPLTBlockState) ->
         -- | Output location for the energy used by the execution.
         -- This is written regardless of whether return code is `0` or `1`
         FFI.Ptr Word.Word64 ->
@@ -212,7 +217,7 @@ data ExecutionOutcomeReject = ExecutionOutcomeReject
 -- | Representation of successful outcome
 data ExecutionOutcomeSuccess = ExecutionOutcomeSuccess
     { -- | The updated PLT block state after the execution
-      eosUpdatedPLTBlockState :: PLTBlockState.PLTBlockState,
+      eosUpdatedPLTBlockState :: PLTBlockState.ForeignPLTBlockStatePtr,
       -- | Events produced during the execution
       eosEvents :: [Types.Event]
     }
