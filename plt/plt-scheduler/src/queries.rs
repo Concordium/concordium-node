@@ -81,8 +81,10 @@ where
                 token: &token,
                 token_module_state: &token_module_state,
             };
-            let account = kernel.account_from_block_state_account(&account).account;
-            let module_state = token_module::query_token_module_account_state(&kernel, &account);
+            let module_state = token_module::query_token_module_account_state(
+                &kernel,
+                block_state.account_index(&account),
+            );
 
             let balance = TokenAmount::from_raw(state.balance.0, token_configuration.decimals);
 

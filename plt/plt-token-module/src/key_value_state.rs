@@ -33,12 +33,11 @@ pub trait KernelOperationsExt: TokenKernelOperations {
 
     fn set_account_state(
         &mut self,
-        account: &Self::AccountWithAddress,
+        account: AccountIndex,
         key: &[u8],
         value: Option<TokenStateValue>,
     ) {
-        let account_index = self.account_index(account);
-        self.set_token_state_value(account_state_key(account_index, key), value);
+        self.set_token_state_value(account_state_key(account, key), value);
     }
 }
 
@@ -52,13 +51,8 @@ pub trait KernelQueriesExt: TokenKernelQueries {
         self.lookup_token_state_value(module_state_key(key))
     }
 
-    fn get_account_state(
-        &self,
-        account: &Self::AccountWithAddress,
-        key: &[u8],
-    ) -> Option<TokenStateValue> {
-        let account_index = self.account_index(account);
-        self.lookup_token_state_value(account_state_key(account_index, key))
+    fn get_account_state(&self, account: AccountIndex, key: &[u8]) -> Option<TokenStateValue> {
+        self.lookup_token_state_value(account_state_key(account, key))
     }
 }
 
@@ -164,10 +158,7 @@ pub fn set_paused<TK: TokenKernelOperations>(kernel: &mut TK, value: bool) {
 }
 
 /// Get the allow-list state for the account at the given account.
-pub fn get_allow_list_for<TK: TokenKernelQueries>(
-    kernel: &TK,
-    account: &TK::AccountWithAddress,
-) -> bool {
+pub fn get_allow_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIndex) -> bool {
     kernel
         .get_account_state(account, STATE_KEY_ALLOW_LIST)
         .is_some()
@@ -176,19 +167,15 @@ pub fn get_allow_list_for<TK: TokenKernelQueries>(
 /// Set the allow-list state for the account at the given account.
 pub fn set_allow_list_for<TK: TokenKernelOperations>(
     kernel: &mut TK,
-    account: &TK::AccountWithAddress,
+    account: AccountIndex,
     value: bool,
 ) {
-    kernel.touch_account(account);
     let state_value = if value { Some(vec![]) } else { None };
     kernel.set_account_state(account, STATE_KEY_ALLOW_LIST, state_value)
 }
 
 /// Get the deny-list state for the account at the given account.
-pub fn get_deny_list_for<TK: TokenKernelQueries>(
-    kernel: &TK,
-    account: &TK::AccountWithAddress,
-) -> bool {
+pub fn get_deny_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIndex) -> bool {
     kernel
         .get_account_state(account, STATE_KEY_DENY_LIST)
         .is_some()
@@ -197,10 +184,9 @@ pub fn get_deny_list_for<TK: TokenKernelQueries>(
 /// Set the deny-list state for the account at the given account.
 pub fn set_deny_list_for<TK: TokenKernelOperations>(
     kernel: &mut TK,
-    account: &TK::AccountWithAddress,
+    account: AccountIndex,
     value: bool,
 ) {
-    kernel.touch_account(account);
     let state_value = if value { Some(vec![]) } else { None };
     kernel.set_account_state(account, STATE_KEY_DENY_LIST, state_value)
 }
