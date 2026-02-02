@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+# 10.0.5
+
+- Disable administrative gRPC endpoints by default. These can be enabled by specifying a
+  `CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG` that enables them explicitly.
+
 # 10.0.4
 
 - Add recovery from corrupted databases that may be created when protocol updates are executed
