@@ -4,6 +4,7 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenListUpdateDetails, TokenListUpdateEventDetails,
     TokenModuleAccountState, TokenModuleEventType, TokenOperation,
 };
+use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
 use plt_token_module::token_module;
 
 mod kernel_stub;
@@ -15,7 +16,8 @@ fn test_allow_list_updates() {
     let target_account = stub.create_account();
 
     // Verify that the initial state is as expected
-    let cbor = token_module::query_token_module_account_state(&stub, &target_account);
+    let cbor =
+        token_module::query_token_module_account_state(&stub, stub.account_index(&target_account));
     let state: TokenModuleAccountState = cbor::cbor_decode(cbor).unwrap();
     assert_eq!(state.allow_list, Some(false));
     assert_eq!(state.deny_list, None);
@@ -32,7 +34,8 @@ fn test_allow_list_updates() {
     )
     .expect("executes successfully");
 
-    let cbor = token_module::query_token_module_account_state(&stub, &target_account);
+    let cbor =
+        token_module::query_token_module_account_state(&stub, stub.account_index(&target_account));
     let state: TokenModuleAccountState = cbor::cbor_decode(cbor).unwrap();
     assert_eq!(state.allow_list, Some(true));
     assert_eq!(state.deny_list, None);
@@ -49,7 +52,8 @@ fn test_allow_list_updates() {
     )
     .expect("executes successfully");
 
-    let cbor = token_module::query_token_module_account_state(&stub, &target_account);
+    let cbor =
+        token_module::query_token_module_account_state(&stub, stub.account_index(&target_account));
     let state: TokenModuleAccountState = cbor::cbor_decode(cbor).unwrap();
     assert_eq!(state.allow_list, Some(false));
     assert_eq!(state.deny_list, None);
@@ -83,7 +87,8 @@ fn test_deny_list_updates() {
     let target_account = stub.create_account();
 
     // Verify that the initial state is as expected
-    let cbor = token_module::query_token_module_account_state(&stub, &target_account);
+    let cbor =
+        token_module::query_token_module_account_state(&stub, stub.account_index(&target_account));
     let state: TokenModuleAccountState = cbor::cbor_decode(cbor).unwrap();
     assert_eq!(state.allow_list, None);
     assert_eq!(state.deny_list, Some(false));
@@ -100,7 +105,8 @@ fn test_deny_list_updates() {
     )
     .expect("executes successfully");
 
-    let cbor = token_module::query_token_module_account_state(&stub, &target_account);
+    let cbor =
+        token_module::query_token_module_account_state(&stub, stub.account_index(&target_account));
     let state: TokenModuleAccountState = cbor::cbor_decode(cbor).unwrap();
     assert_eq!(state.allow_list, None);
     assert_eq!(state.deny_list, Some(true));
@@ -117,7 +123,8 @@ fn test_deny_list_updates() {
     )
     .expect("executes successfully");
 
-    let cbor = token_module::query_token_module_account_state(&stub, &target_account);
+    let cbor =
+        token_module::query_token_module_account_state(&stub, stub.account_index(&target_account));
     let state: TokenModuleAccountState = cbor::cbor_decode(cbor).unwrap();
     assert_eq!(state.allow_list, None);
     assert_eq!(state.deny_list, Some(false));

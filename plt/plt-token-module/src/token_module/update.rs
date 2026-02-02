@@ -362,13 +362,13 @@ fn execute_token_transfer<
     let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
 
     if key_value_state::has_allow_list(kernel) {
-        if !key_value_state::get_allow_list_for(kernel, &sender) {
+        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender not in allow list".to_string(),
             });
         }
-        if !key_value_state::get_allow_list_for(kernel, &receiver) {
+        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&receiver)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient not in allow list".to_string(),
@@ -377,13 +377,13 @@ fn execute_token_transfer<
     }
 
     if key_value_state::has_deny_list(kernel) {
-        if key_value_state::get_deny_list_for(kernel, &sender) {
+        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
                 reason: "sender in deny list".to_string(),
             });
         }
-        if key_value_state::get_deny_list_for(kernel, &receiver) {
+        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&receiver)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
                 reason: "recipient in deny list".to_string(),
@@ -484,7 +484,8 @@ fn execute_add_allow_list<
     // TODO: check if feature is enabled as part of PSR-50
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
-    key_value_state::set_allow_list_for(kernel, &account, true);
+    kernel.touch_account(&account);
+    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account), true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -507,7 +508,8 @@ fn execute_add_deny_list<
     // TODO: check if feature is enabled as part of PSR-50
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
-    key_value_state::set_deny_list_for(kernel, &account, true);
+    kernel.touch_account(&account);
+    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account), true);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -530,7 +532,8 @@ fn execute_remove_allow_list<
     // TODO: check if feature is enabled as part of PSR-50
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
-    key_value_state::set_allow_list_for(kernel, &account, false);
+    kernel.touch_account(&account);
+    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account), false);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
@@ -552,7 +555,8 @@ fn execute_remove_deny_list<
     // TODO: check if feature is enabled as part of PSR-50
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
-    key_value_state::set_deny_list_for(kernel, &account, false);
+    kernel.touch_account(&account);
+    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account), false);
 
     let event_details = TokenListUpdateEventDetails {
         target: list_operation.target.clone(),
