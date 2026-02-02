@@ -31,7 +31,7 @@ impl Serial for RawTokenAmount {
         val >>= 7;
 
         // Following bytes in order of more significant. Continuation
-        // byte (0x80) is always set, since there is always a following byte.
+        // bit (0x80) is always set, since there is always a following byte.
         while val != 0 {
             let byte = 0x80u8 | (val as u8 & 0x7fu8);
             bytes.push(byte);
