@@ -1,15 +1,7 @@
+use std::path::PathBuf;
 use std::{env, path::Path};
-#[cfg(any(all(unix, not(feature = "static")), windows))]
 use std::{process::Command, str};
 
-#[cfg(all(not(feature = "static"), target_os = "linux"))]
-const GHC_VARIANT: &str = "x86_64-linux";
-#[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "x86_64"))]
-const GHC_VARIANT: &str = "x86_64-osx";
-#[cfg(all(not(feature = "static"), target_os = "macos", target_arch = "aarch64"))]
-const GHC_VARIANT: &str = "aarch64-osx";
-
-#[cfg(not(feature = "static"))]
 fn command_output(cmd: &mut Command) -> String {
     str::from_utf8(&cmd.output().unwrap().stdout)
         .unwrap()
@@ -19,7 +11,9 @@ fn command_output(cmd: &mut Command) -> String {
 
 fn main() -> std::io::Result<()> {
     let cargo_dir = env!("CARGO_MANIFEST_DIR");
+
     // Compile the flatbuffers schema
+
     println!(
         "cargo:rerun-if-changed={}/src/network/serialization/schema.fbs",
         cargo_dir
@@ -31,117 +25,15 @@ fn main() -> std::io::Result<()> {
     })
     .expect("Can't compile the flatbuffers schema");
 
-    // Build GRPC
-
-    let proto_root_input = format!("{}/../concordium-base/concordium-grpc-api", cargo_dir);
+    // Link native libraries
 
     #[cfg(not(feature = "static"))]
-    {
-        // Traverse the directory to link all of the libs in ghc.
-        #[cfg(windows)]
-        {
-            // We assume that the consensus library was built using the stack.yaml file in
-            // the root of the repository. (This is what the Windows build script does.)
-            let stack_install_root_command = command_output(Command::new("stack").args([
-                "--stack-yaml",
-                "../stack.yaml",
-                "path",
-                "--local-install-root",
-            ]));
-            let stack_install_root = Path::new(&stack_install_root_command);
-            let dll_location = stack_install_root.join("lib");
-
-            println!(
-                "cargo:rustc-link-search=native={}",
-                dll_location.to_string_lossy()
-            );
-            println!("cargo:rustc-link-lib=dylib=concordium-consensus");
-        }
-        #[cfg(not(windows))]
-        {
-            // If the haskell root is provided we use it. In this case we assume.
-            // that the libraries are put in the appropriate location and named as listed
-            // below.
-            if let Ok(root) = env::var("CONCORDIUM_HASKELL_ROOT") {
-                if let Err(e) = std::fs::read_dir(&root) {
-                    println!("Cannot read CONCORDIUM_HASKELL_ROOT: {}", e);
-                    return Err(e);
-                }
-                println!("cargo:rustc-link-search=native={}", root);
-                println!("cargo:rustc-link-lib=dylib=concordium-consensus");
-                println!("cargo:rustc-link-lib=dylib=HSconcordium-consensus-0.1.0.0");
-                println!("cargo:rustc-link-lib=dylib=HSconcordium-base-0.1.0.0");
-                println!("cargo:rustc-link-lib=dylib=HSlmdb-0.2.5");
-            } else {
-                // Otherwise auto-discover the directories via stack. concordium-consensus
-                // is located in <local-install-root>/lib and HSconcordium-consensus,
-                // HSconcordium-base and HSlmdb in <local-install-root>/lib/<GHC_VARIANT>
-                let stack_install_root_command = command_output(Command::new("stack").args([
-                    "--stack-yaml",
-                    "../stack.yaml",
-                    "path",
-                    "--local-install-root",
-                ]));
-                let stack_install_root = Path::new(&stack_install_root_command);
-                let stack_install_lib = stack_install_root.join("lib");
-
-                println!(
-                    "cargo:rustc-link-search={}",
-                    stack_install_lib.to_string_lossy()
-                );
-                println!("cargo:rustc-link-lib=dylib=concordium-consensus");
-
-                // Find the first subdirectory of <stack_install_lib> whose filename has
-                // GHC_VARIANT as a prefix.
-                let stack_install_lib_ghc_variant = ghc_variant(&stack_install_lib)?;
-                let dir = std::fs::read_dir(&stack_install_lib_ghc_variant)?;
-                println!(
-                    "cargo:rustc-link-search={}",
-                    stack_install_lib_ghc_variant.to_string_lossy()
-                );
-                // Traverse all the files in the lib directory, and add all that end with
-                // `.DYLIB_EXTENSION` to the linked libraries list.
-                for dir_entry in dir {
-                    let path = dir_entry?.path();
-                    if let Some(true) = path
-                        .extension()
-                        .map(|ext| ext.to_string_lossy() == DYLIB_EXTENSION)
-                    // FIXME: On a mac we should ignore case, but not on linux
-                    {
-                        let name = path
-                            .file_stem()
-                            .unwrap()
-                            .to_str()
-                            .unwrap()
-                            .strip_prefix("lib")
-                            .unwrap();
-                        println!("cargo:rustc-link-lib=dylib={}", name);
-                    }
-                }
-                if let Ok(ref extra_libs_path) = env::var("EXTRA_LIBS_PATH").as_ref() {
-                    println!("cargo:rustc-link-search=native={}", extra_libs_path);
-                }
-                let ghc_lib_dir = link_ghc_libs()?;
-                let lib_path = if cfg!(target_os = "linux") {
-                    "LD_LIBRARY_PATH"
-                } else {
-                    "DYLD_LIBRARY_PATH"
-                };
-
-                println!(
-                    "cargo:rustc-env={}={}:{}:{}",
-                    lib_path,
-                    ghc_lib_dir.as_path().to_string_lossy(),
-                    stack_install_lib.as_path().to_string_lossy(),
-                    stack_install_lib_ghc_variant.as_path().to_string_lossy()
-                );
-            }
-        }
-    }
-
+    dynamicly::link_libraries()?;
     #[cfg(feature = "static")]
-    link_static_libs()?;
+    staticly::link_libraries()?;
 
+    // Build GRPC
+    let proto_root_input = format!("{}/../concordium-base/concordium-grpc-api", cargo_dir);
     build_grpc2(&proto_root_input)?;
     Ok(())
 }
@@ -810,125 +702,347 @@ fn build_grpc2(proto_root_input: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-// Each os has a diferent extesion for the Dynamic Libraries. This compiles for
-// the correct ones.
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[cfg(not(feature = "static"))]
-const DYLIB_EXTENSION: &str = "so";
+mod dynamicly {
+    use super::StackCommand;
+    // Each OS has a different extension for the Dynamic Libraries. This compiles for
+    // the correct ones.
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    const DYLIB_EXTENSION: &str = "so";
 
-#[cfg(target_os = "macos")]
-#[cfg(not(feature = "static"))]
-const DYLIB_EXTENSION: &str = "dylib";
+    #[cfg(target_os = "macos")]
+    const DYLIB_EXTENSION: &str = "dylib";
 
-#[cfg(all(not(feature = "static"), not(windows)))]
-/// Link with Haskell runtime libraries.
-/// The RTS version defaults to the threaded one, but can be overridden by the
-/// HASKELL_RTS_VARIANT environment variable
-fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
-    let rts_variant =
-        env::var("HASKELL_RTS_VARIANT").unwrap_or_else(|_| "libHSrts-1.0.2_thr-".to_owned());
-    let ghc_lib_dir = env::var("HASKELL_GHC_LIBDIR").unwrap_or_else(|_| {
+    #[cfg(target_os = "linux")]
+    const GHC_VARIANT: &str = "x86_64-linux";
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    const GHC_VARIANT: &str = "x86_64-osx";
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    const GHC_VARIANT: &str = "aarch64-osx";
+
+    pub fn link_libraries() -> std::io::Result<()> {
+        let stack = StackCommand::new("../stack.yaml");
+        // Traverse the directory to link all of the libs in ghc.
+        #[cfg(windows)]
+        {
+            // We assume that the consensus library was built using the stack.yaml file in
+            // the root of the repository. (This is what the Windows build script does.)
+            let stack_install_root = stack.local_install_root_path();
+            let dll_location = stack_install_root.join("lib");
+
+            println!(
+                "cargo:rustc-link-search=native={}",
+                dll_location.to_string_lossy()
+            );
+            println!("cargo:rustc-link-lib=dylib=concordium-consensus");
+        }
+        #[cfg(not(windows))]
+        {
+            // If the haskell root is provided we use it. In this case we assume.
+            // that the libraries are put in the appropriate location and named as listed
+            // below.
+            if let Ok(root) = std::env::var("CONCORDIUM_HASKELL_ROOT") {
+                if let Err(e) = std::fs::read_dir(&root) {
+                    println!("Cannot read CONCORDIUM_HASKELL_ROOT: {}", e);
+                    return Err(e);
+                }
+                println!("cargo:rustc-link-search=native={}", root);
+                println!("cargo:rustc-link-lib=dylib=concordium-consensus");
+                println!("cargo:rustc-link-lib=dylib=HSconcordium-consensus-0.1.0.0");
+                println!("cargo:rustc-link-lib=dylib=HSconcordium-base-0.1.0.0");
+                println!("cargo:rustc-link-lib=dylib=HSlmdb-0.2.5");
+            } else {
+                // Otherwise auto-discover the directories via stack. concordium-consensus
+                // is located in <local-install-root>/lib and HSconcordium-consensus,
+                // HSconcordium-base and HSlmdb in <local-install-root>/lib/<GHC_VARIANT>
+                let stack_install_root = stack.local_install_root_path();
+                let stack_install_lib = stack_install_root.join("lib");
+
+                println!(
+                    "cargo:rustc-link-search={}",
+                    stack_install_lib.to_string_lossy()
+                );
+                println!("cargo:rustc-link-lib=dylib=concordium-consensus");
+
+                // Find the first subdirectory of <stack_install_lib> whose filename has
+                // GHC_VARIANT as a prefix.
+                let stack_install_lib_ghc_variant = ghc_variant(&stack_install_lib)?;
+                let dir = std::fs::read_dir(&stack_install_lib_ghc_variant)?;
+                println!(
+                    "cargo:rustc-link-search={}",
+                    stack_install_lib_ghc_variant.to_string_lossy()
+                );
+                // Traverse all the files in the lib directory, and add all that end with
+                // `.DYLIB_EXTENSION` to the linked libraries list.
+                for dir_entry in dir {
+                    let path = dir_entry?.path();
+                    if let Some(true) = path
+                        .extension()
+                        .map(|ext| ext.to_string_lossy() == DYLIB_EXTENSION)
+                    // FIXME: On a mac we should ignore case, but not on linux
+                    {
+                        let name = path
+                            .file_stem()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .strip_prefix("lib")
+                            .unwrap();
+                        println!("cargo:rustc-link-lib=dylib={}", name);
+                    }
+                }
+                if let Ok(ref extra_libs_path) = std::env::var("EXTRA_LIBS_PATH").as_ref() {
+                    println!("cargo:rustc-link-search=native={}", extra_libs_path);
+                }
+                let ghc_lib_dir = link_ghc_libs()?;
+                let lib_path = if cfg!(target_os = "linux") {
+                    "LD_LIBRARY_PATH"
+                } else {
+                    "DYLD_LIBRARY_PATH"
+                };
+
+                println!(
+                    "cargo:rustc-env={}={}:{}:{}",
+                    lib_path,
+                    ghc_lib_dir.as_path().to_string_lossy(),
+                    stack_install_lib.as_path().to_string_lossy(),
+                    stack_install_lib_ghc_variant.as_path().to_string_lossy()
+                );
+            }
+            Ok(())
+        }
+    }
+
+    #[cfg(not(windows))]
+    /// Link with Haskell runtime libraries.
+    /// The RTS version defaults to the threaded one, but can be overridden by the
+    /// HASKELL_RTS_VARIANT environment variable
+    fn link_ghc_libs() -> std::io::Result<std::path::PathBuf> {
+        let rts_variant = std::env::var("HASKELL_RTS_VARIANT")
+            .unwrap_or_else(|_| "libHSrts-1.0.2_thr-".to_owned());
+        let ghc_lib_dir = std::env::var("HASKELL_GHC_LIBDIR").unwrap_or_else(|_| {
+            super::command_output(super::Command::new("stack").args([
+                "--stack-yaml",
+                "../stack.yaml",
+                "ghc",
+                "--",
+                "--print-libdir",
+            ]))
+        });
+        let rts_dir = ghc_variant(std::path::Path::new(&ghc_lib_dir))?;
+        println!(
+            "cargo:rustc-link-search=native={}",
+            rts_dir.to_string_lossy()
+        );
+        for item in std::fs::read_dir(&rts_dir)?.filter_map(Result::ok) {
+            let path = item.path();
+            let file_stem = path.file_stem().unwrap().to_string_lossy();
+            if file_stem.starts_with(&rts_variant) {
+                if let Some(true) = item.path().extension().map(|ext| ext == DYLIB_EXTENSION) {
+                    let lib_name = file_stem.strip_prefix("lib").unwrap();
+                    println!("cargo:rustc-link-lib=dylib={}", lib_name);
+                }
+            }
+        }
+        Ok(rts_dir)
+    }
+
+    #[cfg(not(windows))]
+    fn ghc_variant(stack_install_lib: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+        // Find the first subdirectory of <stack_install_lib> whose filename has
+        // GHC_VARIANT as a prefix.
+        let mut ghc_variant_dir: Option<std::path::PathBuf> = None;
+        for entry in std::fs::read_dir(stack_install_lib)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue; // Skip files, we are looking for directories
+            }
+            let file_name = entry.file_name();
+            let file_name_str = file_name.to_string_lossy();
+            if file_name_str.starts_with(GHC_VARIANT) {
+                ghc_variant_dir = Some(entry.path());
+                break;
+            }
+        }
+        match ghc_variant_dir {
+            Some(path) => Ok(path),
+            None => {
+                eprintln!(
+                    "No subdirectory in {:?} with prefix {}",
+                    stack_install_lib, GHC_VARIANT
+                );
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "GHC_VARIANT directory not found",
+                ))
+            }
+        }
+    }
+}
+
+#[cfg(feature = "static")]
+mod staticly {
+    use super::StackCommand;
+
+    pub fn link_libraries() -> std::io::Result<()> {
+        let mut files = std::collections::BTreeMap::new();
+        let mut link_search_dirs = std::collections::BTreeSet::new();
+        let stack = StackCommand::new("../concordium-consensus/stack.static.yaml");
+        for entry in walkdir::WalkDir::new(stack.ghc_print_libdir()) {
+            let path = entry?.into_path();
+            let Some(libname) = static_lib_name(&path) else {
+                continue;
+            };
+            // Exclude the non-threaded Haskell RTS.
+            if libname.starts_with("HSrts") && !libname.contains("thr") {
+                continue;
+            }
+            if cfg!(feature = "profiling")
+                && (!libname.ends_with("_p")
+                    || libname.ends_with("_debug_p")
+                    || libname.ends_with("rts_p")
+                    || libname.ends_with("ffi_p"))
+            {
+                continue;
+            }
+            if !cfg!(feature = "profiling")
+                && (libname.ends_with("_p")
+                    || libname.ends_with("_l")
+                    || libname.ends_with("_debug")
+                    || libname.ends_with("rts")
+                    || libname.ends_with("ffi"))
+            {
+                continue;
+            }
+            let Some(dir) = path.parent() else {
+                continue;
+            };
+            link_search_dirs.insert(dir.to_string_lossy().into_owned());
+            println!("cargo:rustc-link-lib=static={libname}");
+
+            if let Some(other) = files.insert(libname.to_string(), path.clone()) {
+                println!(
+                    "cargo:warning=Clashing {libname} at {} and {}",
+                    other.to_string_lossy(),
+                    path.to_string_lossy()
+                );
+            };
+        }
+        for entry in walkdir::WalkDir::new(stack.local_install_root_path())
+            .into_iter()
+            .chain(walkdir::WalkDir::new(
+                stack.snapshot_install_root_path().join("lib"),
+            ))
+        {
+            let path = entry?.into_path();
+            let Some(libname) = static_lib_name(&path) else {
+                continue;
+            };
+            if cfg!(feature = "profiling") && !libname.ends_with("_p") {
+                continue;
+            }
+            let Some(dir) = path.parent() else {
+                continue;
+            };
+            link_search_dirs.insert(dir.to_string_lossy().into_owned());
+            println!("cargo:rustc-link-lib=static={libname}");
+            if let Some(other) = files.insert(libname.to_string(), path.clone()) {
+                println!(
+                    "cargo:warning=Clashing {libname} at {} and {}",
+                    other.to_string_lossy(),
+                    path.to_string_lossy()
+                );
+            };
+        }
+        for dir in link_search_dirs {
+            println!("cargo:rustc-link-search=native={dir}",);
+        }
+        let extra_library_dirs = stack.extra_library_dirs();
+        for dir in extra_library_dirs {
+            println!("cargo:rustc-link-search=native={}", dir.to_string_lossy());
+        }
+        println!("cargo:rustc-link-lib=static=concordium_smart_contract_engine");
+        println!("cargo:rustc-link-lib=static=plt_scheduler");
+        println!("cargo:rustc-link-lib=dylib=gmp");
+
+        Ok(())
+    }
+    fn static_lib_name(path: &impl AsRef<std::path::Path>) -> Option<&str> {
+        #[cfg(not(target_os = "windows"))]
+        const STATIC_LINKED_LIBRARY_SUFFIX: &str = ".a";
+        #[cfg(not(target_os = "windows"))]
+        const STATIC_LINKED_LIBRARY_PREFIX: &str = "lib";
+        #[cfg(target_os = "windows")]
+        const STATIC_LINKED_LIBRARY_SUFFIX: &str = ".lib";
+        #[cfg(target_os = "windows")]
+        const STATIC_LINKED_LIBRARY_PREFIX: &str = "";
+
+        path.as_ref()
+            .file_name()?
+            .to_str()?
+            // Strip the 'lib' prefix for the relevant platforms.
+            .strip_prefix(STATIC_LINKED_LIBRARY_PREFIX)?
+            // Strip the platform specific dll extension.
+            .strip_suffix(STATIC_LINKED_LIBRARY_SUFFIX)
+    }
+}
+
+/// Utility for running stack commands
+struct StackCommand {
+    /// The path to the relevant stack.yaml file.
+    yaml: &'static str,
+}
+
+impl StackCommand {
+    fn new(yaml: &'static str) -> Self {
+        Self { yaml }
+    }
+
+    fn local_install_root_path(&self) -> PathBuf {
+        #[cfg(feature = "profiling")]
+        let args = [
+            "--stack-yaml",
+            self.yaml,
+            "path",
+            "--local-install-root",
+            "--profile",
+        ];
+        #[cfg(not(feature = "profiling"))]
+        let args = ["--stack-yaml", self.yaml, "path", "--local-install-root"];
+        command_output(Command::new("stack").args(args)).into()
+    }
+    fn snapshot_install_root_path(&self) -> PathBuf {
+        #[cfg(feature = "profiling")]
+        let args = [
+            "--stack-yaml",
+            self.yaml,
+            "path",
+            "--snapshot-install-root",
+            "--profile",
+        ];
+        #[cfg(not(feature = "profiling"))]
+        let args = ["--stack-yaml", self.yaml, "path", "--snapshot-install-root"];
+        command_output(Command::new("stack").args(args)).into()
+    }
+    fn extra_library_dirs(&self) -> Vec<PathBuf> {
         command_output(Command::new("stack").args([
             "--stack-yaml",
-            "../stack.yaml",
+            self.yaml,
+            "path",
+            "--extra-library-dirs",
+        ]))
+        .split(", ")
+        .map(Into::into)
+        .collect()
+    }
+    fn ghc_print_libdir(&self) -> PathBuf {
+        command_output(Command::new("stack").args([
+            "--stack-yaml",
+            self.yaml,
             "ghc",
             "--",
             "--print-libdir",
         ]))
-    });
-    let rts_dir = ghc_variant(Path::new(&ghc_lib_dir))?;
-    println!(
-        "cargo:rustc-link-search=native={}",
-        rts_dir.to_string_lossy()
-    );
-    for item in std::fs::read_dir(&rts_dir)?.filter_map(Result::ok) {
-        let path = item.path();
-        let file_stem = path.file_stem().unwrap().to_string_lossy();
-        if file_stem.starts_with(&rts_variant) {
-            if let Some(true) = item.path().extension().map(|ext| ext == DYLIB_EXTENSION) {
-                let lib_name = file_stem.strip_prefix("lib").unwrap();
-                println!("cargo:rustc-link-lib=dylib={}", lib_name);
-            }
-        }
-    }
-    Ok(rts_dir)
-}
-
-#[cfg(feature = "static")]
-fn link_static_libs() -> std::io::Result<()> {
-    let out_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
-    #[cfg(not(feature = "profiling"))]
-    let path = format!("{}/deps/static-libs/linux/vanilla", out_dir);
-
-    #[cfg(feature = "profiling")]
-    let path = format!("{}/deps/static-libs/linux/profiling", out_dir);
-
-    ["concordium", "dependencies", "ghc"]
-        .iter()
-        .for_each(|subdir| {
-            println!("cargo:rustc-link-search=native={}/{}", path, subdir);
-            let walker = walkdir::WalkDir::new(Path::new(&format!("{}/{}", path, subdir)))
-                .into_iter()
-                .filter_map(Result::ok);
-            for item in walker {
-                match item.file_name().to_str() {
-                    Some(lib_file) => {
-                        // We link with all the libraries, but exclude the non-threaded Haskell RTS.
-                        if lib_file.starts_with("lib")
-                            && lib_file.ends_with(".a")
-                            && (!lib_file.starts_with("libHSrts") || lib_file.contains("_thr"))
-                        {
-                            println!(
-                                "cargo:rustc-link-lib=static={}",
-                                &lib_file[3..lib_file.len() - 2]
-                            );
-                        }
-                    }
-                    _ => panic!("Unable to link ghc libs"),
-                }
-            }
-        });
-
-    println!(
-        "cargo:rustc-link-search=native={}/deps/static-libs/linux/rust",
-        out_dir
-    );
-    println!("cargo:rustc-link-lib=static=Rcrypto");
-    println!("cargo:rustc-link-lib=static=concordium_smart_contract_engine");
-
-    println!("cargo:rustc-link-lib=dylib=gmp");
-
-    Ok(())
-}
-
-#[cfg(all(not(feature = "static"), not(windows)))]
-fn ghc_variant(stack_install_lib: &Path) -> std::io::Result<std::path::PathBuf> {
-    // Find the first subdirectory of <stack_install_lib> whose filename has
-    // GHC_VARIANT as a prefix.
-    let mut ghc_variant_dir: Option<std::path::PathBuf> = None;
-    for entry in std::fs::read_dir(stack_install_lib)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue; // Skip files, we are looking for directories
-        }
-        let file_name = entry.file_name();
-        let file_name_str = file_name.to_string_lossy();
-        if file_name_str.starts_with(GHC_VARIANT) {
-            ghc_variant_dir = Some(entry.path());
-            break;
-        }
-    }
-    match ghc_variant_dir {
-        Some(path) => Ok(path),
-        None => {
-            eprintln!(
-                "No subdirectory in {:?} with prefix {}",
-                stack_install_lib, GHC_VARIANT
-            );
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "GHC_VARIANT directory not found",
-            ))
-        }
+        .into()
     }
 }
