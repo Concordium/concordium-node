@@ -1,5 +1,6 @@
 use crate::key_value_state;
 use crate::token_module::TokenModuleStateInvariantError;
+use concordium_base::base::AccountIndex;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, RawCbor, TokenModuleAccountState, TokenModuleState,
@@ -63,7 +64,7 @@ fn query_token_module_state_impl<TK: TokenKernelQueries>(
 /// Get the CBOR-encoded representation of the token module account state.
 pub fn query_token_module_account_state<TK: TokenKernelQueries>(
     kernel: &TK,
-    account: &TK::AccountWithAddress,
+    account: AccountIndex,
 ) -> RawCbor {
     let state = query_token_module_account_state_impl(kernel, account);
     RawCbor::from(cbor::cbor_encode(&state))
@@ -71,7 +72,7 @@ pub fn query_token_module_account_state<TK: TokenKernelQueries>(
 
 fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
     kernel: &TK,
-    account: &TK::AccountWithAddress,
+    account: AccountIndex,
 ) -> TokenModuleAccountState {
     let has_allow_list = key_value_state::has_allow_list(kernel);
     let allow_list = if has_allow_list {
