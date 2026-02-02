@@ -170,7 +170,11 @@ extern "C" fn ffi_execute_transaction(
     // shrink Vec should that we know capacity and length are equal (this is important when we later free with free_array_len_2)
     return_data.shrink_to_fit();
     // todo now we assert that capacity is equals to the length, but we should address that this may not be the case in a better way, see https://linear.app/concordium/issue/COR-2181/address-potentially-unsafe-behaviour-cased-by-using-shrink-to-fit
-    assert_eq!(return_data.capacity(), return_data.len());
+    assert_eq!(
+        return_data.capacity(),
+        return_data.len(),
+        "vec capacity not equal to length after call to shrink_to_fit"
+    );
     unsafe {
         *return_data_len_out = return_data.len() as size_t;
         *return_data_out = return_data.as_mut_ptr();
