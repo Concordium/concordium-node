@@ -7,7 +7,7 @@ use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::RawTokenAmount;
 
 pub type TokenStateKey = Vec<u8>;
 pub type TokenStateValue = Vec<u8>;

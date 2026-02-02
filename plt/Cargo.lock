@@ -1055,6 +1055,7 @@ version = "0.1.0"
 dependencies = [
  "assert_matches",
  "concordium_base",
+ "hex",
  "libc",
  "plt-scheduler-interface",
  "plt-token-module",
@@ -1087,6 +1088,7 @@ name = "plt-types"
 version = "0.1.0"
 dependencies = [
  "concordium_base",
+ "hex",
 ]
 
 [[package]]

@@ -50,7 +50,13 @@ impl BlockStateExternal for BlockStateCallbacks {
 /// - `sender_account_address` The account address of the account which signed as the sender of the transaction.
 /// - `remaining_energy` The remaining energy at the start of the execution.
 /// - `block_state_out` Location for writing the pointer of the updated block state.
+///   The block state is only written if return value is `0`.
+///   The caller must free the written block state using `ffi_free_plt_block_state` when it is no longer used.
 /// - `used_energy_out` Location for writing the energy used by the execution.
+/// - `return_data_out` Location for writing pointer to array containing return data, which is either serialized events or reject reason.
+///   If the return value is `0`, the data is a list of block item events. If the return value is `1`, it is a transaction reject reason.
+///   The caller must free the written block state using `free_array_len_2` when it is no longer used.    
+/// - `return_data_len_out` Location for writing the length of the array whose pointer was written to `return_data_out`.
 ///
 /// # Safety
 ///
@@ -59,6 +65,8 @@ impl BlockStateExternal for BlockStateCallbacks {
 /// - Argument `sender_account_address` must be non-null and valid for reads for 32 bytes.
 /// - Argument `block_state_out` must be a non-null and valid pointer for writing
 /// - Argument `used_energy_out` must be a non-null and valid pointer for writing
+/// - Argument `return_data_out` must be a non-null and valid pointer for writing
+/// - Argument `return_data_len_out` must be a non-null and valid pointer for writing
 #[unsafe(no_mangle)]
 extern "C" fn ffi_execute_transaction(
     load_callback: LoadCallback,
@@ -75,6 +83,8 @@ extern "C" fn ffi_execute_transaction(
     remaining_energy: u64,
     block_state_out: *mut *const PltBlockStateSavepoint,
     used_energy_out: *mut u64,
+    return_data_out: *mut *const u8,
+    return_data_len_out: *mut size_t,
 ) -> u8 {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     assert!(!payload.is_null(), "payload is a null pointer.");
@@ -89,6 +99,14 @@ extern "C" fn ffi_execute_transaction(
     assert!(
         !sender_account_address.is_null(),
         "sender_account_address is a null pointer."
+    );
+    assert!(
+        !return_data_len_out.is_null(),
+        "return_data_len_out is a null pointer."
+    );
+    assert!(
+        !return_data_out.is_null(),
+        "return_data_out is a null pointer."
     );
 
     let mut block_state = ExecutionTimePltBlockState::<_, BlockStateCallbacks> {
@@ -135,15 +153,26 @@ extern "C" fn ffi_execute_transaction(
         *used_energy_out = summary.energy_used.energy;
     }
 
-    match summary.outcome {
-        // todo marshal reject reasons and events as part of https://linear.app/concordium/issue/PSR-44/implement-serialization-and-returning-events-and-reject-reasons
-        TransactionOutcome::Success(_events) => {
+    let (return_status, mut return_data) = match summary.outcome {
+        TransactionOutcome::Success(events) => {
             unsafe {
                 *block_state_out =
                     Box::into_raw(Box::new(block_state.inner_block_state.savepoint()));
             }
-            0
+            (0, common::to_bytes(&events))
         }
-        TransactionOutcome::Rejected(_reject_reason) => 1,
+        TransactionOutcome::Rejected(reject_reason) => (1, common::to_bytes(&reject_reason)),
+    };
+
+    // shrink Vec should that we know capacity and length are equal (this is important when we later free with free_array_len_2)
+    return_data.shrink_to_fit();
+    // todo now we assert that capacity is equals to the length, but we should address that this may not be the case in a better way, see https://linear.app/concordium/issue/COR-2181/address-potentially-unsafe-behaviour-cased-by-using-shrink-to-fit
+    assert_eq!(return_data.capacity(), return_data.len());
+    unsafe {
+        *return_data_len_out = return_data.len() as size_t;
+        *return_data_out = return_data.as_mut_ptr();
     }
+    std::mem::forget(return_data);
+
+    return_status
 }
