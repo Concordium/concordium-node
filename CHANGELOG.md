@@ -2,6 +2,11 @@
 
 ## Unreleased changes
 
+# 10.0.5
+
+- Disable administrative gRPC endpoints by default. These can be enabled by specifying a
+  `CONCORDIUM_NODE_GRPC2_ENDPOINT_CONFIG` that enables them explicitly.
+
 # 10.0.4
 
 - Add recovery from corrupted databases that may be created when protocol updates are executed
@@ -359,7 +364,7 @@
   earliest time at which the node projects that the baker could be required to bake a block.
 - Add endpoint `GetFirstBlockEpoch` to GRPCV2 API. It returns the block hash of the first block in
   a given epoch.
-- Add endpoint `GitWinningBakersEpoch` to GRPCV2 API. It returns a list of the bakers that won
+- Add endpoint `GetWinningBakersEpoch` to GRPCV2 API. It returns a list of the bakers that won
   rounds in a specified (finalized) epoch. This only supports consensus version 1.
 - Fix a bug in how the last timeout certificate is recovered at start-up.
 - Fix the behaviour of the block last finalized pointer in the `GetBlockInfo` so that it
