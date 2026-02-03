@@ -373,7 +373,7 @@ verifyNormalTransaction meta =
 --  This function verifies the following:
 --  * Checks that enough energy is supplied for the transaction.
 --  * Checks that if a sponsor is specified, a sponsor signature is present as well.
---  * CHecks that if no sponsor is specified, no sponsor signature is present.
+--  * Checks that if no sponsor is specified, no sponsor signature is present.
 --  * Checks that the sender is a valid account.
 --  * Checks that the sponsor is a valid account, if present.
 --  * Checks that the nonce is correct.

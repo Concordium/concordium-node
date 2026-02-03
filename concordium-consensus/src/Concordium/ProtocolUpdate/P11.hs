@@ -1,7 +1,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Concordium.ProtocolUpdate.P10 (
+module Concordium.ProtocolUpdate.P11 (
     Update (..),
     checkUpdate,
     updateRegenesis,
@@ -22,22 +22,15 @@ import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
 import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
-import qualified Concordium.ProtocolUpdate.P10.ProtocolP11 as ProtocolP11
-import qualified Concordium.ProtocolUpdate.P10.Reboot as Reboot
+import qualified Concordium.ProtocolUpdate.P11.Reboot as Reboot
 
--- | Updates that are supported from protocol version P10.
-data Update
-    = Reboot
-    | ProtocolP11
+-- | Updates that are supported from protocol version P11.
+data Update = Reboot
     deriving (Show)
 
 -- | Hash map for resolving updates from their specification hash.
 updates :: HM.HashMap SHA256.Hash (Get Update)
-updates =
-    HM.fromList
-        [ (Reboot.updateHash, return Reboot),
-          (ProtocolP11.updateHash, return ProtocolP11)
-        ]
+updates = HM.fromList [(Reboot.updateHash, return Reboot)]
 
 -- | Determine if a 'ProtocolUpdate' corresponds to a supported update type.
 checkUpdate :: ProtocolUpdate -> Either String Update
@@ -47,9 +40,9 @@ checkUpdate ProtocolUpdate{..} = case HM.lookup puSpecificationHash updates of
         Left err -> Left $! "Could not deserialize auxiliary data: " ++ err
         Right update -> return update
 
--- | Construct the genesis data for a P10 update.
+-- | Construct the genesis data for a P11 update.
 updateRegenesis ::
-    ( MPV m ~ 'P10,
+    ( MPV m ~ 'P11,
       BlockStateStorage m,
       MonadState (SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
@@ -60,11 +53,9 @@ updateRegenesis ::
     BlockPointer (MPV m) ->
     m (PVInit m)
 updateRegenesis Reboot = Reboot.updateRegenesis
-updateRegenesis ProtocolP11 = ProtocolP11.updateRegenesis
 
 -- | Determine the protocol version the update will update to.
 updateNextProtocolVersion ::
     Update ->
     SomeProtocolVersion
-updateNextProtocolVersion Reboot{} = SomeProtocolVersion SP10
-updateNextProtocolVersion ProtocolP11{} = SomeProtocolVersion SP11
+updateNextProtocolVersion Reboot{} = SomeProtocolVersion SP11
