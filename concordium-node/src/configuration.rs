@@ -41,7 +41,7 @@ pub(crate) fn is_compatible_wire_version(
 ) -> Option<WireProtocolVersion> {
     WIRE_PROTOCOL_VERSIONS
         .iter()
-        .find(|&&ours| other.iter().any(|&theirs| theirs == ours))
+        .find(|&&ours| other.contains(&ours))
         .copied()
 }
 

@@ -270,6 +270,16 @@ jobs:
         id: digicert_client
         uses: digicert/code-signing-software-trust-action@v1.0.0
 
+      - name: Add signtool to PATH
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" | 
+                      Where-Object { $_.DirectoryName -like "*\x64" } | 
+                      Select-Object -First 1
+          $signtoolPath = $signtool.DirectoryName
+          Add-Content -Path $env:GITHUB_PATH -Value $signtool.DirectoryName
+          $env:PATH = "$($signtool.DirectoryName);$env:PATH"
+
       - name: Import Windows certificate (Windows only)
         id: windows_certificate
         env:
@@ -732,7 +742,7 @@ jobs:
 
       - name: Upload artifact
         run: |
-          aws s3api put-object --bucket=${{ env.S3_BUCKET }} --key=${{ env.S3_DIR }}/${{ env.S3_FILENAME }} --body=/tmp/${{ env.S3_FILENAME }} --if-none-match='*'
+          aws s3api put-object --acl public-read --bucket=${{ env.S3_BUCKET }} --key=${{ env.S3_DIR }}/${{ env.S3_FILENAME }} --body=/tmp/${{ env.S3_FILENAME }} --if-none-match='*'
 
   docker_publish:
     runs-on: ubuntu-latest

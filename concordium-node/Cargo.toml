@@ -1,6 +1,6 @@
 [package]
 name = "concordium_node"
-version = "10.0.0" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
+version = "10.0.3" # must be kept in sync with 'is_compatible_version' in 'src/configuration.rs'
 description = "Concordium Node"
 authors = ["Concordium <developers@concordium.com>"]
 exclude = [".gitignore", ".gitlab-ci.yml", "test/**/*","**/**/.gitignore","**/**/.gitlab-ci.yml"]
@@ -68,7 +68,7 @@ mime = { version = "0.3" }
 gotham = { version = "0.7" }
 gotham_derive = { version = "0.7" }
 # Disable default features of prometheus to disable the unneeded protobuf encoder.
-prometheus = { version = "0.13", default-features = false, features = ["push"] }
+prometheus = { version = "0.14", default-features = false, features = ["push"] }
 http = { version = "0.2" }
 hyper = { version = "0.14" }
 serde_json = { version = "1" }

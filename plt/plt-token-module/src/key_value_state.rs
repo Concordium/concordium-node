@@ -4,7 +4,7 @@ use crate::token_module::TokenModuleStateInvariantError;
 use crate::util;
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::MetadataUrl;
-use concordium_base::{base::AccountIndex, common::to_bytes};
+use concordium_base::{base::AccountIndex, common::Serial};
 use plt_scheduler_interface::token_kernel_interface::{
     TokenKernelOperations, TokenKernelQueries, TokenStateKey, TokenStateValue,
 };
@@ -70,8 +70,8 @@ fn module_state_key(key: &[u8]) -> TokenStateKey {
 fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
     let mut account_key =
         Vec::with_capacity(ACCOUNT_STATE_PREFIX.len() + size_of::<AccountIndex>() + key.len());
-    account_key.extend_from_slice(&MODULE_STATE_PREFIX);
-    account_key.extend_from_slice(&to_bytes(&account_index));
+    account_key.extend_from_slice(&ACCOUNT_STATE_PREFIX);
+    account_index.serial(&mut account_key);
     account_key.extend_from_slice(key);
     account_key
 }
@@ -170,7 +170,7 @@ pub fn set_allow_list_for<TK: TokenKernelOperations>(
     account: AccountIndex,
     value: bool,
 ) {
-    let state_value = if value { Some(vec![]) } else { None };
+    let state_value = value.then_some(vec![]);
     kernel.set_account_state(account, STATE_KEY_ALLOW_LIST, state_value)
 }
 
@@ -200,5 +200,12 @@ mod test {
     fn test_module_state_key() {
         let key = module_state_key(&[1, 2, 3]);
         assert_eq!(key, vec![0, 0, 1, 2, 3]);
+    }
+
+    /// Test that the account state key is formed correctly
+    #[test]
+    fn test_account_state_key() {
+        let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
+        assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
     }
 }

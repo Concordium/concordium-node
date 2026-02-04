@@ -2,11 +2,30 @@
 
 ## Unreleased changes
 
+- Preliminary support for protocol version P11.
+ 
+# 10.0.3
+
+- Fix another bug in protocol update state migration that incorrectly migrated PLT state.
+
+# 10.0.2
+
+- Fix a bug where a protocol update can be executed twice, resulting in a corrupted database.
+- Fix a bug in protocol update state migration that incorrectly migrated PLT state.
+- Fix a bug where transactions are not reported as committed when they appear in live blocks.
+
+## 10.0.1
+
+- Add P9 -> P10 protocol update.
+- Fix a bug where the transaction summary for a sponsored transaction with an
+  invalid payload incorrectly attributed the transaction fees to the sender and
+  omitted the sponsor.
+
 ## 10.0.0 (DevNet)
 
 - Updated the token module interface in accordance with adjustments to the PLT specification
   <https://proposals.concordium.com/CIS/cis-7.html>
-  where token name, metadata and governance account are now optional in the token module initialization parameterts and
+  where token name, metadata and governance account are now optional in the token module initialization parameters and
   the token module state. They are still required by the current token module implementation, and initialization
   without the parameters set will be rejected, so there are no observable changes to PLT behaviour.
 - Fixed the `build_catchup_url` in the Ubuntu build release pipeline.

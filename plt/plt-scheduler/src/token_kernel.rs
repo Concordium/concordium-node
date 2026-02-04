@@ -1,13 +1,12 @@
 //! Implementation of the protocol-level token kernel.
 
+use crate::block_state::types::TokenConfiguration;
 use crate::block_state_interface::{
-    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta, TokenConfiguration,
+    BlockStateOperations, BlockStateQuery, OverflowError, RawTokenAmountDelta,
 };
 use concordium_base::base::AccountIndex;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{
-    RawCbor, TokenAmount, TokenModuleCborTypeDiscriminator,
-};
+use concordium_base::protocol_level_tokens::{RawCbor, TokenModuleCborTypeDiscriminator};
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, AccountNotFoundByIndexError};
 use plt_scheduler_interface::token_kernel_interface::{
@@ -18,7 +17,7 @@ use plt_scheduler_interface::token_kernel_interface::{
 use plt_types::types::events::{
     BlockItemEvent, EncodedTokenModuleEvent, TokenBurnEvent, TokenMintEvent, TokenTransferEvent,
 };
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::{RawTokenAmount, TokenAmount};
 
 /// Implementation of token kernel queries with a specific token in context.
 pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
@@ -28,20 +27,6 @@ pub struct TokenKernelQueriesImpl<'a, BSQ: BlockStateQuery> {
     pub token: &'a BSQ::Token,
     /// Token module state for the token in context
     pub token_module_state: &'a BSQ::TokenKeyValueState,
-}
-
-impl<'a, BSQ: BlockStateQuery> TokenKernelQueriesImpl<'a, BSQ> {
-    /// Convert the account type from a [`BlockStateQuery::Account`] to a
-    /// [`AccountWithCanonicalAddress`] containing the [`TokenKernelQueries::AccountWithAddress`].
-    pub fn account_from_block_state_account(
-        &self,
-        account: &BSQ::Account,
-    ) -> AccountWithCanonicalAddress<<Self as TokenKernelQueries>::AccountWithAddress> {
-        let account_index = self.block_state.account_index(account);
-        // the account exists in BSQ, and thus must also exist in the token kernel.
-        self.account_by_index(account_index)
-            .expect("The account exists")
-    }
 }
 
 impl<BSQ: BlockStateQuery> TokenKernelQueries for TokenKernelQueriesImpl<'_, BSQ> {
@@ -150,10 +135,10 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         let event = BlockItemEvent::TokenMint(TokenMintEvent {
             token_id: self.token_configuration.token_id.clone(),
             target: account.1,
-            amount: TokenAmount::from_raw(
-                amount.0,
-                self.block_state.token_configuration(self.token).decimals,
-            ),
+            amount: TokenAmount {
+                amount,
+                decimals: self.block_state.token_configuration(self.token).decimals,
+            },
         });
 
         self.events.push(event);
@@ -193,10 +178,10 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
         let event = BlockItemEvent::TokenBurn(TokenBurnEvent {
             token_id: self.token_configuration.token_id.clone(),
             target: account.1,
-            amount: TokenAmount::from_raw(
-                amount.0,
-                self.block_state.token_configuration(self.token).decimals,
-            ),
+            amount: TokenAmount {
+                amount,
+                decimals: self.block_state.token_configuration(self.token).decimals,
+            },
         });
 
         self.events.push(event);
@@ -237,10 +222,10 @@ impl<BSO: BlockStateOperations> TokenKernelOperations for TokenKernelOperationsI
             token_id: self.token_configuration.token_id.clone(),
             from: from.1,
             to: to.1,
-            amount: TokenAmount::from_raw(
-                amount.0,
-                self.block_state.token_configuration(self.token).decimals,
-            ),
+            amount: TokenAmount {
+                amount,
+                decimals: self.block_state.token_configuration(self.token).decimals,
+            },
             memo,
         });
 

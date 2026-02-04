@@ -53,6 +53,7 @@ import Concordium.Genesis.Data hiding (GenesisConfiguration)
 import qualified Concordium.Genesis.Data.Base as Base
 import Concordium.Genesis.Data.BaseV1
 import Concordium.Genesis.Data.P10
+import Concordium.Genesis.Data.P11
 import Concordium.Genesis.Data.P6
 import Concordium.Genesis.Data.P7
 import Concordium.Genesis.Data.P8
@@ -291,6 +292,12 @@ makeTestingGenesisData idps =
             SP10 ->
                 GDP10
                     GDP10Initial
+                        { genesisCore = coreGenesisParams,
+                          genesisInitialState = Base.GenesisState{..}
+                        }
+            SP11 ->
+                GDP11
+                    GDP11Initial
                         { genesisCore = coreGenesisParams,
                           genesisInitialState = Base.GenesisState{..}
                         }

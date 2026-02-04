@@ -16,8 +16,8 @@ use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler;
 use plt_types::types::events::BlockItemEvent;
 use plt_types::types::execution::TransactionOutcome;
-use plt_types::types::primitives::RawTokenAmount;
 use plt_types::types::reject_reasons::TransactionRejectReason;
+use plt_types::types::tokens::RawTokenAmount;
 
 mod block_state_stub;
 mod utils;
@@ -76,7 +76,8 @@ fn test_plt_transfer() {
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
-        assert_eq!(transfer.amount, TokenAmount::from_raw(3000, 4));
+        assert_eq!(transfer.amount.amount, RawTokenAmount(3000));
+        assert_eq!(transfer.amount.decimals, 4);
         assert_eq!(transfer.from, stub.account_canonical_address(&gov_account));
         assert_eq!(transfer.to, stub.account_canonical_address(&account2));
         assert_eq!(transfer.memo, None);
@@ -122,7 +123,8 @@ fn test_plt_transfer() {
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
-        assert_eq!(transfer.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
+        assert_eq!(transfer.amount.decimals, 4);
         assert_eq!(transfer.from, stub.account_canonical_address(&account2));
         assert_eq!(transfer.to, stub.account_canonical_address(&account3));
         assert_eq!(transfer.memo, Some(memo));
@@ -187,7 +189,8 @@ fn test_plt_transfer_using_aliases() {
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
-        assert_eq!(transfer.amount, TokenAmount::from_raw(3000, 4));
+        assert_eq!(transfer.amount.amount, RawTokenAmount(3000));
+        assert_eq!(transfer.amount.decimals, 4);
         assert_eq!(transfer.from, gov_account_address_alias);
         assert_eq!(transfer.to, account2_alias_address);
         assert_eq!(transfer.memo, None);
@@ -284,7 +287,8 @@ fn test_plt_mint() {
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(mint.amount.amount, RawTokenAmount(1000));
+        assert_eq!(mint.amount.decimals, 4);
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
     });
 }
@@ -333,7 +337,8 @@ fn test_plt_mint_using_alias() {
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(mint.amount.amount, RawTokenAmount(1000));
+        assert_eq!(mint.amount.decimals, 4);
         assert_eq!(mint.target, gov_account_address_alias);
     });
 }
@@ -476,7 +481,8 @@ fn test_plt_burn() {
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenBurn(burn) => {
         assert_eq!(burn.token_id, token_id);
-        assert_eq!(burn.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(burn.amount.amount, RawTokenAmount(1000));
+        assert_eq!(burn.amount.decimals, 4);
         assert_eq!(burn.target, stub.account_canonical_address(&gov_account));
     });
 }
@@ -529,7 +535,8 @@ fn test_plt_burn_using_alias() {
     assert_eq!(events.len(), 1);
     assert_matches!(&events[0], BlockItemEvent::TokenBurn(burn) => {
         assert_eq!(burn.token_id, token_id);
-        assert_eq!(burn.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(burn.amount.amount, RawTokenAmount(1000));
+        assert_eq!(burn.amount.decimals, 4);
         assert_eq!(burn.target, gov_account_address_alias);
     });
 }
@@ -629,12 +636,14 @@ fn test_plt_multiple_operations() {
     assert_eq!(events.len(), 2);
     assert_matches!(&events[0], BlockItemEvent::TokenMint(mint) => {
         assert_eq!(mint.token_id, token_id);
-        assert_eq!(mint.amount, TokenAmount::from_raw(3000, 4));
+        assert_eq!(mint.amount.amount, RawTokenAmount(3000));
+        assert_eq!(mint.amount.decimals, 4);
         assert_eq!(mint.target, stub.account_canonical_address(&gov_account));
     });
     assert_matches!(&events[1], BlockItemEvent::TokenTransfer(transfer) => {
         assert_eq!(transfer.token_id, token_id);
-        assert_eq!(transfer.amount, TokenAmount::from_raw(1000, 4));
+        assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
+        assert_eq!(transfer.amount.decimals, 4);
         assert_eq!(transfer.from, stub.account_canonical_address(&gov_account));
         assert_eq!(transfer.to, stub.account_canonical_address(&account2));
         assert_eq!(transfer.memo, None);

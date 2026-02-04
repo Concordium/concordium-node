@@ -15,6 +15,8 @@ import Control.Arrow
 import Control.Monad
 import qualified Data.Map.Strict as Map
 
+import qualified Concordium.Crypto.SHA256 as Hash
+import Concordium.Genesis.Data
 import Concordium.ID.Parameters
 import Concordium.ID.Types
 import Concordium.Types
@@ -22,11 +24,10 @@ import Concordium.Types.Accounts
 import Concordium.Types.Accounts.Releases
 import Concordium.Types.Execution
 import Concordium.Types.HashableTo
+import Concordium.Types.Migration
 import Concordium.Types.Parameters
 import Concordium.Types.Tokens (TokenRawAmount)
 
-import qualified Concordium.Crypto.SHA256 as Hash
-import Concordium.Genesis.Data
 import Concordium.GlobalState.Account
 import Concordium.GlobalState.BakerInfo
 import qualified Concordium.GlobalState.Basic.BlockState.Account as Transient
@@ -851,44 +852,40 @@ migratePersistentAccount ::
     StateMigrationParameters oldpv pv ->
     PersistentAccount (AccountVersionFor oldpv) ->
     t m (PersistentAccount (AccountVersionFor pv))
-migratePersistentAccount m@StateMigrationParametersTrivial (PAV0 acc) = PAV0 <$> V0.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersTrivial (PAV1 acc) = PAV1 <$> V0.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersTrivial (PAV2 acc) = PAV2 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersTrivial (PAV3 acc) = PAV3 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersTrivial (PAV4 acc) = PAV4 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersTrivial (PAV5 acc) = PAV5 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersP1P2 (PAV0 acc) = PAV0 <$> V0.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersP2P3 (PAV0 acc) = PAV0 <$> V0.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersP3ToP4{} (PAV0 acc) = PAV1 <$> V0.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersP4ToP5{} (PAV1 acc) = PAV2 <$> V1.migratePersistentAccountFromV0 m acc
-migratePersistentAccount m@StateMigrationParametersP5ToP6{} (PAV2 acc) = PAV2 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersP6ToP7{} (PAV2 acc) = PAV3 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersP7ToP8{} (PAV3 acc) = PAV4 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersP8ToP9{} (PAV4 acc) = PAV5 <$> V1.migratePersistentAccount m acc
-migratePersistentAccount m@StateMigrationParametersP9ToP10{} (PAV5 acc) = PAV5 <$> V1.migratePersistentAccount m acc
+migratePersistentAccount m = case accountTypeMigrationFor m of
+    AccountMigrationTrivial -> \case
+        PAV0 acc -> PAV0 <$> V0.migratePersistentAccount m acc
+        PAV1 acc -> PAV1 <$> V0.migratePersistentAccount m acc
+        PAV2 acc -> PAV2 <$> V1.migrateV2ToV2 acc
+        PAV3 acc -> PAV3 <$> V1.migrateV3ToV3 acc
+        PAV4 acc -> PAV4 <$> V1.migrateV4ToV4 acc
+        PAV5 acc -> PAV5 <$> V1.migrateV5ToV5 acc
+    AccountMigrationV0ToV1 -> \(PAV0 acc) -> PAV1 <$> V0.migratePersistentAccount m acc
+    AccountMigrationV1ToV2 -> \(PAV1 acc) -> PAV2 <$> V1.migratePersistentAccountFromV0 m acc
+    AccountMigrationV2ToV3 -> \(PAV2 acc) -> PAV3 <$> V1.migrateV2ToV3 acc
+    AccountMigrationV3ToV4 -> \(PAV3 acc) -> PAV4 <$> V1.migrateV3ToV4 acc
+    AccountMigrationV4ToV5 -> \(PAV4 acc) -> PAV5 <$> V1.migrateV4ToV5 acc
 
 -- | Migrate a 'PersistentBakerInfoRef' between protocol versions according to a state migration.
 migratePersistentBakerInfoRef ::
     forall oldpv pv t m.
-    (IsProtocolVersion pv, SupportMigration m t) =>
+    (IsProtocolVersion oldpv, IsProtocolVersion pv, SupportMigration m t) =>
     StateMigrationParameters oldpv pv ->
     PersistentBakerInfoRef (AccountVersionFor oldpv) ->
     t m (PersistentBakerInfoRef (AccountVersionFor pv))
-migratePersistentBakerInfoRef m@StateMigrationParametersTrivial (PBIRV0 bir) = PBIRV0 <$> V0.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersTrivial (PBIRV1 bir) = PBIRV1 <$> V0.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersTrivial (PBIRV2 bir) = PBIRV2 <$> V1.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersTrivial (PBIRV3 bir) = PBIRV3 <$> V1.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersTrivial (PBIRV4 bir) = PBIRV4 <$> V1.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersTrivial (PBIRV5 bir) = PBIRV5 <$> V1.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP1P2 (PBIRV0 bir) = PBIRV0 <$> V0.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP2P3 (PBIRV0 bir) = PBIRV0 <$> V0.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP3ToP4{} (PBIRV0 bir) = PBIRV1 <$> V0.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP4ToP5{} (PBIRV1 bir) = PBIRV2 <$> V1.migratePersistentBakerInfoExFromV0 m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP5ToP6{} (PBIRV2 bir) = PBIRV2 <$> V1.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP6ToP7{} (PBIRV2 bir) = PBIRV3 <$> V1.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP7ToP8{} (PBIRV3 bir) = PBIRV4 <$> V1.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP8ToP9{} (PBIRV4 bir) = PBIRV5 <$> V1.migratePersistentBakerInfoEx m bir
-migratePersistentBakerInfoRef m@StateMigrationParametersP9ToP10{} (PBIRV5 bir) = PBIRV5 <$> V1.migratePersistentBakerInfoEx m bir
+migratePersistentBakerInfoRef m = case accountTypeMigrationFor m of
+    AccountMigrationTrivial -> \case
+        PBIRV0 bir -> PBIRV0 <$> V0.migratePersistentBakerInfoEx m bir
+        PBIRV1 bir -> PBIRV1 <$> V0.migratePersistentBakerInfoEx m bir
+        PBIRV2 bir -> PBIRV2 <$> V1.migratePersistentBakerInfoEx m bir
+        PBIRV3 bir -> PBIRV3 <$> V1.migratePersistentBakerInfoEx m bir
+        PBIRV4 bir -> PBIRV4 <$> V1.migratePersistentBakerInfoEx m bir
+        PBIRV5 bir -> PBIRV5 <$> V1.migratePersistentBakerInfoEx m bir
+    AccountMigrationV0ToV1 -> \(PBIRV0 bir) -> PBIRV1 <$> V0.migratePersistentBakerInfoEx m bir
+    AccountMigrationV1ToV2 -> \(PBIRV1 bir) -> PBIRV2 <$> V1.migratePersistentBakerInfoExFromV0 m bir
+    AccountMigrationV2ToV3 -> \(PBIRV2 bir) -> PBIRV3 <$> V1.migratePersistentBakerInfoEx m bir
+    AccountMigrationV3ToV4 -> \(PBIRV3 bir) -> PBIRV4 <$> V1.migratePersistentBakerInfoEx m bir
+    AccountMigrationV4ToV5 -> \(PBIRV4 bir) -> PBIRV5 <$> V1.migratePersistentBakerInfoEx m bir
 
 -- * Conversion
 
