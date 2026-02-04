@@ -72,7 +72,7 @@ fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
     let mut account_key =
         Vec::with_capacity(ACCOUNT_STATE_PREFIX.len() + size_of::<AccountIndex>() + key.len());
     account_key.extend_from_slice(&MODULE_STATE_PREFIX);
-    account_key.extend_from_slice(&to_bytes(&account_index));
+    account_index.serial(&mut account_key);
     account_key.extend_from_slice(key);
     account_key
 }
@@ -166,7 +166,7 @@ pub fn set_allow_list_for<TK: TokenKernelOperations>(
     account: AccountIndex,
     value: bool,
 ) {
-    let state_value = if value { Some(vec![]) } else { None };
+    let state_value = value.then_some(vec![]);
     kernel.set_account_state(account, STATE_KEY_ALLOW_LIST, state_value)
 }
 
