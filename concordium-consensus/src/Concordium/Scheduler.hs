@@ -37,7 +37,8 @@ module Concordium.Scheduler (
     filterTransactions,
     runTransactions,
     execTransactions,
-    CheckHeaderResult (..),
+    CheckHeaderResult,
+    CheckHeaderResult' (..),
     dispatchTransactionBody,
     handleContractUpdateV1,
     handleContractUpdateV0,
@@ -113,15 +114,19 @@ import Data.Either (isLeft)
 import Data.Proxy
 import Prelude hiding (exp, mod)
 
-data CheckHeaderResult m = CheckHeaderResult
+-- | The result type of 'checkHeader', parametrised by the account type.
+data CheckHeaderResult' acct = CheckHeaderResult
     { -- | The sender account for the transaction.
-      chrSenderAccount :: !(IndexedAccount m),
+      chrSenderAccount :: !acct,
       -- | The account that is paying the transaction fees for the transaction.
       --  For a sponsored transaction, this is the sponsor. Otherwise, it is the sender.
-      chrPayerAccount :: !(IndexedAccount m),
+      chrPayerAccount :: !acct,
       -- | The energy cost to charge for checking the header.
       chrCheckHeaderCost :: !Energy
     }
+
+-- | The result type of 'checkHeader', parameterised by the monad.
+type CheckHeaderResult m = CheckHeaderResult' (IndexedAccount m)
 
 -- | The function asserts the following
 --   * if the transaction is an 'AccountTransactionV1', then the protocol version supports sponsored transactions.
@@ -329,13 +334,22 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
             -- exists on the account with 'checkHeader'.
             payment <- energyToGtu chrCheckHeaderCost
             chargeExecutionCost chrPayerAccount payment
+            let (tsCost, sponsorDetails) = case transactionSponsor msg of
+                    Just sponsorAddress ->
+                        ( 0,
+                          Just $
+                            SponsorDetails
+                                { sdSponsor = sponsorAddress,
+                                  sdCost = payment
+                                }
+                        )
+                    Nothing -> (payment, Nothing)
             return $
                 Just $
                     TransactionSummary
                         { tsEnergyCost = chrCheckHeaderCost,
-                          tsCost = payment,
                           tsSender = Just (thSender meta), -- the sender of the transaction is as specified in the transaction.
-                          tsSponsorDetails = conditionally cHasSponsorDetails Nothing,
+                          tsSponsorDetails = conditionally cHasSponsorDetails sponsorDetails,
                           tsResult = transactionReject SerializationFailure,
                           tsHash = transactionHash msg,
                           tsType = TSTAccountTransaction Nothing,
@@ -1285,18 +1299,11 @@ handleContractUpdateV1 depth originAddr istance checkAndGetSender transferAmount
                                             Nothing -> do
                                                 -- In protocol version 4 we did not emit the interrupt event in this failing case.
                                                 -- That was a mistake which is fixed in P5.
-                                                let newEvents =
-                                                        case demoteProtocolVersion (protocolVersion @(MPV m)) of
-                                                            P1 -> events
-                                                            P2 -> events
-                                                            P3 -> events
-                                                            P4 -> events
-                                                            P5 -> resumeEvent False : interruptEvent : events
-                                                            P6 -> resumeEvent False : interruptEvent : events
-                                                            P7 -> resumeEvent False : interruptEvent : events
-                                                            P8 -> resumeEvent False : interruptEvent : events
-                                                            P9 -> resumeEvent False : interruptEvent : events
-                                                            P10 -> resumeEvent False : interruptEvent : events
+                                                let newEvents
+                                                        | demoteProtocolVersion (protocolVersion @(MPV m)) < P5 =
+                                                            events
+                                                        | otherwise =
+                                                            resumeEvent False : interruptEvent : events
                                                 go newEvents =<< runInterpreter (return . WasmV1.resumeReceiveFun rrdInterruptedConfig rrdCurrentState False entryBalance (WasmV1.Error (WasmV1.EnvFailure (WasmV1.MissingContract imcTo))) Nothing)
                                             Just (InstanceInfoV0 targetInstance) -> do
                                                 -- we are invoking a V0 instance.

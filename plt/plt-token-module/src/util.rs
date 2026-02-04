@@ -7,7 +7,7 @@ use concordium_base::common::cbor::{
 };
 use concordium_base::protocol_level_tokens::TokenAmount;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
-use plt_types::types::primitives::RawTokenAmount;
+use plt_types::types::tokens::RawTokenAmount;
 
 /// Checks that token amount has the right number of decimals and converts it to a plain
 /// integer and return [`RawTokenAmount`]

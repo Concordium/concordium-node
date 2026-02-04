@@ -439,7 +439,17 @@ migrateProtocolLevelTokens ProtocolLevelTokens{..} = do
   where
     migratePLT PLT{..} = do
         newConfig <- migrateHashedBufferedRefKeepHash _pltConfiguration
-        return PLT{_pltConfiguration = newConfig, ..}
+        (oldLoadCallback, _) <- lift getCallbacks
+        (_, newStoreCallback) <- getCallbacks
+        newState <-
+            liftIO $
+                StateV1.migratePersistentState oldLoadCallback newStoreCallback _pltState
+        return
+            PLT
+                { _pltConfiguration = newConfig,
+                  _pltState = newState,
+                  _pltCirculatingSupply = _pltCirculatingSupply
+                }
 
 -- | Migrate 'ProtocolLevelTokensForPV'. Where the old protocol version did not support PLTs, and
 --  the new protocol version does, this initializes the empty 'ProtocolLevelTokens'. Otherwise,
