@@ -180,7 +180,7 @@ pub fn execute_token_update_transaction<
                         OperationNotPermittedRejectReason {
                             index: index as u64,
                             address: account_address.map(Into::into),
-                            reason: reason.into(),
+                            reason: reason.to_string().into(),
                         },
                     ),
                 )),
@@ -233,7 +233,7 @@ enum TokenUpdateErrorInternal {
     #[error("Operation not permitted: {reason}")]
     OperationNotPermitted {
         account_address: Option<AccountAddress>,
-        reason: String,
+        reason: &'static str,
     },
 }
 
@@ -338,7 +338,7 @@ fn check_authorized<
     if !authorized {
         return Err(TokenUpdateErrorInternal::OperationNotPermitted {
             account_address: Some(transaction_execution.sender_account_address()),
-            reason: "sender is not the token governance account".to_string(),
+            reason: "sender is not the token governance account",
         });
     }
     Ok(())
@@ -365,13 +365,13 @@ fn execute_token_transfer<
         if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
-                reason: "sender not in allow list".to_string(),
+                reason: "sender not in allow list",
             });
         }
         if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&receiver)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
-                reason: "recipient not in allow list".to_string(),
+                reason: "recipient not in allow list",
             });
         }
     }
@@ -380,13 +380,13 @@ fn execute_token_transfer<
         if key_value_state::get_deny_list_for(kernel, kernel.account_index(&sender)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(sender_address),
-                reason: "sender in deny list".to_string(),
+                reason: "sender in deny list",
             });
         }
         if key_value_state::get_deny_list_for(kernel, kernel.account_index(&receiver)) {
             return Err(TokenUpdateErrorInternal::OperationNotPermitted {
                 account_address: Some(transfer_operation.recipient.address),
-                reason: "recipient in deny list".to_string(),
+                reason: "recipient in deny list",
             });
         }
     }

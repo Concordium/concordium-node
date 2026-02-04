@@ -153,7 +153,7 @@ pub fn get_governance_account_index(
 
 /// Sets the puased state of the token module.
 pub fn set_paused<TK: TokenKernelOperations>(kernel: &mut TK, value: bool) {
-    let state_value = if value { Some(vec![]) } else { None };
+    let state_value = value.then_some(vec![]);
     kernel.set_module_state(STATE_KEY_PAUSED, state_value)
 }
 
@@ -187,7 +187,7 @@ pub fn set_deny_list_for<TK: TokenKernelOperations>(
     account: AccountIndex,
     value: bool,
 ) {
-    let state_value = if value { Some(vec![]) } else { None };
+    let state_value = value.then_some(vec![]);
     kernel.set_account_state(account, STATE_KEY_DENY_LIST, state_value)
 }
 
