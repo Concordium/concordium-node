@@ -2,15 +2,17 @@
 
 use crate::token_module::TokenModuleStateInvariantError;
 use crate::util;
-use concordium_base::base::AccountIndex;
 use concordium_base::common;
 use concordium_base::protocol_level_tokens::MetadataUrl;
+use concordium_base::{base::AccountIndex, common::Serial};
 use plt_scheduler_interface::token_kernel_interface::{
     TokenKernelOperations, TokenKernelQueries, TokenStateKey, TokenStateValue,
 };
 
 /// Little-endian prefix used to distinguish module state keys.
 const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
+/// Little-endian prefix used to distinguish account state keys.
+const ACCOUNT_STATE_PREFIX: [u8; 2] = 40307u16.to_le_bytes();
 
 pub const STATE_KEY_NAME: &[u8] = b"name";
 pub const STATE_KEY_METADATA: &[u8] = b"metadata";
@@ -28,6 +30,16 @@ pub trait KernelOperationsExt: TokenKernelOperations {
     fn set_module_state(&mut self, key: &[u8], value: Option<TokenStateValue>) {
         self.set_token_state_value(module_state_key(key), value);
     }
+
+    #[allow(dead_code)] // TODO: remove as part of PSR-24
+    fn set_account_state(
+        &mut self,
+        account: AccountIndex,
+        key: &[u8],
+        value: Option<TokenStateValue>,
+    ) {
+        self.set_token_state_value(account_state_key(account, key), value);
+    }
 }
 
 impl<T: TokenKernelOperations> KernelOperationsExt for T {}
@@ -38,6 +50,10 @@ pub trait KernelQueriesExt: TokenKernelQueries {
     /// Get value from the token module state at the given key.
     fn get_module_state(&self, key: &[u8]) -> Option<TokenStateValue> {
         self.lookup_token_state_value(module_state_key(key))
+    }
+
+    fn get_account_state(&self, account: AccountIndex, key: &[u8]) -> Option<TokenStateValue> {
+        self.lookup_token_state_value(account_state_key(account, key))
     }
 }
 
@@ -50,6 +66,15 @@ fn module_state_key(key: &[u8]) -> TokenStateKey {
     module_key.extend_from_slice(&MODULE_STATE_PREFIX);
     module_key.extend_from_slice(key);
     module_key
+}
+
+fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
+    let mut account_key =
+        Vec::with_capacity(ACCOUNT_STATE_PREFIX.len() + size_of::<AccountIndex>() + key.len());
+    account_key.extend_from_slice(&ACCOUNT_STATE_PREFIX);
+    account_index.serial(&mut account_key);
+    account_key.extend_from_slice(key);
+    account_key
 }
 
 /// Get whether the balance-affecting operations on the token are currently
@@ -127,6 +152,42 @@ pub fn get_governance_account_index(
     Ok(governance_account_index)
 }
 
+/// Get the allow-list state for the account at the given account.
+pub fn get_allow_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIndex) -> bool {
+    kernel
+        .get_account_state(account, STATE_KEY_ALLOW_LIST)
+        .is_some()
+}
+
+/// Set the allow-list state for the account at the given account.
+#[allow(dead_code)] // TODO: remove as part of PSR-24
+pub fn set_allow_list_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: AccountIndex,
+    value: bool,
+) {
+    let state_value = value.then_some(vec![]);
+    kernel.set_account_state(account, STATE_KEY_ALLOW_LIST, state_value)
+}
+
+/// Get the deny-list state for the account at the given account.
+pub fn get_deny_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIndex) -> bool {
+    kernel
+        .get_account_state(account, STATE_KEY_DENY_LIST)
+        .is_some()
+}
+
+/// Set the deny-list state for the account at the given account.
+#[allow(dead_code)] // TODO: remove as part of PSR-24
+pub fn set_deny_list_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: AccountIndex,
+    value: bool,
+) {
+    let state_value = if value { Some(vec![]) } else { None };
+    kernel.set_account_state(account, STATE_KEY_DENY_LIST, state_value)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -136,5 +197,12 @@ mod test {
     fn test_module_state_key() {
         let key = module_state_key(&[1, 2, 3]);
         assert_eq!(key, vec![0, 0, 1, 2, 3]);
+    }
+
+    /// Test that the account state key is formed correctly
+    #[test]
+    fn test_account_state_key() {
+        let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
+        assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
     }
 }
