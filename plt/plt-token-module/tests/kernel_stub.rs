@@ -101,6 +101,10 @@ impl KernelStub {
         account.1
     }
 
+    pub fn account_touched(&self, account: &AccountStubIndexWithAddress) -> bool {
+        self.accounts[account.0.0].balance.is_some()
+    }
+
     /// Set account balance in the stub
     pub fn set_account_balance(
         &mut self,
