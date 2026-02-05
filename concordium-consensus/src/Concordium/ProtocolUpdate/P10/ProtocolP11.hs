@@ -2,11 +2,11 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | This module implements the P9.ProtocolP10 protocol update.
---  This protocol update is valid at protocol version P9, and updates
---  to protocol version P10.
+-- | This module implements the P10.ProtocolP11 protocol update.
+--  This protocol update is valid at protocol version P10, and updates
+--  to protocol version P11.
 --
---  This produces a new 'RegenesisDataP10' using the 'GDP10RegenesisFromP9' constructor,
+--  This produces a new 'RegenesisDataP11' using the 'GDP11RegenesisFromP10' constructor,
 --  as follows:
 --
 --  * 'genesisCore':
@@ -17,9 +17,9 @@
 --
 --  * 'genesisFirstGenesis' is either:
 --
---      * the hash of the genesis block of the previous chain, if it is a 'GDP9Initial'; or
+--      * the hash of the genesis block of the previous chain, if it is a 'GDP10Initial'; or
 --      * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
---        is a 'GDP9Regenesis'.
+--        is a 'GDP10Regenesis'.
 --
 --  * 'genesisPreviousGenesis' is the hash of the previous genesis block.
 --
@@ -27,7 +27,7 @@
 --
 --  * 'genesisStateHash' is the state hash of the last finalized block of the previous chain.
 --
---  * 'genesisMigration' is empty as there is no state migration between P9 and P10.
+--  * 'genesisMigration' is empty as there is no state migration between P10 and P11.
 --
 --  The block state is taken from the last finalized block of the previous chain. It is updated
 --  as part of the state migration, which makes the following changes:
@@ -55,7 +55,7 @@
 --  time in the final epoch of the old consensus.)
 --  Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
 --  initial epoch of the new chain.
-module Concordium.ProtocolUpdate.P9.ProtocolP10 where
+module Concordium.ProtocolUpdate.P10.ProtocolP11 where
 
 import Control.Monad.State
 import Lens.Micro.Platform
@@ -63,7 +63,7 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
-import qualified Concordium.Genesis.Data.P10 as P10
+import qualified Concordium.Genesis.Data.P11 as P11
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
@@ -74,20 +74,21 @@ import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.ProtocolVersion
 
--- | The hash that identifies a update from P9 to P10 protocol.
+-- | The hash that identifies a update from P10 to P11 protocol.
+--  TODO: Replace this provisional value with the P11 specification hash when available.
 updateHash :: SHA256.Hash
-updateHash = read "6d84de01ccda394638459daa6b9e374094236d3e2e8fd19a51e7136abe77b06d"
+updateHash = read "000000000000000000000000000000000000000000000000000000000000000b"
 
--- | Construct the genesis data for a P9.ProtocolP10 update.
+-- | Construct the genesis data for a P10.ProtocolP11 update.
 --  This takes the terminal block of the old chain which is used as the basis for constructing
 --  the new genesis block.
 updateRegenesis ::
-    ( MPV m ~ 'P9,
+    ( MPV m ~ 'P10,
       BlockStateStorage m,
       MonadState (TreeState.SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
-    BlockPointer 'P9 ->
+    BlockPointer 'P10 ->
     m (PVInit m)
 updateRegenesis terminalBlock = do
     let regenesisTime = blockTimestamp terminalBlock
@@ -103,6 +104,6 @@ updateRegenesis terminalBlock = do
         genesisTerminalBlock = getHash terminalBlock
     let regenesisBlockState = bpState terminalBlock
     genesisStateHash <- getStateHash regenesisBlockState
-    let genesisMigration = P10.StateMigrationData
-    let newGenesis = GenesisData.RGDP10 $ P10.GDP10RegenesisFromP9{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}, ..}
-    return (PVInit newGenesis (GenesisData.StateMigrationParametersP9ToP10 genesisMigration) (bmHeight $ bpInfo terminalBlock))
+    let genesisMigration = P11.StateMigrationData
+    let newGenesis = GenesisData.RGDP11 $ P11.GDP11RegenesisFromP10{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}, ..}
+    return (PVInit newGenesis (GenesisData.StateMigrationParametersP10ToP11 genesisMigration) (bmHeight $ bpInfo terminalBlock))

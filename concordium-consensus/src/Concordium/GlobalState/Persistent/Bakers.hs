@@ -23,14 +23,16 @@ import Data.Serialize
 import qualified Data.Vector as Vec
 import Lens.Micro.Platform
 
+import Concordium.Genesis.Data
 import qualified Concordium.Genesis.Data.P6 as P6
 import Concordium.GlobalState.BakerInfo
-import Concordium.GlobalState.Parameters
 import Concordium.GlobalState.Persistent.Account
 import Concordium.GlobalState.Persistent.BlobStore
 import Concordium.Types
 import qualified Concordium.Types.Accounts as BaseAccounts
 import Concordium.Types.Execution (DelegationTarget (..))
+import Concordium.Types.Migration
+import Concordium.Types.Parameters
 import Concordium.Utils.BinarySearch
 import Concordium.Utils.Serialization
 
@@ -53,7 +55,8 @@ newtype BakerInfos (pv :: ProtocolVersion)
 -- | See documentation of @migratePersistentBlockState@.
 migrateBakerInfos ::
     forall oldpv pv t m.
-    ( IsProtocolVersion pv,
+    ( IsProtocolVersion oldpv,
+      IsProtocolVersion pv,
       SupportMigration m t
     ) =>
     StateMigrationParameters oldpv pv ->
@@ -158,9 +161,11 @@ migratePersistentEpochBakers migration PersistentEpochBakers{..} = do
             StateMigrationParametersP7ToP8{} ->
                 SomeParam $ unOParam _bakerFinalizationCommitteeParameters
             StateMigrationParametersP8ToP9{} ->
-                SomeParam $ unOParam _bakerFinalizationCommitteeParameters
+                _bakerFinalizationCommitteeParameters
             StateMigrationParametersP9ToP10{} ->
-                SomeParam $ unOParam _bakerFinalizationCommitteeParameters
+                _bakerFinalizationCommitteeParameters
+            StateMigrationParametersP10ToP11{} ->
+                _bakerFinalizationCommitteeParameters
     return
         PersistentEpochBakers
             { _bakerInfos = newBakerInfos,
@@ -298,48 +303,29 @@ delegatorTotalCapital f (PersistentActiveDelegatorsV1{..}) =
 -- In the case of 'StateMigrationParametersP3ToP4', the set of delegators is introduced as empty,
 -- and the total capital is introduced at 0.
 migratePersistentActiveDelegators ::
+    forall oldpv pv t m.
     (BlobStorable m (), BlobStorable (t m) (), MonadTrans t) =>
     StateMigrationParameters oldpv pv ->
     PersistentActiveDelegators (AccountVersionFor oldpv) ->
     t m (PersistentActiveDelegators (AccountVersionFor pv))
-migratePersistentActiveDelegators StateMigrationParametersTrivial = \case
-    PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
-    PersistentActiveDelegatorsV1{..} -> do
-        newDelegators <- Trie.migrateTrieN True return adDelegators
-        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
-migratePersistentActiveDelegators StateMigrationParametersP1P2 = \case
-    PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
-migratePersistentActiveDelegators StateMigrationParametersP2P3 = \case
-    PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
-migratePersistentActiveDelegators (StateMigrationParametersP3ToP4 _) = \case
-    PersistentActiveDelegatorsV0 ->
-        return
-            PersistentActiveDelegatorsV1
-                { adDelegators = Trie.empty,
-                  adDelegatorTotalCapital = 0
-                }
-migratePersistentActiveDelegators StateMigrationParametersP4ToP5{} =
-    \PersistentActiveDelegatorsV1{..} -> do
-        newDelegators <- Trie.migrateTrieN True return adDelegators
-        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
-migratePersistentActiveDelegators StateMigrationParametersP5ToP6{} = \case
-    PersistentActiveDelegatorsV1{..} -> do
-        newDelegators <- Trie.migrateTrieN True return adDelegators
-        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
-migratePersistentActiveDelegators StateMigrationParametersP6ToP7{} = \case
-    PersistentActiveDelegatorsV1{..} -> do
-        newDelegators <- Trie.migrateTrieN True return adDelegators
-        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
-migratePersistentActiveDelegators StateMigrationParametersP7ToP8{} = \case
-    PersistentActiveDelegatorsV1{..} -> do
-        newDelegators <- Trie.migrateTrieN True return adDelegators
-        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
-migratePersistentActiveDelegators StateMigrationParametersP8ToP9{} = \case
-    PersistentActiveDelegatorsV1{..} -> do
-        newDelegators <- Trie.migrateTrieN True return adDelegators
-        return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
-migratePersistentActiveDelegators StateMigrationParametersP9ToP10{} = \case
-    PersistentActiveDelegatorsV1{..} -> do
+migratePersistentActiveDelegators m = case accountTypeMigrationFor m of
+    AccountMigrationTrivial -> \case
+        PersistentActiveDelegatorsV0 -> return PersistentActiveDelegatorsV0
+        pad@PersistentActiveDelegatorsV1{} -> migrateSimpleV1 pad
+    AccountMigrationV0ToV1 -> \case
+        PersistentActiveDelegatorsV0 ->
+            return
+                PersistentActiveDelegatorsV1
+                    { adDelegators = Trie.empty,
+                      adDelegatorTotalCapital = 0
+                    }
+    AccountMigrationV1ToV2 -> migrateSimpleV1
+    AccountMigrationV2ToV3 -> migrateSimpleV1
+    AccountMigrationV3ToV4 -> migrateSimpleV1
+    AccountMigrationV4ToV5 -> migrateSimpleV1
+  where
+    migrateSimpleV1 :: (AVSupportsDelegation oldav, AVSupportsDelegation av) => PersistentActiveDelegators oldav -> t m (PersistentActiveDelegators av)
+    migrateSimpleV1 PersistentActiveDelegatorsV1{..} = do
         newDelegators <- Trie.migrateTrieN True return adDelegators
         return PersistentActiveDelegatorsV1{adDelegators = newDelegators, ..}
 
@@ -384,16 +370,13 @@ migrateTotalActiveCapital ::
     Amount ->
     TotalActiveCapital (AccountVersionFor oldpv) ->
     TotalActiveCapital (AccountVersionFor pv)
-migrateTotalActiveCapital StateMigrationParametersTrivial _ x = x
-migrateTotalActiveCapital StateMigrationParametersP1P2 _ x = x
-migrateTotalActiveCapital StateMigrationParametersP2P3 _ x = x
-migrateTotalActiveCapital (StateMigrationParametersP3ToP4 _) bts TotalActiveCapitalV0 = TotalActiveCapitalV1 bts
-migrateTotalActiveCapital StateMigrationParametersP4ToP5 _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
-migrateTotalActiveCapital StateMigrationParametersP5ToP6{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
-migrateTotalActiveCapital StateMigrationParametersP6ToP7{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
-migrateTotalActiveCapital StateMigrationParametersP7ToP8{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
-migrateTotalActiveCapital StateMigrationParametersP8ToP9{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
-migrateTotalActiveCapital StateMigrationParametersP9ToP10{} _ (TotalActiveCapitalV1 bts) = TotalActiveCapitalV1 bts
+migrateTotalActiveCapital m = case accountTypeMigrationFor m of
+    AccountMigrationTrivial -> \_ tac -> tac
+    AccountMigrationV0ToV1 -> \bts _ -> TotalActiveCapitalV1 bts
+    AccountMigrationV1ToV2 -> \_ (TotalActiveCapitalV1 bts) -> TotalActiveCapitalV1 bts
+    AccountMigrationV2ToV3 -> \_ (TotalActiveCapitalV1 bts) -> TotalActiveCapitalV1 bts
+    AccountMigrationV3ToV4 -> \_ (TotalActiveCapitalV1 bts) -> TotalActiveCapitalV1 bts
+    AccountMigrationV4ToV5 -> \_ (TotalActiveCapitalV1 bts) -> TotalActiveCapitalV1 bts
 
 instance (IsAccountVersion av) => Serialize (TotalActiveCapital av) where
     put TotalActiveCapitalV0 = return ()

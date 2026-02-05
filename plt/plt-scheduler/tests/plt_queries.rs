@@ -2,11 +2,18 @@
 //! implemented in the `plt-token-module` crate.
 
 use crate::block_state_stub::{BlockStateStub, TokenInitTestParams};
+use assert_matches::assert_matches;
+use concordium_base::base::Energy;
 use concordium_base::common::cbor;
-use concordium_base::protocol_level_tokens::{TokenId, TokenModuleState};
+use concordium_base::protocol_level_tokens::{
+    CborHolderAccount, RawCbor, TokenId, TokenListUpdateDetails, TokenModuleAccountState,
+    TokenModuleState, TokenOperation, TokenOperationsPayload,
+};
+use concordium_base::transactions::Payload;
 use plt_scheduler::block_state_interface::BlockStateQuery;
-use plt_scheduler::queries;
+use plt_scheduler::{queries, scheduler};
 use plt_token_module::TOKEN_MODULE_REF;
+use plt_types::types::execution::TransactionOutcome;
 use plt_types::types::tokens::RawTokenAmount;
 
 mod block_state_stub;
@@ -87,4 +94,48 @@ fn test_query_token_account_info() {
         RawTokenAmount(2000)
     );
     assert_eq!(token_account_infos[1].account_state.balance.decimals, 4);
+}
+
+// Test that adding an account to a token list properly touches the account
+#[test]
+fn test_query_token_account_info_allow_list_no_balance() {
+    let mut stub = BlockStateStub::new();
+    let account = stub.create_account();
+    let token_id: TokenId = "TokenId3".parse().unwrap();
+    let (_token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().allow_list(),
+        4,
+        None,
+    );
+
+    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(stub.account_canonical_address(&account)),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    assert_matches!(result.outcome, TransactionOutcome::Success(_));
+
+    let token_account_infos = queries::query_token_account_infos(&stub, account);
+    assert_eq!(token_account_infos.len(), 1);
+    assert_eq!(token_account_infos[0].token_id, token_id);
+    assert_eq!(
+        token_account_infos[0].account_state.balance.amount,
+        RawTokenAmount(0)
+    );
+    assert_eq!(token_account_infos[0].account_state.balance.decimals, 4);
+    let module_state: TokenModuleAccountState =
+        cbor::cbor_decode(&token_account_infos[0].account_state.module_state).unwrap();
+    assert_eq!(module_state.allow_list, Some(true));
+    assert_eq!(module_state.deny_list, None);
 }

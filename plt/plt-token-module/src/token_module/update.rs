@@ -1,4 +1,4 @@
-use crate::key_value_state::{self, KernelOperationsExt, STATE_KEY_PAUSED};
+use crate::key_value_state;
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
@@ -6,7 +6,8 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, DeserializationFailureRejectReason,
     MintWouldOverflowRejectReason, OperationNotPermittedRejectReason, RawCbor,
-    TokenBalanceInsufficientRejectReason, TokenModuleCborTypeDiscriminator, TokenModuleEventType,
+    TokenBalanceInsufficientRejectReason, TokenListUpdateDetails, TokenListUpdateEventDetails,
+    TokenModuleCborTypeDiscriminator, TokenModuleEvent, TokenModuleEventType,
     TokenModuleRejectReason, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
@@ -171,19 +172,18 @@ pub fn execute_token_update_transaction<
                         },
                     )),
                 ),
-                TokenUpdateErrorInternal::Unauthorized { account_address } => {
-                    TokenUpdateError::TokenModuleReject(make_reject_reason(
-                        TokenModuleRejectReason::OperationNotPermitted(
-                            OperationNotPermittedRejectReason {
-                                index: index as u64,
-                                address: Some(account_address.into()),
-                                reason: "sender is not the token governance account"
-                                    .to_string()
-                                    .into(),
-                            },
-                        ),
-                    ))
-                }
+                TokenUpdateErrorInternal::OperationNotPermitted {
+                    account_address,
+                    reason,
+                } => TokenUpdateError::TokenModuleReject(make_reject_reason(
+                    TokenModuleRejectReason::OperationNotPermitted(
+                        OperationNotPermittedRejectReason {
+                            index: index as u64,
+                            address: account_address.map(Into::into),
+                            reason: reason.to_string().into(),
+                        },
+                    ),
+                )),
             },
         )?;
     }
@@ -230,8 +230,11 @@ enum TokenUpdateErrorInternal {
     MintWouldOverflow(#[from] MintWouldOverflowError),
     #[error("The token is paused")]
     Paused,
-    #[error("{account_address} is not the token governance account")]
-    Unauthorized { account_address: AccountAddress },
+    #[error("Operation not permitted: {reason}")]
+    OperationNotPermitted {
+        account_address: Option<AccountAddress>,
+        reason: &'static str,
+    },
 }
 
 impl From<TokenTransferError> for TokenUpdateErrorInternal {
@@ -282,7 +285,18 @@ fn execute_token_update_operation<
         TokenOperation::Burn(burn) => execute_token_burn(transaction_execution, kernel, burn),
         TokenOperation::Pause(_) => execute_token_pause(transaction_execution, kernel),
         TokenOperation::Unpause(_) => execute_token_unpause(transaction_execution, kernel),
-        _ => todo!(),
+        TokenOperation::AddAllowList(list_operation) => {
+            execute_add_allow_list(transaction_execution, kernel, list_operation)
+        }
+        TokenOperation::RemoveAllowList(list_operation) => {
+            execute_remove_allow_list(transaction_execution, kernel, list_operation)
+        }
+        TokenOperation::AddDenyList(list_operation) => {
+            execute_add_deny_list(transaction_execution, kernel, list_operation)
+        }
+        TokenOperation::RemoveDenyList(list_operation) => {
+            execute_remove_deny_list(transaction_execution, kernel, list_operation)
+        }
     }
 }
 
@@ -322,8 +336,9 @@ fn check_authorized<
         .is_ok_and(|gov_index| gov_index == sender_index);
 
     if !authorized {
-        return Err(TokenUpdateErrorInternal::Unauthorized {
-            account_address: transaction_execution.sender_account_address(),
+        return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+            account_address: Some(transaction_execution.sender_account_address()),
+            reason: "sender is not the token governance account",
         });
     }
     Ok(())
@@ -341,12 +356,43 @@ fn execute_token_transfer<
     let raw_amount = util::to_raw_token_amount(kernel, transfer_operation.amount)?;
 
     // operation execution
-    let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
     check_not_paused(kernel)?;
-    // todo implement allow/deny list checks https://linear.app/concordium/issue/PSR-24/implement-allow-and-deny-lists
+    let sender = transaction_execution.sender_account();
+    let sender_address = transaction_execution.sender_account_address();
+    let receiver = kernel.account_by_address(&transfer_operation.recipient.address)?;
+
+    if key_value_state::has_allow_list(kernel) {
+        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&sender)) {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(sender_address),
+                reason: "sender not in allow list",
+            });
+        }
+        if !key_value_state::get_allow_list_for(kernel, kernel.account_index(&receiver)) {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(transfer_operation.recipient.address),
+                reason: "recipient not in allow list",
+            });
+        }
+    }
+
+    if key_value_state::has_deny_list(kernel) {
+        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&sender)) {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(sender_address),
+                reason: "sender in deny list",
+            });
+        }
+        if key_value_state::get_deny_list_for(kernel, kernel.account_index(&receiver)) {
+            return Err(TokenUpdateErrorInternal::OperationNotPermitted {
+                account_address: Some(transfer_operation.recipient.address),
+                reason: "recipient in deny list",
+            });
+        }
+    }
 
     kernel.transfer(
-        &transaction_execution.sender_account(),
+        &sender,
         &receiver,
         raw_amount,
         transfer_operation.memo.clone().map(Memo::from),
@@ -368,6 +414,7 @@ fn execute_token_mint<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -387,6 +434,7 @@ fn execute_token_burn<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -401,7 +449,7 @@ fn execute_token_pause<
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
 
-    kernel.set_module_state(STATE_KEY_PAUSED, Some(vec![]));
+    key_value_state::set_paused(kernel, true);
 
     let event_type = TokenModuleEventType::Pause.to_type_discriminator();
     kernel.log_token_event(event_type, vec![].into());
@@ -417,9 +465,104 @@ fn execute_token_unpause<
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
 
-    kernel.set_module_state(STATE_KEY_PAUSED, None);
+    key_value_state::set_paused(kernel, false);
 
     let event_type = TokenModuleEventType::Unpause.to_type_discriminator();
     kernel.log_token_event(event_type, vec![].into());
+    Ok(())
+}
+
+fn execute_add_allow_list<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    list_operation: &TokenListUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(transaction_execution, kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
+    let account = kernel.account_by_address(&list_operation.target.address)?;
+
+    kernel.touch_account(&account);
+    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account), true);
+
+    let event_details = TokenListUpdateEventDetails {
+        target: list_operation.target.clone(),
+    };
+    let (event_type, details) = TokenModuleEvent::AddAllowList(event_details).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+
+    Ok(())
+}
+
+fn execute_add_deny_list<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    list_operation: &TokenListUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(transaction_execution, kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
+    let account = kernel.account_by_address(&list_operation.target.address)?;
+
+    kernel.touch_account(&account);
+    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account), true);
+
+    let event_details = TokenListUpdateEventDetails {
+        target: list_operation.target.clone(),
+    };
+    let (event_type, details) = TokenModuleEvent::AddDenyList(event_details).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+
+    Ok(())
+}
+
+fn execute_remove_allow_list<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    list_operation: &TokenListUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(transaction_execution, kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
+    let account = kernel.account_by_address(&list_operation.target.address)?;
+
+    kernel.touch_account(&account);
+    key_value_state::set_allow_list_for(kernel, kernel.account_index(&account), false);
+
+    let event_details = TokenListUpdateEventDetails {
+        target: list_operation.target.clone(),
+    };
+    let (event_type, details) = TokenModuleEvent::RemoveAllowList(event_details).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+
+    Ok(())
+}
+fn execute_remove_deny_list<
+    TK: TokenKernelOperations,
+    TE: TransactionExecution<Account = TK::AccountWithAddress>,
+>(
+    transaction_execution: &mut TE,
+    kernel: &mut TK,
+    list_operation: &TokenListUpdateDetails,
+) -> Result<(), TokenUpdateErrorInternal> {
+    check_authorized(transaction_execution, kernel)?;
+    // TODO: check if feature is enabled as part of PSR-50
+    let account = kernel.account_by_address(&list_operation.target.address)?;
+
+    kernel.touch_account(&account);
+    key_value_state::set_deny_list_for(kernel, kernel.account_index(&account), false);
+
+    let event_details = TokenListUpdateEventDetails {
+        target: list_operation.target.clone(),
+    };
+    let (event_type, details) = TokenModuleEvent::RemoveDenyList(event_details).encode_event();
+    kernel.log_token_event(event_type.to_type_discriminator(), details);
+
     Ok(())
 }

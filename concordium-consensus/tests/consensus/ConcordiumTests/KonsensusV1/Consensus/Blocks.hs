@@ -16,6 +16,7 @@ import Control.Monad.IO.Class
 import Control.Monad.State
 import Control.Monad.Writer.Class
 import Data.Foldable
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Time
@@ -39,6 +40,7 @@ import Concordium.Types.Transactions
 import qualified Concordium.Types.Transactions as Transactions
 
 import qualified Concordium.Genesis.Data.P10 as P10
+import qualified Concordium.Genesis.Data.P11 as P11
 import qualified Concordium.Genesis.Data.P6 as P6
 import qualified Concordium.Genesis.Data.P7 as P7
 import qualified Concordium.Genesis.Data.P8 as P8
@@ -49,7 +51,7 @@ import Concordium.GlobalState.BlockState (TransactionSummaryV1)
 import qualified Concordium.GlobalState.DummyData as Dummy
 import Concordium.KonsensusV1.Consensus
 import Concordium.KonsensusV1.Consensus.Blocks
-import Concordium.KonsensusV1.Consensus.Timeout
+import Concordium.KonsensusV1.Consensus.Timeout hiding (Received)
 import Concordium.KonsensusV1.LeaderElection
 import Concordium.KonsensusV1.TestMonad
 import Concordium.KonsensusV1.TreeState.Implementation
@@ -59,6 +61,8 @@ import Concordium.Startup
 import Concordium.TimerMonad
 import Concordium.Types.Option
 
+import Concordium.GlobalState.TransactionTable (LiveTransactionStatus (..))
+import Concordium.Types.Execution (TransactionIndex)
 import qualified ConcordiumTests.KonsensusV1.Common as Common
 
 type PV = 'P6
@@ -130,6 +134,7 @@ genesisLEN sProtocolVersion = case sProtocolVersion of
     SP8 -> genesisLeadershipElectionNonce $ P8.genesisInitialState $ unGDP8 $ genesisData sProtocolVersion
     SP9 -> genesisLeadershipElectionNonce $ P9.genesisInitialState $ unGDP9 $ genesisData sProtocolVersion
     SP10 -> genesisLeadershipElectionNonce $ P10.genesisInitialState $ unGDP10 $ genesisData sProtocolVersion
+    SP11 -> genesisLeadershipElectionNonce $ P11.genesisInitialState $ unGDP11 $ genesisData sProtocolVersion
 
 -- | Full bakers at genesis
 genesisFullBakers :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> FullBakers
@@ -858,6 +863,173 @@ testBB4EA =
   where
     sProtocolVersion = protocolVersion @pv
     bakerId = 1
+
+testTrans1 :: BlockItem
+testTrans1 = Dummy.makeTransferTransaction (foundationKeyPair, foundationAccountAddress) foundationAccountAddress 100 1
+
+testTrans2 :: BlockItem
+testTrans2 = Dummy.makeTransferTransaction (foundationKeyPair, foundationAccountAddress) foundationAccountAddress 200 2
+
+testTrans3 :: BlockItem
+testTrans3 = Dummy.makeTransferTransaction (foundationKeyPair, foundationAccountAddress) foundationAccountAddress 300 3
+
+testTrans3' :: BlockItem
+testTrans3' = Dummy.makeTransferTransaction (foundationKeyPair, foundationAccountAddress) foundationAccountAddress 350 3
+
+testTrans4 :: BlockItem
+testTrans4 = Dummy.makeTransferTransaction (foundationKeyPair, foundationAccountAddress) foundationAccountAddress 400 4
+
+testTrans5 :: BlockItem
+testTrans5 = Dummy.makeTransferTransaction (foundationKeyPair, foundationAccountAddress) foundationAccountAddress 500 5
+
+-- | Valid block for round 1 with transactions.
+testBB1T :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
+testBB1T =
+    BakedBlock
+        { bbRound = 1,
+          bbEpoch = 0,
+          bbTimestamp = 1_000,
+          bbBaker = bakerId,
+          bbQuorumCertificate = genesisQuorumCertificate (genesisHash sProtocolVersion),
+          bbTimeoutCertificate = Absent,
+          bbEpochFinalizationEntry = Absent,
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 1 (bakerVRFKey sProtocolVersion bakerId),
+          bbTransactions =
+            Vec.fromList [testTrans1, testTrans2],
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 ->
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = read "0e16397614dae92cc51f47b1e32fdfbd4ae37776dfe36ae33e59d958929796b3",
+                      dbhv0BlockStateHash = read "161d4a2e780cfa5d4bea2d5e2ee11a7b89ef3f77a79c6ab3172c972f84e366c4"
+                    }
+            SBlockHashVersion1 ->
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "e9f625190459013f6530d044d80d91182b91f440cbb0a8933d5ba9e5dff06236"
+                    }
+        }
+  where
+    bakerId = 2
+    sProtocolVersion = protocolVersion @pv
+
+-- | Valid block for round 2, descended from 'testBB1T', with transactions.
+testBB2T :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
+testBB2T =
+    BakedBlock
+        { bbRound = 2,
+          bbEpoch = 0,
+          bbTimestamp = 2_000,
+          bbBaker = bakerId,
+          bbQuorumCertificate = validQCFor @pv testBB1T,
+          bbTimeoutCertificate = Absent,
+          bbEpochFinalizationEntry = Absent,
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 2 (bakerVRFKey sProtocolVersion bakerId),
+          bbTransactions = Vec.fromList [testTrans3, testTrans4, testTrans5],
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 ->
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash = read "da9360655107d529218ed9586783200ceca9c965396e340d55cc3e3ec5787255",
+                      dbhv0BlockStateHash = read "552c1a805700e33f7ca62906a71f9c99a072cb10cc167571ba4c16143e79e936"
+                    }
+            SBlockHashVersion1 ->
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "a8a6f224567aaac2ef40a7ddc2b186c47485acd3bb685d6216af25fdddd9b580"
+                    }
+        }
+  where
+    bakerId = 4
+    sProtocolVersion = protocolVersion @pv
+
+-- | Valid block for round 3, descended from 'testBB1T'.
+testBB3T :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
+testBB3T =
+    BakedBlock
+        { bbRound = 3,
+          bbEpoch = 0,
+          bbTimestamp = 3_000,
+          bbBaker = bakerId,
+          bbQuorumCertificate = validQCFor @pv testBB1T,
+          bbTimeoutCertificate =
+            Present $
+                validTimeoutFor
+                    sProtocolVersion
+                    (validQCFor @pv testBB1T)
+                    2,
+          bbEpochFinalizationEntry = Absent,
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 3 (bakerVRFKey sProtocolVersion bakerId),
+          bbTransactions = Vec.fromList [testTrans3', testTrans4],
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 ->
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash =
+                        read "25f8c365829b3acbde7c9cb9400b5c1b687aee3927e635cd6d8e8744d5ebb18f",
+                      dbhv0BlockStateHash = read "50ad522662f6db9b87ec2c73ddafe0165a262653f9a16cdd91b1444efc679c9f"
+                    }
+            SBlockHashVersion1 ->
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "a502a11146284e4667d509da46a8c0c437533a1325d76d8e0b2422c00be90bca"
+                    }
+        }
+  where
+    bakerId = 4
+    sProtocolVersion = protocolVersion @pv
+
+-- | Valid block for round 4, descended from 'testBB3T'.
+testBB4T :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
+testBB4T =
+    BakedBlock
+        { bbRound = 4,
+          bbEpoch = 0,
+          bbTimestamp = 4_000,
+          bbBaker = bakerId,
+          bbQuorumCertificate = validQCFor @pv testBB3T,
+          bbTimeoutCertificate = Absent,
+          bbEpochFinalizationEntry = Absent,
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 4 (bakerVRFKey sProtocolVersion bakerId),
+          bbTransactions = Vec.empty,
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 ->
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash =
+                        read "b97b08a99493fe5d26f7c3b1dcc447c26993b513cbc7c6ac13e8ae4e03bd2f05",
+                      dbhv0BlockStateHash = read "301388fbc931ac1930d201ecb3f3f9ffe3d9e7c3e97220abc6df97bee4b30e36"
+                    }
+            SBlockHashVersion1 ->
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "9fd40b91df19dd8391585b8497c493f950e1b2615680a8693bfded6172bd896d"
+                    }
+        }
+  where
+    bakerId = 3
+    sProtocolVersion = protocolVersion @pv
+
+-- | Valid block for round 5, descended from 'testBB4T'.
+testBB5T :: forall pv. (IsProtocolVersion pv, IsConsensusV1 pv) => BakedBlock pv
+testBB5T =
+    BakedBlock
+        { bbRound = 5,
+          bbEpoch = 0,
+          bbTimestamp = 5_000,
+          bbBaker = bakerId,
+          bbQuorumCertificate = validQCFor @pv testBB4T,
+          bbTimeoutCertificate = Absent,
+          bbEpochFinalizationEntry = Absent,
+          bbNonce = computeBlockNonce (genesisLEN sProtocolVersion) 5 (bakerVRFKey sProtocolVersion bakerId),
+          bbTransactions = Vec.empty,
+          bbDerivableHashes = case sBlockHashVersionFor sProtocolVersion of
+            SBlockHashVersion0 ->
+                DerivableBlockHashesV0
+                    { dbhv0TransactionOutcomesHash =
+                        read "c2f7bd7729b51551f85f2227fa3fc0e19b743eee227c7156fc6c49bd11f36f40",
+                      dbhv0BlockStateHash = read "8f77d6ccd863748e07c38cb387f80b475788f019be4078b63e06da5626297383"
+                    }
+            SBlockHashVersion1 ->
+                DerivableBlockHashesV1
+                    { dbhv1BlockResultHash = read "d9ebdef2097ed38d5eececb6cf30c611c2d2d3a54bf7231aec40fc0c674156b4"
+                    }
+        }
+  where
+    bakerId = 3
+    sProtocolVersion = protocolVersion @pv
 
 succeedReceiveBlock :: (IsProtocolVersion pv, IsConsensusV1 pv) => PendingBlock pv -> TestMonad pv ()
 succeedReceiveBlock pb = do
@@ -1910,6 +2082,88 @@ testMakeBlockNewEpoch sProtocolVersion =
     qsig = signQuorumSignatureMessage qsm (bakerAggregationKey . fst $ bakers sProtocolVersion !! bakerId)
     expectQM = buildQuorumMessage qsm qsig (FinalizerIndex $ fromIntegral bakerId)
 
+-- | Check that a given transaction is committed in the specified blocks.
+checkTxCommitted ::
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    BlockItem -> [(BlockHash, TransactionIndex)] -> TestMonad pv ()
+checkTxCommitted tx committedTo = do
+    ts <- lookupTransaction (getHash tx) =<< get
+    liftIO $ case ts of
+        Just (Live (Committed{tsResults = res})) ->
+            assertEqual "Transaction committed blocks" (HM.fromList committedTo) res
+        _ -> assertFailure $ "Expected transaction committed in blocks " ++ show committedTo ++ " but saw: " ++ show ts
+
+-- | Check that a given transaction is committed in the specified blocks.
+checkTxReceived ::
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    BlockItem -> TestMonad pv ()
+checkTxReceived tx = do
+    ts <- lookupTransaction (getHash tx) =<< get
+    liftIO $ case ts of
+        Just (Live (Received{})) ->
+            return ()
+        _ -> assertFailure $ "Expected transaction received, but saw: " ++ show ts
+
+-- | Check that a given transaction is finalized in the specified block.
+checkTxFinalized ::
+    (IsConsensusV1 pv, IsProtocolVersion pv) =>
+    BlockItem -> BlockHeight -> TransactionIndex -> TestMonad pv ()
+checkTxFinalized tx bheight ti = do
+    ts <- lookupTransaction (getHash tx) =<< get
+    liftIO $
+        assertEqual
+            "Transaction status"
+            (Just (Finalized (FinalizedTransactionStatus{ftsBlockHeight = bheight, ftsIndex = ti})))
+            ts
+
+-- | Check that a given transaction is absent from the transaction table.
+checkTxAbsent :: (IsConsensusV1 pv, IsProtocolVersion pv) => BlockItem -> TestMonad pv ()
+checkTxAbsent tx = do
+    ts <- lookupTransaction (getHash tx) =<< get
+    liftIO $ assertEqual "Transaction status" Nothing ts
+
+-- | Receive with transactions.
+testReceiveWithTransactions :: forall pv. (IsConsensusV1 pv, IsProtocolVersion pv) => SProtocolVersion pv -> Spec
+testReceiveWithTransactions sProtocolVersion =
+    it "receive blocks with transactions, checking committed/finalized status" $
+        runTestMonad noBaker testTime (genesisData sProtocolVersion) $ do
+            succeedReceiveBlock (signedPB testBB1T)
+            checkTxCommitted testTrans1 [(getHash (testBB1T @pv), 0)]
+            checkTxCommitted testTrans2 [(getHash (testBB1T @pv), 1)]
+            succeedReceiveBlock (signedPB testBB2T)
+            checkLive (testBB1T @pv)
+            checkLive (testBB2T @pv)
+            checkTxCommitted testTrans1 [(getHash (testBB1T @pv), 0)]
+            checkTxCommitted testTrans2 [(getHash (testBB1T @pv), 1)]
+            checkTxCommitted testTrans3 [(getHash (testBB2T @pv), 0)]
+            checkTxCommitted testTrans4 [(getHash (testBB2T @pv), 1)]
+            checkTxCommitted testTrans5 [(getHash (testBB2T @pv), 2)]
+            succeedReceiveBlock (signedPB testBB3T)
+            checkTxCommitted testTrans1 [(getHash (testBB1T @pv), 0)]
+            checkTxCommitted testTrans2 [(getHash (testBB1T @pv), 1)]
+            checkTxCommitted testTrans3 [(getHash (testBB2T @pv), 0)]
+            checkTxCommitted testTrans3' [(getHash (testBB3T @pv), 0)]
+            checkTxCommitted testTrans4 [(getHash (testBB2T @pv), 1), (getHash (testBB3T @pv), 1)]
+            checkTxCommitted testTrans5 [(getHash (testBB2T @pv), 2)]
+            succeedReceiveBlock (signedPB testBB4T)
+            checkTxCommitted testTrans1 [(getHash (testBB1T @pv), 0)]
+            checkTxCommitted testTrans2 [(getHash (testBB1T @pv), 1)]
+            checkTxCommitted testTrans3 [(getHash (testBB2T @pv), 0)]
+            checkTxCommitted testTrans3' [(getHash (testBB3T @pv), 0)]
+            checkTxCommitted testTrans4 [(getHash (testBB2T @pv), 1), (getHash (testBB3T @pv), 1)]
+            checkTxCommitted testTrans5 [(getHash (testBB2T @pv), 2)]
+            succeedReceiveBlock (signedPB testBB5T)
+            -- These are finalized in testBB1T
+            checkTxFinalized testTrans1 1 0
+            checkTxFinalized testTrans2 1 1
+            -- This was in testBB2T, which is dropped from the finalized chain
+            checkTxAbsent testTrans3
+            -- These are finalized in testBB3T
+            checkTxFinalized testTrans3' 2 0
+            checkTxFinalized testTrans4 2 1
+            -- Since testBB2T is pruned, testTrans5 is no longer in any live blocks
+            checkTxReceived testTrans5
+
 tests :: Spec
 tests = describe "KonsensusV1.Consensus.Blocks" $ do
     describe "uponReceiveingBlockPV" $ do
@@ -1956,7 +2210,7 @@ tests = describe "KonsensusV1.Consensus.Blocks" $ do
                 testSignCorrectEpochReordered spv
                 testMakeBlockNewEpoch spv
                 testReceiveTimeoutEpochTransition1 spv
-
+                testReceiveWithTransactions spv
     describe "uponReceiveingBlock (P6 only)" $ do
         it "receive a block with an incorrect transaction outcomes hash" testReceiveIncorrectTransactionOutcomesHash
         it "receive a block with an incorrect state hash" testReceiveIncorrectStateHash
