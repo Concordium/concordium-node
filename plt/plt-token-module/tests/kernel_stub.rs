@@ -6,7 +6,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use concordium_base::base::{AccountIndex, Energy, InsufficientEnergy};
-use concordium_base::common::cbor;
+use concordium_base::common::{Serial, cbor};
 use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, MetadataUrl, RawCbor, TokenModuleCborTypeDiscriminator,
@@ -57,6 +57,17 @@ pub struct Account {
     pub address: AccountAddress,
     /// The token balance of the account.
     pub balance: Option<RawTokenAmount>,
+}
+
+const ACCOUNT_STATE_PREFIX: [u8; 2] = 40307u16.to_le_bytes();
+
+fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
+    let mut account_key =
+        Vec::with_capacity(ACCOUNT_STATE_PREFIX.len() + size_of::<AccountIndex>() + key.len());
+    account_key.extend_from_slice(&ACCOUNT_STATE_PREFIX);
+    account_index.serial(&mut account_key);
+    account_key.extend_from_slice(key);
+    account_key
 }
 
 impl KernelStub {
@@ -120,6 +131,20 @@ impl KernelStub {
             .checked_sub(balance.0)
             .unwrap();
         *balance = new_balance;
+    }
+
+    pub fn set_allow_list(&mut self, account: AccountStubIndexWithAddress, value: bool) {
+        self.set_token_state_value(
+            account_state_key(self.account_index(&account), b"allowList"),
+            value.then_some(vec![]),
+        );
+    }
+
+    pub fn set_deny_list(&mut self, account: AccountStubIndexWithAddress, value: bool) {
+        self.set_token_state_value(
+            account_state_key(self.account_index(&account), b"denyList"),
+            value.then_some(vec![]),
+        );
     }
 
     /// Initialize token and return the governance account

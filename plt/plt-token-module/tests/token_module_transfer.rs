@@ -5,8 +5,8 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, CborMemo, DeserializationFailureRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
-    TokenListUpdateDetails, TokenModuleEventType, TokenModuleRejectReason, TokenOperation,
-    TokenPauseDetails, TokenTransfer,
+    TokenModuleEventType, TokenModuleRejectReason, TokenOperation, TokenPauseDetails,
+    TokenTransfer,
 };
 use concordium_base::transactions::Memo;
 use kernel_stub::KernelStub;
@@ -198,28 +198,15 @@ fn test_transfer_to_non_existing_receiver() {
 #[test]
 fn test_transfer_allow_list_success() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
+    let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
     // Set up both accounts on the allow list.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![
-        TokenOperation::AddAllowList(TokenListUpdateDetails {
-            target: CborHolderAccount::from(stub.account_address(&sender)),
-        }),
-        TokenOperation::AddAllowList(TokenListUpdateDetails {
-            target: CborHolderAccount::from(stub.account_address(&receiver)),
-        }),
-    ];
-    token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
+    stub.set_allow_list(sender, true);
+    stub.set_allow_list(receiver, true);
 
     // Transfer succeeds when both accounts are allow-listed.
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
@@ -244,7 +231,7 @@ fn test_transfer_allow_list_success() {
 #[test]
 fn test_transfer_deny_list_success() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
+    let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     let denied = stub.create_account();
@@ -252,16 +239,7 @@ fn test_transfer_deny_list_success() {
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
     // Put another account on the deny list to prove non-denied transfers work.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_address(&denied)),
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
+    stub.set_deny_list(denied, true);
 
     // Transfer succeeds when neither sender nor recipient is denied.
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
@@ -286,22 +264,13 @@ fn test_transfer_deny_list_success() {
 #[test]
 fn test_transfer_sender_not_in_allow_list() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
+    let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_address(&receiver)),
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
+    stub.set_allow_list(receiver, true);
 
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
@@ -337,22 +306,13 @@ fn test_transfer_sender_not_in_allow_list() {
 #[test]
 fn test_transfer_recipient_not_in_allow_list() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
+    let _gov_account = stub.init_token(TokenInitTestParams::default().allow_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_address(&sender)),
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
+    stub.set_allow_list(sender, true);
 
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
@@ -388,22 +348,13 @@ fn test_transfer_recipient_not_in_allow_list() {
 #[test]
 fn test_transfer_sender_in_deny_list() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
+    let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_address(&sender)),
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
+    stub.set_deny_list(sender, true);
 
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
@@ -439,22 +390,13 @@ fn test_transfer_sender_in_deny_list() {
 #[test]
 fn test_transfer_recipient_in_deny_list() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
+    let _gov_account = stub.init_token(TokenInitTestParams::default().deny_list());
     let sender = stub.create_account();
     let receiver = stub.create_account();
     stub.set_account_balance(sender, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
-        target: CborHolderAccount::from(stub.account_address(&receiver)),
-    })];
-    token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
+    stub.set_deny_list(receiver, true);
 
     let mut execution = TransactionExecutionTestImpl::with_sender(sender);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
