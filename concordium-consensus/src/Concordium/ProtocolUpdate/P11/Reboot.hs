@@ -2,11 +2,10 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeFamilies #-}
 
--- | This module implements the P9.ProtocolP10 protocol update.
---  This protocol update is valid at protocol version P9, and updates
---  to protocol version P10.
---
---  This produces a new 'RegenesisDataP10' using the 'GDP10RegenesisFromP9' constructor,
+-- | This module implements the P11.Reboot protocol update.
+--  This protocol update is valid at protocol version P11, and updates
+--  to protocol version P11.
+--  This produces a new 'RegenesisDataP11 using the 'GDP11Regenesis' constructor,
 --  as follows:
 --
 --  * 'genesisCore':
@@ -17,17 +16,15 @@
 --
 --  * 'genesisFirstGenesis' is either:
 --
---      * the hash of the genesis block of the previous chain, if it is a 'GDP9Initial'; or
+--      * the hash of the genesis block of the previous chain, if it is a 'GDP11Initial'; or
 --      * the 'genesisFirstGenesis' value of the genesis block of the previous chain, if it
---        is a 'GDP9Regenesis'.
+--        is a 'GDP11Regenesis'.
 --
 --  * 'genesisPreviousGenesis' is the hash of the previous genesis block.
 --
 --  * 'genesisTerminalBlock' is the hash of the last finalized block of the previous chain.
 --
 --  * 'genesisStateHash' is the state hash of the last finalized block of the previous chain.
---
---  * 'genesisMigration' is empty as there is no state migration between P9 and P10.
 --
 --  The block state is taken from the last finalized block of the previous chain. It is updated
 --  as part of the state migration, which makes the following changes:
@@ -55,7 +52,7 @@
 --  time in the final epoch of the old consensus.)
 --  Furthermore, the bakers from the final epoch of the previous chain are also the bakers for the
 --  initial epoch of the new chain.
-module Concordium.ProtocolUpdate.P9.ProtocolP10 where
+module Concordium.ProtocolUpdate.P11.Reboot where
 
 import Control.Monad.State
 import Lens.Micro.Platform
@@ -63,46 +60,52 @@ import Lens.Micro.Platform
 import qualified Concordium.Crypto.SHA256 as SHA256
 import qualified Concordium.Genesis.Data as GenesisData
 import qualified Concordium.Genesis.Data.BaseV1 as BaseV1
-import qualified Concordium.Genesis.Data.P10 as P10
+import qualified Concordium.Genesis.Data.P11 as P11
 import Concordium.GlobalState.BlockState
 import qualified Concordium.GlobalState.Persistent.BlockState as PBS
 import Concordium.GlobalState.Types
 import qualified Concordium.GlobalState.Types as GSTypes
-import qualified Concordium.KonsensusV1.TreeState.Implementation as TreeState
+import Concordium.KonsensusV1.TreeState.Implementation
 import Concordium.KonsensusV1.TreeState.Types
 import Concordium.KonsensusV1.Types
 import Concordium.Types.HashableTo (getHash)
 import Concordium.Types.ProtocolVersion
 
--- | The hash that identifies a update from P9 to P10 protocol.
+-- | The hash that identifies the P11.Reboot update:
+--  e135d02624bcf91d8184c6746f6b2fc2e869df0b2716693e47e5ece8ec4d9704
 updateHash :: SHA256.Hash
-updateHash = read "6d84de01ccda394638459daa6b9e374094236d3e2e8fd19a51e7136abe77b06d"
+updateHash = SHA256.hash "P11.Reboot"
 
--- | Construct the genesis data for a P9.ProtocolP10 update.
+-- | Construct the genesis data for a P11.Reboot update.
 --  This takes the terminal block of the old chain which is used as the basis for constructing
 --  the new genesis block.
 updateRegenesis ::
-    ( MPV m ~ 'P9,
+    ( MPV m ~ 'P11,
       BlockStateStorage m,
-      MonadState (TreeState.SkovData (MPV m)) m,
+      MonadState (SkovData (MPV m)) m,
       GSTypes.BlockState m ~ PBS.HashedPersistentBlockState (MPV m)
     ) =>
-    BlockPointer 'P9 ->
+    -- | The terminal block of the old chain.
+    BlockPointer 'P11 ->
     m (PVInit m)
-updateRegenesis terminalBlock = do
-    let regenesisTime = blockTimestamp terminalBlock
-    gMetadata <- use TreeState.genesisMetadata
-    BaseV1.CoreGenesisParametersV1{..} <- gmParameters <$> use TreeState.genesisMetadata
+updateRegenesis terminal = do
+    -- Genesis time is the timestamp of the terminal block
+    let regenesisTime = blockTimestamp terminal
+    -- Core parameters are derived from the old genesis, apart from genesis time which is set for
+    -- the time of the terminal block.
+    gMetadata <- use genesisMetadata
+    BaseV1.CoreGenesisParametersV1{..} <- gmParameters <$> use genesisMetadata
     let core =
             BaseV1.CoreGenesisParametersV1
                 { BaseV1.genesisTime = regenesisTime,
                   ..
                 }
+    -- genesisFirstGenesis is the block hash of the previous genesis, if it is initial,
+    -- or the genesisFirstGenesis of the previous genesis otherwise.
     let genesisFirstGenesis = gmFirstGenesisHash gMetadata
         genesisPreviousGenesis = gmCurrentGenesisHash gMetadata
-        genesisTerminalBlock = getHash terminalBlock
-    let regenesisBlockState = bpState terminalBlock
+        genesisTerminalBlock = getHash terminal
+    let regenesisBlockState = bpState terminal
     genesisStateHash <- getStateHash regenesisBlockState
-    let genesisMigration = P10.StateMigrationData
-    let newGenesis = GenesisData.RGDP10 $ P10.GDP10RegenesisFromP9{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}, ..}
-    return (PVInit newGenesis (GenesisData.StateMigrationParametersP9ToP10 genesisMigration) (bmHeight $ bpInfo terminalBlock))
+    let newGenesis = GenesisData.RGDP11 $ P11.GDP11Regenesis{genesisRegenesis = BaseV1.RegenesisDataV1{genesisCore = core, ..}}
+    return (PVInit newGenesis GenesisData.StateMigrationParametersTrivial (bmHeight $ bpInfo terminal))

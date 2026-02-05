@@ -23,7 +23,6 @@ pub fn query_token_module_state<TK: TokenKernelQueries>(
     Ok(RawCbor::from(cbor::cbor_encode(&state)))
 }
 
-// todo implement as part of https://linear.app/concordium/issue/PSR-23/implement-token-module-account-state-query
 fn query_token_module_state_impl<TK: TokenKernelQueries>(
     kernel: &TK,
 ) -> Result<TokenModuleState, QueryTokenModuleError> {
@@ -68,17 +67,29 @@ pub fn query_token_module_account_state<TK: TokenKernelQueries>(
     account: AccountIndex,
 ) -> RawCbor {
     let state = query_token_module_account_state_impl(kernel, account);
-
     RawCbor::from(cbor::cbor_encode(&state))
 }
 
 fn query_token_module_account_state_impl<TK: TokenKernelQueries>(
-    _kernel: &TK,
-    _account: AccountIndex,
+    kernel: &TK,
+    account: AccountIndex,
 ) -> TokenModuleAccountState {
+    let has_allow_list = key_value_state::has_allow_list(kernel);
+    let allow_list = if has_allow_list {
+        key_value_state::get_allow_list_for(kernel, account).into()
+    } else {
+        None
+    };
+    let has_deny_list = key_value_state::has_deny_list(kernel);
+    let deny_list = if has_deny_list {
+        key_value_state::get_deny_list_for(kernel, account).into()
+    } else {
+        None
+    };
+
     TokenModuleAccountState {
-        allow_list: None,
-        deny_list: None,
+        allow_list,
+        deny_list,
         additional: Default::default(),
     }
 }

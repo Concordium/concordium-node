@@ -72,8 +72,6 @@ where
     BSQ: BlockStateQuery,
     BSQ::Account: Clone,
 {
-    let account_index = block_state.account_index(&account);
-
     block_state
         .token_account_states(&account)
         .map(|(token, state)| {
@@ -86,9 +84,10 @@ where
                 token: &token,
                 token_module_state: &token_module_state,
             };
-
-            let module_state =
-                token_module::query_token_module_account_state(&kernel, account_index);
+            let module_state = token_module::query_token_module_account_state(
+                &kernel,
+                block_state.account_index(&account),
+            );
 
             let balance = TokenAmount {
                 amount: state.balance,
