@@ -3,8 +3,8 @@ use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
-    OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleEventType,
-    TokenModuleRejectReason, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
+    OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleRejectReason,
+    TokenOperation, TokenSupplyUpdateDetails,
 };
 use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
