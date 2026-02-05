@@ -6,8 +6,8 @@ use crate::block_state::{BlockStateExternal, ExecutionTimePltBlockState, PltBloc
 use crate::ffi::blob_store_callbacks::LoadCallback;
 use crate::ffi::block_state_callbacks::{
     GetAccountIndexByAddressCallback, GetCanonicalAddressByAccountIndexCallback,
-    IncrementPltUpdateSequenceNumberCallback, ReadTokenAccountBalanceCallback,
-    UpdateTokenAccountBalanceCallback,
+    GetTokenAccountStatesCallback, IncrementPltUpdateSequenceNumberCallback,
+    ReadTokenAccountBalanceCallback, UpdateTokenAccountBalanceCallback,
 };
 use crate::scheduler;
 use concordium_base::base::{AccountIndex, Energy};
@@ -26,6 +26,7 @@ impl BlockStateExternal for BlockStateCallbacks {
     type IncrementPltUpdateSequenceNumber = IncrementPltUpdateSequenceNumberCallback;
     type GetCanonicalAddressByAccountIndex = GetCanonicalAddressByAccountIndexCallback;
     type GetAccountIndexByAddress = GetAccountIndexByAddressCallback;
+    type GetTokenAccountStates = GetTokenAccountStatesCallback;
 }
 
 /// C-binding for calling [`scheduler::execute_transaction`].
@@ -75,6 +76,7 @@ extern "C" fn ffi_execute_transaction(
     increment_plt_update_sequence_number_callback: IncrementPltUpdateSequenceNumberCallback,
     get_account_address_by_index_callback: GetCanonicalAddressByAccountIndexCallback,
     get_account_index_by_address_callback: GetAccountIndexByAddressCallback,
+    get_token_account_states_callback: GetTokenAccountStatesCallback,
     block_state: *const PltBlockStateSavepoint,
     payload: *const u8,
     payload_len: size_t,
@@ -117,6 +119,7 @@ extern "C" fn ffi_execute_transaction(
         increment_plt_update_sequence_number: increment_plt_update_sequence_number_callback,
         get_account_address_by_index: get_account_address_by_index_callback,
         get_account_index_by_address: get_account_index_by_address_callback,
+        get_token_account_states: get_token_account_states_callback,
     };
 
     let sender_account_index = AccountIndex::from(sender_account_index);
@@ -132,9 +135,9 @@ extern "C" fn ffi_execute_transaction(
         AccountAddress(address_bytes)
     };
 
-    let mut payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
+    let payload_bytes = unsafe { std::slice::from_raw_parts(payload, payload_len) };
     // todo implement error handling for unrecoverable errors in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let payload: Payload = common::from_bytes(&mut payload_bytes).unwrap();
+    let payload: Payload = common::from_bytes_complete(payload_bytes).unwrap();
 
     let remaining_energy = Energy::from(remaining_energy);
 
@@ -167,7 +170,11 @@ extern "C" fn ffi_execute_transaction(
     // shrink Vec should that we know capacity and length are equal (this is important when we later free with free_array_len_2)
     return_data.shrink_to_fit();
     // todo now we assert that capacity is equals to the length, but we should address that this may not be the case in a better way, see https://linear.app/concordium/issue/COR-2181/address-potentially-unsafe-behaviour-cased-by-using-shrink-to-fit
-    assert_eq!(return_data.capacity(), return_data.len());
+    assert_eq!(
+        return_data.capacity(),
+        return_data.len(),
+        "vec capacity not equal to length after call to shrink_to_fit"
+    );
     unsafe {
         *return_data_len_out = return_data.len() as size_t;
         *return_data_out = return_data.as_mut_ptr();

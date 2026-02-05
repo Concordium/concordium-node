@@ -68,3 +68,4 @@ lcov.info
 # Test artefacts
 .stack-work-coverage*
 *.blob
+plt/plt-types/proptest-regressions/

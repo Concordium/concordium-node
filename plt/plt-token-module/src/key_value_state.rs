@@ -140,7 +140,7 @@ pub fn get_governance_account_index(
                 TokenModuleStateInvariantError("Governance account not present".to_string())
             })
             .and_then(|value| {
-                common::from_bytes::<u64, _>(&mut value.as_slice()).map_err(|err| {
+                common::from_bytes_complete::<u64>(&mut value.as_slice()).map_err(|err| {
                     TokenModuleStateInvariantError(format!(
                         "Stored governance account index cannot be decoded: {}",
                         err
