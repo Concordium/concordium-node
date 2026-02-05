@@ -59,7 +59,19 @@ pub struct Account {
     pub balance: Option<RawTokenAmount>,
 }
 
+const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
 const ACCOUNT_STATE_PREFIX: [u8; 2] = 40307u16.to_le_bytes();
+
+const STATE_KEY_ALLOW_LIST: &[u8] = b"allowList";
+const STATE_KEY_DENY_LIST: &[u8] = b"denyList";
+const STATE_KEY_PAUSED: &[u8] = b"paused";
+
+fn module_state_key(key: &[u8]) -> TokenStateKey {
+    let mut module_key = Vec::with_capacity(MODULE_STATE_PREFIX.len() + key.len());
+    module_key.extend_from_slice(&MODULE_STATE_PREFIX);
+    module_key.extend_from_slice(key);
+    module_key
+}
 
 fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
     let mut account_key =
@@ -133,18 +145,25 @@ impl KernelStub {
         *balance = new_balance;
     }
 
+    /// Set the account allow-list entry in token state.
     pub fn set_allow_list(&mut self, account: AccountStubIndexWithAddress, value: bool) {
         self.set_token_state_value(
-            account_state_key(self.account_index(&account), b"allowList"),
+            account_state_key(self.account_index(&account), STATE_KEY_ALLOW_LIST),
             value.then_some(vec![]),
         );
     }
 
+    /// Set the account deny-list entry in token state.
     pub fn set_deny_list(&mut self, account: AccountStubIndexWithAddress, value: bool) {
         self.set_token_state_value(
-            account_state_key(self.account_index(&account), b"denyList"),
+            account_state_key(self.account_index(&account), STATE_KEY_DENY_LIST),
             value.then_some(vec![]),
         );
+    }
+
+    /// Set the module paused state in token state.
+    pub fn set_paused(&mut self, value: bool) {
+        self.set_token_state_value(module_state_key(STATE_KEY_PAUSED), value.then_some(vec![]));
     }
 
     /// Initialize token and return the governance account

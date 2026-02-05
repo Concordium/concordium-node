@@ -5,8 +5,7 @@ use concordium_base::contracts_common::AccountAddress;
 use concordium_base::protocol_level_tokens::{
     AddressNotFoundRejectReason, CborHolderAccount, CborMemo, DeserializationFailureRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason,
-    TokenModuleEventType, TokenModuleRejectReason, TokenOperation, TokenPauseDetails,
-    TokenTransfer,
+    TokenModuleRejectReason, TokenOperation, TokenTransfer,
 };
 use concordium_base::transactions::Memo;
 use kernel_stub::KernelStub;
@@ -437,16 +436,7 @@ fn test_transfer_paused() {
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
     stub.set_account_balance(receiver, RawTokenAmount(2000));
 
-    // We set the token to be paused, and verify that the otherwise valid "transfer" operation
-    // is rejected in the subsequent transaction.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
-    token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
+    stub.set_paused(true);
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
     let operations = vec![TokenOperation::Transfer(TokenTransfer {
@@ -470,11 +460,4 @@ fn test_transfer_paused() {
             reason: Some(reason),
         }) if reason == "token operation transfer is paused"
     );
-
-    assert_eq!(stub.events.len(), 1);
-    assert_eq!(
-        stub.events[0].0,
-        TokenModuleEventType::Pause.to_type_discriminator()
-    );
-    assert!(stub.events[0].1.as_ref().is_empty());
 }
