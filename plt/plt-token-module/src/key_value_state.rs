@@ -31,7 +31,6 @@ pub trait KernelOperationsExt: TokenKernelOperations {
         self.set_token_state_value(module_state_key(key), value);
     }
 
-    #[allow(dead_code)] // TODO: remove as part of PSR-24
     fn set_account_state(
         &mut self,
         account: AccountIndex,
@@ -152,6 +151,12 @@ pub fn get_governance_account_index(
     Ok(governance_account_index)
 }
 
+/// Sets the puased state of the token module.
+pub fn set_paused<TK: TokenKernelOperations>(kernel: &mut TK, value: bool) {
+    let state_value = value.then_some(vec![]);
+    kernel.set_module_state(STATE_KEY_PAUSED, state_value)
+}
+
 /// Get the allow-list state for the account at the given account.
 pub fn get_allow_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIndex) -> bool {
     kernel
@@ -160,7 +165,6 @@ pub fn get_allow_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountI
 }
 
 /// Set the allow-list state for the account at the given account.
-#[allow(dead_code)] // TODO: remove as part of PSR-24
 pub fn set_allow_list_for<TK: TokenKernelOperations>(
     kernel: &mut TK,
     account: AccountIndex,
@@ -178,13 +182,12 @@ pub fn get_deny_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIn
 }
 
 /// Set the deny-list state for the account at the given account.
-#[allow(dead_code)] // TODO: remove as part of PSR-24
 pub fn set_deny_list_for<TK: TokenKernelOperations>(
     kernel: &mut TK,
     account: AccountIndex,
     value: bool,
 ) {
-    let state_value = if value { Some(vec![]) } else { None };
+    let state_value = value.then_some(vec![]);
     kernel.set_account_state(account, STATE_KEY_DENY_LIST, state_value)
 }
 

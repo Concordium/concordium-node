@@ -8,8 +8,9 @@ use concordium_base::base::Energy;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, CborMemo, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
-    TokenModuleEventType, TokenModuleRejectReason, TokenOperation, TokenOperationsPayload,
-    TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer,
+    TokenListUpdateDetails, TokenListUpdateEventDetails, TokenModuleEventType,
+    TokenModuleRejectReason, TokenOperation, TokenOperationsPayload, TokenPauseDetails,
+    TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
@@ -246,6 +247,155 @@ fn test_plt_transfer_reject() {
         reject_reason,
         TokenModuleRejectReason::TokenBalanceInsufficient(_)
     );
+}
+
+/// Test allow list enforcement with transfer retry.
+#[test]
+fn test_plt_transfer_allow_list_flow() {
+    let mut stub = BlockStateStub::new();
+    let token_id: TokenId = "TokenId1".parse().unwrap();
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().allow_list(),
+        4,
+        Some(RawTokenAmount(5000)),
+    );
+    let receiver = stub.create_account();
+
+    // Add only the sender to the allow list.
+    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(stub.account_canonical_address(&gov_account)),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
+
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
+        assert_eq!(event.token_id, token_id);
+        assert_eq!(event.event_type, TokenModuleEventType::AddAllowList.to_type_discriminator());
+        let details: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
+        assert_eq!(details.target, CborHolderAccount::from(stub.account_canonical_address(&gov_account)));
+    });
+
+    // Transfer fails because the receiver is not allow-listed yet.
+    let operations = vec![TokenOperation::Transfer(TokenTransfer {
+        amount: TokenAmount::from_raw(1000, 4),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        memo: None,
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
+
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
+    assert_eq!(
+        stub.account_token_balance(&gov_account, &token),
+        RawTokenAmount(5000)
+    );
+    assert_eq!(
+        stub.account_token_balance(&receiver, &token),
+        RawTokenAmount(0)
+    );
+
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
+            address: Some(address),
+            reason: Some(reason),
+            ..
+        }) => {
+            assert_eq!(address, CborHolderAccount::from(stub.account_canonical_address(&receiver)));
+            assert_eq!(reason, "recipient not in allow list");
+        }
+    );
+
+    // Add the receiver to the allow list.
+    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
+
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], BlockItemEvent::TokenModule(event) => {
+        assert_eq!(event.token_id, token_id);
+        assert_eq!(event.event_type, TokenModuleEventType::AddAllowList.to_type_discriminator());
+        let details: TokenListUpdateEventDetails = cbor::cbor_decode(&event.details).unwrap();
+        assert_eq!(details.target, CborHolderAccount::from(stub.account_canonical_address(&receiver)));
+    });
+
+    // Transfer succeeds once both accounts are allow-listed.
+    let operations = vec![TokenOperation::Transfer(TokenTransfer {
+        amount: TokenAmount::from_raw(1000, 4),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&receiver)),
+        memo: None,
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: token_id.clone(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    let events = assert_matches!(result.outcome, TransactionOutcome::Success(events) => events);
+
+    assert_eq!(stub.token_circulating_supply(&token), RawTokenAmount(5000));
+    assert_eq!(
+        stub.account_token_balance(&gov_account, &token),
+        RawTokenAmount(4000)
+    );
+    assert_eq!(
+        stub.account_token_balance(&receiver, &token),
+        RawTokenAmount(1000)
+    );
+
+    assert_eq!(events.len(), 1);
+    assert_matches!(&events[0], BlockItemEvent::TokenTransfer(transfer) => {
+        assert_eq!(transfer.token_id, token_id);
+        assert_eq!(transfer.amount.amount, RawTokenAmount(1000));
+        assert_eq!(transfer.amount.decimals, 4);
+        assert_eq!(transfer.from, stub.account_canonical_address(&gov_account));
+        assert_eq!(transfer.to, stub.account_canonical_address(&receiver));
+        assert_eq!(transfer.memo, None);
+    });
 }
 
 /// Test protocol-level token mint.
