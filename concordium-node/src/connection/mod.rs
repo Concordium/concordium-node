@@ -384,6 +384,8 @@ pub struct Connection {
     pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
+    /// Pending catch-up message semaphore.
+    pub pending_semaphore: Arc<AtomicU64>,
 }
 
 impl PartialEq for Connection {
@@ -434,6 +436,7 @@ impl Connection {
             Interest::READABLE | Interest::WRITABLE,
         )?;
 
+
         Ok(Self {
             handler: Arc::clone(handler),
             remote_peer,
@@ -444,6 +447,7 @@ impl Connection {
             // When we create the connection, we set the wire protocol version
             // to the current version, but this is overwritten in the handshake.
             wire_version: WIRE_PROTOCOL_CURRENT_VERSION,
+            pending_semaphore: Arc::new(AtomicU64::new(10)), // FIXME: magic number
         })
     }
 

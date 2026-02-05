@@ -11,7 +11,7 @@ use std::{
     convert::TryFrom,
     path::Path,
     sync::{
-        atomic::{AtomicBool, AtomicPtr, Ordering},
+        atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering},
         Arc, Mutex, RwLock,
     },
 };
@@ -43,12 +43,34 @@ pub const CONSENSUS_QUEUE_DEPTH_OUT_HI: usize = 8 * 1024;
 pub const CONSENSUS_QUEUE_DEPTH_OUT_LO: usize = 16 * 1024;
 pub const CONSENSUS_QUEUE_DEPTH_IN_HI: usize = 16 * 1024;
 pub const CONSENSUS_QUEUE_DEPTH_IN_LO: usize = 32 * 1024;
+pub const CONSENSUS_QUEUE_DEPTH_IN_BG: usize = 8 * 1024;
+
+pub struct BackgroundMessage {
+    message: ConsensusMessage,
+    counter: Arc<AtomicU64>,
+}
+
+impl BackgroundMessage {
+    pub fn new(message: ConsensusMessage, counter: Arc<AtomicU64>) -> Self {
+        Self { message, counter }
+    }
+    pub fn into_consensus_message(self) -> ConsensusMessage {
+        self.counter.fetch_add(1, Ordering::Relaxed);
+        self.message
+    }
+}
 
 pub struct ConsensusInboundQueues {
     pub receiver_high_priority: Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_high_priority: QueueSyncSender<ConsensusMessage>,
     pub receiver_low_priority: Mutex<QueueReceiver<ConsensusMessage>>,
     pub sender_low_priority: QueueSyncSender<ConsensusMessage>,
+    /// Receiver for background message processing queue.
+    /// This queue is for consensus messages that can be processed without
+    /// blocking - specifically catch-up messages.
+    pub receiver_background: Mutex<QueueReceiver<BackgroundMessage>>,
+    /// Sender for background message processing queue.
+    pub sender_background: QueueSyncSender<BackgroundMessage>,
 }
 
 impl Default for ConsensusInboundQueues {
@@ -57,11 +79,15 @@ impl Default for ConsensusInboundQueues {
             crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_IN_HI);
         let (sender_low_priority, receiver_low_priority) =
             crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_IN_LO);
+        let (sender_background, receiver_background) =
+            crossbeam_channel::bounded(CONSENSUS_QUEUE_DEPTH_IN_BG);
         Self {
             receiver_high_priority: Mutex::new(receiver_high_priority),
             sender_high_priority,
             receiver_low_priority: Mutex::new(receiver_low_priority),
             sender_low_priority,
+            receiver_background: Mutex::new(receiver_background),
+            sender_background,
         }
     }
 }
@@ -109,6 +135,13 @@ impl ConsensusQueues {
             .map_err(|e| e.into())
     }
 
+    pub fn send_in_background_message(&self, message: BackgroundMessage) -> anyhow::Result<()> {
+        self.inbound
+            .sender_background
+            .send_msg(message)
+            .map_err(|e| e.into())
+    }
+
     pub fn send_out_message(&self, message: ConsensusMessage) -> anyhow::Result<()> {
         self.outbound
             .sender_low_priority
@@ -148,6 +181,12 @@ impl ConsensusQueues {
                 q.try_iter().count()
             );
         }
+        if let Ok(ref mut q) = self.inbound.receiver_background.try_lock() {
+            debug!(
+                "Drained the Consensus inbound background queue for {} element(s)",
+                q.try_iter().count()
+            );
+        }
     }
 
     pub fn stop(&self) -> anyhow::Result<()> {
@@ -155,6 +194,7 @@ impl ConsensusQueues {
         self.outbound.sender_high_priority.send_stop()?;
         self.inbound.sender_low_priority.send_stop()?;
         self.inbound.sender_high_priority.send_stop()?;
+        self.inbound.sender_background.send_stop()?;
         Ok(())
     }
 }

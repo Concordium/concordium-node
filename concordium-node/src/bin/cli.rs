@@ -406,6 +406,7 @@ fn start_consensus_message_threads(
     consensus: ConsensusContainer,
 ) -> Vec<JoinHandle<()>> {
     let mut threads: Vec<JoinHandle<()>> = Default::default();
+    let background_consensus = consensus.clone();
 
     let node_ref = Arc::clone(node);
     threads.push(spawn_or_die!("inbound consensus requests", {
@@ -474,6 +475,38 @@ fn start_consensus_message_threads(
                         // the queue sender is dropped.
                         error!("Inbound consensus queue was disconnected unexpectedly.");
                         break 'outer_loop;
+                    }
+                }
+            }
+        }
+    }));
+
+    let node_ref = Arc::clone(node);
+    threads.push(spawn_or_die!("background consensus requests", {
+        let consensus_receiver_background =
+            CALLBACK_QUEUE.inbound.receiver_background.lock().unwrap();
+
+        loop {
+            // TODO: stats
+            let Ok(message) = consensus_receiver_background.recv() else {
+                error!("Background consensus queue was disconnected unexpectedly.");
+                break;
+            };
+            match message {
+                QueueMsg::Stop => {
+                    debug!("Closing the background consensus channel");
+                    break;
+                }
+                QueueMsg::Relay(message) => {
+                    if let Err(e) = handle_consensus_inbound_msg(
+                        &node_ref,
+                        &background_consensus,
+                        message.into_consensus_message(),
+                    ) {
+                        error!(
+                            "There's an issue with a background consensus request: {}",
+                            e
+                        );
                     }
                 }
             }
