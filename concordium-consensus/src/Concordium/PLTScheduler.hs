@@ -205,7 +205,7 @@ foreign import ccall "ffi_execute_transaction"
         -- | Remaining energy
         Word.Word64 ->
         -- | Output location for the resulting PLT block state.
-        -- Only written set if the execution was successful (return code `0`)
+        -- This is only set if the execution was successful (return code `0`)
         FFI.Ptr (FFI.Ptr PLTBlockState.RustPLTBlockState) ->
         -- | Output location for the energy used by the execution.
         -- This is written regardless of whether return code is `0` or `1`
