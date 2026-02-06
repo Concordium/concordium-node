@@ -1,4 +1,4 @@
-use crate::key_value_state;
+use crate::key_value_state::{self, KernelQueriesExt, STATE_KEY_MINTABLE};
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
@@ -414,7 +414,11 @@ fn execute_token_mint<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    key_value_state::is_mintable(kernel).then_some(()).ok_or(
+        TokenUpdateErrorInternal::StateInvariantViolation(TokenStateInvariantError(
+            "Mint is not allowed".into(),
+        )),
+    )?;
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -434,7 +438,11 @@ fn execute_token_burn<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    key_value_state::is_burnable(kernel).then_some(()).ok_or(
+        TokenUpdateErrorInternal::StateInvariantViolation(TokenStateInvariantError(
+            "Burn is not allowed".into(),
+        )),
+    )?;
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -481,7 +489,11 @@ fn execute_add_allow_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    key_value_state::has_allow_list(kernel)
+        .then_some(())
+        .ok_or(TokenUpdateErrorInternal::StateInvariantViolation(
+            TokenStateInvariantError("The token does not have allow list".into()),
+        ))?;
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
@@ -505,7 +517,12 @@ fn execute_add_deny_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    key_value_state::has_deny_list(kernel).then_some(()).ok_or(
+        TokenUpdateErrorInternal::StateInvariantViolation(TokenStateInvariantError(
+            "The token does not have deny list".into(),
+        )),
+    )?;
+
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
@@ -529,7 +546,12 @@ fn execute_remove_allow_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    key_value_state::has_allow_list(kernel)
+        .then_some(())
+        .ok_or(TokenUpdateErrorInternal::StateInvariantViolation(
+            TokenStateInvariantError("The token does not have allow list".into()),
+        ))?;
+
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
@@ -552,7 +574,12 @@ fn execute_remove_deny_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    key_value_state::has_deny_list(kernel).then_some(()).ok_or(
+        TokenUpdateErrorInternal::StateInvariantViolation(TokenStateInvariantError(
+            "The token does not have deny list".into(),
+        )),
+    )?;
+
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
