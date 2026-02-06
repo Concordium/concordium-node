@@ -118,7 +118,9 @@ executeTransaction
                                         usedEnergyOutPtr
                                         returnDataPtrOutPtr
                                         returnDataLenOutPtr
-                        -- Free the function pointers we have just created (loadCallbackPtr is created in another context, so we should not free them)
+                        -- Free the function pointers we have just created
+                        -- (loadCallbackPtr is created in another context,
+                        -- so we should not free it)
                         FFI.freeHaskellFunPtr readTokenAccountBalanceCallbackPtr
                         FFI.freeHaskellFunPtr updateTokenAccountBalanceCallbackPtr
                         FFI.freeHaskellFunPtr incrementPltUpdateSequenceCallbackPtr
