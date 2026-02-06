@@ -9,12 +9,12 @@ use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, CborMemo, OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenId,
     TokenListUpdateDetails, TokenListUpdateEventDetails, TokenModuleEventType,
-    TokenModuleRejectReason, TokenOperation, TokenOperationsPayload, TokenPauseDetails,
-    TokenSupplyUpdateDetails, TokenTransfer,
+    TokenModuleRejectReason, TokenModuleState, TokenOperation, TokenOperationsPayload,
+    TokenPauseDetails, TokenSupplyUpdateDetails, TokenTransfer,
 };
 use concordium_base::transactions::{Memo, Payload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
-use plt_scheduler::scheduler;
+use plt_scheduler::{queries, scheduler};
 use plt_types::types::events::BlockItemEvent;
 use plt_types::types::execution::TransactionOutcome;
 use plt_types::types::reject_reasons::TransactionRejectReason;
@@ -805,7 +805,7 @@ fn test_plt_multiple_operations() {
 fn test_plt_pause() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (_, gov_account) =
+    let (_token, gov_account) =
         stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
 
     // Add the "pause" operation
@@ -833,10 +833,41 @@ fn test_plt_pause() {
         assert_eq!(event.details, vec![].into());
     });
 
-    let token = stub.token_by_id(&token_id).expect("token exists");
-    let token_kv = stub.mutable_token_key_value_state(&token);
-    let paused = stub.lookup_token_state_value(&token_kv, &b"\0\0paused".into());
-    assert_eq!(paused, Some(vec![]));
+    // Assert paused it set in state
+    let token_info = queries::query_token_info(&stub, &token_id).unwrap();
+    let token_module_state: TokenModuleState =
+        cbor::cbor_decode(&token_info.state.module_state).unwrap();
+    assert_eq!(token_module_state.paused, Some(true));
+
+    // Test transfer is now rejected
+    let account1 = stub.create_account();
+    let operations = vec![TokenOperation::Transfer(TokenTransfer {
+        amount: TokenAmount::from_raw(10000, 4),
+        recipient: CborHolderAccount::from(stub.account_canonical_address(&account1)),
+        memo: None,
+    })];
+    let payload = TokenOperationsPayload {
+        token_id: "tokenid1".parse().unwrap(),
+        operations: RawCbor::from(cbor::cbor_encode(&operations)),
+    };
+
+    let result = scheduler::execute_transaction(
+        gov_account,
+        stub.account_canonical_address(&gov_account),
+        &mut stub,
+        Payload::TokenUpdate { payload },
+        Energy::from(u64::MAX),
+    )
+    .expect("transaction internal error");
+    let reject_reason = assert_matches!(result.outcome, TransactionOutcome::Rejected(reject_reason) => reject_reason);
+    let reject_reason = utils::assert_token_module_reject_reason(&token_id, reject_reason);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::OperationNotPermitted(not_permitted) => {
+            let reason = not_permitted.reason.unwrap();
+            assert!(reason.contains("paused"), "reason: {}", reason);
+        }
+    );
 }
 
 /// Test protocol-level token "unpause" operation.
