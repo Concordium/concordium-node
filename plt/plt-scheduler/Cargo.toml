@@ -1,0 +1,24 @@
+[package]
+name = "plt-scheduler"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[features]
+default = ["ffi"]
+ffi = ["dep:libc"]
+
+[dependencies]
+plt-types.workspace = true
+plt-scheduler-interface.workspace = true
+plt-token-module.workspace = true
+
+concordium_base.workspace = true
+thiserror.workspace = true
+libc = { workspace = true, optional = true }
+
+[dev-dependencies]
+assert_matches.workspace = true
+hex.workspace = true

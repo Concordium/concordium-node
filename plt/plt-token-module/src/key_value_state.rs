@@ -1,0 +1,211 @@
+//! Internal constants and utilities for token key-value state.
+
+use crate::token_module::TokenModuleStateInvariantError;
+use crate::util;
+use concordium_base::common;
+use concordium_base::protocol_level_tokens::MetadataUrl;
+use concordium_base::{base::AccountIndex, common::Serial};
+use plt_scheduler_interface::token_kernel_interface::{
+    TokenKernelOperations, TokenKernelQueries, TokenStateKey, TokenStateValue,
+};
+
+/// Little-endian prefix used to distinguish module state keys.
+const MODULE_STATE_PREFIX: [u8; 2] = 0u16.to_le_bytes();
+/// Little-endian prefix used to distinguish account state keys.
+const ACCOUNT_STATE_PREFIX: [u8; 2] = 40307u16.to_le_bytes();
+
+pub const STATE_KEY_NAME: &[u8] = b"name";
+pub const STATE_KEY_METADATA: &[u8] = b"metadata";
+pub const STATE_KEY_ALLOW_LIST: &[u8] = b"allowList";
+pub const STATE_KEY_DENY_LIST: &[u8] = b"denyList";
+pub const STATE_KEY_MINTABLE: &[u8] = b"mintable";
+pub const STATE_KEY_BURNABLE: &[u8] = b"burnable";
+pub const STATE_KEY_PAUSED: &[u8] = b"paused";
+pub const STATE_KEY_GOVERNANCE_ACCOUNT: &[u8] = b"governanceAccount";
+
+/// Extension trait for [`TokenKernelOperations`] to provide convenience wrappers for
+/// state updates.
+pub trait KernelOperationsExt: TokenKernelOperations {
+    /// Set or clear a value in the token module state at the corresponding key.
+    fn set_module_state(&mut self, key: &[u8], value: Option<TokenStateValue>) {
+        self.set_token_state_value(module_state_key(key), value);
+    }
+
+    fn set_account_state(
+        &mut self,
+        account: AccountIndex,
+        key: &[u8],
+        value: Option<TokenStateValue>,
+    ) {
+        self.set_token_state_value(account_state_key(account, key), value);
+    }
+}
+
+impl<T: TokenKernelOperations> KernelOperationsExt for T {}
+
+/// Extension trait for [`TokenKernelQueries`] to provide convenience wrappers for
+/// state access.
+pub trait KernelQueriesExt: TokenKernelQueries {
+    /// Get value from the token module state at the given key.
+    fn get_module_state(&self, key: &[u8]) -> Option<TokenStateValue> {
+        self.lookup_token_state_value(module_state_key(key))
+    }
+
+    fn get_account_state(&self, account: AccountIndex, key: &[u8]) -> Option<TokenStateValue> {
+        self.lookup_token_state_value(account_state_key(account, key))
+    }
+}
+
+impl<T: TokenKernelQueries> KernelQueriesExt for T {}
+
+/// Construct a [`TokenStateKey`] for a module key. This prefixes the key to
+/// distinguish it from other keys.
+fn module_state_key(key: &[u8]) -> TokenStateKey {
+    let mut module_key = Vec::with_capacity(MODULE_STATE_PREFIX.len() + key.len());
+    module_key.extend_from_slice(&MODULE_STATE_PREFIX);
+    module_key.extend_from_slice(key);
+    module_key
+}
+
+fn account_state_key(account_index: AccountIndex, key: &[u8]) -> TokenStateKey {
+    let mut account_key =
+        Vec::with_capacity(ACCOUNT_STATE_PREFIX.len() + size_of::<AccountIndex>() + key.len());
+    account_key.extend_from_slice(&ACCOUNT_STATE_PREFIX);
+    account_index.serial(&mut account_key);
+    account_key.extend_from_slice(key);
+    account_key
+}
+
+/// Get whether the balance-affecting operations on the token are currently
+/// paused.
+pub fn is_paused(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_PAUSED).is_some()
+}
+
+/// Get whether the token has allow lists enabled.
+pub fn has_allow_list(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_ALLOW_LIST).is_some()
+}
+
+/// Get whether the token has deny lists enabled.
+pub fn has_deny_list(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_DENY_LIST).is_some()
+}
+
+/// Get whether the token allows minting.
+pub fn is_mintable(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_MINTABLE).is_some()
+}
+
+/// Get whether the token allows burning.
+pub fn is_burnable(kernel: &impl TokenKernelQueries) -> bool {
+    kernel.get_module_state(STATE_KEY_BURNABLE).is_some()
+}
+
+/// Get the name of the token.
+pub fn get_name(
+    kernel: &impl TokenKernelQueries,
+) -> Result<String, TokenModuleStateInvariantError> {
+    kernel
+        .get_module_state(STATE_KEY_NAME)
+        .ok_or_else(|| TokenModuleStateInvariantError("Name not present".to_string()))
+        .and_then(|value| {
+            String::from_utf8(value).map_err(|err| {
+                TokenModuleStateInvariantError(format!("Stored name is invalid UTF8: {}", err))
+            })
+        })
+}
+
+/// Get the URL metadata of the token.
+pub fn get_metadata(
+    kernel: &impl TokenKernelQueries,
+) -> Result<MetadataUrl, TokenModuleStateInvariantError> {
+    let metadata_cbor = kernel
+        .get_module_state(STATE_KEY_METADATA)
+        .ok_or_else(|| TokenModuleStateInvariantError("Metadata not present".to_string()))?;
+    let metadata: MetadataUrl = util::cbor_decode(metadata_cbor).map_err(|err| {
+        TokenModuleStateInvariantError(format!("Stored metadata CBOR not decodable: {}", err))
+    })?;
+    Ok(metadata)
+}
+
+/// Get the account index of the governance account for the token.
+pub fn get_governance_account_index(
+    kernel: &impl TokenKernelQueries,
+) -> Result<AccountIndex, TokenModuleStateInvariantError> {
+    let governance_account_index = AccountIndex::from(
+        kernel
+            .get_module_state(STATE_KEY_GOVERNANCE_ACCOUNT)
+            .ok_or_else(|| {
+                TokenModuleStateInvariantError("Governance account not present".to_string())
+            })
+            .and_then(|value| {
+                common::from_bytes_complete::<u64>(&mut value.as_slice()).map_err(|err| {
+                    TokenModuleStateInvariantError(format!(
+                        "Stored governance account index cannot be decoded: {}",
+                        err
+                    ))
+                })
+            })?,
+    );
+    Ok(governance_account_index)
+}
+
+/// Sets the puased state of the token module.
+pub fn set_paused<TK: TokenKernelOperations>(kernel: &mut TK, value: bool) {
+    let state_value = value.then_some(vec![]);
+    kernel.set_module_state(STATE_KEY_PAUSED, state_value)
+}
+
+/// Get the allow-list state for the account at the given account.
+pub fn get_allow_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIndex) -> bool {
+    kernel
+        .get_account_state(account, STATE_KEY_ALLOW_LIST)
+        .is_some()
+}
+
+/// Set the allow-list state for the account at the given account.
+pub fn set_allow_list_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: AccountIndex,
+    value: bool,
+) {
+    let state_value = value.then_some(vec![]);
+    kernel.set_account_state(account, STATE_KEY_ALLOW_LIST, state_value)
+}
+
+/// Get the deny-list state for the account at the given account.
+pub fn get_deny_list_for<TK: TokenKernelQueries>(kernel: &TK, account: AccountIndex) -> bool {
+    kernel
+        .get_account_state(account, STATE_KEY_DENY_LIST)
+        .is_some()
+}
+
+/// Set the deny-list state for the account at the given account.
+pub fn set_deny_list_for<TK: TokenKernelOperations>(
+    kernel: &mut TK,
+    account: AccountIndex,
+    value: bool,
+) {
+    let state_value = value.then_some(vec![]);
+    kernel.set_account_state(account, STATE_KEY_DENY_LIST, state_value)
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    /// Test that the module state key is formed correctly
+    #[test]
+    fn test_module_state_key() {
+        let key = module_state_key(&[1, 2, 3]);
+        assert_eq!(key, vec![0, 0, 1, 2, 3]);
+    }
+
+    /// Test that the account state key is formed correctly
+    #[test]
+    fn test_account_state_key() {
+        let key = account_state_key(AccountIndex::from(1u64), &[1, 2, 3]);
+        assert_eq!(key, vec![115, 157, 0, 0, 0, 0, 0, 0, 0, 1, 1, 2, 3]);
+    }
+}

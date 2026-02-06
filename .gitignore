@@ -27,7 +27,6 @@ deps/internal/crypto/build
 *.ps
 scripts/static-libs/static-libs-docker/output_dir/
 result
-**/**/Cargo.lock
 0
 **/**/0
 scripts/genesis-data/genesis_data/**
@@ -49,6 +48,7 @@ genesis_data
 /concordium-consensus/a.out
 /concordium-consensus/HSdll.dll
 /concordium-consensus/HSdll.dll.a
+/concordium-consensus/lib
 concordium-node/deps/static-libs
 .dir-locals.el
 hie.yaml
@@ -68,3 +68,4 @@ lcov.info
 # Test artefacts
 .stack-work-coverage*
 *.blob
+plt/plt-types/proptest-regressions/

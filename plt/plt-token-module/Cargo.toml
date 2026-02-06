@@ -1,0 +1,17 @@
+[package]
+name = "plt-token-module"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+plt-types.workspace = true
+plt-scheduler-interface.workspace = true
+
+concordium_base.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+assert_matches.workspace = true
