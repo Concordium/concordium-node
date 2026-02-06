@@ -292,7 +292,7 @@ executeChainUpdate
                         FFI.freeHaskellFunPtr getAccountIndexByAddressCallbackPtr
                         FFI.freeHaskellFunPtr getAccountAddressByIndexCallbackPtr
                         FFI.freeHaskellFunPtr getTokenAccountStatesCallbackPtr
-                        -- Process the returned status and values returend via out pointers
+                        -- Process the returned status and values returned via out pointers
                         returnDataLen <- FFI.peek returnDataLenOutPtr
                         returnDataPtr <- FFI.peek returnDataPtrOutPtr
                         returnData <-
