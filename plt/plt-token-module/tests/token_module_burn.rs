@@ -5,6 +5,7 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, OperationNotPermittedRejectReason,
     RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleEventType,
     TokenModuleRejectReason, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
+    UnsupportedOperationRejectReason,
 };
 use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
@@ -225,10 +226,11 @@ fn test_not_burnable() {
     let reject_reason = utils::assert_reject_reason(&res);
     assert_matches!(
         reject_reason,
-        TokenModuleRejectReason::OperationNotPermitted(OperationNotPermittedRejectReason {
-            index: 0,
-            address: None,
-            reason: Some(reason),
-        }) if reason == "Burn is not allowed"
+        TokenModuleRejectReason::UnsupportedOperation(
+            UnsupportedOperationRejectReason{
+                index:0,
+                operation_type,
+                reason: Some(reason) })
+            if reason == "Burn is not allowed" && operation_type == "burn".to_string()
     );
 }

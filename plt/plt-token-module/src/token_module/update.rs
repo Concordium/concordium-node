@@ -458,9 +458,10 @@ fn execute_token_burn<
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
     key_value_state::is_burnable(kernel).then_some(()).ok_or(
-        TokenUpdateErrorInternal::StateInvariantViolation(TokenStateInvariantError(
-            "Burn is not allowed".into(),
-        )),
+        TokenUpdateErrorInternal::UnsupportedOperation {
+            operation_type: "burn",
+            reason: "Burn is not allowed",
+        },
     )?;
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
@@ -510,9 +511,10 @@ fn execute_add_allow_list<
     check_authorized(transaction_execution, kernel)?;
     key_value_state::has_allow_list(kernel)
         .then_some(())
-        .ok_or(TokenUpdateErrorInternal::StateInvariantViolation(
-            TokenStateInvariantError("The token does not have allow list".into()),
-        ))?;
+        .ok_or(TokenUpdateErrorInternal::UnsupportedOperation {
+            operation_type: "add_allow_list",
+            reason: "Allow list is not supported",
+        })?;
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
@@ -537,9 +539,10 @@ fn execute_add_deny_list<
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
     key_value_state::has_deny_list(kernel).then_some(()).ok_or(
-        TokenUpdateErrorInternal::StateInvariantViolation(TokenStateInvariantError(
-            "The token does not have deny list".into(),
-        )),
+        TokenUpdateErrorInternal::UnsupportedOperation {
+            operation_type: "add_deny_list",
+            reason: "Deny list is not supported",
+        },
     )?;
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
@@ -567,9 +570,10 @@ fn execute_remove_allow_list<
     check_authorized(transaction_execution, kernel)?;
     key_value_state::has_allow_list(kernel)
         .then_some(())
-        .ok_or(TokenUpdateErrorInternal::StateInvariantViolation(
-            TokenStateInvariantError("The token does not have allow list".into()),
-        ))?;
+        .ok_or(TokenUpdateErrorInternal::UnsupportedOperation {
+            operation_type: "remove_allow_list",
+            reason: "Allow list is not supported",
+        })?;
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
@@ -594,9 +598,10 @@ fn execute_remove_deny_list<
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
     key_value_state::has_deny_list(kernel).then_some(()).ok_or(
-        TokenUpdateErrorInternal::StateInvariantViolation(TokenStateInvariantError(
-            "The token does not have deny list".into(),
-        )),
+        TokenUpdateErrorInternal::UnsupportedOperation {
+            operation_type: "remove_deny_list",
+            reason: "Deny list is not supported",
+        },
     )?;
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
