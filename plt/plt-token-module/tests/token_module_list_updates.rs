@@ -479,7 +479,7 @@ fn test_list_updates_without_enabled_lists() {
                 index:0,
                 operation_type,
                 reason: Some(reason) })
-            if reason == "Deny list is not supported" && operation_type == "remove-deny-list".to_string()
+            if reason == "Deny list is not supported" && operation_type == "remove-deny-list"
     );
 
     assert_matches!(
@@ -489,7 +489,7 @@ fn test_list_updates_without_enabled_lists() {
                 index:0,
                 operation_type,
                 reason: Some(reason) })
-            if reason == "Deny list is not supported" && operation_type == "add-deny-list".to_string()
+            if reason == "Deny list is not supported" && operation_type == "add-deny-list"
     );
 
     assert_matches!(
@@ -499,7 +499,7 @@ fn test_list_updates_without_enabled_lists() {
                 index:0,
                 operation_type,
                 reason: Some(reason) })
-            if reason == "Allow list is not supported" && operation_type == "remove-allow-list".to_string()
+            if reason == "Allow list is not supported" && operation_type == "remove-allow-list"
     );
 
     assert_matches!(
@@ -509,6 +509,6 @@ fn test_list_updates_without_enabled_lists() {
                 index:0,
                 operation_type,
                 reason: Some(reason) })
-            if reason == "Allow list is not supported" && operation_type == "add-allow-list".to_string()
+            if reason == "Allow list is not supported" && operation_type == "add-allow-list"
     );
 }
