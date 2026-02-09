@@ -213,6 +213,6 @@ fn test_not_burnable() {
                 index:0,
                 operation_type,
                 reason: Some(reason) })
-            if reason == "Burn is not allowed" && operation_type == "burn".to_string()
+            if reason == "Burn is not allowed" && operation_type == "burn"
     );
 }

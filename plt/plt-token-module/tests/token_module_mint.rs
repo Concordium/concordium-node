@@ -257,6 +257,6 @@ fn test_not_mintable() {
             index: 0,
             operation_type,
             reason: Some(reason)
-        }) if reason == "Mint is not allowed" && operation_type == "mint".to_string()
+        }) if reason == "Mint is not allowed" && operation_type == "mint"
     );
 }
