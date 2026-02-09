@@ -1,4 +1,4 @@
-use crate::key_value_state::{self, KernelQueriesExt, STATE_KEY_MINTABLE};
+use crate::key_value_state;
 use crate::token_module::TokenAmountDecimalsMismatchError;
 use crate::util;
 use concordium_base::base::Energy;
@@ -9,6 +9,7 @@ use concordium_base::protocol_level_tokens::{
     TokenBalanceInsufficientRejectReason, TokenListUpdateDetails, TokenListUpdateEventDetails,
     TokenModuleCborTypeDiscriminator, TokenModuleEvent, TokenModuleEventType,
     TokenModuleRejectReason, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
+    UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, OutOfEnergyError};
@@ -184,6 +185,18 @@ pub fn execute_token_update_transaction<
                         },
                     ),
                 )),
+                TokenUpdateErrorInternal::UnsupportedOperation {
+                    operation_type,
+                    reason,
+                } => TokenUpdateError::TokenModuleReject(make_reject_reason(
+                    TokenModuleRejectReason::UnsupportedOperation(
+                        UnsupportedOperationRejectReason {
+                            index: index as u64,
+                            operation_type: operation_type.to_string(),
+                            reason: reason.to_string().into(),
+                        },
+                    ),
+                )),
             },
         )?;
     }
@@ -233,6 +246,11 @@ enum TokenUpdateErrorInternal {
     #[error("Operation not permitted: {reason}")]
     OperationNotPermitted {
         account_address: Option<AccountAddress>,
+        reason: &'static str,
+    },
+    #[error("Operation not supported: {reason}")]
+    UnsupportedOperation {
+        operation_type: &'static str,
         reason: &'static str,
     },
 }
@@ -415,9 +433,10 @@ fn execute_token_mint<
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
     key_value_state::is_mintable(kernel).then_some(()).ok_or(
-        TokenUpdateErrorInternal::StateInvariantViolation(TokenStateInvariantError(
-            "Mint is not allowed".into(),
-        )),
+        TokenUpdateErrorInternal::UnsupportedOperation {
+            operation_type: "mint",
+            reason: "Mint is not allowed",
+        },
     )?;
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;

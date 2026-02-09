@@ -5,6 +5,7 @@ use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, MintWouldOverflowRejectReason,
     OperationNotPermittedRejectReason, RawCbor, TokenAmount, TokenModuleEventType,
     TokenModuleRejectReason, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
+    UnsupportedOperationRejectReason,
 };
 use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
@@ -248,4 +249,32 @@ fn test_mint_paused() {
         TokenModuleEventType::Pause.to_type_discriminator()
     );
     assert!(stub.events[0].1.as_ref().is_empty());
+}
+
+/// Reject "mint" operation if the feature is not enabled.
+#[test]
+fn test_not_mintable() {
+    let mut stub = KernelStub::with_decimals(2);
+    let gov_account = stub.init_token(TokenInitTestParams::default());
+
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2),
+    })];
+
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::UnsupportedOperation(UnsupportedOperationRejectReason{
+            index: 0,
+            operation_type,
+            reason: Some(reason)
+        }) if reason == "Mint is not allowed" && operation_type == "mint".to_string()
+    );
 }
