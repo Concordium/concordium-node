@@ -12,9 +12,9 @@ use concordium_base::protocol_level_tokens::{
 use concordium_base::updates::{CreatePlt, UpdatePayload};
 use plt_scheduler::block_state_interface::BlockStateQuery;
 use plt_scheduler::scheduler;
-use plt_scheduler::scheduler::UpdateInstructionExecutionError;
 use plt_token_module::TOKEN_MODULE_REF;
 use plt_types::types::events::BlockItemEvent;
+use plt_types::types::execution::{ChainUpdateOutcome, FailureKind};
 use plt_types::types::tokens::RawTokenAmount;
 
 mod block_state_stub;
@@ -49,8 +49,9 @@ fn test_plt_create() {
         decimals: 4,
         initialization_parameters,
     });
-    let events = scheduler::execute_update_instruction(&mut stub, payload)
-        .expect("create and initialize token");
+    let outcome =
+        scheduler::execute_chain_update(&mut stub, payload).expect("create and initialize token");
+    let events = assert_matches!(outcome, ChainUpdateOutcome::Success(events) => events);
 
     // Assert update instruction sequence number incremented
     assert_eq!(stub.plt_update_instruction_sequence_number(), 1);
@@ -108,8 +109,9 @@ fn test_plt_create_with_minting() {
         decimals: 4,
         initialization_parameters,
     });
-    let events = scheduler::execute_update_instruction(&mut stub, payload)
-        .expect("create and initialize token");
+    let outcome =
+        scheduler::execute_chain_update(&mut stub, payload).expect("create and initialize token");
+    let events = assert_matches!(outcome, ChainUpdateOutcome::Success(events) => events);
 
     // Assert update instruction sequence number incremented
     assert_eq!(stub.plt_update_instruction_sequence_number(), 1);
@@ -166,8 +168,7 @@ fn test_plt_create_duplicate_id() {
     });
 
     // Create first token
-    scheduler::execute_update_instruction(&mut stub, payload1)
-        .expect("create and initialize token");
+    scheduler::execute_chain_update(&mut stub, payload1).expect("create and initialize token");
 
     // Try to use same token id just with different casing
     let token_id2: TokenId = "testtokenid".parse().unwrap();
@@ -179,11 +180,13 @@ fn test_plt_create_duplicate_id() {
     });
 
     // Create second token
-    let res = scheduler::execute_update_instruction(&mut stub, payload2);
+    let outcome = scheduler::execute_chain_update(&mut stub, payload2).unwrap();
+    let failure_kind =
+        assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
 
     assert_matches!(
-        res,
-        Err(UpdateInstructionExecutionError::DuplicateTokenId(token_id)) => {
+        failure_kind,
+        FailureKind::DuplicateTokenId(token_id) => {
             assert_eq!(token_id, token_id1);
         }
     );
@@ -219,11 +222,13 @@ fn test_plt_create_unknown_token_module_reference() {
         initialization_parameters: initialization_parameters.clone(),
     });
 
-    let res = scheduler::execute_update_instruction(&mut stub, payload);
+    let outcome = scheduler::execute_chain_update(&mut stub, payload).unwrap();
+    let failure_kind =
+        assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
 
     assert_matches!(
-        res,
-        Err(UpdateInstructionExecutionError::InvalidTokenModuleRef(module_ref)) => {
+        failure_kind,
+        FailureKind::InvalidTokenModuleRef(module_ref) => {
             assert_eq!(module_ref, unknown_module_ref);
         }
     );
@@ -259,11 +264,13 @@ fn test_plt_create_token_module_initialization_error() {
         initialization_parameters: initialization_parameters.clone(),
     });
 
-    let res = scheduler::execute_update_instruction(&mut stub, payload);
+    let outcome = scheduler::execute_chain_update(&mut stub, payload).unwrap();
+    let failure_kind =
+        assert_matches!(outcome, ChainUpdateOutcome::Failed(failure_kind) => failure_kind);
 
     assert_matches!(
-        res,
-        Err(UpdateInstructionExecutionError::ModuleTokenInitializationFailed(err)) => {
+        failure_kind,
+        FailureKind::TokenInitializeFailure(err) => {
             assert!(err.contains("Token name is missing"), "err: {}", err);
         }
     );

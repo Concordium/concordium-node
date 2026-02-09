@@ -17,16 +17,23 @@ module Concordium.PLTScheduler.PLTBlockStateCallbacks (
     GetAccountAddressByIndex,
     GetAccountAddressByIndexCallbackPtr,
     wrapGetAccountAddressByIndex,
+    GetTokenAccountStates,
+    GetTokenAccountStatesCallbackPtr,
+    wrapGetTokenAccountStates,
 ) where
 
+import qualified Data.ByteString.Unsafe as BS
+import qualified Data.Serialize as S
 import qualified Data.Word as Word
 import qualified Foreign as FFI
 
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
 import qualified Concordium.ID.Types as Types
+import qualified Concordium.PLTScheduler.PLTMemory as Memory
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Tokens as Tokens
+import qualified Concordium.Utils.Serialization as CS
 
 -- | Callback function for reading a token account balance.
 type ReadTokenAccountBalance =
@@ -241,3 +248,44 @@ type GetAccountAddressByIndexCallbackPtr = FFI.FunPtr GetAccountAddressByIndexCa
 foreign import ccall "wrapper"
     ffiWrapGetAccountAddressByIndexCallback ::
         GetAccountAddressByIndexCallbackFFI -> IO GetAccountAddressByIndexCallbackPtr
+
+-- | Callback function getting token account states by account.
+type GetTokenAccountStates =
+    -- | Index of the account. The account must exist.
+    Types.AccountIndex ->
+    -- | The token account states for the account paired with the index for the token.
+    IO [(Tokens.TokenIndex, AccountTokens.TokenAccountState)]
+
+-- | Internal helper function for mapping the 'GetTokenAccountStates' into the more
+-- low-level function pointer which can be passed in FFI.
+wrapGetTokenAccountStates :: GetTokenAccountStates -> IO GetTokenAccountStatesCallbackPtr
+wrapGetTokenAccountStates func =
+    ffiWrapGetTokenAccountStatesCallback callback
+  where
+    callback :: GetTokenAccountStatesCallbackFFI
+    callback accountIndex = do
+        tokenAccountStates <- func (fromIntegral accountIndex)
+        let putStates = CS.putListOf S.put tokenAccountStates
+        let bytes = S.runPut putStates
+        BS.unsafeUseAsCStringLen bytes $ \(sourcePtr, len) ->
+            Memory.copyToRustVec2 (FFI.castPtr sourcePtr) (fromIntegral len)
+
+-- | Callback function for getting token account states for an account.
+--
+-- This is passed as a function pointer in FFI to call, see also 'GetTokenAccountStates'
+-- for the more type-safe variant.
+type GetTokenAccountStatesCallbackFFI =
+    -- | The account index of the account.
+    Word.Word64 ->
+    -- | Pointer to a Rust `Vec` allocated with `copy_to_vec_ffi_2` and which contains the
+    -- list of token index and token account state pairs in binary serialization.
+    IO (FFI.Ptr Memory.RustVec)
+
+-- | The callback function pointer type for getting account address by index.
+type GetTokenAccountStatesCallbackPtr = FFI.FunPtr GetTokenAccountStatesCallbackFFI
+
+-- | Function to wrap Haskell functions or closures into a function pointer which can be passed over
+-- FFI.
+foreign import ccall "wrapper"
+    ffiWrapGetTokenAccountStatesCallback ::
+        GetTokenAccountStatesCallbackFFI -> IO GetTokenAccountStatesCallbackPtr

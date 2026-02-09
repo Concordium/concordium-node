@@ -3,9 +3,8 @@ use assert_matches::assert_matches;
 use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, OperationNotPermittedRejectReason,
-    RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleEventType,
-    TokenModuleRejectReason, TokenOperation, TokenPauseDetails, TokenSupplyUpdateDetails,
-    UnsupportedOperationRejectReason,
+    RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
+    TokenOperation, TokenSupplyUpdateDetails, UnsupportedOperationRejectReason,
 };
 use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
@@ -166,17 +165,7 @@ fn test_burn_paused() {
     let mut stub = KernelStub::with_decimals(2);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
-
-    // We set the token to be paused, and verify that the otherwise valid "burn" operation
-    // is rejected in the subsequent transaction.
-    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![TokenOperation::Pause(TokenPauseDetails {})];
-    token_module::execute_token_update_transaction(
-        &mut execution,
-        &mut stub,
-        RawCbor::from(cbor::cbor_encode(&operations)),
-    )
-    .expect("Executed successfully");
+    stub.set_paused(true);
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
     let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
@@ -197,13 +186,6 @@ fn test_burn_paused() {
             reason: Some(reason),
         }) if reason == "token operation burn is paused"
     );
-
-    assert_eq!(stub.events.len(), 1);
-    assert_eq!(
-        stub.events[0].0,
-        TokenModuleEventType::Pause.to_type_discriminator()
-    );
-    assert!(stub.events[0].1.as_ref().is_empty());
 }
 
 /// Reject "burn" operation if the feature is not enabled.

@@ -4,13 +4,11 @@
 use crate::block_state_interface::BlockStateOperations;
 use concordium_base::base::Energy;
 use concordium_base::contracts_common::AccountAddress;
-use concordium_base::protocol_level_tokens::{TokenId, TokenModuleRef};
 use concordium_base::transactions::Payload;
 use concordium_base::updates::UpdatePayload;
 use plt_scheduler_interface::error::OutOfEnergyError;
 use plt_scheduler_interface::transaction_execution_interface::TransactionExecution;
-use plt_types::types::events::BlockItemEvent;
-use plt_types::types::execution::TransactionExecutionSummary;
+use plt_types::types::execution::{ChainUpdateOutcome, TransactionExecutionSummary};
 
 mod plt_scheduler;
 
@@ -123,41 +121,40 @@ where
 
 /// Account with given id does not exist
 #[derive(Debug, thiserror::Error)]
-pub enum UpdateInstructionExecutionError {
-    #[error("Unexpected update instruction payload that cannot be handled")]
+pub enum ChainUpdateExecutionError {
+    #[error("Unexpected chain update payload that cannot be handled")]
     UnexpectedPayload,
-    #[error("Initialization of token in token module failed: {0}")]
-    ModuleTokenInitializationFailed(String),
-    #[error("Token with specified id already exists: {0}")]
-    DuplicateTokenId(TokenId),
-    #[error("Invalid token module: {0:?}")]
-    InvalidTokenModuleRef(TokenModuleRef),
+    /// An invariant in the state that should be enforced
+    /// is broken. This is generally an error that should never happen and is unrecoverable.
+    #[error("State invariant broken: {0}")]
+    StateInvariantBroken(String),
 }
 
-/// Execute an update instruction modifying `block_state` accordingly.
-/// Returns the events produced if successful.
+/// Execute a chain update modifying `block_state` accordingly.
+/// Returns the events produced if successful, otherwise a failure kind.
 ///
-/// NOTICE: The caller must ensure to rollback state changes in case an error is returned.
+/// NOTICE: The caller must ensure to rollback state changes in case a failure kind is returned.
 ///
 /// # Arguments
 ///
 /// - `block_state` Block state that can be queried and updated during execution.
-/// - `payload` The update instruction payload to execute
+/// - `payload` The chain update payload to execute
 ///
 /// # Errors
 ///
-/// - [`UpdateInstructionExecutionError`] If executing the update instruction failed.
-pub fn execute_update_instruction<BSO: BlockStateOperations>(
+/// - [`ChainUpdateExecutionError`] If executing the chain update failed in an unrecoverable way.
+///   Returning this error will terminate the scheduler.
+pub fn execute_chain_update<BSO: BlockStateOperations>(
     block_state: &mut BSO,
     payload: UpdatePayload,
-) -> Result<Vec<BlockItemEvent>, UpdateInstructionExecutionError>
+) -> Result<ChainUpdateOutcome, ChainUpdateExecutionError>
 where
     BSO::Account: Clone,
 {
     match payload {
         UpdatePayload::CreatePlt(create_plt) => {
-            plt_scheduler::execute_create_plt_instruction(block_state, create_plt)
+            plt_scheduler::execute_create_plt_chain_update(block_state, create_plt)
         }
-        _ => Err(UpdateInstructionExecutionError::UnexpectedPayload),
+        _ => Err(ChainUpdateExecutionError::UnexpectedPayload),
     }
 }
