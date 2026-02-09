@@ -512,7 +512,7 @@ fn execute_add_allow_list<
     key_value_state::has_allow_list(kernel)
         .then_some(())
         .ok_or(TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "add_allow_list",
+            operation_type: "add-allow-list",
             reason: "Allow list is not supported",
         })?;
     let account = kernel.account_by_address(&list_operation.target.address)?;
@@ -540,7 +540,7 @@ fn execute_add_deny_list<
     check_authorized(transaction_execution, kernel)?;
     key_value_state::has_deny_list(kernel).then_some(()).ok_or(
         TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "add_deny_list",
+            operation_type: "add-deny-list",
             reason: "Deny list is not supported",
         },
     )?;
@@ -571,7 +571,7 @@ fn execute_remove_allow_list<
     key_value_state::has_allow_list(kernel)
         .then_some(())
         .ok_or(TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "remove_allow_list",
+            operation_type: "remove-allow-list",
             reason: "Allow list is not supported",
         })?;
 
@@ -599,7 +599,7 @@ fn execute_remove_deny_list<
     check_authorized(transaction_execution, kernel)?;
     key_value_state::has_deny_list(kernel).then_some(()).ok_or(
         TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "remove_deny_list",
+            operation_type: "remove-deny-list",
             reason: "Deny list is not supported",
         },
     )?;
