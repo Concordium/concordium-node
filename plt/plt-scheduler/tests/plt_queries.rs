@@ -67,11 +67,19 @@ fn test_query_token_account_info() {
     let mut stub = BlockStateStub::new();
     let account = stub.create_account();
     let token_id1: TokenId = "TokenId1".parse().unwrap();
-    let (token1, _) =
-        stub.create_and_init_token(token_id1.clone(), TokenInitTestParams::default(), 4, None);
+    let (token1, _) = stub.create_and_init_token(
+        token_id1.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
     let token_id2: TokenId = "TokenId2".parse().unwrap();
-    let (token2, _) =
-        stub.create_and_init_token(token_id2.clone(), TokenInitTestParams::default(), 4, None);
+    let (token2, _) = stub.create_and_init_token(
+        token_id2.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
     let token_id3 = "TokenId3".parse().unwrap();
     let (_token3, _) =
         stub.create_and_init_token(token_id3, TokenInitTestParams::default(), 4, None);

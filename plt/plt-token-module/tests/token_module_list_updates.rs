@@ -436,79 +436,121 @@ fn test_remove_deny_list_touches_account() {
 }
 
 #[test]
-fn test_list_updates_without_enabled_lists() {
+fn test_add_to_not_enabled_allow_list() {
     let mut stub = KernelStub::with_decimals(0);
     let gov_account = stub.init_token(TokenInitTestParams::default());
     let allow_account = stub.create_account();
+
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::AddAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(stub.account_address(&allow_account)),
+    })];
+
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::UnsupportedOperation(
+            UnsupportedOperationRejectReason{
+                index:0,
+                operation_type,
+                reason: Some(reason) })
+            if reason == "feature not enabled" && operation_type == "addAllowList"
+    );
+}
+
+#[test]
+fn test_remove_from_not_enabled_allow_list() {
+    let mut stub = KernelStub::with_decimals(0);
+    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let allow_account = stub.create_account();
+
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RemoveAllowList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(stub.account_address(&allow_account)),
+    })];
+
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::UnsupportedOperation(
+            UnsupportedOperationRejectReason{
+                index:0,
+                operation_type,
+                reason: Some(reason) })
+            if reason == "feature not enabled" && operation_type == "removeAllowList"
+    );
+}
+
+#[test]
+fn test_add_to_not_enabled_deny_list() {
+    let mut stub = KernelStub::with_decimals(0);
+    let gov_account = stub.init_token(TokenInitTestParams::default());
     let deny_account = stub.create_account();
 
-    // first we set the list state for the accounts
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
-    let operations = vec![
-        TokenOperation::AddAllowList(TokenListUpdateDetails {
-            target: CborHolderAccount::from(stub.account_address(&allow_account)),
-        }),
-        TokenOperation::RemoveAllowList(TokenListUpdateDetails {
-            target: CborHolderAccount::from(stub.account_address(&allow_account)),
-        }),
-        TokenOperation::AddDenyList(TokenListUpdateDetails {
-            target: CborHolderAccount::from(stub.account_address(&deny_account)),
-        }),
-        TokenOperation::RemoveDenyList(TokenListUpdateDetails {
-            target: CborHolderAccount::from(stub.account_address(&deny_account)),
-        }),
-    ];
+    let operations = vec![TokenOperation::AddDenyList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(stub.account_address(&deny_account)),
+    })];
 
-    let mut res = operations
-        .into_iter()
-        .map(|op| {
-            let op = vec![op];
-            let reject = token_module::execute_token_update_transaction(
-                &mut execution,
-                &mut stub,
-                RawCbor::from(cbor::cbor_encode(&op)),
-            );
-            utils::assert_reject_reason(&reject)
-        })
-        .collect::<Vec<_>>();
-
-    assert_matches!(
-        res.pop().unwrap(),
-        TokenModuleRejectReason::UnsupportedOperation(
-            UnsupportedOperationRejectReason{
-                index:0,
-                operation_type,
-                reason: Some(reason) })
-            if reason == "Deny list is not supported" && operation_type == "remove-deny-list"
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
-    assert_matches!(
-        res.pop().unwrap(),
-        TokenModuleRejectReason::UnsupportedOperation(
-            UnsupportedOperationRejectReason{
-                index:0,
-                operation_type,
-                reason: Some(reason) })
-            if reason == "Deny list is not supported" && operation_type == "add-deny-list"
-    );
+    let reject_reason = utils::assert_reject_reason(&res);
 
     assert_matches!(
-        res.pop().unwrap(),
+        reject_reason,
         TokenModuleRejectReason::UnsupportedOperation(
             UnsupportedOperationRejectReason{
                 index:0,
                 operation_type,
                 reason: Some(reason) })
-            if reason == "Allow list is not supported" && operation_type == "remove-allow-list"
+            if reason == "feature not enabled" && operation_type == "addDenyList"
+    );
+}
+
+#[test]
+fn test_remove_from_not_enabled_deny_list() {
+    let mut stub = KernelStub::with_decimals(0);
+    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let deny_account = stub.create_account();
+
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::RemoveDenyList(TokenListUpdateDetails {
+        target: CborHolderAccount::from(stub.account_address(&deny_account)),
+    })];
+
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
     );
 
+    let reject_reason = utils::assert_reject_reason(&res);
+
     assert_matches!(
-        res.pop().unwrap(),
+        reject_reason,
         TokenModuleRejectReason::UnsupportedOperation(
             UnsupportedOperationRejectReason{
                 index:0,
                 operation_type,
                 reason: Some(reason) })
-            if reason == "Allow list is not supported" && operation_type == "add-allow-list"
+            if reason == "feature not enabled" && operation_type == "removeDenyList"
     );
 }

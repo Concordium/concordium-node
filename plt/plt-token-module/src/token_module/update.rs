@@ -185,18 +185,17 @@ pub fn execute_token_update_transaction<
                         },
                     ),
                 )),
-                TokenUpdateErrorInternal::UnsupportedOperation {
-                    operation_type,
-                    reason,
-                } => TokenUpdateError::TokenModuleReject(make_reject_reason(
-                    TokenModuleRejectReason::UnsupportedOperation(
-                        UnsupportedOperationRejectReason {
-                            index: index as u64,
-                            operation_type: operation_type.to_string(),
-                            reason: reason.to_string().into(),
-                        },
-                    ),
-                )),
+                TokenUpdateErrorInternal::UnsupportedOperation { reason } => {
+                    TokenUpdateError::TokenModuleReject(make_reject_reason(
+                        TokenModuleRejectReason::UnsupportedOperation(
+                            UnsupportedOperationRejectReason {
+                                index: index as u64,
+                                operation_type: operation_name(&operation).to_string(),
+                                reason: reason.to_string().into(),
+                            },
+                        ),
+                    ))
+                }
             },
         )?;
     }
@@ -208,10 +207,10 @@ fn operation_name(operation: &TokenOperation) -> &'static str {
         TokenOperation::Transfer(_) => "transfer",
         TokenOperation::Mint(_) => "mint",
         TokenOperation::Burn(_) => "burn",
-        TokenOperation::AddAllowList(_) => "add-allow-list",
-        TokenOperation::RemoveAllowList(_) => "remove-allow-list",
-        TokenOperation::AddDenyList(_) => "add-deny-list",
-        TokenOperation::RemoveDenyList(_) => "remove-deny-list",
+        TokenOperation::AddAllowList(_) => "addAllowList",
+        TokenOperation::RemoveAllowList(_) => "removeAllowList",
+        TokenOperation::AddDenyList(_) => "addDenyList",
+        TokenOperation::RemoveDenyList(_) => "removeDenyList",
         TokenOperation::Pause(_) => "pause",
         TokenOperation::Unpause(_) => "unpause",
     }
@@ -249,10 +248,7 @@ enum TokenUpdateErrorInternal {
         reason: &'static str,
     },
     #[error("Operation not supported: {reason}")]
-    UnsupportedOperation {
-        operation_type: &'static str,
-        reason: &'static str,
-    },
+    UnsupportedOperation { reason: &'static str },
 }
 
 impl From<TokenTransferError> for TokenUpdateErrorInternal {
@@ -432,12 +428,11 @@ fn execute_token_mint<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
-    key_value_state::is_mintable(kernel).then_some(()).ok_or(
-        TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "mint",
-            reason: "Mint is not allowed",
-        },
-    )?;
+    if !key_value_state::is_mintable(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    };
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -457,12 +452,11 @@ fn execute_token_burn<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
-    key_value_state::is_burnable(kernel).then_some(()).ok_or(
-        TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "burn",
-            reason: "Burn is not allowed",
-        },
-    )?;
+    if !key_value_state::is_burnable(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -509,12 +503,11 @@ fn execute_add_allow_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    key_value_state::has_allow_list(kernel)
-        .then_some(())
-        .ok_or(TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "add-allow-list",
-            reason: "Allow list is not supported",
-        })?;
+    if !key_value_state::has_allow_list(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
@@ -538,12 +531,11 @@ fn execute_add_deny_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    key_value_state::has_deny_list(kernel).then_some(()).ok_or(
-        TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "add-deny-list",
-            reason: "Deny list is not supported",
-        },
-    )?;
+    if !key_value_state::has_deny_list(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
@@ -568,12 +560,11 @@ fn execute_remove_allow_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    key_value_state::has_allow_list(kernel)
-        .then_some(())
-        .ok_or(TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "remove-allow-list",
-            reason: "Allow list is not supported",
-        })?;
+    if !key_value_state::has_allow_list(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
@@ -597,12 +588,11 @@ fn execute_remove_deny_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    key_value_state::has_deny_list(kernel).then_some(()).ok_or(
-        TokenUpdateErrorInternal::UnsupportedOperation {
-            operation_type: "remove-deny-list",
-            reason: "Deny list is not supported",
-        },
-    )?;
+    if !key_value_state::has_deny_list(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
 
     let account = kernel.account_by_address(&list_operation.target.address)?;
 

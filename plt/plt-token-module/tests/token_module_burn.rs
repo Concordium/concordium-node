@@ -18,7 +18,7 @@ mod utils;
 #[test]
 fn test_burn() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
 
     // First burn
@@ -109,7 +109,7 @@ fn test_unauthorized_burn() {
 #[test]
 fn test_burn_insufficient_balance() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(1000));
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
@@ -213,6 +213,6 @@ fn test_not_burnable() {
                 index:0,
                 operation_type,
                 reason: Some(reason) })
-            if reason == "Burn is not allowed" && operation_type == "burn"
+            if reason == "feature not enabled" && operation_type == "burn"
     );
 }
