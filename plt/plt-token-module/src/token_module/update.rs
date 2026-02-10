@@ -9,6 +9,7 @@ use concordium_base::protocol_level_tokens::{
     TokenBalanceInsufficientRejectReason, TokenListUpdateDetails, TokenListUpdateEventDetails,
     TokenModuleCborTypeDiscriminator, TokenModuleEvent, TokenModuleEventType,
     TokenModuleRejectReason, TokenOperation, TokenSupplyUpdateDetails, TokenTransfer,
+    UnsupportedOperationRejectReason,
 };
 use concordium_base::transactions::Memo;
 use plt_scheduler_interface::error::{AccountNotFoundByAddressError, OutOfEnergyError};
@@ -184,6 +185,17 @@ pub fn execute_token_update_transaction<
                         },
                     ),
                 )),
+                TokenUpdateErrorInternal::UnsupportedOperation { reason } => {
+                    TokenUpdateError::TokenModuleReject(make_reject_reason(
+                        TokenModuleRejectReason::UnsupportedOperation(
+                            UnsupportedOperationRejectReason {
+                                index: index as u64,
+                                operation_type: operation_name(&operation).to_string(),
+                                reason: reason.to_string().into(),
+                            },
+                        ),
+                    ))
+                }
             },
         )?;
     }
@@ -195,10 +207,10 @@ fn operation_name(operation: &TokenOperation) -> &'static str {
         TokenOperation::Transfer(_) => "transfer",
         TokenOperation::Mint(_) => "mint",
         TokenOperation::Burn(_) => "burn",
-        TokenOperation::AddAllowList(_) => "add-allow-list",
-        TokenOperation::RemoveAllowList(_) => "remove-allow-list",
-        TokenOperation::AddDenyList(_) => "add-deny-list",
-        TokenOperation::RemoveDenyList(_) => "remove-deny-list",
+        TokenOperation::AddAllowList(_) => "addAllowList",
+        TokenOperation::RemoveAllowList(_) => "removeAllowList",
+        TokenOperation::AddDenyList(_) => "addDenyList",
+        TokenOperation::RemoveDenyList(_) => "removeDenyList",
         TokenOperation::Pause(_) => "pause",
         TokenOperation::Unpause(_) => "unpause",
     }
@@ -235,6 +247,8 @@ enum TokenUpdateErrorInternal {
         account_address: Option<AccountAddress>,
         reason: &'static str,
     },
+    #[error("Operation not supported: {reason}")]
+    UnsupportedOperation { reason: &'static str },
 }
 
 impl From<TokenTransferError> for TokenUpdateErrorInternal {
@@ -414,7 +428,11 @@ fn execute_token_mint<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    if !key_value_state::is_mintable(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    };
 
     kernel.mint(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -434,7 +452,11 @@ fn execute_token_burn<
     // operation execution
     check_authorized(transaction_execution, kernel)?;
     check_not_paused(kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    if !key_value_state::is_burnable(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
 
     kernel.burn(&transaction_execution.sender_account(), raw_amount)?;
     Ok(())
@@ -481,7 +503,11 @@ fn execute_add_allow_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    if !key_value_state::has_allow_list(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
@@ -505,7 +531,12 @@ fn execute_add_deny_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    if !key_value_state::has_deny_list(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
+
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
@@ -529,7 +560,12 @@ fn execute_remove_allow_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    if !key_value_state::has_allow_list(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
+
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);
@@ -552,7 +588,12 @@ fn execute_remove_deny_list<
     list_operation: &TokenListUpdateDetails,
 ) -> Result<(), TokenUpdateErrorInternal> {
     check_authorized(transaction_execution, kernel)?;
-    // TODO: check if feature is enabled as part of PSR-50
+    if !key_value_state::has_deny_list(kernel) {
+        return Err(TokenUpdateErrorInternal::UnsupportedOperation {
+            reason: "feature not enabled",
+        });
+    }
+
     let account = kernel.account_by_address(&list_operation.target.address)?;
 
     kernel.touch_account(&account);

@@ -4,7 +4,7 @@ use concordium_base::common::cbor;
 use concordium_base::protocol_level_tokens::{
     CborHolderAccount, DeserializationFailureRejectReason, OperationNotPermittedRejectReason,
     RawCbor, TokenAmount, TokenBalanceInsufficientRejectReason, TokenModuleRejectReason,
-    TokenOperation, TokenSupplyUpdateDetails,
+    TokenOperation, TokenSupplyUpdateDetails, UnsupportedOperationRejectReason,
 };
 use kernel_stub::KernelStub;
 use plt_scheduler_interface::token_kernel_interface::TokenKernelQueries;
@@ -18,7 +18,7 @@ mod utils;
 #[test]
 fn test_burn() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(5000));
 
     // First burn
@@ -109,7 +109,7 @@ fn test_unauthorized_burn() {
 #[test]
 fn test_burn_insufficient_balance() {
     let mut stub = KernelStub::with_decimals(2);
-    let gov_account = stub.init_token(TokenInitTestParams::default());
+    let gov_account = stub.init_token(TokenInitTestParams::default().burnable());
     stub.set_account_balance(gov_account, RawTokenAmount(1000));
 
     let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
@@ -185,5 +185,34 @@ fn test_burn_paused() {
             address: None,
             reason: Some(reason),
         }) if reason == "token operation burn is paused"
+    );
+}
+
+/// Reject "burn" operation if the feature is not enabled.
+#[test]
+fn test_not_burnable() {
+    let mut stub = KernelStub::with_decimals(2);
+    let gov_account = stub.init_token(TokenInitTestParams::default());
+
+    let mut execution = TransactionExecutionTestImpl::with_sender(gov_account);
+    let operations = vec![TokenOperation::Burn(TokenSupplyUpdateDetails {
+        amount: TokenAmount::from_raw(RawTokenAmount::MAX.0 - 500, 2),
+    })];
+
+    let res = token_module::execute_token_update_transaction(
+        &mut execution,
+        &mut stub,
+        RawCbor::from(cbor::cbor_encode(&operations)),
+    );
+
+    let reject_reason = utils::assert_reject_reason(&res);
+    assert_matches!(
+        reject_reason,
+        TokenModuleRejectReason::UnsupportedOperation(
+            UnsupportedOperationRejectReason{
+                index:0,
+                operation_type,
+                reason: Some(reason) })
+            if reason == "feature not enabled" && operation_type == "burn"
     );
 }

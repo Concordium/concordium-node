@@ -403,8 +403,12 @@ fn test_plt_transfer_allow_list_flow() {
 fn test_plt_mint() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
 
     let operations = vec![TokenOperation::Mint(TokenSupplyUpdateDetails {
         amount: TokenAmount::from_raw(1000, 4),
@@ -448,8 +452,12 @@ fn test_plt_mint() {
 fn test_plt_mint_using_alias() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
 
     let gov_account_address_alias = stub
         .account_canonical_address(&gov_account)
@@ -500,7 +508,7 @@ fn test_plt_mint_reject() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
-        TokenInitTestParams::default(),
+        TokenInitTestParams::default().mintable(),
         4,
         Some(RawTokenAmount(5000)),
     );
@@ -595,7 +603,7 @@ fn test_plt_burn() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
-        TokenInitTestParams::default(),
+        TokenInitTestParams::default().burnable(),
         4,
         Some(RawTokenAmount(5000)),
     );
@@ -644,7 +652,7 @@ fn test_plt_burn_using_alias() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
-        TokenInitTestParams::default(),
+        TokenInitTestParams::default().burnable(),
         4,
         Some(RawTokenAmount(5000)),
     );
@@ -698,7 +706,7 @@ fn test_plt_burn_reject() {
     let token_id: TokenId = "TokenId1".parse().unwrap();
     let (token, gov_account) = stub.create_and_init_token(
         token_id.clone(),
-        TokenInitTestParams::default(),
+        TokenInitTestParams::default().burnable(),
         4,
         Some(RawTokenAmount(5000)),
     );
@@ -740,8 +748,12 @@ fn test_plt_burn_reject() {
 fn test_plt_multiple_operations() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
     let account2 = stub.create_account();
 
     // Compose two operations: Mint and then transfer
@@ -945,8 +957,12 @@ fn test_non_existing_token_id() {
 fn test_energy_charge() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
     let account2 = stub.create_account();
     stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
 
@@ -980,8 +996,12 @@ fn test_energy_charge() {
 fn test_energy_charge_at_reject() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
     let account2 = stub.create_account();
     stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
 
@@ -1019,8 +1039,12 @@ fn test_energy_charge_at_reject() {
 fn test_out_of_energy_error() {
     let mut stub = BlockStateStub::new();
     let token_id: TokenId = "TokenId1".parse().unwrap();
-    let (token, gov_account) =
-        stub.create_and_init_token(token_id.clone(), TokenInitTestParams::default(), 4, None);
+    let (token, gov_account) = stub.create_and_init_token(
+        token_id.clone(),
+        TokenInitTestParams::default().mintable(),
+        4,
+        None,
+    );
     let account2 = stub.create_account();
     stub.increment_account_balance(gov_account, token, RawTokenAmount(5000));
 
