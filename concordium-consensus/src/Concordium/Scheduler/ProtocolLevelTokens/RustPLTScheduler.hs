@@ -1,7 +1,7 @@
 -- | Bindings into the Rust PLT Scheduler library. The module contains bindings to execute the payload of block items (currently for protocol-level tokens only).
 -- Notice that block item headers are handled outside of the Rust PLT Scheduler.
 --
--- Each foreign imported function must match the signature of functions found in @plt-scheduler/src/ffi.rs@.
+-- Each foreign imported function must match the signature of functions found on the Rust side.
 module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler (
     executeTransaction,
     executeChainUpdate,

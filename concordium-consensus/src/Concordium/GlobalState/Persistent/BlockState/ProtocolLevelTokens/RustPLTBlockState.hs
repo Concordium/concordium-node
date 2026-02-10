@@ -1,6 +1,8 @@
 {-# LANGUAGE DerivingVia #-}
 
 -- | Bindings to the Rust PLT block state implementation.
+--
+-- Each foreign imported function must match the signature of functions found on the Rust side.
 module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState (
     RustPLTBlockState,
     ForeignPLTBlockStatePtr,
