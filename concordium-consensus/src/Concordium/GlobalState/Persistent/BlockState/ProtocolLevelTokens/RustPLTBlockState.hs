@@ -1,7 +1,7 @@
 {-# LANGUAGE DerivingVia #-}
 
 -- | Bindings to the Rust PLT block state implementation.
-module Concordium.PLTScheduler.PLTBlockState (
+module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTBlockState (
     RustPLTBlockState,
     ForeignPLTBlockStatePtr,
     wrapFFIPtr,
