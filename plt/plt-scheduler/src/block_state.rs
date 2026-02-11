@@ -53,7 +53,7 @@ impl PltBlockStateSavepoint {
     }
 
     /// Compute the hash.
-    pub fn hash(&mut self, _loader: &mut impl BackingStoreLoad) -> PltBlockStateHash {
+    pub fn hash(&self, _loader: &mut impl BackingStoreLoad) -> PltBlockStateHash {
         // todo do real implementation as part of https://linear.app/concordium/issue/PSR-11/port-the-plt-block-state-to-rust
         let block_state_bytes = common::to_bytes(&self.block_state.state);
         PltBlockStateHash::from(<[u8; SHA256]>::from(sha2::Sha256::digest(

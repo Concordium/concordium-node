@@ -48,11 +48,11 @@ extern "C" fn ffi_free_plt_block_state(block_state: *mut PltBlockStateSavepoint)
 extern "C" fn ffi_hash_plt_block_state(
     mut load_callback: LoadCallback,
     destination: *mut u8,
-    block_state: *mut PltBlockStateSavepoint,
+    block_state: *const PltBlockStateSavepoint,
 ) {
     assert!(!block_state.is_null(), "block_state is a null pointer.");
     assert!(!destination.is_null(), "destination is a null pointer.");
-    let block_state = unsafe { &mut *block_state };
+    let block_state = unsafe { &*block_state };
     let hash = block_state.hash(&mut load_callback);
     unsafe {
         std::ptr::copy_nonoverlapping(hash.as_ptr(), destination, hash.len());
