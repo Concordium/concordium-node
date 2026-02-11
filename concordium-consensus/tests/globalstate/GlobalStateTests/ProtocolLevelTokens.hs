@@ -1,5 +1,6 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module GlobalStateTests.ProtocolLevelTokens where
@@ -97,13 +98,13 @@ testSetTokenCirculatingSupply = runBlobStore $ do
         =<< getTokenCirculatingSupply idxABC tokens2
     lift . assertEqual "getTokenCirculatingSupply for DEF returns expected amount" 0
         =<< getTokenCirculatingSupply idxDEF tokens2
-    hash2 <- uncond <$> getHashM @_ @(Concordium.Types.Conditionally.Conditionally 'True ProtocolLevelTokensHash) tokens2
+    (hash2 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokens2
     tokens3 <- setTokenCirculatingSupply idxDEF 200 tokens2
     lift . assertEqual "getTokenCirculatingSupply for ABC returns expected amount" 100
         =<< getTokenCirculatingSupply idxABC tokens3
     lift . assertEqual "getTokenCirculatingSupply for DEF returns expected amount" 200
         =<< getTokenCirculatingSupply idxDEF tokens3
-    hash3 <- uncond <$> getHashM @_ @(Concordium.Types.Conditionally.Conditionally 'True ProtocolLevelTokensHash) tokens3
+    (hash3 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokens3
     lift $ assertBool "Hash of tokens2 and tokens3 should be different" (hash2 /= hash3)
     tokens4 <- setTokenCirculatingSupply idxABC 0 tokens3
     lift . assertEqual "getTokenCirculatingSupply for ABC returns expected amount" 0
@@ -129,7 +130,7 @@ testUpdateTokenState = runBlobStore $ do
     (idxDEF, tokens1) <- createToken configDEF tokens0
     mutableStateABC <- getMutableTokenState idxABC tokens1
     mutableStateDEF <- getMutableTokenState idxDEF tokens1
-    hash1 <- uncond <$> getHashM @_ @(Concordium.Types.Conditionally.Conditionally 'True ProtocolLevelTokensHash) tokens1
+    (hash1 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokens1
 
     lift . assertEqual "lookupTokenState for ABC \"TestKey1\"" Nothing
         =<< lookupTokenState "TestKey1" mutableStateABC
@@ -157,7 +158,7 @@ testUpdateTokenState = runBlobStore $ do
     tokens2 <-
         setTokenState idxABC mutableStateABC tokens1
             >>= setTokenState idxDEF mutableStateDEF
-    hash2 <- uncond <$> getHashM @_ @(Concordium.Types.Conditionally.Conditionally 'True ProtocolLevelTokensHash) tokens2
+    (hash2 :: ProtocolLevelTokensHash) <- uncond <$> getHashM tokens2
     lift $ assertBool "Hash of tokens1 and tokens2 should not be the same" (hash1 /= hash2)
     hash1' <- uncond <$> getHashM tokens1
     lift $ assertEqual "Hash of tokens1 should stay the same" hash1 hash1'
