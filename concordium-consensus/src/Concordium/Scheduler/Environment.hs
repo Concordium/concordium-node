@@ -374,12 +374,12 @@ class
     incrementPLTUpdateSequenceNumber :: (PVSupportsPLT (MPV m)) => m ()
 
     -- | Get the 'TokenIndex' associated with a 'TokenId' (if it exists).
-    getTokenIndex :: (PVSupportsPLT (MPV m)) => TokenId -> m (Maybe Token.TokenIndex)
+    getTokenIndex :: (PVSupportsHaskellManagedPLT (MPV m)) => TokenId -> m (Maybe Token.TokenIndex)
 
     -- | Get the configuration of a protocol-level token.
     --
     --  PRECONDITION: The token identified by 'TokenIndex' MUST exist.
-    getTokenConfiguration :: (PVSupportsPLT (MPV m)) => Token.TokenIndex -> m Token.PLTConfiguration
+    getTokenConfiguration :: (PVSupportsHaskellManagedPLT (MPV m)) => Token.TokenIndex -> m Token.PLTConfiguration
 
     -- | Take a snapshot of the current block state, and run the given
     --  computation. If the result is @(_, True)@, then the block state is
@@ -391,7 +391,7 @@ class
     --  This call does not charge energy.
     --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
     runPLT ::
-        (PVSupportsPLT (MPV m)) =>
+        (PVSupportsHaskellManagedPLT (MPV m)) =>
         Token.TokenIndex ->
         ( forall m1.
           ( Monad m1,
@@ -409,7 +409,7 @@ class
     --
     --  PRECONDITION: The 'TokenIndex' must be for a PLT that exists in the current state.
     runPLTWithEnergy ::
-        (PVSupportsPLT (MPV m)) =>
+        (PVSupportsHaskellManagedPLT (MPV m)) =>
         Token.TokenIndex ->
         Energy ->
         ( forall m1.
@@ -428,7 +428,7 @@ class
     --  PRECONDITION: There MUST NOT already be a token with the specified token ID.
     --  The governance account index MUST reference a valid account.
     createToken ::
-        (PVSupportsPLT (MPV m)) =>
+        (PVSupportsHaskellManagedPLT (MPV m)) =>
         Token.PLTConfiguration ->
         m Token.TokenIndex
 

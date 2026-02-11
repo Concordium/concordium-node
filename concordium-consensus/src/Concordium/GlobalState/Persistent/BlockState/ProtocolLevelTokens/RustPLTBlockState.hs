@@ -10,11 +10,10 @@ module Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens.RustPLTB
     empty,
     withPLTBlockState,
     migrate,
-    PLTBlockStateHash,
-    innerSha256Hash,
+    ProtocolLevelTokensHash (..),
 ) where
 
-import qualified Data.Serialize as Serialize
+import qualified Data.Serialize as S
 import qualified Foreign as FFI
 
 import qualified Concordium.Crypto.SHA256 as SHA256
@@ -59,7 +58,7 @@ foreign import ccall "ffi_empty_plt_block_state"
 
 instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBlockStatePtr where
     load = do
-        blobRef <- Serialize.get
+        blobRef <- S.get
         pure $! do
             loadCallback <- fst <$> BlobStore.getCallbacks
             liftIO $! do
@@ -68,7 +67,7 @@ instance (BlobStore.MonadBlobStore m) => BlobStore.BlobStorable m ForeignPLTBloc
     storeUpdate pltBlockState = do
         storeCallback <- snd <$> BlobStore.getCallbacks
         blobRef <- liftIO $ withPLTBlockState pltBlockState $ ffiStorePLTBlockState storeCallback
-        return (Serialize.put blobRef, pltBlockState)
+        return (S.put blobRef, pltBlockState)
 
 -- | Load PLT block state from the given disk reference.
 foreign import ccall "ffi_load_plt_block_state"
@@ -105,18 +104,18 @@ foreign import ccall "ffi_cache_plt_block_state"
         FFI.Ptr RustPLTBlockState ->
         IO ()
 
--- | The hash of some `PLTBlockState`.
-newtype PLTBlockStateHash = PLTBlockStateHash {innerSha256Hash :: SHA256.Hash}
-    deriving newtype (Eq, Ord, Show, Serialize.Serialize)
+-- | The hash of protocol-levels tokens state.
+newtype ProtocolLevelTokensHash = ProtocolLevelTokensHash {theProtocolLevelTokensHash :: SHA256.Hash}
+    deriving newtype (Eq, Ord, Show, S.Serialize)
 
-instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m PLTBlockStateHash ForeignPLTBlockStatePtr where
+instance (BlobStore.MonadBlobStore m) => Hashable.MHashableTo m ProtocolLevelTokensHash ForeignPLTBlockStatePtr where
     getHashM blockState = do
         loadCallback <- fst <$> BlobStore.getCallbacks
         ((), hash) <-
             liftIO $
                 withPLTBlockState blockState $
                     FixedByteString.createWith . ffiHashPLTBlockState loadCallback
-        return $ PLTBlockStateHash (SHA256.Hash hash)
+        return $ ProtocolLevelTokensHash (SHA256.Hash hash)
 
 -- | Compute the hash of the block state.
 foreign import ccall "ffi_hash_plt_block_state"

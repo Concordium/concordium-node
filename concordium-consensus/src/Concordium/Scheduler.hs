@@ -448,7 +448,10 @@ dispatchTransactionBody msg CheckHeaderResult{..} = do
                                 handleConfigureDelegation (mkWTC TTConfigureDelegation) cdCapital cdRestakeEarnings cdDelegationTarget
                         TokenUpdate{..} ->
                             onlyWithPLT $
-                                handleTokenUpdate (mkWTC TTTokenUpdate) tuTokenId tuOperations
+                                case sPltStateVersionFor (protocolVersion @(MPV m)) of
+                                    SPLTStateV0 -> handleTokenUpdateHaskellManaged (mkWTC TTTokenUpdate) tuTokenId tuOperations
+                                    -- todo implement as part of https://linear.app/concordium/issue/PSR-21/dispatch-token-update-transactions-to-the-rust-plt-scheduler
+                                    SPLTStateV1 -> undefined
   where
     -- Function @onlyWithoutDelegation k@ fails if the protocol version @MPV m@ supports
     -- delegation. Otherwise, it continues with @k@, which may assume the chain parameters version
@@ -2667,9 +2670,9 @@ handleUpdateCredentialKeys wtc cid keys sigs =
         return (TxSuccess [CredentialKeysUpdated cid])
 
 -- | Handler for a token update transaction.
-handleTokenUpdate ::
+handleTokenUpdateHaskellManaged ::
     forall m.
-    ( PVSupportsPLT (MPV m),
+    ( PVSupportsHaskellManagedPLT (MPV m),
       SchedulerMonad m
     ) =>
     WithDepositContext m ->
@@ -2678,7 +2681,7 @@ handleTokenUpdate ::
     -- | Operations for the token.
     TokenParameter ->
     m (Maybe (TransactionSummary (TransactionOutcomesVersionFor (MPV m))))
-handleTokenUpdate depositContext tokenId tokenOperations =
+handleTokenUpdateHaskellManaged depositContext tokenId tokenOperations =
     withDeposit depositContext computeTransaction commitTransaction
   where
     senderAccount = depositContext ^. wtcSenderAccount
@@ -2829,9 +2832,13 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
                                     SFalse -> return $ TxInvalid NotSupportedAtCurrentProtocolVersion
                                     STrue ->
                                         checkSigThen $
-                                            handleCreatePLT uiHeader payload >>= \case
-                                                Left invalidReason -> return $ TxInvalid invalidReason
-                                                Right valid -> buildValidTxSummary' valid
+                                            case sPltStateVersionFor (protocolVersion @(MPV m)) of
+                                                SPLTStateV0 ->
+                                                    handleCreatePLTHaskellManaged uiHeader payload >>= \case
+                                                        Left invalidReason -> return $ TxInvalid invalidReason
+                                                        Right valid -> buildValidTxSummary' valid
+                                                -- todo implement as part of https://linear.app/concordium/issue/PSR-14/dispatch-createplt-chain-updates-to-rust-plt-scheduler
+                                                SPLTStateV1 -> undefined
   where
     scpv :: SChainParametersVersion (ChainParametersVersionFor (MPV m))
     scpv = chainParametersVersion
@@ -2888,8 +2895,8 @@ handleChainUpdate (WithMetadata{wmdData = ui@UpdateInstruction{..}, ..}, maybeVe
 --
 -- Unlike the other chain updates there is no support for queuing the update and the effective time
 -- is required to be zero.
-handleCreatePLT :: (SchedulerMonad m, PVSupportsPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
-handleCreatePLT updateHeader payload = runExceptT $ do
+handleCreatePLTHaskellManaged :: (SchedulerMonad m, PVSupportsHaskellManagedPLT (MPV m)) => UpdateHeader -> CreatePLT -> m (Either FailureKind ValidResult)
+handleCreatePLTHaskellManaged updateHeader payload = runExceptT $ do
     unless (updateEffectiveTime updateHeader == 0) $ throwError InvalidUpdateTime
     let tokenId = payload ^. cpltTokenId
     maybeExistingToken <- lift $ getTokenIndex tokenId
