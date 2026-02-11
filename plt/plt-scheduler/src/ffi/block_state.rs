@@ -74,10 +74,10 @@ extern "C" fn ffi_load_plt_block_state(
     mut load_callback: LoadCallback,
     blob_ref: blob_store::Reference,
 ) -> *mut PltBlockStateSavepoint {
-    // todo implement error handling for unrecoverable errors (instead of unwrap) in https://linear.app/concordium/issue/PSR-39/decide-and-implement-strategy-for-handling-panics-in-the-rust-code
-    let block_state =
-        blob_store::Loadable::load_from_location(&mut load_callback, blob_ref).unwrap();
-    Box::into_raw(Box::new(block_state))
+    match blob_store::Loadable::load_from_location(&mut load_callback, blob_ref) {
+        Ok(block_state) => Box::into_raw(Box::new(block_state)),
+        Err(_) => std::ptr::null_mut(),
+    }
 }
 
 /// Store a PLT block state in the blob store.
