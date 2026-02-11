@@ -1,7 +1,9 @@
 {-# LANGUAGE TypeApplications #-}
 
--- | Bindings for the Rust PLT block state implementation to call back.
-module Concordium.PLTScheduler.PLTBlockStateCallbacks (
+-- | Bindings for calling back from the Rust PLT Scheduler to the Haskell mainained part of the block state.
+--
+-- Each foreign imported function must match the signature of functions found on the Rust side.
+module Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.BlockStateCallbacks (
     ReadTokenAccountBalance,
     ReadTokenAccountBalanceCallbackPtr,
     wrapReadTokenAccountBalance,
@@ -30,7 +32,7 @@ import qualified Foreign as FFI
 import qualified Concordium.GlobalState.Persistent.Account.ProtocolLevelTokens as AccountTokens
 import qualified Concordium.GlobalState.Persistent.BlockState.ProtocolLevelTokens as Tokens
 import qualified Concordium.ID.Types as Types
-import qualified Concordium.PLTScheduler.PLTMemory as Memory
+import qualified Concordium.Scheduler.ProtocolLevelTokens.RustPLTScheduler.Memory as Memory
 import qualified Concordium.Types as Types
 import qualified Concordium.Types.Tokens as Tokens
 import qualified Concordium.Utils.Serialization as CS
