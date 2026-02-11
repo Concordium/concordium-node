@@ -384,7 +384,10 @@ pub struct Connection {
     pub pending_messages: MessageQueues,
     /// The wire protocol version for communicating on the connection.
     pub wire_version: WireProtocolVersion,
-    /// Pending catch-up message semaphore.
+    /// Semaphore for pending catch-up messages.
+    /// When this semaphore reaches 0, any new catch-up requests from this peer
+    /// will no longer be added to the node's background queue but instead ignored.
+    /// This prevents a single peer from disproportionately filling up the background queue.
     pub pending_semaphore: Arc<AtomicU64>,
 }
 
@@ -435,7 +438,6 @@ impl Connection {
             token,
             Interest::READABLE | Interest::WRITABLE,
         )?;
-
 
         Ok(Self {
             handler: Arc::clone(handler),

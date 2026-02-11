@@ -1,5 +1,5 @@
 //! Consensus layer handling.
-use anyhow::{Context, anyhow, bail};
+use anyhow::{bail, Context};
 use crossbeam_channel::TrySendError;
 
 use crate::{
@@ -8,7 +8,9 @@ use crate::{
     connection::ConnChange,
     consensus_ffi::{
         catch_up::{PeerList, PeerStatus},
-        consensus::{BackgroundMessage, CALLBACK_QUEUE, ConsensusContainer, ConsensusRuntimeParameters},
+        consensus::{
+            BackgroundMessage, ConsensusContainer, ConsensusRuntimeParameters, CALLBACK_QUEUE,
+        },
         ffi::{self, ExecuteBlockCallback, StartConsensusConfig},
         helpers::{
             ConsensusFfiResponse,
@@ -18,7 +20,8 @@ use crate::{
         messaging::{ConsensusMessage, DistributionMode, MessageType},
     },
     p2p::{
-        P2PNode, connectivity::{send_broadcast_message, send_direct_message}
+        connectivity::{send_broadcast_message, send_direct_message},
+        P2PNode,
     },
     read_or_die, write_or_die,
 };
@@ -29,7 +32,10 @@ use std::{
     convert::TryFrom,
     io::{Cursor, Read},
     path::Path,
-    sync::{Arc, atomic::{AtomicU64, Ordering}},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
 };
 
 /// Initializes the consensus layer with the given setup.
@@ -156,13 +162,20 @@ pub fn handle_pkt_out(
             }
         }
         PacketType::CatchUpStatus => {
-            pending_semaphore.fetch_update(Ordering::SeqCst, Ordering::Relaxed, |count| {
-                if count == 0 {
-                    None
-                } else {
-                    Some(count - 1)
-                }
-            }).map_err(|_| anyhow!("Exceeded maximum number of pending catch-up messages"))?;
+            if pending_semaphore
+                .fetch_update(Ordering::SeqCst, Ordering::Relaxed, |count| {
+                    if count == 0 {
+                        None
+                    } else {
+                        Some(count - 1)
+                    }
+                })
+                .is_err()
+            {
+                debug!("Dropping catch-up request from peer `{}` as it exceeded its `pending_semaphore` value", peer_id);
+                return Ok(());
+            }
+
             let request = BackgroundMessage::new(request, Arc::clone(pending_semaphore));
             // Handle catch-up status as a background message, since it
             // does not require the consensus lock.
